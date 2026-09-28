@@ -12,12 +12,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc;
 
-use celesta_composition::{EvaluatedTransform, Layer, LayerContent, Point, ResolvedAsset, Scene};
+use celesta_composition::{
+    EvaluatedTransform, Layer, LayerContent, Paint, Point, ResolvedAsset, Scene, Stroke,
+};
 use celesta_media::{MediaError, VideoFrameDecoder};
 use celesta_remote::{RemoteAssetError, resolve_asset_path};
-use celesta_renderer::{RenderError, TextRasterizer, rasterize_rect};
+use celesta_renderer::{RectPaint, RenderError, TextRasterizer, resolve_rect_paint};
 use image::ImageReader;
-use wgpu::util::DeviceExt;
 
 #[cfg(target_os = "macos")]
 mod native_preview;
@@ -207,8 +208,13 @@ pub struct GpuRenderer {
     shader: wgpu::ShaderModule,
     pipeline_layout: wgpu::PipelineLayout,
     pipelines: HashMap<wgpu::TextureFormat, wgpu::RenderPipeline>,
-    bind_group_layout: wgpu::BindGroupLayout,
+    texture_bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    /// Every layer's `LayerInstance` for the frame being prepared, reused
+    /// (and grown when a frame needs more) across frames.
+    instances: wgpu::Buffer,
+    /// Bound for draws that shade their content (rects) instead of sampling.
+    placeholder_texture: LayerTexture,
     asset_root: PathBuf,
     images: HashMap<String, DecodedImage>,
     video_decoder: Option<Box<dyn VideoFrameDecoder>>,
@@ -227,8 +233,8 @@ pub struct GpuRenderer {
     /// Created by the first switch to [`ReadbackFormat::Yuv420p`].
     yuv_converter: Option<YuvConverter>,
     /// GPU textures for layer content that is identical from one frame to
-    /// the next (images, PSD composites, text, and rects), keyed by what
-    /// produced them. A cache hit skips re-rasterizing the text/rect on the
+    /// the next (images, PSD composites, and text), keyed by what
+    /// produced them. A cache hit skips re-rasterizing the text on the
     /// CPU and re-uploading the pixels, which otherwise dominates the cost of
     /// a mostly static frame. Entries a frame does not use are dropped at
     /// the end of that frame's `prepare_draws`.
@@ -288,40 +294,31 @@ impl GpuRenderer {
             .request_device(&descriptor)
             .await
             .map_err(GpuRenderError::RequestDevice)?;
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Celesta layer bind group layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Celesta layer texture bind group layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+                ],
+            });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Celesta layer pipeline layout"),
-            bind_group_layouts: &[Some(&bind_group_layout)],
+            bind_group_layouts: &[Some(&texture_bind_group_layout)],
             immediate_size: 0,
         });
         let shader = device.create_shader_module(wgpu::include_wgsl!("layer.wgsl"));
@@ -341,6 +338,14 @@ impl GpuRenderer {
             min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
+        let instances = instance_buffer(&device, 1024 * LAYER_INSTANCE_SIZE);
+        let placeholder_texture = upload_texture(
+            &device,
+            &queue,
+            &texture_bind_group_layout,
+            &sampler,
+            &DecodedImage::new(1, 1, vec![0; BYTES_PER_PIXEL as usize])?,
+        );
         #[cfg(target_os = "macos")]
         let native_preview = native_preview::NativePreviewBridge::new(&device).ok();
         Ok(Self {
@@ -352,8 +357,10 @@ impl GpuRenderer {
             shader,
             pipeline_layout,
             pipelines,
-            bind_group_layout,
+            texture_bind_group_layout,
             sampler,
+            instances,
+            placeholder_texture,
             asset_root: PathBuf::from("."),
             images: HashMap::new(),
             video_decoder: None,
@@ -824,7 +831,7 @@ impl GpuRenderer {
         self.render(scene).map(PreviewFrame::Cpu)
     }
 
-    fn prepare_draws(&mut self, scene: &Scene) -> Result<Vec<GpuDraw>, GpuRenderError> {
+    fn prepare_draws(&mut self, scene: &Scene) -> Result<PreparedDraws, GpuRenderError> {
         if scene.width == 0 || scene.height == 0 {
             return Err(GpuRenderError::InvalidSurfaceSize {
                 width: scene.width,
@@ -852,10 +859,47 @@ impl GpuRenderer {
         self.textures
             .retain(|_, cached| cached.last_used == generation);
         prepared?;
-        layers
-            .iter()
-            .map(|layer| self.create_draw(layer, scene.width, scene.height))
-            .collect()
+
+        // One buffer write for every layer, and one instanced draw for each
+        // run of layers that sample the same texture, rather than a buffer,
+        // a bind group, and a draw per layer: a dense scene has thousands of
+        // layers, and consecutive rects all share the placeholder texture.
+        let size = layers.len() as u64 * LAYER_INSTANCE_SIZE;
+        if size > self.device.limits().max_buffer_size || u32::try_from(layers.len()).is_err() {
+            return Err(GpuRenderError::TooManyLayers(layers.len()));
+        }
+        let mut instances = Vec::with_capacity(size as usize);
+        let mut draws: Vec<GpuDraw> = Vec::new();
+        for (index, layer) in layers.into_iter().enumerate() {
+            layer.write_instance(scene.width, scene.height, &mut instances);
+            let texture = match layer.content {
+                PreparedContent::Texture(texture) => texture,
+                PreparedContent::Rect(_) => self.placeholder_texture.clone(),
+            };
+            let index = index as u32;
+            match draws.last_mut() {
+                Some(draw) if draw.texture.bind_group == texture.bind_group => {
+                    draw.instances.end = index + 1;
+                }
+                _ => draws.push(GpuDraw {
+                    texture,
+                    instances: index..index + 1,
+                }),
+            }
+        }
+        if size > self.instances.size() {
+            // In-flight frames keep the old buffer alive until they finish.
+            self.instances = instance_buffer(&self.device, size.next_power_of_two());
+        }
+        if !instances.is_empty() {
+            // Safe while earlier frames that read this buffer are still in
+            // flight: queued writes land after previously submitted work.
+            self.queue.write_buffer(&self.instances, 0, &instances);
+        }
+        Ok(PreparedDraws {
+            instances: self.instances.clone(),
+            draws,
+        })
     }
 
     fn encode_draws(
@@ -863,7 +907,7 @@ impl GpuRenderer {
         encoder: &mut wgpu::CommandEncoder,
         scene: &Scene,
         target: GpuRenderTarget<'_>,
-        draws: &[GpuDraw],
+        draws: &PreparedDraws,
     ) -> Result<(), GpuRenderError> {
         let viewport =
             PreviewViewport::fit(scene.width, scene.height, target.width, target.height)?;
@@ -894,9 +938,10 @@ impl GpuRenderer {
             1.0,
         );
         pass.set_pipeline(pipeline);
-        for draw in draws {
-            pass.set_bind_group(0, &draw.bind_group, &[]);
-            pass.draw(0..6, 0..1);
+        pass.set_vertex_buffer(0, draws.instances.slice(..));
+        for draw in &draws.draws {
+            pass.set_bind_group(0, &draw.texture.bind_group, &[]);
+            pass.draw(0..6, draw.instances.clone());
         }
         Ok(())
     }
@@ -982,20 +1027,22 @@ impl GpuRenderer {
                 stroke,
                 corner_radius,
             } => {
-                let key =
-                    format!("rect\0{width:?}\0{height:?}\0{corner_radius:?}\0{fill:?}\0{stroke:?}");
-                let texture = self.cached_texture(key, |_| {
-                    let rect = rasterize_rect(
-                        *width,
-                        *height,
-                        *corner_radius,
-                        fill.as_ref(),
-                        stroke.as_ref(),
-                    )
-                    .map_err(GpuRenderError::Text)?;
-                    DecodedImage::new(rect.width(), rect.height(), rect.into_pixels())
-                })?;
-                output.push(PreparedLayer::new(texture, layer.transform.anchor, state));
+                // Shaded on the GPU rather than rasterized into a texture:
+                // animated rects change size every frame, and a texture per
+                // rect per frame dominates the cost of dense geometry.
+                let rect = RectShape::new(
+                    *width,
+                    *height,
+                    *corner_radius,
+                    fill.as_ref(),
+                    stroke.as_ref(),
+                )
+                .map_err(GpuRenderError::Text)?;
+                output.push(PreparedLayer {
+                    content: PreparedContent::Rect(rect),
+                    anchor: layer.transform.anchor,
+                    state,
+                });
             }
             LayerContent::MissingComponent { .. } => {
                 return Err(GpuRenderError::UnsupportedContent {
@@ -1087,85 +1134,76 @@ impl GpuRenderer {
     }
 
     fn upload_texture(&self, image: &DecodedImage) -> LayerTexture {
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Celesta layer texture"),
-            size: wgpu::Extent3d {
-                width: image.width,
-                height: image.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        self.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &image.pixels,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(image.width * BYTES_PER_PIXEL),
-                rows_per_image: Some(image.height),
-            },
-            wgpu::Extent3d {
-                width: image.width,
-                height: image.height,
-                depth_or_array_layers: 1,
-            },
-        );
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        LayerTexture {
-            _texture: texture,
-            view,
+        upload_texture(
+            &self.device,
+            &self.queue,
+            &self.texture_bind_group_layout,
+            &self.sampler,
+            image,
+        )
+    }
+}
+
+fn upload_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    image: &DecodedImage,
+) -> LayerTexture {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Celesta layer texture"),
+        size: wgpu::Extent3d {
             width: image.width,
             height: image.height,
-        }
-    }
-
-    fn create_draw(
-        &self,
-        layer: &PreparedLayer,
-        canvas_width: u32,
-        canvas_height: u32,
-    ) -> Result<GpuDraw, GpuRenderError> {
-        let uniform = layer.uniform(canvas_width, canvas_height);
-        let uniform = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Celesta layer uniform"),
-                contents: &uniform,
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Celesta layer bind group"),
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&layer.texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
-        });
-        Ok(GpuDraw {
-            _texture: layer.texture.clone(),
-            _uniform: uniform,
-            bind_group,
-        })
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &image.pixels,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(image.width * BYTES_PER_PIXEL),
+            rows_per_image: Some(image.height),
+        },
+        wgpu::Extent3d {
+            width: image.width,
+            height: image.height,
+            depth_or_array_layers: 1,
+        },
+    );
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Celesta layer texture bind group"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    });
+    LayerTexture {
+        _texture: texture,
+        bind_group,
+        width: image.width,
+        height: image.height,
     }
 }
 
@@ -1201,7 +1239,11 @@ fn create_pipeline(
             module: shader,
             entry_point: Some("vs_main"),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
-            buffers: &[],
+            buffers: &[Some(wgpu::VertexBufferLayout {
+                array_stride: LAYER_INSTANCE_SIZE,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &LAYER_INSTANCE_ATTRIBUTES,
+            })],
         },
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
@@ -1264,7 +1306,8 @@ impl DecodedImage {
 #[derive(Clone)]
 struct LayerTexture {
     _texture: wgpu::Texture,
-    view: wgpu::TextureView,
+    /// The texture and the layer sampler, bound as group 1.
+    bind_group: wgpu::BindGroup,
     width: u32,
     height: u32,
 }
@@ -1274,8 +1317,84 @@ struct CachedTexture {
     last_used: u64,
 }
 
+/// Bytes of `LayerInstance` in `layer.wgsl`: seven `vec4<f32>`s.
+const LAYER_INSTANCE_SIZE: u64 = 7 * 4 * 4;
+
+const LAYER_INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+    0 => Float32x4,
+    1 => Float32x4,
+    2 => Float32x4,
+    3 => Float32x4,
+    4 => Float32x4,
+    5 => Float32x4,
+    6 => Float32x4,
+];
+
+fn instance_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Celesta layer instances"),
+        size,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
+/// A rect drawn by `layer.wgsl`'s `rect_color`, which reproduces
+/// `celesta_renderer::rasterize_rect` texel for texel.
+struct RectShape {
+    /// The size of the texture `rasterize_rect` would produce: the rect's
+    /// size rounded up to whole pixels, at least 1x1.
+    pixel_width: u32,
+    pixel_height: u32,
+    half_width: f32,
+    half_height: f32,
+    radius: f32,
+    /// 0 without a stroke.
+    stroke_width: f32,
+    fill: [f32; 4],
+    stroke: [f32; 4],
+}
+
+impl RectShape {
+    fn new(
+        width: f64,
+        height: f64,
+        corner_radius: f64,
+        fill: Option<&Paint>,
+        stroke: Option<&Stroke>,
+    ) -> Result<Self, RenderError> {
+        let RectPaint { fill, stroke } = resolve_rect_paint(fill, stroke)?;
+        let color = |color: Option<celesta_renderer::Color>| {
+            color.map_or([0.0; 4], |color| {
+                [color.red, color.green, color.blue, color.alpha].map(f32::from)
+            })
+        };
+        let (stroke, stroke_width) = match stroke {
+            Some((stroke, width)) if width > 0.0 => (Some(stroke), width),
+            _ => (None, 0.0),
+        };
+        let half_width = width / 2.0;
+        let half_height = height / 2.0;
+        Ok(Self {
+            pixel_width: width.max(0.0).ceil().max(1.0) as u32,
+            pixel_height: height.max(0.0).ceil().max(1.0) as u32,
+            half_width: half_width as f32,
+            half_height: half_height as f32,
+            radius: corner_radius.max(0.0).min(half_width.min(half_height)) as f32,
+            stroke_width: stroke_width as f32,
+            fill: color(fill),
+            stroke: color(stroke),
+        })
+    }
+}
+
+enum PreparedContent {
+    Texture(LayerTexture),
+    Rect(RectShape),
+}
+
 struct PreparedLayer {
-    texture: LayerTexture,
+    content: PreparedContent,
     anchor: Point,
     state: LayerState,
 }
@@ -1283,13 +1402,31 @@ struct PreparedLayer {
 impl PreparedLayer {
     const fn new(texture: LayerTexture, anchor: Point, state: LayerState) -> Self {
         Self {
-            texture,
+            content: PreparedContent::Texture(texture),
             anchor,
             state,
         }
     }
 
-    fn uniform(&self, canvas_width: u32, canvas_height: u32) -> Vec<u8> {
+    /// Appends this layer's `LayerInstance` (`LAYER_INSTANCE_SIZE` bytes).
+    fn write_instance(&self, canvas_width: u32, canvas_height: u32, output: &mut Vec<u8>) {
+        let (width, height, kind) = match &self.content {
+            PreparedContent::Texture(texture) => (texture.width, texture.height, 0.0),
+            PreparedContent::Rect(rect) => (rect.pixel_width, rect.pixel_height, 1.0),
+        };
+        let (rect, fill, stroke) = match &self.content {
+            PreparedContent::Texture(_) => ([0.0; 4], [0.0; 4], [0.0; 4]),
+            PreparedContent::Rect(rect) => (
+                [
+                    rect.half_width,
+                    rect.half_height,
+                    rect.radius,
+                    rect.stroke_width,
+                ],
+                rect.fill,
+                rect.stroke,
+            ),
+        };
         let values = [
             self.state.transform.a,
             self.state.transform.b,
@@ -1297,25 +1434,35 @@ impl PreparedLayer {
             self.state.transform.d,
             self.state.transform.tx,
             self.state.transform.ty,
-            self.texture.width as f32,
-            self.texture.height as f32,
+            width as f32,
+            height as f32,
             self.anchor.x as f32,
             self.anchor.y as f32,
             self.state.opacity,
-            0.0,
+            kind,
             canvas_width as f32,
             canvas_height as f32,
             0.0,
             0.0,
-        ];
-        values.into_iter().flat_map(f32::to_ne_bytes).collect()
+        ]
+        .into_iter()
+        .chain(rect)
+        .chain(fill)
+        .chain(stroke);
+        output.extend(values.flat_map(f32::to_ne_bytes));
     }
 }
 
+/// A frame's draws, ready to encode: the buffer holding every layer's
+/// instance, and the runs of instances that sample the same texture.
+struct PreparedDraws {
+    instances: wgpu::Buffer,
+    draws: Vec<GpuDraw>,
+}
+
 struct GpuDraw {
-    _texture: LayerTexture,
-    _uniform: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
+    texture: LayerTexture,
+    instances: std::ops::Range<u32>,
 }
 
 #[derive(Clone, Copy)]
@@ -1812,6 +1959,8 @@ pub enum GpuRenderError {
         width: u32,
         height: u32,
     },
+    /// A frame has more layers than one GPU buffer can hold.
+    TooManyLayers(usize),
 }
 
 impl fmt::Display for GpuRenderError {
@@ -1895,6 +2044,9 @@ impl fmt::Display for GpuRenderError {
                 formatter,
                 "yuv420p readback requires even dimensions, got {width}x{height}"
             ),
+            Self::TooManyLayers(layers) => {
+                write!(formatter, "frame has too many layers for the GPU: {layers}")
+            }
         }
     }
 }
@@ -1914,6 +2066,7 @@ impl Error for GpuRenderError {
             Self::Media(error) => Some(error),
             Self::Text(error) => Some(error),
             Self::MapCallbackDropped
+            | Self::TooManyLayers(_)
             | Self::InvalidImageData { .. }
             | Self::MissingVideoDecoder(_)
             | Self::UnsupportedContent { .. }
@@ -1994,29 +2147,37 @@ mod tests {
         assert!(pixels[12..].iter().all(|byte| *byte == 2));
     }
 
-    #[test]
-    fn reuses_unchanged_layer_textures_across_frames_and_evicts_unused_ones() {
-        let Some(mut renderer) = renderer(GpuRenderOptions {
-            background: Color::rgba(0, 0, 0, 255),
-        }) else {
-            return;
-        };
-        let rect = |id: &str, x: f64, color: &str| Layer {
+    /// A 2x2 image layer whose pixels are seeded straight into the renderer's
+    /// decoded-image map, so no file is read.
+    fn seeded_image(renderer: &mut GpuRenderer, id: &str, x: f64, rgba: [u8; 4]) -> Layer {
+        renderer.images.insert(
+            id.to_owned(),
+            DecodedImage::new(2, 2, rgba.repeat(4)).unwrap(),
+        );
+        Layer {
             id: id.to_owned(),
             transform: EvaluatedTransform {
                 position: Point { x, y: 1.0 },
                 ..EvaluatedTransform::default()
             },
             opacity: 1.0,
-            content: LayerContent::Rect {
-                width: 2.0,
-                height: 2.0,
-                fill: Some(Paint::Solid {
-                    color: color.to_owned(),
-                }),
-                stroke: None,
-                corner_radius: 0.0,
+            content: LayerContent::Image {
+                asset: ResolvedAsset {
+                    id: id.to_owned(),
+                    location: AssetLocation::File {
+                        path: format!("{id}.png"),
+                    },
+                },
             },
+        }
+    }
+
+    #[test]
+    fn reuses_unchanged_layer_textures_across_frames_and_evicts_unused_ones() {
+        let Some(mut renderer) = renderer(GpuRenderOptions {
+            background: Color::rgba(0, 0, 0, 255),
+        }) else {
+            return;
         };
         let scene = |layers: Vec<Layer>| {
             let mut scene = empty_scene(4, 2);
@@ -2026,24 +2187,25 @@ mod tests {
         let pixel = |frame: &GpuFrame, x: usize| frame.pixels()[x * 4..x * 4 + 4].to_vec();
 
         let first = scene(vec![
-            rect("red", 1.0, "#ff0000"),
-            rect("blue", 3.0, "#0000ff"),
+            seeded_image(&mut renderer, "red", 1.0, [255, 0, 0, 255]),
+            seeded_image(&mut renderer, "blue", 3.0, [0, 0, 255, 255]),
         ]);
         let frame = renderer.render(&first).unwrap();
         assert_eq!(pixel(&frame, 0), [255, 0, 0, 255]);
         assert_eq!(pixel(&frame, 3), [0, 0, 255, 255]);
         assert_eq!(renderer.textures.len(), 2);
 
-        // The same rect geometry with another fill is a different texture;
-        // the blue one this frame no longer uses is dropped.
+        // Another image in the same place is a different texture; the blue
+        // one this frame no longer uses is dropped.
         let second = scene(vec![
-            rect("red", 1.0, "#ff0000"),
-            rect("blue", 3.0, "#00ff00"),
+            seeded_image(&mut renderer, "red", 1.0, [255, 0, 0, 255]),
+            seeded_image(&mut renderer, "green", 3.0, [0, 255, 0, 255]),
         ]);
         let frame = renderer.render(&second).unwrap();
         assert_eq!(pixel(&frame, 0), [255, 0, 0, 255]);
         assert_eq!(pixel(&frame, 3), [0, 255, 0, 255]);
         assert_eq!(renderer.textures.len(), 2);
+        assert!(!renderer.textures.contains_key("image\0blue"));
 
         // Cached textures render the same frame again, including through
         // the pipelined readback path.
@@ -2052,9 +2214,167 @@ mod tests {
         assert!(renderer.submit(&second).unwrap().is_none());
         assert_eq!(renderer.drain().unwrap(), vec![frame]);
 
-        let empty = scene(Vec::new());
-        renderer.render(&empty).unwrap();
+        // Rects are shaded on the GPU and never occupy a texture.
+        let rects = scene(vec![
+            solid_rect("red", 1.0, 2.0, 2.0, "#ff0000"),
+            solid_rect("blue", 3.0, 2.0, 2.0, "#0000ff"),
+        ]);
+        let frame = renderer.render(&rects).unwrap();
+        assert_eq!(pixel(&frame, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel(&frame, 3), [0, 0, 255, 255]);
         assert!(renderer.textures.is_empty());
+    }
+
+    #[test]
+    fn batches_consecutive_rects_into_one_draw_in_painter_order() {
+        let Some(mut renderer) = renderer(GpuRenderOptions {
+            background: Color::rgba(0, 0, 0, 255),
+        }) else {
+            return;
+        };
+        let mut scene = empty_scene(4, 2);
+        scene.layers = vec![
+            solid_rect("red", 2.0, 4.0, 2.0, "#ff0000"),
+            solid_rect("green", 2.5, 3.0, 2.0, "#00ff00"),
+            // Over both rects' right half, then covered again on the right.
+            seeded_image(&mut renderer, "white", 2.0, [255, 255, 255, 255]),
+            solid_rect("blue", 3.5, 1.0, 2.0, "#0000ff"),
+            solid_rect("half", 3.5, 1.0, 2.0, "#ff000080"),
+        ];
+
+        let draws = renderer.prepare_draws(&scene).unwrap();
+        let runs: Vec<_> = draws
+            .draws
+            .iter()
+            .map(|draw| draw.instances.clone())
+            .collect();
+        assert_eq!(runs, [0..2, 2..3, 3..5]);
+
+        let frame = renderer.render(&scene).unwrap();
+        let pixel = |x: usize| frame.pixels()[x * 4..x * 4 + 4].to_vec();
+        assert_eq!(pixel(0), [255, 0, 0, 255]);
+        assert_eq!(pixel(1), [255, 255, 255, 255]);
+        assert_eq!(pixel(2), [255, 255, 255, 255]);
+        assert_eq!(pixel(3), [128, 0, 127, 255]);
+    }
+
+    #[test]
+    fn shades_rects_like_their_rasterized_texture() {
+        let Some(mut renderer) = renderer(GpuRenderOptions {
+            background: Color::rgba(10, 20, 30, 255),
+        }) else {
+            return;
+        };
+        let stroke = |color: &str, width: f64| Stroke {
+            paint: Paint::Solid {
+                color: color.to_owned(),
+            },
+            width,
+        };
+        let fill = |color: &str| {
+            Some(Paint::Solid {
+                color: color.to_owned(),
+            })
+        };
+        // (width, height, corner radius, fill, stroke, rotation, scale, opacity)
+        let cases = [
+            (12.0, 7.0, 0.0, fill("#ff8000"), None, 0.0, 1.0, 1.0),
+            (10.3, 5.6, 0.0, fill("#ff800080"), None, 0.0, 1.0, 0.6),
+            (31.7, 1.8, 0.0, fill("#EF402B"), None, 23.5, 1.0, 0.8),
+            (40.0, 24.0, 9.0, fill("#2060ff"), None, -61.0, 1.0, 1.0),
+            (
+                36.4,
+                20.2,
+                6.5,
+                fill("#ffffff"),
+                Some(stroke("#ff0000c0", 2.5)),
+                12.0,
+                1.7,
+                0.9,
+            ),
+            (
+                28.0,
+                18.0,
+                4.0,
+                None,
+                Some(stroke("#00ff00", 1.5)),
+                0.0,
+                1.0,
+                1.0,
+            ),
+            (0.4, 9.0, 0.0, fill("#ffff00"), None, 45.0, 3.0, 1.0),
+        ];
+        for (index, (width, height, corner_radius, fill, stroke, rotation, scale, opacity)) in
+            cases.into_iter().enumerate()
+        {
+            let transform = EvaluatedTransform {
+                position: Point { x: 32.3, y: 29.6 },
+                rotation,
+                scale: Point { x: scale, y: scale },
+                ..EvaluatedTransform::default()
+            };
+            let rect = Layer {
+                id: "rect".to_owned(),
+                transform,
+                opacity,
+                content: LayerContent::Rect {
+                    width,
+                    height,
+                    fill: fill.clone(),
+                    stroke: stroke.clone(),
+                    corner_radius,
+                },
+            };
+            let rasterized = celesta_renderer::rasterize_rect(
+                width,
+                height,
+                corner_radius,
+                fill.as_ref(),
+                stroke.as_ref(),
+            )
+            .unwrap();
+            let id = format!("rasterized-{index}");
+            renderer.images.insert(
+                id.clone(),
+                DecodedImage::new(
+                    rasterized.width(),
+                    rasterized.height(),
+                    rasterized.into_pixels(),
+                )
+                .unwrap(),
+            );
+            let image = Layer {
+                id: id.clone(),
+                transform,
+                opacity,
+                content: LayerContent::Image {
+                    asset: ResolvedAsset {
+                        id: id.clone(),
+                        location: AssetLocation::File { path: id },
+                    },
+                },
+            };
+
+            let mut scene = empty_scene(64, 60);
+            scene.layers = vec![rect];
+            let shaded = renderer.render(&scene).unwrap();
+            scene.layers = vec![image];
+            let sampled = renderer.render(&scene).unwrap();
+            // The shader works in f32 and the rasterizer in f64, so a
+            // stroke's blend of the two colors can land on a rounding tie in
+            // one and just miss it in the other: one code value at most.
+            let max_difference = shaded
+                .pixels()
+                .iter()
+                .zip(sampled.pixels())
+                .map(|(shaded, sampled)| shaded.abs_diff(*sampled))
+                .max()
+                .unwrap();
+            assert!(
+                max_difference <= 1,
+                "case {index}: channels differ by up to {max_difference}"
+            );
+        }
     }
 
     fn solid_rect(id: &str, x: f64, width: f64, height: f64, color: &str) -> Layer {
