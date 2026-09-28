@@ -85,8 +85,13 @@ as the first child.
 | `style` | A `TextStyle`, see below. |
 | `maxWidth` | Wrap at word boundaries within this width; `style.align` positions each line inside it. |
 
-Single-line text is anchored by its visible glyph bounds, so
-`anchorY={0.5}` centers the letters themselves.
+Single-line text is anchored vertically by its visible glyph bounds, so
+`anchorY={0.5}` centers the letters themselves. Horizontally it keeps its
+advance width, so leading and trailing spaces take up room.
+
+`anchorY="baseline"` anchors the text on its first line's baseline instead.
+Use it to line up separate `Text` layers (colored runs, per-character
+animation, mixed font sizes) at one `y`.
 
 ### `<Group>`
 

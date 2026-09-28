@@ -167,7 +167,8 @@ export const sections: DocSection[] = [
       <DocCode label="Load a Google Fonts family" language="tsx" code={"<Assets>\n  <Font src=\"https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700\" />\n</Assets>\n<Text style={{ fontFamily: 'M PLUS Rounded 1c', fontWeight: 700, fontSize: 96 }}>\n  こんにちは\n</Text>"} />
       <ul>
         <li><code>maxWidth</code> wraps text at word boundaries, and <code>align</code> positions each line within that width. Use <code>\n</code> in a string to break a line yourself.</li>
-        <li>Single-line text is anchored by its visible glyphs, so <code>anchorY={'{0.5}'}</code> centers the letters themselves rather than an invisible line box.</li>
+        <li>Single-line text is anchored vertically by its visible glyphs, so <code>anchorY={'{0.5}'}</code> centers the letters themselves rather than an invisible line box. Its width is the advance width, so leading and trailing spaces still take up room.</li>
+        <li><code>anchorY="baseline"</code> anchors text on its first line’s baseline instead. Text layers with the same <code>y</code> then share a baseline, whatever their letters or font sizes.</li>
       </ul>
       <h3>Group and arrange</h3><p><code>Group</code> has no size of its own. Its children are placed relative to its <code>x</code>/<code>y</code>, and its rotation, scale, and opacity apply to all of them. The layout helpers build on it:</p>
       <Api caption="Layout helpers" rows={[

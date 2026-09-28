@@ -6,8 +6,9 @@
 // - `anchorX`/`anchorY` pick the pivot as a fraction of the layer's size;
 // - opacity multiplies down the tree and applies to each layer separately;
 // - a rect's stroke is drawn inside its edge;
-// - single-line text is trimmed to its visible glyphs before anchoring
-//   (horizontally only without `maxWidth`).
+// - single-line text is trimmed vertically to its visible glyphs before
+//   anchoring but keeps its advance width, spaces included;
+// - `anchorY="baseline"` on text pivots on the first line's baseline.
 import { Fragment, isValidElement, type ReactElement, type ReactNode } from 'react';
 
 export { Easings, interpolate } from '../../../react/src/animation';
@@ -58,7 +59,8 @@ export interface RectProps extends CommonProps {
   cornerRadius?: number;
 }
 
-export interface TextProps extends CommonProps {
+export interface TextProps extends Omit<CommonProps, 'anchorY'> {
+  anchorY?: number | 'baseline';
   children: ReactNode;
   style?: TextStyle;
   maxWidth?: number;
@@ -200,27 +202,25 @@ function drawText(ctx: CanvasRenderingContext2D, props: TextProps, parent: Affin
     return { text: lines[i], x, baseline, m };
   });
 
-  let left = 0, right = boxWidth, top = 0, bottom = lines.length * lineHeight;
+  let top = 0, bottom = lines.length * lineHeight;
   if (!text.includes('\n')) {
     top = Math.min(...placed.map(l => l.baseline - l.m.actualBoundingBoxAscent));
     bottom = Math.max(...placed.map(l => l.baseline + l.m.actualBoundingBoxDescent));
-    if (props.maxWidth === undefined) {
-      left = Math.min(...placed.map(l => l.x - l.m.actualBoundingBoxLeft));
-      right = Math.max(...placed.map(l => l.x + l.m.actualBoundingBoxRight));
-    }
   }
 
-  place(ctx, parent, props, right - left, bottom - top);
+  const height = bottom - top;
+  const anchorY = props.anchorY === 'baseline' ? (placed[0].baseline - top) / height : props.anchorY;
+  place(ctx, parent, { ...props, anchorY }, boxWidth, height);
   ctx.globalAlpha = opacity;
   for (const line of placed) {
     if (style.stroke && style.stroke.width > 0) {
       ctx.lineJoin = 'round';
       ctx.lineWidth = style.stroke.width * 2;
       ctx.strokeStyle = style.stroke.paint.color;
-      ctx.strokeText(line.text, line.x - left, line.baseline - top);
+      ctx.strokeText(line.text, line.x, line.baseline - top);
     }
     ctx.fillStyle = style.fill?.color ?? '#ffffff';
-    ctx.fillText(line.text, line.x - left, line.baseline - top);
+    ctx.fillText(line.text, line.x, line.baseline - top);
   }
 }
 

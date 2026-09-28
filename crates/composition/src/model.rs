@@ -69,6 +69,11 @@ pub enum LayerContent {
         style: TextStyle,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_width: Option<f64>,
+        /// Anchors the layer vertically on its first line's baseline instead
+        /// of `transform.anchor.y`, so separate `Text` layers placed at the
+        /// same `y` share a baseline whatever their glyphs or sizes.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        baseline_anchor: bool,
     },
     Group {
         layers: Vec<Layer>,

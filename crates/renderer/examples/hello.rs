@@ -30,6 +30,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     ..TextStyle::default()
                 },
                 max_width: None,
+                baseline_anchor: false,
             },
         }],
     };

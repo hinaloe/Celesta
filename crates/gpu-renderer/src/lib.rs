@@ -1007,6 +1007,7 @@ impl GpuRenderer {
                 text,
                 style,
                 max_width,
+                baseline_anchor,
             } => {
                 // `{:?}` spells out every style field and prints floats
                 // exactly, so equal keys always mean equal rasterizer input.
@@ -1016,9 +1017,17 @@ impl GpuRenderer {
                         .text_rasterizer
                         .rasterize(text, style, *max_width, 1.0)
                         .map_err(GpuRenderError::Text)?;
-                    DecodedImage::new(text.width(), text.height(), text.into_pixels())
+                    let baseline = text.baseline_anchor();
+                    let mut image =
+                        DecodedImage::new(text.width(), text.height(), text.into_pixels())?;
+                    image.baseline_anchor = baseline;
+                    Ok(image)
                 })?;
-                output.push(PreparedLayer::new(texture, layer.transform.anchor, state));
+                let mut anchor = layer.transform.anchor;
+                if *baseline_anchor {
+                    anchor.y = texture.baseline_anchor;
+                }
+                output.push(PreparedLayer::new(texture, anchor, state));
             }
             LayerContent::Rect {
                 width,
@@ -1204,6 +1213,7 @@ fn upload_texture(
         bind_group,
         width: image.width,
         height: image.height,
+        baseline_anchor: image.baseline_anchor,
     }
 }
 
@@ -1272,6 +1282,8 @@ struct DecodedImage {
     /// memcpy for every 1080p video frame the preview decodes — several
     /// milliseconds per frame for nothing, since the buffer is already owned.
     pixels: Arc<Vec<u8>>,
+    /// Normalized anchor `y` of the first text baseline; 0 for non-text images.
+    baseline_anchor: f64,
 }
 
 impl DecodedImage {
@@ -1297,6 +1309,7 @@ impl DecodedImage {
             width,
             height,
             pixels,
+            baseline_anchor: 0.0,
         })
     }
 }
@@ -1310,6 +1323,8 @@ struct LayerTexture {
     bind_group: wgpu::BindGroup,
     width: u32,
     height: u32,
+    /// See `DecodedImage::baseline_anchor`.
+    baseline_anchor: f64,
 }
 
 struct CachedTexture {
@@ -2599,6 +2614,7 @@ mod tests {
                             ..TextStyle::default()
                         },
                         max_width: Some(1000.0),
+                        baseline_anchor: false,
                     },
                 });
                 match renderer.render_preview(&scene).unwrap() {
@@ -2792,6 +2808,7 @@ mod tests {
                     ..TextStyle::default()
                 },
                 max_width: None,
+                baseline_anchor: false,
             },
         });
 
@@ -2834,6 +2851,7 @@ mod tests {
                     ..TextStyle::default()
                 },
                 max_width: None,
+                baseline_anchor: false,
             },
         });
         let frame = renderer.render(&scene).unwrap();
@@ -2853,10 +2871,60 @@ mod tests {
         }
         let center_x = (min_x + max_x) as f32 / 2.0;
         let center_y = (min_y + max_y) as f32 / 2.0;
-        assert!((center_x - 640.0).abs() <= 0.5, "center x was {center_x}");
+        // Horizontally the advance box is centered, so uneven side bearings
+        // leave the ink a few pixels off.
+        assert!((center_x - 640.0).abs() <= 4.0, "center x was {center_x}");
         assert!(
             (center_y - 360.0).abs() <= 0.5,
             "center y was {center_y} ({min_y}..{max_y})"
         );
+    }
+
+    #[test]
+    fn baseline_anchored_text_layers_share_a_baseline() {
+        const BASELINE: u32 = 200;
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        let mut scene = empty_scene(400, 300);
+        for (text, x, font_size) in [("x", 20.0, 32.0), ("H", 110.0, 96.0), ("o", 230.0, 64.0)] {
+            scene.layers.push(Layer {
+                id: text.to_owned(),
+                transform: EvaluatedTransform {
+                    position: Point {
+                        x,
+                        y: f64::from(BASELINE),
+                    },
+                    anchor: Point { x: 0.0, y: 0.5 },
+                    ..EvaluatedTransform::default()
+                },
+                opacity: 1.0,
+                content: LayerContent::Text {
+                    text: text.to_owned(),
+                    style: TextStyle {
+                        font_size: Some(font_size),
+                        ..TextStyle::default()
+                    },
+                    max_width: None,
+                    baseline_anchor: true,
+                },
+            });
+        }
+        let frame = renderer.render(&scene).unwrap();
+        for (name, left, right) in [("x", 20, 100), ("H", 110, 220), ("o", 230, 310)] {
+            let bottom = (0..frame.height())
+                .rev()
+                .find(|&y| {
+                    (left..right).any(|x| {
+                        let offset = ((y * frame.width() + x) * 4) as usize;
+                        frame.pixels()[offset] > 128
+                    })
+                })
+                .unwrap();
+            assert!(
+                bottom.abs_diff(BASELINE - 1) <= 2,
+                "{name} ends on row {bottom}, not above the baseline at {BASELINE}"
+            );
+        }
     }
 }

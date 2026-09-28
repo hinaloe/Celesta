@@ -56,7 +56,14 @@ export interface ImageProps extends CommonProps {
   name?: string;
 }
 
-export interface TextProps extends CommonProps {
+export interface TextProps extends Omit<CommonProps, 'anchorY'> {
+  /**
+   * Vertical pivot as for `CommonProps.anchorY`, measured on the visible
+   * letters of single-line text. `'baseline'` pivots on the first line's
+   * baseline instead, so `Text` layers at the same `y` line up whatever their
+   * glyphs or font sizes.
+   */
+  anchorY?: number | 'baseline';
   children: ReactNode;
   style?: TextStyle;
   maxWidth?: number;
