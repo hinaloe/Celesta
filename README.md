@@ -8,6 +8,13 @@ Celesta is under active development. The instructions below run it from
 source. Existing package names, commands, and the `.celesta.json` project file
 extension still use `celesta` for compatibility.
 
+## Gallery
+
+| [Reel](examples/celesta-reel.tsx) by Claude Opus 5.5 | [After Image](examples/afterimage/film.tsx) by GPT-6.0 Astra |
+| ---- | ---- |
+| https://github.com/user-attachments/assets/df585cd3-26a1-4d35-aaff-e36eea4e7d14 | https://github.com/user-attachments/assets/1d90f1b5-db03-461c-a54d-29142fec32e8 |
+
+
 ## What you can do
 
 - **Describe a timeline:** list local or `http(s)` media and place clips on
