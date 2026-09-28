@@ -52,7 +52,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: packages/react/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       # celesta-react-bridge and celesta-exporter tests spawn the compiled
       # packages/react/dist/cli.js, so build the React package first.

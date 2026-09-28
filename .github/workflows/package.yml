@@ -53,7 +53,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: packages/react/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Cache bundled Node.js runtime
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -119,7 +119,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: packages/react/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       # Without signing options the script produces an ad-hoc signed development DMG.
       - name: Build package
