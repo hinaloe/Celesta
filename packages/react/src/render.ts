@@ -432,6 +432,7 @@ function buildLayer(
       text: extractText(props.children),
       style: (props.style as TextStyle | undefined) ?? {},
       ...(typeof maxWidth === 'number' ? { maxWidth } : {}),
+      ...(props.anchorY === 'baseline' ? { baselineAnchor: true } : {}),
     };
   } else if (node.type === 'rect') {
     const fill = typeof props.fill === 'string' ? ({ type: 'solid', color: props.fill } as Paint) : undefined;

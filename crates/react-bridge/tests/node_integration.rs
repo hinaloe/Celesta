@@ -580,6 +580,7 @@ fn embeds_pre_evaluated_project_layers_into_project_timeline_when_node_is_availa
             text: "from the project".to_owned(),
             style: TextStyle::default(),
             max_width: None,
+            baseline_anchor: false,
         },
     };
 
@@ -724,6 +725,7 @@ fn embeds_per_track_layers_for_use_project_track_when_node_is_available() {
             text: "a title".to_owned(),
             style: TextStyle::default(),
             max_width: None,
+            baseline_anchor: false,
         },
     };
     let overlay_layer = Layer {
@@ -734,6 +736,7 @@ fn embeds_per_track_layers_for_use_project_track_when_node_is_available() {
             text: "an overlay".to_owned(),
             style: TextStyle::default(),
             max_width: None,
+            baseline_anchor: false,
         },
     };
     let mut tracks = BTreeMap::new();

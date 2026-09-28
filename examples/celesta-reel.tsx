@@ -78,7 +78,7 @@ type TProps = {
   weight?: number;
   color?: string;
   ax?: number;
-  ay?: number;
+  ay?: number | 'baseline';
   opacity?: number;
   scale?: number;
   align?: 'left' | 'center' | 'right';
@@ -100,10 +100,9 @@ function T({
 
 type Run = { text: string; color: string; weight?: number };
 
-// Mono text in colored runs, vertically centered on `y`. Each character sits
-// in its own 0.6 em cell, so spaces keep their width and a caret can be placed
-// after any character. Single-line text is cropped to its ink, which would put
-// every glyph on a different baseline; the trailing newline keeps the line box.
+// Mono text in colored runs, vertically centered on `y`, showing its first
+// `visible` characters. Each run starts at its column's 0.6 em cell and sits
+// on a shared baseline, so a caret can be placed after any character.
 function Mono({ runs, x, y, size, visible = Infinity, opacity = 1 }: {
   runs: Run[];
   x: number;
@@ -112,14 +111,18 @@ function Mono({ runs, x, y, size, visible = Infinity, opacity = 1 }: {
   visible?: number;
   opacity?: number;
 }) {
-  const chars = runs.flatMap((run) =>
-    run.text.split('').map((ch) => ({ ch, color: run.color, weight: run.weight ?? 400 })));
+  let column = 0;
   return (
     <Group opacity={opacity}>
-      {chars.slice(0, visible).map(({ ch, color, weight }, i) => ch === ' ' ? null : (
-        <T key={i} x={x + i * size * MONO_ADVANCE} y={y - size * 0.72} size={size} font="mono"
-          weight={weight} color={color} lineHeight={size * 1.2}>{`${ch}\n`}</T>
-      ))}
+      {runs.map(({ text, color, weight = 400 }, i) => {
+        const start = column;
+        column += text.length;
+        const shown = text.slice(0, Math.max(0, visible - start));
+        return shown ? (
+          <T key={i} x={x + start * size * MONO_ADVANCE} y={y + size * 0.24} size={size} font="mono"
+            weight={weight} color={color} ay="baseline">{shown}</T>
+        ) : null;
+      })}
     </Group>
   );
 }

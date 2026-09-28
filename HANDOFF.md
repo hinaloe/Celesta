@@ -166,9 +166,12 @@ Keep these boundaries intact:
 - Native macOS edited-window state synchronized with the document revision.
 - Independently scrollable Assets and Inspector content with fixed panel
   headers; scroll positions persist across editor redraws.
-- Single-line, unconstrained text anchors use visible glyph bounds, keeping
-  centered titles pixel-aligned in both CPU and GPU renderers. Constrained and
-  multiline text retain their layout boxes for alignment and line spacing.
+- Single-line text is cropped vertically to its visible glyphs, so
+  `anchorY` 0.5 centers the letters, but keeps its advance width, so leading
+  and trailing spaces take up room (issue #21). Multiline text retains its
+  layout box. A Text layer with `baselineAnchor` (React `anchorY="baseline"`)
+  is anchored vertically on its first line's baseline, which
+  `RasterizedText::baseline` reports, so separate runs share a baseline.
 - Audio preview evaluates the shared `AudioGraph`, decodes assets through
   FFmpeg to project-rate stereo PCM, mixes timeline/source offsets, animated
   playback rate and volume, mute state, and overlapping clips, then plays the

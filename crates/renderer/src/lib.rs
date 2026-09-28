@@ -123,10 +123,12 @@ impl RgbaFrame {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RasterizedText {
     width: u32,
     height: u32,
+    /// Pixel row of the first line's baseline, from the top edge.
+    baseline: f32,
     pixels: Vec<u8>,
 }
 
@@ -137,6 +139,16 @@ impl RasterizedText {
 
     pub const fn height(&self) -> u32 {
         self.height
+    }
+
+    pub const fn baseline(&self) -> f32 {
+        self.baseline
+    }
+
+    /// `baseline` as a fraction of `height`: the normalized anchor `y` that
+    /// pins the first line's baseline.
+    pub fn baseline_anchor(&self) -> f64 {
+        f64::from(self.baseline) / f64::from(self.height)
     }
 
     pub fn pixels(&self) -> &[u8] {
@@ -309,6 +321,7 @@ impl TextRasterizer {
         let measured_height = buffer.layout_runs().fold(0.0_f32, |height, run| {
             height.max(run.line_top + run.line_height)
         });
+        let baseline = buffer.layout_runs().next().map_or(0.0, |run| run.line_y);
         let mask_width = width.unwrap_or(measured_width).ceil().max(1.0) as u32;
         let mask_height = measured_height.ceil().max(1.0) as u32;
         let fill = paint_color(style.fill.as_ref())?.unwrap_or(Color::WHITE);
@@ -379,12 +392,17 @@ impl TextRasterizer {
             }
         }
         composite_rgba(&mut frame, &glyph_pixels, mask_width, mask_height, 0, 0);
+        // Single-line text keeps its advance width, so leading and trailing
+        // spaces still take up room, but drops the empty rows above and below
+        // its ink: `anchorY` 0.5 centers the letters, not the line box.
+        let mut top = 0;
         if !text.contains('\n') {
-            frame = trim_transparent_edges(frame, max_width.is_none());
+            (frame, top) = trim_transparent_rows(frame);
         }
         Ok(RasterizedText {
             width: frame.width,
             height: frame.height,
+            baseline: baseline - top as f32,
             pixels: frame.pixels,
         })
     }
@@ -442,53 +460,34 @@ fn load_directwrite_system_fonts(font_system: &mut FontSystem) {
     }
 }
 
-fn trim_transparent_edges(frame: RgbaFrame, trim_horizontal: bool) -> RgbaFrame {
-    let mut min_x = frame.width;
-    let mut min_y = frame.height;
-    let mut max_x = 0;
-    let mut max_y = 0;
-    let mut has_visible_pixel = false;
-    for (index, pixel) in frame.pixels.chunks_exact(4).enumerate() {
-        if pixel[3] == 0 {
-            continue;
-        }
-        has_visible_pixel = true;
-        let x = index as u32 % frame.width;
-        let y = index as u32 / frame.width;
-        min_x = min_x.min(x);
-        min_y = min_y.min(y);
-        max_x = max_x.max(x);
-        max_y = max_y.max(y);
-    }
-    if !has_visible_pixel {
-        return frame;
-    }
-    if !trim_horizontal {
-        min_x = 0;
-        max_x = frame.width - 1;
-    }
-    let width = max_x - min_x + 1;
+/// Crops the fully transparent rows above and below the ink, then pads one
+/// empty row on top when needed to keep the height even. Returns the frame and
+/// how many rows its top edge moved down (negative when padded).
+fn trim_transparent_rows(frame: RgbaFrame) -> (RgbaFrame, i32) {
+    let row_bytes = frame.width as usize * 4;
+    let visible = |row: &[u8]| row.chunks_exact(4).any(|pixel| pixel[3] != 0);
+    let rows = || frame.pixels.chunks_exact(row_bytes);
+    let (Some(min_y), Some(from_bottom)) =
+        (rows().position(visible), rows().rev().position(visible))
+    else {
+        return (frame, 0);
+    };
+    let max_y = frame.height as usize - 1 - from_bottom;
     let height = max_y - min_y + 1;
-    let pad_left = u32::from(trim_horizontal && width % 2 == 1);
-    let pad_top = u32::from(height % 2 == 1);
-    if width == frame.width && height == frame.height && pad_left == 0 && pad_top == 0 {
-        return frame;
+    let pad_top = height % 2;
+    if height == frame.height as usize && pad_top == 0 {
+        return (frame, 0);
     }
-    let output_width = width + pad_left;
-    let output_height = height + pad_top;
-    let mut pixels = Vec::with_capacity((output_width * output_height * 4) as usize);
-    pixels.resize((output_width * pad_top * 4) as usize, 0);
-    for y in min_y..=max_y {
-        pixels.resize(pixels.len() + (pad_left * 4) as usize, 0);
-        let start = ((y * frame.width + min_x) * 4) as usize;
-        let end = start + (width * 4) as usize;
-        pixels.extend_from_slice(&frame.pixels[start..end]);
-    }
-    RgbaFrame {
-        width: output_width,
-        height: output_height,
-        pixels,
-    }
+    let mut pixels = vec![0; pad_top * row_bytes];
+    pixels.extend_from_slice(&frame.pixels[min_y * row_bytes..(max_y + 1) * row_bytes]);
+    (
+        RgbaFrame {
+            width: frame.width,
+            height: (height + pad_top) as u32,
+            pixels,
+        },
+        min_y as i32 - pad_top as i32,
+    )
 }
 
 impl Default for TextRasterizer {
@@ -593,12 +592,14 @@ impl CpuRenderer {
                 text,
                 style,
                 max_width,
+                baseline_anchor,
             } => self.render_text(
                 frame,
                 text,
                 style,
                 *max_width,
                 layer.transform.anchor,
+                *baseline_anchor,
                 state,
             )?,
             LayerContent::Group { layers } => {
@@ -672,13 +673,15 @@ impl CpuRenderer {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_text(
         &mut self,
         frame: &mut RgbaFrame,
         text: &str,
         style: &TextStyle,
         max_width: Option<f64>,
-        anchor: Point,
+        mut anchor: Point,
+        baseline_anchor: bool,
         state: ParentState,
     ) -> Result<(), RenderError> {
         if (state.scale.x.abs() - state.scale.y.abs()).abs() > f64::EPSILON {
@@ -691,6 +694,9 @@ impl CpuRenderer {
         let text = self
             .text_rasterizer
             .rasterize(text, style, max_width, scale)?;
+        if baseline_anchor {
+            anchor.y = text.baseline_anchor();
+        }
         let image = DecodedImage {
             width: text.width,
             height: text.height,
@@ -1169,6 +1175,7 @@ fn rasterize_rect_pixels(
     RasterizedText {
         width: pixel_width,
         height: pixel_height,
+        baseline: 0.0,
         pixels,
     }
 }
@@ -1530,6 +1537,7 @@ mod tests {
                         ..TextStyle::default()
                     },
                     max_width: None,
+                    baseline_anchor: false,
                 },
             }],
         };
@@ -1622,6 +1630,7 @@ mod tests {
                         ..TextStyle::default()
                     },
                     max_width: None,
+                    baseline_anchor: false,
                 },
             }],
         };
@@ -1643,8 +1652,93 @@ mod tests {
         }
         let center_x = f64::from(min_x + max_x) / 2.0;
         let center_y = f64::from(min_y + max_y) / 2.0;
-        assert!((center_x - 640.0).abs() <= 0.5, "center x was {center_x}");
+        // Horizontally the advance box is centered, so uneven side bearings
+        // leave the ink a few pixels off.
+        assert!((center_x - 640.0).abs() <= 4.0, "center x was {center_x}");
         assert!((center_y - 360.0).abs() <= 0.5, "center y was {center_y}");
+    }
+
+    #[test]
+    fn single_line_text_keeps_the_width_of_its_spaces() {
+        let mut rasterizer = TextRasterizer::new();
+        let style = TextStyle {
+            font_size: Some(48.0),
+            ..TextStyle::default()
+        };
+        let mut rasterize = |text| rasterizer.rasterize(text, &style, None, 1.0).unwrap();
+        let (equals, spaced, space) = (rasterize("="), rasterize(" = "), rasterize(" "));
+        assert!(space.width() > 1, "a space was {} px wide", space.width());
+        // Each width is rounded up to whole pixels on its own.
+        assert!(
+            spaced.width().abs_diff(equals.width() + space.width() * 2) <= 2,
+            "\" = \" was {} px wide, \"=\" {} px, \" \" {} px",
+            spaced.width(),
+            equals.width(),
+            space.width()
+        );
+        assert_eq!(spaced.height(), equals.height());
+    }
+
+    #[test]
+    fn baseline_anchored_text_layers_share_a_baseline() {
+        const BASELINE: u32 = 200;
+        let text_layer = |id: &str, text: &str, x: f64, font_size: f64| Layer {
+            id: id.to_owned(),
+            transform: EvaluatedTransform {
+                position: Point {
+                    x,
+                    y: f64::from(BASELINE),
+                },
+                anchor: Point { x: 0.0, y: 0.5 },
+                ..EvaluatedTransform::default()
+            },
+            opacity: 1.0,
+            content: LayerContent::Text {
+                text: text.to_owned(),
+                style: TextStyle {
+                    font_size: Some(font_size),
+                    ..TextStyle::default()
+                },
+                max_width: None,
+                baseline_anchor: true,
+            },
+        };
+        let scene = Scene {
+            width: 400,
+            height: 300,
+            frame_rate: Rational::new(30, 1),
+            time: Time::ZERO,
+            fonts: Vec::new(),
+            layers: vec![
+                text_layer("small", "x", 20.0, 32.0),
+                text_layer("tall", "H", 110.0, 96.0),
+                text_layer("round", "o", 230.0, 64.0),
+                text_layer("descender", "y", 320.0, 64.0),
+            ],
+        };
+        let frame = CpuRenderer::default().render(&scene).unwrap();
+        // The lowest inked row between `left` and `right`, ignoring faint
+        // antialiasing at the glyph's bottom edge.
+        let ink_bottom = |left: u32, right: u32| {
+            (0..frame.height())
+                .rev()
+                .find(|&y| {
+                    (left..right).any(|x| {
+                        let offset = ((y * frame.width() + x) * 4) as usize;
+                        frame.pixels()[offset] > 128
+                    })
+                })
+                .unwrap()
+        };
+        // Glyphs without descenders rest on the baseline; `y` hangs below it.
+        for (name, left, right) in [("x", 20, 100), ("H", 110, 220), ("o", 230, 310)] {
+            let bottom = ink_bottom(left, right);
+            assert!(
+                bottom.abs_diff(BASELINE - 1) <= 2,
+                "{name} ends on row {bottom}, not above the baseline at {BASELINE}"
+            );
+        }
+        assert!(ink_bottom(320, 400) > BASELINE + 5);
     }
 
     #[test]

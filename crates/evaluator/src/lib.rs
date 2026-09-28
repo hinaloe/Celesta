@@ -197,6 +197,7 @@ impl<'project> Evaluator<'project> {
                 text: text.clone(),
                 style: style.clone().unwrap_or_default(),
                 max_width: None,
+                baseline_anchor: false,
             },
             TimelineContent::Dialogue {
                 character,
@@ -289,6 +290,7 @@ impl<'project> Evaluator<'project> {
                     text: text.to_owned(),
                     style: subtitle.style.clone().unwrap_or_default(),
                     max_width: subtitle.max_width,
+                    baseline_anchor: false,
                 },
             });
         } else {
@@ -300,6 +302,7 @@ impl<'project> Evaluator<'project> {
                     text: text.to_owned(),
                     style: TextStyle::default(),
                     max_width: None,
+                    baseline_anchor: false,
                 },
             });
         }
