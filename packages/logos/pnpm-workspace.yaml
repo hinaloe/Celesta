@@ -1,4 +1,0 @@
-allowBuilds:
-  '@tailwindcss/oxide': false
-minimumReleaseAgeExclude:
-  - vite@8.3.1
