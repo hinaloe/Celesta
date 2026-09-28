@@ -1072,13 +1072,7 @@ pub fn rasterize_rect(
     fill: Option<&Paint>,
     stroke: Option<&Stroke>,
 ) -> Result<RasterizedText, RenderError> {
-    let fill = paint_color(fill)?;
-    let stroke = stroke
-        .map(|stroke| -> Result<(Color, f64), RenderError> {
-            let Paint::Solid { color } = &stroke.paint;
-            Ok((Color::from_hex(color)?, stroke.width))
-        })
-        .transpose()?;
+    let RectPaint { fill, stroke } = resolve_rect_paint(fill, stroke)?;
     Ok(rasterize_rect_pixels(
         width,
         height,
@@ -1086,6 +1080,32 @@ pub fn rasterize_rect(
         fill,
         stroke,
     ))
+}
+
+/// The colors [`rasterize_rect`] paints a rect with.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RectPaint {
+    pub fill: Option<Color>,
+    /// The stroke color and width.
+    pub stroke: Option<(Color, f64)>,
+}
+
+/// Parses a rect's fill and stroke into the colors [`rasterize_rect`] paints
+/// with. A renderer that draws rects itself (`celesta-gpu-renderer` shades
+/// them on the GPU) uses this so it resolves paint exactly like the
+/// rasterizer.
+pub fn resolve_rect_paint(
+    fill: Option<&Paint>,
+    stroke: Option<&Stroke>,
+) -> Result<RectPaint, RenderError> {
+    let fill = paint_color(fill)?;
+    let stroke = stroke
+        .map(|stroke| -> Result<(Color, f64), RenderError> {
+            let Paint::Solid { color } = &stroke.paint;
+            Ok((Color::from_hex(color)?, stroke.width))
+        })
+        .transpose()?;
+    Ok(RectPaint { fill, stroke })
 }
 
 fn rasterize_rect_pixels(

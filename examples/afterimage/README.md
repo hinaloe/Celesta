@@ -14,8 +14,8 @@ to decay beneath the closing title.
 - `film.tsx` — open in Celesta to preview; edit in your text editor.
 - `poster.jpg` — a rendered still from the film.
 - `make-score.py` — deterministic, original soundtrack synthesizer.
-- `render.py` — exports bounded batches and joins them without re-encoding
-  the picture; muxes the original score once for continuous audio.
+- `render.py` — optional: exports one-second batches in parallel and joins
+  them without re-encoding the picture; muxes the original score once.
 - `assets/` — local fonts and the generated 48 kHz stereo score.
 
 All media is local. No network access is required to preview or export.
@@ -44,21 +44,19 @@ From the repository root, with the Celesta exporter and React runtime built:
 python3 examples/afterimage/make-score.py
 node skills/celesta/scripts/inspect.mjs examples/afterimage/film.tsx \
   --frames 0,90,225,315,390,480,630,719
-python3 examples/afterimage/render.py --overwrite
-```
-
-The batch helper needs `ffmpeg` on PATH. It limits each Celesta process to
-30 frames; this was faster than a continuous export for this dense line
-animation. For an installed app, pass `--exporter /path/to/Celesta-export`.
-Export requires a working graphics adapter. `--overwrite` replaces the
-previously generated movie.
-
-The normal single-process export works from Celesta's UI, or directly:
-
-```sh
 target/release/celesta-exporter --overwrite --preset medium --crf 17 \
   --react examples/afterimage/film.tsx examples/afterimage/afterimage.mp4
 ```
+
+Export requires a working graphics adapter; exporting from Celesta's UI
+works the same way. `--overwrite` replaces the previously generated movie.
+
+`render.py --overwrite` instead exports one-second batches in parallel
+processes, which can help on a machine with many cores. It needs `ffmpeg`
+on PATH; for an installed app, pass `--exporter /path/to/Celesta-export`.
+It was written as a workaround when a continuous export of this dense line
+animation slowed down over each scene (issue #29); that is fixed, so it is
+no longer required.
 
 ## Credits and assets
 

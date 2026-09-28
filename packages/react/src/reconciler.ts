@@ -22,6 +22,24 @@ type NoTimeout = -1;
 const NO_TIMEOUT: NoTimeout = -1;
 const NO_CONTEXT = {};
 
+function removeChild(children: HostNode[], child: HostNode): void {
+  const index = children.indexOf(child);
+  if (index !== -1) {
+    children.splice(index, 1);
+  }
+}
+
+function appendChild(children: HostNode[], child: HostNode): void {
+  removeChild(children, child);
+  children.push(child);
+}
+
+function insertBefore(children: HostNode[], child: HostNode, beforeChild: HostNode): void {
+  removeChild(children, child);
+  const index = children.indexOf(beforeChild);
+  children.splice(index === -1 ? children.length : index, 0, child);
+}
+
 const hostConfig: Reconciler.HostConfig<
   string,
   Record<string, unknown>,
@@ -68,31 +86,28 @@ const hostConfig: Reconciler.HostConfig<
   },
   finalizeInitialChildren: () => false,
 
+  // React also calls these to move a child that is already mounted (a keyed
+  // list reordered between frames) and expects DOM semantics: the child
+  // leaves its old position. Inserting it without removing it first leaves a
+  // duplicate behind on every move, so a list re-sorted each frame grows
+  // without bound and its layers are drawn several times over.
   appendChildToContainer(container, child) {
-    container.children.push(child);
+    appendChild(container.children, child);
   },
   appendChild(parent, child) {
-    parent.children.push(child);
+    appendChild(parent.children, child);
   },
   insertBefore(parent, child, beforeChild) {
-    const index = parent.children.indexOf(beforeChild);
-    parent.children.splice(index === -1 ? parent.children.length : index, 0, child);
+    insertBefore(parent.children, child, beforeChild);
   },
   insertInContainerBefore(container, child, beforeChild) {
-    const index = container.children.indexOf(beforeChild);
-    container.children.splice(index === -1 ? container.children.length : index, 0, child);
+    insertBefore(container.children, child, beforeChild);
   },
   removeChild(parent, child) {
-    const index = parent.children.indexOf(child);
-    if (index !== -1) {
-      parent.children.splice(index, 1);
-    }
+    removeChild(parent.children, child);
   },
   removeChildFromContainer(container, child) {
-    const index = container.children.indexOf(child);
-    if (index !== -1) {
-      container.children.splice(index, 1);
-    }
+    removeChild(container.children, child);
   },
   clearContainer(container) {
     container.children = [];

@@ -1,6 +1,7 @@
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::process::ExitCode;
+use std::time::{Duration, Instant};
 
 use celesta_exporter::{
     CompanionProject, ExportOptions, ExportProgress, ExportRange, Exporter, ReactRuntimeOptions,
@@ -82,9 +83,16 @@ fn run() -> Result<(), String> {
         range,
         video,
     });
+    let mut rendering_started: Option<Instant> = None;
     let on_progress = |progress: ExportProgress| match progress {
         ExportProgress::Rendering { frame, total } => {
-            eprint!("\rrendering frame {frame}/{total}");
+            // Reported as each frame starts, so `frame - 1` are done.
+            let elapsed = rendering_started.get_or_insert_with(Instant::now).elapsed();
+            // Trailing spaces clear what a longer previous line left behind.
+            eprint!(
+                "\rrendering frame {frame}/{total}  {}   ",
+                rendering_rate(frame.saturating_sub(1), total, elapsed)
+            );
             if frame == total {
                 eprintln!();
             }
@@ -125,6 +133,32 @@ fn run() -> Result<(), String> {
     }
     eprintln!("export complete: {}", output.to_string_lossy());
     Ok(())
+}
+
+/// Throughput, elapsed time, and the estimated time left, so a slow export
+/// can be told apart from a stalled one.
+fn rendering_rate(done: u64, total: u64, elapsed: Duration) -> String {
+    let seconds = elapsed.as_secs_f64();
+    if done == 0 || seconds <= 0.0 {
+        return format!("elapsed {}", clock(elapsed));
+    }
+    let fps = done as f64 / seconds;
+    let remaining = Duration::from_secs_f64(total.saturating_sub(done) as f64 / fps);
+    format!(
+        "{fps:.1} fps  elapsed {}  eta {}",
+        clock(elapsed),
+        clock(remaining)
+    )
+}
+
+fn clock(duration: Duration) -> String {
+    let seconds = duration.as_secs();
+    format!(
+        "{:02}:{:02}:{:02}",
+        seconds / 3600,
+        seconds / 60 % 60,
+        seconds % 60
+    )
 }
 
 /// Builds an [`ExportRange`] from the `--from` / `--to` timecodes. Returns

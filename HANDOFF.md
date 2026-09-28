@@ -219,8 +219,26 @@ Keep these boundaries intact:
   `start_frame..start_frame+frames`, and the audio graph is shifted earlier by
   the window start before mixing over the window length (the mixer is
   unchanged). The whole-composition path is untouched when `range` is `None`.
+- Dense geometry (2026-09-28, issue #29): `GpuRenderer` no longer rasterizes
+  rects on the CPU. `layer.wgsl`'s `rect_color` shades them from the same
+  rounded-box SDF `rasterize_rect` uses, snapped to the texel the rasterized
+  texture would have been sampled at, so output matches it (within one code
+  value where f32 and f64 round a stroke blend differently). Every layer is
+  one instance in a per-frame vertex buffer (`LayerInstance`, reused across
+  frames), texture bind groups are created once per texture, and consecutive
+  layers sampling the same texture are one instanced draw — all rects share
+  a 1x1 placeholder — so the AFTERIMAGE ribbons (3,000+ rects whose size
+  changes every frame) cost one draw instead of 3,000 textures, buffers,
+  bind groups, and draws. `cargo run --release -p celesta-gpu-renderer
+  --example dense-geometry-bench` times that scene; the CLI progress line
+  shows fps, elapsed time, and ETA. The same issue's "slows down over a long
+  export" was the React host config: `appendChild`/`insertBefore` did not
+  remove a child React was *moving* (a keyed list re-sorted between frames),
+  so every move left a duplicate and a depth-sorted list grew each frame
+  until it unmounted (also over-drawing translucent layers). They now move
+  the child like the DOM does (`packages/react/test/reconciler.test.mjs`).
 - Export speed (2026-09-25): `GpuRenderer` caches layer textures across
-  frames (images, PSD composites, text, rects; keyed by their inputs, text
+  frames (images, PSD composites, text; keyed by their inputs, text
   also by `TextRasterizer::loaded_font_count`), so unchanged layers are
   neither re-rasterized nor re-uploaded; entries a frame does not use are
   dropped. `submit`'s reclaim waits on the oldest slot's own
