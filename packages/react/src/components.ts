@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { CompositionRuntimeContext } from './hooks';
 import { useOptionalLipSync } from './lipsync';
 import type { LipSyncTrack } from './lipsync';
-import type { Animatable, TextStyle } from './scene';
+import type { Animatable, BlendMode, TextStyle } from './scene';
 import { secondsFromTime, secondsToTime } from './time';
 
 // Unlike the pre-reconciler tree walker, these are real function components:
@@ -37,6 +37,13 @@ export interface CommonProps {
   /** Vertical pivot: 0 top, 1 bottom, 0.5 centre. Defaults to 0. See `anchorX`. */
   anchorY?: number;
   opacity?: number;
+  /**
+   * How the object's pixels combine with what is drawn beneath it, like CSS
+   * `mix-blend-mode`. Defaults to `'normal'`. On a `Group` any other mode
+   * isolates the group: its children composite together first, and the
+   * result blends with the backdrop as one layer.
+   */
+  blendMode?: BlendMode;
 }
 
 export interface CompositionProps {

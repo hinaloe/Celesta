@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use celesta_composition::{
-    Animatable, EvaluatedTransform, Layer, LayerContent, Rational, TextStyle, Time,
+    Animatable, BlendMode, EvaluatedTransform, Layer, LayerContent, Rational, TextStyle, Time,
 };
 use celesta_react_bridge::{
     ComponentPropertyField, ComponentResolutionRequest, ProjectFrame, ReactBridge,
@@ -576,6 +576,7 @@ fn embeds_pre_evaluated_project_layers_into_project_timeline_when_node_is_availa
         id: "from-project".to_owned(),
         transform: EvaluatedTransform::default(),
         opacity: 1.0,
+        blend_mode: BlendMode::Normal,
         content: LayerContent::Text {
             text: "from the project".to_owned(),
             style: TextStyle::default(),
@@ -621,6 +622,7 @@ fn resolves_a_registered_component_when_node_is_available() {
         id: "boss-intro".to_owned(),
         transform: EvaluatedTransform::default(),
         opacity: 1.0,
+        blend_mode: BlendMode::Normal,
         content: LayerContent::MissingComponent {
             component: "BossIntroduction".to_owned(),
             props,
@@ -630,6 +632,7 @@ fn resolves_a_registered_component_when_node_is_available() {
         id: "unregistered".to_owned(),
         transform: EvaluatedTransform::default(),
         opacity: 1.0,
+        blend_mode: BlendMode::Normal,
         content: LayerContent::MissingComponent {
             component: "SomeOtherThing".to_owned(),
             props: BTreeMap::new(),
@@ -721,6 +724,7 @@ fn embeds_per_track_layers_for_use_project_track_when_node_is_available() {
         id: "title-1".to_owned(),
         transform: EvaluatedTransform::default(),
         opacity: 1.0,
+        blend_mode: BlendMode::Normal,
         content: LayerContent::Text {
             text: "a title".to_owned(),
             style: TextStyle::default(),
@@ -732,6 +736,7 @@ fn embeds_per_track_layers_for_use_project_track_when_node_is_available() {
         id: "overlay-1".to_owned(),
         transform: EvaluatedTransform::default(),
         opacity: 1.0,
+        blend_mode: BlendMode::Normal,
         content: LayerContent::Text {
             text: "an overlay".to_owned(),
             style: TextStyle::default(),

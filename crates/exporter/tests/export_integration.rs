@@ -77,6 +77,7 @@ fn exports_frame_exact_mp4_with_silent_audio() {
             enabled: None,
             transform: None,
             opacity: None,
+            blend_mode: None,
         }],
     });
 
@@ -201,6 +202,7 @@ fn exports_only_the_selected_range_shifted_to_zero() {
             enabled: None,
             transform: None,
             opacity: None,
+            blend_mode: None,
         }],
     });
 
@@ -350,6 +352,7 @@ fn converting_colors_on_the_gpu_matches_the_encoder_conversion() {
             enabled: None,
             transform: None,
             opacity: None,
+            blend_mode: None,
         }],
     });
 

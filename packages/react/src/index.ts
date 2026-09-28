@@ -43,6 +43,7 @@ export type {
   AssetLocation,
   AudioClip,
   AudioGraph,
+  BlendMode,
   CompositionConfig,
   EvaluatedTransform,
   Layer,
