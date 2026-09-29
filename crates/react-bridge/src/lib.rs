@@ -591,34 +591,34 @@ struct MeasureTextRequest {
 }
 
 #[derive(Serialize)]
-struct MeasureTextResponse<'a> {
+struct MeasureTextResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
-    metrics: Option<TextMetricsPayload<'a>>,
+    metrics: Option<TextMetricsPayload>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct TextMetricsPayload<'a> {
+struct TextMetricsPayload {
     width: f64,
     height: f64,
     ascent: f64,
     descent: f64,
     line_height: f64,
     lines: usize,
-    glyphs: Vec<GlyphPayload<'a>>,
+    glyphs: Vec<GlyphPayload>,
 }
 
 #[derive(Serialize)]
-struct GlyphPayload<'a> {
-    text: &'a str,
+struct GlyphPayload {
+    text: String,
     x: f64,
     width: f64,
     line: usize,
 }
 
-fn text_metrics_payload(metrics: &TextMetrics) -> TextMetricsPayload<'_> {
+fn text_metrics_payload(metrics: &TextMetrics) -> TextMetricsPayload {
     TextMetricsPayload {
         width: metrics.width,
         height: metrics.height,
@@ -630,7 +630,7 @@ fn text_metrics_payload(metrics: &TextMetrics) -> TextMetricsPayload<'_> {
             .glyphs
             .iter()
             .map(|glyph| GlyphPayload {
-                text: &glyph.text,
+                text: glyph.text.clone(),
                 x: glyph.x,
                 width: glyph.width,
                 line: glyph.line,
