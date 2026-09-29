@@ -68,6 +68,26 @@ export function interpolate(
 }
 
 /**
+ * How far `frame` is through the span that starts at `start` and lasts
+ * `durationInFrames`, as an eased value: 0 up to `start`, `easing` applied to
+ * the linear 0–1 position inside the span, and 1 from its end on. The eased
+ * value may leave 0–1 inside the span for curves such as `easeOutBack`.
+ *
+ * The workhorse behind most entrances: `opacity={progress(frame, 10, 20)}`.
+ */
+export function progress(
+  frame: number,
+  start: number,
+  durationInFrames: number,
+  easing: (input: number) => number = (t) => t,
+): number {
+  if (!Number.isFinite(durationInFrames) || durationInFrames <= 0) {
+    throw new Error('progress() requires a positive durationInFrames');
+  }
+  return easing(Math.min(1, Math.max(0, (frame - start) / durationInFrames)));
+}
+
+/**
  * Common easing curves for `interpolate()`'s `easing` option. Named `Easings`
  * (not `Easing`) to avoid colliding with the generated `Easing` union type
  * used by the project's own `Animatable<T>`/`Keyframe<T>` model, which is an

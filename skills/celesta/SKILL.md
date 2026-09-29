@@ -76,7 +76,7 @@ produces a video that differs between preview and export.
    `useCurrentFrame()` / `useCurrentTime()`. Never use `Math.random()`,
    `Date.now()`, timers, `useEffect`, or state that accumulates across
    renders: frames are rendered out of order when scrubbing and exporting. For
-   "random" values, use a deterministic hash of an index or seed.
+   "random" values, use `random(seed)` and `noise(seed, t)`.
 6. **Async work goes in `prepare()`.** Rendering is synchronous. Fetching,
    file reads, `preloadMedia()`, `loadLipSync()`, and `loadPsdPreset()` belong
    in `export async function prepare()`, which runs once before the first
@@ -106,7 +106,11 @@ produces a video that differs between preview and export.
    media folder. Note the fps and dimensions before computing frame numbers.
 2. **Write or edit the source.** Keep media next to the entry and reference
    it with `./relative/paths`. Prefer small named components over one big
-   `Root`.
+   `Root`. Before hand-rolling timing math, check the motion helpers in
+   [react-api.md](references/react-api.md#motion-helpers): `Series` for
+   scenes in a row, `Stagger` and `progress` for entrances, `useBeat` for
+   music, `useCue` for things that change at given frames, `TextReveal`,
+   `useTypewriter`, `useCountUp`, `Camera`, `Line`/`Polyline`.
 3. **Check it without the GUI.** You cannot see the preview window, so
    verify with the tools in [references/verify-and-export.md](references/verify-and-export.md):
    - `node scripts/inspect.mjs scene.tsx` (in this skill's folder) loads a

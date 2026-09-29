@@ -11,6 +11,7 @@ them from npm.
 - [Layers](#layers): Composition, Rect, Text, Group, Image, Video, Audio, Font, Assets
 - [Text styles and fonts](#text-styles-and-fonts)
 - [Time and animation](#time-and-animation): hooks, interpolate, Easings, spring, Sequence, Transition, timecodeToFrame
+- [Motion helpers](#motion-helpers): progress, Series, Stagger, useBeat, useCue, TextReveal, useTypewriter, useCountUp, Camera, Line, Polyline, random, noise, frameToTimecode
 - [Layout helpers](#layout-helpers): Center, SafeArea, Stack, Grid, Fit
 - [Media helpers](#media-helpers): preloadMedia, mediaDurationInFrames
 - [Project data](#project-data): ProjectProvider, useProjectProperty, defineProjectProperties, ProjectTimeline, ProjectTrack, registerComponent
@@ -263,7 +264,7 @@ Animates its children at the start (`direction="in"`, default) or end
 
 | Prop | Notes |
 | --- | --- |
-| `type` | `'fade'`, `'slide'`, or `'scale'`. |
+| `type` | `'fade'`, `'slide'`, or `'scale'`, or an array to combine them (`['fade', 'slide']`). |
 | `durationInFrames` | Positive integer. |
 | `direction` | `'in'` (default) or `'out'`. |
 | `slideFrom` | `'left'` (default), `'right'`, `'top'`, `'bottom'`. |
@@ -273,10 +274,124 @@ Animates its children at the start (`direction="in"`, default) or end
 
 Nest transitions to combine an entrance and an exit.
 
-### `timecodeToFrame(timecode, fps)`
+### `timecodeToFrame(timecode, fps)` / `frameToTimecode(frame, fps)`
 
 `'01:02.500'`, `'1:02:03'`, or `'12.5'` → frame number. Handy for syncing to
-timestamps the user gives you.
+timestamps the user gives you. `frameToTimecode(frame, fps)` goes the other
+way, formatting `HH:MM:SS:FF` for an on-screen clock.
+
+## Motion helpers
+
+Reach for these before writing the same math by hand. Each is built on
+`Sequence`, `Group`, `Rect`, `Text`, and the frame, so it stays deterministic.
+
+### `progress(frame, start, durationInFrames, easing?)`
+
+Clamped 0–1 position of `frame` in the span, with `easing` applied (linear by
+default). The building block of entrances:
+`opacity={progress(frame, 10, 20, Easings.easeOutExpo)}`.
+
+### `<Series>` and `computeSeries(items)`
+
+Scenes back to back, by length. Children must be `<Series.Sequence
+durationInFrames offset?>`; each is a `<Sequence>` (local frames restart at 0).
+A negative `offset` overlaps the previous item. `computeSeries(items)` returns
+`{ sequences: [{ from, durationInFrames }], durationInFrames }` without
+rendering: use it for the `<Composition>` length and for anything outside the
+series that needs a scene's start (a HUD, a wipe on the cut).
+
+```tsx
+const SCENES = [
+  { name: 'intro', durationInFrames: 90, Scene: Intro },
+  { name: 'body', durationInFrames: 240, Scene: Body },
+];
+const { durationInFrames } = computeSeries(SCENES);
+// …
+<Series>
+  {SCENES.map(({ name, durationInFrames, Scene }) => (
+    <Series.Sequence key={name} durationInFrames={durationInFrames}><Scene /></Series.Sequence>
+  ))}
+</Series>
+```
+
+### `<Stagger each from? durationInFrames?>`
+
+Wraps child *i* in a `<Sequence from={from + i * each}>`, so a component that
+animates from its own frame 0 cascades down a list. A child is hidden until it
+starts. Children carry their own positions (`Stagger` is not a layout helper;
+it cannot sit inside `Grid`/`Stack` as one cell per child).
+
+```tsx
+function Row({ y, label }: { y: number; label: string }) {
+  const p = progress(useCurrentFrame(), 0, 20, Easings.easeOutExpo);
+  return <Text x={120 + 40 * (1 - p)} y={y} opacity={p}>{label}</Text>;
+}
+<Stagger each={4}>{items.map((s, i) => <Row key={s} y={200 + i * 64} label={s} />)}</Stagger>
+```
+
+### `useBeat({ bpm, beatsPerBar?, offset?, decay? })` / `beatAt(frame, fps, options)`
+
+Returns `{ framesPerBeat, beat, bar, beatInBar, progress, barProgress, pulse }`.
+`pulse` is 1 on each beat and decays exponentially (`decay` frames to 1/e,
+default a quarter beat). Inside a `Sequence` the grid starts with the
+sequence; use `offset` (frames) to align with music that started elsewhere.
+
+### `useCue(cues)` / `cueAt(cues, frame)`
+
+`cues` is an array of `{ at, …data }` sorted by `at`. Returns `null` before the
+first cue, else `{ cue, index, frame, previous, next }` where `frame` counts
+from the cue's start. Use for swapping captions, a camera moving between
+stops, chart callouts, or "which scene is this" in a HUD.
+
+```tsx
+const stop = useCue(STOPS); // [{ at: 30, x: 0 }, { at: 75, x: 1000 }, …]
+const from = stop?.previous?.x ?? 0;
+const x = stop ? from + (stop.cue.x - from) * progress(stop.frame, 0, 24, Easings.easeInOutCubic) : 0;
+```
+
+### `<TextReveal>`
+
+Each line of a string slides up from behind its own mask (`Group clip`),
+staggered. Props: `children` (string, `\n` separates lines), `style`,
+`lineHeight` (mask height and line spacing; defaults to `style.lineHeight`,
+then `fontSize`), `baseline` (0.8: baseline position inside each line box),
+`align` (0/0.5/1 pivot of each line), `from`, `stagger` (4), `durationInFrames`
+(20), `easing` (`easeOutExpo`), `direction` (`'in'` or `'out'`), plus common
+props. `x`/`y` are the top-left of the first line box.
+
+### `useTypewriter(text, { from?, framesPerChar?, blinkFrames? })`
+
+Returns `{ text, length, done, caretVisible }`. Counts by code point, so kana
+and emoji count once. `framesPerChar` below 1 types several characters per
+frame. The caret is steady while typing and blinks (period `blinkFrames`,
+default one second) otherwise. Text is never measured, so place a caret with a
+monospaced font: `x = length * fontSize * 0.6` for JetBrains Mono.
+
+### `useCountUp(to, { from?, delay?, durationInFrames?, easing?, decimals? })`
+
+A number that counts to `to` (default 30 frames, `easeOutExpo`), rounded to
+`decimals`. Format it yourself, e.g. `value.toLocaleString('en-US')`.
+
+### `<Camera x? y? zoom? rotation? shake? shakeFrequency? seed?>`
+
+Shows the world point (`x`, `y`) at the center of the current area (canvas,
+`SafeArea`, or `Fit`), magnified by `zoom` about that point. Defaults look at
+the center, so `<Camera zoom={1.05}>` is a slow push-in. `shake` is the
+largest drift in world pixels, smoothed by `noise()`.
+
+### `<Line x1 y1 x2 y2>` and `<Polyline points progress?>`
+
+`stroke` (hex, default white), `strokeWidth` (2), `cap` (`'round'` default,
+or `'butt'`), `opacity`, `blendMode`. `Polyline` takes `[x, y]` pairs and
+draws the first `progress` (0–1) of its length; `pointOnPolyline(points, t)`
+gives the tip, for a marker or a label that rides the line.
+
+### `random(seed)` and `noise(seed, t)`
+
+`random` returns `[0, 1)`, the same for the same number or string seed; use
+distinct seeds per property (`` `star-${i}-x` ``). `noise` is smooth value
+noise in `[-1, 1]` over `t` (feed it `frame / 20` or so). Use these, never
+`Math.random()`.
 
 ## Layout helpers
 
