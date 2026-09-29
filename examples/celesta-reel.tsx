@@ -15,6 +15,7 @@ import {
   Sequence,
   Text,
   interpolate,
+  measureText,
   spring,
   useCurrentFrame,
   useVideoConfig,
@@ -43,8 +44,28 @@ const FONT = {
   display: 'Space Grotesk',
   mono: 'JetBrains Mono',
 } as const;
-// JetBrains Mono advances every glyph by 0.6 em, so mono text can be measured.
-const MONO_ADVANCE = 0.6;
+const FONT_SRC =
+  'https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;700';
+
+// Measured in prepare(): JetBrains Mono's per-glyph advance in em (0.6), and
+// the logo's letter positions. The fallbacks keep the reel rendering when the
+// fonts can't be loaded (e.g. offline).
+let monoAdvance = 0.6;
+const LOGO_SIZE = 250;
+let logo: { width: number; letters: { text: string; x: number }[] } | null = null;
+
+export async function prepare() {
+  try {
+    const fonts = [FONT_SRC];
+    const mono = await measureText('M', { fontFamily: FONT.mono, fontSize: 100 }, { fonts });
+    monoAdvance = mono.width / 100;
+    const word = await measureText('Celesta',
+      { fontFamily: FONT.display, fontSize: LOGO_SIZE, fontWeight: 700 }, { fonts });
+    logo = { width: word.width, letters: word.glyphs.map(({ text, x }) => ({ text, x })) };
+  } catch (error) {
+    console.warn(`text measurement unavailable, using fallback metrics: ${error}`);
+  }
+}
 
 // Scene boundaries, in frames.
 const S = {
@@ -101,7 +122,7 @@ function T({
 type Run = { text: string; color: string; weight?: number };
 
 // Mono text in colored runs, vertically centered on `y`, showing its first
-// `visible` characters. Each run starts at its column's 0.6 em cell and sits
+// `visible` characters. Each run starts at its column's cell and sits
 // on a shared baseline, so a caret can be placed after any character.
 function Mono({ runs, x, y, size, visible = Infinity, opacity = 1 }: {
   runs: Run[];
@@ -119,7 +140,7 @@ function Mono({ runs, x, y, size, visible = Infinity, opacity = 1 }: {
         column += text.length;
         const shown = text.slice(0, Math.max(0, visible - start));
         return shown ? (
-          <T key={i} x={x + start * size * MONO_ADVANCE} y={y + size * 0.24} size={size} font="mono"
+          <T key={i} x={x + start * size * monoAdvance} y={y + size * 0.24} size={size} font="mono"
             weight={weight} color={color} ay="baseline">{shown}</T>
         ) : null;
       })}
@@ -168,7 +189,7 @@ function Intro() {
   const size = 72;
   const runs = TYPED.flat();
   const length = runLength(runs);
-  const x0 = W / 2 - (length * size * MONO_ADVANCE) / 2;
+  const x0 = W / 2 - (length * size * monoAdvance) / 2;
   // Chunk k starts on beat k and types one character per frame.
   const typed = TYPED.reduce((n, chunk, k) => n + clamp(f - k * BEAT + 1, 0, runLength(chunk)), 0);
   const caretOn = typed < length || Math.floor(f / 4) % 2 === 0;
@@ -184,7 +205,7 @@ function Intro() {
         <Group x={-W / 2} y={-H / 2}>
           <Mono runs={runs} x={x0} y={H / 2} size={size} visible={typed} />
           {caretOn && (
-            <Rect x={x0 + typed * size * MONO_ADVANCE + 4} y={H / 2 - 52} width={6} height={82} fill={C.accent} />
+            <Rect x={x0 + typed * size * monoAdvance + 4} y={H / 2 - 52} width={6} height={82} fill={C.accent} />
           )}
         </Group>
       </Group>
@@ -353,7 +374,7 @@ function Code() {
   const ey = 330;
   const ew = 930;
   const cs = 21;
-  const cw = cs * MONO_ADVANCE;
+  const cw = cs * monoAdvance;
   const lh = 38;
   const codeX = ex + 64;
   const codeY = ey + 48 + 34;
@@ -591,7 +612,7 @@ function Export() {
       </T>
       <Mono runs={COMMAND} x={124} y={480} size={28} visible={typed} />
       {typed < runLength(COMMAND) || Math.floor(f / 8) % 2 === 0 ? (
-        <Rect x={124 + typed * 28 * MONO_ADVANCE + 2} y={464} width={3} height={32} fill={C.accent} />
+        <Rect x={124 + typed * 28 * monoAdvance + 2} y={464} width={3} height={32} fill={C.accent} />
       ) : null}
       {SPECS.map((spec, i) => {
         const on = progress(f, 20 + i * BEAT, 10, Easings.easeOutExpo);
@@ -678,8 +699,20 @@ function Logo() {
         {orbit}
         <Rect x={px} y={py} anchorX={0.5} anchorY={0.5} width={16} height={16} cornerRadius={8}
           fill={C.accent} opacity={ring} />
-        <T x={cx} y={cy + 20 * (1 - hit)} size={250} weight={700} ax={0.5} ay={0.5}
-          scale={1.3 - 0.3 * hit} opacity={clamp(hit * 2)}>Celesta</T>
+        {logo ? (
+          <Group x={cx} y={cy} scale={1.3 - 0.3 * hit}>
+            {logo.letters.map(({ text, x }, i) => {
+              const letter = progress(f, i * 2, 24, Easings.easeOutExpo);
+              return (
+                <T key={i} x={x - logo!.width / 2} y={20 * (1 - letter)} size={LOGO_SIZE} weight={700}
+                  ay={0.5} opacity={clamp(letter * 2)}>{text}</T>
+              );
+            })}
+          </Group>
+        ) : (
+          <T x={cx} y={cy + 20 * (1 - hit)} size={LOGO_SIZE} weight={700} ax={0.5} ay={0.5}
+            scale={1.3 - 0.3 * hit} opacity={clamp(hit * 2)}>Celesta</T>
+        )}
         <Rect x={cx} y={cy + 160} anchorX={0.5} width={Math.max(1, 640 * rule)} height={2} fill={C.paper} opacity={0.5} />
         <T x={cx} y={cy + 216 + 16 * (1 - sub)} size={26} font="mono" weight={400} color={C.grey}
           ax={0.5} ay={0.5} opacity={sub}>C O D E - F I R S T   V I D E O</T>
@@ -765,7 +798,7 @@ export default function Root() {
   return (
     <Composition width={W} height={H} fps={FPS} durationInFrames={DURATION}>
       <Assets>
-        <Font src="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;700" />
+        <Font src={FONT_SRC} />
       </Assets>
       {SCENES.map(({ from, to, C: Scene }) => (
         <Sequence key={from} from={from} durationInFrames={to - from}><Scene /></Sequence>
