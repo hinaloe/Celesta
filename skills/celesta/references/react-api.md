@@ -53,10 +53,17 @@ accepts:
 | `scale` | `1` | Uniform scale. `scaleX`/`scaleY` override one axis. |
 | `opacity` | `1` | `0`–`1`; multiplies down through groups. |
 | `blendMode` | `'normal'` | How the layer combines with what is beneath it: `'normal'`, `'multiply'`, `'screen'`, `'overlay'`, `'add'`, or `'difference'`, as in CSS `mix-blend-mode`. |
+| `blur` | `0` | Gaussian blur radius in output pixels, from 0 to 64. |
+| `shadow` | none | `{ color, blur, offsetX, offsetY }`; hex color, 0–64 px blur, output-pixel offsets. |
+| `glow` | none | `{ color, blur }`; centered halo with a 0–64 px blur. |
 | `id` | generated | Optional stable layer id. |
 
 To center something at a point, set `anchorX={0.5} anchorY={0.5}` and put
 the point in `x`/`y`.
+
+Effects apply to the composited pixels of the layer; on a `Group` they apply
+to all children together. They combine with `opacity` and `blendMode`. Compute
+any effect prop from `useCurrentFrame()` to animate it.
 
 ## Layers
 

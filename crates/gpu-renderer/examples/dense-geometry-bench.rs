@@ -94,6 +94,7 @@ fn scene(frame: usize, ribbons: usize, strands: usize) -> Scene {
             transform: EvaluatedTransform::default(),
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
+            effects: Default::default(),
             content: LayerContent::Group {
                 layers: ribbon(
                     time - index as f64 * 0.35,
@@ -194,6 +195,7 @@ fn rect(
         },
         opacity,
         blend_mode: BlendMode::Normal,
+        effects: Default::default(),
         content: LayerContent::Rect {
             width,
             height,

@@ -24,6 +24,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             },
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
+            effects: Default::default(),
             content: LayerContent::Text {
                 text: "Celesta へようこそ".to_owned(),
                 style: TextStyle {

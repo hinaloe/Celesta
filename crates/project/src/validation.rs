@@ -6,6 +6,11 @@ use celesta_composition::{Animatable, GradientStop, Paint, TextStyle, Time, Tran
 
 use crate::{AssetKind, Character, Project, SourceRange, TimelineContent, TimelineItem};
 
+fn valid_effect_color(color: &str) -> bool {
+    let hex = color.strip_prefix('#').unwrap_or("");
+    matches!(hex.len(), 6 | 8) && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidationError {
     pub path: String,
@@ -200,6 +205,57 @@ impl Validator<'_> {
                 |value| value.is_finite() && (0.0..=1.0).contains(value),
                 "must be finite and between 0 and 1",
             );
+        }
+        if let Some(effects) = &item.effects {
+            let radius = |value: &f64| value.is_finite() && (0.0..=64.0).contains(value);
+            if let Some(blur) = &effects.blur {
+                self.animatable(
+                    &format!("{path}.effects.blur"),
+                    blur,
+                    radius,
+                    "must be finite and between 0 and 64",
+                );
+            }
+            if let Some(shadow) = &effects.shadow {
+                self.animatable(
+                    &format!("{path}.effects.shadow.color"),
+                    &shadow.color,
+                    |color| valid_effect_color(color),
+                    "must be a #RRGGBB or #RRGGBBAA color",
+                );
+                self.animatable(
+                    &format!("{path}.effects.shadow.blur"),
+                    &shadow.blur,
+                    radius,
+                    "must be finite and between 0 and 64",
+                );
+                self.animatable(
+                    &format!("{path}.effects.shadow.offsetX"),
+                    &shadow.offset_x,
+                    |value| value.is_finite(),
+                    "must be finite",
+                );
+                self.animatable(
+                    &format!("{path}.effects.shadow.offsetY"),
+                    &shadow.offset_y,
+                    |value| value.is_finite(),
+                    "must be finite",
+                );
+            }
+            if let Some(glow) = &effects.glow {
+                self.animatable(
+                    &format!("{path}.effects.glow.color"),
+                    &glow.color,
+                    |color| valid_effect_color(color),
+                    "must be a #RRGGBB or #RRGGBBAA color",
+                );
+                self.animatable(
+                    &format!("{path}.effects.glow.blur"),
+                    &glow.blur,
+                    radius,
+                    "must be finite and between 0 and 64",
+                );
+            }
         }
 
         match &item.content {
@@ -411,11 +467,11 @@ impl Validator<'_> {
         }
     }
 
-    fn animatable(
+    fn animatable<T>(
         &mut self,
         path: &str,
-        value: &Animatable<f64>,
-        valid: impl Fn(&f64) -> bool,
+        value: &Animatable<T>,
+        valid: impl Fn(&T) -> bool,
         message: &str,
     ) {
         match value {

@@ -125,6 +125,24 @@ Use the files in `packages/react/examples` as starting points. They demonstrate
 text, animation, layout, dialogue, and editable project properties. The package
 is currently imported as `@celesta/react`.
 
+Visual layers and groups accept `blur`, `shadow`, and `glow`. Radii and shadow
+offsets use output pixels. All three can change each frame through React props:
+
+```tsx
+function Title() {
+  const frame = useCurrentFrame();
+  return <Group blur={Math.min(frame / 10, 8)}
+    glow={{ color: '#FFCC6680', blur: 12 }}>
+    <Text shadow={{ color: '#000000B0', blur: 6, offsetX: 4, offsetY: 6 }}>
+      Celesta
+    </Text>
+  </Group>;
+}
+```
+
+Blur radii are limited to 64 pixels. JSON timeline items accept the same
+effects under `effects`, with keyframes for numeric properties and colors.
+
 ### Type-check your compositions
 
 Choose **File > Set Up TypeScript** with a React composition open. Celesta

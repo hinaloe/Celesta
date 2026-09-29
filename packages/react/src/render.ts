@@ -328,6 +328,7 @@ function buildLayer(
   const transform = extractTransform(props);
   const opacity = typeof props.rawOpacity === 'number' ? props.rawOpacity : numberOr(props.opacity, 1);
   const blendMode = extractBlendMode(props.blendMode);
+  const effects = extractEffects(props);
 
   let content: LayerContent;
   if (node.type === 'group' || node.type === 'sequence') {
@@ -509,7 +510,49 @@ function buildLayer(
     throw new Error(`unreachable: unknown host node type "${node.type}"`);
   }
 
-  return { id, transform, opacity, ...(blendMode !== 'normal' ? { blendMode } : {}), content };
+  return { id, transform, opacity, ...(blendMode !== 'normal' ? { blendMode } : {}),
+    ...(effects ? { effects } : {}), content };
+}
+
+function extractEffects(props: Record<string, unknown>): Layer['effects'] | undefined {
+  const radius = (value: unknown, name: string): number => {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 64) {
+      throw new Error(`${name} must be a finite number between 0 and 64`);
+    }
+    return value;
+  };
+  const offset = (value: unknown, name: string): number => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new Error(`${name} must be a finite number`);
+    }
+    return value;
+  };
+  const color = (value: unknown, name: string): string => {
+    if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(value)) {
+      throw new Error(`${name} must be a #RRGGBB or #RRGGBBAA color`);
+    }
+    return value;
+  };
+  const blur = props.blur === undefined ? 0 : radius(props.blur, 'blur');
+  if (props.shadow === null || props.glow === null) {
+    throw new Error('shadow and glow must be effect objects when provided');
+  }
+  const shadow = props.shadow === undefined ? undefined : props.shadow as Record<string, unknown>;
+  const glow = props.glow === undefined ? undefined : props.glow as Record<string, unknown>;
+  if (blur === 0 && !shadow && !glow) return undefined;
+  return {
+    blur,
+    ...(shadow ? { shadow: {
+      color: color(shadow.color, 'shadow.color'),
+      blur: radius(shadow.blur, 'shadow.blur'),
+      offsetX: offset(shadow.offsetX, 'shadow.offsetX'),
+      offsetY: offset(shadow.offsetY, 'shadow.offsetY'),
+    } } : {}),
+    ...(glow ? { glow: {
+      color: color(glow.color, 'glow.color'),
+      blur: radius(glow.blur, 'glow.blur'),
+    } } : {}),
+  };
 }
 
 const BLEND_MODES: readonly BlendMode[] = ['normal', 'multiply', 'screen', 'overlay', 'add', 'difference'];
