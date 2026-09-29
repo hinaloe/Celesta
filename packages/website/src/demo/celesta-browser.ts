@@ -23,6 +23,7 @@ export interface TextStyle {
   stroke?: { paint: Paint; width: number } | null;
   align?: 'left' | 'center' | 'right' | null;
   lineHeight?: number | null;
+  letterSpacing?: number | null;
 }
 
 export interface CommonProps {
@@ -191,6 +192,7 @@ function drawText(ctx: CanvasRenderingContext2D, props: TextProps, parent: Affin
   ctx.font = `${style.fontWeight ?? 400} ${size}px ${family}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
+  ctx.letterSpacing = `${style.letterSpacing ?? 0}px`;
 
   const paragraphs = text.split('\n');
   const lines = props.maxWidth === undefined ? paragraphs : paragraphs.flatMap(p => wrap(ctx, p, props.maxWidth!));
