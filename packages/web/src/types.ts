@@ -1,0 +1,59 @@
+/** Types returned by the Celesta React evaluator in the browser. */
+export interface CompositionConfig {
+  width: number;
+  height: number;
+  frameRate: { numerator: number; denominator: number };
+  durationInFrames: number;
+}
+
+export type Asset = { id: string; location: { type: 'file'; path: string } | { type: 'url'; url: string } };
+export type Paint =
+  | { type: 'solid'; color: string }
+  | { type: 'linear'; start: Point; end: Point; stops: { offset: number; color: string }[] }
+  | { type: 'radial'; center: Point; radius: number; stops: { offset: number; color: string }[] };
+export type Stroke = { paint: Paint; width: number };
+export type Point = { x: number; y: number };
+export type Transform = { position: Point; scale: Point; rotation: number; anchor: Point };
+export type TextStyle = {
+  fontFamily?: string | null;
+  fontSize?: number | null;
+  fontWeight?: number | null;
+  fill?: Paint | null;
+  stroke?: Stroke | null;
+  align?: 'left' | 'center' | 'right' | null;
+  lineHeight?: number | null;
+  letterSpacing?: number | null;
+};
+export type LayerContent =
+  | { type: 'group'; layers: Layer[]; clip?: { x: number; y: number; width: number; height: number; cornerRadius: number } | null }
+  | { type: 'rect'; width: number; height: number; fill?: Paint | null; stroke?: Stroke | null; cornerRadius: number }
+  | { type: 'text'; text: string; style: TextStyle; maxWidth?: number | null; baselineAnchor?: boolean }
+  | { type: 'image'; asset: Asset }
+  | { type: 'video'; asset: Asset; timing: { sourceTimeSeconds: number } }
+  | { type: 'psd'; asset: Asset }
+  | { type: 'missingComponent'; component: string; props: Record<string, unknown> };
+export type Layer = {
+  id: string;
+  transform: Transform;
+  opacity: number;
+  blendMode?: 'normal' | 'multiply' | 'screen' | 'overlay' | 'add' | 'difference';
+  content: LayerContent;
+};
+export type Scene = {
+  width: number;
+  height: number;
+  frameRate: CompositionConfig['frameRate'];
+  time: { value: number; timescale: number };
+  fonts?: Asset[];
+  layers: Layer[];
+};
+export type AudioClip = {
+  src: string;
+  sourceStart: number;
+  playbackRate: number | { type: 'keyframes'; keyframes: unknown[] };
+  volume: number | { type: 'keyframes'; keyframes: unknown[] };
+  muted: boolean;
+  start: number;
+  duration: number;
+};
+export type Frame = { scene: Scene; audio: AudioClip[] };

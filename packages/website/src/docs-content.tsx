@@ -285,6 +285,7 @@ export const sections: DocSection[] = [
   },
   {
     id: 'export', title: 'Export a video', description: 'Take your composition from the preview to an MP4.', keywords: 'mp4 H264 AAC render cli command line from to overwrite export', content: <>
+      <h3>In your browser</h3><p>Open the <a href="/#playground">web editor</a>, change or open a TSX composition, and choose <strong>Export MP4</strong>. The source, preview, and export use Celesta’s React scene evaluator. Add local media files by name with <strong>Add media</strong>. The browser needs H.264 WebCodecs support; audio also needs AAC encoding. The browser preview is silent, while the exported MP4 includes constant-rate audio clips. For PSDs, project timelines, <code>prepare()</code>, third-party imports, animated audio automation, and native-renderer output, use the installed app or CLI.</p>
       <h3>From the app</h3><p>Choose <strong>Export…</strong> and select an MP4 destination. For a section of the composition, press <kbd>I</kbd> and <kbd>O</kbd> to mark the start and end. The status bar shows progress; <strong>Cancel export</strong> stops the job.</p>
       <h3>From the command line</h3><ExportCommands />
       <p>Time values accept seconds, <code>MM:SS.mmm</code>, or <code>HH:MM:SS.mmm</code>. The selected span becomes a new video starting at its own 00:00.</p>
@@ -347,7 +348,7 @@ export const sections: DocSection[] = [
       <h3>Included with the app</h3><p>Copy an example into your own project folder before editing it.</p><ul><li><strong>macOS:</strong> in Finder, right-click Celesta in Applications, choose <strong>Show Package Contents</strong>, then open <code>Contents/Resources/examples</code>.</li><li><strong>Windows:</strong> open the <code>examples</code> folder beside <code>Celesta.exe</code> in the installed or portable app folder.</li></ul>
       <p>The repository’s <code>packages/react/examples</code> directory contains more scenes covering text, animation, layout, dialogue, lip sync, and editable project properties. Download the source archive, extract it, and open a supported entry through <strong>File → Open…</strong> in the installed app; no source build is needed.</p>
       <a className="doc-text-link" href={`${repository}/tree/main/packages/react/examples`}>Browse all source examples on GitHub ↗</a>
-      <p>You can also <a href="/#playground">visit the website playground</a>, customize its title and palette, and download the <code>.tsx</code> composition it previews. The browser draws that same file, so the download looks the same when you open it in Celesta.</p>
+      <p>You can also <a href="/#playground">open the web editor</a>, edit or import a self-contained <code>.tsx</code> composition, preview frames, and export MP4 directly. Download the source to keep editing it in Celesta.</p>
     </>,
   },
   {

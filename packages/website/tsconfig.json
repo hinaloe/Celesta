@@ -14,18 +14,14 @@
     "types": [
       "vite/client"
     ],
-    "jsx": "react-jsx",
-    "paths": {
-      "@celesta/react": [
-        "./src/demo/celesta-browser.ts"
-      ]
-    }
+    "jsx": "react-jsx"
   },
   "include": [
     "src",
     "vite.config.ts"
   ],
   "exclude": [
-    "src/examples"
+    "src/examples",
+    "src/demo/title-scene.tsx"
   ]
 }

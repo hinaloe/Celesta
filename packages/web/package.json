@@ -1,0 +1,30 @@
+{
+  "name": "@celesta/web",
+  "version": "0.1.0",
+  "description": "Browser runtime, Canvas preview, and MP4 export for Celesta React compositions",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "files": ["dist", "README.md", "LICENSE-MIT", "LICENSE-APACHE"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "module": "./dist/index.js",
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.worker.json && vite build && tsc -p tsconfig.json",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "esbuild-wasm": "^0.28.2",
+    "mediabunny": "^1.60.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.6",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.1"
+  }
+}

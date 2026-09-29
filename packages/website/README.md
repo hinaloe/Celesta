@@ -87,28 +87,26 @@ so rebuild after changing them.
   type-check and checked against the real `@celesta/react` instead.
   The JSON chapter imports `../../examples/editor-demo.celesta.json` from the
   repository so its example stays in sync. Build with the repository present.
-- `src/demo/title-scene.tsx`: the playground composition, a real Celesta scene.
-  The playground shows this file's source with the visitor's title and palette
-  filled in, and offers it as `my-first-scene.tsx`.
-- `src/demo/celesta-browser.ts`: a small browser implementation of the part of
-  `@celesta/react` the scene uses. Vite and `tsconfig.json` alias
-  `@celesta/react` to it, and it draws the scene on a canvas with the native
-  renderer's rules (transform order, anchors, per-layer opacity, inner rect
-  strokes, and text trimmed to its visible glyphs). The preview therefore
-  matches what Celesta exports. If the scene uses another component, add it
-  here first.
-- `src/Playground.tsx`: the interactive preview with an editable title, three
-  palettes, frame scrubbing, explicit playback, and the scrollable source.
+- `src/demo/title-scene.tsx`: editable starting composition.
+- `src/Playground.tsx`: TSX editor and file/media import. `@celesta/web` provides
+  frame preview and MP4 export. esbuild WASM compiles the visitor's code in a
+  dedicated Worker, and Celesta's real React reconciler/evaluator produces
+  each `Scene`. The browser canvas renderer draws that Scene for both preview
+  and export. Mediabunny uses WebCodecs for H.264/AAC and MP4 muxing.
 - `src/style.css`: design tokens, responsive layouts, and reduced-motion styles.
 - `public/favicon.svg`: the existing Celesta Starlight logo from `packages/logos`.
 
-The browser demo does not load Celesta's native renderer or export MP4. Playback
-is opt-in and stops after one five-second pass. Press Play to restart; dragging
-the frame slider pauses playback. To render the downloaded `.tsx`, open it in
-the installed Celesta app. Source-build users should first follow the developer
-setup chapter. The scene uses the Georgia font, which ships with macOS and
-Windows; other systems fall back to a sans-serif font in both the browser and
-Celesta.
+The web editor accepts one self-contained TSX file. Runtime imports are limited
+to `@celesta/react` and `react`; `prepare()`, companion JSON projects, PSD
+portraits, and other npm imports still require the desktop/CLI workflow. Add
+local image, video, or audio files with **Add media** and refer to them by file
+name in `src`. Remote media needs CORS access. The web preview is silent;
+constant-rate/constant-volume audio clips are mixed into the exported MP4.
+Animated audio rate/volume reports an error instead of exporting incorrect
+sound. Encoding requires the browser's H.264 WebCodecs support, and AAC support
+for compositions with audio. Browser canvas text, video seeking, and fonts can
+differ from the native renderer, so use the desktop exporter for pixel-exact
+native output. Export currently buffers the MP4 in memory.
 
 The website uses packaged macOS and Windows downloads as the primary onboarding
 flow. The source-build workflow is a separate developer chapter. Keep
@@ -128,10 +126,10 @@ pnpm deploy:check
 `src/examples/` against the declarations staged by `packages/react`'s
 `pnpm run build` (`dist/project-types/`). Build that package first.
 
-Check the page at desktop and mobile widths: navigation, palette selection,
-title updates, playback/pause/scrubbing, source copying and download. After changing
-the scene, open the downloaded file in Celesta (or export it with
-`celesta-exporter --react`) and compare a frame with the browser preview. Test
+Check the page at desktop and mobile widths: navigation, TSX changes,
+playback/pause/scrubbing, source opening/copying/downloading, media import,
+canceling, and MP4 download. After changing the scene, export it and inspect
+the MP4 codecs, frame count, and an actual decoded frame. Test
 `pnpm preview:cloudflare` for static asset serving and missing-page responses.
 
 For documentation changes, verify topic search (including no results), OS

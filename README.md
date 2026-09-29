@@ -230,6 +230,11 @@ It uses Vite, React, and Tailwind CSS, with Cloudflare Workers Static Assets
 deployment configured. See the [website guide](packages/website/README.md) for
 local development, production builds, and deployment instructions.
 
+The browser composition evaluator, Canvas preview, and MP4 exporter are a
+reusable package in [`packages/web`](packages/web). The website consumes its
+public `@celesta/web` API. See the [web package guide](packages/web/README.md)
+for an embedding example and browser requirements.
+
 ## Report a problem
 
 Open an issue in this repository with your operating system, steps to reproduce
