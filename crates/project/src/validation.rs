@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
 
-use celesta_composition::{Animatable, Paint, TextStyle, Time, Transform};
+use celesta_composition::{Animatable, GradientStop, Paint, TextStyle, Time, Transform};
 
 use crate::{AssetKind, Character, Project, SourceRange, TimelineContent, TimelineItem};
 
@@ -483,12 +483,56 @@ impl Validator<'_> {
     }
 
     fn paint(&mut self, path: &str, paint: &Paint) {
-        let Paint::Solid { color } = paint;
+        match paint {
+            Paint::Solid { color } => self.color(&format!("{path}.color"), color),
+            Paint::Linear { start, end, stops } => {
+                for (name, point) in [("start", start), ("end", end)] {
+                    if !point.x.is_finite() || !point.y.is_finite() {
+                        self.error(format!("{path}.{name}"), "must be finite");
+                    }
+                }
+                if start == end {
+                    self.error(path, "start and end must differ");
+                }
+                self.gradient_stops(path, stops);
+            }
+            Paint::Radial {
+                center,
+                radius,
+                stops,
+            } => {
+                if !center.x.is_finite() || !center.y.is_finite() {
+                    self.error(format!("{path}.center"), "must be finite");
+                }
+                if !radius.is_finite() || *radius <= 0.0 {
+                    self.error(format!("{path}.radius"), "must be finite and positive");
+                }
+                self.gradient_stops(path, stops);
+            }
+        }
+    }
+
+    fn gradient_stops(&mut self, path: &str, stops: &[GradientStop]) {
+        if stops.len() < 2 {
+            self.error(format!("{path}.stops"), "needs at least 2 stops");
+        }
+        for (index, stop) in stops.iter().enumerate() {
+            if !stop.offset.is_finite() || !(0.0..=1.0).contains(&stop.offset) {
+                self.error(
+                    format!("{path}.stops[{index}].offset"),
+                    "must be between 0 and 1",
+                );
+            }
+            self.color(&format!("{path}.stops[{index}].color"), &stop.color);
+        }
+    }
+
+    fn color(&mut self, path: &str, color: &str) {
         let hex = color.strip_prefix('#');
         if !hex.is_some_and(|hex| {
             matches!(hex.len(), 6 | 8) && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
         }) {
-            self.error(format!("{path}.color"), "must use #RRGGBB or #RRGGBBAA");
+            self.error(path, "must use #RRGGBB or #RRGGBBAA");
         }
     }
 

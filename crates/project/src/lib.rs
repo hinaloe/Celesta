@@ -9,8 +9,8 @@ use std::fs;
 use std::path::Path;
 
 pub use celesta_composition::{
-    Animatable, AnimatablePoint, BlendMode, Easing, Keyframe, KeyframeAnimation, Paint, Rational,
-    Stroke, TextAlign, TextStyle, Time, TimeError, TimeRange, Transform,
+    Animatable, AnimatablePoint, BlendMode, Easing, GradientStop, Keyframe, KeyframeAnimation,
+    Paint, Rational, Stroke, TextAlign, TextStyle, Time, TimeError, TimeRange, Transform,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use serde_json::Value;

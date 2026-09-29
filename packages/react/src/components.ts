@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { CompositionRuntimeContext } from './hooks';
 import { useOptionalLipSync } from './lipsync';
 import type { LipSyncTrack } from './lipsync';
-import type { Animatable, BlendMode, TextStyle } from './scene';
+import type { Animatable, BlendMode, Paint, TextStyle } from './scene';
 import { secondsFromTime, secondsToTime } from './time';
 
 // Unlike the pre-reconciler tree walker, these are real function components:
@@ -99,10 +99,14 @@ export interface TextProps extends Omit<CommonProps, 'anchorY'> {
 export interface RectProps extends CommonProps {
   width: number;
   height: number;
-  /** Hex fill color (`"#RRGGBB"` or `"#RRGGBBAA"`). Omit for no fill. */
-  fill?: string;
-  /** Hex stroke color; has no visible effect without `strokeWidth`. */
-  stroke?: string;
+  /**
+   * Hex fill color (`"#RRGGBB"` or `"#RRGGBBAA"`), or a `Paint` for a linear or
+   * radial gradient in the rect's local pixels (origin at its top-left).
+   * Omit for no fill.
+   */
+  fill?: string | Paint;
+  /** Stroke color or `Paint`; has no visible effect without `strokeWidth`. */
+  stroke?: string | Paint;
   strokeWidth?: number;
   cornerRadius?: number;
 }

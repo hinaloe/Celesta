@@ -48,6 +48,7 @@ export type {
   Clip,
   CompositionConfig,
   EvaluatedTransform,
+  GradientStop,
   Layer,
   LayerContent,
   MediaTiming,

@@ -71,12 +71,24 @@ the current frame.
 | Prop | Notes |
 | --- | --- |
 | `width`, `height` | Required, pixels. |
-| `fill` | Hex string (`"#RRGGBB"` / `"#RRGGBBAA"`). Omit for no fill. |
-| `stroke`, `strokeWidth` | Inner stroke; needs both to be visible. |
+| `fill` | Hex string (`"#RRGGBB"` / `"#RRGGBBAA"`) or a gradient `Paint` (see below). Omit for no fill. |
+| `stroke`, `strokeWidth` | Inner stroke (hex or `Paint`); needs both to be visible. |
 | `cornerRadius` | Pixels. A square with `cornerRadius = size / 2` is a circle. |
 
 A full-canvas background: `<Rect width={1920} height={1080} fill="#101018" />`
 as the first child.
+
+Gradients: pass a `Paint` to `fill`/`stroke` (or a text style's `fill` /
+`stroke.paint`). Coordinates are local pixels from the layer's top-left (for
+text, its layout box). Stops are `{ offset: 0..1, color }`; colors may carry
+alpha, so a gradient can fade to transparent. At least 2 stops.
+
+```tsx
+<Rect width={1920} height={1080}
+  fill={{ type: 'linear', start: { x: 0, y: 0 }, end: { x: 0, y: 1080 },
+          stops: [{ offset: 0, color: '#101018' }, { offset: 1, color: '#10101800' }] }} />
+// radial: { type: 'radial', center: { x, y }, radius, stops }
+```
 
 ### `<Text>`
 
@@ -176,8 +188,8 @@ type TextStyle = {
   fontFamily?: string;     // installed family, or one loaded with <Font>
   fontSize?: number;       // px, > 0
   fontWeight?: number;     // 100–900
-  fill?: { type: 'solid'; color: string };                        // hex
-  stroke?: { paint: { type: 'solid'; color: string }; width: number }; // outline
+  fill?: Paint;                                   // solid or gradient
+  stroke?: { paint: Paint; width: number };       // outline
   align?: 'left' | 'center' | 'right';
   lineHeight?: number;     // px, > 0
   letterSpacing?: number;  // px added after each glyph; may be negative

@@ -16,7 +16,22 @@ import { Fragment, isValidElement, type ReactElement, type ReactNode } from 'rea
 
 export { Easings, interpolate } from '../../../react/src/animation';
 
-type Paint = { type: 'solid'; color: string };
+type GradientStop = { offset: number; color: string };
+type Paint =
+  | { type: 'solid'; color: string }
+  | { type: 'linear'; start: { x: number; y: number }; end: { x: number; y: number }; stops: GradientStop[] }
+  | { type: 'radial'; center: { x: number; y: number }; radius: number; stops: GradientStop[] };
+
+/** A canvas fill/stroke style for `paint`, its coordinates shifted down by `-dy`. */
+function paintStyle(ctx: CanvasRenderingContext2D, paint: Paint | string, dy = 0): string | CanvasGradient {
+  if (typeof paint === 'string') return paint;
+  if (paint.type === 'solid') return paint.color;
+  const gradient = paint.type === 'linear'
+    ? ctx.createLinearGradient(paint.start.x, paint.start.y - dy, paint.end.x, paint.end.y - dy)
+    : ctx.createRadialGradient(paint.center.x, paint.center.y - dy, 0, paint.center.x, paint.center.y - dy, paint.radius);
+  for (const stop of paint.stops) gradient.addColorStop(stop.offset, stop.color);
+  return gradient;
+}
 
 export interface TextStyle {
   fontFamily?: string | null;
@@ -71,8 +86,8 @@ export interface GroupProps extends CommonProps {
 export interface RectProps extends CommonProps {
   width: number;
   height: number;
-  fill?: string;
-  stroke?: string;
+  fill?: string | Paint;
+  stroke?: string | Paint;
   strokeWidth?: number;
   cornerRadius?: number;
 }
@@ -165,14 +180,14 @@ function drawRect(ctx: CanvasRenderingContext2D, props: RectProps, parent: Affin
   if (props.fill) {
     ctx.beginPath();
     roundedRect(ctx, strokeWidth, strokeWidth, width - strokeWidth * 2, height - strokeWidth * 2, radius - strokeWidth);
-    ctx.fillStyle = props.fill;
+    ctx.fillStyle = paintStyle(ctx, props.fill);
     ctx.fill();
   }
   if (props.stroke && strokeWidth > 0) {
     ctx.beginPath();
     roundedRect(ctx, 0, 0, width, height, radius);
     roundedRect(ctx, strokeWidth, strokeWidth, width - strokeWidth * 2, height - strokeWidth * 2, radius - strokeWidth);
-    ctx.fillStyle = props.stroke;
+    ctx.fillStyle = paintStyle(ctx, props.stroke);
     ctx.fill('evenodd');
   }
 }
@@ -236,10 +251,10 @@ function drawText(ctx: CanvasRenderingContext2D, props: TextProps, parent: Affin
     if (style.stroke && style.stroke.width > 0) {
       ctx.lineJoin = 'round';
       ctx.lineWidth = style.stroke.width * 2;
-      ctx.strokeStyle = style.stroke.paint.color;
+      ctx.strokeStyle = paintStyle(ctx, style.stroke.paint, top);
       ctx.strokeText(line.text, line.x, line.baseline - top);
     }
-    ctx.fillStyle = style.fill?.color ?? '#ffffff';
+    ctx.fillStyle = style.fill ? paintStyle(ctx, style.fill, top) : '#ffffff';
     ctx.fillText(line.text, line.x, line.baseline - top);
   }
 }
