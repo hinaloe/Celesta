@@ -276,61 +276,56 @@ function ChapterShell({ index, children }: { index: number; children: ReactNode 
   );
 }
 
-// ── 00 · Cold open: one frame becomes many, then floods into the title ───
-
-// Mixes two #RRGGBB colors.
-function mixHex(a: string, b: string, t: number) {
-  const channel = (hex: string, i: number) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
-  return `#${[0, 1, 2].map((i) =>
-    Math.round(channel(a, i) + (channel(b, i) - channel(a, i)) * clamp(t)).toString(16).padStart(2, '0'),
-  ).join('')}`;
-}
-
-const TILE_COLORS = [C.blue, C.blue, C.blue, C.sky, C.sky, C.paper, C.pink, '#2B3F9E'];
+// ── 00 · Cold open: a ball bounces through one frame, then fills the screen ──
 
 function Open() {
   const f = useCurrentFrame();
-  const beat = clamp(Math.floor(f / BEAT), 0, 3);
-  const local = f - beat * BEAT;
-  // From frame 48 every tile turns blue in a diagonal wave, the gaps close,
-  // and the sheet grows to fill the screen: the title's background.
-  const flood = progress(f, 48, 8, Easings.easeInOutCubic);
-  const zoom = 1 + progress(f, 50, 10, Easings.easeInOutCubic);
-  const count = 4 ** beat;
-  const captions = 1 - progress(f, 46, 6);
+  const fw = 960;
+  const fh = 540;
+  const fx = (W - fw) / 2;
+  const fy = (H - fh) / 2 - 20;
+  const floor = fy + fh - 70;
+  const frameIn = progress(f, 0, 12, Easings.easeOutExpo);
+  const frameOut = 1 - progress(f, 46, 6);
 
-  // One generation of tiles: 1, 2, 4 or 8 per side. Each beat's generation
-  // pops in over the previous one, center first.
-  const sheet = (gen: number, appear: number) => {
-    const n = 2 ** gen;
-    const sheetW = 960;
-    const sheetH = 540;
-    const gap = n === 1 ? 0 : (36 / n) * (1 - flood);
-    const tw = (sheetW - gap * (n - 1)) / n;
-    const th = (sheetH - gap * (n - 1)) / n;
-    const radius = (n === 1 ? 18 : 8) * (1 - flood);
-    return Array.from({ length: n * n }, (_, i) => {
-      const r = Math.floor(i / n);
-      const c = i % n;
-      const ring = Math.hypot(c - (n - 1) / 2, r - (n - 1) / 2) / Math.max(1, n / 2);
-      const p = progress(appear, ring * 4, 8, Easings.easeOutBack);
-      const base = n === 1 ? C.blue : TILE_COLORS[Math.floor(hash(i, gen) * TILE_COLORS.length)];
-      const color = mixHex(base, C.blue, clamp(flood * 1.6 - ((c + r) / (2 * n)) * 0.6));
-      return (
-        <Group key={`${gen}-${i}`} x={-sheetW / 2 + c * (tw + gap) + tw / 2} y={-sheetH / 2 + r * (th + gap) + th / 2}
-          scale={0.8 + 0.2 * p} opacity={clamp(p * 1.5)}>
-          <Rect anchorX={0.5} anchorY={0.5} width={tw + 1} height={th + 1} cornerRadius={radius} fill={color} />
-          {n <= 2 && (
-            <T x={-tw / 2 + 22} y={-th / 2 + 30} size={18} font="mono" weight={700}
-              color={color === C.paper || color === C.sky ? C.ink : C.paper} ay={0.5} opacity={0.8}>
-              {`frame ${pad(i, 3)}`}
-            </T>
-          )}
-        </Group>
-      );
-    });
-  };
-  const previous = beat > 0 ? 1 - progress(local, 3, 6) : 0;
+  // The ball lands on every beat: 0, 15, 30, then rests at the center on 45.
+  const beat = Math.floor(f / BEAT);
+  const u = (f % BEAT) / BEAT;
+  const hop = beat < 3 ? 4 * u * (1 - u) * [230, 180, 130][beat] : 0;
+  const x = interpolate(f, [0, 45], [fx + 150, W / 2], {
+    easing: Easings.easeOutSine, extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
+  });
+  const land = beat < 3 ? Math.min(u, 1 - u) : 1; // 0 at the moment of contact
+  const squash = beat < 4 ? 1 - 0.28 * clamp(1 - land / 0.12) : 1;
+  const d = 110;
+  const ballIn = progress(f, 2, 10, Easings.easeOutBack);
+  // From frame 46 the ball opens like an iris until it covers the screen.
+  const iris = progress(f, 46, 14, Easings.easeInCubic);
+  const size = d + (2300 - d) * iris;
+  const cy = floor - d / 2 - hop + (H / 2 - (floor - d / 2)) * iris;
+
+  const ball = (
+    <>
+      <Rect width={W} height={H} fill={C.ink} />
+      <Group opacity={frameIn * frameOut} y={20 * (1 - frameIn)}>
+        <Rect x={fx} y={fy} width={fw} height={fh} cornerRadius={18} fill={C.panel} stroke="#FFFFFF33" strokeWidth={2} />
+        <Rect x={fx + 60} y={floor} width={fw - 120} height={2} fill="#FFFFFF22" />
+        <T x={fx + 28} y={fy + 34} size={18} font="mono" weight={700} color={C.soft} ay={0.5}>
+          {`frame ${pad(f, 3)}`}
+        </T>
+        {/* The ball's shadow shrinks as it rises. */}
+        <Rect x={x} y={floor + 1} anchorX={0.5} anchorY={0.5} width={d * (1 - hop / 400)} height={10}
+          cornerRadius={5} fill="#000000" opacity={0.35 * (1 - hop / 300) * ballIn} />
+        <T x={fx} y={fy + fh + 50} size={20} font="mono" weight={700} ay={0.5}>{'const y = bounce(frame);'}</T>
+        <T x={fx + fw} y={fy + fh + 50} size={20} font="mono" weight={400} color={C.soft} ax={1} ay={0.5}>
+          {'f(frame) → pixels'}
+        </T>
+      </Group>
+      <Rect x={x} y={cy} anchorX={0.5} anchorY={0.5}
+        width={size * (iris > 0 ? 1 : (2 - squash))} height={size * (iris > 0 ? 1 : squash)}
+        cornerRadius={size / 2} fill={C.blue} scale={iris > 0 ? 1 : ballIn} />
+    </>
+  );
 
   // Bar 1: the title.
   const t = f - BAR;
@@ -340,25 +335,10 @@ function Open() {
 
   return (
     <>
-      <Rect width={W} height={H} fill={t >= 0 ? C.blue : C.ink} />
-      {t < 0 && (
-        <>
-          <Group x={W / 2} y={H / 2} scale={zoom}>
-            {previous > 0 && <Group opacity={previous}>{sheet(beat - 1, BEAT)}</Group>}
-            {sheet(beat, beat === 0 ? f : local)}
-          </Group>
-          <Group opacity={captions}>
-            <T x={480} y={880} size={20} font="mono" weight={700} ay={0.5}>
-              {`${count} ${count === 1 ? 'frame' : 'frames'}`}
-            </T>
-            <T x={1440} y={880} size={20} font="mono" weight={400} color={C.soft} ax={1} ay={0.5}>
-              {'f(frame) → pixels'}
-            </T>
-          </Group>
-        </>
-      )}
+      {t < 0 && ball}
       {t >= 0 && (
         <>
+          <Rect width={W} height={H} fill={C.blue} />
           <T x={W / 2} y={H / 2 - 10 + 30 * (1 - hit)} size={250} ax={0.5} ay={0.5} scale={1.08 - 0.08 * hit}
             opacity={clamp(hit * 1.5)}>Celesta</T>
           <T x={W / 2} y={H / 2 - 210 + 16 * (1 - label)} size={22} font="mono" weight={700} ax={0.5} ay={0.5}
