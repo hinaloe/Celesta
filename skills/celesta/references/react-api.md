@@ -99,6 +99,21 @@ animation, mixed font sizes) at one `y`.
 No size or appearance of its own. Children are positioned relative to the
 group's `x`/`y`, and its rotation, scale, and opacity apply to all of them.
 
+| Prop | Notes |
+| --- | --- |
+| `clip` | `{ x, y, width, height, cornerRadius }`: draw the children only inside this rectangle. `x`/`y` (default `0`) are its top-left corner and `cornerRadius` (default `0`) rounds it, both in the group's own coordinates, so the clip moves, scales, and rotates with the group. |
+
+Use `clip` for a mask reveal (text sliding up from behind an invisible edge),
+a wipe, or content scrolling inside a panel. The edge is anti-aliased, and
+clips nested inside one another intersect (up to 8 deep on the GPU renderer).
+A clip with no area (`width` or `height` of 0 or less) hides the children.
+
+```tsx
+<Group x={120} y={200} clip={{ width: 600, height: 80 }}>
+  <Text y={80 * (1 - reveal)} style={{ fontSize: 64 }}>Layer it.</Text>
+</Group>
+```
+
 With a `blendMode` other than `'normal'`, the group is isolated: its children
 are drawn together first, and the result blends with what is beneath the
 group as one layer, faded by the group's `opacity`. A HUD that must stay

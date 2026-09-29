@@ -9,6 +9,7 @@ export type { AudioClip } from './generated/AudioClip';
 export type { Animatable } from './generated/Animatable';
 export type { AudioGraph } from './generated/AudioGraph';
 export type { BlendMode } from './generated/BlendMode';
+export type { Clip } from './generated/Clip';
 export type { Easing } from './generated/Easing';
 export type { EvaluatedTransform } from './generated/EvaluatedTransform';
 export type { Keyframe } from './generated/Keyframe';

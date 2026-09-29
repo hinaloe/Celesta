@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use celesta_composition::{
-    BlendMode, Layer, LayerContent, MediaTiming, Paint, Point, ResolvedAsset, Scene, Stroke,
+    BlendMode, Clip, Layer, LayerContent, MediaTiming, Paint, Point, ResolvedAsset, Scene, Stroke,
     TextAlign, TextStyle,
 };
 use celesta_media::{MediaError, VideoFrameDecoder};
@@ -582,6 +582,7 @@ impl CpuRenderer {
                 y: parent.scale.y * layer.transform.scale.y,
             },
             opacity: (parent.opacity * layer.opacity).clamp(0.0, 1.0),
+            clip: parent.clip,
             blend_mode: layer.blend_mode,
         };
         if state.opacity == 0.0 || state.scale.x == 0.0 || state.scale.y == 0.0 {
@@ -601,49 +602,61 @@ impl CpuRenderer {
                 *max_width,
                 layer.transform.anchor,
                 *baseline_anchor,
-                state,
+                &state,
             )?,
-            LayerContent::Group { layers } if !layer.blend_mode.is_normal() => {
-                // Isolated: the children composite onto a transparent layer
-                // of their own, which then blends with the backdrop as one.
-                let mut isolated = RgbaFrame {
-                    width: frame.width,
-                    height: frame.height,
-                    pixels: vec![0; frame.pixels.len()],
-                };
-                let inner = ParentState {
-                    opacity: 1.0,
-                    blend_mode: BlendMode::Normal,
-                    ..state
-                };
-                for child in layers {
-                    self.render_layer(&mut isolated, child, inner)?;
+            LayerContent::Group { layers, clip } => {
+                let mut child_state = state.clone();
+                if let Some(clip) = clip {
+                    if clip.is_empty() {
+                        return Ok(());
+                    }
+                    child_state.clip = Some(Arc::new(ClipNode {
+                        region: ClipRegion::new(clip, state.position, state.scale),
+                        parent: state.clip.clone(),
+                    }));
                 }
-                for (destination, source) in frame
-                    .pixels
-                    .chunks_exact_mut(4)
-                    .zip(isolated.pixels.chunks_exact(4))
-                {
-                    let source = Color::rgba(source[0], source[1], source[2], source[3]);
-                    blend_with_mode(destination, source, state.opacity, state.blend_mode);
+                if !layer.blend_mode.is_normal() {
+                    // Isolated: the children composite onto a transparent layer
+                    // of their own, which then blends with the backdrop as one.
+                    // The children carry the clip; the layer itself does not.
+                    let mut isolated = RgbaFrame {
+                        width: frame.width,
+                        height: frame.height,
+                        pixels: vec![0; frame.pixels.len()],
+                    };
+                    let inner = ParentState {
+                        opacity: 1.0,
+                        blend_mode: BlendMode::Normal,
+                        ..child_state
+                    };
+                    for child in layers {
+                        self.render_layer(&mut isolated, child, inner.clone())?;
+                    }
+                    for (destination, source) in frame
+                        .pixels
+                        .chunks_exact_mut(4)
+                        .zip(isolated.pixels.chunks_exact(4))
+                    {
+                        let source = Color::rgba(source[0], source[1], source[2], source[3]);
+                        blend_with_mode(destination, source, state.opacity, state.blend_mode);
+                    }
+                    return Ok(());
                 }
-            }
-            LayerContent::Group { layers } => {
                 // Not isolated: each child composites straight onto the
                 // backdrop, through its own blend mode.
                 for child in layers {
-                    self.render_layer(frame, child, state)?;
+                    self.render_layer(frame, child, child_state.clone())?;
                 }
             }
             LayerContent::Video { asset, timing } => {
                 if self.video_decoder.is_some() {
                     let image = self.decode_video_frame(&layer.id, asset, timing)?;
-                    render_image(frame, &image, layer.transform.anchor, state);
+                    render_image(frame, &image, layer.transform.anchor, &state);
                 } else {
                     render_placeholder(
                         frame,
                         layer.transform.anchor,
-                        state,
+                        &state,
                         Color::rgba(54, 98, 176, 255),
                         320.0,
                         180.0,
@@ -652,7 +665,7 @@ impl CpuRenderer {
             }
             LayerContent::Image { asset } => {
                 let image = self.load_image(asset)?;
-                render_image(frame, image, layer.transform.anchor, state);
+                render_image(frame, image, layer.transform.anchor, &state);
             }
             LayerContent::Psd {
                 asset,
@@ -662,7 +675,7 @@ impl CpuRenderer {
             } => {
                 let image =
                     self.load_psd(asset, visible_layers, enabled_layers, disabled_layers)?;
-                render_image(frame, image, layer.transform.anchor, state);
+                render_image(frame, image, layer.transform.anchor, &state);
             }
             LayerContent::Rect {
                 width,
@@ -686,13 +699,13 @@ impl CpuRenderer {
                         pixels: image.into_pixels(),
                     },
                     layer.transform.anchor,
-                    state,
+                    &state,
                 );
             }
             LayerContent::MissingComponent { .. } => render_placeholder(
                 frame,
                 layer.transform.anchor,
-                state,
+                &state,
                 Color::rgba(220, 125, 42, 255),
                 240.0,
                 120.0,
@@ -710,7 +723,7 @@ impl CpuRenderer {
         max_width: Option<f64>,
         mut anchor: Point,
         baseline_anchor: bool,
-        state: ParentState,
+        state: &ParentState,
     ) -> Result<(), RenderError> {
         if (state.scale.x.abs() - state.scale.y.abs()).abs() > f64::EPSILON {
             return Err(RenderError::UnsupportedNonUniformTextScale {
@@ -734,9 +747,9 @@ impl CpuRenderer {
             frame,
             &image,
             anchor,
-            ParentState {
+            &ParentState {
                 scale: Point { x: 1.0, y: 1.0 },
-                ..state
+                ..state.clone()
             },
         );
         Ok(())
@@ -997,11 +1010,13 @@ impl Default for CpuRenderer {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct ParentState {
     position: Point,
     scale: Point,
     opacity: f64,
+    /// The innermost clip the layer is drawn through.
+    clip: Option<Arc<ClipNode>>,
     /// The blend mode of the layer being drawn (not inherited by children).
     blend_mode: BlendMode,
 }
@@ -1012,15 +1027,83 @@ impl Default for ParentState {
             position: Point { x: 0.0, y: 0.0 },
             scale: Point { x: 1.0, y: 1.0 },
             opacity: 1.0,
+            clip: None,
             blend_mode: BlendMode::Normal,
         }
     }
 }
 
+/// One clip in the chain of clips a layer sits inside; a pixel is drawn
+/// through all of them, so nested clips intersect.
+#[derive(Debug)]
+struct ClipNode {
+    region: ClipRegion,
+    parent: Option<Arc<ClipNode>>,
+}
+
+/// A group's clip rectangle with the group's frame it is defined in.
+#[derive(Clone, Copy, Debug)]
+struct ClipRegion {
+    /// Canvas position of the group's origin.
+    origin: Point,
+    /// The group's accumulated scale.
+    scale: Point,
+    center: Point,
+    half: Point,
+    radius: f64,
+    /// Local distance to canvas pixels, `sqrt(|scale.x * scale.y|)`: exact for
+    /// a uniform scale, an approximation otherwise. `celesta-gpu-renderer`
+    /// uses the same factor.
+    distance_scale: f64,
+}
+
+impl ClipRegion {
+    fn new(clip: &Clip, position: Point, scale: Point) -> Self {
+        Self {
+            origin: position,
+            scale,
+            center: Point {
+                x: clip.x + clip.width / 2.0,
+                y: clip.y + clip.height / 2.0,
+            },
+            half: Point {
+                x: clip.width / 2.0,
+                y: clip.height / 2.0,
+            },
+            radius: clip.effective_corner_radius(),
+            distance_scale: (scale.x * scale.y).abs().sqrt(),
+        }
+    }
+
+    /// How much of the canvas pixel `(x, y)` lies inside the region, 0 to 1,
+    /// anti-aliased over the edge like `rasterize_rect`.
+    fn coverage(&self, x: i32, y: i32) -> f64 {
+        let local_x = (f64::from(x) + 0.5 - self.origin.x) / self.scale.x - self.center.x;
+        let local_y = (f64::from(y) + 0.5 - self.origin.y) / self.scale.y - self.center.y;
+        let distance =
+            signed_distance_rounded_box(local_x, local_y, self.half.x, self.half.y, self.radius);
+        (0.5 - distance * self.distance_scale).clamp(0.0, 1.0)
+    }
+}
+
+/// How much of the canvas pixel `(x, y)` is inside every clip in the chain.
+fn clip_coverage(clip: &Option<Arc<ClipNode>>, x: i32, y: i32) -> f64 {
+    let mut coverage = 1.0;
+    let mut node = clip.as_deref();
+    while let Some(current) = node {
+        coverage *= current.region.coverage(x, y);
+        if coverage == 0.0 {
+            return 0.0;
+        }
+        node = current.parent.as_deref();
+    }
+    coverage
+}
+
 fn render_placeholder(
     frame: &mut RgbaFrame,
     anchor: Point,
-    state: ParentState,
+    state: &ParentState,
     color: Color,
     width: f64,
     height: f64,
@@ -1029,6 +1112,8 @@ fn render_placeholder(
     let height = (height * state.scale.y.abs()).round() as i32;
     let left = (state.position.x - f64::from(width) * anchor.x).round() as i32;
     let top = (state.position.y - f64::from(height) * anchor.y).round() as i32;
+    let clip = &state.clip;
+    let mode = state.blend_mode;
     fill_rect(
         frame,
         left,
@@ -1037,7 +1122,8 @@ fn render_placeholder(
         height,
         color,
         state.opacity,
-        state.blend_mode,
+        mode,
+        clip,
     );
 
     let border = Color::rgba(255, 255, 255, 180);
@@ -1049,7 +1135,8 @@ fn render_placeholder(
         2,
         border,
         state.opacity,
-        state.blend_mode,
+        mode,
+        clip,
     );
     fill_rect(
         frame,
@@ -1059,7 +1146,8 @@ fn render_placeholder(
         2,
         border,
         state.opacity,
-        state.blend_mode,
+        mode,
+        clip,
     );
     fill_rect(
         frame,
@@ -1069,7 +1157,8 @@ fn render_placeholder(
         height,
         border,
         state.opacity,
-        state.blend_mode,
+        mode,
+        clip,
     );
     fill_rect(
         frame,
@@ -1079,7 +1168,8 @@ fn render_placeholder(
         height,
         border,
         state.opacity,
-        state.blend_mode,
+        mode,
+        clip,
     );
 }
 
@@ -1090,7 +1180,7 @@ struct DecodedImage {
     pixels: Vec<u8>,
 }
 
-fn render_image(frame: &mut RgbaFrame, image: &DecodedImage, anchor: Point, state: ParentState) {
+fn render_image(frame: &mut RgbaFrame, image: &DecodedImage, anchor: Point, state: &ParentState) {
     let width = (f64::from(image.width) * state.scale.x.abs())
         .round()
         .max(1.0) as u32;
@@ -1109,6 +1199,10 @@ fn render_image(frame: &mut RgbaFrame, image: &DecodedImage, anchor: Point, stat
             if x < 0 || y < 0 || x >= frame.width as i32 || y >= frame.height as i32 {
                 continue;
             }
+            let coverage = clip_coverage(&state.clip, x, y);
+            if coverage == 0.0 {
+                continue;
+            }
             let destination_offset = ((y as u32 * frame.width + x as u32) * 4) as usize;
             blend_with_mode(
                 &mut frame.pixels[destination_offset..destination_offset + 4],
@@ -1118,7 +1212,7 @@ fn render_image(frame: &mut RgbaFrame, image: &DecodedImage, anchor: Point, stat
                     image.pixels[source_offset + 2],
                     image.pixels[source_offset + 3],
                 ),
-                state.opacity,
+                state.opacity * coverage,
                 state.blend_mode,
             );
         }
@@ -1389,6 +1483,7 @@ fn fill_rect(
     color: Color,
     opacity: f64,
     blend_mode: BlendMode,
+    clip: &Option<Arc<ClipNode>>,
 ) {
     let right = (left + width).clamp(0, frame.width as i32);
     let bottom = (top + height).clamp(0, frame.height as i32);
@@ -1396,11 +1491,15 @@ fn fill_rect(
     let top = top.clamp(0, frame.height as i32);
     for y in top..bottom {
         for x in left..right {
+            let coverage = clip_coverage(clip, x, y);
+            if coverage == 0.0 {
+                continue;
+            }
             let offset = ((y as u32 * frame.width + x as u32) * 4) as usize;
             blend_with_mode(
                 &mut frame.pixels[offset..offset + 4],
                 color,
-                opacity,
+                opacity * coverage,
                 blend_mode,
             );
         }
@@ -1560,8 +1659,8 @@ mod tests {
     use std::path::Path;
 
     use celesta_composition::{
-        AssetLocation, EvaluatedTransform, Layer, LayerContent, MediaTiming, Paint, Rational,
-        ResolvedAsset, Scene, TextStyle, Time,
+        AssetLocation, BlendMode, Clip, EvaluatedTransform, Layer, LayerContent, MediaTiming,
+        Paint, Rational, ResolvedAsset, Scene, TextStyle, Time,
     };
     use celesta_media::{MediaError, VideoFrame, VideoFrameDecoder};
 
@@ -1646,6 +1745,302 @@ mod tests {
                 .chunks_exact(4)
                 .any(|pixel| pixel == [255, 255, 255, 255])
         );
+    }
+
+    fn clip_scene(layers: Vec<Layer>) -> Scene {
+        Scene {
+            width: 40,
+            height: 40,
+            frame_rate: Rational::new(30, 1),
+            time: Time::ZERO,
+            fonts: Vec::new(),
+            layers,
+        }
+    }
+
+    /// A 40x40 red rect at the group's origin.
+    fn red_square() -> Layer {
+        Layer {
+            id: "red".to_owned(),
+            transform: EvaluatedTransform {
+                anchor: Point { x: 0.0, y: 0.0 },
+                ..EvaluatedTransform::default()
+            },
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            content: LayerContent::Rect {
+                width: 40.0,
+                height: 40.0,
+                fill: Some(Paint::Solid {
+                    color: "#FF0000FF".to_owned(),
+                }),
+                stroke: None,
+                corner_radius: 0.0,
+            },
+        }
+    }
+
+    fn clipped_group(transform: EvaluatedTransform, clip: Clip, children: Vec<Layer>) -> Layer {
+        Layer {
+            id: "clipped".to_owned(),
+            transform,
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            content: LayerContent::Group {
+                layers: children,
+                clip: Some(clip),
+            },
+        }
+    }
+
+    fn pixel(frame: &RgbaFrame, x: u32, y: u32) -> [u8; 4] {
+        let offset = ((y * frame.width() + x) * 4) as usize;
+        frame.pixels()[offset..offset + 4].try_into().unwrap()
+    }
+
+    fn is_red(frame: &RgbaFrame, x: u32, y: u32) -> bool {
+        pixel(frame, x, y) == [255, 0, 0, 255]
+    }
+
+    /// The renderer's default background, which nothing has drawn over.
+    fn background() -> [u8; 4] {
+        let color = RenderOptions::default().background;
+        [color.red, color.green, color.blue, color.alpha]
+    }
+
+    fn is_untouched(frame: &RgbaFrame, x: u32, y: u32) -> bool {
+        pixel(frame, x, y) == background()
+    }
+
+    #[test]
+    fn clips_a_groups_children_to_its_rectangle() {
+        let clip = Clip {
+            x: 10.0,
+            y: 5.0,
+            width: 20.0,
+            height: 10.0,
+            corner_radius: 0.0,
+        };
+        let scene = clip_scene(vec![clipped_group(
+            EvaluatedTransform::default(),
+            clip,
+            vec![red_square()],
+        )]);
+        let frame = CpuRenderer::default().render(&scene).unwrap();
+
+        // Inside, right at each edge, and one pixel beyond it.
+        assert!(is_red(&frame, 10, 5));
+        assert!(is_red(&frame, 29, 14));
+        assert!(is_red(&frame, 20, 10));
+        for (x, y) in [(9, 5), (30, 10), (20, 4), (20, 15), (0, 0), (39, 39)] {
+            assert!(is_untouched(&frame, x, y), "({x}, {y}) leaked");
+        }
+    }
+
+    #[test]
+    fn a_clip_follows_the_groups_position_and_scale() {
+        // The clip covers the group's 0..10 by 0..10, which the group's
+        // position and 2x scale put at canvas 8..28 by 4..24.
+        let clip = Clip {
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: 10.0,
+            corner_radius: 0.0,
+        };
+        let scene = clip_scene(vec![clipped_group(
+            EvaluatedTransform {
+                position: Point { x: 8.0, y: 4.0 },
+                scale: Point { x: 2.0, y: 2.0 },
+                ..EvaluatedTransform::default()
+            },
+            clip,
+            vec![red_square()],
+        )]);
+        let frame = CpuRenderer::default().render(&scene).unwrap();
+
+        assert!(is_red(&frame, 8, 4));
+        assert!(is_red(&frame, 27, 23));
+        for (x, y) in [(7, 4), (28, 10), (10, 3), (10, 24)] {
+            assert!(is_untouched(&frame, x, y), "({x}, {y}) leaked");
+        }
+    }
+
+    #[test]
+    fn rounds_the_corners_of_a_clip() {
+        let clip = Clip {
+            x: 0.0,
+            y: 0.0,
+            width: 40.0,
+            height: 40.0,
+            corner_radius: 10.0,
+        };
+        let scene = clip_scene(vec![clipped_group(
+            EvaluatedTransform::default(),
+            clip,
+            vec![red_square()],
+        )]);
+        let frame = CpuRenderer::default().render(&scene).unwrap();
+
+        assert!(is_red(&frame, 20, 20));
+        assert!(is_red(&frame, 20, 0));
+        assert!(is_untouched(&frame, 0, 0));
+        // On the rounded edge the coverage is partial, so the pixel is a
+        // blend of the red and the background rather than either.
+        let edge = pixel(&frame, 2, 3);
+        assert!(edge[0] > background()[0] && edge[0] < 255, "edge {edge:?}");
+    }
+
+    #[test]
+    fn nested_clips_intersect() {
+        let outer = Clip {
+            x: 0.0,
+            y: 0.0,
+            width: 20.0,
+            height: 40.0,
+            corner_radius: 0.0,
+        };
+        let inner = Clip {
+            x: 10.0,
+            y: 0.0,
+            width: 30.0,
+            height: 10.0,
+            corner_radius: 0.0,
+        };
+        let scene = clip_scene(vec![clipped_group(
+            EvaluatedTransform::default(),
+            outer,
+            vec![clipped_group(
+                EvaluatedTransform::default(),
+                inner,
+                vec![red_square()],
+            )],
+        )]);
+        let frame = CpuRenderer::default().render(&scene).unwrap();
+
+        // Only 10..20 by 0..10 is inside both.
+        assert!(is_red(&frame, 10, 0));
+        assert!(is_red(&frame, 19, 9));
+        for (x, y) in [(9, 5), (20, 5), (15, 10)] {
+            assert!(is_untouched(&frame, x, y), "({x}, {y}) leaked");
+        }
+    }
+
+    #[test]
+    fn a_clip_without_area_hides_its_children() {
+        let clip = Clip {
+            x: 0.0,
+            y: 0.0,
+            width: 0.0,
+            height: 40.0,
+            corner_radius: 0.0,
+        };
+        let scene = clip_scene(vec![clipped_group(
+            EvaluatedTransform::default(),
+            clip,
+            vec![red_square()],
+        )]);
+        let frame = CpuRenderer::default().render(&scene).unwrap();
+
+        assert!(
+            frame
+                .pixels()
+                .chunks_exact(4)
+                .all(|pixel| pixel == background())
+        );
+    }
+
+    #[test]
+    fn does_not_clip_layers_outside_the_group() {
+        let clip = Clip {
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: 10.0,
+            corner_radius: 0.0,
+        };
+        let after = Layer {
+            id: "after".to_owned(),
+            transform: EvaluatedTransform {
+                position: Point { x: 30.0, y: 30.0 },
+                anchor: Point { x: 0.0, y: 0.0 },
+                ..EvaluatedTransform::default()
+            },
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            content: LayerContent::Rect {
+                width: 10.0,
+                height: 10.0,
+                fill: Some(Paint::Solid {
+                    color: "#00FF00FF".to_owned(),
+                }),
+                stroke: None,
+                corner_radius: 0.0,
+            },
+        };
+        let scene = clip_scene(vec![
+            clipped_group(EvaluatedTransform::default(), clip, vec![red_square()]),
+            after,
+        ]);
+        let frame = CpuRenderer::default().render(&scene).unwrap();
+
+        assert!(is_red(&frame, 9, 9));
+        assert!(is_untouched(&frame, 10, 10));
+        assert_eq!(pixel(&frame, 30, 30), [0, 255, 0, 255]);
+        assert_eq!(pixel(&frame, 39, 39), [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn clips_text_to_the_rectangle() {
+        let text = Layer {
+            id: "text".to_owned(),
+            transform: EvaluatedTransform {
+                anchor: Point { x: 0.0, y: 0.0 },
+                ..EvaluatedTransform::default()
+            },
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            content: LayerContent::Text {
+                text: "MMMM".to_owned(),
+                style: TextStyle {
+                    font_size: Some(30.0),
+                    fill: Some(Paint::Solid {
+                        color: "#FFFFFFFF".to_owned(),
+                    }),
+                    ..TextStyle::default()
+                },
+                max_width: None,
+                baseline_anchor: false,
+            },
+        };
+        let clip = Clip {
+            x: 0.0,
+            y: 0.0,
+            width: 40.0,
+            height: 15.0,
+            corner_radius: 0.0,
+        };
+        let plain = CpuRenderer::default()
+            .render(&clip_scene(vec![text.clone()]))
+            .unwrap();
+        let clipped = CpuRenderer::default()
+            .render(&clip_scene(vec![clipped_group(
+                EvaluatedTransform::default(),
+                clip,
+                vec![text],
+            )]))
+            .unwrap();
+
+        // Inside the clip the text is untouched; below it nothing is drawn.
+        for y in 0..40 {
+            for x in 0..40 {
+                if y < 15 {
+                    assert_eq!(pixel(&clipped, x, y), pixel(&plain, x, y), "({x}, {y})");
+                } else {
+                    assert!(is_untouched(&clipped, x, y), "({x}, {y}) leaked");
+                }
+            }
+        }
     }
 
     #[test]
@@ -1927,6 +2322,7 @@ mod tests {
                             "#e0e0e0",
                             BlendMode::Difference,
                         )],
+                        clip: None,
                     },
                 },
             ],
@@ -1960,6 +2356,7 @@ mod tests {
                     // Composites onto the group's own layer, not the scene.
                     rect_layer("red", 1.0, 1.0, "#ff0000", BlendMode::Multiply),
                 ],
+                clip: None,
             },
         };
         let render = |opacity: f64| {

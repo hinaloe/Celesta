@@ -70,7 +70,7 @@ fn count_layers(layers: &[Layer]) -> usize {
     layers
         .iter()
         .map(|layer| match &layer.content {
-            LayerContent::Group { layers } => 1 + count_layers(layers),
+            LayerContent::Group { layers, .. } => 1 + count_layers(layers),
             _ => 1,
         })
         .sum()
@@ -102,6 +102,7 @@ fn scene(frame: usize, ribbons: usize, strands: usize) -> Scene {
                     310.0,
                     strands,
                 ),
+                clip: None,
             },
         });
     }

@@ -312,7 +312,7 @@ impl<'project> Evaluator<'project> {
             });
         }
 
-        Ok(LayerContent::Group { layers })
+        Ok(LayerContent::Group { layers, clip: None })
     }
 
     fn asset(&self, id: &str) -> Result<ResolvedAsset, EvaluationError> {
@@ -499,7 +499,7 @@ mod tests {
         let scene = evaluator.scene_at(Time::new(21, 4)).unwrap();
         assert_eq!(scene.layers.len(), 1);
         assert_eq!(scene.layers[0].opacity, 1.0);
-        let LayerContent::Group { layers } = &scene.layers[0].content else {
+        let LayerContent::Group { layers, .. } = &scene.layers[0].content else {
             panic!("dialogue must expand to a group");
         };
         assert_eq!(layers.len(), 2);
@@ -572,7 +572,7 @@ mod tests {
         let closed = evaluator.scene_at(Time::new(21, 4)).unwrap();
         let open = evaluator.scene_at(Time::new(23, 4)).unwrap();
         let mouth_asset = |scene: &Scene| {
-            let LayerContent::Group { layers } = &scene.layers[0].content else {
+            let LayerContent::Group { layers, .. } = &scene.layers[0].content else {
                 panic!("dialogue must expand to a group")
             };
             assert_eq!(layers.len(), 3);
@@ -600,7 +600,7 @@ mod tests {
             .unwrap()
             .scene_at(Time::new(21, 4))
             .unwrap();
-        let LayerContent::Group { layers } = &closed.layers[0].content else {
+        let LayerContent::Group { layers, .. } = &closed.layers[0].content else {
             panic!("dialogue must expand to a group")
         };
         assert_eq!(layers.len(), 2, "no closed overlay uses the base portrait");

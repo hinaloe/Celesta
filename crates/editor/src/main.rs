@@ -739,7 +739,7 @@ fn collect_component_requests(
             LayerContent::MissingComponent { component, props } => {
                 out.push((component.clone(), props.clone()));
             }
-            LayerContent::Group { layers } => collect_component_requests(layers, out),
+            LayerContent::Group { layers, .. } => collect_component_requests(layers, out),
             _ => {}
         }
     }
@@ -749,7 +749,9 @@ fn strip_missing_components(layers: &mut Vec<Layer>) {
     let mut index = 0;
     while index < layers.len() {
         match &mut layers[index].content {
-            LayerContent::Group { layers: children } => strip_missing_components(children),
+            LayerContent::Group {
+                layers: children, ..
+            } => strip_missing_components(children),
             LayerContent::MissingComponent { .. } => {
                 layers.remove(index);
                 continue;
@@ -774,7 +776,10 @@ fn splice_resolved_components(
     while index < layers.len() {
         match &layers[index].content {
             LayerContent::Group { .. } => {
-                if let LayerContent::Group { layers: children } = &mut layers[index].content {
+                if let LayerContent::Group {
+                    layers: children, ..
+                } = &mut layers[index].content
+                {
                     splice_resolved_components(children, resolutions, cursor, unresolved);
                 }
                 index += 1;
@@ -784,7 +789,10 @@ fn splice_resolved_components(
                 *cursor += 1;
                 match resolved {
                     Some(children) => {
-                        layers[index].content = LayerContent::Group { layers: children };
+                        layers[index].content = LayerContent::Group {
+                            layers: children,
+                            clip: None,
+                        };
                         index += 1;
                     }
                     None => {

@@ -62,6 +62,8 @@ export interface CompositionProps {
 }
 
 export interface GroupProps extends CommonProps {
+  /** Draw the children only inside this rectangle, in the group's own coordinates. */
+  clip?: { x?: number; y?: number; width: number; height: number; cornerRadius?: number };
   children?: ReactNode;
 }
 
@@ -239,6 +241,29 @@ function drawText(ctx: CanvasRenderingContext2D, props: TextProps, parent: Affin
   }
 }
 
+/** Draws `children` inside the group's `clip` (if any), in the group's frame `matrix`. */
+function drawClipped(
+  ctx: CanvasRenderingContext2D,
+  props: GroupProps,
+  children: ReactNode,
+  matrix: Affine,
+  opacity: number,
+) {
+  const clip = props.clip;
+  if (!clip) {
+    draw(ctx, children, matrix, opacity);
+    return;
+  }
+  if (!(clip.width > 0 && clip.height > 0)) return;
+  ctx.save();
+  ctx.setTransform(matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]);
+  ctx.beginPath();
+  ctx.roundRect(clip.x ?? 0, clip.y ?? 0, clip.width, clip.height, Math.max(clip.cornerRadius ?? 0, 0));
+  ctx.clip();
+  draw(ctx, children, matrix, opacity);
+  ctx.restore();
+}
+
 function draw(ctx: CanvasRenderingContext2D, node: ReactNode, parent: Affine, opacity: number) {
   if (Array.isArray(node)) {
     for (const child of node) draw(ctx, child, parent, opacity);
@@ -258,14 +283,14 @@ function draw(ctx: CanvasRenderingContext2D, node: ReactNode, parent: Affine, op
     isolated.height = ctx.canvas.height;
     const isolatedCtx = isolated.getContext('2d');
     if (!isolatedCtx) return;
-    draw(isolatedCtx, props.children as ReactNode, multiply(parent, local(props)), 1);
+    drawClipped(isolatedCtx, props as GroupProps, props.children as ReactNode, multiply(parent, local(props)), 1);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = layerOpacity;
     ctx.globalCompositeOperation = COMPOSITE_OPERATIONS[blendMode];
     ctx.drawImage(isolated, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
   } else if (element.type === Group) {
-    draw(ctx, props.children as ReactNode, multiply(parent, local(props)), layerOpacity);
+    drawClipped(ctx, props as GroupProps, props.children as ReactNode, multiply(parent, local(props)), layerOpacity);
   } else if (element.type === Rect) {
     ctx.globalCompositeOperation = COMPOSITE_OPERATIONS[blendMode];
     drawRect(ctx, props as unknown as RectProps, parent, layerOpacity);

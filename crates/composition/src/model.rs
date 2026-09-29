@@ -136,6 +136,11 @@ pub enum LayerContent {
     },
     Group {
         layers: Vec<Layer>,
+        /// Draws the children only inside this region, in the group's own
+        /// coordinate space (the space the children's positions are given
+        /// in), so it moves, scales, and rotates with the group.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        clip: Option<Clip>,
     },
     /// A flat-shaded rectangle, optionally rounded and/or stroked. Has no
     /// natural size the way `Image`/`Video` do, so `width`/`height` are
@@ -154,6 +159,45 @@ pub enum LayerContent {
         component: String,
         props: BTreeMap<String, Value>,
     },
+}
+
+/// A rectangle, optionally with rounded corners, that limits where a group's
+/// children are drawn. Coordinates are in the group's own space, in pixels:
+/// `x`/`y` is the top-left corner. Pixels straddling the edge are
+/// anti-aliased, and nested clips intersect.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct Clip {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    /// Corner radius, limited to half the shorter side. Defaults to 0.
+    #[serde(default)]
+    pub corner_radius: f64,
+}
+
+impl Clip {
+    /// Whether the region has no area, so nothing inside it is visible.
+    /// Also true when a value is not finite.
+    pub fn is_empty(&self) -> bool {
+        let finite = [self.x, self.y, self.width, self.height]
+            .into_iter()
+            .all(f64::is_finite);
+        !finite || self.width <= 0.0 || self.height <= 0.0
+    }
+
+    /// The corner radius as drawn: at least 0, at most half the shorter side.
+    pub fn effective_corner_radius(&self) -> f64 {
+        let radius = if self.corner_radius.is_finite() {
+            self.corner_radius
+        } else {
+            0.0
+        };
+        radius.max(0.0).min(self.width.min(self.height) / 2.0)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
