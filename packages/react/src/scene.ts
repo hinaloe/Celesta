@@ -17,6 +17,7 @@ export type { KeyframeAnimation } from './generated/KeyframeAnimation';
 export type { Layer } from './generated/Layer';
 export type { LayerContent } from './generated/LayerContent';
 export type { MediaTiming } from './generated/MediaTiming';
+export type { GradientStop } from './generated/GradientStop';
 export type { Paint } from './generated/Paint';
 export type { Point } from './generated/Point';
 export type { Rational } from './generated/Rational';

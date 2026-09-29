@@ -297,7 +297,35 @@ pub struct AnimatablePoint {
     rename_all_fields = "camelCase"
 )]
 pub enum Paint {
-    Solid { color: String },
+    Solid {
+        color: String,
+    },
+    /// Colors blend along the line from `start` to `end`, in the painted
+    /// layer's local pixels (a rect's top-left, or a text layer's layout box
+    /// top-left). Beyond either end the nearest stop's color continues.
+    Linear {
+        start: Point,
+        end: Point,
+        stops: Vec<GradientStop>,
+    },
+    /// Colors blend outward from `center` to `radius`, in the same space as
+    /// `Linear`.
+    Radial {
+        center: Point,
+        radius: f64,
+        stops: Vec<GradientStop>,
+    },
+}
+
+/// A gradient color at `offset` (0 at the start/center, 1 at the end/radius).
+/// The color may carry alpha (`#RRGGBBAA`), so a gradient can fade out.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct GradientStop {
+    pub offset: f64,
+    pub color: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

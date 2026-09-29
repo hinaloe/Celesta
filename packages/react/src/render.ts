@@ -467,11 +467,17 @@ function buildLayer(
       ...(props.anchorY === 'baseline' ? { baselineAnchor: true } : {}),
     };
   } else if (node.type === 'rect') {
-    const fill = typeof props.fill === 'string' ? ({ type: 'solid', color: props.fill } as Paint) : undefined;
-    const strokeColor = typeof props.stroke === 'string' ? props.stroke : undefined;
+    const toPaint = (value: unknown): Paint | undefined =>
+      typeof value === 'string'
+        ? { type: 'solid', color: value }
+        : value && typeof value === 'object'
+          ? (value as Paint)
+          : undefined;
+    const fill = toPaint(props.fill);
+    const strokePaint = toPaint(props.stroke);
     const strokeWidth = numberOr(props.strokeWidth, 0);
     const stroke: Stroke | undefined =
-      strokeColor && strokeWidth > 0 ? { paint: { type: 'solid', color: strokeColor }, width: strokeWidth } : undefined;
+      strokePaint && strokeWidth > 0 ? { paint: strokePaint, width: strokeWidth } : undefined;
     content = {
       type: 'rect',
       width: numberOr(props.width, 0),

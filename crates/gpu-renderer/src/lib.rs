@@ -13,8 +13,7 @@ use std::sync::Arc;
 use std::sync::mpsc;
 
 use celesta_composition::{
-    BlendMode, Clip, EvaluatedTransform, Layer, LayerContent, Paint, Point, ResolvedAsset, Scene,
-    Stroke,
+    BlendMode, Clip, EvaluatedTransform, Layer, LayerContent, Point, ResolvedAsset, Scene,
 };
 use celesta_media::{MediaError, VideoFrameDecoder};
 use celesta_remote::{RemoteAssetError, resolve_asset_path};
@@ -1435,20 +1434,52 @@ impl GpuRenderer {
                 // Shaded on the GPU rather than rasterized into a texture:
                 // animated rects change size every frame, and a texture per
                 // rect per frame dominates the cost of dense geometry.
-                let rect = RectShape::new(
-                    *width,
-                    *height,
-                    *corner_radius,
-                    fill.as_ref(),
-                    stroke.as_ref(),
-                )
-                .map_err(GpuRenderError::Text)?;
-                output.push(PreparedItem::Layer(PreparedLayer {
-                    content: PreparedContent::Rect(rect),
-                    anchor: layer.transform.anchor,
-                    state,
-                    blend_mode,
-                }));
+                let paint = resolve_rect_paint(fill.as_ref(), stroke.as_ref())
+                    .map_err(GpuRenderError::Text)?;
+                let flat = paint
+                    .fill
+                    .as_ref()
+                    .is_none_or(|fill| fill.solid().is_some())
+                    && paint
+                        .stroke
+                        .as_ref()
+                        .is_none_or(|(stroke, _)| stroke.solid().is_some());
+                if flat {
+                    output.push(PreparedItem::Layer(PreparedLayer {
+                        content: PreparedContent::Rect(RectShape::new(
+                            *width,
+                            *height,
+                            *corner_radius,
+                            paint,
+                        )),
+                        anchor: layer.transform.anchor,
+                        state,
+                        blend_mode,
+                    }));
+                } else {
+                    // The shader only knows flat colors; a gradient goes
+                    // through the CPU rasterizer, which the shader matches
+                    // texel for texel for flat rects.
+                    let key =
+                        format!("rect\0{width}\0{height}\0{corner_radius}\0{fill:?}\0{stroke:?}");
+                    let texture = self.cached_texture(key, |_| {
+                        let rect = celesta_renderer::rasterize_rect(
+                            *width,
+                            *height,
+                            *corner_radius,
+                            fill.as_ref(),
+                            stroke.as_ref(),
+                        )
+                        .map_err(GpuRenderError::Text)?;
+                        DecodedImage::new(rect.width(), rect.height(), rect.into_pixels())
+                    })?;
+                    output.push(PreparedItem::Layer(PreparedLayer::new(
+                        texture,
+                        layer.transform.anchor,
+                        state,
+                        blend_mode,
+                    )));
+                }
             }
             LayerContent::MissingComponent { .. } => {
                 return Err(GpuRenderError::UnsupportedContent {
@@ -1863,14 +1894,10 @@ struct RectShape {
 }
 
 impl RectShape {
-    fn new(
-        width: f64,
-        height: f64,
-        corner_radius: f64,
-        fill: Option<&Paint>,
-        stroke: Option<&Stroke>,
-    ) -> Result<Self, RenderError> {
-        let RectPaint { fill, stroke } = resolve_rect_paint(fill, stroke)?;
+    fn new(width: f64, height: f64, corner_radius: f64, paint: RectPaint) -> Self {
+        let RectPaint { fill, stroke } = paint;
+        let fill = fill.and_then(|fill| fill.solid());
+        let stroke = stroke.and_then(|(stroke, width)| Some((stroke.solid()?, width)));
         let color = |color: Option<celesta_renderer::Color>| {
             color.map_or([0.0; 4], |color| {
                 [color.red, color.green, color.blue, color.alpha].map(f32::from)
@@ -1882,7 +1909,7 @@ impl RectShape {
         };
         let half_width = width / 2.0;
         let half_height = height / 2.0;
-        Ok(Self {
+        Self {
             pixel_width: width.max(0.0).ceil().max(1.0) as u32,
             pixel_height: height.max(0.0).ceil().max(1.0) as u32,
             half_width: half_width as f32,
@@ -1891,7 +1918,7 @@ impl RectShape {
             stroke_width: stroke_width as f32,
             fill: color(fill),
             stroke: color(stroke),
-        })
+        }
     }
 }
 
@@ -3506,6 +3533,42 @@ mod tests {
             renderer.render(&scene),
             Err(GpuRenderError::ClipsNestedTooDeep(depth)) if depth == MAX_CLIP_DEPTH + 1
         ));
+    }
+
+    #[test]
+    fn renders_a_gradient_filled_rect_through_the_texture_path() {
+        let Some(mut renderer) = renderer(GpuRenderOptions {
+            background: Color::rgba(0, 0, 0, 255),
+        }) else {
+            return;
+        };
+        let mut scene = empty_scene(8, 1);
+        let mut layer = solid_rect("gradient", 4.0, 8.0, 1.0, "#000000");
+        layer.content = LayerContent::Rect {
+            width: 8.0,
+            height: 1.0,
+            fill: Some(Paint::Linear {
+                start: Point { x: 0.0, y: 0.0 },
+                end: Point { x: 8.0, y: 0.0 },
+                stops: vec![
+                    celesta_composition::GradientStop {
+                        offset: 0.0,
+                        color: "#ff0000".to_owned(),
+                    },
+                    celesta_composition::GradientStop {
+                        offset: 1.0,
+                        color: "#0000ff".to_owned(),
+                    },
+                ],
+            }),
+            stroke: None,
+            corner_radius: 0.0,
+        };
+        scene.layers = vec![layer];
+        let frame = renderer.render(&scene).unwrap();
+        let pixel = |x: usize| frame.pixels()[x * 4..x * 4 + 4].to_vec();
+        assert!(pixel(0)[0] > 220 && pixel(0)[2] < 40, "{:?}", pixel(0));
+        assert!(pixel(7)[2] > 220 && pixel(7)[0] < 40, "{:?}", pixel(7));
     }
 
     fn solid_rect(id: &str, x: f64, width: f64, height: f64, color: &str) -> Layer {

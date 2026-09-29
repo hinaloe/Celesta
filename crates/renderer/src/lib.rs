@@ -406,7 +406,13 @@ impl TextRasterizer {
         let baseline = buffer.layout_runs().next().map_or(0.0, |run| run.line_y);
         let mask_width = width.unwrap_or(measured_width).ceil().max(1.0) as u32;
         let mask_height = measured_height.ceil().max(1.0) as u32;
-        let fill = paint_color(style.fill.as_ref())?.unwrap_or(Color::WHITE);
+        let fill_paint =
+            resolve_paint(style.fill.as_ref())?.map(|paint| paint.scaled(f64::from(scale)));
+        // A gradient is painted over white glyphs below.
+        let fill = fill_paint
+            .as_ref()
+            .map_or(Some(Color::WHITE), ResolvedPaint::solid)
+            .unwrap_or(Color::WHITE);
         // A coverage-only alpha mask, used for the stroke's dilation below —
         // meaningful for both ordinary glyphs and color glyphs (an emoji's
         // silhouette dilates the same way plain text would).
@@ -450,6 +456,21 @@ impl TextRasterizer {
             },
         );
 
+        if let Some(gradient) = fill_paint.as_ref().filter(|paint| paint.solid().is_none()) {
+            // Plain glyph pixels come back as opaque-white scaled by coverage;
+            // anything with color (an emoji) keeps its own.
+            for (index, pixel) in glyph_pixels.chunks_exact_mut(4).enumerate() {
+                if pixel[3] == 0 || pixel[..3] != [255, 255, 255] {
+                    continue;
+                }
+                let x = f64::from((index % mask_width as usize) as u32) + 0.5;
+                let y = f64::from((index / mask_width as usize) as u32) + 0.5;
+                let color = gradient.color_at(x, y);
+                pixel[..3].copy_from_slice(&[color.red, color.green, color.blue]);
+                pixel[3] = (f64::from(pixel[3]) * f64::from(color.alpha) / 255.0).round() as u8;
+            }
+        }
+
         let pixel_count = mask_width as usize * mask_height as usize * 4;
         let mut frame = RgbaFrame {
             width: mask_width,
@@ -460,17 +481,11 @@ impl TextRasterizer {
             let radius = (stroke.width * f64::from(scale)).round().max(0.0) as u32;
             if radius > 0 {
                 let stroke_mask = dilate_mask(&mask, mask_width, mask_height, radius);
-                let stroke_color = paint_color(Some(&stroke.paint))?.unwrap_or(Color::WHITE);
-                composite_mask(
-                    &mut frame,
-                    &stroke_mask,
-                    mask_width,
-                    mask_height,
-                    0,
-                    0,
-                    stroke_color,
-                    1.0,
-                );
+                let stroke_paint =
+                    ResolvedPaint::from_paint(&stroke.paint)?.scaled(f64::from(scale));
+                composite_mask_with(&mut frame, &stroke_mask, mask_width, |x, y| {
+                    stroke_paint.color_at(f64::from(x) + 0.5, f64::from(y) + 0.5)
+                });
             }
         }
         composite_rgba(&mut frame, &glyph_pixels, mask_width, mask_height, 0, 0);
@@ -1325,11 +1340,11 @@ pub fn rasterize_rect(
 }
 
 /// The colors [`rasterize_rect`] paints a rect with.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RectPaint {
-    pub fill: Option<Color>,
-    /// The stroke color and width.
-    pub stroke: Option<(Color, f64)>,
+    pub fill: Option<ResolvedPaint>,
+    /// The stroke paint and width.
+    pub stroke: Option<(ResolvedPaint, f64)>,
 }
 
 /// Parses a rect's fill and stroke into the colors [`rasterize_rect`] paints
@@ -1340,11 +1355,10 @@ pub fn resolve_rect_paint(
     fill: Option<&Paint>,
     stroke: Option<&Stroke>,
 ) -> Result<RectPaint, RenderError> {
-    let fill = paint_color(fill)?;
+    let fill = resolve_paint(fill)?;
     let stroke = stroke
-        .map(|stroke| -> Result<(Color, f64), RenderError> {
-            let Paint::Solid { color } = &stroke.paint;
-            Ok((Color::from_hex(color)?, stroke.width))
+        .map(|stroke| {
+            Ok::<_, RenderError>((ResolvedPaint::from_paint(&stroke.paint)?, stroke.width))
         })
         .transpose()?;
     Ok(RectPaint { fill, stroke })
@@ -1354,8 +1368,8 @@ fn rasterize_rect_pixels(
     width: f64,
     height: f64,
     corner_radius: f64,
-    fill: Option<Color>,
-    stroke: Option<(Color, f64)>,
+    fill: Option<ResolvedPaint>,
+    stroke: Option<(ResolvedPaint, f64)>,
 ) -> RasterizedText {
     let pixel_width = width.max(0.0).ceil().max(1.0) as u32;
     let pixel_height = height.max(0.0).ceil().max(1.0) as u32;
@@ -1377,8 +1391,13 @@ fn rasterize_rect_pixels(
                 continue;
             }
 
-            let mut color = fill.unwrap_or(Color::TRANSPARENT);
-            if let Some((stroke_color, stroke_width)) = stroke {
+            let (sample_x, sample_y) = (f64::from(x) + 0.5, f64::from(y) + 0.5);
+            let mut color = fill
+                .as_ref()
+                .map_or(Color::TRANSPARENT, |fill| fill.color_at(sample_x, sample_y));
+            if let Some((stroke_paint, stroke_width)) = &stroke {
+                let (stroke_color, stroke_width) =
+                    (stroke_paint.color_at(sample_x, sample_y), *stroke_width);
                 let inner_half_width = (half_width - stroke_width).max(0.0);
                 let inner_half_height = (half_height - stroke_width).max(0.0);
                 let inner_radius = (radius - stroke_width).max(0.0);
@@ -1466,40 +1485,25 @@ fn dilate_mask(mask: &[u8], width: u32, height: u32, radius: u32) -> Vec<u8> {
     output
 }
 
-#[allow(clippy::too_many_arguments)]
-fn composite_mask(
+/// Composites a same-size coverage `mask` onto `frame`, coloring each pixel
+/// with `color_at(x, y)`.
+fn composite_mask_with(
     frame: &mut RgbaFrame,
     mask: &[u8],
     width: u32,
-    height: u32,
-    left: i32,
-    top: i32,
-    color: Color,
-    opacity: f64,
+    color_at: impl Fn(u32, u32) -> Color,
 ) {
-    for y in 0..height {
-        for x in 0..width {
-            let destination_x = left + x as i32;
-            let destination_y = top + y as i32;
-            if destination_x < 0
-                || destination_y < 0
-                || destination_x >= frame.width as i32
-                || destination_y >= frame.height as i32
-            {
-                continue;
-            }
-            let alpha = mask[(y * width + x) as usize];
-            if alpha == 0 {
-                continue;
-            }
-            let destination_offset =
-                ((destination_y as u32 * frame.width + destination_x as u32) * 4) as usize;
-            blend(
-                &mut frame.pixels[destination_offset..destination_offset + 4],
-                color,
-                opacity * f64::from(alpha) / 255.0,
-            );
+    for (index, &alpha) in mask.iter().enumerate() {
+        if alpha == 0 {
+            continue;
         }
+        let (x, y) = (index as u32 % width, index as u32 / width);
+        let offset = index * 4;
+        blend(
+            &mut frame.pixels[offset..offset + 4],
+            color_at(x, y),
+            f64::from(alpha) / 255.0,
+        );
     }
 }
 
@@ -1547,12 +1551,169 @@ fn composite_rgba(
     }
 }
 
-fn paint_color(paint: Option<&Paint>) -> Result<Option<Color>, RenderError> {
-    paint
-        .map(|paint| match paint {
-            Paint::Solid { color } => Color::from_hex(color),
+/// A [`Paint`] with its colors parsed, ready to be sampled per pixel.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ResolvedPaint {
+    Solid(Color),
+    Linear {
+        start: (f64, f64),
+        end: (f64, f64),
+        stops: Vec<GradientStop>,
+    },
+    Radial {
+        center: (f64, f64),
+        radius: f64,
+        stops: Vec<GradientStop>,
+    },
+}
+
+/// A parsed gradient stop with premultiplied `[r, g, b, a]` channels in 0..=255.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GradientStop {
+    offset: f64,
+    premultiplied: [f64; 4],
+}
+
+impl ResolvedPaint {
+    pub fn from_paint(paint: &Paint) -> Result<Self, RenderError> {
+        Ok(match paint {
+            Paint::Solid { color } => Self::Solid(Color::from_hex(color)?),
+            Paint::Linear { start, end, stops } => Self::Linear {
+                start: (start.x, start.y),
+                end: (end.x, end.y),
+                stops: resolve_stops(stops)?,
+            },
+            Paint::Radial {
+                center,
+                radius,
+                stops,
+            } => Self::Radial {
+                center: (center.x, center.y),
+                radius: *radius,
+                stops: resolve_stops(stops)?,
+            },
         })
-        .transpose()
+    }
+
+    /// The flat color, or `None` for a gradient.
+    pub const fn solid(&self) -> Option<Color> {
+        match self {
+            Self::Solid(color) => Some(*color),
+            _ => None,
+        }
+    }
+
+    /// Scales gradient geometry, for text rasterized at a device scale.
+    fn scaled(mut self, scale: f64) -> Self {
+        match &mut self {
+            Self::Solid(_) => {}
+            Self::Linear { start, end, .. } => {
+                *start = (start.0 * scale, start.1 * scale);
+                *end = (end.0 * scale, end.1 * scale);
+            }
+            Self::Radial { center, radius, .. } => {
+                *center = (center.0 * scale, center.1 * scale);
+                *radius *= scale;
+            }
+        }
+        self
+    }
+
+    /// The color at a point in the painted layer's local pixels.
+    pub fn color_at(&self, x: f64, y: f64) -> Color {
+        match self {
+            Self::Solid(color) => *color,
+            Self::Linear { start, end, stops } => {
+                let (dx, dy) = (end.0 - start.0, end.1 - start.1);
+                let length_squared = dx * dx + dy * dy;
+                let t = if length_squared > 0.0 {
+                    ((x - start.0) * dx + (y - start.1) * dy) / length_squared
+                } else {
+                    0.0
+                };
+                sample_stops(stops, t)
+            }
+            Self::Radial {
+                center,
+                radius,
+                stops,
+            } => {
+                let distance = ((x - center.0).powi(2) + (y - center.1).powi(2)).sqrt();
+                sample_stops(
+                    stops,
+                    if *radius > 0.0 {
+                        distance / radius
+                    } else {
+                        0.0
+                    },
+                )
+            }
+        }
+    }
+}
+
+fn resolve_stops(
+    stops: &[celesta_composition::GradientStop],
+) -> Result<Vec<GradientStop>, RenderError> {
+    let mut resolved = stops
+        .iter()
+        .map(|stop| {
+            let color = Color::from_hex(&stop.color)?;
+            let alpha = f64::from(color.alpha) / 255.0;
+            Ok(GradientStop {
+                offset: stop.offset,
+                premultiplied: [
+                    f64::from(color.red) * alpha,
+                    f64::from(color.green) * alpha,
+                    f64::from(color.blue) * alpha,
+                    f64::from(color.alpha),
+                ],
+            })
+        })
+        .collect::<Result<Vec<_>, RenderError>>()?;
+    // Stable, so stops sharing an offset keep their order (a hard edge).
+    resolved.sort_by(|a, b| a.offset.total_cmp(&b.offset));
+    Ok(resolved)
+}
+
+/// Interpolates premultiplied, like CSS, so fading to `#00000000` doesn't
+/// darken the color on the way.
+fn sample_stops(stops: &[GradientStop], t: f64) -> Color {
+    let (Some(first), Some(last)) = (stops.first(), stops.last()) else {
+        return Color::TRANSPARENT;
+    };
+    let value = if t <= first.offset {
+        first.premultiplied
+    } else if t >= last.offset {
+        last.premultiplied
+    } else {
+        let next = stops.iter().position(|stop| stop.offset > t).unwrap_or(0);
+        let (from, to) = (stops[next - 1], stops[next]);
+        let span = to.offset - from.offset;
+        let f = if span > 0.0 {
+            (t - from.offset) / span
+        } else {
+            1.0
+        };
+        std::array::from_fn(|i| {
+            from.premultiplied[i] + (to.premultiplied[i] - from.premultiplied[i]) * f
+        })
+    };
+    let alpha = value[3];
+    if alpha <= 0.0 {
+        return Color::TRANSPARENT;
+    }
+    let unpremultiply = |channel: f64| (channel * 255.0 / alpha).round().clamp(0.0, 255.0) as u8;
+    Color::rgba(
+        unpremultiply(value[0]),
+        unpremultiply(value[1]),
+        unpremultiply(value[2]),
+        alpha.round().clamp(0.0, 255.0) as u8,
+    )
+}
+
+fn resolve_paint(paint: Option<&Paint>) -> Result<Option<ResolvedPaint>, RenderError> {
+    paint.map(ResolvedPaint::from_paint).transpose()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2273,6 +2434,75 @@ mod tests {
         assert_eq!(spaced.height(), equals.height());
     }
 
+    fn stop(offset: f64, color: &str) -> celesta_composition::GradientStop {
+        celesta_composition::GradientStop {
+            offset,
+            color: color.to_owned(),
+        }
+    }
+
+    #[test]
+    fn linear_gradient_fills_a_rect_and_fades_to_transparent() {
+        let fill = Paint::Linear {
+            start: Point { x: 0.0, y: 0.0 },
+            end: Point { x: 100.0, y: 0.0 },
+            stops: vec![stop(0.0, "#ff0000"), stop(1.0, "#00000000")],
+        };
+        let rect = rasterize_rect(100.0, 10.0, 0.0, Some(&fill), None).unwrap();
+        let pixels = rect.pixels();
+        let at = |x: usize| &pixels[(5 * 100 + x) * 4..(5 * 100 + x) * 4 + 4];
+        assert_eq!(at(0)[..3], [255, 0, 0]);
+        assert!(at(0)[3] > 245, "start is opaque: {:?}", at(0));
+        // Premultiplied blending keeps the hue while fading out.
+        assert!(
+            at(50)[0] > 250 && (120..135).contains(&at(50)[3]),
+            "{:?}",
+            at(50)
+        );
+        assert!(at(99)[3] < 6, "end is transparent: {:?}", at(99));
+    }
+
+    #[test]
+    fn radial_gradient_and_solid_stroke_paint_a_rect() {
+        let fill = Paint::Radial {
+            center: Point { x: 20.0, y: 20.0 },
+            radius: 20.0,
+            stops: vec![stop(0.0, "#ffffff"), stop(1.0, "#000000")],
+        };
+        let rect = rasterize_rect(40.0, 40.0, 0.0, Some(&fill), None).unwrap();
+        let pixels = rect.pixels();
+        let red = |x: usize, y: usize| pixels[(y * 40 + x) * 4];
+        assert!(red(20, 20) > 240);
+        assert!(red(2, 20) < 40);
+    }
+
+    #[test]
+    fn gradient_text_varies_across_the_glyphs() {
+        let mut rasterizer = TextRasterizer::new();
+        let style = TextStyle {
+            font_size: Some(64.0),
+            fill: Some(Paint::Linear {
+                start: Point { x: 0.0, y: 0.0 },
+                end: Point { x: 200.0, y: 0.0 },
+                stops: vec![stop(0.0, "#ff0000"), stop(1.0, "#0000ff")],
+            }),
+            ..TextStyle::default()
+        };
+        let text = rasterizer.rasterize("MMMM", &style, None, 1.0).unwrap();
+        let (width, pixels) = (text.width() as usize, text.pixels());
+        let opaque = |from: usize, to: usize| {
+            (0..text.height() as usize)
+                .flat_map(|y| (from..to).map(move |x| (x, y)))
+                .map(|(x, y)| &pixels[(y * width + x) * 4..(y * width + x) * 4 + 4])
+                .find(|pixel| pixel[3] > 250)
+                .map(|pixel| (pixel[0], pixel[2]))
+                .unwrap()
+        };
+        let (left_red, left_blue) = opaque(0, width / 4);
+        let (right_red, right_blue) = opaque(width * 3 / 4, width);
+        assert!(left_red > right_red && right_blue > left_blue);
+    }
+
     #[test]
     fn letter_spacing_widens_and_tightens_text() {
         let mut rasterizer = TextRasterizer::new();
@@ -2282,7 +2512,10 @@ mod tests {
                 letter_spacing,
                 ..TextStyle::default()
             };
-            rasterizer.rasterize("ABCD", &style, None, 1.0).unwrap().width()
+            rasterizer
+                .rasterize("ABCD", &style, None, 1.0)
+                .unwrap()
+                .width()
         };
         let (base, wide, tight) = (width(None), width(Some(10.0)), width(Some(-4.0)));
         assert!(wide > base + 30, "wide {wide}, base {base}");
