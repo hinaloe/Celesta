@@ -112,8 +112,10 @@ function T({
 }: TProps) {
   return (
     <Text x={x} y={y} anchorX={ax} anchorY={ay} opacity={opacity} scale={scale}
-      style={{ fontFamily: FONT[font], fontSize: size, fontWeight: weight, align, lineHeight,
-        fill: { type: 'solid', color } }}>
+      style={{
+        fontFamily: FONT[font], fontSize: size, fontWeight: weight, align, lineHeight,
+        fill: { type: 'solid', color }
+      }}>
       {children}
     </Text>
   );
@@ -477,27 +479,35 @@ function Code() {
 
 type Clip = { at: number; len: number; label: string };
 const TRACKS: { id: string; name: string; tag: string; clips: Clip[]; wave?: boolean }[] = [
-  { id: 'V1', name: 'VIDEO', tag: C.paper, clips: [
-    { at: 0, len: 560, label: 'opening.mp4' },
-    { at: 580, len: 760, label: 'gameplay_04.mp4' },
-    { at: 1360, len: 900, label: 'boss_fight.mp4' },
-  ] },
-  { id: 'A1', name: 'VOICE', tag: C.grey, wave: true, clips: [
-    { at: 90, len: 420, label: 'akane_001.wav' },
-    { at: 640, len: 380, label: 'akane_002.wav' },
-    { at: 1120, len: 460, label: 'yukari_003.wav' },
-    { at: 1700, len: 520, label: 'akari_004.wav' },
-  ] },
-  { id: 'T1', name: 'TITLES', tag: C.accent, clips: [
-    { at: 40, len: 380, label: '<Title />' },
-    { at: 860, len: 420, label: '<LowerThird />' },
-    { at: 1480, len: 480, label: '<Subtitle />' },
-  ] },
-  { id: 'FX', name: 'EFFECT', tag: C.dim, clips: [
-    { at: 300, len: 520, label: 'fade' },
-    { at: 1240, len: 300, label: 'slide' },
-    { at: 1900, len: 560, label: 'scale' },
-  ] },
+  {
+    id: 'V1', name: 'VIDEO', tag: C.paper, clips: [
+      { at: 0, len: 560, label: 'opening.mp4' },
+      { at: 580, len: 760, label: 'gameplay_04.mp4' },
+      { at: 1360, len: 900, label: 'boss_fight.mp4' },
+    ]
+  },
+  {
+    id: 'A1', name: 'VOICE', tag: C.grey, wave: true, clips: [
+      { at: 90, len: 420, label: 'akane_001.wav' },
+      { at: 640, len: 380, label: 'akane_002.wav' },
+      { at: 1120, len: 460, label: 'yukari_003.wav' },
+      { at: 1700, len: 520, label: 'akari_004.wav' },
+    ]
+  },
+  {
+    id: 'T1', name: 'TITLES', tag: C.accent, clips: [
+      { at: 40, len: 380, label: '<Title />' },
+      { at: 860, len: 420, label: '<LowerThird />' },
+      { at: 1480, len: 480, label: '<Subtitle />' },
+    ]
+  },
+  {
+    id: 'FX', name: 'EFFECT', tag: C.dim, clips: [
+      { at: 300, len: 520, label: 'fade' },
+      { at: 1240, len: 300, label: 'slide' },
+      { at: 1900, len: 560, label: 'scale' },
+    ]
+  },
 ];
 
 function Timeline() {
@@ -807,7 +817,7 @@ export default function Root() {
         <Sequence key={`wipe-${cut}`} from={cut - 7} durationInFrames={15}><Wipe /></Sequence>
       ))}
       <Sequence from={0} durationInFrames={S.silence}><Hud /></Sequence>
-      <Audio src="./assets/celesta-reel/music.wav" />
+      <Audio src="./music.wav" />
     </Composition>
   );
 }

@@ -11,7 +11,7 @@ are cached. The score is original and deterministic,
 generated with Python's standard library:
 
 ```sh
-python3 examples/assets/celesta-reel/make-music.py
+python3 examples/reel/make-music.py
 ```
 
 Export from the repository root:
@@ -19,5 +19,5 @@ Export from the repository root:
 ```sh
 PKG_CONFIG_PATH=/opt/homebrew/opt/ffmpeg@7/lib/pkgconfig \
   cargo run -p celesta-exporter --release -- \
-  --react examples/celesta-reel.tsx examples/celesta-reel.mp4
+  --react examples/reel/film.tsx examples/celesta-reel.mp4
 ```
