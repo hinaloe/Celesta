@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use celesta_composition::{
-    Layer, LayerContent, MediaTiming, Paint, Point, ResolvedAsset, Scene, Stroke, TextAlign,
-    TextStyle,
+    BlendMode, Layer, LayerContent, MediaTiming, Paint, Point, ResolvedAsset, Scene, Stroke,
+    TextAlign, TextStyle,
 };
 use celesta_media::{MediaError, VideoFrameDecoder};
 use celesta_remote::{RemoteAssetError, resolve_asset_path};
@@ -582,6 +582,7 @@ impl CpuRenderer {
                 y: parent.scale.y * layer.transform.scale.y,
             },
             opacity: (parent.opacity * layer.opacity).clamp(0.0, 1.0),
+            blend_mode: layer.blend_mode,
         };
         if state.opacity == 0.0 || state.scale.x == 0.0 || state.scale.y == 0.0 {
             return Ok(());
@@ -602,7 +603,34 @@ impl CpuRenderer {
                 *baseline_anchor,
                 state,
             )?,
+            LayerContent::Group { layers } if !layer.blend_mode.is_normal() => {
+                // Isolated: the children composite onto a transparent layer
+                // of their own, which then blends with the backdrop as one.
+                let mut isolated = RgbaFrame {
+                    width: frame.width,
+                    height: frame.height,
+                    pixels: vec![0; frame.pixels.len()],
+                };
+                let inner = ParentState {
+                    opacity: 1.0,
+                    blend_mode: BlendMode::Normal,
+                    ..state
+                };
+                for child in layers {
+                    self.render_layer(&mut isolated, child, inner)?;
+                }
+                for (destination, source) in frame
+                    .pixels
+                    .chunks_exact_mut(4)
+                    .zip(isolated.pixels.chunks_exact(4))
+                {
+                    let source = Color::rgba(source[0], source[1], source[2], source[3]);
+                    blend_with_mode(destination, source, state.opacity, state.blend_mode);
+                }
+            }
             LayerContent::Group { layers } => {
+                // Not isolated: each child composites straight onto the
+                // backdrop, through its own blend mode.
                 for child in layers {
                     self.render_layer(frame, child, state)?;
                 }
@@ -707,9 +735,8 @@ impl CpuRenderer {
             &image,
             anchor,
             ParentState {
-                position: state.position,
                 scale: Point { x: 1.0, y: 1.0 },
-                opacity: state.opacity,
+                ..state
             },
         );
         Ok(())
@@ -975,6 +1002,8 @@ struct ParentState {
     position: Point,
     scale: Point,
     opacity: f64,
+    /// The blend mode of the layer being drawn (not inherited by children).
+    blend_mode: BlendMode,
 }
 
 impl Default for ParentState {
@@ -983,6 +1012,7 @@ impl Default for ParentState {
             position: Point { x: 0.0, y: 0.0 },
             scale: Point { x: 1.0, y: 1.0 },
             opacity: 1.0,
+            blend_mode: BlendMode::Normal,
         }
     }
 }
@@ -999,10 +1029,28 @@ fn render_placeholder(
     let height = (height * state.scale.y.abs()).round() as i32;
     let left = (state.position.x - f64::from(width) * anchor.x).round() as i32;
     let top = (state.position.y - f64::from(height) * anchor.y).round() as i32;
-    fill_rect(frame, left, top, width, height, color, state.opacity);
+    fill_rect(
+        frame,
+        left,
+        top,
+        width,
+        height,
+        color,
+        state.opacity,
+        state.blend_mode,
+    );
 
     let border = Color::rgba(255, 255, 255, 180);
-    fill_rect(frame, left, top, width, 2, border, state.opacity);
+    fill_rect(
+        frame,
+        left,
+        top,
+        width,
+        2,
+        border,
+        state.opacity,
+        state.blend_mode,
+    );
     fill_rect(
         frame,
         left,
@@ -1011,8 +1059,18 @@ fn render_placeholder(
         2,
         border,
         state.opacity,
+        state.blend_mode,
     );
-    fill_rect(frame, left, top, 2, height, border, state.opacity);
+    fill_rect(
+        frame,
+        left,
+        top,
+        2,
+        height,
+        border,
+        state.opacity,
+        state.blend_mode,
+    );
     fill_rect(
         frame,
         left + width - 2,
@@ -1021,6 +1079,7 @@ fn render_placeholder(
         height,
         border,
         state.opacity,
+        state.blend_mode,
     );
 }
 
@@ -1051,7 +1110,7 @@ fn render_image(frame: &mut RgbaFrame, image: &DecodedImage, anchor: Point, stat
                 continue;
             }
             let destination_offset = ((y as u32 * frame.width + x as u32) * 4) as usize;
-            blend(
+            blend_with_mode(
                 &mut frame.pixels[destination_offset..destination_offset + 4],
                 Color::rgba(
                     image.pixels[source_offset],
@@ -1060,6 +1119,7 @@ fn render_image(frame: &mut RgbaFrame, image: &DecodedImage, anchor: Point, stat
                     image.pixels[source_offset + 3],
                 ),
                 state.opacity,
+                state.blend_mode,
             );
         }
     }
@@ -1319,6 +1379,7 @@ fn paint_color(paint: Option<&Paint>) -> Result<Option<Color>, RenderError> {
         .transpose()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn fill_rect(
     frame: &mut RgbaFrame,
     left: i32,
@@ -1327,6 +1388,7 @@ fn fill_rect(
     height: i32,
     color: Color,
     opacity: f64,
+    blend_mode: BlendMode,
 ) {
     let right = (left + width).clamp(0, frame.width as i32);
     let bottom = (top + height).clamp(0, frame.height as i32);
@@ -1335,9 +1397,40 @@ fn fill_rect(
     for y in top..bottom {
         for x in left..right {
             let offset = ((y as u32 * frame.width + x as u32) * 4) as usize;
-            blend(&mut frame.pixels[offset..offset + 4], color, opacity);
+            blend_with_mode(
+                &mut frame.pixels[offset..offset + 4],
+                color,
+                opacity,
+                blend_mode,
+            );
         }
     }
+}
+
+/// Composites `source` onto `destination` (both non-premultiplied) through
+/// `mode`: the source color becomes `(1 - ab) * Cs + ab * B(Cb, Cs)`, which
+/// then composites source-over, as in the W3C Compositing and Blending spec.
+fn blend_with_mode(destination: &mut [u8], source: Color, opacity: f64, mode: BlendMode) {
+    if mode.is_normal() {
+        return blend(destination, source, opacity);
+    }
+    let source_alpha = (f64::from(source.alpha) / 255.0) * opacity.clamp(0.0, 1.0);
+    if source_alpha == 0.0 {
+        return;
+    }
+    let backdrop_alpha = f64::from(destination[3]) / 255.0;
+    let output_alpha = source_alpha + backdrop_alpha * (1.0 - source_alpha);
+    for channel in 0..3 {
+        let source_value = f64::from([source.red, source.green, source.blue][channel]) / 255.0;
+        let backdrop_value = f64::from(destination[channel]) / 255.0;
+        let mixed = (1.0 - backdrop_alpha) * source_value
+            + backdrop_alpha * mode.blend_channel(backdrop_value, source_value);
+        let output = (source_alpha * mixed
+            + backdrop_alpha * backdrop_value * (1.0 - source_alpha))
+            / output_alpha;
+        destination[channel] = (output * 255.0).round().clamp(0.0, 255.0) as u8;
+    }
+    destination[3] = (output_alpha * 255.0).round().clamp(0.0, 255.0) as u8;
 }
 
 fn blend(destination: &mut [u8], source: Color, opacity: f64) {
@@ -1467,7 +1560,7 @@ mod tests {
     use std::path::Path;
 
     use celesta_composition::{
-        AssetLocation, EvaluatedTransform, Layer, LayerContent, MediaTiming, Rational,
+        AssetLocation, EvaluatedTransform, Layer, LayerContent, MediaTiming, Paint, Rational,
         ResolvedAsset, Scene, TextStyle, Time,
     };
     use celesta_media::{MediaError, VideoFrame, VideoFrameDecoder};
@@ -1530,6 +1623,7 @@ mod tests {
                     ..EvaluatedTransform::default()
                 },
                 opacity: 1.0,
+                blend_mode: BlendMode::Normal,
                 content: LayerContent::Text {
                     text: "Hello, Celesta!".to_owned(),
                     style: TextStyle {
@@ -1569,6 +1663,7 @@ mod tests {
                     ..EvaluatedTransform::default()
                 },
                 opacity: 1.0,
+                blend_mode: BlendMode::Normal,
                 content: LayerContent::Rect {
                     width: 100.0,
                     height: 60.0,
@@ -1619,6 +1714,7 @@ mod tests {
                     ..EvaluatedTransform::default()
                 },
                 opacity: 1.0,
+                blend_mode: BlendMode::Normal,
                 content: LayerContent::Text {
                     text: "Celesta".to_owned(),
                     style: TextStyle {
@@ -1693,6 +1789,7 @@ mod tests {
                 ..EvaluatedTransform::default()
             },
             opacity: 1.0,
+            blend_mode: BlendMode::Normal,
             content: LayerContent::Text {
                 text: text.to_owned(),
                 style: TextStyle {
@@ -1749,6 +1846,156 @@ mod tests {
     }
 
     #[test]
+    fn blends_each_mode_with_the_backdrop() {
+        let blended = |mode: BlendMode, opacity: f64| {
+            let mut destination = [200, 100, 50, 255];
+            blend_with_mode(
+                &mut destination,
+                Color::rgba(100, 200, 250, 255),
+                opacity,
+                mode,
+            );
+            destination
+        };
+        assert_eq!(blended(BlendMode::Normal, 1.0), [100, 200, 250, 255]);
+        assert_eq!(blended(BlendMode::Multiply, 1.0), [78, 78, 49, 255]);
+        assert_eq!(blended(BlendMode::Screen, 1.0), [222, 222, 251, 255]);
+        assert_eq!(blended(BlendMode::Overlay, 1.0), [188, 157, 98, 255]);
+        assert_eq!(blended(BlendMode::Add, 1.0), [255, 255, 255, 255]);
+        assert_eq!(blended(BlendMode::Difference, 1.0), [100, 100, 200, 255]);
+        // Opacity fades between the backdrop and the blended color.
+        assert_eq!(blended(BlendMode::Difference, 0.5), [150, 100, 125, 255]);
+
+        // Over a transparent backdrop the source composites unchanged.
+        let mut destination = [0, 0, 0, 0];
+        blend_with_mode(
+            &mut destination,
+            Color::rgba(100, 200, 250, 128),
+            1.0,
+            BlendMode::Difference,
+        );
+        assert_eq!(destination, [100, 200, 250, 128]);
+    }
+
+    fn rect_layer(id: &str, x: f64, width: f64, color: &str, blend_mode: BlendMode) -> Layer {
+        Layer {
+            id: id.to_owned(),
+            transform: EvaluatedTransform {
+                position: Point { x, y: 0.0 },
+                anchor: Point { x: 0.0, y: 0.0 },
+                ..EvaluatedTransform::default()
+            },
+            opacity: 1.0,
+            blend_mode,
+            content: LayerContent::Rect {
+                width,
+                height: 1.0,
+                fill: Some(Paint::Solid {
+                    color: color.to_owned(),
+                }),
+                stroke: None,
+                corner_radius: 0.0,
+            },
+        }
+    }
+
+    #[test]
+    fn blends_a_layer_with_everything_beneath_it() {
+        let scene = Scene {
+            width: 4,
+            height: 1,
+            frame_rate: Rational::new(30, 1),
+            time: Time::ZERO,
+            fonts: Vec::new(),
+            layers: vec![
+                rect_layer("light", 2.0, 2.0, "#ffffff", BlendMode::Normal),
+                // Inside a plain group, a child still blends with what the
+                // group's siblings drew.
+                Layer {
+                    id: "group".to_owned(),
+                    transform: EvaluatedTransform {
+                        anchor: Point { x: 0.0, y: 0.0 },
+                        ..EvaluatedTransform::default()
+                    },
+                    opacity: 1.0,
+                    blend_mode: BlendMode::Normal,
+                    content: LayerContent::Group {
+                        layers: vec![rect_layer(
+                            "hud",
+                            1.0,
+                            2.0,
+                            "#e0e0e0",
+                            BlendMode::Difference,
+                        )],
+                    },
+                },
+            ],
+        };
+        let frame = CpuRenderer::new(RenderOptions {
+            background: Color::rgba(0, 0, 0, 255),
+        })
+        .render(&scene)
+        .unwrap();
+        let pixel = |x: usize| frame.pixels()[x * 4..x * 4 + 4].to_vec();
+        assert_eq!(pixel(0), [0, 0, 0, 255]);
+        // Light over the dark background, dark over the light rect.
+        assert_eq!(pixel(1), [224, 224, 224, 255]);
+        assert_eq!(pixel(2), [31, 31, 31, 255]);
+        assert_eq!(pixel(3), [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn blends_an_isolated_group_as_one_layer() {
+        let group = |opacity: f64| Layer {
+            id: "group".to_owned(),
+            transform: EvaluatedTransform {
+                anchor: Point { x: 0.0, y: 0.0 },
+                ..EvaluatedTransform::default()
+            },
+            opacity,
+            blend_mode: BlendMode::Difference,
+            content: LayerContent::Group {
+                layers: vec![
+                    rect_layer("white", 0.0, 3.0, "#ffffff", BlendMode::Normal),
+                    // Composites onto the group's own layer, not the scene.
+                    rect_layer("red", 1.0, 1.0, "#ff0000", BlendMode::Multiply),
+                ],
+            },
+        };
+        let render = |opacity: f64| {
+            let scene = Scene {
+                width: 4,
+                height: 1,
+                frame_rate: Rational::new(30, 1),
+                time: Time::ZERO,
+                fonts: Vec::new(),
+                layers: vec![
+                    rect_layer("gray", 0.0, 4.0, "#808080", BlendMode::Normal),
+                    group(opacity),
+                ],
+            };
+            CpuRenderer::new(RenderOptions {
+                background: Color::rgba(0, 0, 0, 255),
+            })
+            .render(&scene)
+            .unwrap()
+        };
+
+        let frame = render(1.0);
+        let pixel = |x: usize| frame.pixels()[x * 4..x * 4 + 4].to_vec();
+        assert_eq!(pixel(0), [127, 127, 127, 255]);
+        // White multiplied by red is red, which then differs from gray.
+        assert_eq!(pixel(1), [127, 128, 128, 255]);
+        assert_eq!(pixel(2), [127, 127, 127, 255]);
+        assert_eq!(pixel(3), [128, 128, 128, 255]);
+
+        // The group's opacity fades the blended result as a whole.
+        let frame = render(0.5);
+        assert_eq!(frame.pixels()[0..4], [128, 128, 128, 255]);
+        assert_eq!(frame.pixels()[4..8], [128, 128, 128, 255]);
+    }
+
+    #[test]
     fn decodes_and_draws_a_real_image() {
         let scene = Scene {
             width: 2,
@@ -1763,6 +2010,7 @@ mod tests {
                     ..EvaluatedTransform::default()
                 },
                 opacity: 1.0,
+                blend_mode: BlendMode::Normal,
                 content: LayerContent::Image {
                     asset: ResolvedAsset {
                         id: "checker".to_owned(),
@@ -1817,6 +2065,7 @@ mod tests {
                     ..EvaluatedTransform::default()
                 },
                 opacity: 1.0,
+                blend_mode: BlendMode::Normal,
                 content: LayerContent::Video {
                     asset: ResolvedAsset {
                         id: "clip".to_owned(),

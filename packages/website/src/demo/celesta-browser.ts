@@ -8,7 +8,10 @@
 // - a rect's stroke is drawn inside its edge;
 // - single-line text is trimmed vertically to its visible glyphs before
 //   anchoring but keeps its advance width, spaces included;
-// - `anchorY="baseline"` on text pivots on the first line's baseline.
+// - `anchorY="baseline"` on text pivots on the first line's baseline;
+// - `blendMode` maps to the canvas composite operation of the same name
+//   (`add` to `lighter`), and a group with a blend mode draws its children
+//   onto a canvas of its own before blending it as one layer.
 import { Fragment, isValidElement, type ReactElement, type ReactNode } from 'react';
 
 export { Easings, interpolate } from '../../../react/src/animation';
@@ -36,7 +39,19 @@ export interface CommonProps {
   anchorX?: number;
   anchorY?: number;
   opacity?: number;
+  blendMode?: BlendMode;
 }
+
+export type BlendMode = 'normal' | 'multiply' | 'screen' | 'overlay' | 'add' | 'difference';
+
+const COMPOSITE_OPERATIONS: Record<BlendMode, GlobalCompositeOperation> = {
+  normal: 'source-over',
+  multiply: 'multiply',
+  screen: 'screen',
+  overlay: 'overlay',
+  add: 'lighter',
+  difference: 'difference',
+};
 
 export interface CompositionProps {
   width: number;
@@ -233,14 +248,32 @@ function draw(ctx: CanvasRenderingContext2D, node: ReactNode, parent: Affine, op
   const element = node as ReactElement<Record<string, unknown>>;
   const props = element.props;
   const layerOpacity = opacity * Math.min(Math.max((props as CommonProps).opacity ?? 1, 0), 1);
+  const blendMode = (props as CommonProps).blendMode ?? 'normal';
   if (element.type === Fragment || element.type === Composition) {
     draw(ctx, props.children as ReactNode, parent, opacity);
+  } else if (element.type === Group && blendMode !== 'normal') {
+    if (layerOpacity === 0) return;
+    const isolated = document.createElement('canvas');
+    isolated.width = ctx.canvas.width;
+    isolated.height = ctx.canvas.height;
+    const isolatedCtx = isolated.getContext('2d');
+    if (!isolatedCtx) return;
+    draw(isolatedCtx, props.children as ReactNode, multiply(parent, local(props)), 1);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = layerOpacity;
+    ctx.globalCompositeOperation = COMPOSITE_OPERATIONS[blendMode];
+    ctx.drawImage(isolated, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
   } else if (element.type === Group) {
     draw(ctx, props.children as ReactNode, multiply(parent, local(props)), layerOpacity);
   } else if (element.type === Rect) {
+    ctx.globalCompositeOperation = COMPOSITE_OPERATIONS[blendMode];
     drawRect(ctx, props as unknown as RectProps, parent, layerOpacity);
+    ctx.globalCompositeOperation = 'source-over';
   } else if (element.type === Text) {
+    ctx.globalCompositeOperation = COMPOSITE_OPERATIONS[blendMode];
     drawText(ctx, props as unknown as TextProps, parent, layerOpacity);
+    ctx.globalCompositeOperation = 'source-over';
   } else if (typeof element.type === 'function') {
     // Scene components here are plain functions of props and the frame.
     draw(ctx, (element.type as (p: unknown) => ReactNode)(props), parent, opacity);

@@ -125,7 +125,12 @@ function ResolvedProjectLayer({ layer }: { layer: Layer }): ReturnType<typeof Re
     if (definition) {
       return React.createElement(
         'group',
-        { id: layer.id, rawTransform: layer.transform, rawOpacity: layer.opacity },
+        {
+          id: layer.id,
+          rawTransform: layer.transform,
+          rawOpacity: layer.opacity,
+          blendMode: layer.blendMode,
+        },
         React.createElement(definition, layer.content.props),
       );
     }

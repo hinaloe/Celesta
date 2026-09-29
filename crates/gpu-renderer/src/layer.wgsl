@@ -6,7 +6,8 @@ struct LayerInstance {
     // anchor.xy, opacity, and the content kind: 0 samples `source_texture`,
     // 1 shades the rect described by `rect`/`fill`/`stroke`.
     @location(2) anchor_opacity_kind: vec4<f32>,
-    // canvas width, height
+    // canvas width, height; the blend mode index (see `blend`), and 1 when
+    // `source_texture` holds premultiplied alpha (an isolated group's canvas)
     @location(3) canvas: vec4<f32>,
     // half width, half height, corner radius, stroke width (0 without one)
     @location(4) rect: vec4<f32>,
@@ -21,6 +22,10 @@ var source_texture: texture_2d<f32>;
 @group(0) @binding(1)
 var source_sampler: sampler;
 
+// A copy of the canvas `fs_blend` draws onto, in premultiplied alpha.
+@group(1) @binding(0)
+var backdrop_texture: texture_2d<f32>;
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -29,6 +34,8 @@ struct VertexOutput {
     @location(2) @interpolate(flat) rect: vec4<f32>,
     @location(3) @interpolate(flat) fill: vec4<f32>,
     @location(4) @interpolate(flat) stroke: vec4<f32>,
+    // blend mode index, premultiplied source
+    @location(5) @interpolate(flat) blend: vec2<f32>,
 };
 
 @vertex
@@ -60,6 +67,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, layer: LayerInstance) -> Ve
         layer.rect,
         layer.fill,
         layer.stroke,
+        layer.canvas.zw,
     );
 }
 
@@ -99,13 +107,67 @@ fn rect_color(input: VertexOutput) -> vec4<f32> {
     return vec4<f32>(color.rgb, floor(color.a * outer + 0.5)) / 255.0;
 }
 
-@fragment
-fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+// The layer's non-premultiplied color, with its opacity applied to alpha.
+fn source_color(input: VertexOutput) -> vec4<f32> {
     // Sampled unconditionally: `textureSample` needs uniform control flow.
     // Rect draws bind a 1x1 placeholder texture.
     var color = textureSample(source_texture, source_sampler, input.uv);
+    if input.blend.y == 1.0 && color.a > 0.0 {
+        color = vec4<f32>(color.rgb / color.a, color.a);
+    }
     if input.size_opacity_kind.w == 1.0 {
         color = rect_color(input);
     }
     return vec4<f32>(color.rgb, color.a * input.size_opacity_kind.z);
+}
+
+@fragment
+fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    return source_color(input);
+}
+
+// `celesta_composition::BlendMode::blend_channel` for all three channels.
+fn blend(mode: u32, backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
+    switch mode {
+        case 1u: {
+            return source * backdrop;
+        }
+        case 2u: {
+            return backdrop + source - backdrop * source;
+        }
+        case 3u: {
+            let doubled = 2.0 * backdrop;
+            let screened = source + (doubled - 1.0) - source * (doubled - 1.0);
+            return select(screened, source * doubled, backdrop <= vec3<f32>(0.5));
+        }
+        case 4u: {
+            return min(source + backdrop, vec3<f32>(1.0));
+        }
+        case 5u: {
+            return abs(backdrop - source);
+        }
+        default: {
+            return source;
+        }
+    }
+}
+
+// Blends the layer with the backdrop under this fragment and replaces the
+// canvas pixel with the result, as `celesta_renderer`'s `blend_with_mode`
+// does, keeping the canvas premultiplied.
+@fragment
+fn fs_blend(input: VertexOutput) -> @location(0) vec4<f32> {
+    let source = source_color(input);
+    let backdrop = textureLoad(backdrop_texture, vec2<i32>(floor(input.position.xy)), 0);
+    var backdrop_color = vec3<f32>(0.0);
+    if backdrop.a > 0.0 {
+        backdrop_color = backdrop.rgb / backdrop.a;
+    }
+    let mode = u32(input.blend.x + 0.5);
+    let mixed = (1.0 - backdrop.a) * source.rgb
+        + backdrop.a * blend(mode, backdrop_color, source.rgb);
+    return vec4<f32>(
+        source.a * mixed + backdrop.rgb * (1.0 - source.a),
+        source.a + backdrop.a * (1.0 - source.a),
+    );
 }

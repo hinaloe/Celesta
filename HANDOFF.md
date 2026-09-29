@@ -172,6 +172,17 @@ Keep these boundaries intact:
   layout box. A Text layer with `baselineAnchor` (React `anchorY="baseline"`)
   is anchored vertically on its first line's baseline, which
   `RasterizedText::baseline` reports, so separate runs share a baseline.
+- Layers carry a `blendMode` (`BlendMode`: normal, multiply, screen, overlay,
+  add, difference; issue #27), set by React's `blendMode` prop or a project
+  item's `blendMode`. The formulas live in `BlendMode::blend_channel` and are
+  applied to non-premultiplied 8-bit values. A `Group` with a mode other than
+  normal is isolated: its children composite onto a transparent layer, and
+  its opacity applies to that layer as a whole. The CPU renderer does this with
+  a scene-sized `RgbaFrame`. The GPU renderer keeps its single-pass path for
+  scenes without blending; a scene with blending draws onto scene-sized
+  canvases (premultiplied alpha), copies the canvas to a backdrop texture
+  before each blended draw (`fs_blend` in `layer.wgsl`), and finally copies
+  the root canvas onto the target.
 - Audio preview evaluates the shared `AudioGraph`, decodes assets through
   FFmpeg to project-rate stereo PCM, mixes timeline/source offsets, animated
   playback rate and volume, mute state, and overlapping clips, then plays the
