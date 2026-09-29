@@ -276,45 +276,65 @@ function ChapterShell({ index, children }: { index: number; children: ReactNode 
   );
 }
 
-// ── 00 · Cold open: one frame becomes many, then the title ────────────────
+// ── 00 · Cold open: one frame becomes many, then floods into the title ───
+
+// Mixes two #RRGGBB colors.
+function mixHex(a: string, b: string, t: number) {
+  const channel = (hex: string, i: number) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+  return `#${[0, 1, 2].map((i) =>
+    Math.round(channel(a, i) + (channel(b, i) - channel(a, i)) * clamp(t)).toString(16).padStart(2, '0'),
+  ).join('')}`;
+}
+
+const TILE_COLORS = [C.blue, C.blue, C.blue, C.sky, C.sky, C.paper, C.pink, '#2B3F9E'];
 
 function Open() {
   const f = useCurrentFrame();
   const beat = clamp(Math.floor(f / BEAT), 0, 3);
-  const n = 2 ** beat; // tiles per side: 1, 2, 4, 8
-  const count = n * n;
-  const sheetW = 960;
-  const sheetH = 540;
-  const gap = n === 1 ? 0 : 36 / n;
-  const tw = (sheetW - gap * (n - 1)) / n;
-  const th = (sheetH - gap * (n - 1)) / n;
   const local = f - beat * BEAT;
-  const zoom = 1 + 2.4 * progress(f, 50, 10, Easings.easeInExpo);
-  const sheetOut = 1 - progress(f, 54, 6);
-  const current = Math.floor(f * 1.5) % count;
+  // From frame 48 every tile turns blue in a diagonal wave, the gaps close,
+  // and the sheet grows to fill the screen: the title's background.
+  const flood = progress(f, 48, 8, Easings.easeInOutCubic);
+  const zoom = 1 + progress(f, 50, 10, Easings.easeInOutCubic);
+  const count = 4 ** beat;
+  const captions = 1 - progress(f, 46, 6);
 
-  const tiles: ReactNode[] = [];
-  for (let i = 0; i < count; i++) {
-    const r = Math.floor(i / n);
-    const c = i % n;
-    const p = progress(local, i * (4 / count) - 2, 6, Easings.easeOutBack);
-    const on = i === current;
-    tiles.push(
-      <Group key={i} x={-sheetW / 2 + c * (tw + gap) + tw / 2} y={-sheetH / 2 + r * (th + gap) + th / 2}
-        scale={0.6 + 0.4 * p} opacity={p}>
-        <Rect anchorX={0.5} anchorY={0.5} width={tw} height={th} cornerRadius={n === 1 ? 0 : 4}
-          fill={on ? C.blue : C.panel} stroke={on ? undefined : C.line} strokeWidth={on ? undefined : 1} />
-        {n <= 2 && (
-          <T x={-tw / 2 + 20} y={-th / 2 + 26} size={18} font="mono" weight={400}
-            color={on ? C.paper : C.grey} ay={0.5}>{`frame ${pad(i, 3)}`}</T>
-        )}
-      </Group>,
-    );
-  }
+  // One generation of tiles: 1, 2, 4 or 8 per side. Each beat's generation
+  // pops in over the previous one, center first.
+  const sheet = (gen: number, appear: number) => {
+    const n = 2 ** gen;
+    const sheetW = 960;
+    const sheetH = 540;
+    const gap = n === 1 ? 0 : (36 / n) * (1 - flood);
+    const tw = (sheetW - gap * (n - 1)) / n;
+    const th = (sheetH - gap * (n - 1)) / n;
+    const radius = (n === 1 ? 18 : 8) * (1 - flood);
+    return Array.from({ length: n * n }, (_, i) => {
+      const r = Math.floor(i / n);
+      const c = i % n;
+      const ring = Math.hypot(c - (n - 1) / 2, r - (n - 1) / 2) / Math.max(1, n / 2);
+      const p = progress(appear, ring * 4, 8, Easings.easeOutBack);
+      const base = n === 1 ? C.blue : TILE_COLORS[Math.floor(hash(i, gen) * TILE_COLORS.length)];
+      const color = mixHex(base, C.blue, clamp(flood * 1.6 - ((c + r) / (2 * n)) * 0.6));
+      return (
+        <Group key={`${gen}-${i}`} x={-sheetW / 2 + c * (tw + gap) + tw / 2} y={-sheetH / 2 + r * (th + gap) + th / 2}
+          scale={0.8 + 0.2 * p} opacity={clamp(p * 1.5)}>
+          <Rect anchorX={0.5} anchorY={0.5} width={tw + 1} height={th + 1} cornerRadius={radius} fill={color} />
+          {n <= 2 && (
+            <T x={-tw / 2 + 22} y={-th / 2 + 30} size={18} font="mono" weight={700}
+              color={color === C.paper || color === C.sky ? C.ink : C.paper} ay={0.5} opacity={0.8}>
+              {`frame ${pad(i, 3)}`}
+            </T>
+          )}
+        </Group>
+      );
+    });
+  };
+  const previous = beat > 0 ? 1 - progress(local, 3, 6) : 0;
 
   // Bar 1: the title.
   const t = f - BAR;
-  const hit = progress(t, 0, 14, Easings.easeOutExpo);
+  const hit = progress(t, 0, 16, Easings.easeOutExpo);
   const label = progress(t, BEAT, 12, Easings.easeOutExpo);
   const ja = progress(t, BEAT * 2, 12, Easings.easeOutExpo);
 
@@ -323,28 +343,30 @@ function Open() {
       <Rect width={W} height={H} fill={t >= 0 ? C.blue : C.ink} />
       {t < 0 && (
         <>
-          <Group x={W / 2} y={H / 2 - 20} scale={zoom} opacity={sheetOut}>{tiles}</Group>
-          <Group opacity={sheetOut}>
-            <T x={480} y={870} size={20} font="mono" weight={700} ay={0.5}>
+          <Group x={W / 2} y={H / 2} scale={zoom}>
+            {previous > 0 && <Group opacity={previous}>{sheet(beat - 1, BEAT)}</Group>}
+            {sheet(beat, beat === 0 ? f : local)}
+          </Group>
+          <Group opacity={captions}>
+            <T x={480} y={880} size={20} font="mono" weight={700} ay={0.5}>
               {`${count} ${count === 1 ? 'frame' : 'frames'}`}
             </T>
-            <T x={1440} y={870} size={20} font="mono" weight={400} color={C.grey} ax={1} ay={0.5}>
-              {`f(${pad(f, 3)}) → pixels`}
+            <T x={1440} y={880} size={20} font="mono" weight={400} color={C.soft} ax={1} ay={0.5}>
+              {'f(frame) → pixels'}
             </T>
           </Group>
         </>
       )}
       {t >= 0 && (
         <>
-          <T x={W / 2} y={H / 2 - 10} size={250} ax={0.5} ay={0.5} scale={1.25 - 0.25 * hit}
-            opacity={clamp(hit * 2)}>Celesta</T>
+          <T x={W / 2} y={H / 2 - 10 + 30 * (1 - hit)} size={250} ax={0.5} ay={0.5} scale={1.08 - 0.08 * hit}
+            opacity={clamp(hit * 1.5)}>Celesta</T>
           <T x={W / 2} y={H / 2 - 210 + 16 * (1 - label)} size={22} font="mono" weight={700} ax={0.5} ay={0.5}
             opacity={label}>{`FEATURE TOUR  ·  ${pad(CHAPTERS.length)} CHAPTERS`}</T>
           <T x={W / 2} y={H / 2 + 190 + 16 * (1 - ja)} size={40} font="ja" weight={700} ax={0.5} ay={0.5}
             opacity={ja}>{TAGLINE}</T>
         </>
       )}
-      <Rect width={W} height={H} fill={C.paper} opacity={t >= 0 ? 1 - progress(t, 0, 10) : 0} />
     </>
   );
 }

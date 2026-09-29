@@ -1,8 +1,8 @@
 """Generate the original, deterministic 52-second score for film.tsx.
 
 120 BPM, 26 bars, stereo. The arrangement follows the picture:
-  bar 0      cold open: a bell blip per beat as the frames multiply, clock ticks
-  bar 1      the title: impact, a swelling pad, then a reverse swell
+  bar 0      cold open: a warm pad and a rising bell per beat as the frames multiply
+  bar 1      the title: a soft impact, a bright Fmaj9 pad, then a reverse swell
   bars 2-3   index: four-on-the-floor starts, a tick for every row
   bars 4-13  chapters 01-05: full groove (Am-F-C-G), a whoosh on every cut,
              plucks where the timeline clips drop
@@ -244,17 +244,20 @@ def groove(bar: int, energy: float) -> None:
 
 
 def main() -> None:
-    # Bar 0: the frames multiply. A drone, a clock, a blip per beat.
-    add(0, BAR * 2, pad([hz(45), hz(52)], BAR * 2, 0.22, 1.2, 0.3, 200, 700))
+    # Bar 0: the frames multiply. A warm Fmaj7 pad, a rising C major bell per
+    # beat, a soft shaker on the eighths.
+    add(0, BAR, pad([hz(53), hz(57), hz(60), hz(64)], BAR, 0.26, 0.25, 0.2, 700, 2200))
     for b in range(4):
-        add(b * BEAT, 1.2, bell(hz(69 + [0, 7, 12, 19][b]), 0.22, 3.5), pan=[-0.3, 0.3, -0.15, 0.15][b])
+        note = [72, 76, 79, 84][b]
+        add(b * BEAT, 1.4, bell(hz(note), 0.2, 2.8), pan=[-0.3, 0.3, -0.15, 0.15][b])
+        add(b * BEAT + 0.125, 1.0, bell(hz(note + 7), 0.07, 3.2), pan=[0.3, -0.3, 0.15, -0.15][b])
     for e in range(8):
-        add(e * BEAT / 2, 0.05, tick(2400 if e % 2 == 0 else 1800, 0.1), pan=0.5 if e % 2 else -0.5)
-    add(BAR - 1.0, 1.05, whoosh(1.05, 1.0, 0.5, 11))
+        add(e * BEAT / 2, 0.08, hat(0.05 if e % 2 else 0.03, 45, 300 + e), pan=0.4 if e % 2 else -0.4)
+    add(BAR - 0.8, 0.85, whoosh(0.85, 0.8, 0.35, 11))
 
     # Bar 1: the title.
-    add(BAR, 3.0, impact(21), gain=0.9)
-    add(BAR, BAR, pad([hz(57), hz(60), hz(64), hz(71)], BAR, 0.3, 0.05, 0.6, 2400, 600))
+    add(BAR, 3.0, impact(21), gain=0.7)
+    add(BAR, BAR, pad([hz(53), hz(60), hz(64), hz(67), hz(69)], BAR, 0.3, 0.05, 0.6, 2800, 900))
     add(BAR + BEAT, 2.0, bell(hz(76), 0.16, 1.8), pan=0.3)
     add(BAR + BEAT * 2, 2.0, bell(hz(79), 0.14, 1.8), pan=-0.3)
     add(INDEX_AT - 0.9, 0.95, whoosh(0.95, 0.9, 0.45, 12))
