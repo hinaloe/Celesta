@@ -18,7 +18,10 @@ fn no_tracks() -> BTreeMap<String, Vec<Layer>> {
 fn all_layers(layers: &[Layer]) -> Vec<&Layer> {
     let mut all = Vec::new();
     for layer in layers {
-        if let LayerContent::Group { layers: children } = &layer.content {
+        if let LayerContent::Group {
+            layers: children, ..
+        } = &layer.content
+        {
             all.extend(all_layers(children));
         }
         all.push(layer);
@@ -656,7 +659,10 @@ fn resolves_a_registered_component_when_node_is_available() {
         .iter()
         .find(|layer| layer.id == "boss-intro")
         .expect("resolved component layer");
-    let LayerContent::Group { layers: children } = &resolved_group.content else {
+    let LayerContent::Group {
+        layers: children, ..
+    } = &resolved_group.content
+    else {
         panic!("expected the resolved component to render as a group");
     };
     assert!(children.iter().any(|layer| matches!(

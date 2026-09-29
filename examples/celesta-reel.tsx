@@ -543,10 +543,11 @@ function Timeline() {
       <Group opacity={exit}>
         <Tag x={120} y={150} n="04" name="TIMELINE" opacity={headUp} />
         <Swap f={f} x={120} y={190} size={176} accentLast cues={[[0, 'Layer it.'], [BAR, 'Sequence it.']]} />
-        {ticks}
-        {tracks}
-        {/* Label column, drawn over clips that scroll past it. */}
-        <Rect width={left - 10} y={480} height={H - 480} fill={C.ink} />
+        {/* Clips scroll under the label column, so keep them inside the panel. */}
+        <Group clip={{ x: left - 10, y: 480, width: W - left + 10, height: H - 480 }}>
+          {ticks}
+          {tracks}
+        </Group>
         {TRACKS.map((track, ti) => (
           <Group key={track.id} x={120} y={top + ti * row + 38} opacity={progress(f, ti * 3, 12)}>
             <Rect y={-8} width={16} height={16} fill={track.tag} />

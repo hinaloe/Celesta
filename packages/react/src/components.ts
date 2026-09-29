@@ -47,7 +47,27 @@ export interface CompositionProps {
   children?: ReactNode;
 }
 
+/** A rectangle in a group's own coordinate space, in pixels. */
+export interface ClipRect {
+  /** Left edge, in the group's coordinates. Defaults to 0. */
+  x?: number;
+  /** Top edge, in the group's coordinates. Defaults to 0. */
+  y?: number;
+  width: number;
+  height: number;
+  /** Corner radius, limited to half the shorter side. Defaults to 0. */
+  cornerRadius?: number;
+}
+
 export interface GroupProps extends CommonProps {
+  /**
+   * Draws the children only inside this rectangle, in the group's own
+   * coordinate space (the space the children's `x`/`y` are given in), so it
+   * moves, scales, and rotates with the group. The edge is anti-aliased and
+   * clips nested inside one another intersect. A rectangle with no area
+   * hides the children.
+   */
+  clip?: ClipRect;
   children?: ReactNode;
 }
 

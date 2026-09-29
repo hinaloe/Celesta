@@ -180,6 +180,8 @@ export const sections: DocSection[] = [
       ]} />
       <DocCode label="A centered list inside a safe margin" language="tsx" code={"<SafeArea padding={96}>\n  <Center>\n    <Stack spacing={96} y={-96}>\n      {['Write', 'Preview', 'Export'].map((step) => (\n        <Text key={step} anchorX={0.5} anchorY={0.5}\n          style={{ fontSize: 64, fill: { type: 'solid', color: '#332f3b' } }}>\n          {step}\n        </Text>\n      ))}\n    </Stack>\n  </Center>\n</SafeArea>"} />
       <p>Helpers position child origins; they do not measure what the children draw. Anchor children at <code>0.5</code> when you want them centered on those points.</p>
+      <h3>Clip a group</h3><p>Give a <code>Group</code> a <code>clip</code> to draw its children only inside a rectangle, <code>{'{ x, y, width, height, cornerRadius }'}</code>, in the group’s own coordinates. Use it for a mask reveal, a wipe, or content that scrolls inside a panel. The clip moves, scales, and rotates with the group, its edge is anti-aliased, and clips nested inside one another intersect.</p>
+      <DocCode label="Text sliding up from behind an edge" language="tsx" code={"<Group x={120} y={200} clip={{ width: 720, height: 96 }}>\n  <Text y={96 * (1 - reveal)}\n    style={{ fontSize: 88, fill: { type: 'solid', color: '#332f3b' } }}>\n    Layer it.\n  </Text>\n</Group>"} />
     </>,
   },
   {

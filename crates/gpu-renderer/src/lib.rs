@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::sync::mpsc;
 
 use celesta_composition::{
-    EvaluatedTransform, Layer, LayerContent, Paint, Point, ResolvedAsset, Scene, Stroke,
+    Clip, EvaluatedTransform, Layer, LayerContent, Paint, Point, ResolvedAsset, Scene, Stroke,
 };
 use celesta_media::{MediaError, VideoFrameDecoder};
 use celesta_remote::{RemoteAssetError, resolve_asset_path};
@@ -213,6 +213,14 @@ pub struct GpuRenderer {
     /// Every layer's `LayerInstance` for the frame being prepared, reused
     /// (and grown when a frame needs more) across frames.
     instances: wgpu::Buffer,
+    /// Layout of the bind group that exposes `clips` to the fragment shader.
+    clip_bind_group_layout: wgpu::BindGroupLayout,
+    /// Every clip of the frame being prepared, as `CLIP_ENTRY_FLOATS` floats
+    /// each, reused (and grown when a frame needs more) like `instances`.
+    clips: wgpu::Buffer,
+    clip_bind_group: wgpu::BindGroup,
+    /// The clips the frame being prepared has entered so far.
+    clip_entries: Vec<ClipEntry>,
     /// Bound for draws that shade their content (rects) instead of sampling.
     placeholder_texture: LayerTexture,
     asset_root: PathBuf,
@@ -316,9 +324,26 @@ impl GpuRenderer {
                     },
                 ],
             });
+        let clip_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Celesta layer clip bind group layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Celesta layer pipeline layout"),
-            bind_group_layouts: &[Some(&texture_bind_group_layout)],
+            bind_group_layouts: &[
+                Some(&texture_bind_group_layout),
+                Some(&clip_bind_group_layout),
+            ],
             immediate_size: 0,
         });
         let shader = device.create_shader_module(wgpu::include_wgsl!("layer.wgsl"));
@@ -339,6 +364,8 @@ impl GpuRenderer {
             ..Default::default()
         });
         let instances = instance_buffer(&device, 1024 * LAYER_INSTANCE_SIZE);
+        let clips = clip_buffer(&device, 64 * CLIP_ENTRY_SIZE);
+        let clip_bind_group = clip_bind_group(&device, &clip_bind_group_layout, &clips);
         let placeholder_texture = upload_texture(
             &device,
             &queue,
@@ -360,6 +387,10 @@ impl GpuRenderer {
             texture_bind_group_layout,
             sampler,
             instances,
+            clip_bind_group_layout,
+            clips,
+            clip_bind_group,
+            clip_entries: Vec::new(),
             placeholder_texture,
             asset_root: PathBuf::from("."),
             images: HashMap::new(),
@@ -848,6 +879,7 @@ impl GpuRenderer {
             self.text_font_count = font_count;
         }
         self.texture_generation += 1;
+        self.clip_entries.clear();
         let mut layers = Vec::new();
         let prepared = scene
             .layers
@@ -896,8 +928,26 @@ impl GpuRenderer {
             // flight: queued writes land after previously submitted work.
             self.queue.write_buffer(&self.instances, 0, &instances);
         }
+
+        // The clips the layers above point into, uploaded like the instances.
+        let clip_size = self.clip_entries.len() as u64 * CLIP_ENTRY_SIZE;
+        if clip_size > self.clips.size() {
+            self.clips = clip_buffer(&self.device, clip_size.next_power_of_two());
+            self.clip_bind_group =
+                clip_bind_group(&self.device, &self.clip_bind_group_layout, &self.clips);
+        }
+        if !self.clip_entries.is_empty() {
+            let bytes: Vec<u8> = self
+                .clip_entries
+                .iter()
+                .flat_map(ClipEntry::floats)
+                .flat_map(f32::to_ne_bytes)
+                .collect();
+            self.queue.write_buffer(&self.clips, 0, &bytes);
+        }
         Ok(PreparedDraws {
             instances: self.instances.clone(),
+            clips: self.clip_bind_group.clone(),
             draws,
         })
     }
@@ -939,6 +989,7 @@ impl GpuRenderer {
         );
         pass.set_pipeline(pipeline);
         pass.set_vertex_buffer(0, draws.instances.slice(..));
+        pass.set_bind_group(1, &draws.clips, &[]);
         for draw in &draws.draws {
             pass.set_bind_group(0, &draw.texture.bind_group, &[]);
             pass.draw(0..6, draw.instances.clone());
@@ -963,9 +1014,16 @@ impl GpuRenderer {
             return Ok(());
         }
         match &layer.content {
-            LayerContent::Group { layers } => {
+            LayerContent::Group { layers, clip } => {
+                let mut child_state = state;
+                if let Some(clip) = clip {
+                    if clip.is_empty() {
+                        return Ok(());
+                    }
+                    child_state.clip = Some(self.push_clip(clip, state)?);
+                }
                 for child in layers {
-                    self.prepare_layer(child, state, output)?;
+                    self.prepare_layer(child, child_state, output)?;
                 }
             }
             LayerContent::Image { asset } => {
@@ -1061,6 +1119,23 @@ impl GpuRenderer {
             }
         }
         Ok(())
+    }
+
+    /// Enters `clip`, defined in the frame `state` describes (the group's
+    /// own), inside the clip `state` is already drawn through, and returns
+    /// its index for the layers below it.
+    fn push_clip(&mut self, clip: &Clip, state: LayerState) -> Result<u32, GpuRenderError> {
+        let depth = state
+            .clip
+            .map_or(1, |parent| self.clip_entries[parent as usize].depth + 1);
+        if depth > MAX_CLIP_DEPTH {
+            return Err(GpuRenderError::ClipsNestedTooDeep(depth));
+        }
+        let index = u32::try_from(self.clip_entries.len())
+            .map_err(|_| GpuRenderError::TooManyLayers(self.clip_entries.len()))?;
+        self.clip_entries
+            .push(ClipEntry::new(clip, state.transform, state.clip, depth));
+        Ok(index)
     }
 
     fn load_image(&mut self, asset: &ResolvedAsset) -> Result<&DecodedImage, GpuRenderError> {
@@ -1354,6 +1429,30 @@ fn instance_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
     })
 }
 
+fn clip_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Celesta layer clips"),
+        size,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
+fn clip_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    clips: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Celesta layer clip bind group"),
+        layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: clips.as_entire_binding(),
+        }],
+    })
+}
+
 /// A rect drawn by `layer.wgsl`'s `rect_color`, which reproduces
 /// `celesta_renderer::rasterize_rect` texel for texel.
 struct RectShape {
@@ -1457,7 +1556,7 @@ impl PreparedLayer {
             kind,
             canvas_width as f32,
             canvas_height as f32,
-            0.0,
+            self.state.clip.map_or(-1.0, |index| index as f32),
             0.0,
         ]
         .into_iter()
@@ -1472,6 +1571,8 @@ impl PreparedLayer {
 /// instance, and the runs of instances that sample the same texture.
 struct PreparedDraws {
     instances: wgpu::Buffer,
+    /// The bind group exposing the frame's clips to the fragment shader.
+    clips: wgpu::BindGroup,
     draws: Vec<GpuDraw>,
 }
 
@@ -1484,6 +1585,9 @@ struct GpuDraw {
 struct LayerState {
     transform: Affine,
     opacity: f32,
+    /// Index into `GpuRenderer::clip_entries` of the innermost clip the
+    /// layer is drawn through.
+    clip: Option<u32>,
 }
 
 impl LayerState {
@@ -1491,6 +1595,7 @@ impl LayerState {
         Self {
             transform: self.transform.multiply(Affine::from_transform(transform)),
             opacity: (self.opacity * opacity.clamp(0.0, 1.0) as f32).clamp(0.0, 1.0),
+            clip: self.clip,
         }
     }
 }
@@ -1500,7 +1605,75 @@ impl Default for LayerState {
         Self {
             transform: Affine::IDENTITY,
             opacity: 1.0,
+            clip: None,
         }
+    }
+}
+
+/// The deepest nesting of clipped groups `layer.wgsl` walks (`MAX_CLIP_DEPTH`
+/// there).
+const MAX_CLIP_DEPTH: u32 = 8;
+
+/// Floats of one clip in the storage buffer `layer.wgsl` reads: three
+/// `vec4<f32>`s.
+const CLIP_ENTRY_FLOATS: usize = 12;
+const CLIP_ENTRY_SIZE: u64 = CLIP_ENTRY_FLOATS as u64 * 4;
+
+/// One clipped group, in the form the fragment shader evaluates: the canvas
+/// position of a pixel maps into the group's frame (relative to the clip
+/// rectangle's centre), where a rounded-box distance gives the coverage.
+struct ClipEntry {
+    /// The inverse of the group's transform, `a`..`d`, then the translation
+    /// that also moves the clip rectangle's centre to the origin.
+    inverse: [f32; 6],
+    half: [f32; 2],
+    radius: f32,
+    /// Local distance to canvas pixels, `sqrt(|det|)`; the same factor
+    /// `celesta-renderer` uses.
+    distance_scale: f32,
+    /// The clip this one is nested in.
+    parent: Option<u32>,
+    /// 1 for a clip that is not nested.
+    depth: u32,
+}
+
+impl ClipEntry {
+    fn new(clip: &Clip, transform: Affine, parent: Option<u32>, depth: u32) -> Self {
+        let determinant = transform.a * transform.d - transform.b * transform.c;
+        let a = transform.d / determinant;
+        let b = -transform.b / determinant;
+        let c = -transform.c / determinant;
+        let d = transform.a / determinant;
+        let tx = -(a * transform.tx + c * transform.ty);
+        let ty = -(b * transform.tx + d * transform.ty);
+        let center_x = (clip.x + clip.width / 2.0) as f32;
+        let center_y = (clip.y + clip.height / 2.0) as f32;
+        Self {
+            inverse: [a, b, c, d, tx - center_x, ty - center_y],
+            half: [(clip.width / 2.0) as f32, (clip.height / 2.0) as f32],
+            radius: clip.effective_corner_radius() as f32,
+            distance_scale: determinant.abs().sqrt(),
+            parent,
+            depth,
+        }
+    }
+
+    fn floats(&self) -> [f32; CLIP_ENTRY_FLOATS] {
+        let [a, b, c, d, tx, ty] = self.inverse;
+        [
+            a,
+            b,
+            c,
+            d,
+            tx,
+            ty,
+            self.half[0],
+            self.half[1],
+            self.radius,
+            self.distance_scale,
+            self.parent.map_or(-1.0, |parent| parent as f32),
+            0.0,
+        ]
     }
 }
 
@@ -1976,6 +2149,8 @@ pub enum GpuRenderError {
     },
     /// A frame has more layers than one GPU buffer can hold.
     TooManyLayers(usize),
+    /// Clipped groups are nested deeper than the shader walks.
+    ClipsNestedTooDeep(u32),
 }
 
 impl fmt::Display for GpuRenderError {
@@ -2062,6 +2237,10 @@ impl fmt::Display for GpuRenderError {
             Self::TooManyLayers(layers) => {
                 write!(formatter, "frame has too many layers for the GPU: {layers}")
             }
+            Self::ClipsNestedTooDeep(depth) => write!(
+                formatter,
+                "clipped groups are nested {depth} deep, more than the GPU renderer's limit of {MAX_CLIP_DEPTH}"
+            ),
         }
     }
 }
@@ -2082,6 +2261,7 @@ impl Error for GpuRenderError {
             Self::Text(error) => Some(error),
             Self::MapCallbackDropped
             | Self::TooManyLayers(_)
+            | Self::ClipsNestedTooDeep(_)
             | Self::InvalidImageData { .. }
             | Self::MissingVideoDecoder(_)
             | Self::UnsupportedContent { .. }
@@ -2109,7 +2289,7 @@ mod tests {
     use std::path::Path;
 
     use celesta_composition::{
-        AssetLocation, EvaluatedTransform, Layer, LayerContent, MediaTiming, Paint, Point,
+        AssetLocation, Clip, EvaluatedTransform, Layer, LayerContent, MediaTiming, Paint, Point,
         Rational, ResolvedAsset, Scene, Stroke, TextStyle, Time,
     };
     use celesta_media::{MediaError, VideoFrame, VideoFrameDecoder};
@@ -2390,6 +2570,246 @@ mod tests {
                 "case {index}: channels differ by up to {max_difference}"
             );
         }
+    }
+
+    /// A rect at `(x, y)` in its parent, top-left anchored.
+    fn corner_rect(id: &str, x: f64, y: f64, width: f64, height: f64, color: &str) -> Layer {
+        Layer {
+            id: id.to_owned(),
+            transform: EvaluatedTransform {
+                position: Point { x, y },
+                anchor: Point { x: 0.0, y: 0.0 },
+                ..EvaluatedTransform::default()
+            },
+            opacity: 1.0,
+            content: LayerContent::Rect {
+                width,
+                height,
+                fill: Some(Paint::Solid {
+                    color: color.to_owned(),
+                }),
+                stroke: None,
+                corner_radius: 0.0,
+            },
+        }
+    }
+
+    fn clipped_group(transform: EvaluatedTransform, clip: Clip, layers: Vec<Layer>) -> Layer {
+        Layer {
+            id: "clipped".to_owned(),
+            transform,
+            opacity: 1.0,
+            content: LayerContent::Group {
+                layers,
+                clip: Some(clip),
+            },
+        }
+    }
+
+    fn pixel_at(frame: &GpuFrame, x: u32, y: u32) -> [u8; 4] {
+        let offset = ((y * frame.width() + x) * 4) as usize;
+        frame.pixels()[offset..offset + 4].try_into().unwrap()
+    }
+
+    fn max_channel_difference(gpu: &GpuFrame, cpu: &celesta_renderer::RgbaFrame) -> u8 {
+        assert_eq!(gpu.pixels().len(), cpu.pixels().len());
+        gpu.pixels()
+            .iter()
+            .zip(cpu.pixels())
+            .map(|(gpu, cpu)| gpu.abs_diff(*cpu))
+            .max()
+            .unwrap()
+    }
+
+    #[test]
+    fn clips_groups_like_the_cpu_renderer() {
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        let scenes = [
+            // A rounded clip in a translated group, with a translucent layer
+            // straddling its edge.
+            vec![clipped_group(
+                EvaluatedTransform {
+                    position: Point { x: 4.0, y: 4.0 },
+                    ..EvaluatedTransform::default()
+                },
+                Clip {
+                    x: 8.0,
+                    y: 8.0,
+                    width: 40.0,
+                    height: 30.0,
+                    corner_radius: 10.0,
+                },
+                vec![
+                    corner_rect("red", 0.0, 0.0, 60.0, 60.0, "#FF0000FF"),
+                    Layer {
+                        opacity: 0.5,
+                        ..corner_rect("blue", 30.0, 20.0, 30.0, 30.0, "#0000FFFF")
+                    },
+                ],
+            )],
+            // Nested clips inside a scaled group.
+            vec![clipped_group(
+                EvaluatedTransform {
+                    scale: Point { x: 2.0, y: 2.0 },
+                    ..EvaluatedTransform::default()
+                },
+                Clip {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 24.0,
+                    height: 24.0,
+                    corner_radius: 4.0,
+                },
+                vec![clipped_group(
+                    EvaluatedTransform {
+                        position: Point { x: 10.0, y: 0.0 },
+                        ..EvaluatedTransform::default()
+                    },
+                    Clip {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 30.0,
+                        height: 10.0,
+                        corner_radius: 0.0,
+                    },
+                    vec![corner_rect("red", 0.0, 0.0, 30.0, 30.0, "#FF0000FF")],
+                )],
+            )],
+        ];
+        for (index, layers) in scenes.into_iter().enumerate() {
+            let mut scene = empty_scene(64, 64);
+            scene.layers = layers;
+            let gpu = renderer.render(&scene).unwrap();
+            let cpu = celesta_renderer::CpuRenderer::default()
+                .render(&scene)
+                .unwrap();
+            let difference = max_channel_difference(&gpu, &cpu);
+            assert!(
+                difference <= 2,
+                "scene {index}: channels differ by up to {difference}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_clip_rotates_with_its_group() {
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        // Turned 90 degrees clockwise about (20, 20), the group's x axis
+        // points down the canvas and its y axis points left, so the clip's
+        // 20x10 rectangle lands on canvas x 10..20, y 20..40.
+        let mut scene = empty_scene(40, 40);
+        scene.layers = vec![clipped_group(
+            EvaluatedTransform {
+                position: Point { x: 20.0, y: 20.0 },
+                rotation: 90.0,
+                ..EvaluatedTransform::default()
+            },
+            Clip {
+                x: 0.0,
+                y: 0.0,
+                width: 20.0,
+                height: 10.0,
+                corner_radius: 0.0,
+            },
+            vec![corner_rect("red", -40.0, -40.0, 80.0, 80.0, "#FF0000FF")],
+        )];
+        let frame = renderer.render(&scene).unwrap();
+
+        assert_eq!(pixel_at(&frame, 15, 30), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&frame, 10, 20), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&frame, 19, 39), [255, 0, 0, 255]);
+        let background = renderer.options().background;
+        let background = [
+            background.red,
+            background.green,
+            background.blue,
+            background.alpha,
+        ];
+        for (x, y) in [(9, 30), (20, 30), (15, 19)] {
+            assert_eq!(pixel_at(&frame, x, y), background, "({x}, {y}) leaked");
+        }
+    }
+
+    #[test]
+    fn a_frame_can_hold_more_clips_than_the_buffer_starts_with() {
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        // 100 one-pixel clips, one per column, each over a whole-column rect.
+        let mut scene = empty_scene(100, 4);
+        scene.layers = (0..100)
+            .map(|column| {
+                clipped_group(
+                    EvaluatedTransform::default(),
+                    Clip {
+                        x: f64::from(column),
+                        y: 0.0,
+                        width: 1.0,
+                        height: 2.0,
+                        corner_radius: 0.0,
+                    },
+                    vec![corner_rect(
+                        "column",
+                        f64::from(column),
+                        0.0,
+                        1.0,
+                        4.0,
+                        "#FF0000FF",
+                    )],
+                )
+            })
+            .collect();
+        let frame = renderer.render(&scene).unwrap();
+        let background = renderer.options().background;
+
+        for column in [0, 1, 63, 64, 65, 99] {
+            assert_eq!(pixel_at(&frame, column, 0), [255, 0, 0, 255]);
+            assert_eq!(pixel_at(&frame, column, 1), [255, 0, 0, 255]);
+            assert_eq!(
+                pixel_at(&frame, column, 3),
+                [
+                    background.red,
+                    background.green,
+                    background.blue,
+                    background.alpha
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn refuses_clips_nested_deeper_than_the_shader_walks() {
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        let clip = Clip {
+            x: 0.0,
+            y: 0.0,
+            width: 8.0,
+            height: 8.0,
+            corner_radius: 0.0,
+        };
+        let nested = |depth: u32| {
+            (0..depth).fold(
+                vec![corner_rect("red", 0.0, 0.0, 8.0, 8.0, "#FF0000FF")],
+                |layers, _| vec![clipped_group(EvaluatedTransform::default(), clip, layers)],
+            )
+        };
+
+        let mut scene = empty_scene(8, 8);
+        scene.layers = nested(MAX_CLIP_DEPTH);
+        let frame = renderer.render(&scene).unwrap();
+        assert_eq!(pixel_at(&frame, 4, 4), [255, 0, 0, 255]);
+
+        scene.layers = nested(MAX_CLIP_DEPTH + 1);
+        assert!(matches!(
+            renderer.render(&scene),
+            Err(GpuRenderError::ClipsNestedTooDeep(depth)) if depth == MAX_CLIP_DEPTH + 1
+        ));
     }
 
     fn solid_rect(id: &str, x: f64, width: f64, height: f64, color: &str) -> Layer {
@@ -2710,6 +3130,7 @@ mod tests {
                         },
                     },
                 }],
+                clip: None,
             },
         });
 

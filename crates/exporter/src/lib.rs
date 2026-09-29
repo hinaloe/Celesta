@@ -1211,7 +1211,7 @@ fn absolutize_layer_content(content: &mut LayerContent, asset_root: &Path) {
         | LayerContent::Psd { asset, .. } => {
             absolutize_asset(asset, asset_root);
         }
-        LayerContent::Group { layers } => absolutize_layers(layers, asset_root),
+        LayerContent::Group { layers, .. } => absolutize_layers(layers, asset_root),
         LayerContent::Text { .. }
         | LayerContent::Rect { .. }
         | LayerContent::MissingComponent { .. } => {}
@@ -1839,7 +1839,7 @@ mod tests {
         let evaluator = Evaluator::new(&filtered).unwrap();
         let scene = evaluator.scene_at(Time::ZERO).unwrap();
         assert_eq!(scene.layers.len(), 1);
-        let LayerContent::Group { layers } = &scene.layers[0].content else {
+        let LayerContent::Group { layers, .. } = &scene.layers[0].content else {
             panic!("dialogue should evaluate to a group of portrait + subtitle layers");
         };
         assert!(layers.iter().any(|layer| matches!(

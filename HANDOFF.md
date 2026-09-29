@@ -240,6 +240,26 @@ Keep these boundaries intact:
   so every move left a duplicate and a depth-sorted list grew each frame
   until it unmounted (also over-drawing translucent layers). They now move
   the child like the DOM does (`packages/react/test/reconciler.test.mjs`).
+- Group clip (2026-09-29, issue #24): `LayerContent::Group` has an optional
+  `clip` (`celesta_composition::Clip`: `x`, `y`, `width`, `height`,
+  `cornerRadius`; `x`/`y` is the top-left corner) in the group's own
+  coordinates, so it follows the group's transform. React sets it with
+  `<Group clip={{ x, y, width, height, cornerRadius }}>` (`x`/`y`/
+  `cornerRadius` default to 0). Nested clips intersect, and a clip without
+  area hides its children. The CPU renderer keeps a chain of `ClipRegion`s in
+  `ParentState` and scales each pixel by its coverage (the same rounded-box
+  SDF as `rasterize_rect`; it has no rotation). On the GPU each clipped group
+  pushes a `ClipEntry` (inverse group transform, half size, radius, parent)
+  into a per-frame storage buffer, bind group 1; a layer's instance carries
+  the index of its innermost clip in `canvas.z`, and `layer.wgsl`'s
+  `clip_coverage` walks the parent chain and scales the alpha. Batching and
+  draw counts are unchanged. Nesting deeper than `MAX_CLIP_DEPTH` (8) is
+  `GpuRenderError::ClipsNestedTooDeep`. Both renderers turn local distance
+  into pixels with `sqrt(|det|)` of the group's transform: exact for a
+  uniform scale, approximate for a non-uniform one. The general mask
+  (`<Group mask>`) from the issue is not implemented. `examples/celesta-reel.tsx`
+  now clips its scrolling timeline instead of covering the label column with
+  an opaque rect; it renders the same pixels on a flat background.
 - Export speed (2026-09-25): `GpuRenderer` caches layer textures across
   frames (images, PSD composites, text; keyed by their inputs, text
   also by `TextRasterizer::loaded_font_count`), so unchanged layers are

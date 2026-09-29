@@ -15,6 +15,7 @@ import { resolveVisibleLayers } from './psd-preset';
 import { resolveComponent } from './registry';
 import { type HostNode, type RootContainer, HostReconciler, createRoot } from './reconciler';
 import type {
+  Clip,
   CompositionConfig,
   EvaluatedTransform,
   KeyframeAnimation,
@@ -195,6 +196,30 @@ function extractTransform(props: Record<string, unknown>): EvaluatedTransform {
   };
 }
 
+/** A `<Group clip>` prop as the scene's `Clip`; `undefined` when not set. */
+function extractClip(value: unknown): Clip | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const fields = value as Record<string, unknown>;
+  if (
+    typeof value !== 'object' ||
+    typeof fields.width !== 'number' ||
+    !Number.isFinite(fields.width) ||
+    typeof fields.height !== 'number' ||
+    !Number.isFinite(fields.height)
+  ) {
+    throw new Error('<Group clip> requires finite `width` and `height`');
+  }
+  return {
+    x: numberOr(fields.x, 0),
+    y: numberOr(fields.y, 0),
+    width: fields.width,
+    height: fields.height,
+    cornerRadius: numberOr(fields.cornerRadius, 0),
+  };
+}
+
 function extractText(children: unknown): string {
   if (typeof children === 'string') {
     return children;
@@ -304,7 +329,12 @@ function buildLayer(
 
   let content: LayerContent;
   if (node.type === 'group' || node.type === 'sequence') {
-    content = { type: 'group', layers: walkChildren(node, path, context, audio) };
+    const clip = node.type === 'group' ? extractClip(props.clip) : undefined;
+    content = {
+      type: 'group',
+      layers: walkChildren(node, path, context, audio),
+      ...(clip ? { clip } : {}),
+    };
   } else if (node.type === 'image') {
     content = { type: 'image', asset: resolveAsset(props.src) };
   } else if (node.type === 'character-view') {

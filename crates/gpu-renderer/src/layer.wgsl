@@ -6,7 +6,8 @@ struct LayerInstance {
     // anchor.xy, opacity, and the content kind: 0 samples `source_texture`,
     // 1 shades the rect described by `rect`/`fill`/`stroke`.
     @location(2) anchor_opacity_kind: vec4<f32>,
-    // canvas width, height
+    // canvas width, height, the index of the innermost clip the layer is drawn
+    // through (-1 without one), unused
     @location(3) canvas: vec4<f32>,
     // half width, half height, corner radius, stroke width (0 without one)
     @location(4) rect: vec4<f32>,
@@ -21,6 +22,17 @@ var source_texture: texture_2d<f32>;
 @group(0) @binding(1)
 var source_sampler: sampler;
 
+// Every clipped group of the frame, three vec4s each:
+//   inverse matrix (a, b, c, d)
+//   translation to the clip rectangle's frame, half width, half height
+//   corner radius, local-to-canvas distance scale, parent clip (-1 for none), unused
+// Mirrors `ClipEntry` in lib.rs.
+@group(1) @binding(0)
+var<storage, read> clips: array<vec4<f32>>;
+
+// Mirrors `MAX_CLIP_DEPTH` in lib.rs.
+const MAX_CLIP_DEPTH: i32 = 8;
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -29,6 +41,9 @@ struct VertexOutput {
     @location(2) @interpolate(flat) rect: vec4<f32>,
     @location(3) @interpolate(flat) fill: vec4<f32>,
     @location(4) @interpolate(flat) stroke: vec4<f32>,
+    // The canvas position of the fragment and the innermost clip it is drawn through.
+    @location(5) world: vec2<f32>,
+    @location(6) @interpolate(flat) clip: f32,
 };
 
 @vertex
@@ -60,6 +75,8 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, layer: LayerInstance) -> Ve
         layer.rect,
         layer.fill,
         layer.stroke,
+        world,
+        layer.canvas.z,
     );
 }
 
@@ -99,6 +116,30 @@ fn rect_color(input: VertexOutput) -> vec4<f32> {
     return vec4<f32>(color.rgb, floor(color.a * outer + 0.5)) / 255.0;
 }
 
+// How much of the pixel at canvas position `world` is inside every clip in
+// the chain starting at `index`, anti-aliased over the edge like `rect_color`.
+fn clip_coverage(world: vec2<f32>, index: f32) -> f32 {
+    var coverage = 1.0;
+    var current = index;
+    for (var depth = 0; depth < MAX_CLIP_DEPTH; depth++) {
+        if current < 0.0 {
+            break;
+        }
+        let base = u32(current) * 3u;
+        let matrix = clips[base];
+        let placement = clips[base + 1u];
+        let shape = clips[base + 2u];
+        let local = vec2<f32>(
+            matrix.x * world.x + matrix.z * world.y + placement.x,
+            matrix.y * world.x + matrix.w * world.y + placement.y,
+        );
+        let distance = rounded_box(local, placement.zw, shape.x);
+        coverage = coverage * clamp(0.5 - distance * shape.y, 0.0, 1.0);
+        current = shape.z;
+    }
+    return coverage;
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     // Sampled unconditionally: `textureSample` needs uniform control flow.
@@ -107,5 +148,6 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     if input.size_opacity_kind.w == 1.0 {
         color = rect_color(input);
     }
-    return vec4<f32>(color.rgb, color.a * input.size_opacity_kind.z);
+    let coverage = clip_coverage(input.world, input.clip);
+    return vec4<f32>(color.rgb, color.a * input.size_opacity_kind.z * coverage);
 }
