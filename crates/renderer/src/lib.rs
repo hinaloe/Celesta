@@ -160,6 +160,32 @@ impl RasterizedText {
     }
 }
 
+/// Size of laid-out text, in composition units.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TextMetrics {
+    /// Widest line's advance width.
+    pub width: f64,
+    /// Total height of all lines.
+    pub height: f64,
+    /// First line's top edge to its baseline.
+    pub ascent: f64,
+    /// First line's baseline to its bottom edge (`ascent + descent` is `line_height`).
+    pub descent: f64,
+    pub line_height: f64,
+    pub lines: usize,
+    pub glyphs: Vec<GlyphMetrics>,
+}
+
+/// One shaped glyph cluster: its text, left edge within its line, and advance.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GlyphMetrics {
+    pub text: String,
+    pub x: f64,
+    pub width: f64,
+    /// Zero-based line the cluster sits on.
+    pub line: usize,
+}
+
 pub struct TextRasterizer {
     font_system: FontSystem,
     swash_cache: SwashCache,
@@ -279,21 +305,21 @@ impl TextRasterizer {
         Ok(())
     }
 
-    pub fn rasterize(
+    /// Shapes `text` into a laid-out buffer. `width` and `scale` are in
+    /// output pixels: `scale` multiplies the style's font size and line height.
+    fn shaped_buffer(
         &mut self,
         text: &str,
         style: &TextStyle,
-        max_width: Option<f64>,
+        width: Option<f32>,
         scale: f32,
-    ) -> Result<RasterizedText, RenderError> {
-        let scale = scale.abs();
+    ) -> Buffer {
         let font_size = style.font_size.unwrap_or(32.0) as f32 * scale;
         let line_height = style
             .line_height
             .map(|line_height| line_height as f32 * scale)
             .unwrap_or(font_size * 1.2);
         let mut buffer = Buffer::new(&mut self.font_system, Metrics::new(font_size, line_height));
-        let width = max_width.map(|width| width as f32 * scale);
         buffer.set_size(&mut self.font_system, width, None);
         buffer.set_wrap(&mut self.font_system, Wrap::Word);
 
@@ -314,6 +340,56 @@ impl TextRasterizer {
             alignment,
         );
         buffer.shape_until_scroll(&mut self.font_system, false);
+        buffer
+    }
+
+    /// Measures `text` in composition units (scale 1) without drawing it,
+    /// laid out exactly as [`Self::rasterize`] would.
+    pub fn measure(
+        &mut self,
+        text: &str,
+        style: &TextStyle,
+        max_width: Option<f64>,
+    ) -> TextMetrics {
+        let buffer = self.shaped_buffer(text, style, max_width.map(|w| w as f32), 1.0);
+        let mut metrics = TextMetrics::default();
+        for run in buffer.layout_runs() {
+            metrics.width = metrics.width.max(f64::from(run.line_w));
+            metrics.height = metrics
+                .height
+                .max(f64::from(run.line_top + run.line_height));
+            if metrics.lines == 0 {
+                metrics.ascent = f64::from(run.line_y - run.line_top);
+                metrics.descent = f64::from(run.line_height) - metrics.ascent;
+                metrics.line_height = f64::from(run.line_height);
+            }
+            metrics.lines += 1;
+            // Cluster-wise: a ligature or combined glyph has one entry.
+            for glyph in run.glyphs {
+                let Some(cluster) = run.text.get(glyph.start..glyph.end) else {
+                    continue;
+                };
+                metrics.glyphs.push(GlyphMetrics {
+                    text: cluster.to_owned(),
+                    x: f64::from(glyph.x),
+                    width: f64::from(glyph.w),
+                    line: metrics.lines - 1,
+                });
+            }
+        }
+        metrics
+    }
+
+    pub fn rasterize(
+        &mut self,
+        text: &str,
+        style: &TextStyle,
+        max_width: Option<f64>,
+        scale: f32,
+    ) -> Result<RasterizedText, RenderError> {
+        let scale = scale.abs();
+        let width = max_width.map(|width| width as f32 * scale);
+        let buffer = self.shaped_buffer(text, style, width, scale);
 
         let measured_width = buffer
             .layout_runs()
@@ -1665,6 +1741,27 @@ mod tests {
     use celesta_media::{MediaError, VideoFrame, VideoFrameDecoder};
 
     use super::*;
+
+    #[test]
+    fn measure_reports_line_metrics_and_per_glyph_advances() {
+        let style = TextStyle {
+            font_size: Some(40.0),
+            ..TextStyle::default()
+        };
+        let mut rasterizer = TextRasterizer::new();
+        let metrics = rasterizer.measure("ab\ncd", &style, None);
+
+        assert_eq!(metrics.lines, 2);
+        assert_eq!(metrics.glyphs.len(), 4);
+        assert_eq!(metrics.line_height, 48.0);
+        assert_eq!(metrics.height, 96.0);
+        assert!((metrics.ascent + metrics.descent - metrics.line_height).abs() < 1e-6);
+        let first_line = &metrics.glyphs[..2];
+        assert_eq!(first_line[0].x, 0.0);
+        assert!((first_line[1].x - first_line[0].width).abs() < 1e-6);
+        assert!(metrics.width >= first_line[1].x + first_line[1].width - 1e-6);
+        assert_eq!(metrics.glyphs[2].line, 1);
+    }
 
     #[test]
     fn rasterizes_color_emoji_glyphs_when_a_color_font_is_available() {
