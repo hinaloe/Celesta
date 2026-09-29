@@ -165,6 +165,7 @@ type TextStyle = {
   stroke?: { paint: { type: 'solid'; color: string }; width: number }; // outline
   align?: 'left' | 'center' | 'right';
   lineHeight?: number;     // px, > 0
+  letterSpacing?: number;  // px added after each glyph; may be negative
 };
 ```
 

@@ -463,6 +463,11 @@ impl Validator<'_> {
         {
             self.error(format!("{path}.lineHeight"), "must be finite and positive");
         }
+        if let Some(letter_spacing) = style.letter_spacing
+            && !letter_spacing.is_finite()
+        {
+            self.error(format!("{path}.letterSpacing"), "must be finite");
+        }
         if let Some(fill) = &style.fill {
             self.paint(&format!("{path}.fill"), fill);
         }
