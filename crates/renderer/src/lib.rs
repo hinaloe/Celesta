@@ -301,6 +301,12 @@ impl TextRasterizer {
         if let Some(family) = style.font_family.as_deref() {
             attrs = attrs.family(Family::Name(family));
         }
+        if let Some(letter_spacing) = style.letter_spacing
+            && style.font_size.unwrap_or(32.0) > 0.0
+        {
+            // cosmic-text takes tracking in em.
+            attrs = attrs.letter_spacing((letter_spacing / style.font_size.unwrap_or(32.0)) as f32);
+        }
         let alignment = style.align.map(|align| match align {
             TextAlign::Left => Align::Left,
             TextAlign::Center => Align::Center,
@@ -2168,6 +2174,22 @@ mod tests {
             space.width()
         );
         assert_eq!(spaced.height(), equals.height());
+    }
+
+    #[test]
+    fn letter_spacing_widens_and_tightens_text() {
+        let mut rasterizer = TextRasterizer::new();
+        let mut width = |letter_spacing| {
+            let style = TextStyle {
+                font_size: Some(48.0),
+                letter_spacing,
+                ..TextStyle::default()
+            };
+            rasterizer.rasterize("ABCD", &style, None, 1.0).unwrap().width()
+        };
+        let (base, wide, tight) = (width(None), width(Some(10.0)), width(Some(-4.0)));
+        assert!(wide > base + 30, "wide {wide}, base {base}");
+        assert!(tight < base - 10, "tight {tight}, base {base}");
     }
 
     #[test]
