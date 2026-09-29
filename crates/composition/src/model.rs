@@ -29,7 +29,66 @@ pub struct Layer {
     pub id: String,
     pub transform: EvaluatedTransform,
     pub opacity: f64,
+    /// How the layer's pixels combine with what is already drawn beneath
+    /// it. A `Group` with a mode other than `Normal` is isolated: its
+    /// children composite onto a transparent layer first, and that result
+    /// blends with the backdrop as one layer.
+    #[serde(default, skip_serializing_if = "BlendMode::is_normal")]
+    pub blend_mode: BlendMode,
     pub content: LayerContent,
+}
+
+/// Separable blend modes from the W3C Compositing and Blending spec (plus
+/// `Add`, Photoshop's Linear Dodge), applied to non-premultiplied 8-bit
+/// channel values. With source color `Cs`, backdrop color `Cb` and backdrop
+/// alpha `ab`, the source color is replaced by
+/// `(1 - ab) * Cs + ab * B(Cb, Cs)` and then composited source-over.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub enum BlendMode {
+    /// `B = Cs`: plain source-over.
+    #[default]
+    Normal,
+    /// `B = Cs * Cb`: darkens; white is neutral.
+    Multiply,
+    /// `B = Cs + Cb - Cs * Cb`: lightens; black is neutral.
+    Screen,
+    /// Multiply where the backdrop is dark, screen where it is light.
+    Overlay,
+    /// `B = min(Cs + Cb, 1)` (Linear Dodge): black is neutral.
+    Add,
+    /// `B = |Cb - Cs|`: black is neutral, white inverts.
+    Difference,
+}
+
+impl BlendMode {
+    pub fn is_normal(&self) -> bool {
+        *self == Self::Normal
+    }
+
+    /// The blended color `B(Cb, Cs)` of one channel, all in `0.0..=1.0`.
+    pub fn blend_channel(self, backdrop: f64, source: f64) -> f64 {
+        match self {
+            Self::Normal => source,
+            Self::Multiply => source * backdrop,
+            Self::Screen => screen(backdrop, source),
+            Self::Overlay => {
+                if backdrop <= 0.5 {
+                    source * 2.0 * backdrop
+                } else {
+                    screen(source, 2.0 * backdrop - 1.0)
+                }
+            }
+            Self::Add => (source + backdrop).min(1.0),
+            Self::Difference => (backdrop - source).abs(),
+        }
+    }
+}
+
+fn screen(backdrop: f64, source: f64) -> f64 {
+    backdrop + source - backdrop * source
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

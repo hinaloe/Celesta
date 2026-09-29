@@ -714,16 +714,11 @@ const SECTIONS: [number, string][] = [
   [S.exportAt, 'EXPORT'],
 ];
 
-function backgroundAt(f: number) {
-  if (f >= S.words && f < S.field) return wordAt(f - S.words).bg;
-  if (f >= S.exportAt && f < S.silence) return C.paper;
-  return C.ink;
-}
-
+// Drawn in paper and blended with `difference`, so it reads light over the
+// dark scenes and dark over the paper ones without tracking which is which.
 function Hud() {
   const f = useCurrentFrame();
-  const bg = backgroundAt(f);
-  const fg = bg === C.ink ? C.paper : C.ink;
+  const fg = C.paper;
   const section = [...SECTIONS].reverse().find(([at]) => f >= at)?.[1] ?? '';
   const m = 56;
   const arm = 26;
@@ -734,20 +729,22 @@ function Hud() {
     </Group>
   );
   return (
-    <Group opacity={0.75}>
-      {corner(m, m, 1, 1)}
-      {corner(W - m, m, -1, 1)}
-      {corner(m, H - m, 1, -1)}
-      {corner(W - m, H - m, -1, -1)}
-      <T x={m + 40} y={m + 12} size={18} font="mono" weight={700} color={fg} ay={0.5}>Celesta</T>
-      <T x={m + 136} y={m + 12} size={18} font="mono" weight={400} color={fg} ay={0.5} opacity={0.6}>/ Reel 01</T>
-      <T x={W - m - 40} y={m + 12} size={18} font="mono" weight={400} color={fg} ax={1} ay={0.5}>{timecode(f)}</T>
-      <T x={m + 40} y={H - m - 12} size={18} font="mono" weight={400} color={fg} ay={0.5}>{section}</T>
-      <T x={W - m - 40} y={H - m - 12} size={18} font="mono" weight={400} color={fg} ax={1} ay={0.5}>
-        {`${W}×${H} · ${FPS} FPS · 120 BPM`}
-      </T>
-      <Rect x={m} y={H - 26} width={(W - m * 2) * (f / (DURATION - 1))} height={2} fill={C.accent} />
-    </Group>
+    <>
+      <Group opacity={0.75} blendMode="difference">
+        {corner(m, m, 1, 1)}
+        {corner(W - m, m, -1, 1)}
+        {corner(m, H - m, 1, -1)}
+        {corner(W - m, H - m, -1, -1)}
+        <T x={m + 40} y={m + 12} size={18} font="mono" weight={700} color={fg} ay={0.5}>Celesta</T>
+        <T x={m + 136} y={m + 12} size={18} font="mono" weight={400} color={fg} ay={0.5} opacity={0.6}>/ Reel 01</T>
+        <T x={W - m - 40} y={m + 12} size={18} font="mono" weight={400} color={fg} ax={1} ay={0.5}>{timecode(f)}</T>
+        <T x={m + 40} y={H - m - 12} size={18} font="mono" weight={400} color={fg} ay={0.5}>{section}</T>
+        <T x={W - m - 40} y={H - m - 12} size={18} font="mono" weight={400} color={fg} ax={1} ay={0.5}>
+          {`${W}×${H} · ${FPS} FPS · 120 BPM`}
+        </T>
+      </Group>
+      <Rect x={m} y={H - 26} width={(W - m * 2) * (f / (DURATION - 1))} height={2} fill={C.accent} opacity={0.75} />
+    </>
   );
 }
 

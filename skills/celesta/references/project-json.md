@@ -115,6 +115,7 @@ backgrounds and footage first, titles and subtitles last.
 | `enabled` | `false` skips the item. |
 | `transform` | Optional; see below. |
 | `opacity` | `0`–`1`, number or keyframes. |
+| `blendMode` | `normal` (default), `multiply`, `screen`, `overlay`, `add`, or `difference`. |
 
 ## Item content types
 

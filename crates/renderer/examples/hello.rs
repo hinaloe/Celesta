@@ -1,7 +1,8 @@
 use std::error::Error;
 
 use celesta_composition::{
-    EvaluatedTransform, Layer, LayerContent, Point, Rational, Scene, TextAlign, TextStyle, Time,
+    BlendMode, EvaluatedTransform, Layer, LayerContent, Point, Rational, Scene, TextAlign,
+    TextStyle, Time,
 };
 use celesta_renderer::CpuRenderer;
 
@@ -22,6 +23,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 ..EvaluatedTransform::default()
             },
             opacity: 1.0,
+            blend_mode: BlendMode::Normal,
             content: LayerContent::Text {
                 text: "Celesta へようこそ".to_owned(),
                 style: TextStyle {

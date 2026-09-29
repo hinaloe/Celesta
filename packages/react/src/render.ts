@@ -15,6 +15,7 @@ import { resolveVisibleLayers } from './psd-preset';
 import { resolveComponent } from './registry';
 import { type HostNode, type RootContainer, HostReconciler, createRoot } from './reconciler';
 import type {
+  BlendMode,
   Clip,
   CompositionConfig,
   EvaluatedTransform,
@@ -326,6 +327,7 @@ function buildLayer(
   const id = typeof props.id === 'string' && props.id.length > 0 ? props.id : path;
   const transform = extractTransform(props);
   const opacity = typeof props.rawOpacity === 'number' ? props.rawOpacity : numberOr(props.opacity, 1);
+  const blendMode = extractBlendMode(props.blendMode);
 
   let content: LayerContent;
   if (node.type === 'group' || node.type === 'sequence') {
@@ -501,7 +503,19 @@ function buildLayer(
     throw new Error(`unreachable: unknown host node type "${node.type}"`);
   }
 
-  return { id, transform, opacity, content };
+  return { id, transform, opacity, ...(blendMode !== 'normal' ? { blendMode } : {}), content };
+}
+
+const BLEND_MODES: readonly BlendMode[] = ['normal', 'multiply', 'screen', 'overlay', 'add', 'difference'];
+
+function extractBlendMode(value: unknown): BlendMode {
+  if (value === undefined) {
+    return 'normal';
+  }
+  if (!BLEND_MODES.includes(value as BlendMode)) {
+    throw new Error(`unknown blendMode ${JSON.stringify(value)}; expected one of ${BLEND_MODES.join(', ')}`);
+  }
+  return value as BlendMode;
 }
 
 /**

@@ -51,6 +51,7 @@ accepts:
 | `rotation` | `0` | Degrees, clockwise. |
 | `scale` | `1` | Uniform scale. `scaleX`/`scaleY` override one axis. |
 | `opacity` | `1` | `0`–`1`; multiplies down through groups. |
+| `blendMode` | `'normal'` | How the layer combines with what is beneath it: `'normal'`, `'multiply'`, `'screen'`, `'overlay'`, `'add'`, or `'difference'`, as in CSS `mix-blend-mode`. |
 | `id` | generated | Optional stable layer id. |
 
 To center something at a point, set `anchorX={0.5} anchorY={0.5}` and put
@@ -112,6 +113,12 @@ A clip with no area (`width` or `height` of 0 or less) hides the children.
   <Text y={80 * (1 - reveal)} style={{ fontSize: 64 }}>Layer it.</Text>
 </Group>
 ```
+
+With a `blendMode` other than `'normal'`, the group is isolated: its children
+are drawn together first, and the result blends with what is beneath the
+group as one layer, faded by the group's `opacity`. A HUD that must stay
+readable over light and dark scenes can be drawn in a light color inside
+`<Group blendMode="difference">`.
 
 ### `<Image>`
 

@@ -9,8 +9,8 @@ use std::fs;
 use std::path::Path;
 
 pub use celesta_composition::{
-    Animatable, AnimatablePoint, Easing, Keyframe, KeyframeAnimation, Paint, Rational, Stroke,
-    TextAlign, TextStyle, Time, TimeError, TimeRange, Transform,
+    Animatable, AnimatablePoint, BlendMode, Easing, Keyframe, KeyframeAnimation, Paint, Rational,
+    Stroke, TextAlign, TextStyle, Time, TimeError, TimeRange, Transform,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use serde_json::Value;
@@ -326,6 +326,8 @@ pub struct TimelineItem {
     pub transform: Option<Transform>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opacity: Option<Animatable<f64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blend_mode: Option<BlendMode>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -455,6 +457,31 @@ mod tests {
         assert!(json.ends_with('\n'));
         assert!(json.contains("\n  \"settings\":"));
         assert_eq!(Project::from_json(&json).unwrap(), project);
+    }
+
+    #[test]
+    fn reads_and_writes_an_items_blend_mode() {
+        let mut project =
+            Project::from_json(include_str!("../../../examples/voiceroid.celesta.json")).unwrap();
+        assert!(!project.to_json().unwrap().contains("blendMode"));
+
+        let mut item = serde_json::to_value(&project.tracks[0].items[0]).unwrap();
+        item["blendMode"] = "difference".into();
+        project.tracks[0].items[0] = serde_json::from_value(item).unwrap();
+        assert_eq!(
+            project.tracks[0].items[0].blend_mode,
+            Some(BlendMode::Difference)
+        );
+        assert!(
+            project
+                .to_json()
+                .unwrap()
+                .contains("\"blendMode\": \"difference\"")
+        );
+
+        let mut item = serde_json::to_value(&project.tracks[0].items[0]).unwrap();
+        item["blendMode"] = "hue".into();
+        assert!(serde_json::from_value::<TimelineItem>(item).is_err());
     }
 
     #[test]

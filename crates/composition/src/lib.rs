@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 pub use animation::{AnimationError, evaluate_f64, integrate_f64};
 pub use model::{
-    AssetLocation, AudioClip, AudioGraph, Clip, EvaluatedTransform, Layer, LayerContent,
+    AssetLocation, AudioClip, AudioGraph, BlendMode, Clip, EvaluatedTransform, Layer, LayerContent,
     MediaTiming, Point, ResolvedAsset, Scene,
 };
 

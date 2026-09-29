@@ -172,6 +172,17 @@ Keep these boundaries intact:
   layout box. A Text layer with `baselineAnchor` (React `anchorY="baseline"`)
   is anchored vertically on its first line's baseline, which
   `RasterizedText::baseline` reports, so separate runs share a baseline.
+- Layers carry a `blendMode` (`BlendMode`: normal, multiply, screen, overlay,
+  add, difference; issue #27), set by React's `blendMode` prop or a project
+  item's `blendMode`. The formulas live in `BlendMode::blend_channel` and are
+  applied to non-premultiplied 8-bit values. A `Group` with a mode other than
+  normal is isolated: its children composite onto a transparent layer, and
+  its opacity applies to that layer as a whole. The CPU renderer does this with
+  a scene-sized `RgbaFrame`. The GPU renderer keeps its single-pass path for
+  scenes without blending; a scene with blending draws onto scene-sized
+  canvases (premultiplied alpha), copies the canvas to a backdrop texture
+  before each blended draw (`fs_blend` in `layer.wgsl`), and finally copies
+  the root canvas onto the target.
 - Audio preview evaluates the shared `AudioGraph`, decodes assets through
   FFmpeg to project-rate stereo PCM, mixes timeline/source offsets, animated
   playback rate and volume, mute state, and overlapping clips, then plays the
@@ -250,10 +261,13 @@ Keep these boundaries intact:
   `ParentState` and scales each pixel by its coverage (the same rounded-box
   SDF as `rasterize_rect`; it has no rotation). On the GPU each clipped group
   pushes a `ClipEntry` (inverse group transform, half size, radius, parent)
-  into a per-frame storage buffer, bind group 1; a layer's instance carries
-  the index of its innermost clip in `canvas.z`, and `layer.wgsl`'s
-  `clip_coverage` walks the parent chain and scales the alpha. Batching and
-  draw counts are unchanged. Nesting deeper than `MAX_CLIP_DEPTH` (8) is
+  into a per-frame storage buffer, bind group 2 (group 1 is the blend
+  backdrop, so the plain pipelines leave it unset); a layer's instance carries
+  the index of its innermost clip in its eighth vec4 (`clip.x`), and
+  `layer.wgsl`'s `clip_coverage` walks the parent chain and scales the alpha.
+  Batching and draw counts are unchanged. A clipped group that also has a
+  blend mode is isolated as usual: its children carry the clip, the group's
+  canvas does not. Nesting deeper than `MAX_CLIP_DEPTH` (8) is
   `GpuRenderError::ClipsNestedTooDeep`. Both renderers turn local distance
   into pixels with `sqrt(|det|)` of the group's transform: exact for a
   uniform scale, approximate for a non-uniform one. The general mask

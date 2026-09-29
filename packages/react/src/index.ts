@@ -44,6 +44,7 @@ export type {
   AssetLocation,
   AudioClip,
   AudioGraph,
+  BlendMode,
   Clip,
   CompositionConfig,
   EvaluatedTransform,

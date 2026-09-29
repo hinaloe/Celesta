@@ -16,7 +16,7 @@ use std::f64::consts::PI;
 use std::time::{Duration, Instant};
 
 use celesta_composition::{
-    EvaluatedTransform, Layer, LayerContent, Paint, Point, Rational, Scene, Time,
+    BlendMode, EvaluatedTransform, Layer, LayerContent, Paint, Point, Rational, Scene, Time,
 };
 use celesta_gpu_renderer::{GpuRenderOptions, GpuRenderer};
 
@@ -93,6 +93,7 @@ fn scene(frame: usize, ribbons: usize, strands: usize) -> Scene {
             id: format!("ribbon-{index}"),
             transform: EvaluatedTransform::default(),
             opacity: 1.0,
+            blend_mode: BlendMode::Normal,
             content: LayerContent::Group {
                 layers: ribbon(
                     time - index as f64 * 0.35,
@@ -192,6 +193,7 @@ fn rect(
             ..EvaluatedTransform::default()
         },
         opacity,
+        blend_mode: BlendMode::Normal,
         content: LayerContent::Rect {
             width,
             height,

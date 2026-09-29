@@ -4,9 +4,9 @@ use std::error::Error;
 use std::fmt;
 
 use celesta_composition::{
-    Animatable, AnimationError, AssetLocation, AudioClip, AudioGraph, EvaluatedTransform, Layer,
-    LayerContent, MediaTiming, Point, ResolvedAsset, Scene, TextStyle, Time, TimeError, Transform,
-    evaluate_f64, integrate_f64,
+    Animatable, AnimationError, AssetLocation, AudioClip, AudioGraph, BlendMode,
+    EvaluatedTransform, Layer, LayerContent, MediaTiming, Point, ResolvedAsset, Scene, TextStyle,
+    Time, TimeError, Transform, evaluate_f64, integrate_f64,
 };
 use celesta_project::{
     Asset, AssetSource, LipSyncCue, MouthShape, Project, SourceRange, TimelineContent,
@@ -217,6 +217,7 @@ impl<'project> Evaluator<'project> {
             id: item.id.clone(),
             transform,
             opacity,
+            blend_mode: item.blend_mode.unwrap_or_default(),
             content,
         }))
     }
@@ -248,6 +249,7 @@ impl<'project> Evaluator<'project> {
                 id: "portrait".to_owned(),
                 transform: evaluate_transform(portrait.transform.as_ref(), local_time)?,
                 opacity: 1.0,
+                blend_mode: BlendMode::Normal,
                 content: LayerContent::Image {
                     asset: self.asset(asset)?,
                 },
@@ -273,6 +275,7 @@ impl<'project> Evaluator<'project> {
                             local_time,
                         )?,
                         opacity: 1.0,
+                        blend_mode: BlendMode::Normal,
                         content: LayerContent::Image {
                             asset: self.asset(asset)?,
                         },
@@ -286,6 +289,7 @@ impl<'project> Evaluator<'project> {
                 id: "subtitle".to_owned(),
                 transform: evaluate_transform(subtitle.transform.as_ref(), local_time)?,
                 opacity: 1.0,
+                blend_mode: BlendMode::Normal,
                 content: LayerContent::Text {
                     text: text.to_owned(),
                     style: subtitle.style.clone().unwrap_or_default(),
@@ -298,6 +302,7 @@ impl<'project> Evaluator<'project> {
                 id: "subtitle".to_owned(),
                 transform: EvaluatedTransform::default(),
                 opacity: 1.0,
+                blend_mode: BlendMode::Normal,
                 content: LayerContent::Text {
                     text: text.to_owned(),
                     style: TextStyle::default(),
@@ -505,6 +510,24 @@ mod tests {
         assert_eq!(audio.clips.len(), 1);
         assert_eq!(audio.clips[0].id, "dialogue-001:voice");
         assert_eq!(audio.master_volume, 1.0);
+    }
+
+    #[test]
+    fn carries_an_items_blend_mode_onto_its_layer() {
+        let mut project = example();
+        let scene_time = Time::new(21, 4);
+        let evaluator = Evaluator::new(&project).unwrap();
+        assert_eq!(
+            evaluator.scene_at(scene_time).unwrap().layers[0].blend_mode,
+            BlendMode::Normal
+        );
+
+        project.tracks[0].items[0].blend_mode = Some(BlendMode::Screen);
+        let evaluator = Evaluator::new(&project).unwrap();
+        assert_eq!(
+            evaluator.scene_at(scene_time).unwrap().layers[0].blend_mode,
+            BlendMode::Screen
+        );
     }
 
     #[test]

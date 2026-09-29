@@ -13,7 +13,8 @@ use std::sync::Arc;
 use std::sync::mpsc;
 
 use celesta_composition::{
-    Clip, EvaluatedTransform, Layer, LayerContent, Paint, Point, ResolvedAsset, Scene, Stroke,
+    BlendMode, Clip, EvaluatedTransform, Layer, LayerContent, Paint, Point, ResolvedAsset, Scene,
+    Stroke,
 };
 use celesta_media::{MediaError, VideoFrameDecoder};
 use celesta_remote::{RemoteAssetError, resolve_asset_path};
@@ -207,9 +208,20 @@ pub struct GpuRenderer {
     options: GpuRenderOptions,
     shader: wgpu::ShaderModule,
     pipeline_layout: wgpu::PipelineLayout,
-    pipelines: HashMap<wgpu::TextureFormat, wgpu::RenderPipeline>,
+    /// Layout of `PipelineKind::Blend` pipelines: the layer texture, then
+    /// the backdrop.
+    blend_pipeline_layout: wgpu::PipelineLayout,
+    pipelines: HashMap<(wgpu::TextureFormat, PipelineKind), wgpu::RenderPipeline>,
     texture_bind_group_layout: wgpu::BindGroupLayout,
+    backdrop_bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    /// Scene-sized textures a frame that uses blend modes composites in: the
+    /// root canvas first, then one per level of isolated-group nesting.
+    /// Reused across frames of the same size.
+    canvases: Vec<CanvasTexture>,
+    /// What a blended draw reads its backdrop from: a copy of the canvas it
+    /// draws onto, taken just before the draw.
+    backdrop: Option<BackdropTexture>,
     /// Every layer's `LayerInstance` for the frame being prepared, reused
     /// (and grown when a frame needs more) across frames.
     instances: wgpu::Buffer,
@@ -324,6 +336,20 @@ impl GpuRenderer {
                     },
                 ],
             });
+        let backdrop_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Celesta backdrop bind group layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            });
         let clip_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Celesta layer clip bind group layout"),
@@ -340,21 +366,38 @@ impl GpuRenderer {
             });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Celesta layer pipeline layout"),
+            // Group 1 is the backdrop, which only `fs_blend` reads; group 2
+            // holds the clips every pipeline reads.
             bind_group_layouts: &[
                 Some(&texture_bind_group_layout),
+                None,
                 Some(&clip_bind_group_layout),
             ],
             immediate_size: 0,
         });
+        let blend_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Celesta blend pipeline layout"),
+                bind_group_layouts: &[
+                    Some(&texture_bind_group_layout),
+                    Some(&backdrop_bind_group_layout),
+                    Some(&clip_bind_group_layout),
+                ],
+                immediate_size: 0,
+            });
         let shader = device.create_shader_module(wgpu::include_wgsl!("layer.wgsl"));
         let pipeline = create_pipeline(
             &device,
             &pipeline_layout,
             &shader,
             wgpu::TextureFormat::Rgba8Unorm,
+            PipelineKind::Layer,
         );
         let mut pipelines = HashMap::new();
-        pipelines.insert(wgpu::TextureFormat::Rgba8Unorm, pipeline);
+        pipelines.insert(
+            (wgpu::TextureFormat::Rgba8Unorm, PipelineKind::Layer),
+            pipeline,
+        );
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Celesta layer sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -383,9 +426,13 @@ impl GpuRenderer {
             options,
             shader,
             pipeline_layout,
+            blend_pipeline_layout,
             pipelines,
             texture_bind_group_layout,
+            backdrop_bind_group_layout,
             sampler,
+            canvases: Vec::new(),
+            backdrop: None,
             instances,
             clip_bind_group_layout,
             clips,
@@ -880,11 +927,11 @@ impl GpuRenderer {
         }
         self.texture_generation += 1;
         self.clip_entries.clear();
-        let mut layers = Vec::new();
+        let mut items = Vec::new();
         let prepared = scene
             .layers
             .iter()
-            .try_for_each(|layer| self.prepare_layer(layer, LayerState::default(), &mut layers));
+            .try_for_each(|layer| self.prepare_layer(layer, LayerState::default(), &mut items));
         // Evict what this frame did not use, also when it failed part way
         // (the entries it did reach are still marked as used).
         let generation = self.texture_generation;
@@ -892,33 +939,85 @@ impl GpuRenderer {
             .retain(|_, cached| cached.last_used == generation);
         prepared?;
 
+        // A frame that blends anything but source-over composites through
+        // scene-sized canvases, so its layers need one more instance: the
+        // one that copies the finished root canvas onto the target.
+        let composited = items.iter().any(
+            |item| !matches!(item, PreparedItem::Layer(layer) if layer.blend_mode.is_normal()),
+        );
+        let instance_count = items
+            .iter()
+            .filter(|item| !matches!(item, PreparedItem::BeginGroup))
+            .count()
+            + usize::from(composited);
+
         // One buffer write for every layer, and one instanced draw for each
         // run of layers that sample the same texture, rather than a buffer,
         // a bind group, and a draw per layer: a dense scene has thousands of
         // layers, and consecutive rects all share the placeholder texture.
-        let size = layers.len() as u64 * LAYER_INSTANCE_SIZE;
-        if size > self.device.limits().max_buffer_size || u32::try_from(layers.len()).is_err() {
-            return Err(GpuRenderError::TooManyLayers(layers.len()));
+        let size = instance_count as u64 * LAYER_INSTANCE_SIZE;
+        if size > self.device.limits().max_buffer_size || u32::try_from(instance_count).is_err() {
+            return Err(GpuRenderError::TooManyLayers(instance_count));
         }
         let mut instances = Vec::with_capacity(size as usize);
-        let mut draws: Vec<GpuDraw> = Vec::new();
-        for (index, layer) in layers.into_iter().enumerate() {
+        let mut steps: Vec<GpuStep> = Vec::new();
+        let mut depth = 0;
+        let mut canvases = 1;
+        let mut index = 0_u32;
+        for item in items {
+            let layer = match item {
+                PreparedItem::Layer(layer) => layer,
+                PreparedItem::BeginGroup => {
+                    depth += 1;
+                    canvases = canvases.max(depth + 1);
+                    steps.push(GpuStep::BeginGroup);
+                    continue;
+                }
+                PreparedItem::EndGroup(layer) => {
+                    depth -= 1;
+                    layer.write_instance(scene.width, scene.height, &mut instances);
+                    steps.push(GpuStep::EndGroup {
+                        instance: index,
+                        blend_mode: layer.blend_mode,
+                    });
+                    index += 1;
+                    continue;
+                }
+            };
             layer.write_instance(scene.width, scene.height, &mut instances);
+            let blend_mode = layer.blend_mode;
             let texture = match layer.content {
                 PreparedContent::Texture(texture) => texture,
                 PreparedContent::Rect(_) => self.placeholder_texture.clone(),
+                PreparedContent::Canvas { .. } => unreachable!("only a group's end draws a canvas"),
             };
-            let index = index as u32;
-            match draws.last_mut() {
-                Some(draw) if draw.texture.bind_group == texture.bind_group => {
-                    draw.instances.end = index + 1;
+            let draw = GpuDraw {
+                texture,
+                instances: index..index + 1,
+            };
+            if !blend_mode.is_normal() {
+                steps.push(GpuStep::Blend { draw, blend_mode });
+            } else {
+                match steps.last_mut() {
+                    Some(GpuStep::Draw(last))
+                        if last.texture.bind_group == draw.texture.bind_group =>
+                    {
+                        last.instances.end = index + 1;
+                    }
+                    _ => steps.push(GpuStep::Draw(draw)),
                 }
-                _ => draws.push(GpuDraw {
-                    texture,
-                    instances: index..index + 1,
-                }),
             }
+            index += 1;
         }
+        let composite =
+            composited.then(|| {
+                PreparedLayer::canvas(LayerState::default(), BlendMode::Normal, false)
+                    .write_instance(scene.width, scene.height, &mut instances);
+                CompositePlan {
+                    blit_instance: index,
+                    canvases,
+                }
+            });
         if size > self.instances.size() {
             // In-flight frames keep the old buffer alive until they finish.
             self.instances = instance_buffer(&self.device, size.next_power_of_two());
@@ -948,7 +1047,8 @@ impl GpuRenderer {
         Ok(PreparedDraws {
             instances: self.instances.clone(),
             clips: self.clip_bind_group.clone(),
-            draws,
+            steps,
+            composite,
         })
     }
 
@@ -962,23 +1062,17 @@ impl GpuRenderer {
         let viewport =
             PreviewViewport::fit(scene.width, scene.height, target.width, target.height)?;
         let background = self.options.background.as_wgpu();
-        let pipeline = self.pipeline_for(target.format);
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Celesta layer pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target.view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(background),
-                    store: wgpu::StoreOp::Store,
-                },
-                depth_slice: None,
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
+        if let Some(plan) = &draws.composite {
+            self.encode_composited(encoder, scene, draws, plan);
+        }
+        let kind = if draws.composite.is_some() {
+            PipelineKind::Blit
+        } else {
+            PipelineKind::Layer
+        };
+        self.ensure_pipeline(target.format, kind);
+        let pipeline = &self.pipelines[&(target.format, kind)];
+        let mut pass = begin_pass(encoder, target.view, wgpu::LoadOp::Clear(background));
         pass.set_viewport(
             viewport.x,
             viewport.y,
@@ -989,30 +1083,234 @@ impl GpuRenderer {
         );
         pass.set_pipeline(pipeline);
         pass.set_vertex_buffer(0, draws.instances.slice(..));
-        pass.set_bind_group(1, &draws.clips, &[]);
-        for draw in &draws.draws {
+        pass.set_bind_group(2, &draws.clips, &[]);
+        if let Some(plan) = &draws.composite {
+            pass.set_bind_group(0, &self.canvases[0].bind_group, &[]);
+            pass.draw(0..6, plan.blit_instance..plan.blit_instance + 1);
+            return Ok(());
+        }
+        for step in &draws.steps {
+            let GpuStep::Draw(draw) = step else {
+                unreachable!("a frame with blend steps is composited");
+            };
             pass.set_bind_group(0, &draw.texture.bind_group, &[]);
             pass.draw(0..6, draw.instances.clone());
         }
         Ok(())
     }
 
-    fn pipeline_for(&mut self, format: wgpu::TextureFormat) -> &wgpu::RenderPipeline {
-        self.pipelines.entry(format).or_insert_with(|| {
-            create_pipeline(&self.device, &self.pipeline_layout, &self.shader, format)
-        })
+    /// Draws a frame that uses blend modes or isolated groups onto scene-sized
+    /// canvases, leaving the result in `self.canvases[0]` for `encode_draws`
+    /// to copy onto the target. Canvases hold premultiplied alpha, which is
+    /// what source-over blending onto a cleared texture produces.
+    fn encode_composited(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        scene: &Scene,
+        draws: &PreparedDraws,
+        plan: &CompositePlan,
+    ) {
+        const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+        self.prepare_canvases(scene.width, scene.height, plan.canvases);
+        self.ensure_pipeline(FORMAT, PipelineKind::Layer);
+        self.ensure_pipeline(FORMAT, PipelineKind::Blend);
+        let layer_pipeline = &self.pipelines[&(FORMAT, PipelineKind::Layer)];
+        let blend_pipeline = &self.pipelines[&(FORMAT, PipelineKind::Blend)];
+        let backdrop = self.backdrop.as_ref().expect("prepare_canvases creates it");
+        let size = wgpu::Extent3d {
+            width: scene.width,
+            height: scene.height,
+            depth_or_array_layers: 1,
+        };
+        // Draws `instances` onto `canvas`, blending through `blend_mode`.
+        let draw = |encoder: &mut wgpu::CommandEncoder,
+                    canvas: &CanvasTexture,
+                    bind_group: &wgpu::BindGroup,
+                    instances: std::ops::Range<u32>,
+                    blend_mode: BlendMode| {
+            if blend_mode.is_normal() {
+                let mut pass = begin_pass(encoder, &canvas.view, wgpu::LoadOp::Load);
+                pass.set_pipeline(layer_pipeline);
+                pass.set_vertex_buffer(0, draws.instances.slice(..));
+                pass.set_bind_group(0, bind_group, &[]);
+                pass.set_bind_group(2, &draws.clips, &[]);
+                pass.draw(0..6, instances);
+                return;
+            }
+            encoder.copy_texture_to_texture(
+                canvas.texture.as_image_copy(),
+                backdrop.texture.as_image_copy(),
+                size,
+            );
+            let mut pass = begin_pass(encoder, &canvas.view, wgpu::LoadOp::Load);
+            pass.set_pipeline(blend_pipeline);
+            pass.set_vertex_buffer(0, draws.instances.slice(..));
+            pass.set_bind_group(0, bind_group, &[]);
+            pass.set_bind_group(1, &backdrop.bind_group, &[]);
+            pass.set_bind_group(2, &draws.clips, &[]);
+            pass.draw(0..6, instances);
+        };
+
+        let background = self.options.background.as_wgpu();
+        drop(begin_pass(
+            encoder,
+            &self.canvases[0].view,
+            wgpu::LoadOp::Clear(background),
+        ));
+        let mut depth = 0;
+        let mut steps = draws.steps.iter().peekable();
+        while let Some(step) = steps.next() {
+            let canvas = &self.canvases[depth];
+            match step {
+                GpuStep::Draw(first) => {
+                    // One pass for the whole run of source-over draws.
+                    let mut pass = begin_pass(encoder, &canvas.view, wgpu::LoadOp::Load);
+                    pass.set_pipeline(layer_pipeline);
+                    pass.set_vertex_buffer(0, draws.instances.slice(..));
+                    pass.set_bind_group(0, &first.texture.bind_group, &[]);
+                    pass.set_bind_group(2, &draws.clips, &[]);
+                    pass.draw(0..6, first.instances.clone());
+                    while let Some(GpuStep::Draw(next)) = steps.peek() {
+                        pass.set_bind_group(0, &next.texture.bind_group, &[]);
+                        pass.draw(0..6, next.instances.clone());
+                        steps.next();
+                    }
+                }
+                GpuStep::Blend {
+                    draw: layer,
+                    blend_mode,
+                } => draw(
+                    encoder,
+                    canvas,
+                    &layer.texture.bind_group,
+                    layer.instances.clone(),
+                    *blend_mode,
+                ),
+                GpuStep::BeginGroup => {
+                    depth += 1;
+                    drop(begin_pass(
+                        encoder,
+                        &self.canvases[depth].view,
+                        wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    ));
+                }
+                GpuStep::EndGroup {
+                    instance,
+                    blend_mode,
+                } => {
+                    depth -= 1;
+                    draw(
+                        encoder,
+                        &self.canvases[depth],
+                        &canvas.bind_group,
+                        *instance..*instance + 1,
+                        *blend_mode,
+                    );
+                }
+            }
+        }
+    }
+
+    /// Makes sure `count` canvases and the backdrop exist at `width`x`height`.
+    fn prepare_canvases(&mut self, width: u32, height: u32, count: usize) {
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+        if self
+            .canvases
+            .first()
+            .is_some_and(|canvas| canvas.texture.size() != size)
+        {
+            self.canvases.clear();
+        }
+        while self.canvases.len() < count {
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Celesta canvas"),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Celesta canvas bind group"),
+                layout: &self.texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                ],
+            });
+            self.canvases.push(CanvasTexture {
+                texture,
+                view,
+                bind_group,
+            });
+        }
+        if self
+            .backdrop
+            .as_ref()
+            .is_none_or(|backdrop| backdrop.texture.size() != size)
+        {
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Celesta backdrop"),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Celesta backdrop bind group"),
+                layout: &self.backdrop_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                }],
+            });
+            self.backdrop = Some(BackdropTexture {
+                texture,
+                bind_group,
+            });
+        }
+    }
+
+    fn ensure_pipeline(&mut self, format: wgpu::TextureFormat, kind: PipelineKind) {
+        self.pipelines.entry((format, kind)).or_insert_with(|| {
+            let layout = match kind {
+                PipelineKind::Blend => &self.blend_pipeline_layout,
+                PipelineKind::Layer | PipelineKind::Blit => &self.pipeline_layout,
+            };
+            create_pipeline(&self.device, layout, &self.shader, format, kind)
+        });
     }
 
     fn prepare_layer(
         &mut self,
         layer: &Layer,
         parent: LayerState,
-        output: &mut Vec<PreparedLayer>,
+        output: &mut Vec<PreparedItem>,
     ) -> Result<(), GpuRenderError> {
         let state = parent.then(&layer.transform, layer.opacity);
         if state.opacity == 0.0 || state.transform.is_degenerate() {
             return Ok(());
         }
+        let blend_mode = layer.blend_mode;
         match &layer.content {
             LayerContent::Group { layers, clip } => {
                 let mut child_state = state;
@@ -1022,15 +1320,43 @@ impl GpuRenderer {
                     }
                     child_state.clip = Some(self.push_clip(clip, state)?);
                 }
-                for child in layers {
-                    self.prepare_layer(child, child_state, output)?;
+                if blend_mode.is_normal() {
+                    for child in layers {
+                        self.prepare_layer(child, child_state, output)?;
+                    }
+                    return Ok(());
                 }
+                // Isolated: the children draw onto a transparent canvas of
+                // their own, which then blends onto its parent as one layer.
+                // The children carry the clip; the canvas itself does not.
+                output.push(PreparedItem::BeginGroup);
+                let inner = LayerState {
+                    opacity: 1.0,
+                    ..child_state
+                };
+                for child in layers {
+                    self.prepare_layer(child, inner, output)?;
+                }
+                output.push(PreparedItem::EndGroup(PreparedLayer::canvas(
+                    LayerState {
+                        transform: Affine::IDENTITY,
+                        opacity: state.opacity,
+                        clip: None,
+                    },
+                    blend_mode,
+                    true,
+                )));
             }
             LayerContent::Image { asset } => {
                 let texture = self.cached_texture(format!("image\0{}", asset.id), |renderer| {
                     renderer.load_image(asset).cloned()
                 })?;
-                output.push(PreparedLayer::new(texture, layer.transform.anchor, state));
+                output.push(PreparedItem::Layer(PreparedLayer::new(
+                    texture,
+                    layer.transform.anchor,
+                    state,
+                    blend_mode,
+                )));
             }
             LayerContent::Psd {
                 asset,
@@ -1046,7 +1372,12 @@ impl GpuRenderer {
                             .cloned()
                     },
                 )?;
-                output.push(PreparedLayer::new(texture, layer.transform.anchor, state));
+                output.push(PreparedItem::Layer(PreparedLayer::new(
+                    texture,
+                    layer.transform.anchor,
+                    state,
+                    blend_mode,
+                )));
             }
             LayerContent::Video { asset, timing } => {
                 let path = self.local_asset_path(asset)?;
@@ -1059,7 +1390,12 @@ impl GpuRenderer {
                 let image = DecodedImage::shared(frame.width, frame.height, frame.pixels)?;
                 // Every frame brings new pixels, so video is never cached.
                 let texture = self.upload_texture(&image);
-                output.push(PreparedLayer::new(texture, layer.transform.anchor, state));
+                output.push(PreparedItem::Layer(PreparedLayer::new(
+                    texture,
+                    layer.transform.anchor,
+                    state,
+                    blend_mode,
+                )));
             }
             LayerContent::Text {
                 text,
@@ -1085,7 +1421,9 @@ impl GpuRenderer {
                 if *baseline_anchor {
                     anchor.y = texture.baseline_anchor;
                 }
-                output.push(PreparedLayer::new(texture, anchor, state));
+                output.push(PreparedItem::Layer(PreparedLayer::new(
+                    texture, anchor, state, blend_mode,
+                )));
             }
             LayerContent::Rect {
                 width,
@@ -1105,11 +1443,12 @@ impl GpuRenderer {
                     stroke.as_ref(),
                 )
                 .map_err(GpuRenderError::Text)?;
-                output.push(PreparedLayer {
+                output.push(PreparedItem::Layer(PreparedLayer {
                     content: PreparedContent::Rect(rect),
                     anchor: layer.transform.anchor,
                     state,
-                });
+                    blend_mode,
+                }));
             }
             LayerContent::MissingComponent { .. } => {
                 return Err(GpuRenderError::UnsupportedContent {
@@ -1311,12 +1650,29 @@ fn psd_key(
     )
 }
 
+/// How a pipeline writes its fragments.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum PipelineKind {
+    /// Source-over onto the target.
+    Layer,
+    /// Replaces the target: copies a finished canvas onto it.
+    Blit,
+    /// Blends with a backdrop copy of the target (`fs_blend`), replacing it.
+    Blend,
+}
+
 fn create_pipeline(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,
     shader: &wgpu::ShaderModule,
     format: wgpu::TextureFormat,
+    kind: PipelineKind,
 ) -> wgpu::RenderPipeline {
+    let (entry_point, blend) = match kind {
+        PipelineKind::Layer => ("fs_main", Some(wgpu::BlendState::ALPHA_BLENDING)),
+        PipelineKind::Blit => ("fs_main", None),
+        PipelineKind::Blend => ("fs_blend", None),
+    };
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("Celesta layer pipeline"),
         layout: Some(layout),
@@ -1335,11 +1691,11 @@ fn create_pipeline(
         multisample: wgpu::MultisampleState::default(),
         fragment: Some(wgpu::FragmentState {
             module: shader,
-            entry_point: Some("fs_main"),
+            entry_point: Some(entry_point),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
-                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                blend,
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),
@@ -1407,10 +1763,46 @@ struct CachedTexture {
     last_used: u64,
 }
 
-/// Bytes of `LayerInstance` in `layer.wgsl`: seven `vec4<f32>`s.
-const LAYER_INSTANCE_SIZE: u64 = 7 * 4 * 4;
+struct CanvasTexture {
+    texture: wgpu::Texture,
+    view: wgpu::TextureView,
+    /// Samples the canvas as a layer texture (group 0).
+    bind_group: wgpu::BindGroup,
+}
 
-const LAYER_INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+struct BackdropTexture {
+    texture: wgpu::Texture,
+    /// Binds the backdrop as group 1 of a `PipelineKind::Blend` pipeline.
+    bind_group: wgpu::BindGroup,
+}
+
+fn begin_pass<'a>(
+    encoder: &'a mut wgpu::CommandEncoder,
+    view: &wgpu::TextureView,
+    load: wgpu::LoadOp<wgpu::Color>,
+) -> wgpu::RenderPass<'a> {
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("Celesta layer pass"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load,
+                store: wgpu::StoreOp::Store,
+            },
+            depth_slice: None,
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    })
+}
+
+/// Bytes of `LayerInstance` in `layer.wgsl`: eight `vec4<f32>`s.
+const LAYER_INSTANCE_SIZE: u64 = 8 * 4 * 4;
+
+const LAYER_INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
     0 => Float32x4,
     1 => Float32x4,
     2 => Float32x4,
@@ -1418,6 +1810,7 @@ const LAYER_INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_
     4 => Float32x4,
     5 => Float32x4,
     6 => Float32x4,
+    7 => Float32x4,
 ];
 
 fn instance_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
@@ -1505,20 +1898,53 @@ impl RectShape {
 enum PreparedContent {
     Texture(LayerTexture),
     Rect(RectShape),
+    /// A whole scene-sized canvas: a finished isolated group, or the root
+    /// canvas being copied onto the target.
+    Canvas {
+        /// Whether the canvas holds premultiplied alpha (an isolated group)
+        /// that the shader must unpremultiply.
+        premultiplied: bool,
+    },
+}
+
+/// What `prepare_layer` produces, in painter's order.
+enum PreparedItem {
+    Layer(PreparedLayer),
+    /// The items up to the matching `EndGroup` draw onto a transparent canvas
+    /// of their own.
+    BeginGroup,
+    /// Draws the finished group's canvas onto its parent.
+    EndGroup(PreparedLayer),
 }
 
 struct PreparedLayer {
     content: PreparedContent,
     anchor: Point,
     state: LayerState,
+    blend_mode: BlendMode,
 }
 
 impl PreparedLayer {
-    const fn new(texture: LayerTexture, anchor: Point, state: LayerState) -> Self {
+    const fn new(
+        texture: LayerTexture,
+        anchor: Point,
+        state: LayerState,
+        blend_mode: BlendMode,
+    ) -> Self {
         Self {
             content: PreparedContent::Texture(texture),
             anchor,
             state,
+            blend_mode,
+        }
+    }
+
+    const fn canvas(state: LayerState, blend_mode: BlendMode, premultiplied: bool) -> Self {
+        Self {
+            content: PreparedContent::Canvas { premultiplied },
+            anchor: Point { x: 0.0, y: 0.0 },
+            state,
+            blend_mode,
         }
     }
 
@@ -1527,9 +1953,18 @@ impl PreparedLayer {
         let (width, height, kind) = match &self.content {
             PreparedContent::Texture(texture) => (texture.width, texture.height, 0.0),
             PreparedContent::Rect(rect) => (rect.pixel_width, rect.pixel_height, 1.0),
+            PreparedContent::Canvas { .. } => (canvas_width, canvas_height, 0.0),
         };
+        let premultiplied = matches!(
+            self.content,
+            PreparedContent::Canvas {
+                premultiplied: true
+            }
+        );
         let (rect, fill, stroke) = match &self.content {
-            PreparedContent::Texture(_) => ([0.0; 4], [0.0; 4], [0.0; 4]),
+            PreparedContent::Texture(_) | PreparedContent::Canvas { .. } => {
+                ([0.0; 4], [0.0; 4], [0.0; 4])
+            }
             PreparedContent::Rect(rect) => (
                 [
                     rect.half_width,
@@ -1556,24 +1991,70 @@ impl PreparedLayer {
             kind,
             canvas_width as f32,
             canvas_height as f32,
-            self.state.clip.map_or(-1.0, |index| index as f32),
-            0.0,
+            blend_mode_index(self.blend_mode),
+            f32::from(u8::from(premultiplied)),
         ]
         .into_iter()
         .chain(rect)
         .chain(fill)
-        .chain(stroke);
+        .chain(stroke)
+        // The innermost clip the layer is drawn through (-1 without one).
+        .chain([
+            self.state.clip.map_or(-1.0, |index| index as f32),
+            0.0,
+            0.0,
+            0.0,
+        ]);
         output.extend(values.flat_map(f32::to_ne_bytes));
     }
 }
 
+/// `fs_blend`'s index for `mode` in `layer.wgsl`.
+fn blend_mode_index(mode: BlendMode) -> f32 {
+    match mode {
+        BlendMode::Normal => 0.0,
+        BlendMode::Multiply => 1.0,
+        BlendMode::Screen => 2.0,
+        BlendMode::Overlay => 3.0,
+        BlendMode::Add => 4.0,
+        BlendMode::Difference => 5.0,
+    }
+}
+
 /// A frame's draws, ready to encode: the buffer holding every layer's
-/// instance, and the runs of instances that sample the same texture.
+/// instance, and what to draw with them in painter's order.
 struct PreparedDraws {
     instances: wgpu::Buffer,
     /// The bind group exposing the frame's clips to the fragment shader.
     clips: wgpu::BindGroup,
-    draws: Vec<GpuDraw>,
+    /// Only `GpuStep::Draw`s unless `composite` is set.
+    steps: Vec<GpuStep>,
+    composite: Option<CompositePlan>,
+}
+
+/// How a frame that uses blend modes composites through canvases.
+struct CompositePlan {
+    /// The instance that copies the root canvas onto the target.
+    blit_instance: u32,
+    /// The root canvas plus the deepest isolated-group nesting.
+    canvases: usize,
+}
+
+enum GpuStep {
+    /// A run of instances that sample the same texture, drawn source-over.
+    Draw(GpuDraw),
+    /// One instance blended onto the current canvas through `blend_mode`.
+    Blend {
+        draw: GpuDraw,
+        blend_mode: BlendMode,
+    },
+    /// Starts drawing onto a fresh transparent canvas.
+    BeginGroup,
+    /// Draws the finished group canvas onto its parent with `instance`.
+    EndGroup {
+        instance: u32,
+        blend_mode: BlendMode,
+    },
 }
 
 struct GpuDraw {
@@ -2289,8 +2770,8 @@ mod tests {
     use std::path::Path;
 
     use celesta_composition::{
-        AssetLocation, Clip, EvaluatedTransform, Layer, LayerContent, MediaTiming, Paint, Point,
-        Rational, ResolvedAsset, Scene, Stroke, TextStyle, Time,
+        AssetLocation, BlendMode, Clip, EvaluatedTransform, Layer, LayerContent, MediaTiming,
+        Paint, Point, Rational, ResolvedAsset, Scene, Stroke, TextStyle, Time,
     };
     use celesta_media::{MediaError, VideoFrame, VideoFrameDecoder};
 
@@ -2356,6 +2837,7 @@ mod tests {
                 ..EvaluatedTransform::default()
             },
             opacity: 1.0,
+            blend_mode: BlendMode::Normal,
             content: LayerContent::Image {
                 asset: ResolvedAsset {
                     id: id.to_owned(),
@@ -2438,10 +2920,14 @@ mod tests {
         ];
 
         let draws = renderer.prepare_draws(&scene).unwrap();
+        assert!(draws.composite.is_none());
         let runs: Vec<_> = draws
-            .draws
+            .steps
             .iter()
-            .map(|draw| draw.instances.clone())
+            .map(|step| match step {
+                GpuStep::Draw(draw) => draw.instances.clone(),
+                _ => unreachable!("a frame without blend modes only draws"),
+            })
             .collect();
         assert_eq!(runs, [0..2, 2..3, 3..5]);
 
@@ -2451,6 +2937,156 @@ mod tests {
         assert_eq!(pixel(1), [255, 255, 255, 255]);
         assert_eq!(pixel(2), [255, 255, 255, 255]);
         assert_eq!(pixel(3), [128, 0, 127, 255]);
+    }
+
+    fn blend_rect(
+        id: &str,
+        x: f64,
+        y: f64,
+        size: f64,
+        color: &str,
+        blend_mode: BlendMode,
+    ) -> Layer {
+        Layer {
+            blend_mode,
+            transform: EvaluatedTransform {
+                position: Point { x, y },
+                anchor: Point { x: 0.0, y: 0.0 },
+                ..EvaluatedTransform::default()
+            },
+            ..solid_rect(id, 0.0, size, size, color)
+        }
+    }
+
+    fn blend_group(opacity: f64, blend_mode: BlendMode, layers: Vec<Layer>) -> Layer {
+        Layer {
+            id: "group".to_owned(),
+            transform: EvaluatedTransform {
+                anchor: Point { x: 0.0, y: 0.0 },
+                ..EvaluatedTransform::default()
+            },
+            opacity,
+            blend_mode,
+            content: LayerContent::Group { layers, clip: None },
+        }
+    }
+
+    /// Every blend mode, at partial opacity and with translucent fills, on
+    /// its own and inside nested isolated groups.
+    fn blend_scene() -> Scene {
+        let modes = [
+            BlendMode::Normal,
+            BlendMode::Multiply,
+            BlendMode::Screen,
+            BlendMode::Overlay,
+            BlendMode::Add,
+            BlendMode::Difference,
+        ];
+        let mut scene = empty_scene(24, 16);
+        scene.layers = vec![
+            blend_rect("dark", 0.0, 0.0, 12.0, "#202830", BlendMode::Normal),
+            blend_rect("light", 12.0, 0.0, 12.0, "#e0d0c0", BlendMode::Normal),
+            blend_rect("warm", 6.0, 4.0, 12.0, "#ff4d1f80", BlendMode::Normal),
+        ];
+        for (index, mode) in modes.into_iter().enumerate() {
+            let x = index as f64 * 4.0;
+            let mut layer = blend_rect("mode", x, 2.0, 5.0, "#6ab04cc0", mode);
+            layer.opacity = 0.8;
+            scene.layers.push(layer);
+            scene.layers.push(blend_group(
+                0.7,
+                mode,
+                vec![
+                    blend_rect("under", x, 9.0, 4.0, "#3c6382", BlendMode::Normal),
+                    blend_rect("over", x + 1.0, 10.0, 4.0, "#f8c291a0", BlendMode::Screen),
+                    blend_group(
+                        1.0,
+                        BlendMode::Difference,
+                        vec![blend_rect(
+                            "nested",
+                            x + 2.0,
+                            12.0,
+                            3.0,
+                            "#ffffff",
+                            BlendMode::Normal,
+                        )],
+                    ),
+                ],
+            ));
+        }
+        scene
+    }
+
+    #[test]
+    fn blends_layers_and_isolated_groups_like_the_cpu_renderer() {
+        let background = Color::rgba(10, 20, 30, 255);
+        let Some(mut renderer) = renderer(GpuRenderOptions { background }) else {
+            return;
+        };
+        let scene = blend_scene();
+        let draws = renderer.prepare_draws(&scene).unwrap();
+        assert!(
+            draws
+                .composite
+                .as_ref()
+                .is_some_and(|plan| plan.canvases == 3)
+        );
+
+        let expected = celesta_renderer::CpuRenderer::new(celesta_renderer::RenderOptions {
+            background: celesta_renderer::Color::rgba(10, 20, 30, 255),
+        })
+        .render(&scene)
+        .unwrap();
+        // Twice: the second frame reuses the canvases the first created.
+        for _ in 0..2 {
+            let frame = renderer.render(&scene).unwrap();
+            for (index, (gpu, cpu)) in frame
+                .pixels()
+                .chunks_exact(4)
+                .zip(expected.pixels().chunks_exact(4))
+                .enumerate()
+            {
+                let close = gpu
+                    .iter()
+                    .zip(cpu)
+                    .all(|(gpu, cpu)| gpu.abs_diff(*cpu) <= 2);
+                assert!(
+                    close,
+                    "pixel ({}, {}): GPU {gpu:?}, CPU {cpu:?}",
+                    index % 24,
+                    index / 24,
+                );
+            }
+        }
+
+        // A preview target of another size and format gets the same frame,
+        // scaled into its viewport.
+        let texture = renderer.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 48,
+                height: 32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Bgra8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        renderer
+            .render_to_target(
+                &scene,
+                GpuRenderTarget {
+                    view: &view,
+                    format: wgpu::TextureFormat::Bgra8Unorm,
+                    width: 48,
+                    height: 32,
+                },
+            )
+            .unwrap();
     }
 
     #[test]
@@ -2512,6 +3148,7 @@ mod tests {
                 id: "rect".to_owned(),
                 transform,
                 opacity,
+                blend_mode: BlendMode::Normal,
                 content: LayerContent::Rect {
                     width,
                     height,
@@ -2542,6 +3179,7 @@ mod tests {
                 id: id.clone(),
                 transform,
                 opacity,
+                blend_mode: BlendMode::Normal,
                 content: LayerContent::Image {
                     asset: ResolvedAsset {
                         id: id.clone(),
@@ -2582,6 +3220,7 @@ mod tests {
                 ..EvaluatedTransform::default()
             },
             opacity: 1.0,
+            blend_mode: BlendMode::Normal,
             content: LayerContent::Rect {
                 width,
                 height,
@@ -2599,6 +3238,7 @@ mod tests {
             id: "clipped".to_owned(),
             transform,
             opacity: 1.0,
+            blend_mode: BlendMode::Normal,
             content: LayerContent::Group {
                 layers,
                 clip: Some(clip),
@@ -2691,6 +3331,62 @@ mod tests {
                 "scene {index}: channels differ by up to {difference}"
             );
         }
+    }
+
+    #[test]
+    fn clips_groups_that_blend_like_the_cpu_renderer() {
+        let background = Color::rgba(10, 20, 30, 255);
+        let Some(mut renderer) = renderer(GpuRenderOptions { background }) else {
+            return;
+        };
+        let clip = Clip {
+            x: 6.0,
+            y: 6.0,
+            width: 30.0,
+            height: 24.0,
+            corner_radius: 8.0,
+        };
+        let mut scene = empty_scene(48, 40);
+        scene.layers = vec![
+            blend_rect("light", 0.0, 0.0, 48.0, "#e0d0c0", BlendMode::Normal),
+            // An isolated group blends as one layer; only its clipped part shows.
+            Layer {
+                blend_mode: BlendMode::Difference,
+                opacity: 0.8,
+                ..clipped_group(
+                    EvaluatedTransform::default(),
+                    clip.clone(),
+                    vec![
+                        blend_rect("a", 0.0, 0.0, 30.0, "#3c6382", BlendMode::Normal),
+                        blend_rect("b", 20.0, 10.0, 30.0, "#f8c291c0", BlendMode::Screen),
+                    ],
+                )
+            },
+            // A group that is not isolated clips each child's own blend.
+            clipped_group(
+                EvaluatedTransform {
+                    position: Point { x: 10.0, y: 20.0 },
+                    ..EvaluatedTransform::default()
+                },
+                clip,
+                vec![blend_rect(
+                    "c",
+                    0.0,
+                    0.0,
+                    40.0,
+                    "#6ab04c",
+                    BlendMode::Multiply,
+                )],
+            ),
+        ];
+        let expected = celesta_renderer::CpuRenderer::new(celesta_renderer::RenderOptions {
+            background: celesta_renderer::Color::rgba(10, 20, 30, 255),
+        })
+        .render(&scene)
+        .unwrap();
+        let frame = renderer.render(&scene).unwrap();
+        let difference = max_channel_difference(&frame, &expected);
+        assert!(difference <= 2, "channels differ by up to {difference}");
     }
 
     #[test]
@@ -2820,6 +3516,7 @@ mod tests {
                 ..EvaluatedTransform::default()
             },
             opacity: 1.0,
+            blend_mode: BlendMode::Normal,
             content: LayerContent::Rect {
                 width,
                 height,
@@ -3027,6 +3724,7 @@ mod tests {
                         ..EvaluatedTransform::default()
                     },
                     opacity: 1.0,
+                    blend_mode: BlendMode::Normal,
                     content: LayerContent::Text {
                         text: format!("Dialogue preview frame {index}"),
                         style: TextStyle {
@@ -3116,11 +3814,13 @@ mod tests {
                 ..EvaluatedTransform::default()
             },
             opacity: 1.0,
+            blend_mode: BlendMode::Normal,
             content: LayerContent::Group {
                 layers: vec![Layer {
                     id: "checker".to_owned(),
                     transform: EvaluatedTransform::default(),
                     opacity: 1.0,
+                    blend_mode: BlendMode::Normal,
                     content: LayerContent::Image {
                         asset: ResolvedAsset {
                             id: "checker".to_owned(),
@@ -3177,6 +3877,7 @@ mod tests {
                 ..EvaluatedTransform::default()
             },
             opacity: 0.5,
+            blend_mode: BlendMode::Normal,
             content: LayerContent::Video {
                 asset: ResolvedAsset {
                     id: "clip".to_owned(),
@@ -3213,6 +3914,7 @@ mod tests {
                 ..EvaluatedTransform::default()
             },
             opacity: 0.75,
+            blend_mode: BlendMode::Normal,
             content: LayerContent::Text {
                 text: "Celesta".to_owned(),
                 style: TextStyle {
@@ -3261,6 +3963,7 @@ mod tests {
                 ..EvaluatedTransform::default()
             },
             opacity: 1.0,
+            blend_mode: BlendMode::Normal,
             content: LayerContent::Text {
                 text: "Celesta".to_owned(),
                 style: TextStyle {
@@ -3320,6 +4023,7 @@ mod tests {
                     ..EvaluatedTransform::default()
                 },
                 opacity: 1.0,
+                blend_mode: BlendMode::Normal,
                 content: LayerContent::Text {
                     text: text.to_owned(),
                     style: TextStyle {
