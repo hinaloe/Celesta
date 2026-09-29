@@ -12,7 +12,7 @@ them from npm.
 - [Text styles and fonts](#text-styles-and-fonts)
 - [Time and animation](#time-and-animation): hooks, interpolate, Easings, spring, Sequence, Transition, timecodeToFrame
 - [Layout helpers](#layout-helpers): Center, SafeArea, Stack, Grid, Fit
-- [Media helpers](#media-helpers): preloadMedia, mediaDurationInFrames
+- [Media helpers](#media-helpers): preloadMedia, mediaDurationInFrames, measureText
 - [Project data](#project-data): ProjectProvider, useProjectProperty, defineProjectProperties, ProjectTimeline, ProjectTrack, registerComponent
 - [Preview-only debug guides](#preview-only-debug-guides)
 - [Keyframe values](#keyframe-values)
@@ -323,6 +323,24 @@ export async function prepare() {
 `preloadMedia(src)` resolves to
 `{ src, durationSeconds?, video?: { width, height, codec?, frameRate?, durationSeconds? }, audio: [{ codec?, sampleRate?, channels?, durationSeconds? }] }`.
 `mediaDurationInFrames(info, fps)` rounds up to whole frames.
+
+### Measure text
+
+`measureText(text, style, { maxWidth?, fonts? })` shapes text exactly as
+`<Text>` does and resolves to
+`{ width, height, ascent, descent, lineHeight, lines, glyphs: [{ text, x, width, line }] }`
+in composition pixels (`ascent` runs from the first line's top to its
+baseline). `glyphs` has one entry per cluster, so per-letter layout is
+`glyphs[i].x`. `<Font>` files are not loaded during `prepare()`; pass their
+`src` in `fonts` to measure with them.
+
+```tsx
+let caretX = 0;
+export async function prepare() {
+  const m = await measureText('Celesta', { fontFamily: 'Inter', fontSize: 96 }, { fonts: ['./Inter.ttf'] });
+  caretX = m.width;
+}
+```
 
 For anything else asynchronous (fetching JSON, reading files with
 `node:fs`), use `prepare()` the same way and keep a fallback so the scene

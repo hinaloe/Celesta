@@ -21,6 +21,8 @@ import type { ComponentPropertySchema } from './registry';
 import { listProjectProperties } from './properties';
 import type { ProjectPropertyField } from './properties';
 import { setMediaProbe } from './media';
+import { setTextMeasurer } from './text-measure';
+import type { MeasureTextRequest, TextMetrics } from './text-measure';
 import type { ProbedMediaInfo } from './media';
 import type { CompositionConfig, Scene, Time } from './scene';
 
@@ -74,6 +76,16 @@ async function main(): Promise<void> {
   setMediaProbe((mediaPath) => {
     const result = probeQueue.then(() => requestMediaProbe(lines, mediaPath));
     probeQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  });
+
+  let measureQueue = Promise.resolve();
+  setTextMeasurer((request) => {
+    const result = measureQueue.then(() => requestTextMeasure(lines, request));
+    measureQueue = result.then(
       () => undefined,
       () => undefined,
     );
@@ -179,6 +191,30 @@ async function requestMediaProbe(
   return response.media;
 }
 
+async function requestTextMeasure(
+  lines: AsyncIterator<string>,
+  request: MeasureTextRequest,
+): Promise<TextMetrics> {
+  writeLine({ measureText: request });
+  const next = await lines.next();
+  if (next.done) {
+    throw new Error('Celesta closed the text measurement channel unexpectedly');
+  }
+  let response: { metrics?: TextMetrics; error?: string };
+  try {
+    response = JSON.parse(next.value);
+  } catch (error) {
+    throw new Error(`invalid text measurement response: ${describeError(error)}`);
+  }
+  if (response.error) {
+    throw new Error(response.error);
+  }
+  if (!response.metrics) {
+    throw new Error('Celesta returned an empty text measurement response');
+  }
+  return response.metrics;
+}
+
 function writeLine(
   value:
     | {
@@ -189,6 +225,7 @@ function writeLine(
     | { scene: Scene; audio: AudioClipDescriptor[] }
     | { components: ComponentResolution[] }
     | { probeMedia: { path: string } }
+    | { measureText: MeasureTextRequest }
     | { error: string },
 ): void {
   process.stdout.write(`${JSON.stringify(value)}\n`);

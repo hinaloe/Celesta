@@ -1050,6 +1050,7 @@ dependencies = [
  "celesta-composition",
  "celesta-media",
  "celesta-remote",
+ "celesta-renderer",
  "serde",
  "serde_json",
 ]

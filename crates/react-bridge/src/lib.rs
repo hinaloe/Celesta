@@ -14,11 +14,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use celesta_composition::{
-    Animatable, AssetLocation, AudioClip, AudioGraph, Layer, Rational, ResolvedAsset, Scene, Time,
-    TimeRange,
+    Animatable, AssetLocation, AudioClip, AudioGraph, Layer, Rational, ResolvedAsset, Scene,
+    TextStyle, Time, TimeRange,
 };
 use celesta_media::{AudioStream, FfmpegBackend, MediaProbe, VideoStream};
 use celesta_remote::{RemoteAssetCache, is_remote_url};
+use celesta_renderer::{TextMetrics, TextRasterizer};
 use serde::{Deserialize, Serialize};
 
 mod project_types;
@@ -199,6 +200,8 @@ impl ReactBridge {
         let mut stdout = BufReader::new(stdout);
 
         let mut media = FfmpegBackend::new();
+        // Created on the first `measureText`: it scans the system fonts.
+        let mut text_measurer: Option<TextRasterizer> = None;
         let metadata = loop {
             let mut line = String::new();
             let read = stdout.read_line(&mut line).map_err(ReactBridgeError::Io)?;
@@ -241,6 +244,30 @@ impl ReactBridge {
                         Err(error) => MediaProbeResponse {
                             media: None,
                             error: Some(format!("could not probe {path}: {error}")),
+                        },
+                    };
+                    let payload =
+                        serde_json::to_string(&response).map_err(ReactBridgeError::Protocol)?;
+                    writeln!(stdin, "{payload}").map_err(ReactBridgeError::Io)?;
+                    stdin.flush().map_err(ReactBridgeError::Io)?;
+                }
+                ReadyMessage::MeasureText { measure_text } => {
+                    let measurer = text_measurer.get_or_insert_with(TextRasterizer::new);
+                    let response = match measurer.load_fonts(&measure_text.fonts, Path::new(".")) {
+                        Ok(()) => {
+                            let metrics = measurer.measure(
+                                &measure_text.text,
+                                &measure_text.style,
+                                measure_text.max_width,
+                            );
+                            MeasureTextResponse {
+                                metrics: Some(text_metrics_payload(&metrics)),
+                                error: None,
+                            }
+                        }
+                        Err(error) => MeasureTextResponse {
+                            metrics: None,
+                            error: Some(format!("could not measure text: {error}")),
                         },
                     };
                     let payload =
@@ -540,9 +567,76 @@ enum ReadyMessage {
         #[serde(rename = "probeMedia")]
         probe_media: MediaProbeRequest,
     },
+    MeasureText {
+        #[serde(rename = "measureText")]
+        measure_text: MeasureTextRequest,
+    },
     Error {
         error: String,
     },
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MeasureTextRequest {
+    text: String,
+    #[serde(default)]
+    style: TextStyle,
+    #[serde(default)]
+    max_width: Option<f64>,
+    /// Fonts to load before measuring; `prepare()` runs before any scene
+    /// (and so any scene font list) exists.
+    #[serde(default)]
+    fonts: Vec<ResolvedAsset>,
+}
+
+#[derive(Serialize)]
+struct MeasureTextResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    metrics: Option<TextMetricsPayload>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TextMetricsPayload {
+    width: f64,
+    height: f64,
+    ascent: f64,
+    descent: f64,
+    line_height: f64,
+    lines: usize,
+    glyphs: Vec<GlyphPayload>,
+}
+
+#[derive(Serialize)]
+struct GlyphPayload {
+    text: String,
+    x: f64,
+    width: f64,
+    line: usize,
+}
+
+fn text_metrics_payload(metrics: &TextMetrics) -> TextMetricsPayload {
+    TextMetricsPayload {
+        width: metrics.width,
+        height: metrics.height,
+        ascent: metrics.ascent,
+        descent: metrics.descent,
+        line_height: metrics.line_height,
+        lines: metrics.lines,
+        glyphs: metrics
+            .glyphs
+            .iter()
+            .map(|glyph| GlyphPayload {
+                text: glyph.text.clone(),
+                x: glyph.x,
+                width: glyph.width,
+                line: glyph.line,
+            })
+            .collect(),
+    }
 }
 
 #[derive(Deserialize)]
