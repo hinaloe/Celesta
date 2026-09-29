@@ -78,6 +78,7 @@ fn exports_frame_exact_mp4_with_silent_audio() {
             transform: None,
             opacity: None,
             blend_mode: None,
+            effects: None,
         }],
     });
 
@@ -203,6 +204,7 @@ fn exports_only_the_selected_range_shifted_to_zero() {
             transform: None,
             opacity: None,
             blend_mode: None,
+            effects: None,
         }],
     });
 
@@ -312,7 +314,8 @@ fn converting_colors_on_the_gpu_matches_the_encoder_conversion() {
     let source = directory.path().join("source.mkv");
     generate_source(&source, "testsrc2=size=64x64:rate=2:duration=1", (2, 1));
 
-    let mut project = Project::load(workspace_root().join("examples/minimal.celesta.json")).unwrap();
+    let mut project =
+        Project::load(workspace_root().join("examples/minimal.celesta.json")).unwrap();
     project.settings.width = 64;
     project.settings.height = 64;
     project.settings.frame_rate = Rational::new(2, 1);
@@ -353,6 +356,7 @@ fn converting_colors_on_the_gpu_matches_the_encoder_conversion() {
             transform: None,
             opacity: None,
             blend_mode: None,
+            effects: None,
         }],
     });
 

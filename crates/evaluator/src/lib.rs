@@ -5,8 +5,9 @@ use std::fmt;
 
 use celesta_composition::{
     Animatable, AnimationError, AssetLocation, AudioClip, AudioGraph, BlendMode,
-    EvaluatedTransform, Layer, LayerContent, MediaTiming, Point, ResolvedAsset, Scene, TextStyle,
-    Time, TimeError, Transform, evaluate_f64, integrate_f64,
+    EvaluatedTransform, Keyframe, KeyframeAnimation, Layer, LayerContent, LayerEffects, LayerGlow,
+    LayerShadow, MediaTiming, Point, ResolvedAsset, Scene, TextStyle, Time, TimeError, Transform,
+    evaluate_f64, integrate_f64,
 };
 use celesta_project::{
     Asset, AssetSource, LipSyncCue, MouthShape, Project, SourceRange, TimelineContent,
@@ -218,6 +219,7 @@ impl<'project> Evaluator<'project> {
             transform,
             opacity,
             blend_mode: item.blend_mode.unwrap_or_default(),
+            effects: evaluate_effects(item, local_time)?,
             content,
         }))
     }
@@ -250,6 +252,7 @@ impl<'project> Evaluator<'project> {
                 transform: evaluate_transform(portrait.transform.as_ref(), local_time)?,
                 opacity: 1.0,
                 blend_mode: BlendMode::Normal,
+                effects: LayerEffects::default(),
                 content: LayerContent::Image {
                     asset: self.asset(asset)?,
                 },
@@ -276,6 +279,7 @@ impl<'project> Evaluator<'project> {
                         )?,
                         opacity: 1.0,
                         blend_mode: BlendMode::Normal,
+                        effects: LayerEffects::default(),
                         content: LayerContent::Image {
                             asset: self.asset(asset)?,
                         },
@@ -290,6 +294,7 @@ impl<'project> Evaluator<'project> {
                 transform: evaluate_transform(subtitle.transform.as_ref(), local_time)?,
                 opacity: 1.0,
                 blend_mode: BlendMode::Normal,
+                effects: LayerEffects::default(),
                 content: LayerContent::Text {
                     text: text.to_owned(),
                     style: subtitle.style.clone().unwrap_or_default(),
@@ -303,6 +308,7 @@ impl<'project> Evaluator<'project> {
                 transform: EvaluatedTransform::default(),
                 opacity: 1.0,
                 blend_mode: BlendMode::Normal,
+                effects: LayerEffects::default(),
                 content: LayerContent::Text {
                     text: text.to_owned(),
                     style: TextStyle::default(),
@@ -380,6 +386,93 @@ fn evaluate_optional(
         .map_or(Ok(default), |value| evaluate_f64(value, time))
 }
 
+fn evaluate_effects(item: &TimelineItem, time: Time) -> Result<LayerEffects, EvaluationError> {
+    let Some(effects) = &item.effects else {
+        return Ok(LayerEffects::default());
+    };
+    Ok(LayerEffects {
+        blur: evaluate_optional(&effects.blur, time, 0.0)?.max(0.0),
+        shadow: effects
+            .shadow
+            .as_ref()
+            .map(|shadow| -> Result<_, EvaluationError> {
+                Ok(LayerShadow {
+                    color: evaluate_effect_color(&shadow.color, time)?,
+                    blur: evaluate_f64(&shadow.blur, time)?.max(0.0),
+                    offset_x: evaluate_f64(&shadow.offset_x, time)?,
+                    offset_y: evaluate_f64(&shadow.offset_y, time)?,
+                })
+            })
+            .transpose()?,
+        glow: effects
+            .glow
+            .as_ref()
+            .map(|glow| -> Result<_, EvaluationError> {
+                Ok(LayerGlow {
+                    color: evaluate_effect_color(&glow.color, time)?,
+                    blur: evaluate_f64(&glow.blur, time)?.max(0.0),
+                })
+            })
+            .transpose()?,
+    })
+}
+
+fn evaluate_effect_color(
+    value: &Animatable<String>,
+    time: Time,
+) -> Result<String, EvaluationError> {
+    match value {
+        Animatable::Static(color) => Ok(color.clone()),
+        Animatable::Keyframes(animation) => {
+            let colors: Vec<[u8; 4]> = animation
+                .keyframes
+                .iter()
+                .map(|keyframe| parse_effect_color(&keyframe.value))
+                .collect::<Result<_, _>>()?;
+            let mut channels = [0_u8; 4];
+            for (index, channel) in channels.iter_mut().enumerate() {
+                let values = Animatable::Keyframes(KeyframeAnimation {
+                    kind: animation.kind,
+                    keyframes: animation
+                        .keyframes
+                        .iter()
+                        .zip(&colors)
+                        .map(|(keyframe, color)| Keyframe {
+                            time: keyframe.time,
+                            value: f64::from(color[index]),
+                            easing: keyframe.easing,
+                        })
+                        .collect(),
+                });
+                *channel = evaluate_f64(&values, time)?.round().clamp(0.0, 255.0) as u8;
+            }
+            Ok(format!(
+                "#{:02X}{:02X}{:02X}{:02X}",
+                channels[0], channels[1], channels[2], channels[3]
+            ))
+        }
+    }
+}
+
+fn parse_effect_color(color: &str) -> Result<[u8; 4], EvaluationError> {
+    let hex = color
+        .strip_prefix('#')
+        .ok_or_else(|| EvaluationError::InvalidEffectColor(color.to_owned()))?;
+    let byte = |offset| {
+        u8::from_str_radix(&hex[offset..offset + 2], 16)
+            .map_err(|_| EvaluationError::InvalidEffectColor(color.to_owned()))
+    };
+    if !matches!(hex.len(), 6 | 8) || !hex.bytes().all(|digit| digit.is_ascii_hexdigit()) {
+        return Err(EvaluationError::InvalidEffectColor(color.to_owned()));
+    }
+    Ok([
+        byte(0)?,
+        byte(2)?,
+        byte(4)?,
+        if hex.len() == 8 { byte(6)? } else { 255 },
+    ])
+}
+
 fn integrate_optional(
     value: &Option<Animatable<f64>>,
     time: Time,
@@ -428,6 +521,7 @@ pub enum EvaluationError {
     InvalidTime(Time),
     Time(TimeError),
     Animation(AnimationError),
+    InvalidEffectColor(String),
     MissingAsset(String),
     MissingCharacter(String),
     MissingExpression {
@@ -443,6 +537,7 @@ impl fmt::Display for EvaluationError {
             Self::InvalidTime(time) => write!(formatter, "invalid evaluation time {time:?}"),
             Self::Time(error) => write!(formatter, "time evaluation failed: {error}"),
             Self::Animation(error) => write!(formatter, "animation evaluation failed: {error}"),
+            Self::InvalidEffectColor(color) => write!(formatter, "invalid effect color `{color}`"),
             Self::MissingAsset(id) => write!(formatter, "missing asset `{id}`"),
             Self::MissingCharacter(id) => write!(formatter, "missing character `{id}`"),
             Self::MissingExpression {
@@ -472,9 +567,12 @@ impl From<AnimationError> for EvaluationError {
 
 #[cfg(test)]
 mod tests {
-    use celesta_composition::{LayerContent, Time};
+    use celesta_composition::{
+        Keyframe, KeyframeAnimation, KeyframeAnimationType, LayerContent, Time,
+    };
     use celesta_project::{
         LipSyncCue, LipSyncDefinition, MouthShape, Project, SourceRange, TimelineContent,
+        TimelineEffects, TimelineGlow, TimelineShadow,
     };
 
     use super::*;
@@ -528,6 +626,61 @@ mod tests {
             evaluator.scene_at(scene_time).unwrap().layers[0].blend_mode,
             BlendMode::Screen
         );
+    }
+
+    #[test]
+    fn evaluates_animated_effects_at_item_local_time() {
+        let mut project = example();
+        let animated = Animatable::Keyframes(KeyframeAnimation {
+            kind: KeyframeAnimationType::Keyframes,
+            keyframes: vec![
+                Keyframe {
+                    time: Time::ZERO,
+                    value: 0.0,
+                    easing: None,
+                },
+                Keyframe {
+                    time: Time::new(1, 1),
+                    value: 8.0,
+                    easing: None,
+                },
+            ],
+        });
+        project.tracks[0].items[0].effects = Some(TimelineEffects {
+            blur: Some(animated.clone()),
+            shadow: Some(TimelineShadow {
+                color: Animatable::Keyframes(KeyframeAnimation {
+                    kind: KeyframeAnimationType::Keyframes,
+                    keyframes: vec![
+                        Keyframe {
+                            time: Time::ZERO,
+                            value: "#00000080".to_owned(),
+                            easing: None,
+                        },
+                        Keyframe {
+                            time: Time::new(1, 1),
+                            value: "#FF0000FF".to_owned(),
+                            easing: None,
+                        },
+                    ],
+                }),
+                blur: Animatable::Static(2.0),
+                offset_x: animated,
+                offset_y: Animatable::Static(3.0),
+            }),
+            glow: Some(TimelineGlow {
+                color: Animatable::Static("#ffffff".to_owned()),
+                blur: Animatable::Static(4.0),
+            }),
+        });
+        let start = project.tracks[0].items[0].range.start;
+        let time = start.checked_add(Time::new(1, 2)).unwrap();
+        let scene = Evaluator::new(&project).unwrap().scene_at(time).unwrap();
+        let layer = &scene.layers[0];
+        assert_eq!(layer.effects.blur, 4.0);
+        assert_eq!(layer.effects.shadow.as_ref().unwrap().offset_x, 4.0);
+        assert_eq!(layer.effects.shadow.as_ref().unwrap().color, "#800000C0");
+        assert_eq!(layer.effects.glow.as_ref().unwrap().blur, 4.0);
     }
 
     #[test]

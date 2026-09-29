@@ -116,6 +116,7 @@ backgrounds and footage first, titles and subtitles last.
 | `transform` | Optional; see below. |
 | `opacity` | `0`–`1`, number or keyframes. |
 | `blendMode` | `normal` (default), `multiply`, `screen`, `overlay`, `add`, or `difference`. |
+| `effects` | Optional `{ "blur": numberOrKeyframes, "shadow": { "color": colorOrKeyframes, "blur": numberOrKeyframes, "offsetX": numberOrKeyframes, "offsetY": numberOrKeyframes }, "glow": { "color": colorOrKeyframes, "blur": numberOrKeyframes } }`. Colors are `#RRGGBB` or `#RRGGBBAA`; color keyframes interpolate RGBA channels. Blur radii are 0–64 output pixels. |
 
 ## Item content types
 

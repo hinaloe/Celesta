@@ -35,7 +35,54 @@ pub struct Layer {
     /// blends with the backdrop as one layer.
     #[serde(default, skip_serializing_if = "BlendMode::is_normal")]
     pub blend_mode: BlendMode,
+    #[serde(default, skip_serializing_if = "LayerEffects::is_empty")]
+    pub effects: LayerEffects,
     pub content: LayerContent,
+}
+
+/// Effects applied to the composited pixels of one visual layer or group.
+/// Radii and offsets are measured in output pixels after transforms.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct LayerEffects {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub blur: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<LayerShadow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glow: Option<LayerGlow>,
+}
+
+impl LayerEffects {
+    pub fn is_empty(&self) -> bool {
+        self.blur <= 0.0 && self.shadow.is_none() && self.glow.is_none()
+    }
+}
+
+fn is_zero(value: &f64) -> bool {
+    *value == 0.0
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct LayerShadow {
+    pub color: String,
+    pub blur: f64,
+    pub offset_x: f64,
+    pub offset_y: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct LayerGlow {
+    pub color: String,
+    pub blur: f64,
 }
 
 /// Separable blend modes from the W3C Compositing and Blending spec (plus

@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { CompositionRuntimeContext } from './hooks';
 import { useOptionalLipSync } from './lipsync';
 import type { LipSyncTrack } from './lipsync';
-import type { Animatable, BlendMode, Paint, TextStyle } from './scene';
+import type { Animatable, BlendMode, Paint, TextStyle, LayerShadow, LayerGlow } from './scene';
 import { secondsFromTime, secondsToTime } from './time';
 
 // Unlike the pre-reconciler tree walker, these are real function components:
@@ -44,6 +44,12 @@ export interface CommonProps {
    * result blends with the backdrop as one layer.
    */
   blendMode?: BlendMode;
+  /** Gaussian blur radius in output pixels. */
+  blur?: number;
+  /** A colored shadow behind the composited layer. */
+  shadow?: LayerShadow;
+  /** A centered colored halo behind the composited layer. */
+  glow?: LayerGlow;
 }
 
 export interface CompositionProps {

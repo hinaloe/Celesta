@@ -679,11 +679,15 @@ impl CpuRenderer {
                 y: parent.scale.y * layer.transform.scale.y,
             },
             opacity: (parent.opacity * layer.opacity).clamp(0.0, 1.0),
-            clip: parent.clip,
+            clip: parent.clip.clone(),
             blend_mode: layer.blend_mode,
         };
         if state.opacity == 0.0 || state.scale.x == 0.0 || state.scale.y == 0.0 {
             return Ok(());
+        }
+
+        if !layer.effects.is_empty() {
+            return self.render_effect_layer(frame, layer, parent, state);
         }
 
         match &layer.content {
@@ -807,6 +811,80 @@ impl CpuRenderer {
                 240.0,
                 120.0,
             ),
+        }
+        Ok(())
+    }
+
+    fn render_effect_layer(
+        &mut self,
+        frame: &mut RgbaFrame,
+        layer: &Layer,
+        parent: ParentState,
+        state: ParentState,
+    ) -> Result<(), RenderError> {
+        let mut source = RgbaFrame {
+            width: frame.width,
+            height: frame.height,
+            pixels: vec![0; frame.pixels.len()],
+        };
+        let mut inner = layer.clone();
+        inner.opacity = 1.0;
+        inner.blend_mode = BlendMode::Normal;
+        inner.effects = Default::default();
+        self.render_layer(
+            &mut source,
+            &inner,
+            ParentState {
+                opacity: 1.0,
+                ..parent.clone()
+            },
+        )?;
+
+        let mut result = RgbaFrame {
+            width: frame.width,
+            height: frame.height,
+            pixels: vec![0; frame.pixels.len()],
+        };
+        if let Some(shadow) = &layer.effects.shadow {
+            render_effect_shadow(
+                &mut result,
+                &source,
+                &shadow.color,
+                shadow.blur,
+                shadow.offset_x,
+                shadow.offset_y,
+            )?;
+        }
+        if let Some(glow) = &layer.effects.glow {
+            render_effect_shadow(&mut result, &source, &glow.color, glow.blur, 0.0, 0.0)?;
+        }
+        let source_pixels = if layer.effects.blur > 0.0 {
+            blur_pixels(&source, layer.effects.blur)
+        } else {
+            premultiply_pixels(&source.pixels)
+        };
+        for (destination, source) in result
+            .pixels
+            .chunks_exact_mut(4)
+            .zip(source_pixels.chunks_exact(4))
+        {
+            blend(destination, unpremultiply_color(source), 1.0);
+        }
+        for (index, (destination, source)) in frame
+            .pixels
+            .chunks_exact_mut(4)
+            .zip(result.pixels.chunks_exact(4))
+            .enumerate()
+        {
+            let x = (index as u32 % frame.width) as i32;
+            let y = (index as u32 / frame.width) as i32;
+            let coverage = clip_coverage(&parent.clip, x, y);
+            blend_with_mode(
+                destination,
+                Color::rgba(source[0], source[1], source[2], source[3]),
+                state.opacity * coverage,
+                state.blend_mode,
+            );
         }
         Ok(())
     }
@@ -1749,6 +1827,132 @@ fn fill_rect(
     }
 }
 
+fn premultiply_pixels(pixels: &[u8]) -> Vec<u8> {
+    pixels
+        .chunks_exact(4)
+        .flat_map(|pixel| {
+            let alpha = f64::from(pixel[3]) / 255.0;
+            [
+                (f64::from(pixel[0]) * alpha).round() as u8,
+                (f64::from(pixel[1]) * alpha).round() as u8,
+                (f64::from(pixel[2]) * alpha).round() as u8,
+                pixel[3],
+            ]
+        })
+        .collect()
+}
+
+fn unpremultiply_color(pixel: &[u8]) -> Color {
+    if pixel[3] == 0 {
+        return Color::TRANSPARENT;
+    }
+    let alpha = f64::from(pixel[3]);
+    Color::rgba(
+        (f64::from(pixel[0]) * 255.0 / alpha)
+            .round()
+            .clamp(0.0, 255.0) as u8,
+        (f64::from(pixel[1]) * 255.0 / alpha)
+            .round()
+            .clamp(0.0, 255.0) as u8,
+        (f64::from(pixel[2]) * 255.0 / alpha)
+            .round()
+            .clamp(0.0, 255.0) as u8,
+        pixel[3],
+    )
+}
+
+fn blur_pixels(source: &RgbaFrame, radius: f64) -> Vec<u8> {
+    let sigma = radius.clamp(0.0, 64.0);
+    let input = premultiply_pixels(&source.pixels);
+    if sigma == 0.0 {
+        return input;
+    }
+    let extent = (sigma * 3.0).ceil() as i32;
+    let weights: Vec<f64> = (-extent..=extent)
+        .map(|i| (-f64::from(i * i) / (2.0 * sigma * sigma)).exp())
+        .collect();
+    let total: f64 = weights.iter().sum();
+    let pass = |input: &[u8], horizontal: bool| {
+        let mut output = vec![0; input.len()];
+        for y in 0..source.height as i32 {
+            for x in 0..source.width as i32 {
+                let mut value = [0.0; 4];
+                for (index, weight) in weights.iter().enumerate() {
+                    let shift = index as i32 - extent;
+                    let (sx, sy) = if horizontal {
+                        (x + shift, y)
+                    } else {
+                        (x, y + shift)
+                    };
+                    if sx < 0 || sy < 0 || sx >= source.width as i32 || sy >= source.height as i32 {
+                        continue;
+                    }
+                    let offset = ((sy as u32 * source.width + sx as u32) * 4) as usize;
+                    for channel in 0..4 {
+                        value[channel] += f64::from(input[offset + channel]) * weight / total;
+                    }
+                }
+                let offset = ((y as u32 * source.width + x as u32) * 4) as usize;
+                for channel in 0..4 {
+                    output[offset + channel] = value[channel].round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+        output
+    };
+    pass(&pass(&input, true), false)
+}
+
+fn render_effect_shadow(
+    destination: &mut RgbaFrame,
+    source: &RgbaFrame,
+    color: &str,
+    radius: f64,
+    offset_x: f64,
+    offset_y: f64,
+) -> Result<(), RenderError> {
+    let tint = Color::from_hex(color)?;
+    let blurred = blur_pixels(source, radius);
+    for y in 0..source.height as i32 {
+        for x in 0..source.width as i32 {
+            let destination_offset = ((y as u32 * source.width + x as u32) * 4) as usize;
+            let alpha = sample_effect_alpha(
+                &blurred,
+                source.width,
+                source.height,
+                f64::from(x) - offset_x,
+                f64::from(y) - offset_y,
+            );
+            blend(
+                &mut destination.pixels[destination_offset..destination_offset + 4],
+                tint,
+                alpha / 255.0,
+            );
+        }
+    }
+    Ok(())
+}
+
+fn sample_effect_alpha(pixels: &[u8], width: u32, height: u32, x: f64, y: f64) -> f64 {
+    if x <= -1.0 || y <= -1.0 || x >= f64::from(width) || y >= f64::from(height) {
+        return 0.0;
+    }
+    let left = x.floor() as i32;
+    let top = y.floor() as i32;
+    let fx = x - f64::from(left);
+    let fy = y - f64::from(top);
+    let alpha = |x: i32, y: i32| {
+        if x < 0 || y < 0 || x >= width as i32 || y >= height as i32 {
+            0.0
+        } else {
+            f64::from(pixels[((y as u32 * width + x as u32) * 4 + 3) as usize])
+        }
+    };
+    let upper = alpha(left, top) * (1.0 - fx) + alpha(left + 1, top) * fx;
+    let lower = alpha(left, top + 1) * (1.0 - fx) + alpha(left + 1, top + 1) * fx;
+    upper * (1.0 - fy) + lower * fy
+}
+
 /// Composites `source` onto `destination` (both non-premultiplied) through
 /// `mode`: the source color becomes `(1 - ab) * Cs + ab * B(Cb, Cs)`, which
 /// then composites source-over, as in the W3C Compositing and Blending spec.
@@ -1987,6 +2191,7 @@ mod tests {
                 },
                 opacity: 1.0,
                 blend_mode: BlendMode::Normal,
+                effects: Default::default(),
                 content: LayerContent::Text {
                     text: "Hello, Celesta!".to_owned(),
                     style: TextStyle {
@@ -2032,6 +2237,7 @@ mod tests {
             },
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
+            effects: Default::default(),
             content: LayerContent::Rect {
                 width: 40.0,
                 height: 40.0,
@@ -2050,6 +2256,7 @@ mod tests {
             transform,
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
+            effects: Default::default(),
             content: LayerContent::Group {
                 layers: children,
                 clip: Some(clip),
@@ -2232,6 +2439,7 @@ mod tests {
             },
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
+            effects: Default::default(),
             content: LayerContent::Rect {
                 width: 10.0,
                 height: 10.0,
@@ -2264,6 +2472,7 @@ mod tests {
             },
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
+            effects: Default::default(),
             content: LayerContent::Text {
                 text: "MMMM".to_owned(),
                 style: TextStyle {
@@ -2323,6 +2532,7 @@ mod tests {
                 },
                 opacity: 1.0,
                 blend_mode: BlendMode::Normal,
+                effects: Default::default(),
                 content: LayerContent::Rect {
                     width: 100.0,
                     height: 60.0,
@@ -2374,6 +2584,7 @@ mod tests {
                 },
                 opacity: 1.0,
                 blend_mode: BlendMode::Normal,
+                effects: Default::default(),
                 content: LayerContent::Text {
                     text: "Celesta".to_owned(),
                     style: TextStyle {
@@ -2537,6 +2748,7 @@ mod tests {
             },
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
+            effects: Default::default(),
             content: LayerContent::Text {
                 text: text.to_owned(),
                 style: TextStyle {
@@ -2634,6 +2846,7 @@ mod tests {
             },
             opacity: 1.0,
             blend_mode,
+            effects: Default::default(),
             content: LayerContent::Rect {
                 width,
                 height: 1.0,
@@ -2666,6 +2879,7 @@ mod tests {
                     },
                     opacity: 1.0,
                     blend_mode: BlendMode::Normal,
+                    effects: Default::default(),
                     content: LayerContent::Group {
                         layers: vec![rect_layer(
                             "hud",
@@ -2702,6 +2916,7 @@ mod tests {
             },
             opacity,
             blend_mode: BlendMode::Difference,
+            effects: Default::default(),
             content: LayerContent::Group {
                 layers: vec![
                     rect_layer("white", 0.0, 3.0, "#ffffff", BlendMode::Normal),
@@ -2760,6 +2975,7 @@ mod tests {
                 },
                 opacity: 1.0,
                 blend_mode: BlendMode::Normal,
+                effects: Default::default(),
                 content: LayerContent::Image {
                     asset: ResolvedAsset {
                         id: "checker".to_owned(),
@@ -2815,6 +3031,7 @@ mod tests {
                 },
                 opacity: 1.0,
                 blend_mode: BlendMode::Normal,
+                effects: Default::default(),
                 content: LayerContent::Video {
                     asset: ResolvedAsset {
                         id: "clip".to_owned(),

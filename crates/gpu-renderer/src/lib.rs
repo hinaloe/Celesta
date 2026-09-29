@@ -13,12 +13,16 @@ use std::sync::Arc;
 use std::sync::mpsc;
 
 use celesta_composition::{
-    BlendMode, Clip, EvaluatedTransform, Layer, LayerContent, Point, ResolvedAsset, Scene,
+    BlendMode, Clip, EvaluatedTransform, Layer, LayerContent, LayerEffects, Point, ResolvedAsset,
+    Scene,
 };
 use celesta_media::{MediaError, VideoFrameDecoder};
 use celesta_remote::{RemoteAssetError, resolve_asset_path};
-use celesta_renderer::{RectPaint, RenderError, TextRasterizer, resolve_rect_paint};
+use celesta_renderer::{
+    Color as CpuColor, RectPaint, RenderError, TextRasterizer, resolve_rect_paint,
+};
 use image::ImageReader;
+use wgpu::util::DeviceExt;
 
 #[cfg(target_os = "macos")]
 mod native_preview;
@@ -221,6 +225,7 @@ pub struct GpuRenderer {
     /// What a blended draw reads its backdrop from: a copy of the canvas it
     /// draws onto, taken just before the draw.
     backdrop: Option<BackdropTexture>,
+    effects: EffectProcessor,
     /// Every layer's `LayerInstance` for the frame being prepared, reused
     /// (and grown when a frame needs more) across frames.
     instances: wgpu::Buffer,
@@ -385,6 +390,7 @@ impl GpuRenderer {
                 immediate_size: 0,
             });
         let shader = device.create_shader_module(wgpu::include_wgsl!("layer.wgsl"));
+        let effects = EffectProcessor::new(&device);
         let pipeline = create_pipeline(
             &device,
             &pipeline_layout,
@@ -432,6 +438,7 @@ impl GpuRenderer {
             sampler,
             canvases: Vec::new(),
             backdrop: None,
+            effects,
             instances,
             clip_bind_group_layout,
             clips,
@@ -948,6 +955,10 @@ impl GpuRenderer {
             .iter()
             .filter(|item| !matches!(item, PreparedItem::BeginGroup))
             .count()
+            + items
+                .iter()
+                .filter(|item| matches!(item, PreparedItem::EndEffect(..)))
+                .count()
             + usize::from(composited);
 
         // One buffer write for every layer, and one instanced draw for each
@@ -980,6 +991,20 @@ impl GpuRenderer {
                         blend_mode: layer.blend_mode,
                     });
                     index += 1;
+                    continue;
+                }
+                PreparedItem::EndEffect(layer, effects) => {
+                    depth -= 1;
+                    PreparedLayer::canvas(LayerState::default(), BlendMode::Normal, true)
+                        .write_instance(scene.width, scene.height, &mut instances);
+                    layer.write_instance(scene.width, scene.height, &mut instances);
+                    steps.push(GpuStep::EndEffect {
+                        inner_instance: index,
+                        final_instance: index + 1,
+                        blend_mode: layer.blend_mode,
+                        effects,
+                    });
+                    index += 2;
                     continue;
                 }
             };
@@ -1206,6 +1231,72 @@ impl GpuRenderer {
                         *blend_mode,
                     );
                 }
+                GpuStep::EndEffect {
+                    inner_instance,
+                    final_instance,
+                    blend_mode,
+                    effects,
+                } => {
+                    depth -= 1;
+                    let source = &self.canvases[depth + 1];
+                    let result = canvas_texture(
+                        &self.device,
+                        &self.texture_bind_group_layout,
+                        &self.sampler,
+                        scene.width,
+                        scene.height,
+                    );
+                    drop(begin_pass(
+                        encoder,
+                        &result.view,
+                        wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    ));
+                    for shadow in [effects.shadow, effects.glow].into_iter().flatten() {
+                        let filtered = self.effects.apply(
+                            &self.device,
+                            encoder,
+                            source,
+                            &self.texture_bind_group_layout,
+                            &self.sampler,
+                            shadow.blur,
+                            shadow.offset,
+                            Some(shadow.color),
+                        );
+                        draw(
+                            encoder,
+                            &result,
+                            &filtered.bind_group,
+                            *inner_instance..*inner_instance + 1,
+                            BlendMode::Normal,
+                        );
+                    }
+                    let filtered = (effects.blur > 0.0).then(|| {
+                        self.effects.apply(
+                            &self.device,
+                            encoder,
+                            source,
+                            &self.texture_bind_group_layout,
+                            &self.sampler,
+                            effects.blur,
+                            [0.0, 0.0],
+                            None,
+                        )
+                    });
+                    draw(
+                        encoder,
+                        &result,
+                        &filtered.as_ref().unwrap_or(source).bind_group,
+                        *inner_instance..*inner_instance + 1,
+                        BlendMode::Normal,
+                    );
+                    draw(
+                        encoder,
+                        &self.canvases[depth],
+                        &result.bind_group,
+                        *final_instance..*final_instance + 1,
+                        *blend_mode,
+                    );
+                }
             }
         }
     }
@@ -1310,6 +1401,35 @@ impl GpuRenderer {
             return Ok(());
         }
         let blend_mode = layer.blend_mode;
+        if !layer.effects.is_empty() {
+            let effects = EffectSpec::parse(&layer.effects)?;
+            output.push(PreparedItem::BeginGroup);
+            let mut inner = layer.clone();
+            inner.opacity = 1.0;
+            inner.blend_mode = BlendMode::Normal;
+            inner.effects = LayerEffects::default();
+            self.prepare_layer(
+                &inner,
+                LayerState {
+                    opacity: 1.0,
+                    ..parent
+                },
+                output,
+            )?;
+            output.push(PreparedItem::EndEffect(
+                PreparedLayer::canvas(
+                    LayerState {
+                        transform: Affine::IDENTITY,
+                        opacity: state.opacity,
+                        clip: parent.clip,
+                    },
+                    blend_mode,
+                    true,
+                ),
+                effects,
+            ));
+            return Ok(());
+        }
         match &layer.content {
             LayerContent::Group { layers, clip } => {
                 let mut child_state = state;
@@ -1801,6 +1921,214 @@ struct CanvasTexture {
     bind_group: wgpu::BindGroup,
 }
 
+fn canvas_texture(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    width: u32,
+    height: u32,
+) -> CanvasTexture {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Celesta effect canvas"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Celesta effect layer bind group"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    });
+    CanvasTexture {
+        texture,
+        view,
+        bind_group,
+    }
+}
+
+struct EffectProcessor {
+    layout: wgpu::BindGroupLayout,
+    pipeline: wgpu::RenderPipeline,
+}
+
+impl EffectProcessor {
+    fn new(device: &wgpu::Device) -> Self {
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Celesta effect bind group layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Celesta effect pipeline layout"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
+        let shader = device.create_shader_module(wgpu::include_wgsl!("effect.wgsl"));
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Celesta Gaussian effect pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vertex"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fragment"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        Self { layout, pipeline }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn apply(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        source: &CanvasTexture,
+        layer_layout: &wgpu::BindGroupLayout,
+        sampler: &wgpu::Sampler,
+        radius: f32,
+        offset: [f32; 2],
+        color: Option<[f32; 4]>,
+    ) -> CanvasTexture {
+        let size = source.texture.size();
+        let horizontal = (radius > 0.0)
+            .then(|| canvas_texture(device, layer_layout, sampler, size.width, size.height));
+        let vertical = canvas_texture(device, layer_layout, sampler, size.width, size.height);
+        if let Some(horizontal) = &horizontal {
+            self.pass(
+                device,
+                encoder,
+                &source.view,
+                &horizontal.view,
+                [1.0, 0.0],
+                radius,
+                [0.0, 0.0],
+                None,
+            );
+        }
+        self.pass(
+            device,
+            encoder,
+            &horizontal.as_ref().unwrap_or(source).view,
+            &vertical.view,
+            [0.0, 1.0],
+            radius,
+            offset,
+            color,
+        );
+        vertical
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn pass(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        source: &wgpu::TextureView,
+        target: &wgpu::TextureView,
+        direction: [f32; 2],
+        radius: f32,
+        offset: [f32; 2],
+        color: Option<[f32; 4]>,
+    ) {
+        let tint = color.unwrap_or([0.0; 4]);
+        let params = [
+            direction[0],
+            direction[1],
+            radius,
+            f32::from(color.is_some()),
+            offset[0],
+            offset[1],
+            0.0,
+            0.0,
+            tint[0],
+            tint[1],
+            tint[2],
+            tint[3],
+        ];
+        let bytes: Vec<u8> = params.into_iter().flat_map(f32::to_ne_bytes).collect();
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Celesta effect parameters"),
+            contents: &bytes,
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Celesta effect input"),
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(source),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: buffer.as_entire_binding(),
+                },
+            ],
+        });
+        let mut pass = begin_pass(
+            encoder,
+            target,
+            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+        );
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.draw(0..3, 0..1);
+    }
+}
+
 struct BackdropTexture {
     texture: wgpu::Texture,
     /// Binds the backdrop as group 1 of a `PipelineKind::Blend` pipeline.
@@ -1942,6 +2270,7 @@ enum PreparedItem {
     BeginGroup,
     /// Draws the finished group's canvas onto its parent.
     EndGroup(PreparedLayer),
+    EndEffect(PreparedLayer, EffectSpec),
 }
 
 struct PreparedLayer {
@@ -2082,6 +2411,61 @@ enum GpuStep {
         instance: u32,
         blend_mode: BlendMode,
     },
+    EndEffect {
+        inner_instance: u32,
+        final_instance: u32,
+        blend_mode: BlendMode,
+        effects: EffectSpec,
+    },
+}
+
+#[derive(Clone, Copy)]
+struct EffectShadow {
+    color: [f32; 4],
+    blur: f32,
+    offset: [f32; 2],
+}
+
+#[derive(Clone, Copy)]
+struct EffectSpec {
+    blur: f32,
+    shadow: Option<EffectShadow>,
+    glow: Option<EffectShadow>,
+}
+
+impl EffectSpec {
+    fn parse(effects: &LayerEffects) -> Result<Self, GpuRenderError> {
+        let parse_color = |color: &str| -> Result<[f32; 4], GpuRenderError> {
+            let color = CpuColor::from_hex(color).map_err(GpuRenderError::Effects)?;
+            Ok([color.red, color.green, color.blue, color.alpha]
+                .map(|value| f32::from(value) / 255.0))
+        };
+        Ok(Self {
+            blur: effects.blur.clamp(0.0, 64.0) as f32,
+            shadow: effects
+                .shadow
+                .as_ref()
+                .map(|shadow| -> Result<_, GpuRenderError> {
+                    Ok(EffectShadow {
+                        color: parse_color(&shadow.color)?,
+                        blur: shadow.blur.clamp(0.0, 64.0) as f32,
+                        offset: [shadow.offset_x as f32, shadow.offset_y as f32],
+                    })
+                })
+                .transpose()?,
+            glow: effects
+                .glow
+                .as_ref()
+                .map(|glow| -> Result<_, GpuRenderError> {
+                    Ok(EffectShadow {
+                        color: parse_color(&glow.color)?,
+                        blur: glow.blur.clamp(0.0, 64.0) as f32,
+                        offset: [0.0, 0.0],
+                    })
+                })
+                .transpose()?,
+        })
+    }
 }
 
 struct GpuDraw {
@@ -2616,6 +3000,7 @@ pub enum GpuRenderError {
     Psd(RenderError),
     Media(MediaError),
     Text(RenderError),
+    Effects(RenderError),
     InvalidImageData {
         width: u32,
         height: u32,
@@ -2681,6 +3066,7 @@ impl fmt::Display for GpuRenderError {
             Self::Psd(error) => write!(formatter, "could not rasterize GPU PSD: {error}"),
             Self::Media(error) => write!(formatter, "could not decode GPU video frame: {error}"),
             Self::Text(error) => write!(formatter, "could not rasterize GPU text: {error}"),
+            Self::Effects(error) => write!(formatter, "invalid GPU layer effect: {error}"),
             Self::InvalidImageData {
                 width,
                 height,
@@ -2767,6 +3153,7 @@ impl Error for GpuRenderError {
             Self::Psd(error) => Some(error),
             Self::Media(error) => Some(error),
             Self::Text(error) => Some(error),
+            Self::Effects(error) => Some(error),
             Self::MapCallbackDropped
             | Self::TooManyLayers(_)
             | Self::ClipsNestedTooDeep(_)
@@ -2865,6 +3252,7 @@ mod tests {
             },
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
+            effects: Default::default(),
             content: LayerContent::Image {
                 asset: ResolvedAsset {
                     id: id.to_owned(),
@@ -2994,6 +3382,7 @@ mod tests {
             },
             opacity,
             blend_mode,
+            effects: Default::default(),
             content: LayerContent::Group { layers, clip: None },
         }
     }
@@ -3176,6 +3565,7 @@ mod tests {
                 transform,
                 opacity,
                 blend_mode: BlendMode::Normal,
+                effects: Default::default(),
                 content: LayerContent::Rect {
                     width,
                     height,
@@ -3207,6 +3597,7 @@ mod tests {
                 transform,
                 opacity,
                 blend_mode: BlendMode::Normal,
+                effects: Default::default(),
                 content: LayerContent::Image {
                     asset: ResolvedAsset {
                         id: id.clone(),
@@ -3248,6 +3639,7 @@ mod tests {
             },
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
+            effects: Default::default(),
             content: LayerContent::Rect {
                 width,
                 height,
@@ -3266,6 +3658,7 @@ mod tests {
             transform,
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
+            effects: Default::default(),
             content: LayerContent::Group {
                 layers,
                 clip: Some(clip),
@@ -3286,6 +3679,62 @@ mod tests {
             .map(|(gpu, cpu)| gpu.abs_diff(*cpu))
             .max()
             .unwrap()
+    }
+
+    #[test]
+    fn blurred_group_with_shadow_and_glow_matches_cpu() {
+        use celesta_composition::{LayerEffects, LayerGlow, LayerShadow};
+
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        let mut scene = empty_scene(64, 64);
+        scene.layers = vec![Layer {
+            id: "fx".to_owned(),
+            transform: EvaluatedTransform::default(),
+            opacity: 0.8,
+            blend_mode: BlendMode::Screen,
+            effects: LayerEffects {
+                blur: 1.5,
+                shadow: Some(LayerShadow {
+                    color: "#0000ffb0".to_owned(),
+                    blur: 2.0,
+                    offset_x: 5.5,
+                    offset_y: 3.25,
+                }),
+                glow: Some(LayerGlow {
+                    color: "#ff000080".to_owned(),
+                    blur: 3.0,
+                }),
+            },
+            content: LayerContent::Group {
+                layers: vec![corner_rect("child", 20.0, 20.0, 16.0, 12.0, "#ffe080")],
+                clip: None,
+            },
+        }];
+        let gpu = renderer.render(&scene).unwrap();
+        let cpu = celesta_renderer::CpuRenderer::default()
+            .render(&scene)
+            .unwrap();
+        let difference = max_channel_difference(&gpu, &cpu);
+        assert!(
+            difference <= 5,
+            "effect channels differ by up to {difference}"
+        );
+        assert_ne!(pixel_at(&gpu, 25, 25), pixel_at(&gpu, 0, 0));
+
+        scene.layers[0].effects.blur = 0.0;
+        scene.layers[0].effects.glow = None;
+        scene.layers[0].effects.shadow.as_mut().unwrap().blur = 0.0;
+        let gpu = renderer.render(&scene).unwrap();
+        let cpu = celesta_renderer::CpuRenderer::default()
+            .render(&scene)
+            .unwrap();
+        let difference = max_channel_difference(&gpu, &cpu);
+        assert!(
+            difference <= 5,
+            "zero-radius shadow differs by up to {difference}"
+        );
     }
 
     #[test]
@@ -3580,6 +4029,7 @@ mod tests {
             },
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
+            effects: Default::default(),
             content: LayerContent::Rect {
                 width,
                 height,
@@ -3788,6 +4238,7 @@ mod tests {
                     },
                     opacity: 1.0,
                     blend_mode: BlendMode::Normal,
+                    effects: Default::default(),
                     content: LayerContent::Text {
                         text: format!("Dialogue preview frame {index}"),
                         style: TextStyle {
@@ -3878,12 +4329,14 @@ mod tests {
             },
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
+            effects: Default::default(),
             content: LayerContent::Group {
                 layers: vec![Layer {
                     id: "checker".to_owned(),
                     transform: EvaluatedTransform::default(),
                     opacity: 1.0,
                     blend_mode: BlendMode::Normal,
+                    effects: Default::default(),
                     content: LayerContent::Image {
                         asset: ResolvedAsset {
                             id: "checker".to_owned(),
@@ -3941,6 +4394,7 @@ mod tests {
             },
             opacity: 0.5,
             blend_mode: BlendMode::Normal,
+            effects: Default::default(),
             content: LayerContent::Video {
                 asset: ResolvedAsset {
                     id: "clip".to_owned(),
@@ -3978,6 +4432,7 @@ mod tests {
             },
             opacity: 0.75,
             blend_mode: BlendMode::Normal,
+            effects: Default::default(),
             content: LayerContent::Text {
                 text: "Celesta".to_owned(),
                 style: TextStyle {
@@ -4027,6 +4482,7 @@ mod tests {
             },
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
+            effects: Default::default(),
             content: LayerContent::Text {
                 text: "Celesta".to_owned(),
                 style: TextStyle {
@@ -4087,6 +4543,7 @@ mod tests {
                 },
                 opacity: 1.0,
                 blend_mode: BlendMode::Normal,
+                effects: Default::default(),
                 content: LayerContent::Text {
                     text: text.to_owned(),
                     style: TextStyle {

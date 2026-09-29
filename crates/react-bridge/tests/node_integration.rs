@@ -580,6 +580,7 @@ fn embeds_pre_evaluated_project_layers_into_project_timeline_when_node_is_availa
         transform: EvaluatedTransform::default(),
         opacity: 1.0,
         blend_mode: BlendMode::Normal,
+        effects: Default::default(),
         content: LayerContent::Text {
             text: "from the project".to_owned(),
             style: TextStyle::default(),
@@ -626,6 +627,7 @@ fn resolves_a_registered_component_when_node_is_available() {
         transform: EvaluatedTransform::default(),
         opacity: 1.0,
         blend_mode: BlendMode::Normal,
+        effects: Default::default(),
         content: LayerContent::MissingComponent {
             component: "BossIntroduction".to_owned(),
             props,
@@ -636,6 +638,7 @@ fn resolves_a_registered_component_when_node_is_available() {
         transform: EvaluatedTransform::default(),
         opacity: 1.0,
         blend_mode: BlendMode::Normal,
+        effects: Default::default(),
         content: LayerContent::MissingComponent {
             component: "SomeOtherThing".to_owned(),
             props: BTreeMap::new(),
@@ -731,6 +734,7 @@ fn embeds_per_track_layers_for_use_project_track_when_node_is_available() {
         transform: EvaluatedTransform::default(),
         opacity: 1.0,
         blend_mode: BlendMode::Normal,
+        effects: Default::default(),
         content: LayerContent::Text {
             text: "a title".to_owned(),
             style: TextStyle::default(),
@@ -743,6 +747,7 @@ fn embeds_per_track_layers_for_use_project_track_when_node_is_available() {
         transform: EvaluatedTransform::default(),
         opacity: 1.0,
         blend_mode: BlendMode::Normal,
+        effects: Default::default(),
         content: LayerContent::Text {
             text: "an overlay".to_owned(),
             style: TextStyle::default(),

@@ -328,6 +328,41 @@ pub struct TimelineItem {
     pub opacity: Option<Animatable<f64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blend_mode: Option<BlendMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effects: Option<TimelineEffects>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct TimelineEffects {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blur: Option<Animatable<f64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<TimelineShadow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glow: Option<TimelineGlow>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct TimelineShadow {
+    pub color: Animatable<String>,
+    pub blur: Animatable<f64>,
+    pub offset_x: Animatable<f64>,
+    pub offset_y: Animatable<f64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct TimelineGlow {
+    pub color: Animatable<String>,
+    pub blur: Animatable<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -482,6 +517,37 @@ mod tests {
         let mut item = serde_json::to_value(&project.tracks[0].items[0]).unwrap();
         item["blendMode"] = "hue".into();
         assert!(serde_json::from_value::<TimelineItem>(item).is_err());
+    }
+
+    #[test]
+    fn validates_and_round_trips_effect_properties() {
+        let mut project =
+            Project::from_json(include_str!("../../../examples/voiceroid.celesta.json")).unwrap();
+        project.tracks[0].items[0].effects = Some(TimelineEffects {
+            blur: Some(Animatable::Static(3.0)),
+            shadow: Some(TimelineShadow {
+                color: Animatable::Static("#00000080".to_owned()),
+                blur: Animatable::Static(5.0),
+                offset_x: Animatable::Static(4.0),
+                offset_y: Animatable::Static(-2.0),
+            }),
+            glow: None,
+        });
+        project.validate().unwrap();
+        let json = project.to_json().unwrap();
+        assert!(json.contains("\"offsetX\": 4.0"));
+        assert_eq!(Project::from_json(&json).unwrap(), project);
+
+        project.tracks[0].items[0]
+            .effects
+            .as_mut()
+            .unwrap()
+            .shadow
+            .as_mut()
+            .unwrap()
+            .color = Animatable::Static("not-a-color".to_owned());
+        let errors = project.validate().unwrap_err();
+        assert!(errors.to_string().contains("effects.shadow.color"));
     }
 
     #[test]
