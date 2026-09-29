@@ -30,3 +30,17 @@ export function timecodeToFrame(timecode: string, fps: number): number {
     .reduce((total, component) => total * 60 + Number(component), 0);
   return Math.round(seconds * fps);
 }
+
+/**
+ * Formats a frame as an `HH:MM:SS:FF` timecode, where `FF` counts frames
+ * within the second. Negative frames are formatted as frame 0.
+ */
+export function frameToTimecode(frame: number, fps: number): string {
+  if (!Number.isInteger(fps) || fps <= 0) {
+    throw new Error('frameToTimecode() requires a positive integer fps');
+  }
+  const whole = Math.max(0, Math.floor(frame));
+  const seconds = Math.floor(whole / fps);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}:${pad(whole % fps)}`;
+}

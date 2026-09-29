@@ -66,9 +66,26 @@ export type {
 export { useCurrentFrame, useCurrentTime, useIsPreview, useVideoConfig } from './hooks';
 export type { VideoConfig } from './hooks';
 
-export { timecodeToFrame } from './time';
+export { frameToTimecode, timecodeToFrame } from './time';
 
-export { Easings, interpolate, spring } from './animation';
+export { noise, random } from './random';
+
+export { beatAt, cueAt, useBeat, useCue } from './timing';
+export type { ActiveCue, Beat, BeatOptions, Cue } from './timing';
+
+export { Series, Stagger, computeSeries } from './series';
+export type { SeriesItem, SeriesProps, SeriesSequenceProps, SeriesTiming, StaggerProps } from './series';
+
+export { Line, Polyline, pointOnPolyline } from './shapes';
+export type { LineCap, LineProps, PolylinePoint, PolylineProps } from './shapes';
+
+export { Camera } from './camera';
+export type { CameraProps } from './camera';
+
+export { TextReveal, useCountUp, useTypewriter } from './text-motion';
+export type { CountUpOptions, TextRevealProps, Typewriter, TypewriterOptions } from './text-motion';
+
+export { Easings, interpolate, progress, spring } from './animation';
 export type { Extrapolate, InterpolateOptions, SpringConfig, SpringOptions } from './animation';
 
 export { Transition } from './transition';

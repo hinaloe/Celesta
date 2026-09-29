@@ -146,8 +146,33 @@ export const sections: DocSection[] = [
       <p>Within that sequence, <code>useCurrentFrame()</code> starts at 0 when the sequence begins. Child video and audio use the same local clock. Children contribute neither layers nor audio outside the sequence’s time window.</p>
       <h3>Ready-made entrances and exits</h3><p><code>{'<Transition>'}</code> fades, slides, or scales its children at the start (<code>direction="in"</code>, the default) or end (<code>direction="out"</code>) of the enclosing sequence:</p>
       <DocCode label="Slide a caption in, fade it out" language="tsx" code={'<Sequence from={30} durationInFrames={120}>\n  <Transition type="slide" slideFrom="bottom" durationInFrames={15}\n    easing={Easings.easeOutCubic}>\n    <Transition type="fade" direction="out" durationInFrames={20}>\n      <Caption />\n    </Transition>\n  </Transition>\n</Sequence>'} />
-      <p>Slides travel <code>distance</code> pixels (64 by default); scales start from <code>scaleFrom</code> (0.8 by default).</p>
+      <p>Slides travel <code>distance</code> pixels (64 by default); scales start from <code>scaleFrom</code> (0.8 by default). Pass several types to combine them, such as <code>{"type={['fade', 'slide']}"}</code>.</p>
       <Note title="Keep animation tied to the frame">Compute visual changes from frame or time values so scrubbing and exporting can reproduce each moment. A browser timer or <code>Math.random()</code> is not the composition’s clock; derive “random” values from the frame or an index instead.</Note>
+    </>,
+  },
+  {
+    id: 'motion-toolkit', title: 'Scenes, cues & motion helpers', description: 'Ready-made pieces for the things every video does.', keywords: 'Series Stagger computeSeries progress useBeat beatAt bpm music useCue cueAt TextReveal useTypewriter useCountUp Camera Line Polyline pointOnPolyline random noise frameToTimecode timecode scenes cascade counter typewriter chart', content: <>
+      <p>These helpers cover the patterns that come up in almost every video: scenes in a row, lists that cascade in, cuts on the beat, and titles that reveal themselves. Each is built on <code>Sequence</code>, <code>Group</code>, and the frame, so everything stays scrubbable and deterministic.</p>
+      <h3>Scenes back to back</h3><p><code>{'<Series>'}</code> plays its <code>{'<Series.Sequence>'}</code> children one after another, so you write each scene’s length instead of its start frame. A negative <code>offset</code> overlaps a scene with the one before it. <code>computeSeries()</code> does the same arithmetic without rendering, which is handy for the composition’s total length:</p>
+      <DocCode label="Three scenes, sized from their lengths" language="tsx" code={"const SCENES = [\n  { name: 'intro', durationInFrames: 90, Scene: Intro },\n  { name: 'body', durationInFrames: 240, Scene: Body },\n  { name: 'outro', durationInFrames: 60, Scene: Outro },\n];\nconst { durationInFrames } = computeSeries(SCENES);\n\nexport default function Root() {\n  return (\n    <Composition width={1920} height={1080} fps={30} durationInFrames={durationInFrames}>\n      <Series>\n        {SCENES.map(({ name, durationInFrames, Scene }) => (\n          <Series.Sequence key={name} durationInFrames={durationInFrames}>\n            <Scene />\n          </Series.Sequence>\n        ))}\n      </Series>\n    </Composition>\n  );\n}"} />
+      <h3>Cascades and entrances</h3><p><code>progress(frame, start, durationInFrames, easing?)</code> is a clamped 0–1 value for “how far through this span are we”: the building block of most entrances. <code>{'<Stagger each={n}>'}</code> starts each child <code>n</code> frames after the previous one, so an entrance written for frame 0 cascades down a list:</p>
+      <DocCode label="Rows that arrive one after another" language="tsx" code={"function Row({ label, y }: { label: string; y: number }) {\n  const frame = useCurrentFrame(); // 0 when this row starts\n  const p = progress(frame, 0, 20, Easings.easeOutExpo);\n  return <Text x={120 + 40 * (1 - p)} y={y} opacity={p}>{label}</Text>;\n}\n\n<Stagger each={4}>\n  {items.map((item, i) => <Row key={item} label={item} y={200 + i * 64} />)}\n</Stagger>"} />
+      <h3>On the beat</h3><p><code>useBeat({'{ bpm }'})</code> returns the current <code>beat</code>, <code>bar</code>, <code>beatInBar</code>, the <code>progress</code> through the beat, and a <code>pulse</code> that is 1 on every beat and decays until the next. Use it to flash, bump, or cut in time with the soundtrack; <code>offset</code> moves the first beat.</p>
+      <DocCode label="A dot that pulses with the music" language="tsx" code={"const { pulse } = useBeat({ bpm: 120 });\nreturn <Rect width={40} height={40} cornerRadius={20} scale={1 + 0.3 * pulse} fill=\"#7cf29c\" />;"} />
+      <h3>Cues</h3><p><code>useCue(cues)</code> takes a list of <code>{'{ at, …data }'}</code> objects sorted by <code>at</code> and returns the one in effect, its <code>index</code>, the <code>frame</code> since it started, and the <code>previous</code> and <code>next</code> cues. Swapping captions, a camera moving between stops, or a chart callout that changes are all a list of cues. <code>cueAt(cues, frame)</code> is the same outside a component.</p>
+      <DocCode label="Captions that swap and fade in" language="tsx" code={"const active = useCue([\n  { at: 0, text: 'Write it.' },\n  { at: 45, text: 'Preview it.' },\n  { at: 90, text: 'Ship it.' },\n]);\nif (!active) return null;\nreturn <Text opacity={progress(active.frame, 0, 10)}>{active.cue.text}</Text>;"} />
+      <h3>Text effects</h3>
+      <Api caption="Text helpers" rows={[
+        [<code>TextReveal</code>, <>Lines of a string slide up from behind their own masks, one after another. Set <code>lineHeight</code>, <code>from</code>, <code>stagger</code>, and <code>durationInFrames</code>; <code>align</code> pivots each line.</>],
+        [<code>useTypewriter(text, options)</code>, <>The typed-so-far <code>text</code>, its <code>length</code>, <code>done</code>, and <code>caretVisible</code>: steady while typing, blinking while idle.</>],
+        [<code>useCountUp(to, options)</code>, <>A number counting to <code>to</code>, with <code>from</code>, <code>delay</code>, <code>durationInFrames</code>, <code>easing</code>, and <code>decimals</code>.</>],
+      ]} />
+      <DocCode label="An editorial title reveal" language="tsx" code={"<TextReveal x={160} y={300} lineHeight={200} stagger={6}\n  style={{ fontFamily: 'Archivo Black', fontSize: 210,\n    fill: { type: 'solid', color: '#ecefe8' } }}>\n  {'36 DAYS\\nOF CELESTA'}\n</TextReveal>"} />
+      <p>Celesta does not measure text in React, so a caret after typed text needs a monospaced font, where every character has the same advance (0.6 em in JetBrains Mono): put the caret at <code>length × advance</code>.</p>
+      <h3>Camera</h3><p><code>{'<Camera>'}</code> looks at a point of a larger world: lay the world out in its own coordinates, then animate <code>x</code>/<code>y</code> (the point shown at the center), <code>zoom</code>, and <code>rotation</code>. <code>shake</code> adds a smooth handheld drift of up to that many pixels.</p>
+      <DocCode label="Travel along a long timeline" language="tsx" code={"<Camera x={interpolate(frame, [0, 120], [0, 4000], { extrapolateRight: 'clamp' })}\n  y={540} zoom={1.1} shake={4}>\n  <TimelineWorld />\n</Camera>"} />
+      <h3>Lines and charts</h3><p><code>{'<Line x1 y1 x2 y2>'}</code> draws a segment and <code>{'<Polyline points>'}</code> connects several; both take <code>stroke</code>, <code>strokeWidth</code>, and <code>cap</code> (<code>round</code> by default). Animate a polyline’s <code>progress</code> from 0 to 1 to draw it on, and use <code>pointOnPolyline(points, t)</code> to put a marker on its tip.</p>
+      <h3>Randomness and timecodes</h3><p><code>random(seed)</code> returns the same number in <code>[0, 1)</code> for the same seed, and <code>noise(seed, t)</code> is a smooth curve in <code>[-1, 1]</code> for drift and wobble. Use them instead of <code>Math.random()</code> so every frame renders the same way twice. <code>frameToTimecode(frame, fps)</code> formats <code>HH:MM:SS:FF</code> for an on-screen clock.</p>
     </>,
   },
   {
@@ -267,7 +292,7 @@ export const sections: DocSection[] = [
     </>,
   },
   {
-    id: 'reference', title: 'React essentials', description: 'A compact reference for everything in @celesta/react.', keywords: 'api props Composition Rect Text Group Image Video Audio Font Sequence Transition Character CharacterView Dialogue hooks reference', content: <>
+    id: 'reference', title: 'React essentials', description: 'A compact reference for everything in @celesta/react.', keywords: 'api props Composition Rect Text Group Image Video Audio Font Sequence Series Stagger Transition Camera Line Polyline TextReveal useBeat useCue Character CharacterView Dialogue hooks reference', content: <>
       <p>Import these APIs from <code>@celesta/react</code>. Celesta’s TypeScript declarations provide the complete prop types and editor completions.</p>
       <Api caption="Layers" rows={[
         [<code>Composition</code>, <>Set <code>width</code>, <code>height</code>, <code>fps</code>, and <code>durationInFrames</code>. Return exactly one from your default export.</>],
@@ -279,12 +304,21 @@ export const sections: DocSection[] = [
       ]} />
       <Api caption="Time and motion" rows={[
         [<code>Sequence</code>, <>Places children at a frame offset with <code>from</code> and an optional <code>durationInFrames</code>.</>],
-        [<code>Transition</code>, <>A fade, slide, or scale at the start or end of the enclosing sequence.</>],
+        [<code>Transition</code>, <>A fade, slide, or scale (or several at once) at the start or end of the enclosing sequence.</>],
+        [<><code>Series</code> / <code>computeSeries</code></>, <>Scenes back to back, by length. See <a href="#motion-toolkit">motion helpers</a>.</>],
+        [<code>Stagger</code>, <>Starts each child a fixed number of frames after the previous one.</>],
+        [<code>progress</code>, <>A clamped, eased 0–1 value for a span of frames.</>],
+        [<><code>useBeat()</code> / <code>beatAt</code></>, <>Beats, bars, and a pulse for a tempo in BPM.</>],
+        [<><code>useCue()</code> / <code>cueAt</code></>, <>The cue in effect from a list of <code>{'{ at, …data }'}</code>.</>],
+        [<><code>TextReveal</code>, <code>useTypewriter()</code>, <code>useCountUp()</code></>, <>Masked line reveals, typing, and counting numbers.</>],
+        [<code>Camera</code>, <>Look at a point of a larger world, with zoom, rotation, and shake.</>],
+        [<><code>Line</code> / <code>Polyline</code> / <code>pointOnPolyline</code></>, <>Segments and paths that can draw themselves on.</>],
+        [<><code>random</code> / <code>noise</code></>, <>Deterministic randomness and smooth noise.</>],
         [<><code>interpolate</code> / <code>Easings</code></>, <>Map a frame to a value, with easing and extrapolation.</>],
         [<code>spring</code>, <>A physics-based value that settles from 0 to 1.</>],
         [<><code>useCurrentFrame()</code> / <code>useCurrentTime()</code></>, <>The current frame, or the exact time, local to an enclosing sequence.</>],
         [<code>useVideoConfig()</code>, <>The composition’s (or sequence’s) dimensions, frame rate, and duration.</>],
-        [<code>timecodeToFrame()</code>, <>Converts a <code>MM:SS.mmm</code>-style timecode to a frame number.</>],
+        [<><code>timecodeToFrame()</code> / <code>frameToTimecode()</code></>, <>Convert a <code>MM:SS.mmm</code>-style timecode to a frame number, and format a frame as <code>HH:MM:SS:FF</code>.</>],
       ]} />
       <Api caption="Characters" rows={[
         [<><code>Assets</code> / <code>Character</code></>, <>Declare a character’s portrait, expressions, lip-sync mouths, and subtitle style.</>],

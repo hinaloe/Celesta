@@ -10,7 +10,8 @@ export type TransitionDirection = 'in' | 'out';
 export type SlideFrom = 'left' | 'right' | 'top' | 'bottom';
 
 export interface TransitionProps extends CommonProps {
-  type: TransitionType;
+  /** One effect, or several applied together (`['fade', 'slide']`). */
+  type: TransitionType | readonly TransitionType[];
   durationInFrames: number;
   direction?: TransitionDirection;
   slideFrom?: SlideFrom;
@@ -40,6 +41,13 @@ export function Transition({
     throw new Error('<Transition> requires a positive integer `durationInFrames` prop');
   }
 
+  const types: readonly TransitionType[] = typeof type === 'string' ? [type] : type;
+  for (const each of types) {
+    if (each !== 'fade' && each !== 'slide' && each !== 'scale') {
+      throw new Error(`unknown <Transition> type ${JSON.stringify(each)}; expected fade, slide, or scale`);
+    }
+  }
+
   const frame = useCurrentFrame();
   const { durationInFrames: windowDuration } = useVideoConfig();
   const duration = Math.min(durationInFrames, windowDuration);
@@ -47,10 +55,10 @@ export function Transition({
   const linear = duration === 1 ? (frame >= start ? 1 : 0) : clamp01((frame - start) / (duration - 1));
   const progress = clamp01(easing(direction === 'out' ? 1 - linear : linear));
 
-  const opacity = (groupProps.opacity ?? 1) * (type === 'fade' ? progress : 1);
+  const opacity = (groupProps.opacity ?? 1) * (types.includes('fade') ? progress : 1);
   let x = groupProps.x ?? 0;
   let y = groupProps.y ?? 0;
-  if (type === 'slide') {
+  if (types.includes('slide')) {
     const offset = distance * (1 - progress);
     if (slideFrom === 'left') x -= offset;
     if (slideFrom === 'right') x += offset;
@@ -58,7 +66,7 @@ export function Transition({
     if (slideFrom === 'bottom') y += offset;
   }
 
-  const scale = type === 'scale' ? scaleFrom + (1 - scaleFrom) * progress : 1;
+  const scale = types.includes('scale') ? scaleFrom + (1 - scaleFrom) * progress : 1;
   return createElement(
     Group,
     {
