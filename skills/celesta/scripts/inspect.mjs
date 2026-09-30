@@ -154,15 +154,32 @@ async function inspectEntry(options) {
   };
   const send = (message) => child.stdin.write(`${JSON.stringify(message)}\n`);
 
+  // `prepare()` may open a side channel before the handshake, and an entry that
+  // does is still loadable: answer what can be answered here and let it fall
+  // back. Text shaping is not one of those things — it lives in the renderer,
+  // which inspect.mjs has no access to — so measurements are refused and the
+  // entry's own offline fallback path takes over.
+  const receive = async () => {
+    for (;;) {
+      const message = await next();
+      if (message.probeMedia) {
+        send(probeMedia(message.probeMedia.path));
+        continue;
+      }
+      if (message.measureText) {
+        send({
+          error: 'inspect.mjs cannot shape text; open the entry in Celesta or use Celesta-export to measure with real fonts',
+        });
+        continue;
+      }
+      return message;
+    }
+  };
+
   let problems = 0;
   let ready;
-  // prepare() may ask for media probes before the handshake.
   for (;;) {
-    const message = await next();
-    if (message.probeMedia) {
-      send(probeMedia(message.probeMedia.path));
-      continue;
-    }
+    const message = await receive();
     if (message.error) {
       console.error(`ERROR loading entry: ${message.error}`);
       child.kill();
@@ -192,7 +209,7 @@ async function inspectEntry(options) {
     const results = [];
     for (const frame of frames) {
       send({ time: { value: frame * config.frameRate.denominator, timescale: config.frameRate.numerator } });
-      results.push({ frame, ...(await next()) });
+      results.push({ frame, ...(await receive()) });
     }
     console.log(JSON.stringify({ ready, frames: results }, null, 2));
     problems += results.filter((result) => result.error).length;
@@ -213,7 +230,7 @@ async function inspectEntry(options) {
 
     for (const frame of frames) {
       send({ time: { value: frame * config.frameRate.denominator, timescale: config.frameRate.numerator } });
-      const response = await next();
+      const response = await receive();
       console.log(`\n── frame ${frame} (${fmt(frame / fps)} s) ──`);
       if (response.error) {
         problems += 1;
