@@ -14,13 +14,7 @@ extension still use `celesta` for compatibility.
 
 https://github.com/user-attachments/assets/df585cd3-26a1-4d35-aaff-e36eea4e7d14
 
-### Concept Visual
-
-| [After Image](examples/afterimage/film.tsx) by GPT-6.0 Astra                    | [Prism](examples/prism/film.tsx) by GPT-6.0 Astra                               |
-| :-----------------------------------------------------------------------------: | :-----------------------------------------------------------------------------: |
-| https://github.com/user-attachments/assets/1d90f1b5-db03-461c-a54d-29142fec32e8 | https://github.com/user-attachments/assets/9f3daf27-63f9-4471-8693-c36d486b7a74 |
-| **[Signal](examples/signal/film.tsx) by Sakana Fugu**                           | 
-| https://github.com/user-attachments/assets/779747d1-2299-4ca3-89f8-854a0d7c186e |
+for more examples, see the [examples directory](examples) and the [gallery](docs/gallery.md).
 
 ## What you can do
 

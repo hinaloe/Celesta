@@ -710,12 +710,15 @@ function Logo() {
         <Rect x={px} y={py} anchorX={0.5} anchorY={0.5} width={16} height={16} cornerRadius={8}
           fill={C.accent} opacity={ring} />
         {logo ? (
+          // Each letter is its own Text, trimmed to its own ink, so they share a
+          // baseline instead of centering: Space Grotesk's caps are 0.7 em tall,
+          // so a baseline 0.35 em below `cy` centers the word like `ay={0.5}`.
           <Group x={cx} y={cy} scale={1.3 - 0.3 * hit}>
             {logo.letters.map(({ text, x }, i) => {
               const letter = progress(f, i * 2, 24, Easings.easeOutExpo);
               return (
-                <T key={i} x={x - logo!.width / 2} y={20 * (1 - letter)} size={LOGO_SIZE} weight={700}
-                  ay={0.5} opacity={clamp(letter * 2)}>{text}</T>
+                <T key={i} x={x - logo!.width / 2} y={LOGO_SIZE * 0.35 + 20 * (1 - letter)} size={LOGO_SIZE} weight={700}
+                  ay="baseline" opacity={clamp(letter * 2)}>{text}</T>
               );
             })}
           </Group>
