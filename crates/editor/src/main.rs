@@ -25,7 +25,9 @@ use celesta_exporter::{
     ExportCancellation, ExportError, ExportOptions, ExportProgress, ExportRange, Exporter,
     ReactRuntimeOptions,
 };
-use celesta_gpu_renderer::{GpuRenderOptions, GpuRenderer, PreviewFrame as GpuPreviewFrame};
+use celesta_gpu_renderer::{
+    GpuRenderOptions, GpuRenderer, PreviewFrame as GpuPreviewFrame, RenderQuality,
+};
 use celesta_media::{
     AudioBuffer, AudioDecoder, FfmpegBackend, MediaError, MediaProbe, mix_audio_graph_cancellable,
 };
@@ -110,6 +112,10 @@ struct PreviewRequest {
     /// `ReactPreviewBridge` and respawns Node, picking up a re-bundle after
     /// the composition's code changed.
     react_reload: u64,
+    /// `Draft` while playing, so scaled text is not re-rasterized for every
+    /// frame; `Final` otherwise, so a paused or scrubbed frame looks exactly
+    /// like the export.
+    render_quality: RenderQuality,
 }
 
 struct PreviewResult {
@@ -529,6 +535,7 @@ impl PreviewWorker {
                 while let Ok(first) = request_rx.recv() {
                     let request = take_latest(first, &request_rx);
                     renderer.set_asset_root(&request.asset_root);
+                    renderer.set_render_quality(request.render_quality);
                     if request.react_reload != react_reload {
                         react_reload = request.react_reload;
                         react_bridge = None;
@@ -1605,6 +1612,11 @@ impl EditorView {
                     react,
                     react_mode,
                     react_reload: self.react_reload_generation,
+                    render_quality: if self.playing {
+                        RenderQuality::Draft
+                    } else {
+                        RenderQuality::Final
+                    },
                 }) {
                     self.preview_pending = false;
                     self.preview_error = Some(error.into());
@@ -2032,10 +2044,15 @@ impl EditorView {
     }
 
     fn pause(&mut self) {
+        let was_playing = self.playing;
         self.playing = false;
         self.playback_started_at = None;
         if let Some(audio) = &self.audio_preview {
             audio.pause();
+        }
+        if was_playing {
+            // The last frame was drawn in draft quality; show the final one.
+            self.refresh_preview();
         }
     }
 

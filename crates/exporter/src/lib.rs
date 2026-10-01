@@ -21,6 +21,7 @@ use celesta_composition::{
 };
 use celesta_evaluator::{EvaluationError, Evaluator};
 use celesta_gpu_renderer::{GpuRenderError, GpuRenderOptions, GpuRenderer, ReadbackFormat};
+pub use celesta_gpu_renderer::{RenderQuality, UnknownRenderQuality};
 use celesta_media::{AudioMixError, FfmpegBackend, mix_audio_graph_cancellable};
 use celesta_project::{LoadError, Project, TimelineContent};
 use celesta_react_bridge::{
@@ -48,6 +49,10 @@ pub struct ExportOptions {
     pub range: Option<ExportRange>,
     /// H.264 encoder settings; the default matches the historical output.
     pub video: VideoEncoding,
+    /// How carefully scaled and rotated layers are drawn. Exports default to
+    /// [`RenderQuality::Final`]; this is independent of the encoder preset,
+    /// which only trades encoding speed against file size.
+    pub render_quality: RenderQuality,
 }
 
 /// Settings for the exported H.264 video stream.
@@ -840,8 +845,12 @@ impl Exporter {
             ..
         } = window;
         let frame_rate = project.settings.frame_rate;
-        let mut renderer =
-            export_renderer(asset_root, frame_rate, self.options.video.color_conversion)?;
+        let mut renderer = export_renderer(
+            asset_root,
+            frame_rate,
+            self.options.video.color_conversion,
+            self.options.render_quality,
+        )?;
         let mut writer = open_video_writer(
             project.settings.width,
             project.settings.height,
@@ -928,6 +937,7 @@ impl Exporter {
             asset_root,
             metadata.frame_rate,
             self.options.video.color_conversion,
+            self.options.render_quality,
         )?;
         let mut writer = open_video_writer(
             metadata.width,
@@ -1253,9 +1263,11 @@ fn export_renderer(
     asset_root: &Path,
     frame_rate: Rational,
     color_conversion: ColorConversion,
+    render_quality: RenderQuality,
 ) -> Result<GpuRenderer, ExportError> {
     let mut renderer = GpuRenderer::new(GpuRenderOptions::default())
         .map_err(ExportError::Render)?
+        .with_render_quality(render_quality)
         .with_asset_root(asset_root)
         .with_video_decoder(FfmpegBackend::new().with_sequential_video(frame_rate));
     let on_gpu = match color_conversion {

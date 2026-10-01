@@ -93,6 +93,67 @@ pub enum ReadbackFormat {
     Yuv420p,
 }
 
+/// How much work the renderer spends on layers that are scaled or rotated.
+///
+/// Untransformed layers look the same in both: they are placed on whole
+/// pixels and copied texel for texel. Transformed layers are always filtered
+/// (bilinear, trilinear from mipmaps for cached images). The modes differ only
+/// in the work that is too slow to repeat for every frame of playback.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RenderQuality {
+    /// For interactive playback: text is rasterized once at scale 1 and
+    /// filtered when it is scaled, and video frames get no mipmaps.
+    Draft,
+    /// What exports use: text is rasterized at the scale it is drawn at
+    /// (rounded up to the next eighth of an octave, so an animated scale reuses
+    /// a handful of textures), and shrunk video frames get mipmaps.
+    #[default]
+    Final,
+}
+
+impl RenderQuality {
+    pub const ALL: [Self; 2] = [Self::Draft, Self::Final];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Draft => "draft",
+            Self::Final => "final",
+        }
+    }
+}
+
+impl fmt::Display for RenderQuality {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for RenderQuality {
+    type Err = UnknownRenderQuality;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|quality| quality.as_str() == name)
+            .ok_or_else(|| UnknownRenderQuality(name.to_owned()))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnknownRenderQuality(String);
+
+impl fmt::Display for UnknownRenderQuality {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "unknown render quality '{}' (expected draft or final)",
+            self.0
+        )
+    }
+}
+
+impl Error for UnknownRenderQuality {}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GpuFrame {
     width: u32,
@@ -217,7 +278,7 @@ pub struct GpuRenderer {
     pipelines: HashMap<(wgpu::TextureFormat, PipelineKind), wgpu::RenderPipeline>,
     texture_bind_group_layout: wgpu::BindGroupLayout,
     backdrop_bind_group_layout: wgpu::BindGroupLayout,
-    sampler: wgpu::Sampler,
+    render_quality: RenderQuality,
     /// Scene-sized textures a frame that uses blend modes composites in: the
     /// root canvas first, then one per level of isolated-group nesting.
     /// Reused across frames of the same size.
@@ -322,20 +383,17 @@ impl GpuRenderer {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Celesta layer texture bind group layout"),
                 entries: &[
+                    // Read with `textureLoad`: `layer.wgsl` filters by hand,
+                    // so it can treat texels outside the layer as transparent
+                    // and interpolate premultiplied colors.
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
                             view_dimension: wgpu::TextureViewDimension::D2,
                             multisampled: false,
                         },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
                 ],
@@ -403,14 +461,6 @@ impl GpuRenderer {
             (wgpu::TextureFormat::Rgba8Unorm, PipelineKind::Layer),
             pipeline,
         );
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("Celesta layer sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
         let instances = instance_buffer(&device, 1024 * LAYER_INSTANCE_SIZE);
         let clips = clip_buffer(&device, 64 * CLIP_ENTRY_SIZE);
         let clip_bind_group = clip_bind_group(&device, &clip_bind_group_layout, &clips);
@@ -418,8 +468,8 @@ impl GpuRenderer {
             &device,
             &queue,
             &texture_bind_group_layout,
-            &sampler,
             &DecodedImage::new(1, 1, vec![0; BYTES_PER_PIXEL as usize])?,
+            false,
         );
         #[cfg(target_os = "macos")]
         let native_preview = native_preview::NativePreviewBridge::new(&device).ok();
@@ -435,7 +485,7 @@ impl GpuRenderer {
             pipelines,
             texture_bind_group_layout,
             backdrop_bind_group_layout,
-            sampler,
+            render_quality: RenderQuality::default(),
             canvases: Vec::new(),
             backdrop: None,
             effects,
@@ -508,6 +558,22 @@ impl GpuRenderer {
 
     pub fn set_asset_root(&mut self, asset_root: impl Into<PathBuf>) {
         self.asset_root = asset_root.into();
+    }
+
+    /// [`RenderQuality::Final`] unless set otherwise.
+    pub const fn render_quality(&self) -> RenderQuality {
+        self.render_quality
+    }
+
+    pub const fn with_render_quality(mut self, quality: RenderQuality) -> Self {
+        self.render_quality = quality;
+        self
+    }
+
+    /// Takes effect from the next frame. Scaled text is rasterized again
+    /// after a switch, since each quality caches it at a different scale.
+    pub const fn set_render_quality(&mut self, quality: RenderQuality) {
+        self.render_quality = quality;
     }
 
     pub fn with_video_decoder(mut self, decoder: impl VideoFrameDecoder + 'static) -> Self {
@@ -1242,7 +1308,6 @@ impl GpuRenderer {
                     let result = canvas_texture(
                         &self.device,
                         &self.texture_bind_group_layout,
-                        &self.sampler,
                         scene.width,
                         scene.height,
                     );
@@ -1257,7 +1322,6 @@ impl GpuRenderer {
                             encoder,
                             source,
                             &self.texture_bind_group_layout,
-                            &self.sampler,
                             shadow.blur,
                             shadow.offset,
                             Some(shadow.color),
@@ -1276,7 +1340,6 @@ impl GpuRenderer {
                             encoder,
                             source,
                             &self.texture_bind_group_layout,
-                            &self.sampler,
                             effects.blur,
                             [0.0, 0.0],
                             None,
@@ -1332,16 +1395,10 @@ impl GpuRenderer {
             let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Celesta canvas bind group"),
                 layout: &self.texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                }],
             });
             self.canvases.push(CanvasTexture {
                 texture,
@@ -1467,9 +1524,10 @@ impl GpuRenderer {
                 )));
             }
             LayerContent::Image { asset } => {
-                let texture = self.cached_texture(format!("image\0{}", asset.id), |renderer| {
-                    renderer.load_image(asset).cloned()
-                })?;
+                let texture =
+                    self.cached_texture(format!("image\0{}", asset.id), true, |renderer| {
+                        renderer.load_image(asset).cloned()
+                    })?;
                 output.push(PreparedItem::Layer(PreparedLayer::new(
                     texture,
                     layer.transform.anchor,
@@ -1485,6 +1543,7 @@ impl GpuRenderer {
             } => {
                 let texture = self.cached_texture(
                     psd_key(asset, visible_layers, enabled_layers, disabled_layers),
+                    true,
                     |renderer| {
                         renderer
                             .load_psd(asset, visible_layers, enabled_layers, disabled_layers)
@@ -1507,8 +1566,12 @@ impl GpuRenderer {
                 let frame =
                     decoder.decode_frame_for(&layer.id, &path, timing.source_time_seconds)?;
                 let image = DecodedImage::shared(frame.width, frame.height, frame.pixels)?;
-                // Every frame brings new pixels, so video is never cached.
-                let texture = self.upload_texture(&image);
+                // Every frame brings new pixels, so video is never cached,
+                // and its mipmaps would be rebuilt every frame: only a final
+                // render of a frame shrunk to half size or less pays for them.
+                let mipmaps = self.render_quality == RenderQuality::Final
+                    && state.transform.texels_per_pixel(1.0) >= 2.0;
+                let texture = self.upload_texture(&image, mipmaps);
                 output.push(PreparedItem::Layer(PreparedLayer::new(
                     texture,
                     layer.transform.anchor,
@@ -1522,18 +1585,36 @@ impl GpuRenderer {
                 max_width,
                 baseline_anchor,
             } => {
+                let raster_scale = match self.render_quality {
+                    RenderQuality::Draft => 1.0,
+                    RenderQuality::Final => text_raster_scale(state.transform),
+                };
                 // `{:?}` spells out every style field and prints floats
                 // exactly, so equal keys always mean equal rasterizer input.
-                let key = format!("{TEXT_TEXTURE_PREFIX}{text}\0{style:?}\0{max_width:?}");
-                let texture = self.cached_texture(key, |renderer| {
-                    let text = renderer
-                        .text_rasterizer
-                        .rasterize(text, style, *max_width, 1.0)
-                        .map_err(GpuRenderError::Text)?;
+                let key = format!(
+                    "{TEXT_TEXTURE_PREFIX}{text}\0{style:?}\0{max_width:?}\0{raster_scale:?}"
+                );
+                let texture = self.cached_texture(key, false, |renderer| {
+                    let limit = renderer.device.limits().max_texture_dimension_2d;
+                    let mut scale = raster_scale;
+                    let text = loop {
+                        let text = renderer
+                            .text_rasterizer
+                            .rasterize(text, style, *max_width, scale)
+                            .map_err(GpuRenderError::Text)?;
+                        let largest = text.width().max(text.height());
+                        if largest <= limit || scale <= 1.0 {
+                            break text;
+                        }
+                        // Too large for one texture: rasterize smaller and
+                        // let the filter enlarge it.
+                        scale = (scale * limit as f32 / largest as f32 * 0.99).max(1.0);
+                    };
                     let baseline = text.baseline_anchor();
                     let mut image =
                         DecodedImage::new(text.width(), text.height(), text.into_pixels())?;
                     image.baseline_anchor = baseline;
+                    image.raster_scale = scale;
                     Ok(image)
                 })?;
                 let mut anchor = layer.transform.anchor;
@@ -1575,6 +1656,7 @@ impl GpuRenderer {
                         anchor: layer.transform.anchor,
                         state,
                         blend_mode,
+                        raster_scale: 1.0,
                     }));
                 } else {
                     // The shader only knows flat colors; a gradient goes
@@ -1582,7 +1664,7 @@ impl GpuRenderer {
                     // texel for texel for flat rects.
                     let key =
                         format!("rect\0{width}\0{height}\0{corner_radius}\0{fill:?}\0{stroke:?}");
-                    let texture = self.cached_texture(key, |_| {
+                    let texture = self.cached_texture(key, true, |_| {
                         let rect = celesta_renderer::rasterize_rect(
                             *width,
                             *height,
@@ -1684,10 +1766,12 @@ impl GpuRenderer {
     }
 
     /// Returns the texture cached under `key`, marking it used by the frame
-    /// being prepared, or produces and uploads it on a miss.
+    /// being prepared, or produces and uploads it on a miss. Cached textures
+    /// are reused for many frames, so they get mipmaps when `mipmaps` is set.
     fn cached_texture(
         &mut self,
         key: String,
+        mipmaps: bool,
         produce: impl FnOnce(&mut Self) -> Result<DecodedImage, GpuRenderError>,
     ) -> Result<LayerTexture, GpuRenderError> {
         let generation = self.texture_generation;
@@ -1696,7 +1780,7 @@ impl GpuRenderer {
             return Ok(cached.texture.clone());
         }
         let image = produce(self)?;
-        let texture = self.upload_texture(&image);
+        let texture = self.upload_texture(&image, mipmaps);
         self.textures.insert(
             key,
             CachedTexture {
@@ -1707,13 +1791,13 @@ impl GpuRenderer {
         Ok(texture)
     }
 
-    fn upload_texture(&self, image: &DecodedImage) -> LayerTexture {
+    fn upload_texture(&self, image: &DecodedImage, mipmaps: bool) -> LayerTexture {
         upload_texture(
             &self.device,
             &self.queue,
             &self.texture_bind_group_layout,
-            &self.sampler,
             image,
+            mipmaps,
         )
     }
 }
@@ -1722,9 +1806,18 @@ fn upload_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     layout: &wgpu::BindGroupLayout,
-    sampler: &wgpu::Sampler,
     image: &DecodedImage,
+    mipmaps: bool,
 ) -> LayerTexture {
+    let mut levels = vec![(image.width, image.height, Arc::clone(&image.pixels))];
+    while mipmaps {
+        let (width, height, pixels) = levels.last().expect("level 0 exists");
+        if *width == 1 && *height == 1 {
+            break;
+        }
+        let next = downsample(*width, *height, pixels);
+        levels.push((next.0, next.1, Arc::new(next.2)));
+    }
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Celesta layer texture"),
         size: wgpu::Extent3d {
@@ -1732,46 +1825,42 @@ fn upload_texture(
             height: image.height,
             depth_or_array_layers: 1,
         },
-        mip_level_count: 1,
+        mip_level_count: levels.len() as u32,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8Unorm,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
-    queue.write_texture(
-        wgpu::TexelCopyTextureInfo {
-            texture: &texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        &image.pixels,
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(image.width * BYTES_PER_PIXEL),
-            rows_per_image: Some(image.height),
-        },
-        wgpu::Extent3d {
-            width: image.width,
-            height: image.height,
-            depth_or_array_layers: 1,
-        },
-    );
+    for (level, (width, height, pixels)) in levels.iter().enumerate() {
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: level as u32,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            pixels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * BYTES_PER_PIXEL),
+                rows_per_image: Some(*height),
+            },
+            wgpu::Extent3d {
+                width: *width,
+                height: *height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("Celesta layer texture bind group"),
         layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(sampler),
-            },
-        ],
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(&view),
+        }],
     });
     LayerTexture {
         _texture: texture,
@@ -1779,7 +1868,52 @@ fn upload_texture(
         width: image.width,
         height: image.height,
         baseline_anchor: image.baseline_anchor,
+        raster_scale: image.raster_scale,
     }
+}
+
+/// The next mip level of straight-alpha RGBA pixels: each texel averages the
+/// 2x2 block above it (the last row or column of an odd size folds into its
+/// neighbour), weighting color by alpha so transparent texels do not darken
+/// the edges of what they surround. Sizes halve rounding down, as wgpu
+/// expects of mip levels.
+fn downsample(width: u32, height: u32, pixels: &[u8]) -> (u32, u32, Vec<u8>) {
+    let next_width = (width / 2).max(1);
+    let next_height = (height / 2).max(1);
+    let mut next = vec![0; (next_width * next_height * BYTES_PER_PIXEL) as usize];
+    let span = |index: u32, size: u32, next_size: u32| {
+        let start = index * size / next_size;
+        let end = ((index + 1) * size / next_size).max(start + 1);
+        start..end
+    };
+    for y in 0..next_height {
+        for x in 0..next_width {
+            let mut color = [0_u32; 3];
+            let mut alpha = 0_u32;
+            let mut count = 0_u32;
+            for source_y in span(y, height, next_height) {
+                for source_x in span(x, width, next_width) {
+                    let offset = ((source_y * width + source_x) * BYTES_PER_PIXEL) as usize;
+                    let texel = &pixels[offset..offset + 4];
+                    let weight = u32::from(texel[3]);
+                    for channel in 0..3 {
+                        color[channel] += u32::from(texel[channel]) * weight;
+                    }
+                    alpha += weight;
+                    count += 1;
+                }
+            }
+            let offset = ((y * next_width + x) * BYTES_PER_PIXEL) as usize;
+            // A fully transparent block keeps a transparent black texel.
+            for channel in 0..3 {
+                if let Some(average) = (color[channel] + alpha / 2).checked_div(alpha) {
+                    next[offset + channel] = average as u8;
+                }
+            }
+            next[offset + 3] = ((alpha + count / 2) / count) as u8;
+        }
+    }
+    (next_width, next_height, next)
 }
 
 /// Prefix of every cached text texture's key, so a newly loaded font can drop
@@ -1866,6 +2000,8 @@ struct DecodedImage {
     pixels: Arc<Vec<u8>>,
     /// Normalized anchor `y` of the first text baseline; 0 for non-text images.
     baseline_anchor: f64,
+    /// Texels per layer unit: the scale text was rasterized at, else 1.
+    raster_scale: f32,
 }
 
 impl DecodedImage {
@@ -1892,6 +2028,7 @@ impl DecodedImage {
             height,
             pixels,
             baseline_anchor: 0.0,
+            raster_scale: 1.0,
         })
     }
 }
@@ -1901,12 +2038,14 @@ impl DecodedImage {
 #[derive(Clone)]
 struct LayerTexture {
     _texture: wgpu::Texture,
-    /// The texture and the layer sampler, bound as group 1.
+    /// The texture, bound as group 0.
     bind_group: wgpu::BindGroup,
     width: u32,
     height: u32,
     /// See `DecodedImage::baseline_anchor`.
     baseline_anchor: f64,
+    /// See `DecodedImage::raster_scale`.
+    raster_scale: f32,
 }
 
 struct CachedTexture {
@@ -1924,7 +2063,6 @@ struct CanvasTexture {
 fn canvas_texture(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
-    sampler: &wgpu::Sampler,
     width: u32,
     height: u32,
 ) -> CanvasTexture {
@@ -1946,16 +2084,10 @@ fn canvas_texture(
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("Celesta effect layer bind group"),
         layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(sampler),
-            },
-        ],
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(&view),
+        }],
     });
     CanvasTexture {
         texture,
@@ -2037,15 +2169,14 @@ impl EffectProcessor {
         encoder: &mut wgpu::CommandEncoder,
         source: &CanvasTexture,
         layer_layout: &wgpu::BindGroupLayout,
-        sampler: &wgpu::Sampler,
         radius: f32,
         offset: [f32; 2],
         color: Option<[f32; 4]>,
     ) -> CanvasTexture {
         let size = source.texture.size();
-        let horizontal = (radius > 0.0)
-            .then(|| canvas_texture(device, layer_layout, sampler, size.width, size.height));
-        let vertical = canvas_texture(device, layer_layout, sampler, size.width, size.height);
+        let horizontal =
+            (radius > 0.0).then(|| canvas_texture(device, layer_layout, size.width, size.height));
+        let vertical = canvas_texture(device, layer_layout, size.width, size.height);
         if let Some(horizontal) = &horizontal {
             self.pass(
                 device,
@@ -2278,20 +2409,20 @@ struct PreparedLayer {
     anchor: Point,
     state: LayerState,
     blend_mode: BlendMode,
+    /// Texels per layer unit: the scale text was rasterized at, 1 for
+    /// everything else. The quad keeps the layer's size in layer units.
+    raster_scale: f32,
 }
 
 impl PreparedLayer {
-    const fn new(
-        texture: LayerTexture,
-        anchor: Point,
-        state: LayerState,
-        blend_mode: BlendMode,
-    ) -> Self {
+    fn new(texture: LayerTexture, anchor: Point, state: LayerState, blend_mode: BlendMode) -> Self {
+        let raster_scale = texture.raster_scale;
         Self {
             content: PreparedContent::Texture(texture),
             anchor,
             state,
             blend_mode,
+            raster_scale,
         }
     }
 
@@ -2301,12 +2432,13 @@ impl PreparedLayer {
             anchor: Point { x: 0.0, y: 0.0 },
             state,
             blend_mode,
+            raster_scale: 1.0,
         }
     }
 
     /// Appends this layer's `LayerInstance` (`LAYER_INSTANCE_SIZE` bytes).
     fn write_instance(&self, canvas_width: u32, canvas_height: u32, output: &mut Vec<u8>) {
-        let (width, height, kind) = match &self.content {
+        let (texel_width, texel_height, kind) = match &self.content {
             PreparedContent::Texture(texture) => (texture.width, texture.height, 0.0),
             PreparedContent::Rect(rect) => (rect.pixel_width, rect.pixel_height, 1.0),
             PreparedContent::Canvas { .. } => (canvas_width, canvas_height, 0.0),
@@ -2332,16 +2464,32 @@ impl PreparedLayer {
                 rect.stroke,
             ),
         };
-        let (tx, ty) = self.pixel_aligned_translation(width, height);
+        let transform = self.state.transform;
+        // A layer whose texels land one to one on canvas pixels is copied
+        // exactly; anything scaled or rotated is filtered.
+        let exact = transform.is_uniform_scale(self.raster_scale);
+        let (tx, ty) = if exact {
+            self.pixel_aligned_translation(texel_width, texel_height)
+        } else {
+            (transform.tx, transform.ty)
+        };
+        let level_of_detail = if exact {
+            0.0
+        } else {
+            transform
+                .texels_per_pixel(self.raster_scale)
+                .max(1.0)
+                .log2()
+        };
         let values = [
-            self.state.transform.a,
-            self.state.transform.b,
-            self.state.transform.c,
-            self.state.transform.d,
+            transform.a,
+            transform.b,
+            transform.c,
+            transform.d,
             tx,
             ty,
-            width as f32,
-            height as f32,
+            texel_width as f32 / self.raster_scale,
+            texel_height as f32 / self.raster_scale,
             self.anchor.x as f32,
             self.anchor.y as f32,
             self.state.opacity,
@@ -2355,40 +2503,53 @@ impl PreparedLayer {
         .chain(rect)
         .chain(fill)
         .chain(stroke)
-        // The innermost clip the layer is drawn through (-1 without one).
+        // The innermost clip the layer is drawn through (-1 without one),
+        // whether to filter, the mip level to filter at, and texels per
+        // layer unit.
         .chain([
             self.state.clip.map_or(-1.0, |index| index as f32),
-            0.0,
-            0.0,
-            0.0,
+            f32::from(u8::from(!exact)),
+            level_of_detail,
+            self.raster_scale,
         ]);
         output.extend(values.flat_map(f32::to_ne_bytes));
     }
 
-    /// The translation to draw with. A texture or rect that is only moved
-    /// gets its top-left corner rounded to a whole canvas pixel, as
-    /// `celesta_renderer::render_image` places it. Otherwise a corner on a
-    /// half pixel puts every pixel centre exactly on a texel boundary, and
-    /// nearest sampling picks the left or right texel per column depending on
-    /// f32 rounding, notching and shifting glyph stems.
-    fn pixel_aligned_translation(&self, width: u32, height: u32) -> (f32, f32) {
-        let Affine { a, b, c, d, tx, ty } = self.state.transform;
-        let movable = matches!(
-            self.content,
-            PreparedContent::Texture(_) | PreparedContent::Rect(_)
-        );
-        if !movable || (a, b, c, d) != (1.0, 0.0, 0.0, 1.0) {
-            return (tx, ty);
-        }
-        let align = |translation: f32, size: u32, anchor: f64| {
-            let offset = f64::from(size) * anchor;
+    /// The translation of a layer drawn texel for texel, moved so its
+    /// top-left corner lands on a whole canvas pixel, as
+    /// `celesta_renderer::render_image` places it. On a half pixel every pixel
+    /// centre would sit exactly on a texel boundary, and f32 rounding would
+    /// pick the left or right texel per column, notching glyph stems.
+    fn pixel_aligned_translation(&self, texel_width: u32, texel_height: u32) -> (f32, f32) {
+        let align = |translation: f32, texels: u32, anchor: f64| {
+            let offset = f64::from(texels) * anchor;
             ((f64::from(translation) - offset).round() + offset) as f32
         };
         (
-            align(tx, width, self.anchor.x),
-            align(ty, height, self.anchor.y),
+            align(self.state.transform.tx, texel_width, self.anchor.x),
+            align(self.state.transform.ty, texel_height, self.anchor.y),
         )
     }
+}
+
+/// The scale to rasterize text at so it is drawn at most slightly shrunk:
+/// the largest factor `transform` stretches it by, rounded up to the next
+/// eighth of an octave. An animated scale then reuses a few textures (about
+/// eight per doubling) instead of rasterizing every frame, and the texture
+/// is at most 9% larger than drawn. Exactly 1 for unscaled text.
+fn text_raster_scale(transform: Affine) -> f32 {
+    const STEPS_PER_OCTAVE: f32 = 8.0;
+    let (largest, _) = transform.stretch();
+    let steps = largest.log2() * STEPS_PER_OCTAVE;
+    let nearest = steps.round();
+    // A scale that already is a step (2, 0.5) should not round up past it.
+    let steps = if (steps - nearest).abs() < 1e-3 {
+        nearest
+    } else {
+        steps.ceil()
+    };
+    // Keep absurd scales finite; the texture size is limited separately.
+    (steps.clamp(-6.0 * STEPS_PER_OCTAVE, 6.0 * STEPS_PER_OCTAVE) / STEPS_PER_OCTAVE).exp2()
 }
 
 /// `fs_blend`'s index for `mode` in `layer.wgsl`.
@@ -2643,6 +2804,36 @@ impl Affine {
 
     fn is_degenerate(self) -> bool {
         (self.a * self.d - self.b * self.c).abs() <= f32::EPSILON
+    }
+
+    /// The largest and smallest factors the transform stretches a length by
+    /// (its singular values).
+    fn stretch(self) -> (f32, f32) {
+        let sum = self.a * self.a + self.b * self.b + self.c * self.c + self.d * self.d;
+        let determinant = (self.a * self.d - self.b * self.c).abs();
+        let root = (sum * sum - 4.0 * determinant * determinant)
+            .max(0.0)
+            .sqrt();
+        (
+            ((sum + root) / 2.0).sqrt(),
+            ((sum - root) / 2.0).max(0.0).sqrt(),
+        )
+    }
+
+    /// How many texels of a texture with `raster_scale` texels per layer unit
+    /// fall across one canvas pixel along the most shrunk direction.
+    fn texels_per_pixel(self, raster_scale: f32) -> f32 {
+        raster_scale / self.stretch().1.max(f32::MIN_POSITIVE)
+    }
+
+    /// Whether the transform only scales by `scale`, without rotating or
+    /// mirroring, up to f32 rounding (a 360° rotation counts).
+    fn is_uniform_scale(self, scale: f32) -> bool {
+        let tolerance = 1e-5 * scale;
+        (self.a - scale).abs() <= tolerance
+            && self.b.abs() <= tolerance
+            && self.c.abs() <= tolerance
+            && (self.d - scale).abs() <= tolerance
     }
 }
 
@@ -3791,7 +3982,9 @@ mod tests {
                     },
                 ],
             )],
-            // Nested clips inside a scaled group.
+            // Nested clips inside a scaled group. The rect overhangs both
+            // clips: the GPU filters a scaled layer's own edges where the CPU
+            // renderer repeats texels, so only clip edges are compared.
             vec![clipped_group(
                 EvaluatedTransform {
                     scale: Point { x: 2.0, y: 2.0 },
@@ -3816,7 +4009,7 @@ mod tests {
                         height: 10.0,
                         corner_radius: 0.0,
                     },
-                    vec![corner_rect("red", 0.0, 0.0, 30.0, 30.0, "#FF0000FF")],
+                    vec![corner_rect("red", -4.0, -4.0, 40.0, 40.0, "#FF0000FF")],
                 )],
             )],
         ];
@@ -4609,6 +4802,245 @@ mod tests {
                 "{id}: channels differ by up to {difference}"
             );
         }
+    }
+
+    fn text_layer(id: &str, position: Point, scale: f64, font_size: f64) -> Layer {
+        Layer {
+            id: id.to_owned(),
+            transform: EvaluatedTransform {
+                position,
+                scale: Point { x: scale, y: scale },
+                anchor: Point { x: 0.0, y: 0.0 },
+                ..EvaluatedTransform::default()
+            },
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            effects: Default::default(),
+            content: LayerContent::Text {
+                text: "Celesta 15,000".to_owned(),
+                style: TextStyle {
+                    font_size: Some(font_size),
+                    fill: Some(Paint::Solid {
+                        color: "#ffffff".to_owned(),
+                    }),
+                    ..TextStyle::default()
+                },
+                max_width: None,
+                baseline_anchor: false,
+            },
+        }
+    }
+
+    /// An image layer drawing `image`, registered with `renderer` as `id`.
+    fn image_layer(
+        renderer: &mut GpuRenderer,
+        id: &str,
+        image: DecodedImage,
+        transform: EvaluatedTransform,
+    ) -> Layer {
+        renderer.images.insert(id.to_owned(), image);
+        Layer {
+            id: id.to_owned(),
+            transform,
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            effects: Default::default(),
+            content: LayerContent::Image {
+                asset: ResolvedAsset {
+                    id: id.to_owned(),
+                    location: AssetLocation::File {
+                        path: id.to_owned(),
+                    },
+                },
+            },
+        }
+    }
+
+    fn max_frame_difference(first: &GpuFrame, second: &GpuFrame) -> u8 {
+        first
+            .pixels()
+            .iter()
+            .zip(second.pixels())
+            .map(|(first, second)| first.abs_diff(*second))
+            .max()
+            .unwrap()
+    }
+
+    #[test]
+    fn final_quality_rasterizes_scaled_text_at_its_drawn_size() {
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        let position = Point { x: 40.0, y: 60.0 };
+        let mut scene = empty_scene(640, 200);
+        scene.layers = vec![text_layer("big", position, 1.0, 64.0)];
+        let reference = renderer.render(&scene).unwrap();
+        scene.layers = vec![text_layer("scaled", position, 2.0, 32.0)];
+
+        assert_eq!(renderer.render_quality(), RenderQuality::Final);
+        let scaled = renderer.render(&scene).unwrap();
+        let difference = max_frame_difference(&scaled, &reference);
+        assert!(difference <= 1, "final differs by up to {difference}");
+
+        // Draft enlarges the scale-1 texture instead: visibly softer.
+        renderer.set_render_quality(RenderQuality::Draft);
+        let draft = renderer.render(&scene).unwrap();
+        assert!(max_frame_difference(&draft, &reference) > 64);
+    }
+
+    #[test]
+    fn filters_enlarged_images_instead_of_repeating_texels() {
+        let Some(mut renderer) = renderer(GpuRenderOptions {
+            background: Color::TRANSPARENT,
+        }) else {
+            return;
+        };
+        // A horizontal ramp. Nearest sampling at 1.28x repeats some columns,
+        // which shows as stems of uneven width in enlarged artwork.
+        let width = 40;
+        let pixels = (0..width)
+            .flat_map(|x| {
+                let value = (x * 6) as u8;
+                [value, value, value, 255]
+            })
+            .collect();
+        let ramp = DecodedImage::new(width, 1, pixels).unwrap();
+        let transform = EvaluatedTransform {
+            position: Point { x: 4.0, y: 4.0 },
+            scale: Point { x: 1.28, y: 8.0 },
+            anchor: Point { x: 0.0, y: 0.0 },
+            ..EvaluatedTransform::default()
+        };
+        let mut scene = empty_scene(64, 16);
+        scene.layers = vec![image_layer(&mut renderer, "ramp", ramp, transform)];
+        let frame = renderer.render(&scene).unwrap();
+        // Row 8 is well inside the 8-pixel-tall layer; columns away from the
+        // anti-aliased ends must rise strictly.
+        let row: Vec<u8> = (6..50).map(|x| pixel_at(&frame, x, 8)[0]).collect();
+        assert!(
+            row.windows(2).all(|pair| pair[1] > pair[0]),
+            "repeated or falling columns: {row:?}"
+        );
+    }
+
+    #[test]
+    fn shrinks_cached_images_through_mipmaps() {
+        let Some(mut renderer) = renderer(GpuRenderOptions {
+            background: Color::TRANSPARENT,
+        }) else {
+            return;
+        };
+        // A one-texel checkerboard averages to mid grey. Without mipmaps a
+        // draw at under a quarter size picks a few texels per pixel and
+        // aliases.
+        let size = 128;
+        let pixels = (0..size * size)
+            .flat_map(|index| {
+                let value = if (index % size + index / size) % 2 == 0 {
+                    255
+                } else {
+                    0
+                };
+                [value, value, value, 255]
+            })
+            .collect();
+        let checkerboard = DecodedImage::new(size, size, pixels).unwrap();
+        // An uneven scale and offset, so bilinear taps do not happen to
+        // straddle a black and a white texel evenly.
+        let transform = EvaluatedTransform {
+            position: Point { x: 0.37, y: 0.61 },
+            scale: Point { x: 0.23, y: 0.23 },
+            anchor: Point { x: 0.0, y: 0.0 },
+            ..EvaluatedTransform::default()
+        };
+        let mut scene = empty_scene(32, 32);
+        scene.layers = vec![image_layer(
+            &mut renderer,
+            "checkerboard",
+            checkerboard,
+            transform,
+        )];
+        let frame = renderer.render(&scene).unwrap();
+        for y in 2..27 {
+            for x in 2..27 {
+                let value = pixel_at(&frame, x, y)[0];
+                assert!(
+                    value.abs_diff(128) <= 16,
+                    "pixel ({x}, {y}) is {value}, not mid grey"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn anti_aliases_the_edges_of_rotated_images() {
+        let Some(mut renderer) = renderer(GpuRenderOptions {
+            background: Color::TRANSPARENT,
+        }) else {
+            return;
+        };
+        let square = DecodedImage::new(20, 20, vec![255; 20 * 20 * 4]).unwrap();
+        let transform = EvaluatedTransform {
+            position: Point { x: 32.0, y: 32.0 },
+            rotation: 30.0,
+            ..EvaluatedTransform::default()
+        };
+        let mut scene = empty_scene(64, 64);
+        scene.layers = vec![image_layer(&mut renderer, "square", square, transform)];
+        let frame = renderer.render(&scene).unwrap();
+        let partial = frame
+            .pixels()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| pixel[3] > 0 && pixel[3] < 255)
+            .count();
+        // About the perimeter (80 pixels) of partially covered edge pixels.
+        assert!(partial >= 40, "only {partial} edge pixels are partial");
+    }
+
+    #[test]
+    fn rounds_text_raster_scales_up_to_eighths_of_an_octave() {
+        let scaled = |scale: f32| {
+            text_raster_scale(Affine {
+                a: scale,
+                d: scale,
+                ..Affine::IDENTITY
+            })
+        };
+        assert_eq!(scaled(1.0), 1.0);
+        assert_eq!(scaled(2.0), 2.0);
+        assert_eq!(scaled(0.5), 0.5);
+        assert!((scaled(1.5) - 2_f32.powf(5.0 / 8.0)).abs() < 1e-6);
+        assert!(scaled(1.01) >= 1.01);
+        // Rotation does not change the size text is drawn at.
+        let rotated = Affine::from_transform(&EvaluatedTransform {
+            rotation: 33.0,
+            scale: Point { x: 2.0, y: 2.0 },
+            ..EvaluatedTransform::default()
+        });
+        assert!((text_raster_scale(rotated) - 2.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn mipmaps_average_color_by_coverage() {
+        // An opaque white texel next to a transparent black one: the color
+        // stays white rather than greying toward the transparent texel.
+        let (width, height, pixels) = downsample(2, 1, &[255, 255, 255, 255, 0, 0, 0, 0]);
+        assert_eq!((width, height), (1, 1));
+        assert_eq!(pixels, [255, 255, 255, 128]);
+        // Odd sizes fold the last column into its neighbour.
+        let (width, _, pixels) = downsample(3, 1, &[30, 30, 30, 255].repeat(3));
+        assert_eq!(width, 1);
+        assert_eq!(pixels, [30, 30, 30, 255]);
+    }
+
+    #[test]
+    fn render_qualities_round_trip_through_their_names() {
+        for quality in RenderQuality::ALL {
+            assert_eq!(quality.as_str().parse::<RenderQuality>(), Ok(quality));
+        }
+        assert!("best".parse::<RenderQuality>().is_err());
     }
 
     #[test]
