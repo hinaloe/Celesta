@@ -2,7 +2,6 @@ import { Console } from 'node:console';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import * as readline from 'node:readline';
 import { pathToFileURL } from 'node:url';
 
 import { createResolver, mount } from './render';
@@ -70,26 +69,28 @@ async function main(): Promise<void> {
   // resolves a relative `<Audio>`/`<Image>` src against the entry directory.
   process.env.CELESTA_REACT_ENTRY_DIR = path.dirname(entryPath);
 
-  const input = readline.createInterface({ input: process.stdin, terminal: false });
-  const lines = input[Symbol.asyncIterator]();
-  let probeQueue = Promise.resolve();
+  const lines = new ProtocolLines();
+  // Prepare-time probes and measurements share one request/response channel.
+  let requestQueue = Promise.resolve();
   setMediaProbe((mediaPath) => {
-    const result = probeQueue.then(() => requestMediaProbe(lines, mediaPath));
-    probeQueue = result.then(
+    const result = requestQueue.then(() => requestMediaProbe(lines, mediaPath));
+    requestQueue = result.then(
       () => undefined,
       () => undefined,
     );
     return result;
   });
 
-  let measureQueue = Promise.resolve();
   setTextMeasurer((request) => {
-    const result = measureQueue.then(() => requestTextMeasure(lines, request));
-    measureQueue = result.then(
+    const result = requestQueue.then(() => requestTextMeasure(lines, request));
+    requestQueue = result.then(
       () => undefined,
       () => undefined,
     );
     return result;
+  }, (request) => {
+    writeLine({ measureText: request });
+    return textMeasureResponse(lines.nextSync());
   });
 
   let defaultExport: EntryComponent;
@@ -156,7 +157,7 @@ async function main(): Promise<void> {
     try {
       if (isResolveRequest(request)) {
         resolver ??= createResolver();
-        writeLine({ components: resolver.resolve(request.components, request.runtime) });
+        writeLine({ components: resolver.resolve(request.components, request.runtime, mounted.fonts) });
       } else {
         const { scene, audio } = mounted.renderAt(request.time, request.project ?? null);
         writeLine({ scene, audio });
@@ -196,7 +197,10 @@ async function requestTextMeasure(
   request: MeasureTextRequest,
 ): Promise<TextMetrics> {
   writeLine({ measureText: request });
-  const next = await lines.next();
+  return textMeasureResponse(await lines.next());
+}
+
+function textMeasureResponse(next: IteratorResult<string>): TextMetrics {
   if (next.done) {
     throw new Error('Celesta closed the text measurement channel unexpectedly');
   }
@@ -228,7 +232,11 @@ function writeLine(
     | { measureText: MeasureTextRequest }
     | { error: string },
 ): void {
-  process.stdout.write(`${JSON.stringify(value)}\n`);
+  // Synchronous hooks may immediately wait for Rust's reply. Flush the whole
+  // request without depending on Node's event loop to drain stdout.
+  const bytes = Buffer.from(`${JSON.stringify(value)}\n`);
+  let offset = 0;
+  while (offset < bytes.length) offset += fs.writeSync(1, bytes, offset, bytes.length - offset);
 }
 
 function describeError(error: unknown): string {
@@ -311,6 +319,50 @@ async function loadEntry(entryPath: string): Promise<LoadedEntry> {
     defaultExport: defaultExport as EntryComponent,
     prepare: prepareExport as (() => Promise<void>) | undefined,
   };
+}
+
+/** A shared buffer prevents async reads from swallowing synchronous RPC replies. */
+class ProtocolLines implements AsyncIterator<string> {
+  private pending = Buffer.alloc(0);
+  private ended = false;
+
+  private takeLine(): IteratorResult<string> | undefined {
+    const newline = this.pending.indexOf(10);
+    if (newline >= 0 || (this.ended && this.pending.length > 0)) {
+      const end = newline >= 0 ? newline : this.pending.length;
+      const value = this.pending.subarray(0, end).toString('utf8');
+      this.pending = this.pending.subarray(end + 1);
+      return { done: false, value };
+    }
+    return this.ended ? { done: true, value: undefined } : undefined;
+  }
+
+  async next(): Promise<IteratorResult<string>> {
+    while (true) {
+      const line = this.takeLine();
+      if (line) return line;
+      const chunk = Buffer.alloc(4096);
+      const count = await new Promise<number>((resolve, reject) => {
+        fs.read(0, chunk, 0, chunk.length, null, (error, bytesRead) => {
+          if (error) reject(error);
+          else resolve(bytesRead);
+        });
+      });
+      this.ended = count === 0;
+      this.pending = Buffer.concat([this.pending, chunk.subarray(0, count)]);
+    }
+  }
+
+  nextSync(): IteratorResult<string> {
+    while (true) {
+      const line = this.takeLine();
+      if (line) return line;
+      const chunk = Buffer.alloc(4096);
+      const count = fs.readSync(0, chunk, 0, chunk.length, null);
+      this.ended = count === 0;
+      this.pending = Buffer.concat([this.pending, chunk.subarray(0, count)]);
+    }
+  }
 }
 
 main();

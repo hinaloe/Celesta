@@ -10,6 +10,7 @@ import * as React from 'react';
 
 import { isRemoteUrl } from './entry-dir';
 import { CompositionRuntimeContext } from './hooks';
+import { TextMetricsFontsContext } from './text-measure';
 import { ProjectLayersContext, ProjectTrackLayersContext } from './project-runtime';
 import { resolveVisibleLayers } from './psd-preset';
 import { resolveComponent } from './registry';
@@ -119,6 +120,7 @@ interface WalkContext {
 
 export interface MountedComposition {
   readonly config: CompositionConfig;
+  readonly fonts: readonly ResolvedAsset[];
   /**
    * Renders one exact frame against the persistent root. Audio declarations
    * are gathered from this same tree walk — an `<Audio>` behind a
@@ -736,6 +738,7 @@ function walkChildren(
 
 export function mount(defaultExport: EntryComponent): MountedComposition {
   const { container, root } = createRoot();
+  let fonts: ResolvedAsset[] = [];
 
   const renderTree = (
     time: Time,
@@ -759,7 +762,11 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
         React.createElement(
           CompositionRuntimeContext.Provider,
           { value: runtimeValue },
-          React.createElement(defaultExport, {}),
+          React.createElement(
+            TextMetricsFontsContext.Provider,
+            { value: fonts },
+            React.createElement(defaultExport, {}),
+          ),
         ),
       ),
     );
@@ -778,12 +785,25 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
   renderTree(ZERO_TIME, { layers: [], tracks: {} }, PLACEHOLDER_CONFIG);
   const compositionInstance = findCompositionInstance(container);
   const config = readCompositionConfig(compositionInstance);
+  const initialFonts: ResolvedAsset[] = [];
+  collectFonts(compositionInstance, initialFonts);
+  fonts = initialFonts;
 
   return {
     config,
+    get fonts() { return fonts; },
     renderAt(time, project) {
       renderTree(time, project, config);
-      const instance = findCompositionInstance(container);
+      let instance = findCompositionInstance(container);
+      const nextFonts: ResolvedAsset[] = [];
+      collectFonts(instance, nextFonts);
+      if (JSON.stringify(nextFonts) !== JSON.stringify(fonts)) {
+        fonts = nextFonts;
+        // A declaration can appear after its consumer, or change this frame.
+        // Reconcile again with the complete font list before emitting layers.
+        renderTree(time, project, config);
+        instance = findCompositionInstance(container);
+      }
       const audio: AudioClipDescriptor[] = [];
       const context = rootWalkContext(config.frameRate.numerator, config.durationInFrames, time);
       for (const child of instance.children) {
@@ -795,8 +815,6 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
         context,
         audio,
       );
-      const fonts: ResolvedAsset[] = [];
-      collectFonts(instance, fonts);
       return {
         scene: {
           width: config.width,
@@ -851,6 +869,7 @@ export interface Resolver {
   resolve(
     items: readonly ComponentResolutionRequest[],
     runtime?: ResolutionRuntime,
+    fonts?: readonly ResolvedAsset[],
   ): (Layer[] | null)[];
 }
 
@@ -880,7 +899,7 @@ export function createResolver(): Resolver {
     );
 
   return {
-    resolve(items, runtime) {
+    resolve(items, runtime, fonts = []) {
       const runtimeValue = runtime ? { ...runtime, preview: runtime.preview === true } : PLACEHOLDER_RUNTIME;
       const element = React.createElement(
         ProjectLayersContext.Provider,
@@ -891,7 +910,11 @@ export function createResolver(): Resolver {
           React.createElement(
             CompositionRuntimeContext.Provider,
             { value: runtimeValue },
-            React.createElement(ResolverHost, { items }),
+            React.createElement(
+              TextMetricsFontsContext.Provider,
+              { value: fonts },
+              React.createElement(ResolverHost, { items }),
+            ),
           ),
         ),
       );

@@ -54,6 +54,139 @@ fn evaluates_the_example_composition_when_node_is_available() {
 }
 
 #[test]
+fn render_text_metrics_match_loaded_fonts_and_component_preview_when_node_is_available() {
+    let Some((node, cli_script, package_root)) = live_react_runtime() else {
+        return;
+    };
+    let entry = package_root.join("examples/with-text-metrics.tsx");
+    let mut bridge = ReactBridge::spawn(&node, &cli_script, &entry).unwrap();
+    let mut measurer = celesta_renderer::TextRasterizer::new();
+
+    for frame in [0, 9, 99, 0] {
+        let time = Time::new(frame, 30);
+        let scene = bridge.scene_at(time).unwrap();
+        measurer
+            .load_fonts(&scene.fonts, entry.parent().unwrap())
+            .unwrap();
+        let layers = all_layers(&scene.layers);
+        let backgrounds: Vec<_> = layers
+            .iter()
+            .filter(|layer| layer.id == "pill-background")
+            .collect();
+        let labels: Vec<_> = layers
+            .iter()
+            .filter(|layer| layer.id == "pill-label")
+            .collect();
+        assert_eq!(backgrounds.len(), 4);
+        for (background, label) in backgrounds.iter().zip(&labels) {
+            let LayerContent::Text { text, style, .. } = &label.content else {
+                panic!("expected a text label");
+            };
+            let metrics = measurer.measure(text, style, None);
+            let LayerContent::Rect {
+                width,
+                height,
+                corner_radius,
+                ..
+            } = &background.content
+            else {
+                panic!("expected a fitted rectangle");
+            };
+            assert_eq!(*width, metrics.width + 48.0);
+            assert_eq!(*height, metrics.height + 24.0);
+            assert_eq!(*corner_radius, height / 2.0);
+            assert_eq!(label.transform.position.y, metrics.ascent + 12.0);
+        }
+
+        let heading = &scene.layers[0];
+        let LayerContent::Group { layers: runs, .. } = &heading.content else {
+            panic!("expected a heading group");
+        };
+        let mut advance = 0.0;
+        for run in runs {
+            assert_eq!(run.transform.position.x, advance);
+            let LayerContent::Text {
+                text,
+                style,
+                baseline_anchor,
+                ..
+            } = &run.content
+            else {
+                panic!("expected a heading run");
+            };
+            assert!(*baseline_anchor);
+            advance += measurer.measure(text, style, None).width;
+        }
+
+        let row = &scene.layers[2];
+        let LayerContent::Group { layers: chips, .. } = &row.content else {
+            panic!("expected a chip row");
+        };
+        let widths: Vec<_> = backgrounds[1..]
+            .iter()
+            .map(|layer| {
+                let LayerContent::Rect { width, .. } = layer.content else {
+                    unreachable!()
+                };
+                width
+            })
+            .collect();
+        assert_eq!(
+            row.transform.position.x,
+            (1600.0 - widths.iter().sum::<f64>() - 32.0) / 2.0
+        );
+        assert_eq!(chips[1].transform.position.x, widths[0] + 16.0);
+        assert_eq!(chips[2].transform.position.x, widths[0] + widths[1] + 32.0);
+
+        let props = BTreeMap::new();
+        let preview = bridge
+            .resolve_components(
+                &[ComponentResolutionRequest {
+                    component: "MeasuredPill",
+                    props: &props,
+                }],
+                time,
+            )
+            .unwrap();
+        let preview_layers = all_layers(preview[0].as_deref().unwrap());
+        assert_eq!(
+            preview_layers
+                .iter()
+                .find(|layer| layer.id == "pill-background")
+                .unwrap()
+                .content,
+            backgrounds[0].content
+        );
+        assert_eq!(
+            preview_layers
+                .iter()
+                .find(|layer| layer.id == "pill-label")
+                .unwrap()
+                .content,
+            labels[0].content
+        );
+
+        let LayerContent::Group {
+            layers: export_pill,
+            ..
+        } = &scene.layers[1].content
+        else {
+            panic!("expected a pill group");
+        };
+        let mut export_scene = scene.clone();
+        export_scene.layers = export_pill.clone();
+        let mut preview_scene = scene.clone();
+        preview_scene.layers = preview[0].clone().unwrap();
+        let mut renderer = celesta_renderer::CpuRenderer::new(Default::default())
+            .with_asset_root(entry.parent().unwrap());
+        assert_eq!(
+            renderer.render(&export_scene).unwrap(),
+            renderer.render(&preview_scene).unwrap()
+        );
+    }
+}
+
+#[test]
 fn prepare_can_preload_media_metadata_when_node_is_available() {
     let Some((node, cli_script, package_root)) = live_react_runtime() else {
         return;
@@ -334,10 +467,7 @@ fn collect_audio_graph_sweeps_every_frame_into_one_graph_when_node_is_available(
         .collect_audio_graph(48_000, 1.0, entry.parent().unwrap())
         .unwrap();
     assert_eq!(graph.clips.len(), 1);
-    assert!(matches!(
-        &graph.clips[0].volume,
-        Animatable::Keyframes(_)
-    ));
+    assert!(matches!(&graph.clips[0].volume, Animatable::Keyframes(_)));
 }
 
 #[test]

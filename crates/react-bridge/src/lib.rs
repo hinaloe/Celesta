@@ -161,6 +161,7 @@ pub struct ReactBridge {
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
     metadata: ReactCompositionMetadata,
+    text_measurer: Option<TextRasterizer>,
 }
 
 impl Drop for ReactBridge {
@@ -252,24 +253,7 @@ impl ReactBridge {
                     stdin.flush().map_err(ReactBridgeError::Io)?;
                 }
                 ReadyMessage::MeasureText { measure_text } => {
-                    let measurer = text_measurer.get_or_insert_with(TextRasterizer::new);
-                    let response = match measurer.load_fonts(&measure_text.fonts, Path::new(".")) {
-                        Ok(()) => {
-                            let metrics = measurer.measure(
-                                &measure_text.text,
-                                &measure_text.style,
-                                measure_text.max_width,
-                            );
-                            MeasureTextResponse {
-                                metrics: Some(text_metrics_payload(&metrics)),
-                                error: None,
-                            }
-                        }
-                        Err(error) => MeasureTextResponse {
-                            metrics: None,
-                            error: Some(format!("could not measure text: {error}")),
-                        },
-                    };
+                    let response = measure_text_response(&mut text_measurer, &measure_text);
                     let payload =
                         serde_json::to_string(&response).map_err(ReactBridgeError::Protocol)?;
                     writeln!(stdin, "{payload}").map_err(ReactBridgeError::Io)?;
@@ -286,6 +270,7 @@ impl ReactBridge {
             stdin,
             stdout,
             metadata,
+            text_measurer,
         })
     }
 
@@ -301,10 +286,8 @@ impl ReactBridge {
     /// Same as [`Self::scene_at`], but also hands the entry's
     /// `<ProjectTimeline />`/`<ProjectTrack />`/`useProjectTrack()` a
     /// project's layers already evaluated for this exact time. The Node
-    /// side cannot ask Rust to evaluate a project mid-render: this process
-    /// is synchronously blocked on the response to this very request, so a
-    /// request travelling the other way would deadlock. Evaluating up front
-    /// and embedding the result avoids that.
+    /// side receives project evaluation from the caller up front; it can
+    /// request text measurements from this bridge while rendering.
     pub fn scene_at_with_project(
         &mut self,
         time: Time,
@@ -334,6 +317,7 @@ impl ReactBridge {
             Response::Ok { scene, audio } => Ok(FrameEvaluation { scene, audio }),
             Response::Components { .. } => Err(ReactBridgeError::UnexpectedResponse),
             Response::Err { error } => Err(ReactBridgeError::Render(error)),
+            Response::MeasureText { .. } => Err(ReactBridgeError::UnexpectedResponse),
         }
     }
 
@@ -378,6 +362,7 @@ impl ReactBridge {
             Response::Components { components } => Ok(components),
             Response::Ok { .. } => Err(ReactBridgeError::UnexpectedResponse),
             Response::Err { error } => Err(ReactBridgeError::Render(error)),
+            Response::MeasureText { .. } => Err(ReactBridgeError::UnexpectedResponse),
         }
     }
 
@@ -413,15 +398,27 @@ impl ReactBridge {
         writeln!(self.stdin, "{payload}").map_err(ReactBridgeError::Io)?;
         self.stdin.flush().map_err(ReactBridgeError::Io)?;
 
-        let mut line = String::new();
-        let read = self
-            .stdout
-            .read_line(&mut line)
-            .map_err(ReactBridgeError::Io)?;
-        if read == 0 {
-            return Err(ReactBridgeError::UnexpectedExit);
+        loop {
+            let mut line = String::new();
+            let read = self
+                .stdout
+                .read_line(&mut line)
+                .map_err(ReactBridgeError::Io)?;
+            if read == 0 {
+                return Err(ReactBridgeError::UnexpectedExit);
+            }
+            let response: Response =
+                serde_json::from_str(line.trim()).map_err(ReactBridgeError::Protocol)?;
+            if let Response::MeasureText { measure_text } = response {
+                let metrics = measure_text_response(&mut self.text_measurer, &measure_text);
+                serde_json::to_writer(&mut self.stdin, &metrics)
+                    .map_err(ReactBridgeError::Protocol)?;
+                writeln!(self.stdin).map_err(ReactBridgeError::Io)?;
+                self.stdin.flush().map_err(ReactBridgeError::Io)?;
+            } else {
+                return Ok(response);
+            }
         }
-        serde_json::from_str(line.trim()).map_err(ReactBridgeError::Protocol)
     }
 }
 
@@ -537,6 +534,10 @@ struct ComponentRequest<'a> {
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum Response {
+    MeasureText {
+        #[serde(rename = "measureText")]
+        measure_text: MeasureTextRequest,
+    },
     Ok {
         scene: Scene,
         #[serde(default)]
@@ -584,8 +585,7 @@ struct MeasureTextRequest {
     style: TextStyle,
     #[serde(default)]
     max_width: Option<f64>,
-    /// Fonts to load before measuring; `prepare()` runs before any scene
-    /// (and so any scene font list) exists.
+    /// Fonts declared by the composition or explicitly requested in `prepare()`.
     #[serde(default)]
     fonts: Vec<ResolvedAsset>,
 }
@@ -616,6 +616,27 @@ struct GlyphPayload {
     x: f64,
     width: f64,
     line: usize,
+}
+
+fn measure_text_response(
+    measurer: &mut Option<TextRasterizer>,
+    request: &MeasureTextRequest,
+) -> MeasureTextResponse {
+    let measurer = measurer.get_or_insert_with(TextRasterizer::new);
+    match measurer.load_fonts(&request.fonts, Path::new(".")) {
+        Ok(()) => MeasureTextResponse {
+            metrics: Some(text_metrics_payload(&measurer.measure(
+                &request.text,
+                &request.style,
+                request.max_width,
+            ))),
+            error: None,
+        },
+        Err(error) => MeasureTextResponse {
+            metrics: None,
+            error: Some(format!("could not measure text: {error}")),
+        },
+    }
 }
 
 fn text_metrics_payload(metrics: &TextMetrics) -> TextMetricsPayload {

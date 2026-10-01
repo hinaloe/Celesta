@@ -109,7 +109,7 @@ export type {
 export { mediaDurationInFrames, preloadMedia } from './media';
 export type { MediaAudioInfo, MediaInfo, MediaVideoInfo } from './media';
 
-export { measureText } from './text-measure';
+export { measureText, useTextMetrics } from './text-measure';
 export type { GlyphMetrics, MeasureTextOptions, TextMetrics } from './text-measure';
 
 export { DebugBounds, DebugOverlay } from './debug';
