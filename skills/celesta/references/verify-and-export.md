@@ -107,11 +107,18 @@ Celesta-export [options] --react scene.tsx [--project project.celesta.json] out.
 | `--project <file>` | Companion JSON project for `<ProjectTimeline />`/`<ProjectTrack />` (needs `--react`). |
 | `--from <t>`, `--to <t>` | Export only this span; the output starts at 00:00. Times are seconds, `MM:SS.mmm`, or `HH:MM:SS.mmm`. |
 | `--overwrite` | Replace an existing output file. Without it, export refuses. |
-| `--preset <p>` | libx264 preset, `ultrafast` … `veryslow` (default `medium`). |
+| `--preset <p>` | libx264 preset, `ultrafast` … `veryslow` (default `medium`). Encoding speed against file size only; it does not change what is rendered. |
 | `--crf <n>` | 0–51, lower is better quality (default 18). |
 | `--color-conversion <w>` | `auto` (default), `gpu`, or `encoder`. |
+| `--render-quality <q>` | `final` (default) or `draft`. `draft` draws scaled text from a scale-1 texture, so it is softer; use it only to check timing. |
 
 Output is H.264 + AAC MP4. Export renders on the GPU when one is available.
+
+Layers that are only moved are copied pixel for pixel. Scaled and rotated
+layers are filtered: their edges are anti-aliased, shrunk images use mipmaps,
+and in `final` quality text is rasterized at the size it is drawn at. The app
+preview draws in `draft` quality while playing and in `final` quality when
+paused or scrubbing, so a paused frame matches the export.
 
 **Only overwrite a file the user asked for or one you created.** For checks,
 write to a scratch path such as `/tmp/celesta-check.mp4` with `--overwrite`.

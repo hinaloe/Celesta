@@ -19,6 +19,8 @@ pub struct DisplayImage {
     pub pixels: Arc<RgbaImage>,
     pub width: f64,
     pub height: f64,
+    /// SVG pixels are rasterized at the requested display density.
+    pub is_svg: bool,
 }
 
 impl ImageSources {
@@ -86,6 +88,7 @@ impl ImageSources {
                 pixels: pixels.clone(),
                 width: w,
                 height: h,
+                is_svg: false,
             });
         }
         // SVG rasterization follows the
@@ -158,6 +161,7 @@ impl ImageSources {
             pixels: Arc::new(pixels),
             width: w,
             height: h,
+            is_svg: matches!(source, Source::Svg(_)),
         };
         // Retain only the latest resolution for each source during animation.
         self.rendered

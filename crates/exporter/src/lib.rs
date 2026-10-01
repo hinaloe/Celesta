@@ -1,6 +1,6 @@
 //! Frame-exact project export through the shared evaluator and renderers.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt;
@@ -21,6 +21,7 @@ use celesta_composition::{
 };
 use celesta_evaluator::{EvaluationError, Evaluator};
 use celesta_gpu_renderer::{GpuRenderError, GpuRenderOptions, GpuRenderer, ReadbackFormat};
+pub use celesta_gpu_renderer::{RenderQuality, UnknownRenderQuality};
 use celesta_media::{AudioMixError, FfmpegBackend, mix_audio_graph_cancellable};
 use celesta_project::{LoadError, Project, TimelineContent};
 use celesta_react_bridge::{
@@ -48,6 +49,10 @@ pub struct ExportOptions {
     pub range: Option<ExportRange>,
     /// H.264 encoder settings; the default matches the historical output.
     pub video: VideoEncoding,
+    /// How carefully scaled and rotated layers are drawn. Exports default to
+    /// [`RenderQuality::Final`]; this is independent of the encoder preset,
+    /// which only trades encoding speed against file size.
+    pub render_quality: RenderQuality,
 }
 
 /// Settings for the exported H.264 video stream.
@@ -371,11 +376,17 @@ struct ReactVideoRequest<'a> {
     audio: &'a mut Vec<ReactAudioClipDescriptor>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExportProgress {
-    Rendering { frame: u64, total: u64 },
+    Rendering {
+        frame: u64,
+        total: u64,
+    },
     MixingAudio,
     Muxing,
+    /// A problem that does not stop the export, such as text drawn with a
+    /// fallback font. Each is reported once per export.
+    Warning(String),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -840,8 +851,12 @@ impl Exporter {
             ..
         } = window;
         let frame_rate = project.settings.frame_rate;
-        let mut renderer =
-            export_renderer(asset_root, frame_rate, self.options.video.color_conversion)?;
+        let mut renderer = export_renderer(
+            asset_root,
+            frame_rate,
+            self.options.video.color_conversion,
+            self.options.render_quality,
+        )?;
         let mut writer = open_video_writer(
             project.settings.width,
             project.settings.height,
@@ -851,6 +866,7 @@ impl Exporter {
             output,
         )?;
 
+        let mut reported_fallbacks = HashSet::new();
         let result = (|| {
             let evaluator = Evaluator::new(project).map_err(ExportError::Evaluation)?;
             for frame_index in 0..frame_count {
@@ -872,6 +888,7 @@ impl Exporter {
                 if let Some(frame) = renderer.submit(&scene).map_err(ExportError::Render)? {
                     write_frame(&mut writer, frame)?;
                 }
+                report_font_fallbacks(&renderer, &mut reported_fallbacks, progress);
             }
             for frame in renderer.drain().map_err(ExportError::Render)? {
                 write_frame(&mut writer, frame)?;
@@ -928,6 +945,7 @@ impl Exporter {
             asset_root,
             metadata.frame_rate,
             self.options.video.color_conversion,
+            self.options.render_quality,
         )?;
         let mut writer = open_video_writer(
             metadata.width,
@@ -938,6 +956,7 @@ impl Exporter {
             output,
         )?;
 
+        let mut reported_fallbacks = HashSet::new();
         let result = (|| {
             for offset in 0..frame_count {
                 ensure_not_cancelled(cancellation)?;
@@ -989,6 +1008,7 @@ impl Exporter {
                 if let Some(frame) = renderer.submit(&scene).map_err(ExportError::Render)? {
                     write_frame(&mut writer, frame)?;
                 }
+                report_font_fallbacks(&renderer, &mut reported_fallbacks, progress);
             }
             for frame in renderer.drain().map_err(ExportError::Render)? {
                 write_frame(&mut writer, frame)?;
@@ -1253,9 +1273,11 @@ fn export_renderer(
     asset_root: &Path,
     frame_rate: Rational,
     color_conversion: ColorConversion,
+    render_quality: RenderQuality,
 ) -> Result<GpuRenderer, ExportError> {
     let mut renderer = GpuRenderer::new(GpuRenderOptions::default())
         .map_err(ExportError::Render)?
+        .with_render_quality(render_quality)
         .with_asset_root(asset_root)
         .with_video_decoder(FfmpegBackend::new().with_sequential_video(frame_rate));
     let on_gpu = match color_conversion {
@@ -1308,6 +1330,20 @@ fn open_video_writer(
             stage: "video encoding",
             source,
         })
+}
+
+/// Reports each font family and weight the frame `renderer` last submitted
+/// draws with a fallback font, unless an earlier frame already did.
+fn report_font_fallbacks(
+    renderer: &GpuRenderer,
+    reported: &mut HashSet<(String, u16)>,
+    progress: &mut impl FnMut(ExportProgress),
+) {
+    for fallback in renderer.font_fallbacks() {
+        if reported.insert((fallback.family.clone(), fallback.weight)) {
+            progress(ExportProgress::Warning(fallback.to_string()));
+        }
+    }
 }
 
 /// Hands the frame's pixel buffer to the encoder as is (`write_owned`), rather

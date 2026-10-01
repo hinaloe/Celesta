@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use celesta_exporter::{
     CompanionProject, ExportOptions, ExportProgress, ExportRange, Exporter, ReactRuntimeOptions,
-    VideoEncoding, parse_timecode,
+    RenderQuality, VideoEncoding, parse_timecode,
 };
 use celesta_project::Project;
 
@@ -19,7 +19,7 @@ fn main() -> ExitCode {
     }
 }
 
-const USAGE: &str = "usage: celesta-exporter [--overwrite] [--from <timecode>] [--to <timecode>] [--preset <preset>] [--crf <crf>] [--color-conversion <where>] <project.celesta.json> <output.mp4>\n       celesta-exporter [--overwrite] [--from <timecode>] [--to <timecode>] [--preset <preset>] [--crf <crf>] [--color-conversion <where>] --react <entry.tsx> [--project <project.celesta.json>] <output.mp4>\n\ntimecode is HH:MM:SS(.mmm), MM:SS(.mmm) or SS(.mmm); --from/--to select a\nspan of the composition to export (the output starts at its own 00:00).\n--preset is a libx264 preset (ultrafast … veryslow, default medium): faster\npresets encode faster but produce larger files. --crf is 0-51 (default 18);\nlower is higher quality. --color-conversion (auto, gpu, or encoder; default\nauto) picks where RGB frames become YUV: auto uses the GPU unless it is a\nsoftware renderer.";
+const USAGE: &str = "usage: celesta-exporter [--overwrite] [--from <timecode>] [--to <timecode>] [--preset <preset>] [--crf <crf>] [--color-conversion <where>] [--render-quality <quality>] <project.celesta.json> <output.mp4>\n       celesta-exporter [--overwrite] [--from <timecode>] [--to <timecode>] [--preset <preset>] [--crf <crf>] [--color-conversion <where>] [--render-quality <quality>] --react <entry.tsx> [--project <project.celesta.json>] <output.mp4>\n\ntimecode is HH:MM:SS(.mmm), MM:SS(.mmm) or SS(.mmm); --from/--to select a\nspan of the composition to export (the output starts at its own 00:00).\n--preset is a libx264 preset (ultrafast … veryslow, default medium): faster\npresets encode faster but produce larger files. --crf is 0-51 (default 18);\nlower is higher quality. --color-conversion (auto, gpu, or encoder; default\nauto) picks where RGB frames become YUV: auto uses the GPU unless it is a\nsoftware renderer. --render-quality (draft or final, default final) sets how\ncarefully scaled and rotated layers are drawn; draft skips re-rasterizing\nscaled text and is meant for quick checks of timing, not of pixels.";
 
 fn run() -> Result<(), String> {
     let mut overwrite = false;
@@ -28,6 +28,7 @@ fn run() -> Result<(), String> {
     let mut from: Option<OsString> = None;
     let mut to: Option<OsString> = None;
     let mut video = VideoEncoding::default();
+    let mut render_quality = RenderQuality::default();
     let mut paths = Vec::<OsString>::new();
     let mut arguments = std::env::args_os().skip(1);
     while let Some(argument) = arguments.next() {
@@ -55,6 +56,13 @@ fn run() -> Result<(), String> {
                 .ok_or("--color-conversion is not valid UTF-8")?
                 .parse()
                 .map_err(|error| format!("--color-conversion: {error}"))?;
+        } else if argument == "--render-quality" {
+            let value = arguments.next().ok_or(USAGE)?;
+            render_quality = value
+                .to_str()
+                .ok_or("--render-quality is not valid UTF-8")?
+                .parse()
+                .map_err(|error| format!("--render-quality: {error}"))?;
         } else if argument == "--crf" {
             let value = arguments.next().ok_or(USAGE)?;
             video.crf = value
@@ -82,6 +90,7 @@ fn run() -> Result<(), String> {
         overwrite,
         range,
         video,
+        render_quality,
     });
     let mut rendering_started: Option<Instant> = None;
     let on_progress = |progress: ExportProgress| match progress {
@@ -99,6 +108,9 @@ fn run() -> Result<(), String> {
         }
         ExportProgress::MixingAudio => eprintln!("mixing audio"),
         ExportProgress::Muxing => eprintln!("muxing MP4"),
+        // Replaces the unfinished progress line; the next frame redraws it
+        // below.
+        ExportProgress::Warning(warning) => eprintln!("\rwarning: {warning}"),
     };
     if react {
         let runtime = default_react_runtime();

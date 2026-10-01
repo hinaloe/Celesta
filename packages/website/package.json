@@ -18,6 +18,9 @@
   },
   "dependencies": {
     "@celesta/web": "workspace:*",
+    "@twinkleplop/bash": "^0.1.5",
+    "@twinkleplop/json": "^0.1.5",
+    "@twinkleplop/tsx": "^0.1.5",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

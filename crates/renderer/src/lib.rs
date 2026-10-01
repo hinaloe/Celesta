@@ -186,10 +186,32 @@ pub struct GlyphMetrics {
     pub line: usize,
 }
 
+/// A `Text` layer whose `fontFamily` has no loaded or installed face, so it
+/// is drawn with a fallback font instead.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FontFallback {
+    pub layer: String,
+    pub family: String,
+    pub weight: u16,
+}
+
+impl fmt::Display for FontFallback {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "font family \"{}\" (weight {}) is not installed or loaded; text layer \"{}\" uses a fallback font",
+            self.family, self.weight, self.layer
+        )
+    }
+}
+
 pub struct TextRasterizer {
     font_system: FontSystem,
     swash_cache: SwashCache,
     loaded_fonts: HashSet<PathBuf>,
+    /// `matched_weight` results by family and requested weight, cleared
+    /// whenever a font is loaded.
+    matched_weights: HashMap<(String, u16), Option<u16>>,
 }
 
 impl TextRasterizer {
@@ -206,6 +228,7 @@ impl TextRasterizer {
             font_system,
             swash_cache: SwashCache::new(),
             loaded_fonts: HashSet::new(),
+            matched_weights: HashMap::new(),
         }
     }
 
@@ -287,6 +310,7 @@ impl TextRasterizer {
         if ids.is_empty() {
             return Err(invalid("no font faces found"));
         }
+        self.matched_weights.clear();
         let Some(alias) = alias else {
             return Ok(());
         };
@@ -305,6 +329,40 @@ impl TextRasterizer {
         Ok(())
     }
 
+    /// The weight of the face that CSS font matching (CSS Fonts §5.2) picks
+    /// from `family` for `requested`: `requested` itself when the family has
+    /// a face of that weight, otherwise the nearest one it has. `None` when
+    /// no face of `family` is loaded or installed.
+    fn matched_weight(&mut self, family: &str, requested: u16) -> Option<u16> {
+        let database = self.font_system.db();
+        *self
+            .matched_weights
+            .entry((family.to_owned(), requested))
+            .or_insert_with(|| {
+                let id = database.query(&fontdb::Query {
+                    families: &[Family::Name(family)],
+                    weight: Weight(requested),
+                    ..fontdb::Query::default()
+                })?;
+                Some(database.face(id)?.weight.0)
+            })
+    }
+
+    /// The fallback `style` is drawn with on `layer` when its `fontFamily`
+    /// has no loaded or installed face; `None` when it has one or names no
+    /// family.
+    pub fn font_fallback(&mut self, layer: &str, style: &TextStyle) -> Option<FontFallback> {
+        let family = style.font_family.as_deref()?;
+        let weight = style.font_weight.unwrap_or(400);
+        self.matched_weight(family, weight)
+            .is_none()
+            .then(|| FontFallback {
+                layer: layer.to_owned(),
+                family: family.to_owned(),
+                weight,
+            })
+    }
+
     /// Shapes `text` into a laid-out buffer. `width` and `scale` are in
     /// output pixels: `scale` multiplies the style's font size and line height.
     fn shaped_buffer(
@@ -314,6 +372,16 @@ impl TextRasterizer {
         width: Option<f32>,
         scale: f32,
     ) -> Buffer {
+        let requested_weight = style.font_weight.unwrap_or(400);
+        // cosmic-text only picks the requested family's face when its weight
+        // is exactly the requested one, and otherwise falls back to another
+        // family. Ask for the weight CSS matching picks within the family
+        // instead, so a family loaded only in Bold still draws a 400 request.
+        let weight = style
+            .font_family
+            .as_deref()
+            .and_then(|family| self.matched_weight(family, requested_weight))
+            .unwrap_or(requested_weight);
         let font_size = style.font_size.unwrap_or(32.0) as f32 * scale;
         let line_height = style
             .line_height
@@ -323,7 +391,7 @@ impl TextRasterizer {
         buffer.set_size(&mut self.font_system, width, None);
         buffer.set_wrap(&mut self.font_system, Wrap::Word);
 
-        let mut attrs = Attrs::new().weight(Weight(style.font_weight.unwrap_or(400)));
+        let mut attrs = Attrs::new().weight(Weight(weight));
         if let Some(family) = style.font_family.as_deref() {
             attrs = attrs.family(Family::Name(family));
         }
@@ -3314,6 +3382,77 @@ mod font_tests {
         // Under the family stored in the file and the stylesheet's CSS name.
         assert!(has_family(&rasterizer, FAMILY));
         assert!(has_family(&rasterizer, "Brand"));
+    }
+
+    /// A rasterizer with `Bebas Neue`, whose only face is Regular (400).
+    fn regular_only_rasterizer() -> TextRasterizer {
+        let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/prism");
+        let mut rasterizer = TextRasterizer::new();
+        rasterizer
+            .load_fonts(
+                &[file_font("assets/fonts/BebasNeue-Regular.ttf")],
+                &examples,
+            )
+            .unwrap();
+        rasterizer
+    }
+
+    #[test]
+    fn matches_the_nearest_weight_within_a_loaded_family() {
+        let mut rasterizer = regular_only_rasterizer();
+        let style = |weight| TextStyle {
+            font_family: Some("Bebas Neue".to_owned()),
+            font_size: Some(48.0),
+            font_weight: weight,
+            ..TextStyle::default()
+        };
+        let regular = rasterizer
+            .rasterize("CELESTA", &style(Some(400)), None, 1.0)
+            .unwrap();
+        for weight in [None, Some(100), Some(700), Some(900)] {
+            assert_eq!(
+                rasterizer.matched_weight("Bebas Neue", weight.unwrap_or(400)),
+                Some(400)
+            );
+            let text = rasterizer
+                .rasterize("CELESTA", &style(weight), None, 1.0)
+                .unwrap();
+            assert!(
+                text == regular,
+                "weight {weight:?} did not draw with Bebas Neue"
+            );
+            assert_eq!(rasterizer.font_fallback("title", &style(weight)), None);
+        }
+    }
+
+    #[test]
+    fn reports_a_family_with_no_face() {
+        let mut rasterizer = regular_only_rasterizer();
+        let style = TextStyle {
+            font_family: Some("Celesta Missing Family".to_owned()),
+            font_weight: Some(700),
+            ..TextStyle::default()
+        };
+        let fallback = rasterizer.font_fallback("title", &style).unwrap();
+        assert_eq!(
+            fallback,
+            FontFallback {
+                layer: "title".to_owned(),
+                family: "Celesta Missing Family".to_owned(),
+                weight: 700,
+            }
+        );
+        assert_eq!(
+            fallback.to_string(),
+            "font family \"Celesta Missing Family\" (weight 700) is not installed or loaded; text layer \"title\" uses a fallback font"
+        );
+        // Still drawn, with a fallback font.
+        assert!(rasterizer.rasterize("A", &style, None, 1.0).is_ok());
+        // No family means the default font, not a fallback.
+        assert_eq!(
+            rasterizer.font_fallback("title", &TextStyle::default()),
+            None
+        );
     }
 
     #[test]

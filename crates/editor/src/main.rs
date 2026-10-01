@@ -25,7 +25,9 @@ use celesta_exporter::{
     ExportCancellation, ExportError, ExportOptions, ExportProgress, ExportRange, Exporter,
     ReactRuntimeOptions,
 };
-use celesta_gpu_renderer::{GpuRenderOptions, GpuRenderer, PreviewFrame as GpuPreviewFrame};
+use celesta_gpu_renderer::{
+    GpuRenderOptions, GpuRenderer, PreviewFrame as GpuPreviewFrame, RenderQuality,
+};
 use celesta_media::{
     AudioBuffer, AudioDecoder, FfmpegBackend, MediaError, MediaProbe, mix_audio_graph_cancellable,
 };
@@ -110,6 +112,10 @@ struct PreviewRequest {
     /// `ReactPreviewBridge` and respawns Node, picking up a re-bundle after
     /// the composition's code changed.
     react_reload: u64,
+    /// `Draft` while playing, so scaled text is not re-rasterized for every
+    /// frame; `Final` otherwise, so a paused or scrubbed frame looks exactly
+    /// like the export.
+    render_quality: RenderQuality,
 }
 
 struct PreviewResult {
@@ -529,12 +535,13 @@ impl PreviewWorker {
                 while let Ok(first) = request_rx.recv() {
                     let request = take_latest(first, &request_rx);
                     renderer.set_asset_root(&request.asset_root);
+                    renderer.set_render_quality(request.render_quality);
                     if request.react_reload != react_reload {
                         react_reload = request.react_reload;
                         react_bridge = None;
                     }
                     let mut scene = request.scene;
-                    let warnings = match request.react_mode {
+                    let mut warnings = match request.react_mode {
                         ReactPreviewMode::WholeScene => render_whole_react_scene(
                             &mut scene,
                             &mut react_bridge,
@@ -550,6 +557,7 @@ impl PreviewWorker {
                         .render_preview(&scene)
                         .map_err(|error| error.to_string())
                         .map(prepare_preview_frame);
+                    warnings.extend(renderer.font_fallbacks().iter().map(ToString::to_string));
                     if result_tx
                         .send(PreviewResult {
                             generation: request.generation,
@@ -1605,6 +1613,11 @@ impl EditorView {
                     react,
                     react_mode,
                     react_reload: self.react_reload_generation,
+                    render_quality: if self.playing {
+                        RenderQuality::Draft
+                    } else {
+                        RenderQuality::Final
+                    },
                 }) {
                     self.preview_pending = false;
                     self.preview_error = Some(error.into());
@@ -1985,6 +1998,8 @@ impl EditorView {
 
         loop {
             match self.export_worker.events.try_recv() {
+                // The preview already lists font fallbacks.
+                Ok(ExportEvent::Progress(ExportProgress::Warning(_))) => {}
                 Ok(ExportEvent::Progress(progress)) => {
                     self.export_progress = Some(progress);
                 }
@@ -2032,10 +2047,15 @@ impl EditorView {
     }
 
     fn pause(&mut self) {
+        let was_playing = self.playing;
         self.playing = false;
         self.playback_started_at = None;
         if let Some(audio) = &self.audio_preview {
             audio.pause();
+        }
+        if was_playing {
+            // The last frame was drawn in draft quality; show the final one.
+            self.refresh_preview();
         }
     }
 
@@ -3956,7 +3976,7 @@ impl EditorView {
                     )),
             )
             .when_some(
-                self.export_progress.map(export_progress_label),
+                self.export_progress.as_ref().map(export_progress_label),
                 |bar, label| {
                     bar.right(
                         div()
@@ -4399,7 +4419,7 @@ fn ruler_marks(total: f64) -> Vec<(f32, bool)> {
         .collect()
 }
 
-fn export_progress_label(progress: ExportProgress) -> String {
+fn export_progress_label(progress: &ExportProgress) -> String {
     match progress {
         ExportProgress::Rendering { frame: 0, total: 0 } => "Starting export…".to_owned(),
         ExportProgress::Rendering { frame, total } => {
@@ -4407,6 +4427,7 @@ fn export_progress_label(progress: ExportProgress) -> String {
         }
         ExportProgress::MixingAudio => "Mixing export audio…".to_owned(),
         ExportProgress::Muxing => "Muxing MP4…".to_owned(),
+        ExportProgress::Warning(warning) => warning.clone(),
     }
 }
 

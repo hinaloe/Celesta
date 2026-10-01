@@ -104,7 +104,7 @@ alpha, so a gradient can fade to transparent. At least 2 stops.
 | --- | --- |
 | children | Strings or numbers only (arrays of them are joined). Use template literals to combine values. `\n` breaks a line. |
 | `style` | A `TextStyle`, see below. |
-| `maxWidth` | Wrap at word boundaries within this width; `style.align` positions each line inside it. |
+| `maxWidth` | Wrap lines to fit this width; `style.align` positions each line inside it. Lines break where Unicode line breaking (UAX #14) allows: at spaces in Latin text, and between most characters in Japanese and Chinese, which keeps punctuation such as `、` and `。` off the start of a line. A word wider than `maxWidth` is not split; the part past `maxWidth` is cut off. |
 
 Single-line text is anchored vertically by its visible glyph bounds, so
 `anchorY={0.5}` centers the letters themselves. Horizontally it keeps its
@@ -218,10 +218,19 @@ type TextStyle = {
 };
 ```
 
-- An unknown `fontFamily` silently falls back to another font. For
-  reproducible output, ship the font file next to the entry and load it with
-  `<Font>`. Characters the font lacks (emoji) fall back per glyph.
-- With Google Fonts, list every weight you use in the URL.
+- Weights match within the family first: when `fontFamily` has no face at
+  the requested `fontWeight`, its nearest weight is used, picked as CSS font
+  matching does. A family loaded only in Bold therefore draws `fontWeight`
+  400, or no weight, in Bold. Bold is never synthesized.
+- A `fontFamily` with no installed or loaded face falls back to another
+  font. The Celesta app lists it with the preview's warnings, and
+  `celesta-export` prints `warning: font family "…" (weight …) is not installed or loaded;
+  text layer "…" uses a fallback font` to stderr, once per family and weight.
+  `scripts/inspect.mjs` does not check fonts. For reproducible output, ship
+  the font file next to the entry and load it with `<Font>`. Characters the
+  font lacks (emoji) fall back per glyph.
+- With Google Fonts, list every weight you use in the URL; a missing weight
+  uses the family's nearest one.
 
 ## Time and animation
 
