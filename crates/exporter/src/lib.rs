@@ -1,6 +1,6 @@
 //! Frame-exact project export through the shared evaluator and renderers.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt;
@@ -376,11 +376,17 @@ struct ReactVideoRequest<'a> {
     audio: &'a mut Vec<ReactAudioClipDescriptor>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExportProgress {
-    Rendering { frame: u64, total: u64 },
+    Rendering {
+        frame: u64,
+        total: u64,
+    },
     MixingAudio,
     Muxing,
+    /// A problem that does not stop the export, such as text drawn with a
+    /// fallback font. Each is reported once per export.
+    Warning(String),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -860,6 +866,7 @@ impl Exporter {
             output,
         )?;
 
+        let mut reported_fallbacks = HashSet::new();
         let result = (|| {
             let evaluator = Evaluator::new(project).map_err(ExportError::Evaluation)?;
             for frame_index in 0..frame_count {
@@ -881,6 +888,7 @@ impl Exporter {
                 if let Some(frame) = renderer.submit(&scene).map_err(ExportError::Render)? {
                     write_frame(&mut writer, frame)?;
                 }
+                report_font_fallbacks(&renderer, &mut reported_fallbacks, progress);
             }
             for frame in renderer.drain().map_err(ExportError::Render)? {
                 write_frame(&mut writer, frame)?;
@@ -948,6 +956,7 @@ impl Exporter {
             output,
         )?;
 
+        let mut reported_fallbacks = HashSet::new();
         let result = (|| {
             for offset in 0..frame_count {
                 ensure_not_cancelled(cancellation)?;
@@ -999,6 +1008,7 @@ impl Exporter {
                 if let Some(frame) = renderer.submit(&scene).map_err(ExportError::Render)? {
                     write_frame(&mut writer, frame)?;
                 }
+                report_font_fallbacks(&renderer, &mut reported_fallbacks, progress);
             }
             for frame in renderer.drain().map_err(ExportError::Render)? {
                 write_frame(&mut writer, frame)?;
@@ -1320,6 +1330,20 @@ fn open_video_writer(
             stage: "video encoding",
             source,
         })
+}
+
+/// Reports each font family and weight the frame `renderer` last submitted
+/// draws with a fallback font, unless an earlier frame already did.
+fn report_font_fallbacks(
+    renderer: &GpuRenderer,
+    reported: &mut HashSet<(String, u16)>,
+    progress: &mut impl FnMut(ExportProgress),
+) {
+    for fallback in renderer.font_fallbacks() {
+        if reported.insert((fallback.family.clone(), fallback.weight)) {
+            progress(ExportProgress::Warning(fallback.to_string()));
+        }
+    }
 }
 
 /// Hands the frame's pixel buffer to the encoder as is (`write_owned`), rather

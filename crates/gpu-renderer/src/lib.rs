@@ -19,7 +19,7 @@ use celesta_composition::{
 use celesta_media::{MediaError, VideoFrameDecoder};
 use celesta_remote::{RemoteAssetError, resolve_asset_path};
 use celesta_renderer::{
-    Color as CpuColor, RectPaint, RenderError, TextRasterizer, resolve_rect_paint,
+    Color as CpuColor, FontFallback, RectPaint, RenderError, TextRasterizer, resolve_rect_paint,
 };
 use image::ImageReader;
 use wgpu::util::DeviceExt;
@@ -330,6 +330,9 @@ pub struct GpuRenderer {
     /// `TextRasterizer::loaded_font_count` when the cached text textures
     /// were rasterized; a newly loaded font can change their layout.
     text_font_count: usize,
+    /// The last prepared frame's text layers that use a fallback font, one
+    /// per family and weight.
+    font_fallbacks: Vec<FontFallback>,
 }
 
 impl GpuRenderer {
@@ -509,7 +512,15 @@ impl GpuRenderer {
             textures: HashMap::new(),
             texture_generation: 0,
             text_font_count: 0,
+            font_fallbacks: Vec::new(),
         })
+    }
+
+    /// Text layers in the most recently rendered or submitted frame whose
+    /// `fontFamily` has no loaded or installed face, so they use a fallback
+    /// font. Each family and weight is listed once, with its first layer.
+    pub fn font_fallbacks(&self) -> &[FontFallback] {
+        &self.font_fallbacks
     }
 
     pub const fn options(&self) -> GpuRenderOptions {
@@ -999,6 +1010,7 @@ impl GpuRenderer {
         }
         self.texture_generation += 1;
         self.clip_entries.clear();
+        self.font_fallbacks.clear();
         let mut items = Vec::new();
         let prepared = scene
             .layers
@@ -1585,6 +1597,13 @@ impl GpuRenderer {
                 max_width,
                 baseline_anchor,
             } => {
+                if let Some(fallback) = self.text_rasterizer.font_fallback(&layer.id, style)
+                    && !self.font_fallbacks.iter().any(|reported| {
+                        reported.family == fallback.family && reported.weight == fallback.weight
+                    })
+                {
+                    self.font_fallbacks.push(fallback);
+                }
                 let raster_scale = match self.render_quality {
                     RenderQuality::Draft => 1.0,
                     RenderQuality::Final => text_raster_scale(state.transform),
@@ -4685,6 +4704,44 @@ mod tests {
                 .chunks_exact(4)
                 .any(|pixel| { pixel[3] > 0 && pixel[2] > pixel[0] })
         );
+    }
+
+    #[test]
+    fn lists_text_layers_whose_family_has_no_face() {
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        let missing = |id: &str, weight| {
+            let mut layer = text_layer(id, Point { x: 0.0, y: 0.0 }, 1.0, 24.0);
+            if let LayerContent::Text { style, .. } = &mut layer.content {
+                style.font_family = Some("Celesta Missing Family".to_owned());
+                style.font_weight = weight;
+            }
+            layer
+        };
+        let mut scene = empty_scene(320, 80);
+        scene.layers = vec![
+            missing("title", None),
+            // Same family and weight: listed once, with the first layer.
+            missing("subtitle", Some(400)),
+            missing("caption", Some(700)),
+            text_layer("default-font", Point { x: 0.0, y: 40.0 }, 1.0, 24.0),
+        ];
+        renderer.render(&scene).unwrap();
+        let listed = renderer
+            .font_fallbacks()
+            .iter()
+            .map(|fallback| (fallback.layer.as_str(), fallback.weight))
+            .collect::<Vec<_>>();
+        assert_eq!(listed, [("title", 400), ("caption", 700)]);
+
+        // A cached text texture still reports its fallback on later frames.
+        renderer.render(&scene).unwrap();
+        assert_eq!(renderer.font_fallbacks().len(), 2);
+
+        scene.layers.clear();
+        renderer.render(&scene).unwrap();
+        assert!(renderer.font_fallbacks().is_empty());
     }
 
     #[test]
