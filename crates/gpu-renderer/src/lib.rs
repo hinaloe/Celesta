@@ -2332,13 +2332,14 @@ impl PreparedLayer {
                 rect.stroke,
             ),
         };
+        let (tx, ty) = self.pixel_aligned_translation(width, height);
         let values = [
             self.state.transform.a,
             self.state.transform.b,
             self.state.transform.c,
             self.state.transform.d,
-            self.state.transform.tx,
-            self.state.transform.ty,
+            tx,
+            ty,
             width as f32,
             height as f32,
             self.anchor.x as f32,
@@ -2362,6 +2363,31 @@ impl PreparedLayer {
             0.0,
         ]);
         output.extend(values.flat_map(f32::to_ne_bytes));
+    }
+
+    /// The translation to draw with. A texture or rect that is only moved
+    /// gets its top-left corner rounded to a whole canvas pixel, as
+    /// `celesta_renderer::render_image` places it. Otherwise a corner on a
+    /// half pixel puts every pixel centre exactly on a texel boundary, and
+    /// nearest sampling picks the left or right texel per column depending on
+    /// f32 rounding, notching and shifting glyph stems.
+    fn pixel_aligned_translation(&self, width: u32, height: u32) -> (f32, f32) {
+        let Affine { a, b, c, d, tx, ty } = self.state.transform;
+        let movable = matches!(
+            self.content,
+            PreparedContent::Texture(_) | PreparedContent::Rect(_)
+        );
+        if !movable || (a, b, c, d) != (1.0, 0.0, 0.0, 1.0) {
+            return (tx, ty);
+        }
+        let align = |translation: f32, size: u32, anchor: f64| {
+            let offset = f64::from(size) * anchor;
+            ((f64::from(translation) - offset).round() + offset) as f32
+        };
+        (
+            align(tx, width, self.anchor.x),
+            align(ty, height, self.anchor.y),
+        )
     }
 }
 
@@ -4521,6 +4547,68 @@ mod tests {
             (center_y - 360.0).abs() <= 0.5,
             "center y was {center_y} ({min_y}..{max_y})"
         );
+    }
+
+    #[test]
+    fn places_layers_on_half_pixel_positions_like_the_cpu_renderer() {
+        // Nearest sampling picks a texel per pixel centre. With the quad's
+        // left edge on a half pixel, every centre lands exactly on a texel
+        // boundary, and f32 rounding chose a different neighbour per column:
+        // glyph stems came out notched and shifted. Full HD, because the
+        // error comes from the clip-space round trip at real canvas sizes.
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        let text = |x: f64, anchor_x: f64, size: f64| Layer {
+            id: format!("text-{x}"),
+            transform: EvaluatedTransform {
+                position: Point { x, y: 300.0 },
+                anchor: Point {
+                    x: anchor_x,
+                    y: 0.0,
+                },
+                ..EvaluatedTransform::default()
+            },
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            effects: Default::default(),
+            content: LayerContent::Text {
+                text: "0 Hello, 15,000".to_owned(),
+                style: TextStyle {
+                    font_size: Some(size),
+                    font_weight: Some(900),
+                    fill: Some(Paint::Solid {
+                        color: "#ffffff".to_owned(),
+                    }),
+                    ..TextStyle::default()
+                },
+                max_width: None,
+                baseline_anchor: false,
+            },
+        };
+        let layers = [
+            text(400.5, 0.0, 104.0),
+            text(1001.5, 0.0, 104.0),
+            text(37.5, 0.0, 30.0),
+            text(960.0, 0.5, 104.0),
+            text(961.0, 0.5, 104.0),
+            corner_rect("odd-rect", 400.5, 700.0, 9.0, 40.0, "#ffe080"),
+            corner_rect("fractional-rect", 1203.5, 700.0, 10.3, 40.0, "#40c0ff"),
+        ];
+        for layer in layers {
+            let mut scene = empty_scene(1920, 1080);
+            let id = layer.id.clone();
+            scene.layers = vec![layer];
+            let gpu = renderer.render(&scene).unwrap();
+            let cpu = celesta_renderer::CpuRenderer::default()
+                .render(&scene)
+                .unwrap();
+            let difference = max_channel_difference(&gpu, &cpu);
+            assert!(
+                difference <= 1,
+                "{id}: channels differ by up to {difference}"
+            );
+        }
     }
 
     #[test]
