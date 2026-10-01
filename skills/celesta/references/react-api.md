@@ -104,7 +104,7 @@ alpha, so a gradient can fade to transparent. At least 2 stops.
 | --- | --- |
 | children | Strings or numbers only (arrays of them are joined). Use template literals to combine values. `\n` breaks a line. |
 | `style` | A `TextStyle`, see below. |
-| `maxWidth` | Wrap at word boundaries within this width; `style.align` positions each line inside it. |
+| `maxWidth` | Wrap lines to fit this width; `style.align` positions each line inside it. Lines break where Unicode line breaking (UAX #14) allows: at spaces in Latin text, and between most characters in Japanese and Chinese, which keeps punctuation such as `、` and `。` off the start of a line. A word wider than `maxWidth` is not split; the part past `maxWidth` is cut off. |
 
 Single-line text is anchored vertically by its visible glyph bounds, so
 `anchorY={0.5}` centers the letters themselves. Horizontally it keeps its

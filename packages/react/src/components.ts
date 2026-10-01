@@ -99,6 +99,12 @@ export interface TextProps extends Omit<CommonProps, 'anchorY'> {
   anchorY?: number | 'baseline';
   children: ReactNode;
   style?: TextStyle;
+  /**
+   * Wraps lines to fit this width, breaking where Unicode line breaking
+   * (UAX #14) allows: at spaces in Latin text, and between most characters
+   * in Japanese and Chinese. A word wider than `maxWidth` is not split; the
+   * part past `maxWidth` is cut off.
+   */
   maxWidth?: number;
 }
 
