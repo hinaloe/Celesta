@@ -61,6 +61,8 @@ runs:
       if: runner.os == 'macOS'
       shell: bash
       run: |
+        # The runner image's formula index can predate ffmpeg@8.
+        brew update
         brew install ffmpeg@8 pkg-config
         # ffmpeg@8 is keg-only.
         echo "PKG_CONFIG_PATH=$(brew --prefix ffmpeg@8)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
