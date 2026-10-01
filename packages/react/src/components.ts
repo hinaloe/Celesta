@@ -387,7 +387,7 @@ export interface SequenceProps extends CommonProps {
    */
   from?: number;
   /**
-   * Length in frames. Children are only visible — and only contribute audio —
+   * Length in frames. Children are only mounted — and only contribute audio —
    * inside `[from, from + durationInFrames)`; defaults to running until the
    * end of the enclosing window.
    */
@@ -400,17 +400,14 @@ export interface SequenceProps extends CommonProps {
  * `<Sequence>`, `useCurrentFrame()`/`useCurrentTime()` report the shifted
  * local clock (`frame - from`), and `<Video>`/`<Audio>` play synced to that
  * same local clock, so media placed inside a sequence starts when the
- * sequence does. Children outside the window render no layers and collect no
- * audio; the range itself is evaluated by the renderer per requested frame,
- * so sequences work under conditionals, `.map()`, and hooks like any other
- * component.
+ * sequence does. Children are unmounted outside the window, so their code
+ * does not run and they contribute neither layers nor audio. Sequences work
+ * under conditionals, `.map()`, and hooks like any other component.
  */
 export function Sequence(props: SequenceProps): ReturnType<typeof React.createElement> {
-  // The host element ('sequence') carries only static props; shifting the
-  // clock for descendant components must happen here, through context, while
-  // they render. Whether the sequence is active at a given composition time
-  // is decided later, by render.ts's walker, which sees every 'sequence'
-  // node regardless of the current time.
+  // Gate children before React evaluates them, using the same local window
+  // as render.ts's walker. The walker still clips layers and audio against
+  // the enclosing windows.
   const context = React.useContext(CompositionRuntimeContext);
   if (!context) {
     throw new Error('<Sequence> must be called from within a Celesta <Composition>');
@@ -418,11 +415,17 @@ export function Sequence(props: SequenceProps): ReturnType<typeof React.createEl
   const fps = context.fps;
   const localSeconds = secondsFromTime(context.time);
   const from = typeof props.from === 'number' && Number.isFinite(props.from) ? props.from : 0;
-  const shiftedTime = secondsToTime(localSeconds - from / fps);
+  const durationInFrames = props.durationInFrames;
+  const hasDuration = typeof durationInFrames === 'number' && Number.isFinite(durationInFrames);
   const duration =
-    typeof props.durationInFrames === 'number'
-      ? Math.max(0, props.durationInFrames)
+    hasDuration
+      ? Math.max(0, durationInFrames)
       : Math.max(0, context.durationInFrames - from);
+  const endSeconds = hasDuration ? (from + duration) / fps : context.durationInFrames / fps;
+  if (localSeconds < from / fps || localSeconds >= endSeconds) {
+    return React.createElement('sequence', props, null);
+  }
+  const shiftedTime = secondsToTime(localSeconds - from / fps);
   return React.createElement(
     CompositionRuntimeContext.Provider,
     {

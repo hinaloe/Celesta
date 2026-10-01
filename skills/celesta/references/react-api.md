@@ -284,9 +284,13 @@ const scale = spring({ frame, fps, delay: 10, config: { damping: 12 } });
 ### `<Sequence from? durationInFrames?>`
 
 Shows its children only during `[from, from + durationInFrames)` in the
-parent's frames (default: until the parent's end). Inside, frames and media
-restart at 0. Sequences nest, and accept common layer props. Use them to
-lay out scenes back to back:
+parent's frames (default: until the parent's end). Children are unmounted
+outside this window, so their component code and hooks do not run. Entering
+the window again mounts them afresh, resetting their local React state.
+Declare fonts or assets needed throughout the composition in `<Assets>`
+outside a sequence.
+Inside, frames and media restart at 0. Sequences nest, and accept common
+layer props. Use them to lay out scenes back to back:
 
 ```tsx
 const scenes = [{ C: Intro, len: 90 }, { C: Body, len: 240 }, { C: Outro, len: 60 }];
