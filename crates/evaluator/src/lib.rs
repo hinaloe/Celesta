@@ -191,8 +191,16 @@ impl<'project> Evaluator<'project> {
                     playback_rate: evaluate_optional(playback_rate, local_time, 1.0)?,
                 },
             },
-            TimelineContent::Image { asset } => LayerContent::Image {
+            TimelineContent::Image {
+                asset,
+                width,
+                height,
+                fit,
+            } => LayerContent::Image {
                 asset: self.asset(asset)?,
+                width: *width,
+                height: *height,
+                fit: *fit,
             },
             TimelineContent::Text { text, style } => LayerContent::Text {
                 text: text.clone(),
@@ -254,6 +262,9 @@ impl<'project> Evaluator<'project> {
                 blend_mode: BlendMode::Normal,
                 effects: LayerEffects::default(),
                 content: LayerContent::Image {
+                    width: None,
+                    height: None,
+                    fit: None,
                     asset: self.asset(asset)?,
                 },
             });
@@ -281,6 +292,9 @@ impl<'project> Evaluator<'project> {
                         blend_mode: BlendMode::Normal,
                         effects: LayerEffects::default(),
                         content: LayerContent::Image {
+                            width: None,
+                            height: None,
+                            fit: None,
                             asset: self.asset(asset)?,
                         },
                     });
@@ -729,7 +743,7 @@ mod tests {
                 panic!("dialogue must expand to a group")
             };
             assert_eq!(layers.len(), 3);
-            let LayerContent::Image { asset } = &layers[1].content else {
+            let LayerContent::Image { asset, .. } = &layers[1].content else {
                 panic!("second dialogue layer must be the mouth")
             };
             asset.id.clone()

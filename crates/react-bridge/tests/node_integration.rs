@@ -138,7 +138,7 @@ fn evaluates_a_react_dialogue_as_a_character_and_subtitle_when_node_is_available
 
     assert!(layers.iter().any(|layer| matches!(
         &layer.content,
-        LayerContent::Image { asset } if asset.id == "./character.png"
+        LayerContent::Image { asset, .. } if asset.id == "./character.png"
     )));
     assert!(layers.iter().any(|layer| matches!(
         &layer.content,

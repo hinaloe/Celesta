@@ -349,3 +349,18 @@ fades in, a logo, and an animated title.
   "properties": {}
 }
 ```
+
+### Image display size and SVG
+
+Image assets accept PNG, JPEG, WebP, PNM, and SVG source paths or URLs.
+An image timeline content may include `width`, `height` (finite positive numbers),
+and `fit` (`"contain"` or `"cover"`):
+
+```json
+{ "type": "image", "asset": "logo", "width": 432 }
+```
+
+Omitted dimensions use the source's natural size; one dimension preserves the
+aspect ratio. Both stretch by default. `contain` centers with transparent
+letterboxing; `cover` centers and crops. SVG rasterization follows the accumulated
+layer scale, resolves CSS variable fallbacks, and preserves source backgrounds.

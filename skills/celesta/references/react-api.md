@@ -142,8 +142,22 @@ readable over light and dark scenes can be drawn in a light color inside
 
 ### `<Image>`
 
-`src` (path or URL). Drawn at its natural pixel size; resize with `scale`
-or a `<Fit>`. PNG, JPEG, WebP, and PNM are supported.
+`src` (path or URL). PNG, JPEG, WebP, PNM, and SVG are supported.
+Without dimensions, the image uses its natural size. `width` or `height`
+alone preserves its aspect ratio. Both dimensions stretch to the display box;
+`fit="contain"` centers the whole image with transparent letterboxing, while
+`fit="cover"` centers and crops it to fill the box. `scale` applies afterwards.
+
+```tsx
+<Image src="./logo.svg" width={432} />
+<Image src="./photo.png" width={800} height={450} fit="cover" />
+```
+
+SVGs rasterize at their display size and accumulated transform scale in preview
+and export. `var(--name, fallback)` uses its fallback (including nested functions).
+SVG backgrounds are preserved; remove unwanted backgrounds in the source.
+Missing files and invalid SVGs produce asset errors. Rasterization is limited to
+16384 pixels per side and 64 million pixels per image.
 
 ### `<Video>`
 

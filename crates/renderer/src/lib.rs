@@ -23,7 +23,7 @@ use cosmic_text::{
     Align, Attrs, Buffer, Color as CosmicColor, Family, FontSystem, Metrics, Shaping, SwashCache,
     Weight, Wrap,
 };
-use image::ImageReader;
+pub mod image_source;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Color {
@@ -598,6 +598,7 @@ pub struct CpuRenderer {
     asset_root: PathBuf,
     text_rasterizer: TextRasterizer,
     images: HashMap<String, DecodedImage>,
+    image_sources: image_source::ImageSources,
     video_decoder: Option<Box<dyn VideoFrameDecoder>>,
 }
 
@@ -608,6 +609,7 @@ impl CpuRenderer {
             asset_root: PathBuf::from("."),
             text_rasterizer: TextRasterizer::new(),
             images: HashMap::new(),
+            image_sources: Default::default(),
             video_decoder: None,
         }
     }
@@ -764,9 +766,38 @@ impl CpuRenderer {
                     );
                 }
             }
-            LayerContent::Image { asset } => {
-                let image = self.load_image(asset)?;
-                render_image(frame, image, layer.transform.anchor, &state);
+            LayerContent::Image {
+                asset,
+                width,
+                height,
+                fit,
+            } => {
+                let path = self.local_asset_path(asset)?;
+                let display = self
+                    .image_sources
+                    .render(
+                        &asset.id,
+                        &path,
+                        *width,
+                        *height,
+                        *fit,
+                        state.scale.x.abs().max(state.scale.y.abs()),
+                    )
+                    .map_err(|source| RenderError::ImageDecode {
+                        asset: asset.id.clone(),
+                        source,
+                    })?;
+                let mut state = state.clone();
+                state.scale.x *= display.width / display.pixels.width() as f64;
+                state.scale.y *= display.height / display.pixels.height() as f64;
+                render_image_pixels(
+                    frame,
+                    display.pixels.width(),
+                    display.pixels.height(),
+                    display.pixels.as_raw(),
+                    layer.transform.anchor,
+                    &state,
+                );
             }
             LayerContent::Psd {
                 asset,
@@ -928,34 +959,6 @@ impl CpuRenderer {
             },
         );
         Ok(())
-    }
-
-    fn load_image(&mut self, asset: &ResolvedAsset) -> Result<&DecodedImage, RenderError> {
-        if !self.images.contains_key(&asset.id) {
-            let path = self.local_asset_path(asset)?;
-            // Sniff the format: a downloaded file's name may lack an extension.
-            let image = ImageReader::open(&path)
-                .and_then(ImageReader::with_guessed_format)
-                .map_err(|source| RenderError::AssetIo {
-                    asset: asset.id.clone(),
-                    source,
-                })?
-                .decode()
-                .map_err(|source| RenderError::ImageDecode {
-                    asset: asset.id.clone(),
-                    source,
-                })?
-                .to_rgba8();
-            self.images.insert(
-                asset.id.clone(),
-                DecodedImage {
-                    width: image.width(),
-                    height: image.height(),
-                    pixels: image.into_raw(),
-                },
-            );
-        }
-        Ok(self.images.get(&asset.id).expect("image was cached"))
     }
 
     fn load_psd(
@@ -1356,19 +1359,37 @@ struct DecodedImage {
 }
 
 fn render_image(frame: &mut RgbaFrame, image: &DecodedImage, anchor: Point, state: &ParentState) {
-    let width = (f64::from(image.width) * state.scale.x.abs())
+    render_image_pixels(
+        frame,
+        image.width,
+        image.height,
+        &image.pixels,
+        anchor,
+        state,
+    );
+}
+
+fn render_image_pixels(
+    frame: &mut RgbaFrame,
+    image_width: u32,
+    image_height: u32,
+    pixels: &[u8],
+    anchor: Point,
+    state: &ParentState,
+) {
+    let width = (f64::from(image_width) * state.scale.x.abs())
         .round()
         .max(1.0) as u32;
-    let height = (f64::from(image.height) * state.scale.y.abs())
+    let height = (f64::from(image_height) * state.scale.y.abs())
         .round()
         .max(1.0) as u32;
     let left = (state.position.x - f64::from(width) * anchor.x).round() as i32;
     let top = (state.position.y - f64::from(height) * anchor.y).round() as i32;
     for destination_y in 0..height {
         for destination_x in 0..width {
-            let source_x = destination_x * image.width / width;
-            let source_y = destination_y * image.height / height;
-            let source_offset = ((source_y * image.width + source_x) * 4) as usize;
+            let source_x = destination_x * image_width / width;
+            let source_y = destination_y * image_height / height;
+            let source_offset = ((source_y * image_width + source_x) * 4) as usize;
             let x = left + destination_x as i32;
             let y = top + destination_y as i32;
             if x < 0 || y < 0 || x >= frame.width as i32 || y >= frame.height as i32 {
@@ -1382,10 +1403,10 @@ fn render_image(frame: &mut RgbaFrame, image: &DecodedImage, anchor: Point, stat
             blend_with_mode(
                 &mut frame.pixels[destination_offset..destination_offset + 4],
                 Color::rgba(
-                    image.pixels[source_offset],
-                    image.pixels[source_offset + 1],
-                    image.pixels[source_offset + 2],
-                    image.pixels[source_offset + 3],
+                    pixels[source_offset],
+                    pixels[source_offset + 1],
+                    pixels[source_offset + 2],
+                    pixels[source_offset + 3],
                 ),
                 state.opacity * coverage,
                 state.blend_mode,
@@ -2977,6 +2998,9 @@ mod tests {
                 blend_mode: BlendMode::Normal,
                 effects: Default::default(),
                 content: LayerContent::Image {
+                    width: None,
+                    height: None,
+                    fit: None,
                     asset: ResolvedAsset {
                         id: "checker".to_owned(),
                         location: AssetLocation::File {

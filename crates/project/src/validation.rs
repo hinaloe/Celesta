@@ -279,7 +279,22 @@ impl Validator<'_> {
                 self.asset_ref(&format!("{path}.content.asset"), asset, AssetKind::Audio);
                 self.media_fields(path, source_range, playback_rate, volume);
             }
-            TimelineContent::Image { asset } => {
+            TimelineContent::Image {
+                asset,
+                width,
+                height,
+                ..
+            } => {
+                for (name, value) in [("width", width), ("height", height)] {
+                    if let Some(value) = value
+                        && (!value.is_finite() || *value <= 0.0)
+                    {
+                        self.error(
+                            format!("{path}.content.{name}"),
+                            "must be finite and positive",
+                        );
+                    }
+                }
                 self.asset_ref(&format!("{path}.content.asset"), asset, AssetKind::Image);
             }
             TimelineContent::Text { style, .. } => {

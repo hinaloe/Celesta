@@ -153,6 +153,12 @@ pub enum LayerContent {
     },
     Image {
         asset: ResolvedAsset,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        width: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        height: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fit: Option<ImageFit>,
     },
     Psd {
         asset: ResolvedAsset,
@@ -352,4 +358,14 @@ pub struct AudioClip {
     pub playback_rate: Animatable<f64>,
     pub volume: Animatable<f64>,
     pub muted: bool,
+}
+
+/// Aspect-ratio policy inside an image's display box.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub enum ImageFit {
+    Contain,
+    Cover,
 }
