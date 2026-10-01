@@ -70,7 +70,9 @@ jobs:
         run: pnpm --dir packages/react run test
 
       - name: Build
-        run: cargo build --workspace --locked --timings
+        # Compile normal binaries and test targets together so Cargo can schedule
+        # them in parallel; the Test step reuses the compiled test targets.
+        run: cargo build --workspace --all-targets --locked --timings
 
       # Tests that need a GPU adapter skip themselves when none is available.
       - name: Test
