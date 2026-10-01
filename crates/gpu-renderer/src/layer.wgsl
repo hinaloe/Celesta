@@ -15,15 +15,14 @@ struct LayerInstance {
     @location(5) fill: vec4<f32>,
     @location(6) stroke: vec4<f32>,
     // The index of the innermost clip the layer is drawn through (-1 without
-    // one), unused
-    @location(7) clip: vec4<f32>,
+    // one); 1 to filter (the layer is scaled or rotated) or 0 to copy texel
+    // for texel; the mip level to filter at; texels per layer unit.
+    @location(7) clip_sampling: vec4<f32>,
 };
 
+// Read with `textureLoad` only: `layer_color` filters by hand.
 @group(0) @binding(0)
 var source_texture: texture_2d<f32>;
-
-@group(0) @binding(1)
-var source_sampler: sampler;
 
 // A copy of the canvas `fs_blend` draws onto, in premultiplied alpha.
 @group(1) @binding(0)
@@ -53,6 +52,8 @@ struct VertexOutput {
     // The canvas position of the fragment and the innermost clip it is drawn through.
     @location(6) world: vec2<f32>,
     @location(7) @interpolate(flat) clip: f32,
+    // filter, mip level, texels per layer unit (see `LayerInstance`)
+    @location(8) @interpolate(flat) sampling: vec3<f32>,
 };
 
 @vertex
@@ -65,8 +66,14 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, layer: LayerInstance) -> Ve
         vec2<f32>(1.0, 0.0),
         vec2<f32>(1.0, 1.0),
     );
-    let uv = coordinates[vertex_index];
     let size = layer.translation_size.zw;
+    let sampling = layer.clip_sampling.yzw;
+    // A filtered layer's edge texels blend with the transparent texels
+    // around it, so its quad grows by one texel on every side to draw that
+    // anti-aliased edge.
+    let texels = size * sampling.z;
+    let margin = select(vec2<f32>(0.0), 1.0 / texels, sampling.x == 1.0);
+    let uv = coordinates[vertex_index] * (1.0 + 2.0 * margin) - margin;
     let anchor = layer.anchor_opacity_kind.xy;
     let local = (uv - anchor) * size;
     let world = vec2<f32>(
@@ -86,7 +93,8 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, layer: LayerInstance) -> Ve
         layer.stroke,
         layer.canvas.zw,
         world,
-        layer.clip.x,
+        layer.clip_sampling.x,
+        sampling,
     );
 }
 
@@ -96,12 +104,11 @@ fn rounded_box(p: vec2<f32>, half_size: vec2<f32>, radius: f32) -> f32 {
     return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - radius;
 }
 
-// The pixel `celesta_renderer::rasterize_rect` would have produced for the
-// texel under `uv`, so drawing a rect here matches uploading its rasterized
-// texture and sampling it with the nearest-neighbour sampler.
-fn rect_color(input: VertexOutput) -> vec4<f32> {
-    let size = input.size_opacity_kind.xy;
-    let texel = min(floor(input.uv * size), size - vec2<f32>(1.0)) + vec2<f32>(0.5);
+// The texel `celesta_renderer::rasterize_rect` would have produced at
+// `coordinate`, straight alpha, so drawing a rect here matches uploading its
+// rasterized texture and reading it the same way.
+fn rect_texel(input: VertexOutput, coordinate: vec2<i32>) -> vec4<f32> {
+    let texel = vec2<f32>(coordinate) + vec2<f32>(0.5);
     let half_size = input.rect.xy;
     let radius = input.rect.z;
     let stroke_width = input.rect.w;
@@ -127,7 +134,7 @@ fn rect_color(input: VertexOutput) -> vec4<f32> {
 }
 
 // How much of the pixel at canvas position `world` is inside every clip in
-// the chain starting at `index`, anti-aliased over the edge like `rect_color`.
+// the chain starting at `index`, anti-aliased over the edge like `rect_texel`.
 fn clip_coverage(world: vec2<f32>, index: f32) -> f32 {
     var coverage = 1.0;
     var current = index;
@@ -150,17 +157,90 @@ fn clip_coverage(world: vec2<f32>, index: f32) -> f32 {
     return coverage;
 }
 
+// The size in texels of the layer's content at mip `level`.
+fn texel_size(input: VertexOutput, level: i32) -> vec2<i32> {
+    if input.size_opacity_kind.w == 1.0 {
+        // Rects are shaded at their rasterized size and have no mips.
+        return vec2<i32>(round(input.size_opacity_kind.xy));
+    }
+    return vec2<i32>(textureDimensions(source_texture, level));
+}
+
+// The straight-alpha texel at `coordinate`, which must lie inside the layer.
+fn texel(input: VertexOutput, coordinate: vec2<i32>, level: i32) -> vec4<f32> {
+    if input.size_opacity_kind.w == 1.0 {
+        return rect_texel(input, coordinate);
+    }
+    let color = textureLoad(source_texture, coordinate, level);
+    if input.blend.y == 1.0 && color.a > 0.0 {
+        return vec4<f32>(color.rgb / color.a, color.a);
+    }
+    return color;
+}
+
+// The premultiplied texel at `coordinate`, transparent outside the layer.
+fn premultiplied_texel(
+    input: VertexOutput,
+    coordinate: vec2<i32>,
+    size: vec2<i32>,
+    level: i32,
+) -> vec4<f32> {
+    if any(coordinate < vec2<i32>(0)) || any(coordinate >= size) {
+        return vec4<f32>(0.0);
+    }
+    let color = texel(input, coordinate, level);
+    return vec4<f32>(color.rgb * color.a, color.a);
+}
+
+// Bilinear interpolation of mip `level` at `uv`, premultiplied.
+fn bilinear(input: VertexOutput, uv: vec2<f32>, level: i32) -> vec4<f32> {
+    let size = texel_size(input, level);
+    let position = uv * vec2<f32>(size) - vec2<f32>(0.5);
+    let corner = floor(position);
+    let weight = position - corner;
+    let first = vec2<i32>(corner);
+    let top = mix(
+        premultiplied_texel(input, first, size, level),
+        premultiplied_texel(input, first + vec2<i32>(1, 0), size, level),
+        weight.x,
+    );
+    let bottom = mix(
+        premultiplied_texel(input, first + vec2<i32>(0, 1), size, level),
+        premultiplied_texel(input, first + vec2<i32>(1, 1), size, level),
+        weight.x,
+    );
+    return mix(top, bottom, weight.y);
+}
+
+// The layer's non-premultiplied color under `input.uv`.
+fn layer_color(input: VertexOutput) -> vec4<f32> {
+    if input.sampling.x == 0.0 {
+        // Texels land one to one on pixels: copy the one under the pixel.
+        let size = texel_size(input, 0);
+        let coordinate = min(vec2<i32>(floor(input.uv * vec2<f32>(size))), size - vec2<i32>(1));
+        return texel(input, coordinate, 0);
+    }
+    // Trilinear: blend the two mip levels around the level of detail.
+    var levels = 1;
+    if input.size_opacity_kind.w != 1.0 {
+        levels = i32(textureNumLevels(source_texture));
+    }
+    let level = clamp(input.sampling.y, 0.0, f32(levels - 1));
+    let lower = i32(floor(level));
+    var color = bilinear(input, input.uv, lower);
+    let between = level - f32(lower);
+    if between > 0.0 {
+        color = mix(color, bilinear(input, input.uv, lower + 1), between);
+    }
+    if color.a <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    return vec4<f32>(color.rgb / color.a, color.a);
+}
+
 // The layer's non-premultiplied color, with its opacity applied to alpha.
 fn source_color(input: VertexOutput) -> vec4<f32> {
-    // Sampled unconditionally: `textureSample` needs uniform control flow.
-    // Rect draws bind a 1x1 placeholder texture.
-    var color = textureSample(source_texture, source_sampler, input.uv);
-    if input.blend.y == 1.0 && color.a > 0.0 {
-        color = vec4<f32>(color.rgb / color.a, color.a);
-    }
-    if input.size_opacity_kind.w == 1.0 {
-        color = rect_color(input);
-    }
+    let color = layer_color(input);
     let coverage = clip_coverage(input.world, input.clip);
     return vec4<f32>(color.rgb, color.a * input.size_opacity_kind.z * coverage);
 }
