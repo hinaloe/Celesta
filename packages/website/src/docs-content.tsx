@@ -93,10 +93,10 @@ function Api({ rows, caption }: { caption: string; rows: [ReactNode, ReactNode][
 
 export const sections: DocSection[] = [
   {
-    id: 'installation', title: 'Install & get started', description: 'Download the app. Open a scene. Start creating.', keywords: 'setup download installer binary macOS Windows Linux dmg portable zip updates' , content: <Installation />,
+    id: 'installation', title: 'Install & get started', description: 'Packages for macOS and Windows, with the runtime included.', keywords: 'setup download installer binary macOS Windows Linux dmg portable zip updates' , content: <Installation />,
   },
   {
-    id: 'preview', title: 'Preview your work', description: 'Get comfortable with the app, one frame at a time.', keywords: 'keyboard shortcuts open reload play pause scrub inspector audio mute solo', content: <>
+    id: 'preview', title: 'Preview your work', description: 'Open, reload, play, and scrub in the desktop app.', keywords: 'keyboard shortcuts open reload play pause scrub inspector audio mute solo', content: <>
       <p>Choose <strong>File → Open…</strong> to open a <code>.celesta.json</code> project or a React composition (<code>.tsx</code>, <code>.jsx</code>, <code>.ts</code>, or <code>.js</code>). Select an asset, track, or clip to inspect its details.</p>
       <Note title="Your source is your canvas">Edit projects and compositions in your text editor. The Celesta app previews and exports them; it does not edit the project itself.</Note>
       <p>React compositions reload when you save. For a JSON project, choose <strong>File → Reload</strong> after changing the source. Keep referenced media files available; missing assets are marked in the Assets panel.</p>
@@ -112,7 +112,7 @@ export const sections: DocSection[] = [
     </>,
   },
   {
-    id: 'react-compositions', title: 'Your first React composition', description: 'A five-second title, written in familiar components.', keywords: 'tsx jsx components typescript setup codegen build title', content: <>
+    id: 'react-compositions', title: 'Your first React composition', description: 'A five-second title card with Composition, Text, and useCurrentFrame.', keywords: 'tsx jsx components typescript setup codegen build title', content: <>
       <p>The installed app already includes the React runtime. There is no package installation or build step for your composition: just save a file and open it in Celesta.</p>
       <h3>Make your first scene</h3><p>Create <code>first-scene.tsx</code> in your own project folder. This example creates a 1920 × 1080 composition at 30 fps. The title fades in over 30 frames, then holds until the five-second composition ends.</p>
       <DocCode label="first-scene.tsx" language="tsx" code={firstScene.trim()} />
@@ -151,7 +151,7 @@ export const sections: DocSection[] = [
     </>,
   },
   {
-    id: 'motion-toolkit', title: 'Scenes, cues & motion helpers', description: 'Ready-made pieces for the things every video does.', keywords: 'Series Stagger computeSeries progress useBeat beatAt bpm music useCue cueAt TextReveal useTypewriter useCountUp Camera Line Polyline pointOnPolyline random noise frameToTimecode timecode scenes cascade counter typewriter chart', content: <>
+    id: 'motion-toolkit', title: 'Scenes, cues & motion helpers', description: 'Sequencing, staggering, beat sync, and text effects.', keywords: 'Series Stagger computeSeries progress useBeat beatAt bpm music useCue cueAt TextReveal useTypewriter useCountUp Camera Line Polyline pointOnPolyline random noise frameToTimecode timecode scenes cascade counter typewriter chart', content: <>
       <p>These helpers cover the patterns that come up in almost every video: scenes in a row, lists that cascade in, cuts on the beat, and titles that reveal themselves. Each is built on <code>Sequence</code>, <code>Group</code>, and the frame, so everything stays scrubbable and deterministic.</p>
       <h3>Scenes back to back</h3><p><code>{'<Series>'}</code> plays its <code>{'<Series.Sequence>'}</code> children one after another, so you write each scene’s length instead of its start frame. A negative <code>offset</code> overlaps a scene with the one before it. <code>computeSeries()</code> does the same arithmetic without rendering, which is handy for the composition’s total length:</p>
       <DocCode label="Three scenes, sized from their lengths" language="tsx" code={"const SCENES = [\n  { name: 'intro', durationInFrames: 90, Scene: Intro },\n  { name: 'body', durationInFrames: 240, Scene: Body },\n  { name: 'outro', durationInFrames: 60, Scene: Outro },\n];\nconst { durationInFrames } = computeSeries(SCENES);\n\nexport default function Root() {\n  return (\n    <Composition width={1920} height={1080} fps={30} durationInFrames={durationInFrames}>\n      <Series>\n        {SCENES.map(({ name, durationInFrames, Scene }) => (\n          <Series.Sequence key={name} durationInFrames={durationInFrames}>\n            <Scene />\n          </Series.Sequence>\n        ))}\n      </Series>\n    </Composition>\n  );\n}"} />
@@ -212,7 +212,7 @@ export const sections: DocSection[] = [
     </>,
   },
   {
-    id: 'media', title: 'Images, video & sound', description: 'Bring your own pictures, footage, music, and voices.', keywords: 'Image Video Audio media src url remote download startFrom playbackRate volume muted keyframes fade music preloadMedia mediaDurationInFrames png jpeg webp mp4 wav', content: <>
+    id: 'media', title: 'Images, video & sound', description: 'Image, Video, and Audio layers from local or remote files.', keywords: 'Image Video Audio media src url remote download startFrom playbackRate volume muted keyframes fade music preloadMedia mediaDurationInFrames png jpeg webp mp4 wav', content: <>
       <p><code>Image</code>, <code>Video</code>, and <code>Audio</code> read files through <code>src</code>. Relative paths start from the composition file, so keep media beside it in your project folder.</p>
       <p><code>src</code> can also be an <code>http://</code> or <code>https://</code> URL. Celesta downloads the file the first time it is used and reuses that copy afterwards, including offline. The copy is never refreshed, so change the URL when the remote file changes. <code>preloadMedia()</code> accepts URLs as well. In a JSON project, use <code>{'"source": { "type": "url", "url": "https://…" }'}</code> instead of a file path.</p>
       <DocCode label="media.tsx" language="tsx" code={mediaScene.trim()} />
@@ -226,7 +226,8 @@ export const sections: DocSection[] = [
     </>,
   },
   {
-    id: 'timelines', title: 'JSON project timelines', description: 'Describe a project with tracks, clips, and local media.', keywords: 'json schema project assets tracks settings range time timescale properties keyframes easing ProjectTimeline', content: <>
+    id: 'timelines', title: 'JSON project timelines', description: 'Deprecated. Kept for existing projects.', keywords: 'json schema project assets tracks settings range time timescale properties keyframes easing ProjectTimeline', content: <>
+      <Note title="Deprecated">JSON projects are deprecated. Use React compositions for new work. This chapter remains for existing <code>.celesta.json</code> projects.</Note>
       <p>A <code>.celesta.json</code> file describes project settings, assets, characters, tracks, and properties. Use JSON when you want an explicit timeline, or combine it with React for generated content.</p>
       <ul><li><code>settings</code> defines dimensions, frame rate, audio sample rate, and optional duration.</li><li><code>assets</code> registers source media by id: <code>video</code>, <code>audio</code>, <code>image</code>, or <code>font</code>. Media files must be local.</li><li><code>tracks</code> contains video, audio, overlay, or dialogue tracks and their items.</li><li>Each item has a <code>range</code> with a start and duration, plus its content and optional <code>transform</code>, <code>opacity</code>, and <code>blendMode</code>.</li></ul>
       <p>Time is represented as <code>{'{ value, timescale }'}</code>: divide the value by the timescale to get seconds. For example, <code>{'{ "value": 10, "timescale": 1 }'}</code> means ten seconds.</p>
@@ -240,7 +241,7 @@ export const sections: DocSection[] = [
     </>,
   },
   {
-    id: 'dialogue', title: 'Character dialogue', description: 'Bring portraits, subtitles, and voices together.', keywords: 'dialogue character CharacterView portrait expressions subtitles voice lip sync lipsync mouth psd pfv PSDTool voiceroid talk conversation', content: <>
+    id: 'dialogue', title: 'Character dialogue', description: 'Portraits, subtitles, voices, and lip sync.', keywords: 'dialogue character CharacterView portrait expressions subtitles voice lip sync lipsync mouth psd pfv PSDTool voiceroid talk conversation', content: <>
       <p>Dialogue scenes are built from three pieces. Each works in React and in JSON projects:</p>
       <ul>
         <li>A <strong>character</strong> defines a portrait (one image per expression, or a layered PSD), optional lip-sync mouths, and how that character’s subtitles look.</li>
@@ -339,10 +340,10 @@ export const sections: DocSection[] = [
     </>,
   },
   {
-    id: 'examples', title: 'Examples to build on', description: 'Start with something small. Make it yours.', keywords: 'examples samples inspiration title layout animation dialogue project properties', content: <>
+    id: 'examples', title: 'Examples to build on', description: 'Complete files you can copy, run, and change.', keywords: 'examples samples inspiration title layout animation dialogue project properties', content: <>
       <div className="doc-example-grid">
         <a href="#react-compositions"><span>01 / REACT</span><strong>A title in motion</strong><p>Follow the complete fading-title example in this guide.</p></a>
-        <a href="#timelines"><span>02 / JSON</span><strong>A first timeline</strong><p>Read the built-in overlay project and adapt its text.</p></a>
+        <a href="#media"><span>02 / MEDIA</span><strong>Footage and sound</strong><p>Combine Image, Video, and Audio layers in one scene.</p></a>
         <a href="#dialogue"><span>03 / DIALOGUE</span><strong>Give it a voice</strong><p>Pair a portrait, subtitles, and a voice with lip sync.</p></a>
       </div>
       <h3>Included with the app</h3><p>Copy an example into your own project folder before editing it.</p><ul><li><strong>macOS:</strong> in Finder, right-click Celesta in Applications, choose <strong>Show Package Contents</strong>, then open <code>Contents/Resources/examples</code>.</li><li><strong>Windows:</strong> open the <code>examples</code> folder beside <code>Celesta.exe</code> in the installed or portable app folder.</li></ul>
@@ -355,7 +356,7 @@ export const sections: DocSection[] = [
     id: 'build-from-source', title: 'Build from source', description: 'For contributors, custom builds, and Linux users.', keywords: 'developer source code clone cargo Rust FFmpeg Node pnpm codegen macOS Windows Linux', content: <SourceBuild />,
   },
   {
-    id: 'troubleshooting', title: 'Troubleshooting', description: 'A few things to check when your scene needs a hand.', keywords: 'errors missing media build FFmpeg npm typescript black blank reload limitations help lip sync font subtitle', content: <>
+    id: 'troubleshooting', title: 'Troubleshooting', description: 'Common errors and how to fix them.', keywords: 'errors missing media build FFmpeg npm typescript black blank reload limitations help lip sync font subtitle', content: <>
       <details className="doc-details" open><summary>The app cannot find its bundled runtime</summary><p>On macOS, copy the complete app into Applications before launching it. For a portable Windows build, extract the entire archive and keep <code>runtime</code> and the DLLs beside <code>Celesta.exe</code>. If files are missing, extract or install the package again.</p></details>
       <details className="doc-details"><summary>A source build cannot find FFmpeg</summary><p>Confirm that the 8.1.x development libraries are installed, not just the executable. On macOS, set <code>PKG_CONFIG_PATH</code> in the same shell where you run Cargo. On Windows, check <code>VCPKG_ROOT</code> and the MSVC build tools. See <a href="#build-from-source">source-build setup</a>.</p></details>
       <details className="doc-details"><summary>My media is missing</summary><p>Celesta currently supports local media files, not remote media URLs. Check the paths in your project, keep the referenced files alongside the project when sharing it, and look for missing-asset indicators in the Assets panel.</p></details>
