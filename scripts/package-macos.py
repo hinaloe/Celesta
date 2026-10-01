@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -32,6 +33,21 @@ def run(*arguments, capture=False, env=None):
         text=True, stdout=subprocess.PIPE if capture else None, env=env,
     )
     return result.stdout.strip() if capture else None
+
+
+def create_dmg(image, destination):
+    # hdiutil intermittently fails with "Resource busy" on CI runners.
+    for attempt in range(1, 6):
+        try:
+            run("hdiutil", "create", "-volname", "Celesta", "-srcfolder", image,
+                "-fs", "HFS+", "-format", "UDZO", destination)
+            return
+        except subprocess.CalledProcessError:
+            destination.unlink(missing_ok=True)
+            if attempt == 5:
+                raise
+            print(f"hdiutil create failed (attempt {attempt}/5); retrying", file=sys.stderr)
+            time.sleep(attempt * 5)
 
 
 def download(url, destination):
@@ -266,8 +282,7 @@ def main():
     (image / "Applications").symlink_to("/Applications", target_is_directory=True)
     # Only the app and Applications shortcut go on the mounted volume.
     staged_dmg = stage / dmg.name
-    run("hdiutil", "create", "-volname", "Celesta", "-srcfolder", image,
-        "-fs", "HFS+", "-format", "UDZO", staged_dmg)
+    create_dmg(image, staged_dmg)
     if args.sign_identity:
         run("codesign", "--sign", identity, "--timestamp", staged_dmg)
     if args.notary_profile:
