@@ -63,8 +63,10 @@ runs:
       run: |
         # The runner image's formula index can predate ffmpeg@8.
         brew update
-        # Upgrading preinstalled dependencies (ca-certificates, openssl) mid-install
-        # trips over Homebrew's own openssl@3 lock, so only install what is missing.
-        HOMEBREW_NO_INSTALL_UPGRADE=1 brew install ffmpeg@8 pkg-config
+        # ffmpeg@8 now depends on openssl@4, and pouring it in the same brew
+        # process that is upgrading ca-certificates trips over the openssl@3
+        # lock the process already holds. Install it on its own first.
+        brew install openssl@4
+        brew install ffmpeg@8 pkg-config
         # ffmpeg@8 is keg-only.
         echo "PKG_CONFIG_PATH=$(brew --prefix ffmpeg@8)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
