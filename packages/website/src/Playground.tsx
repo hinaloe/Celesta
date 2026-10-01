@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import initialSource from './demo/title-scene.tsx?raw';
 import { Engine, SceneCanvas, exportMp4, type CompositionConfig } from '@celesta/web';
+import { highlight } from './syntax';
 
 function download(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
@@ -35,6 +36,9 @@ export function Playground() {
   const frameRequest = useRef(0);
   const drawQueue = useRef(Promise.resolve());
   const compiledSource = useRef('');
+  const sourceHighlight = useRef<HTMLDivElement>(null);
+  // A trailing line keeps the highlight as tall as the textarea when the source ends with a newline.
+  const highlighted = useMemo(() => highlight(`${source}\n`, 'tsx'), [source]);
 
   useEffect(() => {
     let current = true;
@@ -148,20 +152,20 @@ export function Playground() {
   const ready = !!engine && !!config && !error && compiledSource.current === source;
 
   return <section id="playground" aria-labelledby="playground-heading" className="playground-section shell">
-    <div className="section-top flex items-end justify-between gap-6">
-      <div><p className="eyebrow">A REAL COMPOSITION, IN YOUR BROWSER</p><h2 id="playground-heading">Make it yours. Render it here.</h2></div>
-      <span className="hand-note">Edit the code, then press play. <span aria-hidden="true">↴</span></span>
+    <div className="section-top">
+      <p className="eyebrow">Playground</p><h2 id="playground-heading">The scene below is code.<br /><em>Change a line.</em></h2>
+      <span className="hand-note">Try editing TITLE.</span>
     </div>
     <div className="studio">
       <div className="studio-bar flex items-center justify-between">
-        <div className="flex items-center gap-3"><div className="window-dots flex gap-1.5" aria-hidden="true"><i /><i /><i /></div><span>{name}</span></div>
+        <span>{name}</span>
         <span className="flex items-center gap-2"><i className="status-dot" /> Celesta web editor</span>
       </div>
       <div className="studio-main grid">
         <div className="source-panel">
           <div className="flex items-center justify-between source-heading"><span><b>TSX</b> Your composition</span><button onClick={() => { void navigator.clipboard.writeText(source).then(() => setMessage('Source copied.')).catch(() => setMessage('Could not copy source.')); }} className="copy-button">Copy source</button></div>
-          <div className="source-scroll"><textarea aria-label="Composition source code" spellCheck={false} value={source} disabled={exporting} onChange={event => { setPlaying(false); setSource(event.target.value); }} /></div>
-          <div className="source-footer flex items-center justify-between gap-2"><span>{source.split('\n').length} lines · Saved locally when downloaded.</span><div className="flex gap-3"><label className="file-action">Open .tsx<input type="file" accept=".tsx,.jsx,.ts,.js" onChange={event => { void openSource(event.target.files?.[0]); event.target.value = ''; }} /></label><button onClick={() => download(new Blob([source], { type: 'text/plain;charset=utf-8' }), name)}>Download .tsx ↓</button></div></div>
+          <div className="source-scroll"><div ref={sourceHighlight} className="source-highlight" aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlighted }} /><textarea aria-label="Composition source code" spellCheck={false} value={source} disabled={exporting} onChange={event => { setPlaying(false); setSource(event.target.value); }} onScroll={event => { sourceHighlight.current?.scrollTo(event.currentTarget.scrollLeft, event.currentTarget.scrollTop); }} /></div>
+          <div className="source-footer flex items-center justify-between gap-2"><span>{source.split('\n').length} lines · Not saved. Download to keep it.</span><div className="flex gap-3"><label className="file-action">Open .tsx<input type="file" accept=".tsx,.jsx,.ts,.js" onChange={event => { void openSource(event.target.files?.[0]); event.target.value = ''; }} /></label><button onClick={() => download(new Blob([source], { type: 'text/plain;charset=utf-8' }), name)}>Download .tsx ↓</button></div></div>
         </div>
         <div className="preview-panel">
           <div className="preview-heading flex justify-between"><span>COMPOSITION PREVIEW</span><span>{config ? `${config.width} × ${config.height} · ${fps} FPS` : 'Waiting for code'}</span></div>
@@ -178,6 +182,6 @@ export function Playground() {
         </div>
       </div>
     </div>
-    <div className="studio-caption flex flex-wrap justify-between gap-2"><p>Your TSX runs through Celesta’s React evaluator. Preview and MP4 export use the same browser renderer.</p><span>WRITE. PREVIEW. EXPORT.</span></div>
+    <div className="studio-caption flex flex-wrap justify-between gap-2"><p>esbuild compiles your TSX in a Web Worker and Celesta’s React renderer evaluates each frame. Preview and export share one canvas renderer.</p><span>Runs entirely in your browser</span></div>
   </section>;
 }

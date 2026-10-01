@@ -81,6 +81,9 @@ so rebuild after changing them.
   media, JSON timeline, dialogue and lip sync, data, export, API, example, and
   troubleshooting chapters.
   `src/DocCode.tsx` supplies accessible copy controls for code examples.
+  `src/syntax.ts` highlights code with [twinkleplop](https://twinkleplop.pngwn.at)
+  (TSX, JSON, and shell); the playground editor uses it too, layering a
+  transparent textarea over the highlighted source.
 - `src/examples/`: complete documentation examples (`first-scene.tsx`,
   `dialogue.tsx`, `lip-sync.tsx`, `media.tsx`, `dialogue.celesta.json`). The
   docs import them as raw text. They are excluded from the site's own
@@ -94,7 +97,8 @@ so rebuild after changing them.
   each `Scene`. The browser canvas renderer draws that Scene for both preview
   and export. Mediabunny uses WebCodecs for H.264/AAC and MP4 muxing.
 - `src/style.css`: design tokens, responsive layouts, and reduced-motion styles.
-- `public/favicon.svg`: the existing Celesta Starlight logo from `packages/logos`.
+- `src/Brand.tsx` and `public/favicon.svg`: the website's crescent mark (a "C"
+  with one star). It is separate from the app logos in `packages/logos`.
 
 The web editor accepts one self-contained TSX file. Runtime imports are limited
 to `@celesta/react` and `react`; `prepare()`, companion JSON projects, PSD

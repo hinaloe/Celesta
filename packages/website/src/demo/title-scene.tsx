@@ -3,15 +3,15 @@ import {
   interpolate, useCurrentFrame,
 } from '@celesta/react';
 
-// Make it yours: change the words and colors, then save.
-const TITLE = 'Make a little magic.';
+// Try changing TITLE or COLORS. The preview updates as you type.
+const TITLE = 'Written in React.';
 const COLORS = {
-  background: '#e4daf0', ink: '#57456c', accent: '#a68bbf',
+  background: '#0a0a0a', ink: '#ededeb', accent: '#b5a2e7',
 };
 
 const CREAM = '#fff9e9';
-const HALO = '#ffffff1c';
-const ORBIT = '#ffffff99';
+const HALO = '#ffffff08';
+const ORBIT = '#ffffff2e';
 
 // 0 → 1 over `duration` frames, starting at frame `start`.
 function enter(frame: number, start: number, duration = 24) {
@@ -100,12 +100,12 @@ export function Scene({ title, colors }: {
           fontSize: 24,
           fill: { type: 'solid', color: colors.ink },
         }}>
-        A LITTLE IMAGINATION. ENDLESS POSSIBILITIES.
+        TSX  →  FRAMES  →  MP4
       </Text>
 
       <Text x={56} y={1024} anchorY={1} opacity={0.6}
         style={{ fontSize: 18, fill: { type: 'solid', color: colors.ink } }}>
-        CELESTA / CREATIVE STUDIES — 001
+        CELESTA / PLAYGROUND
       </Text>
       <Text x={1864} y={1024} anchorX={1} anchorY={1} opacity={0.6}
         style={{ fontSize: 18, fill: { type: 'solid', color: colors.ink } }}>

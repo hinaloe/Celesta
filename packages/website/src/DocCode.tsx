@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
-import { highlight } from './highlight';
+import { useEffect, useMemo, useState } from 'react';
+import { highlight } from './syntax';
 
 export function DocCode({ code, label, language = 'shell' }: { code: string; label: string; language?: string }) {
   const [status, setStatus] = useState('');
+  const html = useMemo(() => highlight(code, language, { class_name: `twinkleplop language-${language}`, attributes: { tabindex: 0, 'aria-label': label } }), [code, label, language]);
   useEffect(() => {
     if (!status) return;
     const timeout = setTimeout(() => setStatus(''), 3000);
@@ -19,8 +20,8 @@ export function DocCode({ code, label, language = 'shell' }: { code: string; lab
   }
 
   return <div className="doc-code">
-    <div className="doc-code-bar"><span>{label}</span><button onClick={copy} aria-label={`Copy ${label}`}>Copy <span aria-hidden="true">⧉</span></button></div>
-    <pre tabIndex={0} aria-label={label}><code className={`language-${language}`}>{code.split('\n').map((line, i) => <span className="code-line" key={i}>{highlight(line)}</span>)}</code></pre>
+    <div className="doc-code-bar"><span>{label}</span><button onClick={copy} aria-label={`Copy ${label}`}>Copy</button></div>
+    <div dangerouslySetInnerHTML={{ __html: html }} />
     <span className="doc-copy-status" role="status">{status}</span>
   </div>;
 }
