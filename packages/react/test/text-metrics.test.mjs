@@ -3,7 +3,7 @@ import test from 'node:test';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import React from 'react';
@@ -48,7 +48,7 @@ test('render metrics cache by value and refresh for text, style, wrapping and co
   assert.equal(requests.at(-1).maxWidth, 200);
   render(5);
   assert.match(requests.at(-1).fonts[0].location.path, /two\.ttf$/);
-  assert.match(requests.at(-1).fonts[0].location.path, /^\//);
+  assert.ok(isAbsolute(requests.at(-1).fonts[0].location.path));
 
   registerComponent('MetricsLabelTest', Label);
   const preview = createResolver().resolve([{ component: 'MetricsLabelTest', props: {} }], {
