@@ -1,5 +1,7 @@
 //! Frame-exact project export through the shared evaluator and renderers.
 
+mod stills;
+
 use std::collections::{BTreeMap, HashSet};
 use std::error::Error;
 use std::ffi::OsStr;
@@ -14,7 +16,6 @@ use std::sync::{
 };
 use std::thread;
 
-use ez_ffmpeg::{FfmpegContext, Input, Output, VideoWriter};
 use celesta_composition::{
     AssetLocation, AudioClip, AudioGraph, Layer, LayerContent, Rational, ResolvedAsset, Time,
     TimeError, TimeRange,
@@ -27,6 +28,7 @@ use celesta_project::{LoadError, Project, TimelineContent};
 use celesta_react_bridge::{
     ProjectFrame, ReactAudioClipDescriptor, ReactBridge, ReactBridgeError, ReactCompositionMetadata,
 };
+use ez_ffmpeg::{FfmpegContext, Input, Output, VideoWriter};
 
 /// Sample rate used to mix a React export's audio when no companion project
 /// supplies its own `AudioGraph.sample_rate` (the project format has no
