@@ -1000,6 +1000,7 @@ dependencies = [
  "celesta-project",
  "celesta-react-bridge",
  "ez-ffmpeg",
+ "png 0.18.1",
  "serde_json",
  "tempfile",
 ]

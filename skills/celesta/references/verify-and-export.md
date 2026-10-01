@@ -2,7 +2,7 @@
 
 You cannot see the Celesta preview window. Verify your work with the
 command-line tools below, in this order of cost: `inspect.mjs` (seconds),
-type-check, then a short export and a still frame (real pixels).
+type-check, then direct PNG export (real pixels), and MP4 for audio/timing.
 
 ## Contents
 
@@ -135,20 +135,40 @@ short export is also the way to check a `.celesta.json` for errors.
 
 ## Look at real frames
 
-With FFmpeg's command-line tools installed, pull stills from the check
-export and look at them (most agents can read PNG images):
+Export lossless PNGs directly at exact, zero-based composition frames:
 
 ```sh
-# the frame at 0.5 s into the exported span
-ffmpeg -v error -y -ss 0.5 -i /tmp/celesta-check.mp4 -frames:v 1 /tmp/celesta-frame.png
-# a contact sheet: one frame every 0.5 s, four across
-ffmpeg -v error -y -i /tmp/celesta-check.mp4 -vf "fps=2,scale=480:-1,tile=4x2" -frames:v 1 /tmp/celesta-sheet.png
-# confirm there is an audio stream and the duration
-ffprobe -v error -show_entries format=duration:stream=codec_type -of compact /tmp/celesta-check.mp4
+Celesta-export --react scene.tsx --frame 90 --output-format png /tmp/celesta-frame.png
+Celesta-export --react scene.tsx --frames 0,89,90,149 /tmp/celesta-check.png
+Celesta-export project.celesta.json --frames 0,30,59 /tmp/celesta-project.png
+# Companion projects, fonts and assets use the same evaluation as MP4:
+Celesta-export --react scene.tsx --project project.celesta.json --frame 90 /tmp/celesta-frame.png
 ```
 
-Without FFmpeg, say that you verified structure only and ask the user to
-check the preview.
+`--frame` can be repeated; `--frames` accepts comma-separated integers. Either
+selects PNG output; `--output-format png` is optional. A single selection uses
+the exact output filename. Multiple selections produce deterministic names
+such as `celesta-check-000000.png`, `celesta-check-000089.png`, and
+`celesta-check-000090.png` (at least six digits). The last valid frame is the
+composition's frame count minus one. Negative, duplicate and out-of-range
+frames are rejected. All selections and existing destination files are checked
+before rendering; `--overwrite` permits replacement.
+
+Read the resulting PNGs to check font fallback, glyph bounds, transforms,
+and overlap. PNG rendering uses the same GPU renderer and `final` quality by
+default, with lossless RGBA output, including transparency. It reuses one React
+runtime and `prepare()` call for all selected frames. It skips audio mixing,
+H.264/AAC encoding, and requires no external FFmpeg executable. Video assets
+still use the linked media decoder. Odd canvas dimensions are supported.
+`--from`/`--to` cannot be combined with PNG selection.
+
+Contact sheets and selection by time/interval are not currently supported;
+choose individual frames at scene boundaries. For audio validation, export MP4
+and optionally inspect its streams with `ffprobe`:
+
+```sh
+ffprobe -v error -show_entries format=duration:stream=codec_type -of compact /tmp/celesta-check.mp4
+```
 
 ## Error messages
 
