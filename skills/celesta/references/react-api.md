@@ -204,10 +204,19 @@ type TextStyle = {
 };
 ```
 
-- An unknown `fontFamily` silently falls back to another font. For
-  reproducible output, ship the font file next to the entry and load it with
-  `<Font>`. Characters the font lacks (emoji) fall back per glyph.
-- With Google Fonts, list every weight you use in the URL.
+- Weights match within the family first: when `fontFamily` has no face at
+  the requested `fontWeight`, its nearest weight is used, picked as CSS font
+  matching does. A family loaded only in Bold therefore draws `fontWeight`
+  400, or no weight, in Bold. Bold is never synthesized.
+- A `fontFamily` with no installed or loaded face falls back to another
+  font. The Celesta app lists it with the preview's warnings, and
+  `celesta-export` prints `warning: font family "…" (weight …) is not installed or loaded;
+  text layer "…" uses a fallback font` to stderr, once per family and weight.
+  `scripts/inspect.mjs` does not check fonts. For reproducible output, ship
+  the font file next to the entry and load it with `<Font>`. Characters the
+  font lacks (emoji) fall back per glyph.
+- With Google Fonts, list every weight you use in the URL; a missing weight
+  uses the family's nearest one.
 
 ## Time and animation
 

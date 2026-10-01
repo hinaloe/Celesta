@@ -108,6 +108,9 @@ fn run() -> Result<(), String> {
         }
         ExportProgress::MixingAudio => eprintln!("mixing audio"),
         ExportProgress::Muxing => eprintln!("muxing MP4"),
+        // Replaces the unfinished progress line; the next frame redraws it
+        // below.
+        ExportProgress::Warning(warning) => eprintln!("\rwarning: {warning}"),
     };
     if react {
         let runtime = default_react_runtime();

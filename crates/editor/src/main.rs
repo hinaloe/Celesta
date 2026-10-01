@@ -541,7 +541,7 @@ impl PreviewWorker {
                         react_bridge = None;
                     }
                     let mut scene = request.scene;
-                    let warnings = match request.react_mode {
+                    let mut warnings = match request.react_mode {
                         ReactPreviewMode::WholeScene => render_whole_react_scene(
                             &mut scene,
                             &mut react_bridge,
@@ -557,6 +557,7 @@ impl PreviewWorker {
                         .render_preview(&scene)
                         .map_err(|error| error.to_string())
                         .map(prepare_preview_frame);
+                    warnings.extend(renderer.font_fallbacks().iter().map(ToString::to_string));
                     if result_tx
                         .send(PreviewResult {
                             generation: request.generation,
@@ -1997,6 +1998,8 @@ impl EditorView {
 
         loop {
             match self.export_worker.events.try_recv() {
+                // The preview already lists font fallbacks.
+                Ok(ExportEvent::Progress(ExportProgress::Warning(_))) => {}
                 Ok(ExportEvent::Progress(progress)) => {
                     self.export_progress = Some(progress);
                 }
@@ -3973,7 +3976,7 @@ impl EditorView {
                     )),
             )
             .when_some(
-                self.export_progress.map(export_progress_label),
+                self.export_progress.as_ref().map(export_progress_label),
                 |bar, label| {
                     bar.right(
                         div()
@@ -4416,7 +4419,7 @@ fn ruler_marks(total: f64) -> Vec<(f32, bool)> {
         .collect()
 }
 
-fn export_progress_label(progress: ExportProgress) -> String {
+fn export_progress_label(progress: &ExportProgress) -> String {
     match progress {
         ExportProgress::Rendering { frame: 0, total: 0 } => "Starting export…".to_owned(),
         ExportProgress::Rendering { frame, total } => {
@@ -4424,6 +4427,7 @@ fn export_progress_label(progress: ExportProgress) -> String {
         }
         ExportProgress::MixingAudio => "Mixing export audio…".to_owned(),
         ExportProgress::Muxing => "Muxing MP4…".to_owned(),
+        ExportProgress::Warning(warning) => warning.clone(),
     }
 }
 
