@@ -398,6 +398,12 @@ pub enum TimelineContent {
     },
     Image {
         asset: AssetId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        width: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        height: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fit: Option<celesta_composition::ImageFit>,
     },
     Text {
         text: String,
@@ -467,6 +473,19 @@ pub use validation::{ValidationError, ValidationErrors};
 mod tests {
     use super::*;
 
+    #[test]
+    fn image_display_fields_round_trip_and_validate() {
+        let mut json: Value =
+            serde_json::from_str(include_str!("../../../examples/voiceroid.celesta.json")).unwrap();
+        json["tracks"][0]["items"][0]["content"] = serde_json::json!({"type": "image", "asset": "akane-default", "width": 432, "height": 200, "fit": "cover"});
+        let project = Project::from_json(&json.to_string()).unwrap();
+        assert_eq!(
+            Project::from_json(&project.to_json().unwrap()).unwrap(),
+            project
+        );
+        json["tracks"][0]["items"][0]["content"]["width"] = 0.into();
+        assert!(Project::from_json(&json.to_string()).is_err());
+    }
     #[test]
     fn loads_the_minimal_project() {
         let project =

@@ -1020,6 +1020,7 @@ dependencies = [
  "objc2 0.6.4",
  "objc2-metal 0.3.2",
  "pollster 0.4.0",
+ "tempfile",
  "wgpu 30.0.1",
  "wgpu-hal 30.0.1",
 ]
@@ -1078,6 +1079,7 @@ dependencies = [
  "image",
  "png 0.18.1",
  "psd",
+ "resvg 0.45.1",
  "tempfile",
  "wuff",
 ]

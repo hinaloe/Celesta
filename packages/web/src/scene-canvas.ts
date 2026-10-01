@@ -226,8 +226,16 @@ export class SceneCanvas {
       }
       const width = image instanceof HTMLVideoElement ? image.videoWidth : image.naturalWidth;
       const height = image instanceof HTMLVideoElement ? image.videoHeight : image.naturalHeight;
-      ctx.setTransform(matrix.translate(-t.anchor.x * width, -t.anchor.y * height));
-      ctx.drawImage(image, 0, 0);
+      const w = content.type === 'image' ? content.width ?? (content.height === undefined ? width : content.height * width / height) : width;
+      const h = content.type === 'image' ? content.height ?? w * height / width : height;
+      ctx.setTransform(matrix.translate(-t.anchor.x * w, -t.anchor.y * h));
+      if (content.type === 'image' && content.fit) {
+        const scale = content.fit === 'contain' ? Math.min(w / width, h / height) : Math.max(w / width, h / height);
+        ctx.beginPath();
+        ctx.rect(0, 0, w, h);
+        ctx.clip();
+        ctx.drawImage(image, (w - width * scale) / 2, (h - height * scale) / 2, width * scale, height * scale);
+      } else ctx.drawImage(image, 0, 0, w, h);
     } else {
       throw new Error(`The web renderer does not support ${content.type} layers yet.`);
     }

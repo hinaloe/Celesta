@@ -85,6 +85,12 @@ export interface GroupProps extends CommonProps {
 }
 
 export interface ImageProps extends CommonProps {
+  /** Display width in pixels. Alone, preserves the source aspect ratio. */
+  width?: number;
+  /** Display height in pixels. Alone, preserves the source aspect ratio. */
+  height?: number;
+  /** Center inside both dimensions; contain letterboxes, cover crops. */
+  fit?: 'contain' | 'cover';
   src: AssetInput;
   name?: string;
 }

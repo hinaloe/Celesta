@@ -339,7 +339,19 @@ function buildLayer(
       ...(clip ? { clip } : {}),
     };
   } else if (node.type === 'image') {
-    content = { type: 'image', asset: resolveAsset(props.src) };
+    for (const key of ['width', 'height']) {
+      if (props[key] !== undefined && (typeof props[key] !== 'number' || !Number.isFinite(props[key]) || props[key] <= 0)) {
+        throw new Error(`Image ${key} must be finite and positive`);
+      }
+    }
+    if (props.fit !== undefined && props.fit !== 'contain' && props.fit !== 'cover') {
+      throw new Error('Image fit must be contain or cover');
+    }
+    content = { type: 'image', asset: resolveAsset(props.src),
+      ...(props.width === undefined ? {} : { width: props.width as number }),
+      ...(props.height === undefined ? {} : { height: props.height as number }),
+      ...(props.fit === undefined ? {} : { fit: props.fit as 'contain' | 'cover' }),
+    };
   } else if (node.type === 'character-view') {
     const override = context.characterViewOverrides.get(node);
     const character = resolveReference(props.character) as

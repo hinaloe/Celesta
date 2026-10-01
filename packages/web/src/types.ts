@@ -28,7 +28,7 @@ export type LayerContent =
   | { type: 'group'; layers: Layer[]; clip?: { x: number; y: number; width: number; height: number; cornerRadius: number } | null }
   | { type: 'rect'; width: number; height: number; fill?: Paint | null; stroke?: Stroke | null; cornerRadius: number }
   | { type: 'text'; text: string; style: TextStyle; maxWidth?: number | null; baselineAnchor?: boolean }
-  | { type: 'image'; asset: Asset }
+  | { type: 'image'; asset: Asset; width?: number; height?: number; fit?: 'contain' | 'cover' }
   | { type: 'video'; asset: Asset; timing: { sourceTimeSeconds: number } }
   | { type: 'psd'; asset: Asset }
   | { type: 'missingComponent'; component: string; props: Record<string, unknown> };

@@ -21,7 +21,7 @@ use celesta_remote::{RemoteAssetError, resolve_asset_path};
 use celesta_renderer::{
     Color as CpuColor, FontFallback, RectPaint, RenderError, TextRasterizer, resolve_rect_paint,
 };
-use image::ImageReader;
+
 use wgpu::util::DeviceExt;
 
 #[cfg(target_os = "macos")]
@@ -302,6 +302,7 @@ pub struct GpuRenderer {
     placeholder_texture: LayerTexture,
     asset_root: PathBuf,
     images: HashMap<String, DecodedImage>,
+    image_sources: celesta_renderer::image_source::ImageSources,
     video_decoder: Option<Box<dyn VideoFrameDecoder>>,
     text_rasterizer: TextRasterizer,
     #[cfg(target_os = "macos")]
@@ -500,6 +501,7 @@ impl GpuRenderer {
             placeholder_texture,
             asset_root: PathBuf::from("."),
             images: HashMap::new(),
+            image_sources: Default::default(),
             video_decoder: None,
             text_rasterizer: TextRasterizer::new(),
             #[cfg(target_os = "macos")]
@@ -1535,11 +1537,53 @@ impl GpuRenderer {
                     true,
                 )));
             }
-            LayerContent::Image { asset } => {
-                let texture =
-                    self.cached_texture(format!("image\0{}", asset.id), true, |renderer| {
-                        renderer.load_image(asset).cloned()
+            LayerContent::Image {
+                asset,
+                width,
+                height,
+                fit,
+            } => {
+                // Largest singular value also covers shear from rotated,
+                // non-uniformly scaled parent groups.
+                let m = state.transform;
+                let x = (m.a as f64).powi(2) + (m.b as f64).powi(2);
+                let y = (m.c as f64).powi(2) + (m.d as f64).powi(2);
+                let dot = m.a as f64 * m.c as f64 + m.b as f64 * m.d as f64;
+                let density = ((x + y + ((x - y).powi(2) + 4.0 * dot * dot).sqrt()) / 2.0).sqrt();
+                let path = self.local_asset_path(asset)?;
+                let display = self
+                    .image_sources
+                    .render(&asset.id, &path, *width, *height, *fit, density)
+                    .map_err(|source| GpuRenderError::ImageDecode {
+                        asset: asset.id.clone(),
+                        source,
                     })?;
+                let mut state = state;
+                state.transform.a *= (display.width / display.pixels.width() as f64) as f32;
+                state.transform.b *= (display.width / display.pixels.width() as f64) as f32;
+                state.transform.c *= (display.height / display.pixels.height() as f64) as f32;
+                state.transform.d *= (display.height / display.pixels.height() as f64) as f32;
+                let texture = self.cached_texture(
+                    format!(
+                        "image\0{}\0{:?}\0{:?}\0{:?}\0{}x{}",
+                        asset.id,
+                        width,
+                        height,
+                        fit,
+                        display.pixels.width(),
+                        display.pixels.height()
+                    ),
+                    // SVG is already rasterized for this draw; mipmaps blur
+                    // its downscaled edges relative to the CPU renderer.
+                    !display.is_svg,
+                    |_| {
+                        DecodedImage::new(
+                            display.pixels.width(),
+                            display.pixels.height(),
+                            display.pixels.as_ref().clone().into_raw(),
+                        )
+                    },
+                )?;
                 output.push(PreparedItem::Layer(PreparedLayer::new(
                     texture,
                     layer.transform.anchor,
@@ -1727,28 +1771,6 @@ impl GpuRenderer {
         self.clip_entries
             .push(ClipEntry::new(clip, state.transform, state.clip, depth));
         Ok(index)
-    }
-
-    fn load_image(&mut self, asset: &ResolvedAsset) -> Result<&DecodedImage, GpuRenderError> {
-        if !self.images.contains_key(&asset.id) {
-            let path = self.local_asset_path(asset)?;
-            // Sniff the format: a downloaded file's name may lack an extension.
-            let image = ImageReader::open(&path)
-                .and_then(ImageReader::with_guessed_format)
-                .map_err(|source| GpuRenderError::AssetIo {
-                    asset: asset.id.clone(),
-                    source,
-                })?
-                .decode()
-                .map_err(|source| GpuRenderError::ImageDecode {
-                    asset: asset.id.clone(),
-                    source,
-                })?
-                .to_rgba8();
-            let image = DecodedImage::new(image.width(), image.height(), image.into_raw())?;
-            self.images.insert(asset.id.clone(), image);
-        }
-        Ok(self.images.get(&asset.id).expect("image was cached"))
     }
 
     fn load_psd(
@@ -3476,9 +3498,9 @@ mod tests {
     /// A 2x2 image layer whose pixels are seeded straight into the renderer's
     /// decoded-image map, so no file is read.
     fn seeded_image(renderer: &mut GpuRenderer, id: &str, x: f64, rgba: [u8; 4]) -> Layer {
-        renderer.images.insert(
-            id.to_owned(),
-            DecodedImage::new(2, 2, rgba.repeat(4)).unwrap(),
+        renderer.image_sources.insert_raster(
+            id,
+            image::RgbaImage::from_raw(2, 2, rgba.repeat(4)).unwrap(),
         );
         Layer {
             id: id.to_owned(),
@@ -3490,6 +3512,9 @@ mod tests {
             blend_mode: BlendMode::Normal,
             effects: Default::default(),
             content: LayerContent::Image {
+                width: None,
+                height: None,
+                fit: None,
                 asset: ResolvedAsset {
                     id: id.to_owned(),
                     location: AssetLocation::File {
@@ -3533,7 +3558,12 @@ mod tests {
         assert_eq!(pixel(&frame, 0), [255, 0, 0, 255]);
         assert_eq!(pixel(&frame, 3), [0, 255, 0, 255]);
         assert_eq!(renderer.textures.len(), 2);
-        assert!(!renderer.textures.contains_key("image\0blue"));
+        assert!(
+            !renderer
+                .textures
+                .keys()
+                .any(|key| key.starts_with("image\0blue\0"))
+        );
 
         // Cached textures render the same frame again, including through
         // the pipelined readback path.
@@ -3819,9 +3849,9 @@ mod tests {
             )
             .unwrap();
             let id = format!("rasterized-{index}");
-            renderer.images.insert(
-                id.clone(),
-                DecodedImage::new(
+            renderer.image_sources.insert_raster(
+                &id,
+                image::RgbaImage::from_raw(
                     rasterized.width(),
                     rasterized.height(),
                     rasterized.into_pixels(),
@@ -3835,6 +3865,9 @@ mod tests {
                 blend_mode: BlendMode::Normal,
                 effects: Default::default(),
                 content: LayerContent::Image {
+                    width: None,
+                    height: None,
+                    fit: None,
                     asset: ResolvedAsset {
                         id: id.clone(),
                         location: AssetLocation::File { path: id },
@@ -4388,6 +4421,47 @@ mod tests {
     }
 
     #[test]
+    fn svg_display_size_and_animated_scale_match_cpu() {
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("logo.svg");
+        std::fs::write(&path, r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="var(--fill, white)"/></svg>"#).unwrap();
+        let mut scene = empty_scene(100, 100);
+        scene.layers.push(Layer {
+            id: "logo".to_owned(),
+            transform: EvaluatedTransform {
+                position: Point { x: 50.0, y: 50.0 },
+                ..Default::default()
+            },
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            effects: Default::default(),
+            content: LayerContent::Image {
+                asset: ResolvedAsset {
+                    id: "logo".to_owned(),
+                    location: AssetLocation::File {
+                        path: path.to_string_lossy().into_owned(),
+                    },
+                },
+                width: Some(20.0),
+                height: None,
+                fit: None,
+            },
+        });
+        let mut cpu = celesta_renderer::CpuRenderer::default();
+        for scale in [0.8, 1.0, 2.0] {
+            scene.layers[0].transform.scale = Point { x: scale, y: scale };
+            let actual = renderer.render(&scene).unwrap();
+            let expected = cpu.render(&scene).unwrap();
+            let difference = max_channel_difference(&actual, &expected);
+            assert!(difference <= 1, "scale {scale}: difference {difference}");
+            assert_eq!(pixel_at(&actual, 50, 50), [255, 255, 255, 255]);
+        }
+    }
+
+    #[test]
     fn renders_an_offscreen_background_when_a_gpu_is_available() {
         let background = Color::rgba(51, 102, 153, 255);
         let Some(mut renderer) = renderer(GpuRenderOptions { background }) else {
@@ -4576,6 +4650,9 @@ mod tests {
                     blend_mode: BlendMode::Normal,
                     effects: Default::default(),
                     content: LayerContent::Image {
+                        width: None,
+                        height: None,
+                        fit: None,
                         asset: ResolvedAsset {
                             id: "checker".to_owned(),
                             location: AssetLocation::File {
@@ -4895,7 +4972,11 @@ mod tests {
         image: DecodedImage,
         transform: EvaluatedTransform,
     ) -> Layer {
-        renderer.images.insert(id.to_owned(), image);
+        renderer.image_sources.insert_raster(
+            id,
+            image::RgbaImage::from_raw(image.width, image.height, image.pixels.as_ref().clone())
+                .unwrap(),
+        );
         Layer {
             id: id.to_owned(),
             transform,
@@ -4909,6 +4990,9 @@ mod tests {
                         path: id.to_owned(),
                     },
                 },
+                width: None,
+                height: None,
+                fit: None,
             },
         }
     }
