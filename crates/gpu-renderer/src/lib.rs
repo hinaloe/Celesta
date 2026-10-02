@@ -1623,9 +1623,18 @@ impl GpuRenderer {
                 state.transform.c *= (display.height / f64::from(texture_height)) as f32;
                 state.transform.d *= (display.height / f64::from(texture_height)) as f32;
                 let texture = self.cached_texture(
+                    // Both sizes: SVG rasterized at different densities can
+                    // shrink to the same texture size from different pixels.
                     format!(
-                        "image\0{}\0{:?}\0{:?}\0{:?}\0{}x{}",
-                        asset.id, width, height, fit, texture_width, texture_height
+                        "image\0{}\0{:?}\0{:?}\0{:?}\0{}x{}\0{}x{}",
+                        asset.id,
+                        width,
+                        height,
+                        fit,
+                        display.pixels.width(),
+                        display.pixels.height(),
+                        texture_width,
+                        texture_height
                     ),
                     // SVG is already rasterized for this draw; mipmaps blur
                     // its downscaled edges relative to the CPU renderer.
