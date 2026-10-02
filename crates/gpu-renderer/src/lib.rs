@@ -20,7 +20,9 @@ use celesta_media::{MediaError, VideoFrameDecoder};
 use celesta_remote::{RemoteAssetError, resolve_asset_path};
 use celesta_renderer::{
     Color as CpuColor, FontFallback, MissingGlyphs, PathDraw, PathShape, PathTransform, RectPaint,
-    RenderError, TextRasterizer, rasterize_path, rasterize_paths, resolve_rect_paint,
+    RenderError, TextRasterizer,
+    image_source::{fit_within, resize_rgba},
+    rasterize_path, rasterize_paths, resolve_rect_paint,
 };
 
 use wgpu::util::DeviceExt;
@@ -304,6 +306,9 @@ pub struct GpuRenderer {
     asset_root: PathBuf,
     psd_sources: celesta_renderer::psd_source::PsdSources,
     image_sources: celesta_renderer::image_source::ImageSources,
+    /// The device's largest 2D texture side. Layer content larger than this
+    /// is shrunk before upload and enlarged again by the draw's filtering.
+    max_texture_dimension: u32,
     video_decoder: Option<Box<dyn VideoFrameDecoder>>,
     text_rasterizer: TextRasterizer,
     #[cfg(target_os = "macos")]
@@ -481,6 +486,7 @@ impl GpuRenderer {
         );
         #[cfg(target_os = "macos")]
         let native_preview = native_preview::NativePreviewBridge::new(&device).ok();
+        let max_texture_dimension = device.limits().max_texture_dimension_2d;
         Ok(Self {
             adapter,
             device,
@@ -506,6 +512,7 @@ impl GpuRenderer {
             asset_root: PathBuf::from("."),
             psd_sources: Default::default(),
             image_sources: Default::default(),
+            max_texture_dimension,
             video_decoder: None,
             text_rasterizer: TextRasterizer::new(),
             #[cfg(target_os = "macos")]
@@ -1605,30 +1612,47 @@ impl GpuRenderer {
                         asset: asset.id.clone(),
                         source,
                     })?;
+                let (texture_width, texture_height) = fit_within(
+                    display.pixels.width(),
+                    display.pixels.height(),
+                    self.max_texture_dimension,
+                );
                 let mut state = state;
-                state.transform.a *= (display.width / display.pixels.width() as f64) as f32;
-                state.transform.b *= (display.width / display.pixels.width() as f64) as f32;
-                state.transform.c *= (display.height / display.pixels.height() as f64) as f32;
-                state.transform.d *= (display.height / display.pixels.height() as f64) as f32;
+                state.transform.a *= (display.width / f64::from(texture_width)) as f32;
+                state.transform.b *= (display.width / f64::from(texture_width)) as f32;
+                state.transform.c *= (display.height / f64::from(texture_height)) as f32;
+                state.transform.d *= (display.height / f64::from(texture_height)) as f32;
                 let texture = self.cached_texture(
+                    // Both sizes: SVG rasterized at different densities can
+                    // shrink to the same texture size from different pixels.
                     format!(
-                        "image\0{}\0{:?}\0{:?}\0{:?}\0{}x{}",
+                        "image\0{}\0{:?}\0{:?}\0{:?}\0{}x{}\0{}x{}",
                         asset.id,
                         width,
                         height,
                         fit,
                         display.pixels.width(),
-                        display.pixels.height()
+                        display.pixels.height(),
+                        texture_width,
+                        texture_height
                     ),
                     // SVG is already rasterized for this draw; mipmaps blur
                     // its downscaled edges relative to the CPU renderer.
                     !display.is_svg,
                     |_| {
-                        DecodedImage::new(
-                            display.pixels.width(),
-                            display.pixels.height(),
-                            display.pixels.as_ref().clone().into_raw(),
-                        )
+                        let pixels =
+                            if (texture_width, texture_height) == display.pixels.dimensions() {
+                                display.pixels.as_ref().clone()
+                            } else {
+                                resize_rgba(
+                                    display.pixels.width(),
+                                    display.pixels.height(),
+                                    display.pixels.as_raw(),
+                                    texture_width,
+                                    texture_height,
+                                )
+                            };
+                        DecodedImage::new(texture_width, texture_height, pixels.into_raw())
                     },
                 )?;
                 output.push(PreparedItem::Layer(PreparedLayer::new(
@@ -1645,15 +1669,17 @@ impl GpuRenderer {
                 disabled_layers,
             } => {
                 let path = self.local_asset_path(asset)?;
+                let density = f64::from(state.transform.stretch().0);
                 let image = self
                     .psd_sources
-                    .render(
+                    .render_within(
                         &asset.id,
                         &path,
                         visible_layers,
                         enabled_layers,
                         disabled_layers,
-                        f64::from(state.transform.stretch().0),
+                        density,
+                        self.max_texture_dimension,
                     )
                     .map_err(GpuRenderError::Psd)?;
                 let mut state = state;
@@ -1664,9 +1690,13 @@ impl GpuRenderer {
                 state.transform.c *= y;
                 state.transform.d *= y;
                 let texture = self.cached_texture(
+                    // Keyed like the composite: a composite shrunk to the
+                    // limit can match another level's size with other pixels.
                     format!(
-                        "{}\0{}x{}",
+                        "{}\0{}\0{}\0{}x{}",
                         psd_key(asset, visible_layers, enabled_layers, disabled_layers),
+                        celesta_renderer::psd_source::level_for(density),
+                        self.max_texture_dimension,
                         image.width,
                         image.height
                     ),
@@ -1688,7 +1718,22 @@ impl GpuRenderer {
                     .ok_or_else(|| GpuRenderError::MissingVideoDecoder(layer.id.clone()))?;
                 let frame =
                     decoder.decode_frame_for(&layer.id, &path, timing.source_time_seconds)?;
-                let image = DecodedImage::shared(frame.width, frame.height, frame.pixels)?;
+                let (width, height) =
+                    fit_within(frame.width, frame.height, self.max_texture_dimension);
+                // Checked against its size before anything reads it.
+                let mut image = DecodedImage::shared(frame.width, frame.height, frame.pixels)?;
+                if (width, height) != (frame.width, frame.height) {
+                    let pixels =
+                        resize_rgba(frame.width, frame.height, &image.pixels, width, height);
+                    image = DecodedImage::new(width, height, pixels.into_raw())?;
+                }
+                let mut state = state;
+                let x = (f64::from(frame.width) / f64::from(width)) as f32;
+                let y = (f64::from(frame.height) / f64::from(height)) as f32;
+                state.transform.a *= x;
+                state.transform.b *= x;
+                state.transform.c *= y;
+                state.transform.d *= y;
                 // Every frame brings new pixels, so video is never cached,
                 // and its mipmaps would be rebuilt every frame: only a final
                 // render of a frame shrunk to half size or less pays for them.
@@ -1734,7 +1779,7 @@ impl GpuRenderer {
                     "{TEXT_TEXTURE_PREFIX}{text}\0{style:?}\0{max_width:?}\0{raster_scale:?}"
                 );
                 let texture = self.cached_texture(key, false, |renderer| {
-                    let limit = renderer.device.limits().max_texture_dimension_2d;
+                    let limit = renderer.max_texture_dimension;
                     let mut scale = raster_scale;
                     let text = loop {
                         let text = renderer
@@ -5255,6 +5300,249 @@ mod tests {
 
         let frame = renderer.render(&scene).unwrap();
         assert_eq!(frame.pixels(), &[0, 0, 0, 255, 6, 17, 28, 255]);
+    }
+
+    /// 8x4 pixels: red on the left half, blue on the right.
+    fn split_pixels() -> Vec<u8> {
+        (0..4)
+            .flat_map(|_| {
+                [[255, 0, 0, 255]; 4]
+                    .into_iter()
+                    .chain([[0, 0, 255, 255]; 4])
+            })
+            .flatten()
+            .collect()
+    }
+
+    /// Drawn over the whole 8x4 frame from a texture half that size, each
+    /// half keeps its color. Shrinking and enlarging blur the seam a little,
+    /// and the outermost pixels soften into the transparent surroundings as
+    /// any enlarged layer's do, so inner pixels are read for their hue.
+    fn assert_split(frame: &GpuFrame) {
+        let pixel = |x: usize, y: usize| &frame.pixels()[(y * 8 + x) * 4..][..4];
+        let red = |p: &[u8]| p[0] > 200 && p[1] == 0 && p[2] < 50 && p[3] == 255;
+        let blue = |p: &[u8]| p[0] < 50 && p[1] == 0 && p[2] > 200 && p[3] == 255;
+        for y in 1..3 {
+            for x in [1, 2] {
+                assert!(red(pixel(x, y)), "({x}, {y}): {:?}", pixel(x, y));
+            }
+            for x in [5, 6] {
+                assert!(blue(pixel(x, y)), "({x}, {y}): {:?}", pixel(x, y));
+            }
+        }
+    }
+
+    #[test]
+    fn shrinks_images_and_video_frames_larger_than_the_texture_limit() {
+        struct Decoder;
+
+        impl VideoFrameDecoder for Decoder {
+            fn decode_frame(&mut self, _: &Path, _: f64) -> Result<VideoFrame, MediaError> {
+                Ok(VideoFrame {
+                    width: 8,
+                    height: 4,
+                    pixels: split_pixels().into(),
+                })
+            }
+        }
+
+        let Some(renderer) = renderer(GpuRenderOptions {
+            background: Color::rgba(0, 0, 0, 255),
+        }) else {
+            return;
+        };
+        let mut renderer = renderer.with_video_decoder(Decoder);
+        renderer.max_texture_dimension = 4;
+        let transform = EvaluatedTransform {
+            position: Point { x: 4.0, y: 2.0 },
+            ..EvaluatedTransform::default()
+        };
+        let asset = |id: &str, path: &str| ResolvedAsset {
+            id: id.to_owned(),
+            location: AssetLocation::File {
+                path: path.to_owned(),
+            },
+        };
+
+        renderer.image_sources.insert_raster(
+            "split",
+            image::RgbaImage::from_raw(8, 4, split_pixels()).unwrap(),
+        );
+        let mut scene = empty_scene(8, 4);
+        scene.layers.push(Layer {
+            id: "image".to_owned(),
+            transform,
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            effects: Default::default(),
+            content: LayerContent::Image {
+                width: None,
+                height: None,
+                fit: None,
+                asset: asset("split", "split.png"),
+            },
+        });
+        // Uploaded as is, the 8x4 image would exceed the 4-texel limit.
+        assert_split(&renderer.render(&scene).unwrap());
+        let texture = &renderer.textures.values().next().unwrap().texture;
+        assert_eq!((texture.width, texture.height), (4, 2));
+
+        scene.layers[0].content = LayerContent::Video {
+            asset: asset("clip", "clip.mp4"),
+            timing: MediaTiming {
+                local_time: Time::ZERO,
+                source_start: Time::ZERO,
+                source_time_seconds: 0.0,
+                playback_rate: 1.0,
+            },
+        };
+        assert_split(&renderer.render(&scene).unwrap());
+    }
+
+    #[test]
+    fn rejects_a_malformed_video_frame_larger_than_the_texture_limit() {
+        struct Decoder;
+
+        impl VideoFrameDecoder for Decoder {
+            fn decode_frame(&mut self, _: &Path, _: f64) -> Result<VideoFrame, MediaError> {
+                // One pixel short of 8x4.
+                Ok(VideoFrame {
+                    width: 8,
+                    height: 4,
+                    pixels: vec![0; 31 * 4].into(),
+                })
+            }
+        }
+
+        let Some(renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        let mut renderer = renderer.with_video_decoder(Decoder);
+        renderer.max_texture_dimension = 4;
+        let mut scene = empty_scene(8, 4);
+        scene.layers.push(Layer {
+            id: "video".to_owned(),
+            transform: EvaluatedTransform::default(),
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            effects: Default::default(),
+            content: LayerContent::Video {
+                asset: ResolvedAsset {
+                    id: "clip".to_owned(),
+                    location: AssetLocation::File {
+                        path: "clip.mp4".to_owned(),
+                    },
+                },
+                timing: MediaTiming {
+                    local_time: Time::ZERO,
+                    source_start: Time::ZERO,
+                    source_time_seconds: 0.0,
+                    playback_rate: 1.0,
+                },
+            },
+        });
+        assert!(matches!(
+            renderer.render(&scene),
+            Err(GpuRenderError::InvalidImageData { .. })
+        ));
+    }
+
+    #[test]
+    fn keeps_psd_composites_of_different_levels_apart_at_the_same_size() {
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/assets/lipsync-fixture.psd");
+        renderer.max_texture_dimension = 80;
+        let portrait = |id: &str, scale: f64| Layer {
+            id: id.to_owned(),
+            transform: EvaluatedTransform {
+                position: Point { x: 120.0, y: 160.0 },
+                scale: Point { x: scale, y: scale },
+                ..EvaluatedTransform::default()
+            },
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            effects: Default::default(),
+            content: LayerContent::Psd {
+                asset: ResolvedAsset {
+                    id: "fixture".to_owned(),
+                    location: AssetLocation::File {
+                        path: fixture.to_string_lossy().into_owned(),
+                    },
+                },
+                visible_layers: vec!["body".to_owned(), "body/base".to_owned()],
+                enabled_layers: Vec::new(),
+                disabled_layers: Vec::new(),
+            },
+        };
+        // At full size the 240x320 canvas is composited at 120x160 and
+        // shrunk to 60x80; at a quarter it is composited at 60x80 directly.
+        let mut scene = empty_scene(240, 320);
+        scene.layers = vec![portrait("full", 1.0), portrait("quarter", 0.25)];
+        renderer.render(&scene).unwrap();
+        assert_eq!(renderer.textures.len(), 2);
+        assert!(
+            renderer
+                .textures
+                .values()
+                .all(|cached| (cached.texture.width, cached.texture.height) == (60, 80))
+        );
+    }
+
+    #[test]
+    fn composites_a_psd_larger_than_the_texture_limit_at_the_limit() {
+        let Some(mut renderer) = renderer(GpuRenderOptions {
+            background: Color::TRANSPARENT,
+        }) else {
+            return;
+        };
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/assets/lipsync-fixture.psd");
+        renderer.max_texture_dimension = 100;
+        let preset: Vec<String> = ["body", "body/base", "body/outfit-navy"]
+            .map(str::to_owned)
+            .to_vec();
+        let mut scene = empty_scene(240, 320);
+        scene.layers.push(Layer {
+            id: "portrait".to_owned(),
+            transform: EvaluatedTransform {
+                position: Point { x: 120.0, y: 160.0 },
+                ..EvaluatedTransform::default()
+            },
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            effects: Default::default(),
+            content: LayerContent::Psd {
+                asset: ResolvedAsset {
+                    id: "fixture".to_owned(),
+                    location: AssetLocation::File {
+                        path: fixture.to_string_lossy().into_owned(),
+                    },
+                },
+                visible_layers: preset.clone(),
+                enabled_layers: Vec::new(),
+                disabled_layers: Vec::new(),
+            },
+        });
+        let frame = renderer.render(&scene).unwrap();
+        let texture = &renderer.textures.values().next().unwrap().texture;
+        assert_eq!((texture.width, texture.height), (75, 100));
+
+        // Drawn at the PSD's full size: the shrunk composite is enlarged
+        // back over the whole canvas, so its solid areas match it.
+        let full = celesta_renderer::psd_source::PsdSources::default()
+            .render("fixture", &fixture, &preset, &[], &[], 1.0)
+            .unwrap();
+        for (x, y) in [(120, 236), (70, 190), (170, 280), (10, 10)] {
+            let index = (y * 240 + x) * 4;
+            assert_eq!(
+                frame.pixels()[index..index + 4],
+                full.pixels[index..index + 4],
+                "pixel ({x}, {y})"
+            );
+        }
     }
 
     #[test]
