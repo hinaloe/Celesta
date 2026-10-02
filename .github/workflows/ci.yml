@@ -15,6 +15,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Keep limited debug information while reducing compilation and cache size.
+  CARGO_PROFILE_DEV_DEBUG: "1"
+  CARGO_PROFILE_TEST_DEBUG: "1"
 
 jobs:
   test:
@@ -39,11 +42,18 @@ jobs:
 
       - uses: ./.github/actions/setup-ffmpeg
 
+      # rust-cache hashes every installed toolchain; exclude the runner's moving stable.
+      - name: Isolate Rust toolchain
+        run: echo "RUSTUP_HOME=$RUNNER_TEMP/celesta-rustup" >> "$GITHUB_ENV"
+
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
         with:
-          toolchain: stable
+          # Update deliberately so compiler releases do not unexpectedly invalidate caches.
+          toolchain: 1.99.0
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          env-vars: FFMPEG_VERSION
 
       # The pnpm version comes from package.json's `packageManager`.
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -59,15 +69,26 @@ jobs:
       - name: Build @celesta/react
         run: |
           pnpm --dir packages/react install --frozen-lockfile
-          pnpm --dir packages/react run codegen
+          pnpm --dir packages/react run codegen --locked --timings
           pnpm --dir packages/react run build
 
       - name: Test @celesta/react
         run: pnpm --dir packages/react run test
 
       - name: Build
-        run: cargo build --workspace --locked
+        # Compile normal binaries and test targets together so Cargo can schedule
+        # them in parallel; the Test step reuses the compiled test targets.
+        run: cargo build --workspace --all-targets --locked --timings
 
       # Tests that need a GPU adapter skip themselves when none is available.
       - name: Test
-        run: cargo test --workspace --locked --no-fail-fast
+        run: cargo test --workspace --locked --no-fail-fast --timings
+
+      - name: Upload Cargo build timings
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cargo-timings-${{ runner.os }}-${{ runner.arch }}
+          path: target/cargo-timings/*.html
+          if-no-files-found: warn
+          retention-days: 14

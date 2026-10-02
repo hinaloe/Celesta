@@ -1,3 +1,5 @@
+import * as React from 'react';
+
 import { entryRelativePath, isRemoteUrl } from './entry-dir';
 import type { ResolvedAsset, TextStyle } from './scene';
 
@@ -45,10 +47,18 @@ export type MeasureTextRequest = {
 };
 
 let measure: ((request: MeasureTextRequest) => Promise<TextMetrics>) | undefined;
+let measureSync: ((request: MeasureTextRequest) => TextMetrics) | undefined;
+
+/** @internal Fonts collected from the composition, shared with component previews. */
+export const TextMetricsFontsContext = React.createContext<readonly ResolvedAsset[]>([]);
 
 /** @internal Installed by the Celesta CLI before an entry's `prepare()` runs. */
-export function setTextMeasurer(next: (request: MeasureTextRequest) => Promise<TextMetrics>): void {
+export function setTextMeasurer(
+  next: (request: MeasureTextRequest) => Promise<TextMetrics>,
+  synchronous?: (request: MeasureTextRequest) => TextMetrics,
+): void {
   measure = next;
+  measureSync = synchronous;
 }
 
 /**
@@ -74,4 +84,32 @@ export async function measureText(
     ...(options.maxWidth !== undefined ? { maxWidth: options.maxWidth } : {}),
     fonts,
   });
+}
+
+/**
+ * Measures computed text synchronously during render, using the same fonts
+ * and shaping as `<Text>`. Unchanged inputs reuse this hook's last result.
+ */
+export function useTextMetrics(
+  text: string,
+  style: TextStyle = {},
+  options: MeasureTextOptions = {},
+): TextMetrics {
+  const declaredFonts = React.useContext(TextMetricsFontsContext);
+  const fonts = [
+    ...declaredFonts.map((font) => font.location.type === 'file'
+      ? { ...font, location: { ...font.location, path: entryRelativePath(font.location.path) } }
+      : font),
+    ...(options.fonts ?? []).map((src): ResolvedAsset => ({
+      id: src,
+      location: isRemoteUrl(src) ? { type: 'url', url: src } : { type: 'file', path: entryRelativePath(src) },
+    })),
+  ];
+  const key = JSON.stringify({ text, style, maxWidth: options.maxWidth, fonts });
+  return React.useMemo(() => {
+    if (!measureSync) {
+      throw new Error('useTextMetrics() requires a Celesta editor or exporter runtime');
+    }
+    return measureSync(JSON.parse(key) as MeasureTextRequest);
+  }, [key]);
 }

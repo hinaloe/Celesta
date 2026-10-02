@@ -61,6 +61,15 @@ runs:
       if: runner.os == 'macOS'
       shell: bash
       run: |
+        # The runner image's formula index can predate ffmpeg@8.
+        brew update
+        # ffmpeg@8 now depends on openssl@4, and pouring it in the same brew
+        # process that is upgrading ca-certificates trips over the openssl@3
+        # lock the process already holds. Install it on its own first.
+        brew install openssl@4
         brew install ffmpeg@8 pkg-config
+        # The versioned Cellar path ends up in cached build output, so expose the
+        # version for the Rust cache key (rust-cache `env-vars`).
+        echo "FFMPEG_VERSION=$(brew list --versions ffmpeg@8)" >> "$GITHUB_ENV"
         # ffmpeg@8 is keg-only.
         echo "PKG_CONFIG_PATH=$(brew --prefix ffmpeg@8)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"

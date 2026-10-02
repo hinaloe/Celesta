@@ -13,7 +13,7 @@ them from npm.
 - [Time and animation](#time-and-animation): hooks, interpolate, Easings, spring, Sequence, Transition, timecodeToFrame
 - [Motion helpers](#motion-helpers): progress, Series, Stagger, useBeat, useCue, TextReveal, useTypewriter, useCountUp, Camera, Line, Polyline, random, noise, frameToTimecode
 - [Layout helpers](#layout-helpers): Center, SafeArea, Stack, Grid, Fit
-- [Media helpers](#media-helpers): preloadMedia, mediaDurationInFrames, measureText
+- [Media helpers](#media-helpers): preloadMedia, mediaDurationInFrames, measureText, useTextMetrics
 - [Project data](#project-data): ProjectProvider, useProjectProperty, defineProjectProperties, ProjectTimeline, ProjectTrack, registerComponent
 - [Preview-only debug guides](#preview-only-debug-guides)
 - [Keyframe values](#keyframe-values)
@@ -312,9 +312,13 @@ const scale = spring({ frame, fps, delay: 10, config: { damping: 12 } });
 ### `<Sequence from? durationInFrames?>`
 
 Shows its children only during `[from, from + durationInFrames)` in the
-parent's frames (default: until the parent's end). Inside, frames and media
-restart at 0. Sequences nest, and accept common layer props. Use them to
-lay out scenes back to back:
+parent's frames (default: until the parent's end). Children are unmounted
+outside this window, so their component code and hooks do not run. Entering
+the window again mounts them afresh, resetting their local React state.
+Declare fonts or assets needed throughout the composition in `<Assets>`
+outside a sequence.
+Inside, frames and media restart at 0. Sequences nest, and accept common
+layer props. Use them to lay out scenes back to back:
 
 ```tsx
 const scenes = [{ C: Intro, len: 90 }, { C: Body, len: 240 }, { C: Outro, len: 60 }];
@@ -497,7 +501,8 @@ To show a 1280×720 video full-screen in a 1920×1080 composition:
 
 ## Media helpers
 
-Call these in `prepare()` only.
+Call `preloadMedia()` and asynchronous `measureText()` in `prepare()`.
+Use `useTextMetrics()` during render, as described below.
 
 ```tsx
 let clipFrames = 150; // fallback
@@ -528,6 +533,83 @@ export async function prepare() {
   caretX = m.width;
 }
 ```
+
+### Measure text during render
+
+`useTextMetrics(text, style?, { maxWidth?, fonts? }?)` returns the same
+`TextMetrics` synchronously inside a React component. Use it for counters,
+typed text and project properties without listing strings in `prepare()`.
+It uses the renderer's shaping engine in both preview and export; unchanged
+text, style, wrapping width and font declarations reuse the hook's last
+result. `<Font>` declarations in the composition are included automatically,
+even when they appear after the component that measures text. Relative font
+paths resolve against the entry file. Optional `fonts` are extra files to
+load for measurement; also declare them with `<Font>` so drawing uses them.
+
+`width` is the advance width, including spaces. `height` is the line-box
+height, while single-line `<Text>` normally trims empty rows above and below
+its visible glyphs. Place text at `y={padding + metrics.ascent}` with
+`anchorY="baseline"` to fit it consistently inside a measured background.
+Pass the same `style` and `maxWidth` to the hook and the `<Text>`.
+
+A heading can use independently colored runs without estimated widths:
+
+```tsx
+const style = { fontFamily: 'sans-serif', fontSize: 64 };
+function Heading() {
+  const first = useTextMetrics('速い、', style);
+  const accent = useTextMetrics('Easy', style);
+  return <Group y={100}>
+    <Text anchorY="baseline" style={style}>速い、</Text>
+    <Text x={first.width} anchorY="baseline"
+      style={{ ...style, fill: { type: 'solid', color: '#28A34A' } }}>Easy</Text>
+    <Text x={first.width + accent.width} anchorY="baseline" style={style}>、頼もしい。</Text>
+  </Group>;
+}
+```
+
+Each `<Text>` shapes separately. Keep letters that need shared kerning or a
+ligature in the same run; this hook does not add rich-text paragraph shaping.
+
+A fitted pill can measure its computed label in the component that draws it:
+
+```tsx
+function Pill({ label }) {
+  const m = useTextMetrics(label, style);
+  const height = m.height + 24;
+  return <Group>
+    <Rect width={m.width + 48} height={height} cornerRadius={height / 2} fill="#28A34A" />
+    <Text x={24} y={12 + m.ascent} anchorY="baseline"
+      style={{ ...style, fill: { type: 'solid', color: '#ffffff' } }}>{label}</Text>
+  </Group>;
+}
+```
+
+For a centered row, add each measured item's padding and a fixed gap:
+
+```tsx
+function Row() {
+  const { width } = useVideoConfig();
+  const frame = useCurrentFrame();
+  const first = `SFP+ 10GbE ×${frame + 1}`;
+  const second = 'RJ45 2.5GbE ×4';
+  const third = 'USB-C';
+  const a = useTextMetrics(first, style);
+  const b = useTextMetrics(second, style);
+  const c = useTextMetrics(third, style);
+  const gap = 16;
+  const wa = a.width + 48, wb = b.width + 48, wc = c.width + 48;
+  return <Group x={(width - wa - wb - wc - 2 * gap) / 2}>
+    <Pill label={first} />
+    <Group x={wa + gap}><Pill label={second} /></Group>
+    <Group x={wa + wb + 2 * gap}><Pill label={third} /></Group>
+  </Group>;
+}
+```
+
+Like other React hooks, call `useTextMetrics` at the component's top level,
+with a stable number of calls. The full example is
+`packages/react/examples/with-text-metrics.tsx`.
 
 For anything else asynchronous (fetching JSON, reading files with
 `node:fs`), use `prepare()` the same way and keep a fallback so the scene
