@@ -2156,7 +2156,14 @@ impl EditorView {
         }
         self.play_when_audio_ready = false;
         if self.clock.is_at_end() {
-            self.seek_frame(0);
+            // Looping restarts where the loop does, as the wrap in
+            // `update_playback` would.
+            let restart = if self.loop_playback {
+                self.loop_range().0
+            } else {
+                0
+            };
+            self.seek_frame(restart);
         }
         self.playing = true;
         self.playback_started_at = Some(Instant::now());
@@ -2201,10 +2208,11 @@ impl EditorView {
     /// `[start, end)` frames looped playback repeats: the In/Out range when
     /// both marks are set in order, else the whole composition.
     fn loop_range(&self) -> (i64, i64) {
-        match (self.export_in_frame, self.export_out_frame) {
-            (Some(start), Some(end)) if start < end => (start, end.min(self.clock.end_frame())),
-            _ => (0, self.clock.end_frame()),
-        }
+        loop_range_for(
+            self.export_in_frame,
+            self.export_out_frame,
+            self.clock.end_frame(),
+        )
     }
 
     /// Restarts the playback clock (and audio) from `frame` while playing.
@@ -3877,6 +3885,17 @@ fn export_progress_label(progress: &ExportProgress) -> String {
     }
 }
 
+/// `[start, end)` frames looped playback repeats: the In/Out marks clamped to
+/// the composition (a React reload can shorten it under them) when they
+/// still enclose at least a frame, else the whole composition.
+fn loop_range_for(in_frame: Option<i64>, out_frame: Option<i64>, end_frame: i64) -> (i64, i64) {
+    let clamp = |frame: i64| frame.clamp(0, end_frame);
+    match (in_frame.map(clamp), out_frame.map(clamp)) {
+        (Some(start), Some(end)) if start < end => (start, end),
+        _ => (0, end_frame),
+    }
+}
+
 /// Turns the editor's in/out frame markers into an [`ExportRange`]. Returns
 /// `None` (export the whole composition) unless both are set with `in < out`.
 fn export_range_for(
@@ -4048,8 +4067,8 @@ mod tests {
     use super::{
         AudioCacheKey, CachedAudioDecoder, ClipKind, DiskAudioCache, EDITOR_DEMO_PROJECT,
         ExportEvent, ExportRequest, ExportSource, ExportWorker, clip_level_envelope,
-        export_range_for, export_suggested_name, is_react_entry, level_at_time, map_clip_waveform,
-        master_volume_from_drag, take_latest, waveform_peaks, waveform_segment,
+        export_range_for, export_suggested_name, is_react_entry, level_at_time, loop_range_for,
+        map_clip_waveform, master_volume_from_drag, take_latest, waveform_peaks, waveform_segment,
     };
     use celesta_composition::{
         Animatable, AssetLocation, AudioClip, Rational, ResolvedAsset, Time, TimeRange,
@@ -4127,6 +4146,16 @@ mod tests {
         let range = export_range_for(Some(30), Some(90), rate).unwrap();
         assert_eq!(range.start, Time::frames(30, rate).unwrap());
         assert_eq!(range.end, Some(Time::frames(90, rate).unwrap()));
+    }
+
+    #[test]
+    fn loop_range_falls_back_when_marks_leave_the_composition() {
+        assert_eq!(loop_range_for(Some(10), Some(20), 100), (10, 20));
+        assert_eq!(loop_range_for(Some(10), Some(200), 100), (10, 100));
+        // A reload shortened the composition under both marks.
+        assert_eq!(loop_range_for(Some(150), Some(200), 100), (0, 100));
+        assert_eq!(loop_range_for(Some(20), Some(10), 100), (0, 100));
+        assert_eq!(loop_range_for(Some(10), None, 100), (0, 100));
     }
 
     #[test]

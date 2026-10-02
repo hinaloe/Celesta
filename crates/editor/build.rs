@@ -33,8 +33,10 @@ fn embed_info_plist() {
     let out_dir = std::env::var("OUT_DIR").expect("cargo sets OUT_DIR");
     let path = std::path::Path::new(&out_dir).join("Info.plist");
     std::fs::write(&path, plist).expect("write the embedded Info.plist");
-    println!(
-        "cargo:rustc-link-arg-bins=-Wl,-sectcreate,__TEXT,__info_plist,{}",
-        path.display()
-    );
+    // One `-Xlinker` per operand: `-Wl,` would split a path containing a comma.
+    let path = path.display().to_string();
+    for operand in ["-sectcreate", "__TEXT", "__info_plist", path.as_str()] {
+        println!("cargo:rustc-link-arg-bins=-Xlinker");
+        println!("cargo:rustc-link-arg-bins={operand}");
+    }
 }

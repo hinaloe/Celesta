@@ -55,9 +55,12 @@ pub fn ruler_scale(
         steps.push(fps / 2);
     }
     steps.extend(
-        [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600]
-            .into_iter()
-            .map(|seconds| seconds * fps),
+        [
+            1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200,
+            86400,
+        ]
+        .into_iter()
+        .map(|seconds| seconds * fps),
     );
     steps.sort_unstable();
     steps.dedup();
@@ -66,6 +69,13 @@ pub fn ruler_scale(
     } else {
         f64::MIN_POSITIVE
     };
+    // Past a day, keep doubling until the labels fit.
+    while let Some(&last) = steps.last()
+        && (last as f64) * pixels_per_frame < min_label_px
+        && let Some(next) = last.checked_mul(2)
+    {
+        steps.push(next);
+    }
     let major = steps
         .iter()
         .copied()
@@ -138,8 +148,13 @@ mod tests {
     }
 
     #[test]
-    fn ruler_falls_back_to_the_coarsest_step() {
-        let scale = ruler_scale(1e-9, 30, 100.0, 8.0);
-        assert_eq!(scale.major, 3600 * 30);
+    fn ruler_labels_long_compositions_without_overlap() {
+        // 24 hours at 30 fps across 1000 px: hourly labels would be 42 px apart.
+        let pixels_per_frame = 1000.0 / (24.0 * 3600.0 * 30.0);
+        let scale = ruler_scale(pixels_per_frame, 30, 100.0, 8.0);
+        assert_eq!(scale.major, 3 * 3600 * 30);
+        assert!(scale.major as f64 * pixels_per_frame >= 100.0);
+        // Degenerate scales stop at the largest representable step.
+        assert!(ruler_scale(1e-30, 30, 100.0, 8.0).major > 0);
     }
 }

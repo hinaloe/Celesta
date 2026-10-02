@@ -35,6 +35,9 @@ const HOT_DB: f32 = -3.0;
 /// channels past the second are not metered.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MasterLevels {
+    /// Buckets per second as actually cut: a whole number of sample frames
+    /// each, so not exactly [`BUCKETS_PER_SECOND`] at every sample rate.
+    buckets_per_second: f64,
     peaks: Vec<[f32; 2]>,
 }
 
@@ -66,14 +69,17 @@ impl MasterLevels {
                     })
             })
             .collect();
-        Self { peaks }
+        Self {
+            buckets_per_second: f64::from(buffer.sample_rate) / frames_per_bucket as f64,
+            peaks,
+        }
     }
 
     pub fn reading(&self, seconds: f64) -> MeterReading {
         if self.peaks.is_empty() || !seconds.is_finite() || seconds < 0.0 {
             return MeterReading::default();
         }
-        let now = (seconds * BUCKETS_PER_SECOND) as usize;
+        let now = (seconds * self.buckets_per_second) as usize;
         if now >= self.peaks.len() {
             return MeterReading::default();
         }
@@ -258,6 +264,16 @@ mod tests {
         assert_eq!(levels.reading(0.5).hold, [0.0, 0.0]);
         // Past the end of the mix the meter is silent.
         assert_eq!(levels.reading(10.0).hold, [0.0, 0.0]);
+    }
+
+    #[test]
+    fn readings_stay_in_step_when_buckets_do_not_divide_the_rate() {
+        // 22,050 Hz cuts 221-frame buckets, slightly over 10 ms each.
+        let mut frames = vec![[0.0, 0.0]; 22_050 * 60];
+        frames[22_050 * 59] = [1.0, 1.0];
+        let levels = MasterLevels::from_buffer(&stereo(22_050, &frames));
+        assert_eq!(levels.reading(59.0).peak, [1.0, 1.0]);
+        assert_eq!(levels.reading(59.9).hold, [1.0, 1.0]);
     }
 
     #[test]
