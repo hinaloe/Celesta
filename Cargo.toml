@@ -16,6 +16,8 @@ members = [
 ]
 
 [workspace.package]
+# The released version; a release tag (vX.Y.Z) must match it.
+version = "0.1.4"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/mika-f/celesta"
