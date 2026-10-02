@@ -21,6 +21,15 @@ export type VoiceInfo = { file: string; kana: string; seconds: number; hash: str
 
 const SPEED = 1.1;
 
+/** VOICEVOX の AudioQuery のうち、ここで読み書きする項目。残りはそのまま /synthesis に返す。 */
+type AudioQuery = {
+  kana: string;
+  speedScale: number;
+  outputSamplingRate: number;
+  prePhonemeLength: number;
+  postPhonemeLength: number;
+};
+
 async function engine(path: string, init?: RequestInit): Promise<Response> {
   const response = await fetch(`${ENGINE}${path}`, init);
   if (!response.ok) throw new Error(`${path}: HTTP ${response.status} ${await response.text()}`);
@@ -54,7 +63,7 @@ for (const line of LINES) {
     manifest[line.id] = previous[line.id];
     continue;
   }
-  const query = await (await engine(`/audio_query?speaker=${line.style}&text=${encodeURIComponent(say)}`, { method: 'POST' })).json();
+  const query = (await (await engine(`/audio_query?speaker=${line.style}&text=${encodeURIComponent(say)}`, { method: 'POST' })).json()) as AudioQuery;
   query.speedScale = SPEED;
   query.outputSamplingRate = 48000;
   query.prePhonemeLength = 0.05;
@@ -65,7 +74,7 @@ for (const line of LINES) {
     body: JSON.stringify(query),
   })).arrayBuffer());
   writeFileSync(path, wav);
-  manifest[line.id] = { file: `./${file}`, kana: query.kana as string, seconds: wavSeconds(wav), hash };
+  manifest[line.id] = { file: `./${file}`, kana: query.kana, seconds: wavSeconds(wav), hash };
   console.log(`${line.id}  ${manifest[line.id].seconds.toFixed(2)}s  ${say}`);
 }
 
