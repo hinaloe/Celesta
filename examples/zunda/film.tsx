@@ -324,8 +324,8 @@ function CodePanel({ g, steps, x = 40, y = 36, width = 660, title = 'film.tsx', 
   const appear = progress(g, steps[0].at, 14, Easings.easeOutCubic);
   return (
     <Group x={x} y={y + 16 * (1 - appear)} scale={scale} opacity={appear}>
-      <Rect x={6} y={12} width={width} height={height} cornerRadius={18} fill="#00000059" />
-      <Rect width={width} height={height} cornerRadius={18} fill={C.panel} stroke="#FFFFFF26" strokeWidth={2} />
+      <Rect width={width} height={height} cornerRadius={18} fill={C.panel} stroke="#FFFFFF26" strokeWidth={2}
+        shadow={{ color: '#00000080', blur: 24, offsetX: 0, offsetY: 10 }} />
       {['#FF5F57', '#FEBC2E', '#28C840'].map((color, i) => (
         <Rect key={color} x={22 + i * 22} y={20} width={12} height={12} cornerRadius={6} fill={color} />
       ))}
@@ -426,7 +426,7 @@ function Callout({ g, at, label, color = C.white }: { g: number; at: number; lab
   return (
     <Group x={960} y={430} scale={0.6 + 0.4 * s} opacity={Math.min(s, out)}>
       <Text anchorX={0.5} anchorY={0.5} style={{ fontFamily: F.mono, fontSize: 64, fontWeight: 700,
-        fill: solid(color), stroke: { paint: solid('#00000088'), width: 4 } }}>{label}</Text>
+        fill: solid(color), stroke: { paint: solid('#00000088'), width: 4 } }} shadow={{ color: '#00000066', blur: 18, offsetX: 0, offsetY: 8 }}>{label}</Text>
     </Group>
   );
 }
@@ -541,7 +541,7 @@ function PathStage() {
         {active && (() => {
           const [px, py] = pointOnPolyline(active.points, progress(t, active.at, active.dur, Easings.easeInOutSine));
           return <Rect x={px} y={py} width={22} height={22} cornerRadius={11} anchorX={0.5} anchorY={0.5} fill={C.zunda}
-            stroke="#FFFFFF" strokeWidth={4} />;
+            glow={{ color: '#B8FF5AAA', blur: 14 }} />;
         })()}
         {yum > 0 && Array.from({ length: 10 }, (_, i) => {
           const a = (-150 + i * 13) * (Math.PI / 180);
@@ -728,8 +728,8 @@ function VoiceOverlay() {
   const parade = line.id === 's3';
   return (
     <Group x={80 - 40 * (1 - show)} y={110} opacity={show}>
-      <Rect x={6} y={12} width={660} height={700} cornerRadius={26} fill="#0000003A" />
-      <Rect width={660} height={700} cornerRadius={26} fill="#10241AEE" stroke="#FFFFFF22" strokeWidth={2} />
+      <Rect width={660} height={700} cornerRadius={26} fill="#10241AEE" stroke="#FFFFFF22" strokeWidth={2}
+        shadow={{ color: '#0000004D', blur: 24, offsetX: 0, offsetY: 12 }} />
       {parade ? <FaceParade g={g} /> : <MouthMeter g={g} line={line} />}
     </Group>
   );
@@ -752,8 +752,8 @@ function MouthMeter({ g, line }: { g: number; line: Timed }) {
       </Text>
       {/* いまの口の形 */}
       <Group x={330} y={290}>
-        <Rect width={290} height={290} cornerRadius={145} anchorX={0.5} anchorY={0.5} fill="#B8FF5A33" />
-        <Rect width={250} height={250} cornerRadius={125} anchorX={0.5} anchorY={0.5} fill={C.zunda} />
+        <Rect width={250} height={250} cornerRadius={125} anchorX={0.5} anchorY={0.5} fill={C.zunda}
+          glow={{ color: '#B8FF5A88', blur: 20 }} />
         <Text anchorX={0.5} anchorY={0.5} style={{ fontFamily: F.ja, fontSize: 150, fontWeight: 800, fill: solid('#0B2A06') }}>
           {VOWEL_KANA[shape]}
         </Text>
@@ -901,7 +901,8 @@ function AgentStage() {
     <>
       <Rect width={W} height={H} fill="#07090D" />
       <Group x={560} y={60}>
-        <Rect width={940} height={770} cornerRadius={20} fill="#0D1117" stroke="#FFFFFF22" strokeWidth={2} />
+        <Rect width={940} height={770} cornerRadius={20} fill="#0D1117" stroke="#FFFFFF22" strokeWidth={2}
+          shadow={{ color: '#000000AA', blur: 40, offsetX: 0, offsetY: 18 }} />
         <Rect width={940} height={48} cornerRadius={20} fill="#161B22" />
         {['#FF5F57', '#FEBC2E', '#28C840'].map((color, i) => (
           <Rect key={color} x={24 + i * 24} y={18} width={13} height={13} cornerRadius={7} fill={color} />
@@ -973,7 +974,7 @@ function OutroStage() {
       })}
       <Group x={960} y={300} scale={0.5 + 0.5 * logo} opacity={Math.min(1, logo * 1.5)}>
         <Text anchorX={0.5} anchorY={0.5} style={{ fontFamily: F.title, fontSize: 200, fill: solid(C.white),
-          stroke: { paint: solid(C.zundaDeep), width: 18 } }}>Celesta</Text>
+          stroke: { paint: solid(C.zundaDeep), width: 18 } }} glow={{ color: '#FFFFFFAA', blur: 24 }}>Celesta</Text>
       </Group>
       <TextReveal x={960} y={440} align={0.5} from={L.o1.at - SCENE_AT.outro} stagger={4} durationInFrames={22}
         style={{ fontFamily: F.ja, fontSize: 64, fontWeight: 800, lineHeight: 84, fill: solid(C.zundaDeep) }}>
