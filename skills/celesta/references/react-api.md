@@ -256,9 +256,10 @@ type TextStyle = {
   text layer "…" uses a fallback font` to stderr, once per family and weight.
   `scripts/inspect.mjs` does not check fonts. For reproducible output, ship
   the font file next to the entry and load it with `<Font>`.
-- Characters the family lacks fall back per glyph to another font. Apart
-  from emoji (meant to come from a color emoji font), whitespace, and
-  invisible characters, the app lists them with the preview's warnings, and
+- Characters the family lacks fall back per glyph to another font, or are
+  drawn as a missing-glyph box (tofu) when no font has them. Apart from
+  emoji that a color emoji font draws, whitespace, and invisible
+  characters, the app lists them with the preview's warnings, and
   `celesta-export` prints `warning: font family "…" (weight …) has no glyph
   for "…"; text layer "…" draws them with a fallback font` (the first 10
   characters, then `and N more characters`), naming each character once per

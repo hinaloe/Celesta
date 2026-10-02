@@ -418,9 +418,11 @@ impl TextRasterizer {
     /// The characters of `text` that `style`'s `fontFamily` has no glyph
     /// for, drawn on `layer` with another font instead; `None` when the
     /// family draws all of them, names no family, or has no face at all
-    /// (which [`Self::font_fallback`] reports). Emoji are left out, since
-    /// they are meant to come from a color emoji font, and so are
-    /// whitespace and invisible characters.
+    /// (which [`Self::font_fallback`] reports). Emoji that another font
+    /// draws are left out, since they are meant to come from a color emoji
+    /// font, and so are whitespace and invisible characters. Characters no
+    /// font has, emoji included, are drawn as a missing-glyph box and
+    /// always reported.
     pub fn missing_glyphs(
         &mut self,
         layer: &str,
@@ -462,14 +464,17 @@ impl TextRasterizer {
             for glyph in run.glyphs {
                 // Glyph 0 is `.notdef`: no font had the character, and the
                 // missing-glyph box is drawn.
-                let from_family = glyph.glyph_id != 0
+                let drawn = glyph.glyph_id != 0;
+                let from_family = drawn
                     && database
                         .face(glyph.font_id)
                         .is_some_and(|face| face.families.iter().any(|(name, _)| name == family));
                 let Some(cluster) = run.text.get(glyph.start..glyph.end) else {
                     continue;
                 };
-                if from_family || is_emoji_cluster(cluster) {
+                // An emoji drawn from a color emoji font is expected; one no
+                // font has is a box like any other missing character.
+                if from_family || (drawn && is_emoji_cluster(cluster)) {
                     continue;
                 }
                 for character in cluster.chars().filter(|&c| is_visible_character(c)) {
@@ -3711,6 +3716,27 @@ mod font_tests {
             rasterizer.missing_glyphs("title", "ずんだもん", &TextStyle::default()),
             None
         );
+    }
+
+    #[test]
+    fn reports_emoji_no_font_has_a_glyph_for() {
+        // Only Bebas Neue, without the system's fonts: there is no color
+        // emoji font to fall back to, so the emoji is drawn as a missing
+        // glyph box and is reported like any other character.
+        let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/prism");
+        let mut rasterizer = TextRasterizer::new();
+        rasterizer.font_system =
+            FontSystem::new_with_locale_and_db("en-US".to_owned(), fontdb::Database::new());
+        rasterizer
+            .load_fonts(
+                &[file_font("assets/fonts/BebasNeue-Regular.ttf")],
+                &examples,
+            )
+            .unwrap();
+        let missing = rasterizer
+            .missing_glyphs("title", "CELESTA 🎉 ず ❤\u{FE0F}", &bebas_style())
+            .unwrap();
+        assert_eq!(missing.characters, ['🎉', 'ず', '❤']);
     }
 
     #[test]
