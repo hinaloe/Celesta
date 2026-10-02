@@ -25,6 +25,7 @@ use cosmic_text::{
 };
 pub mod image_source;
 mod path;
+pub mod psd_source;
 
 pub use path::{
     PathDraw, PathShape, PathTransform, RasterizedPath, rasterize_path, rasterize_paths,
@@ -746,7 +747,7 @@ pub struct CpuRenderer {
     options: RenderOptions,
     asset_root: PathBuf,
     text_rasterizer: TextRasterizer,
-    images: HashMap<String, DecodedImage>,
+    psd_sources: psd_source::PsdSources,
     image_sources: image_source::ImageSources,
     video_decoder: Option<Box<dyn VideoFrameDecoder>>,
 }
@@ -757,7 +758,7 @@ impl CpuRenderer {
             options,
             asset_root: PathBuf::from("."),
             text_rasterizer: TextRasterizer::new(),
-            images: HashMap::new(),
+            psd_sources: Default::default(),
             image_sources: Default::default(),
             video_decoder: None,
         }
@@ -954,9 +955,26 @@ impl CpuRenderer {
                 enabled_layers,
                 disabled_layers,
             } => {
-                let image =
-                    self.load_psd(asset, visible_layers, enabled_layers, disabled_layers)?;
-                render_image(frame, image, layer.transform.anchor, &state);
+                let path = self.local_asset_path(asset)?;
+                let image = self.psd_sources.render(
+                    &asset.id,
+                    &path,
+                    visible_layers,
+                    enabled_layers,
+                    disabled_layers,
+                    state.scale.x.abs().max(state.scale.y.abs()),
+                )?;
+                let mut state = state.clone();
+                state.scale.x *= f64::from(image.canvas_width) / f64::from(image.width);
+                state.scale.y *= f64::from(image.canvas_height) / f64::from(image.height);
+                render_image_pixels(
+                    frame,
+                    image.width,
+                    image.height,
+                    &image.pixels,
+                    layer.transform.anchor,
+                    &state,
+                );
             }
             LayerContent::Rect {
                 width,
@@ -1156,35 +1174,6 @@ impl CpuRenderer {
         Ok(())
     }
 
-    fn load_psd(
-        &mut self,
-        asset: &ResolvedAsset,
-        visible_layers: &[String],
-        enabled_layers: &[String],
-        disabled_layers: &[String],
-    ) -> Result<&DecodedImage, RenderError> {
-        let key = psd_cache_key(asset, visible_layers, enabled_layers, disabled_layers);
-        if !self.images.contains_key(&key) {
-            let path = self.local_asset_path(asset)?;
-            let image = rasterize_psd(
-                &asset.id,
-                &path,
-                visible_layers,
-                enabled_layers,
-                disabled_layers,
-            )?;
-            self.images.insert(
-                key.clone(),
-                DecodedImage {
-                    width: image.width,
-                    height: image.height,
-                    pixels: image.pixels,
-                },
-            );
-        }
-        Ok(self.images.get(&key).expect("PSD image was cached"))
-    }
-
     fn decode_video_frame(
         &mut self,
         request_id: &str,
@@ -1231,31 +1220,8 @@ fn local_asset_path(asset_root: &Path, asset: &ResolvedAsset) -> Result<PathBuf,
     })
 }
 
-fn psd_cache_key(
-    asset: &ResolvedAsset,
-    visible_layers: &[String],
-    enabled_layers: &[String],
-    disabled_layers: &[String],
-) -> String {
-    format!(
-        "psd\0{}\0{}\0{}\0{}",
-        asset.id,
-        visible_layers.join("\0"),
-        enabled_layers.join("\0"),
-        disabled_layers.join("\0")
-    )
-}
-
-/// Rasterizes a PSD portrait into a full-canvas RGBA frame.
-///
-/// Layer visibility is resolved as: `disabled_layers` always hide, then
-/// `enabled_layers` always show (the current lip-sync mouth), then — when
-/// `visible_layers` is non-empty — exactly the listed layer paths compose
-/// (a portrait preset; the PSD's own saved visibility is ignored), otherwise
-/// the PSD's saved per-layer/-folder visibility drives the composite. Each
-/// layer is placed at its real PSD coordinates (via [`psd::PsdLayer::rgba`],
-/// which returns canvas-sized pixels). Per-layer opacity is applied; group
-/// opacity is not (the `psd` crate misreads it as 0 for real PSDTool files).
+/// Rasterizes a PSD portrait into a full-canvas RGBA frame, with layer
+/// visibility resolved as [`psd_source::PsdSources::render`] describes.
 pub fn rasterize_psd(
     asset: &str,
     path: &Path,
@@ -1263,123 +1229,19 @@ pub fn rasterize_psd(
     enabled_layers: &[String],
     disabled_layers: &[String],
 ) -> Result<RgbaFrame, RenderError> {
-    let bytes = fs::read(path).map_err(|source| RenderError::AssetIo {
-        asset: asset.to_owned(),
-        source,
-    })?;
-    let psd = psd::Psd::from_bytes(&bytes).map_err(|source| RenderError::PsdDecode {
-        asset: asset.to_owned(),
-        source,
-    })?;
-    let visible: HashSet<String> = visible_layers
-        .iter()
-        .map(|path| normalize_psd_path(path))
-        .collect();
-    let enabled: HashSet<String> = enabled_layers
-        .iter()
-        .map(|path| normalize_psd_path(path))
-        .collect();
-    let disabled: HashSet<String> = disabled_layers
-        .iter()
-        .map(|path| normalize_psd_path(path))
-        .collect();
-    let layer_paths: Vec<String> = psd
-        .layers()
-        .iter()
-        .map(|layer| psd_layer_path(&psd, layer))
-        .collect();
-    // `enabled`/`disabled` come straight from the character's lip-sync
-    // configuration, so a typo there should surface rather than silently do
-    // nothing. `visible_layers` is a preset that may target a slightly
-    // different build of the PSD, so unknown entries there are ignored.
-    for requested in enabled.iter().chain(disabled.iter()) {
-        if !layer_paths.iter().any(|path| path == requested) {
-            return Err(RenderError::MissingPsdLayer {
-                asset: asset.to_owned(),
-                layer: requested.clone(),
-            });
-        }
-    }
-    let use_preset = !visible.is_empty();
-
-    let mut pixels = vec![0; psd.width() as usize * psd.height() as usize * 4];
-    for (layer, path) in psd.layers().iter().zip(layer_paths).rev() {
-        let shown = if disabled.contains(&path) {
-            false
-        } else if enabled.contains(&path) {
-            true
-        } else if use_preset {
-            visible.contains(&path)
-        } else {
-            layer.visible() && psd_ancestors_visible(&psd, layer.parent_id())
-        };
-        if !shown {
-            continue;
-        }
-        // Group opacity is deliberately not applied: the `psd` crate reads it
-        // from the wrong ("bounding section") record and reports 0 for every
-        // folder in real PSDTool files. Per-layer opacity is read correctly.
-        // Likewise each layer's own blend mode is applied, and a folder's is
-        // not (folders pass through).
-        let opacity = f64::from(layer.opacity()) / 255.0;
-        // The `psd` crate does not export its `BlendMode` type, only its
-        // values, so modes are told apart by name.
-        let mix = psd_blend_channel(&format!("{:?}", layer.blend_mode()));
-        for (destination, source) in pixels.chunks_exact_mut(4).zip(layer.rgba().chunks_exact(4)) {
-            let source = Color::rgba(source[0], source[1], source[2], source[3]);
-            match mix {
-                Some(mix) => blend_mixed(destination, source, opacity, mix),
-                None => blend(destination, source, opacity),
-            }
-        }
-    }
+    let image = psd_source::PsdSources::default().render(
+        asset,
+        path,
+        visible_layers,
+        enabled_layers,
+        disabled_layers,
+        1.0,
+    )?;
     Ok(RgbaFrame {
-        width: psd.width(),
-        height: psd.height(),
-        pixels,
+        width: image.width,
+        height: image.height,
+        pixels: Arc::unwrap_or_clone(image.pixels),
     })
-}
-
-fn normalize_psd_path(path: &str) -> String {
-    path.split('/')
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join("/")
-}
-
-fn psd_layer_path(psd: &psd::Psd, layer: &psd::PsdLayer) -> String {
-    let mut names = vec![layer.name()];
-    let mut parent = layer.parent_id();
-    let mut visited = HashSet::new();
-    while let Some(id) = parent {
-        if !visited.insert(id) {
-            break;
-        }
-        let Some(group) = psd.groups().get(&id) else {
-            break;
-        };
-        names.push(group.name());
-        parent = group.parent_id();
-    }
-    names.reverse();
-    names.join("/")
-}
-
-fn psd_ancestors_visible(psd: &psd::Psd, mut parent: Option<u32>) -> bool {
-    let mut visited = HashSet::new();
-    while let Some(id) = parent {
-        if !visited.insert(id) {
-            break;
-        }
-        let Some(group) = psd.groups().get(&id) else {
-            break;
-        };
-        if !group.visible() {
-            return false;
-        }
-        parent = group.parent_id();
-    }
-    true
 }
 
 impl Default for CpuRenderer {
