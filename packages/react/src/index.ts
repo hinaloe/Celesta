@@ -149,11 +149,19 @@ export {
   buildEnvelope,
   decodeWav,
   loadLipSync,
+  lipSyncFromKeyframes,
   lipSyncTimeline,
   useLipSync,
   vowelShapes,
 } from './lipsync';
-export type { LipSyncOptions, LipSyncTrack, WavAudio } from './lipsync';
+export type { LipSyncOptions, LipSyncTrack, MouthKeyframe, WavAudio } from './lipsync';
+export { lipSyncFromVoicevox, voicevoxVowelShape } from './lipsync-voicevox';
+export type {
+  VoicevoxAccentPhrase,
+  VoicevoxAudioQuery,
+  VoicevoxLipSyncOptions,
+  VoicevoxMora,
+} from './lipsync-voicevox';
 
 export { loadPsdPreset, parsePfv, resolveVisibleLayers } from './psd-preset';
 export type { LoadPsdPresetOptions, ParsedPfv, PfvFavorite } from './psd-preset';

@@ -146,7 +146,9 @@ portrait is drawn at its natural size; use `scale` for large artwork.
 
 `loadLipSync({ src, text, hopHz? })` reads a voice recording and spreads the
 vowels of `text` across its voiced parts, producing a mouth shape for every
-moment. Call it in `prepare()`.
+moment. Call it in `prepare()`. For VOICEVOX voices, prefer
+[`lipSyncFromVoicevox`](#lip-sync-from-voicevox-timing), which uses the
+engine's own phoneme timing.
 
 ```tsx
 let voice: LipSyncTrack | null = null;
@@ -175,6 +177,55 @@ export async function prepare() {
   is rendered; on a `<Dialogue>` only while the line is active.
 - `useLipSync(track)` returns the current shape if other components need it.
 - To drive the mouth by hand, pass `mouth="a"` etc. instead.
+
+### Lip sync from VOICEVOX timing
+
+When the voice comes from VOICEVOX Engine (or a compatible engine such as
+AivisSpeech), build the track from the `audio_query` JSON instead:
+`lipSyncFromVoicevox(query)` reads every consonant and vowel length, so the
+mouth stays in step with the voice. It is synchronous; save the query next to
+the WAV and import it or read it in `prepare()`.
+
+```sh
+# Save the query, then synthesize the WAV from that same query.
+curl -s -X POST -G "http://127.0.0.1:50021/audio_query" --data-urlencode "speaker=3" \
+  --data-urlencode "text=こんにちは、ずんだもんなのだ。" -o voices/hello.json
+curl -s -X POST "http://127.0.0.1:50021/synthesis?speaker=3" \
+  -H "Content-Type: application/json" -d @voices/hello.json -o voices/hello.wav
+```
+
+```tsx
+import { lipSyncFromVoicevox } from '@celesta/react';
+import helloQuery from './voices/hello.json';
+
+const hello = lipSyncFromVoicevox(helloQuery);
+// …
+<Sequence from={30} durationInFrames={Math.ceil(hello.durationInSeconds * 30)}>
+  <Dialogue character={view} audio="./voices/hello.wav" lipSync={hello}>
+    こんにちは、ずんだもんなのだ。
+  </Dialogue>
+</Sequence>
+```
+
+- **Use the query that produced the WAV.** If you edit `speedScale`,
+  `pauseLength`, `pauseLengthScale` or phoneme lengths before `/synthesis`,
+  pass the edited query; those edits are reflected in the track.
+- Time 0 is the start of the WAV, including `prePhonemeLength`, and
+  `durationInSeconds` is the WAV length. Like VOICEVOX, each phoneme is
+  rounded to 1/93.75 s; for an engine that does not use that grid, pass
+  `{ frameRate: null }` (or its own rate).
+- Vowels `a i u e o` (and devoiced `A I U E O`) map to their shapes; `N` (ん),
+  `cl` (っ), pauses and silence are `closed`. A consonant shows its mora's
+  vowel, except `m`/`b`/`p`, which close the lips.
+- If you synthesize with `enable_interrogative_upspeak=false`, pass
+  `lipSyncFromVoicevox(query, { interrogativeUpspeak: false })`.
+- Choosing between the two: use `lipSyncFromVoicevox` whenever you have the
+  query; use `loadLipSync` for recorded or third-party voices where only the
+  WAV and its transcript exist.
+- For other engines that report phoneme timing, build the track yourself
+  with `lipSyncFromKeyframes([{ seconds, mouth }, ...], durationInSeconds)`;
+  each keyframe holds until the next, and the mouth is `closed` before the
+  first and after `durationInSeconds`.
 
 ### Image mouths
 
