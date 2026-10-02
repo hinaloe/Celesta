@@ -1,0 +1,4 @@
+# Third-party media is downloaded by fetch-assets.sh, not redistributed.
+/assets/photos/
+/assets/src/
+/assets/clips/
