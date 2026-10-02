@@ -19,8 +19,8 @@ use celesta_composition::{
 use celesta_media::{MediaError, VideoFrameDecoder};
 use celesta_remote::{RemoteAssetError, resolve_asset_path};
 use celesta_renderer::{
-    Color as CpuColor, FontFallback, PathDraw, PathShape, PathTransform, RectPaint, RenderError,
-    TextRasterizer, rasterize_path, rasterize_paths, resolve_rect_paint,
+    Color as CpuColor, FontFallback, MissingGlyphs, PathDraw, PathShape, PathTransform, RectPaint,
+    RenderError, TextRasterizer, rasterize_path, rasterize_paths, resolve_rect_paint,
 };
 
 use wgpu::util::DeviceExt;
@@ -335,6 +335,9 @@ pub struct GpuRenderer {
     /// The last prepared frame's text layers that use a fallback font, one
     /// per family and weight.
     font_fallbacks: Vec<FontFallback>,
+    /// The last prepared frame's text layers with characters their family
+    /// has no glyph for, one per family, weight, and set of characters.
+    missing_glyphs: Vec<MissingGlyphs>,
 }
 
 impl GpuRenderer {
@@ -516,6 +519,7 @@ impl GpuRenderer {
             texture_generation: 0,
             text_font_count: 0,
             font_fallbacks: Vec::new(),
+            missing_glyphs: Vec::new(),
         })
     }
 
@@ -524,6 +528,14 @@ impl GpuRenderer {
     /// font. Each family and weight is listed once, with its first layer.
     pub fn font_fallbacks(&self) -> &[FontFallback] {
         &self.font_fallbacks
+    }
+
+    /// Text layers in the most recently rendered or submitted frame with
+    /// characters their `fontFamily` has no glyph for, so those characters
+    /// use a fallback font. Layers missing the same characters of the same
+    /// family and weight are listed once, with the first of them.
+    pub fn missing_glyphs(&self) -> &[MissingGlyphs] {
+        &self.missing_glyphs
     }
 
     pub const fn options(&self) -> GpuRenderOptions {
@@ -1014,6 +1026,7 @@ impl GpuRenderer {
         self.texture_generation += 1;
         self.clip_entries.clear();
         self.font_fallbacks.clear();
+        self.missing_glyphs.clear();
         let mut items = Vec::new();
         let prepared = scene
             .layers
@@ -1695,12 +1708,21 @@ impl GpuRenderer {
                 max_width,
                 baseline_anchor,
             } => {
-                if let Some(fallback) = self.text_rasterizer.font_fallback(&layer.id, style)
-                    && !self.font_fallbacks.iter().any(|reported| {
+                if let Some(fallback) = self.text_rasterizer.font_fallback(&layer.id, style) {
+                    if !self.font_fallbacks.iter().any(|reported| {
                         reported.family == fallback.family && reported.weight == fallback.weight
+                    }) {
+                        self.font_fallbacks.push(fallback);
+                    }
+                } else if let Some(missing) =
+                    self.text_rasterizer.missing_glyphs(&layer.id, text, style)
+                    && !self.missing_glyphs.iter().any(|reported| {
+                        reported.family == missing.family
+                            && reported.weight == missing.weight
+                            && reported.characters == missing.characters
                     })
                 {
-                    self.font_fallbacks.push(fallback);
+                    self.missing_glyphs.push(missing);
                 }
                 let raster_scale = match self.render_quality {
                     RenderQuality::Draft => 1.0,
@@ -5324,6 +5346,66 @@ mod tests {
         scene.layers.clear();
         renderer.render(&scene).unwrap();
         assert!(renderer.font_fallbacks().is_empty());
+    }
+
+    #[test]
+    fn lists_text_layers_with_characters_their_family_has_no_glyph_for() {
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        renderer.set_asset_root(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/prism"));
+        let text = |id: &str, family: &str, value: &str| {
+            let mut layer = text_layer(id, Point { x: 0.0, y: 0.0 }, 1.0, 24.0);
+            if let LayerContent::Text { text, style, .. } = &mut layer.content {
+                *text = value.to_owned();
+                style.font_family = Some(family.to_owned());
+            }
+            layer
+        };
+        let mut scene = empty_scene(320, 80);
+        scene.fonts = vec![ResolvedAsset {
+            id: "bebas".to_owned(),
+            location: AssetLocation::File {
+                path: "assets/fonts/BebasNeue-Regular.ttf".to_owned(),
+            },
+        }];
+        scene.layers = vec![
+            text("title", "Bebas Neue", "CELESTA ずんだもん"),
+            // The same characters again: listed once, with the first layer.
+            text("subtitle", "Bebas Neue", "ずんだもん"),
+            text("caption", "Bebas Neue", "めたん"),
+            text("complete", "Bebas Neue", "CELESTA 2026"),
+            text("emoji", "Bebas Neue", "CELESTA 🎉"),
+            // A family with no face gets only the font fallback warning.
+            text("missing", "Celesta Missing Family", "ずんだもん"),
+        ];
+        renderer.render(&scene).unwrap();
+        let listed = renderer
+            .missing_glyphs()
+            .iter()
+            .map(|missing| {
+                (
+                    missing.layer.as_str(),
+                    missing.characters.iter().collect::<String>(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            listed,
+            [
+                ("title", "ずんだも".to_owned()),
+                ("caption", "めたん".to_owned()),
+            ]
+        );
+        assert_eq!(renderer.font_fallbacks().len(), 1);
+
+        // A cached text texture still reports its missing glyphs.
+        renderer.render(&scene).unwrap();
+        assert_eq!(renderer.missing_glyphs().len(), 2);
+
+        scene.layers.clear();
+        renderer.render(&scene).unwrap();
+        assert!(renderer.missing_glyphs().is_empty());
     }
 
     #[test]

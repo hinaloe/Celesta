@@ -23,6 +23,7 @@ use cosmic_text::{
     Align, Attrs, Buffer, Color as CosmicColor, Family, FontSystem, Metrics, Shaping, SwashCache,
     Weight, Wrap,
 };
+use unicode_properties::{EmojiStatus, GeneralCategory, UnicodeEmoji, UnicodeGeneralCategory};
 pub mod image_source;
 mod path;
 pub mod psd_source;
@@ -257,6 +258,47 @@ impl fmt::Display for FontFallback {
     }
 }
 
+/// Characters of a `Text` layer that its `fontFamily` has no glyph for, so
+/// they are drawn with another font (or as a missing-glyph box) while the
+/// rest of the text uses the family.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MissingGlyphs {
+    pub layer: String,
+    pub family: String,
+    pub weight: u16,
+    /// Each missing character once, in the order they first appear.
+    pub characters: Vec<char>,
+}
+
+impl MissingGlyphs {
+    /// How many characters the message spells out before summarizing the rest.
+    const LISTED: usize = 10;
+}
+
+impl fmt::Display for MissingGlyphs {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let listed = self
+            .characters
+            .iter()
+            .take(Self::LISTED)
+            .collect::<String>();
+        write!(
+            formatter,
+            "font family \"{}\" (weight {}) has no glyph for \"{listed}\"",
+            self.family, self.weight
+        )?;
+        if self.characters.len() > Self::LISTED {
+            let more = self.characters.len() - Self::LISTED;
+            write!(formatter, " and {more} more characters")?;
+        }
+        write!(
+            formatter,
+            "; text layer \"{}\" draws them with a fallback font",
+            self.layer
+        )
+    }
+}
+
 pub struct TextRasterizer {
     font_system: FontSystem,
     swash_cache: SwashCache,
@@ -264,6 +306,9 @@ pub struct TextRasterizer {
     /// `matched_weight` results by family and requested weight, cleared
     /// whenever a font is loaded.
     matched_weights: HashMap<(String, u16), Option<u16>>,
+    /// `missing_characters` results by text, family, and weight, cleared
+    /// whenever a font is loaded.
+    missing_characters: HashMap<(String, String, u16), Vec<char>>,
 }
 
 impl TextRasterizer {
@@ -281,6 +326,7 @@ impl TextRasterizer {
             swash_cache: SwashCache::new(),
             loaded_fonts: HashSet::new(),
             matched_weights: HashMap::new(),
+            missing_characters: HashMap::new(),
         }
     }
 
@@ -363,6 +409,7 @@ impl TextRasterizer {
             return Err(invalid("no font faces found"));
         }
         self.matched_weights.clear();
+        self.missing_characters.clear();
         let Some(alias) = alias else {
             return Ok(());
         };
@@ -413,6 +460,78 @@ impl TextRasterizer {
                 family: family.to_owned(),
                 weight,
             })
+    }
+
+    /// The characters of `text` that `style`'s `fontFamily` has no glyph
+    /// for, drawn on `layer` with another font instead; `None` when the
+    /// family draws all of them, names no family, or has no face at all
+    /// (which [`Self::font_fallback`] reports). Emoji that another font
+    /// draws are left out, since they are meant to come from a color emoji
+    /// font, and so are whitespace and invisible characters. Characters no
+    /// font has, emoji included, are drawn as a missing-glyph box and
+    /// always reported.
+    pub fn missing_glyphs(
+        &mut self,
+        layer: &str,
+        text: &str,
+        style: &TextStyle,
+    ) -> Option<MissingGlyphs> {
+        let family = style.font_family.as_deref()?;
+        let weight = style.font_weight.unwrap_or(400);
+        self.matched_weight(family, weight)?;
+        let key = (text.to_owned(), family.to_owned(), weight);
+        let characters = match self.missing_characters.get(&key) {
+            Some(characters) => characters.clone(),
+            None => {
+                let characters = self.missing_characters(text, style, family);
+                // Text that changes every frame (a counter, a subtitle)
+                // would otherwise grow this without bound.
+                if self.missing_characters.len() >= 4096 {
+                    self.missing_characters.clear();
+                }
+                self.missing_characters.insert(key, characters.clone());
+                characters
+            }
+        };
+        (!characters.is_empty()).then(|| MissingGlyphs {
+            layer: layer.to_owned(),
+            family: family.to_owned(),
+            weight,
+            characters,
+        })
+    }
+
+    fn missing_characters(&mut self, text: &str, style: &TextStyle, family: &str) -> Vec<char> {
+        // The font each character is drawn with does not depend on the
+        // wrap width or the size, so shape on one unwrapped line at scale 1.
+        let buffer = self.shaped_buffer(text, style, None, 1.0);
+        let database = self.font_system.db();
+        let mut characters = Vec::new();
+        for run in buffer.layout_runs() {
+            for glyph in run.glyphs {
+                // Glyph 0 is `.notdef`: no font had the character, and the
+                // missing-glyph box is drawn.
+                let drawn = glyph.glyph_id != 0;
+                let from_family = drawn
+                    && database
+                        .face(glyph.font_id)
+                        .is_some_and(|face| face.families.iter().any(|(name, _)| name == family));
+                let Some(cluster) = run.text.get(glyph.start..glyph.end) else {
+                    continue;
+                };
+                // An emoji drawn from a color emoji font is expected; one no
+                // font has is a box like any other missing character.
+                if from_family || (drawn && is_emoji_cluster(cluster)) {
+                    continue;
+                }
+                for character in cluster.chars().filter(|&c| is_visible_character(c)) {
+                    if !characters.contains(&character) {
+                        characters.push(character);
+                    }
+                }
+            }
+        }
+        characters
     }
 
     /// Shapes `text` into a laid-out buffer. `width` and `scale` are in
@@ -741,6 +860,34 @@ impl Default for TextRasterizer {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Whether a shaped cluster is (part of) an emoji, which is meant to be
+/// drawn with a color emoji font rather than the layer's family.
+fn is_emoji_cluster(cluster: &str) -> bool {
+    cluster.chars().any(|character| {
+        matches!(
+            character,
+            // Zero width joiner, combining keycap, emoji presentation
+            // selector, and emoji tag characters.
+            '\u{200D}' | '\u{20E3}' | '\u{FE0F}' | '\u{E0020}'..='\u{E007F}'
+        ) || matches!(
+            character.emoji_status(),
+            EmojiStatus::EmojiPresentation
+                | EmojiStatus::EmojiPresentationAndModifierBase
+                | EmojiStatus::EmojiPresentationAndEmojiComponent
+                | EmojiStatus::EmojiPresentationAndModifierAndEmojiComponent
+        )
+    })
+}
+
+/// Whether `character` draws something by itself: not whitespace, a control
+/// or format character, or a variation selector.
+fn is_visible_character(character: char) -> bool {
+    !character.is_whitespace()
+        && !character.is_control()
+        && character.general_category() != GeneralCategory::Format
+        && !matches!(character, '\u{FE00}'..='\u{FE0F}' | '\u{E0100}'..='\u{E01EF}')
 }
 
 pub struct CpuRenderer {
@@ -3690,6 +3837,110 @@ mod font_tests {
         // No family means the default font, not a fallback.
         assert_eq!(
             rasterizer.font_fallback("title", &TextStyle::default()),
+            None
+        );
+    }
+
+    fn bebas_style() -> TextStyle {
+        TextStyle {
+            font_family: Some("Bebas Neue".to_owned()),
+            font_size: Some(48.0),
+            ..TextStyle::default()
+        }
+    }
+
+    #[test]
+    fn reports_characters_the_family_has_no_glyph_for() {
+        let mut rasterizer = regular_only_rasterizer();
+        // Bebas Neue has Latin glyphs only: the kana and kanji come from
+        // another font, once each and in order.
+        let missing = rasterizer
+            .missing_glyphs("title", "CELESTA ずんだもん 2026 だ", &bebas_style())
+            .unwrap();
+        assert_eq!(
+            missing,
+            MissingGlyphs {
+                layer: "title".to_owned(),
+                family: "Bebas Neue".to_owned(),
+                weight: 400,
+                characters: "ずんだも".chars().collect(),
+            }
+        );
+        assert_eq!(
+            missing.to_string(),
+            "font family \"Bebas Neue\" (weight 400) has no glyph for \"ずんだも\"; text layer \"title\" draws them with a fallback font"
+        );
+
+        // A long list is cut short.
+        let missing = rasterizer
+            .missing_glyphs("title", "あいうえおかきくけこさしすせそ", &bebas_style())
+            .unwrap();
+        assert_eq!(missing.characters.len(), 15);
+        assert_eq!(
+            missing.to_string(),
+            "font family \"Bebas Neue\" (weight 400) has no glyph for \"あいうえおかきくけこ\" and 5 more characters; text layer \"title\" draws them with a fallback font"
+        );
+    }
+
+    #[test]
+    fn does_not_report_glyphs_the_family_has_or_emoji() {
+        let mut rasterizer = regular_only_rasterizer();
+        for text in [
+            "CELESTA 2026",
+            // Whitespace and control characters draw nothing.
+            "CELESTA\n\tSTUDIO\u{3000}",
+            // Emoji are meant to come from a color emoji font.
+            "🎉",
+            "CELESTA 🎉👍🏽",
+            "❤\u{FE0F}",
+            "1\u{FE0F}\u{20E3}",
+            "👩\u{200D}💻",
+            "🇯🇵",
+        ] {
+            assert_eq!(
+                rasterizer.missing_glyphs("title", text, &bebas_style()),
+                None,
+                "{text:?}"
+            );
+        }
+        // Not when the text names no family, either.
+        assert_eq!(
+            rasterizer.missing_glyphs("title", "ずんだもん", &TextStyle::default()),
+            None
+        );
+    }
+
+    #[test]
+    fn reports_emoji_no_font_has_a_glyph_for() {
+        // Only Bebas Neue, without the system's fonts: there is no color
+        // emoji font to fall back to, so the emoji is drawn as a missing
+        // glyph box and is reported like any other character.
+        let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/prism");
+        let mut rasterizer = TextRasterizer::new();
+        rasterizer.font_system =
+            FontSystem::new_with_locale_and_db("en-US".to_owned(), fontdb::Database::new());
+        rasterizer
+            .load_fonts(
+                &[file_font("assets/fonts/BebasNeue-Regular.ttf")],
+                &examples,
+            )
+            .unwrap();
+        let missing = rasterizer
+            .missing_glyphs("title", "CELESTA 🎉 ず ❤\u{FE0F}", &bebas_style())
+            .unwrap();
+        assert_eq!(missing.characters, ['🎉', 'ず', '❤']);
+    }
+
+    #[test]
+    fn leaves_a_family_with_no_face_to_the_font_fallback() {
+        let mut rasterizer = regular_only_rasterizer();
+        let style = TextStyle {
+            font_family: Some("Celesta Missing Family".to_owned()),
+            ..TextStyle::default()
+        };
+        assert!(rasterizer.font_fallback("title", &style).is_some());
+        assert_eq!(
+            rasterizer.missing_glyphs("title", "ずんだもん", &style),
             None
         );
     }
