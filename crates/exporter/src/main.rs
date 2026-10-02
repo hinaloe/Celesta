@@ -1,7 +1,8 @@
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::process::ExitCode;
-use std::time::{Duration, Instant};
+
+mod progress;
 
 use celesta_exporter::{
     CompanionProject, ExportOptions, ExportProgress, ExportRange, Exporter, ReactRuntimeOptions,
@@ -22,6 +23,7 @@ fn main() -> ExitCode {
 const USAGE: &str = "PNG: --frame <n> or --frames <n,n,...> [--output-format png] <output.png>\nMultiple frames use output-000090.png names; frame numbers are zero-based.\nusage: celesta-exporter [--overwrite] [--from <timecode>] [--to <timecode>] [--preset <preset>] [--crf <crf>] [--color-conversion <where>] [--render-quality <quality>] <project.celesta.json> <output.mp4>\n       celesta-exporter [--overwrite] [--from <timecode>] [--to <timecode>] [--preset <preset>] [--crf <crf>] [--color-conversion <where>] [--render-quality <quality>] --react <entry.tsx> [--project <project.celesta.json>] <output.mp4>\n\ntimecode is HH:MM:SS(.mmm), MM:SS(.mmm) or SS(.mmm); --from/--to select a\nspan of the composition to export (the output starts at its own 00:00).\n--preset is a libx264 preset (ultrafast … veryslow, default medium): faster\npresets encode faster but produce larger files. --crf is 0-51 (default 18);\nlower is higher quality. --color-conversion (auto, gpu, or encoder; default\nauto) picks where RGB frames become YUV: auto uses the GPU unless it is a\nsoftware renderer. --render-quality (draft or final, default final) sets how\ncarefully scaled and rotated layers are drawn; draft skips re-rasterizing\nscaled text and is meant for quick checks of timing, not of pixels.";
 
 fn run() -> Result<(), String> {
+    let mut no_ui = false;
     let mut frames = Vec::<u64>::new();
     let mut output_format = None;
     let mut overwrite = false;
@@ -51,6 +53,13 @@ fn run() -> Result<(), String> {
                 return Err("--output-format must be png or mp4".into());
             }
             output_format = Some(value);
+        } else if argument == "--no-ui" {
+            no_ui = true;
+        } else if argument == "--help" || argument == "-h" {
+            println!(
+                "{USAGE}\n\n--no-ui disables the terminal progress dashboard (automatic outside a terminal)."
+            );
+            return Ok(());
         } else if argument == "--overwrite" {
             overwrite = true;
         } else if argument == "--react" {
@@ -121,125 +130,95 @@ fn run() -> Result<(), String> {
         video,
         render_quality,
     });
-    let mut rendering_started: Option<Instant> = None;
-    let on_progress = |progress: ExportProgress| match progress {
-        ExportProgress::Rendering { frame, total } => {
-            // Reported as each frame starts, so `frame - 1` are done.
-            let elapsed = rendering_started.get_or_insert_with(Instant::now).elapsed();
-            // Trailing spaces clear what a longer previous line left behind.
-            eprint!(
-                "\rrendering frame {frame}/{total}  {}   ",
-                rendering_rate(frame.saturating_sub(1), total, elapsed)
-            );
-            if frame == total {
-                eprintln!();
-            }
-        }
-        ExportProgress::MixingAudio => eprintln!("mixing audio"),
-        ExportProgress::Muxing => eprintln!("muxing MP4"),
-        // Replaces the unfinished progress line; the next frame redraws it
-        // below.
-        ExportProgress::Warning(warning) => eprintln!("\rwarning: {warning}"),
-    };
-    if png {
-        let project_path = if react {
-            companion_project_path.as_deref()
-        } else {
-            Some(source.as_os_str())
-        };
-        let project = project_path
-            .map(|path| Project::load(Path::new(path)))
-            .transpose()
-            .map_err(|e| e.to_string())?;
-        let root =
-            project_path.map(|path| Path::new(path).parent().unwrap_or_else(|| Path::new(".")));
-        if react {
-            exporter
-                .export_react_png(
-                    Path::new(source),
-                    &default_react_runtime(),
-                    project
-                        .as_ref()
-                        .zip(root)
-                        .map(|(project, project_asset_root)| CompanionProject {
-                            project,
-                            project_asset_root,
-                        }),
-                    &frames,
-                    Path::new(output),
-                    on_progress,
-                )
-                .map_err(|e| e.to_string())?;
-        } else {
-            exporter
-                .export_project_png(
-                    project.as_ref().ok_or("missing project")?,
-                    root.ok_or("missing asset root")?,
-                    &frames,
-                    Path::new(output),
-                    on_progress,
-                )
-                .map_err(|e| e.to_string())?;
-        }
-    } else if react {
-        let runtime = default_react_runtime();
-        match companion_project_path {
-            Some(project_path) => {
-                let project_path = Path::new(&project_path);
-                let project = Project::load(project_path).map_err(|error| error.to_string())?;
-                let project_asset_root = project_path.parent().unwrap_or_else(|| Path::new("."));
+    progress::run(
+        progress::Settings {
+            source: Path::new(source),
+            output: Path::new(output),
+            react,
+            png,
+            video,
+            render_quality,
+        },
+        no_ui,
+        |on_progress: &mut dyn FnMut(ExportProgress)| {
+            if png {
+                let project_path = if react {
+                    companion_project_path.as_deref()
+                } else {
+                    Some(source.as_os_str())
+                };
+                let project = project_path
+                    .map(|path| Project::load(Path::new(path)))
+                    .transpose()
+                    .map_err(|e| e.to_string())?;
+                let root = project_path
+                    .map(|path| Path::new(path).parent().unwrap_or_else(|| Path::new(".")));
+                if react {
+                    exporter
+                        .export_react_png(
+                            Path::new(source),
+                            &default_react_runtime(),
+                            project
+                                .as_ref()
+                                .zip(root)
+                                .map(|(project, project_asset_root)| CompanionProject {
+                                    project,
+                                    project_asset_root,
+                                }),
+                            &frames,
+                            Path::new(output),
+                            on_progress,
+                        )
+                        .map_err(|e| e.to_string())?;
+                } else {
+                    exporter
+                        .export_project_png(
+                            project.as_ref().ok_or("missing project")?,
+                            root.ok_or("missing asset root")?,
+                            &frames,
+                            Path::new(output),
+                            on_progress,
+                        )
+                        .map_err(|e| e.to_string())?;
+                }
+            } else if react {
+                let runtime = default_react_runtime();
+                match companion_project_path {
+                    Some(project_path) => {
+                        let project_path = Path::new(&project_path);
+                        let project =
+                            Project::load(project_path).map_err(|error| error.to_string())?;
+                        let project_asset_root =
+                            project_path.parent().unwrap_or_else(|| Path::new("."));
+                        exporter
+                            .export_react_entry_with_project_and_progress(
+                                source,
+                                &runtime,
+                                CompanionProject {
+                                    project: &project,
+                                    project_asset_root,
+                                },
+                                output,
+                                on_progress,
+                            )
+                            .map_err(|error| error.to_string())?;
+                    }
+                    None => {
+                        exporter
+                            .export_react_entry_with_progress(source, &runtime, output, on_progress)
+                            .map_err(|error| error.to_string())?;
+                    }
+                }
+            } else {
                 exporter
-                    .export_react_entry_with_project_and_progress(
-                        source,
-                        &runtime,
-                        CompanionProject {
-                            project: &project,
-                            project_asset_root,
-                        },
-                        output,
-                        on_progress,
-                    )
+                    .export_file_with_progress(source, output, on_progress)
                     .map_err(|error| error.to_string())?;
             }
-            None => {
-                exporter
-                    .export_react_entry_with_progress(source, &runtime, output, on_progress)
-                    .map_err(|error| error.to_string())?;
-            }
-        }
-    } else {
-        exporter
-            .export_file_with_progress(source, output, on_progress)
-            .map_err(|error| error.to_string())?;
-    }
+            Ok(())
+        },
+    )?;
     eprintln!("export complete: {}", output.to_string_lossy());
     Ok(())
-}
-
-/// Throughput, elapsed time, and the estimated time left, so a slow export
-/// can be told apart from a stalled one.
-fn rendering_rate(done: u64, total: u64, elapsed: Duration) -> String {
-    let seconds = elapsed.as_secs_f64();
-    if done == 0 || seconds <= 0.0 {
-        return format!("elapsed {}", clock(elapsed));
-    }
-    let fps = done as f64 / seconds;
-    let remaining = Duration::from_secs_f64(total.saturating_sub(done) as f64 / fps);
-    format!(
-        "{fps:.1} fps  elapsed {}  eta {}",
-        clock(elapsed),
-        clock(remaining)
-    )
-}
-
-fn clock(duration: Duration) -> String {
-    let seconds = duration.as_secs();
-    format!(
-        "{:02}:{:02}:{:02}",
-        seconds / 3600,
-        seconds / 60 % 60,
-        seconds % 60
-    )
 }
 
 /// Builds an [`ExportRange`] from the `--from` / `--to` timecodes. Returns

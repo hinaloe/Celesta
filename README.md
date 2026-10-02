@@ -165,6 +165,16 @@ Export a project:
 cargo run -p celesta-exporter --release -- examples/editor-demo.celesta.json output.mp4
 ```
 
+In a terminal, exports show a [Ratatui](https://github.com/ratatui/ratatui)
+dashboard with a timed pipeline, rendered-frame progress, a throughput history
+graph, FPS, elapsed time, estimated rendering time remaining, export settings,
+and warnings. Smaller terminals use a compact layout. The dashboard stays
+in your terminal's scrollback after the export finishes. The rendering bar
+can reach 100% while audio mixing and MP4 muxing are still running.
+
+Use `--no-ui` for text progress. Redirected output, CI without a terminal,
+and `TERM=dumb` automatically use text progress without terminal control codes.
+
 Export a React composition after completing the React setup:
 
 ```sh
