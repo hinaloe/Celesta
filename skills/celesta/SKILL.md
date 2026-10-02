@@ -143,8 +143,8 @@ Load the one you need; each is self-contained.
   `.celesta.json` schema, validation rules, keyframes and easing names, and
   a full example.
 - [references/dialogue.md](references/dialogue.md): characters, portraits,
-  subtitles, voice lines, automatic lip sync, PSD portraits and PSDTool
-  presets, in both React and JSON.
+  subtitles, voice lines, automatic lip sync, blinking, PSD portraits and
+  PSDTool presets, in both React and JSON.
 - [references/verify-and-export.md](references/verify-and-export.md):
   finding the Celesta executables, `inspect.mjs`, export flags, frame
   extraction, and a table of error messages with fixes.
