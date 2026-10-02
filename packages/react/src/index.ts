@@ -76,8 +76,16 @@ export type { ActiveCue, Beat, BeatOptions, Cue } from './timing';
 export { Series, Stagger, computeSeries } from './series';
 export type { SeriesItem, SeriesProps, SeriesSequenceProps, SeriesTiming, StaggerProps } from './series';
 
-export { Line, Polyline, pointOnPolyline } from './shapes';
-export type { LineCap, LineProps, PolylinePoint, PolylineProps } from './shapes';
+export { Line, Path, Polyline, pointOnPolyline } from './shapes';
+export type {
+  LineCap,
+  LineJoin,
+  LineProps,
+  PathCommand,
+  PathProps,
+  PolylinePoint,
+  PolylineProps,
+} from './shapes';
 
 export { Camera } from './camera';
 export type { CameraProps } from './camera';

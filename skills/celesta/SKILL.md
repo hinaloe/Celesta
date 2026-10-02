@@ -110,7 +110,8 @@ produces a video that differs between preview and export.
    [react-api.md](references/react-api.md#motion-helpers): `Series` for
    scenes in a row, `Stagger` and `progress` for entrances, `useBeat` for
    music, `useCue` for things that change at given frames, `TextReveal`,
-   `useTypewriter`, `useCountUp`, `Camera`, `Line`/`Polyline`.
+   `useTypewriter`, `useCountUp`, `Camera`, `Line`/`Polyline`/`Path` (one
+   layer per stroke: draw line art as paths, not as many thin `Rect`s).
 3. **Check it without the GUI.** You cannot see the preview window, so
    verify with the tools in [references/verify-and-export.md](references/verify-and-export.md):
    - `node scripts/inspect.mjs scene.tsx` (in this skill's folder) loads a

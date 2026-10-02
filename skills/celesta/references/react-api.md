@@ -8,7 +8,7 @@ them from npm.
 
 - [Entry file shape](#entry-file-shape)
 - [Common layer props](#common-layer-props)
-- [Layers](#layers): Composition, Rect, Text, Group, Image, Video, Audio, Font, Assets
+- [Layers](#layers): Composition, Rect, Path, Text, Group, Image, Video, Audio, Font, Assets
 - [Text styles and fonts](#text-styles-and-fonts)
 - [Time and animation](#time-and-animation): hooks, interpolate, Easings, spring, Sequence, Transition, timecodeToFrame
 - [Motion helpers](#motion-helpers): progress, Series, Stagger, useBeat, useCue, TextReveal, useTypewriter, useCountUp, Camera, Line, Polyline, random, noise, frameToTimecode
@@ -96,6 +96,34 @@ alpha, so a gradient can fade to transparent. At least 2 stops.
   fill={{ type: 'linear', start: { x: 0, y: 0 }, end: { x: 0, y: 1080 },
           stops: [{ offset: 0, color: '#101018' }, { offset: 1, color: '#10101800' }] }} />
 // radial: { type: 'radial', center: { x, y }, radius, stops }
+```
+
+### `<Path>`
+
+A vector shape (lines and Bézier curves) as **one layer**, however many
+segments it has: a translucent stroke that crosses itself is painted once,
+and it stays sharp under `scale`. Prefer it to many thin `Rect`s for
+procedural line art; group strands that share a width/opacity into one path
+each (tens of paths, not thousands of rects).
+
+| Prop | Notes |
+| --- | --- |
+| `points` | `[x, y]` pairs joined by straight segments. |
+| `closed` | Joins the last point back to the first, without a seam. |
+| `commands` | Instead of `points`: `{ type: 'moveTo' \| 'lineTo', x, y }`, `{ type: 'quadTo', x1, y1, x, y }`, `{ type: 'cubicTo', x1, y1, x2, y2, x, y }`, `{ type: 'close' }` (absolute, like SVG `M L Q C Z`). |
+| `stroke`, `strokeWidth` | Hex or `Paint`; width defaults to 2. No stroke without `stroke`. |
+| `cap` | `'butt'` (default), `'round'`, `'square'`. |
+| `join` | `'miter'` (default), `'round'`, `'bevel'`; `miterLimit` (4) bevels sharper miters. |
+| `fill` | Hex or `Paint` (non-zero rule); drawn under the stroke. |
+
+Coordinates are the path's own pixels: `x`/`y` move their origin and
+`scale`/`rotation` turn about it (there is no `anchorX`/`anchorY`). Gradient
+`Paint` coordinates are in the same space.
+
+```tsx
+<Path points={[[0, 0], [200, 80], [400, 0]]} stroke="#EF402B" strokeWidth={3} join="round" />
+<Path x={960} y={540} fill="#FFD84D" commands={[
+  { type: 'moveTo', x: -40, y: 0 }, { type: 'quadTo', x1: 0, y1: -60, x: 40, y: 0 }, { type: 'close' }]} />
 ```
 
 ### `<Text>`
@@ -423,8 +451,10 @@ largest drift in world pixels, smoothed by `noise()`.
 
 ### `<Line x1 y1 x2 y2>` and `<Polyline points progress?>`
 
-`stroke` (hex, default white), `strokeWidth` (2), `cap` (`'round'` default,
-or `'butt'`), `opacity`, `blendMode`. `Polyline` takes `[x, y]` pairs and
+`<Path>`s with friendlier defaults: `stroke` (default white), `strokeWidth`
+(2), `cap` (`'round'` default, `'butt'`, `'square'`), `join` (round with
+round caps, else miter), plus `Path`'s transform, `opacity`, and
+`blendMode` props. `Polyline` takes `[x, y]` pairs (`closed` to loop) and
 draws the first `progress` (0–1) of its length; `pointOnPolyline(points, t)`
 gives the tip, for a marker or a label that rides the line.
 

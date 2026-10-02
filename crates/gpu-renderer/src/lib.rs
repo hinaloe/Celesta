@@ -19,7 +19,8 @@ use celesta_composition::{
 use celesta_media::{MediaError, VideoFrameDecoder};
 use celesta_remote::{RemoteAssetError, resolve_asset_path};
 use celesta_renderer::{
-    Color as CpuColor, FontFallback, RectPaint, RenderError, TextRasterizer, resolve_rect_paint,
+    Color as CpuColor, FontFallback, PathDraw, PathShape, PathTransform, RectPaint, RenderError,
+    TextRasterizer, rasterize_path, rasterize_paths, resolve_rect_paint,
 };
 
 use wgpu::util::DeviceExt;
@@ -1024,6 +1025,7 @@ impl GpuRenderer {
         self.textures
             .retain(|_, cached| cached.last_used == generation);
         prepared?;
+        let items = self.rasterize_paths(items, scene.width, scene.height)?;
 
         // A frame that blends anything but source-over composites through
         // scene-sized canvases, so its layers need one more instance: the
@@ -1057,6 +1059,7 @@ impl GpuRenderer {
         for item in items {
             let layer = match item {
                 PreparedItem::Layer(layer) => layer,
+                PreparedItem::Paths(_) => unreachable!("paths are rasterized into layers"),
                 PreparedItem::BeginGroup => {
                     depth += 1;
                     canvases = canvases.max(depth + 1);
@@ -1746,6 +1749,40 @@ impl GpuRenderer {
                     )));
                 }
             }
+            LayerContent::Path { .. } => {
+                // Rasterized later, in output pixels with the whole transform
+                // applied to the geometry (the CPU renderer's rasterizer), and
+                // copied texel for texel. Consecutive paths that composite
+                // plainly through the same clip share one texture: a ribbon
+                // of a hundred paths is one rasterization and one upload.
+                let Affine { a, b, c, d, tx, ty } = state.transform;
+                let path = PendingPath {
+                    content: layer.content.clone(),
+                    transform: PathTransform {
+                        a: f64::from(a),
+                        b: f64::from(b),
+                        c: f64::from(c),
+                        d: f64::from(d),
+                        tx: f64::from(tx),
+                        ty: f64::from(ty),
+                    },
+                    opacity: state.opacity,
+                };
+                match output.last_mut() {
+                    Some(PreparedItem::Paths(batch))
+                        if blend_mode.is_normal()
+                            && batch.blend_mode.is_normal()
+                            && batch.clip == state.clip =>
+                    {
+                        batch.paths.push(path);
+                    }
+                    _ => output.push(PreparedItem::Paths(PathBatch {
+                        paths: vec![path],
+                        clip: state.clip,
+                        blend_mode,
+                    })),
+                }
+            }
             LayerContent::MissingComponent { .. } => {
                 return Err(GpuRenderError::UnsupportedContent {
                     layer: layer.id.clone(),
@@ -1754,6 +1791,84 @@ impl GpuRenderer {
             }
         }
         Ok(())
+    }
+
+    /// Replaces each batch of paths with a layer drawing its pixels, or
+    /// drops it when nothing of it is visible.
+    fn rasterize_paths(
+        &self,
+        items: Vec<PreparedItem>,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<PreparedItem>, GpuRenderError> {
+        let mut output = Vec::with_capacity(items.len());
+        for item in items {
+            let PreparedItem::Paths(batch) = item else {
+                output.push(item);
+                continue;
+            };
+            let draws: Vec<_> = batch
+                .paths
+                .iter()
+                .map(|path| {
+                    let LayerContent::Path {
+                        commands,
+                        fill,
+                        stroke,
+                        line_cap,
+                        line_join,
+                        miter_limit,
+                    } = &path.content
+                    else {
+                        unreachable!("only paths are batched");
+                    };
+                    PathDraw {
+                        shape: PathShape {
+                            commands,
+                            fill: fill.as_ref(),
+                            stroke: stroke.as_ref(),
+                            line_cap: *line_cap,
+                            line_join: *line_join,
+                            miter_limit: *miter_limit,
+                        },
+                        transform: path.transform,
+                        opacity: f64::from(path.opacity),
+                    }
+                })
+                .collect();
+            // A lone path keeps its opacity on the layer, exactly like the
+            // CPU renderer; a batch has each path's opacity painted in.
+            let (rasterized, opacity) = match draws.as_slice() {
+                [draw] => (
+                    rasterize_path(&draw.shape, draw.transform, width, height),
+                    batch.paths[0].opacity,
+                ),
+                _ => (rasterize_paths(&draws, width, height), 1.0),
+            };
+            let Some(path) = rasterized.map_err(GpuRenderError::Text)? else {
+                continue;
+            };
+            let image = DecodedImage::new(
+                path.image.width(),
+                path.image.height(),
+                path.image.into_pixels(),
+            )?;
+            output.push(PreparedItem::Layer(PreparedLayer::new(
+                self.upload_texture(&image, false),
+                Point { x: 0.0, y: 0.0 },
+                LayerState {
+                    transform: Affine {
+                        tx: path.left as f32,
+                        ty: path.top as f32,
+                        ..Affine::IDENTITY
+                    },
+                    opacity,
+                    clip: batch.clip,
+                },
+                batch.blend_mode,
+            )));
+        }
+        Ok(output)
     }
 
     /// Enters `clip`, defined in the frame `state` describes (the group's
@@ -2443,6 +2558,24 @@ enum PreparedItem {
     /// Draws the finished group's canvas onto its parent.
     EndGroup(PreparedLayer),
     EndEffect(PreparedLayer, EffectSpec),
+    /// Consecutive path layers, rasterized together into one layer once the
+    /// whole frame is prepared.
+    Paths(PathBatch),
+}
+
+struct PathBatch {
+    paths: Vec<PendingPath>,
+    /// Shared by every path in the batch.
+    clip: Option<u32>,
+    /// `Normal` unless the batch is a single path.
+    blend_mode: BlendMode,
+}
+
+struct PendingPath {
+    /// A `LayerContent::Path`.
+    content: LayerContent,
+    transform: PathTransform,
+    opacity: f32,
 }
 
 struct PreparedLayer {
@@ -4078,6 +4211,116 @@ mod tests {
                 "scene {index}: channels differ by up to {difference}"
             );
         }
+    }
+
+    #[test]
+    fn draws_paths_like_the_cpu_renderer() {
+        use celesta_composition::{LineCap, LineJoin, PathCommand};
+
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        let path = |id: &str, transform, opacity, commands, color: &str, width, join| Layer {
+            id: id.to_owned(),
+            transform,
+            opacity,
+            blend_mode: BlendMode::Normal,
+            effects: Default::default(),
+            content: LayerContent::Path {
+                commands,
+                fill: None,
+                stroke: Some(Stroke {
+                    paint: Paint::Solid {
+                        color: color.to_owned(),
+                    },
+                    width,
+                }),
+                line_cap: LineCap::Round,
+                line_join: join,
+                miter_limit: 4.0,
+            },
+        };
+        let points = |points: &[(f64, f64)], closed: bool| {
+            let mut commands: Vec<_> = points
+                .iter()
+                .enumerate()
+                .map(|(index, &(x, y))| match index {
+                    0 => PathCommand::MoveTo { x, y },
+                    _ => PathCommand::LineTo { x, y },
+                })
+                .collect();
+            if closed {
+                commands.push(PathCommand::Close);
+            }
+            commands
+        };
+        let mut scene = empty_scene(64, 64);
+        scene.layers = vec![
+            // An acute miter join and a translucent stroke crossing itself.
+            path(
+                "spike",
+                EvaluatedTransform::default(),
+                0.8,
+                points(&[(4.0, 6.0), (60.0, 12.0), (4.0, 18.0), (40.0, 2.0)], false),
+                "#FF000099",
+                3.0,
+                LineJoin::Miter,
+            ),
+            // A closed outline in a scaled, translated group.
+            Layer {
+                id: "group".to_owned(),
+                transform: EvaluatedTransform {
+                    position: Point { x: 10.5, y: 24.25 },
+                    scale: Point { x: 2.5, y: 1.5 },
+                    ..EvaluatedTransform::default()
+                },
+                opacity: 1.0,
+                blend_mode: BlendMode::Normal,
+                effects: Default::default(),
+                content: LayerContent::Group {
+                    layers: vec![path(
+                        "ring",
+                        EvaluatedTransform::default(),
+                        1.0,
+                        points(&[(0.0, 0.0), (16.0, 2.0), (12.0, 14.0), (2.0, 10.0)], true),
+                        "#33CC66",
+                        1.5,
+                        LineJoin::Round,
+                    )],
+                    clip: None,
+                },
+            },
+            // A thin diagonal curve.
+            path(
+                "hair",
+                EvaluatedTransform::default(),
+                1.0,
+                vec![
+                    PathCommand::MoveTo { x: 2.0, y: 62.0 },
+                    PathCommand::CubicTo {
+                        x1: 20.0,
+                        y1: 20.0,
+                        x2: 40.0,
+                        y2: 70.0,
+                        x: 62.0,
+                        y: 30.0,
+                    },
+                ],
+                "#FFFFFF",
+                0.4,
+                LineJoin::Bevel,
+            ),
+        ];
+        let gpu = renderer.render(&scene).unwrap();
+        let cpu = celesta_renderer::CpuRenderer::default()
+            .render(&scene)
+            .unwrap();
+        let difference = max_channel_difference(&gpu, &cpu);
+        assert!(difference <= 1, "channels differ by up to {difference}");
+        // The consecutive paths, in and out of the plain group, are one
+        // texture and one draw, however many segments they have.
+        let draws = renderer.prepare_draws(&scene).unwrap();
+        assert_eq!(draws.steps.len(), 1);
     }
 
     #[test]

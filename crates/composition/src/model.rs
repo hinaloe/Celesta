@@ -208,10 +208,123 @@ pub enum LayerContent {
         #[serde(default)]
         corner_radius: f64,
     },
+    /// Lines and curves through points in the layer's own coordinates,
+    /// filled and/or stroked as one shape: overlapping parts of a
+    /// translucent stroke are painted once. The layer's position is the
+    /// origin of those coordinates; like `Group`, a path has no box for
+    /// `transform.anchor` to pick a point in, so the anchor is ignored.
+    Path {
+        commands: Vec<PathCommand>,
+        /// Fills the area inside each subpath (non-zero rule); an open
+        /// subpath is closed with a straight line for the fill only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fill: Option<Paint>,
+        /// Painted over the fill, centered on the path.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stroke: Option<Stroke>,
+        #[serde(default, skip_serializing_if = "LineCap::is_butt")]
+        line_cap: LineCap,
+        #[serde(default, skip_serializing_if = "LineJoin::is_miter")]
+        line_join: LineJoin,
+        /// The longest a miter join may be, from its inner corner to its
+        /// tip, as a multiple of the stroke width, before it falls back to a
+        /// bevel. Defaults to 4, like SVG's `stroke-miterlimit`.
+        #[serde(
+            default = "default_miter_limit",
+            skip_serializing_if = "is_default_miter_limit"
+        )]
+        miter_limit: f64,
+    },
     MissingComponent {
         component: String,
         props: BTreeMap<String, Value>,
     },
+}
+
+/// One step of a `LayerContent::Path`, in the layer's own pixels, like SVG's
+/// absolute path commands. A command other than `MoveTo` that starts the
+/// path, or follows `Close`, begins its subpath at `(0, 0)` or the closed
+/// subpath's start, as in SVG.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum PathCommand {
+    /// Starts a new subpath at `(x, y)`.
+    MoveTo { x: f64, y: f64 },
+    /// A straight line to `(x, y)`.
+    LineTo { x: f64, y: f64 },
+    /// A quadratic Bézier curve to `(x, y)` with control point `(x1, y1)`.
+    QuadTo { x1: f64, y1: f64, x: f64, y: f64 },
+    /// A cubic Bézier curve to `(x, y)` with control points `(x1, y1)` and
+    /// `(x2, y2)`.
+    CubicTo {
+        x1: f64,
+        y1: f64,
+        x2: f64,
+        y2: f64,
+        x: f64,
+        y: f64,
+    },
+    /// Closes the subpath with a straight line back to its start and joins
+    /// the two ends, so a closed outline has no seam.
+    Close,
+}
+
+/// How a stroke ends at the open ends of a path.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub enum LineCap {
+    /// Ends exactly at the end point.
+    #[default]
+    Butt,
+    /// Adds a half disc around the end point.
+    Round,
+    /// Adds half a square around the end point.
+    Square,
+}
+
+impl LineCap {
+    pub fn is_butt(&self) -> bool {
+        *self == Self::Butt
+    }
+}
+
+/// How a stroke turns the corners between segments.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub enum LineJoin {
+    /// A sharp corner, cut to a bevel past `miter_limit`.
+    #[default]
+    Miter,
+    /// A circular arc around the corner point.
+    Round,
+    /// A straight cut across the corner.
+    Bevel,
+}
+
+impl LineJoin {
+    pub fn is_miter(&self) -> bool {
+        *self == Self::Miter
+    }
+}
+
+pub const DEFAULT_MITER_LIMIT: f64 = 4.0;
+
+const fn default_miter_limit() -> f64 {
+    DEFAULT_MITER_LIMIT
+}
+
+fn is_default_miter_limit(value: &f64) -> bool {
+    *value == DEFAULT_MITER_LIMIT
 }
 
 /// A rectangle, optionally with rounded corners, that limits where a group's

@@ -151,7 +151,7 @@ export const sections: DocSection[] = [
     </>,
   },
   {
-    id: 'motion-toolkit', title: 'Scenes, cues & motion helpers', description: 'Sequencing, staggering, beat sync, and text effects.', keywords: 'Series Stagger computeSeries progress useBeat beatAt bpm music useCue cueAt TextReveal useTypewriter useCountUp Camera Line Polyline pointOnPolyline random noise frameToTimecode timecode scenes cascade counter typewriter chart', content: <>
+    id: 'motion-toolkit', title: 'Scenes, cues & motion helpers', description: 'Sequencing, staggering, beat sync, and text effects.', keywords: 'Series Stagger computeSeries progress useBeat beatAt bpm music useCue cueAt TextReveal useTypewriter useCountUp Camera Line Polyline Path pointOnPolyline random noise frameToTimecode timecode scenes cascade counter typewriter chart', content: <>
       <p>These helpers cover the patterns that come up in almost every video: scenes in a row, lists that cascade in, cuts on the beat, and titles that reveal themselves. Each is built on <code>Sequence</code>, <code>Group</code>, and the frame, so everything stays scrubbable and deterministic.</p>
       <h3>Scenes back to back</h3><p><code>{'<Series>'}</code> plays its <code>{'<Series.Sequence>'}</code> children one after another, so you write each scene’s length instead of its start frame. A negative <code>offset</code> overlaps a scene with the one before it. <code>computeSeries()</code> does the same arithmetic without rendering, which is handy for the composition’s total length:</p>
       <DocCode label="Three scenes, sized from their lengths" language="tsx" code={"const SCENES = [\n  { name: 'intro', durationInFrames: 90, Scene: Intro },\n  { name: 'body', durationInFrames: 240, Scene: Body },\n  { name: 'outro', durationInFrames: 60, Scene: Outro },\n];\nconst { durationInFrames } = computeSeries(SCENES);\n\nexport default function Root() {\n  return (\n    <Composition width={1920} height={1080} fps={30} durationInFrames={durationInFrames}>\n      <Series>\n        {SCENES.map(({ name, durationInFrames, Scene }) => (\n          <Series.Sequence key={name} durationInFrames={durationInFrames}>\n            <Scene />\n          </Series.Sequence>\n        ))}\n      </Series>\n    </Composition>\n  );\n}"} />
@@ -171,7 +171,8 @@ export const sections: DocSection[] = [
       <p>Celesta does not measure text in React, so a caret after typed text needs a monospaced font, where every character has the same advance (0.6 em in JetBrains Mono): put the caret at <code>length × advance</code>.</p>
       <h3>Camera</h3><p><code>{'<Camera>'}</code> looks at a point of a larger world: lay the world out in its own coordinates, then animate <code>x</code>/<code>y</code> (the point shown at the center), <code>zoom</code>, and <code>rotation</code>. <code>shake</code> adds a smooth handheld drift of up to that many pixels.</p>
       <DocCode label="Travel along a long timeline" language="tsx" code={"<Camera x={interpolate(frame, [0, 120], [0, 4000], { extrapolateRight: 'clamp' })}\n  y={540} zoom={1.1} shake={4}>\n  <TimelineWorld />\n</Camera>"} />
-      <h3>Lines and charts</h3><p><code>{'<Line x1 y1 x2 y2>'}</code> draws a segment and <code>{'<Polyline points>'}</code> connects several; both take <code>stroke</code>, <code>strokeWidth</code>, and <code>cap</code> (<code>round</code> by default). Animate a polyline’s <code>progress</code> from 0 to 1 to draw it on, and use <code>pointOnPolyline(points, t)</code> to put a marker on its tip.</p>
+      <h3>Lines and charts</h3><p><code>{'<Line x1 y1 x2 y2>'}</code> draws a segment and <code>{'<Polyline points>'}</code> connects several; both take <code>stroke</code>, <code>strokeWidth</code>, <code>cap</code> (<code>round</code> by default), and <code>join</code>. Animate a polyline’s <code>progress</code> from 0 to 1 to draw it on, and use <code>pointOnPolyline(points, t)</code> to put a marker on its tip.</p>
+      <p>For other shapes, <code>{'<Path>'}</code> takes <code>points</code> (with <code>closed</code>) or SVG-like <code>commands</code> (<code>moveTo</code>, <code>lineTo</code>, <code>quadTo</code>, <code>cubicTo</code>, <code>close</code>), a <code>stroke</code> and/or <code>fill</code>, and <code>cap</code>/<code>join</code>/<code>miterLimit</code>. Each is one layer however many segments it has, stays sharp when scaled, and paints a translucent stroke that crosses itself only once, so draw procedural line art as a few paths rather than many thin rects.</p>
       <h3>Randomness and timecodes</h3><p><code>random(seed)</code> returns the same number in <code>[0, 1)</code> for the same seed, and <code>noise(seed, t)</code> is a smooth curve in <code>[-1, 1]</code> for drift and wobble. Use them instead of <code>Math.random()</code> so every frame renders the same way twice. <code>frameToTimecode(frame, fps)</code> formats <code>HH:MM:SS:FF</code> for an on-screen clock.</p>
     </>,
   },
@@ -294,7 +295,7 @@ export const sections: DocSection[] = [
     </>,
   },
   {
-    id: 'reference', title: 'React essentials', description: 'A compact reference for everything in @celesta/react.', keywords: 'api props Composition Rect Text Group Image Video Audio Font Sequence Series Stagger Transition Camera Line Polyline TextReveal useBeat useCue Character CharacterView Dialogue hooks reference', content: <>
+    id: 'reference', title: 'React essentials', description: 'A compact reference for everything in @celesta/react.', keywords: 'api props Composition Rect Text Group Image Video Audio Font Sequence Series Stagger Transition Camera Line Polyline Path TextReveal useBeat useCue Character CharacterView Dialogue hooks reference', content: <>
       <p>Import these APIs from <code>@celesta/react</code>. Celesta’s TypeScript declarations provide the complete prop types and editor completions.</p>
       <Api caption="Layers" rows={[
         [<code>Composition</code>, <>Set <code>width</code>, <code>height</code>, <code>fps</code>, and <code>durationInFrames</code>. Return exactly one from your default export.</>],
@@ -314,7 +315,7 @@ export const sections: DocSection[] = [
         [<><code>useCue()</code> / <code>cueAt</code></>, <>The cue in effect from a list of <code>{'{ at, …data }'}</code>.</>],
         [<><code>TextReveal</code>, <code>useTypewriter()</code>, <code>useCountUp()</code></>, <>Masked line reveals, typing, and counting numbers.</>],
         [<code>Camera</code>, <>Look at a point of a larger world, with zoom, rotation, and shake.</>],
-        [<><code>Line</code> / <code>Polyline</code> / <code>pointOnPolyline</code></>, <>Segments and paths that can draw themselves on.</>],
+        [<><code>Line</code> / <code>Polyline</code> / <code>Path</code> / <code>pointOnPolyline</code></>, <>Segments, curves, and filled shapes; polylines can draw themselves on.</>],
         [<><code>random</code> / <code>noise</code></>, <>Deterministic randomness and smooth noise.</>],
         [<><code>interpolate</code> / <code>Easings</code></>, <>Map a frame to a value, with easing and extrapolation.</>],
         [<code>spring</code>, <>A physics-based value that settles from 0 to 1.</>],

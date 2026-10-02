@@ -24,6 +24,11 @@ use cosmic_text::{
     Weight, Wrap,
 };
 pub mod image_source;
+mod path;
+
+pub use path::{
+    PathDraw, PathShape, PathTransform, RasterizedPath, rasterize_path, rasterize_paths,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Color {
@@ -901,6 +906,48 @@ impl CpuRenderer {
                     layer.transform.anchor,
                     &state,
                 );
+            }
+            LayerContent::Path {
+                commands,
+                fill,
+                stroke,
+                line_cap,
+                line_join,
+                miter_limit,
+            } => {
+                let shape = PathShape {
+                    commands,
+                    fill: fill.as_ref(),
+                    stroke: stroke.as_ref(),
+                    line_cap: *line_cap,
+                    line_join: *line_join,
+                    miter_limit: *miter_limit,
+                };
+                let transform = PathTransform::scale_translate(
+                    state.scale.x,
+                    state.scale.y,
+                    state.position.x,
+                    state.position.y,
+                );
+                if let Some(path) = rasterize_path(&shape, transform, frame.width, frame.height)? {
+                    // Already in output pixels: drawn unscaled at its corner.
+                    let state = ParentState {
+                        position: Point {
+                            x: f64::from(path.left),
+                            y: f64::from(path.top),
+                        },
+                        scale: Point { x: 1.0, y: 1.0 },
+                        ..state
+                    };
+                    render_image_pixels(
+                        frame,
+                        path.image.width,
+                        path.image.height,
+                        &path.image.pixels,
+                        Point { x: 0.0, y: 0.0 },
+                        &state,
+                    );
+                }
             }
             LayerContent::MissingComponent { .. } => render_placeholder(
                 frame,
