@@ -463,9 +463,9 @@ impl TextRasterizer {
                 // Glyph 0 is `.notdef`: no font had the character, and the
                 // missing-glyph box is drawn.
                 let from_family = glyph.glyph_id != 0
-                    && database.face(glyph.font_id).is_some_and(|face| {
-                        face.families.iter().any(|(name, _)| name == family)
-                    });
+                    && database
+                        .face(glyph.font_id)
+                        .is_some_and(|face| face.families.iter().any(|(name, _)| name == family));
                 let Some(cluster) = run.text.get(glyph.start..glyph.end) else {
                     continue;
                 };
@@ -3721,7 +3721,10 @@ mod font_tests {
             ..TextStyle::default()
         };
         assert!(rasterizer.font_fallback("title", &style).is_some());
-        assert_eq!(rasterizer.missing_glyphs("title", "ずんだもん", &style), None);
+        assert_eq!(
+            rasterizer.missing_glyphs("title", "ずんだもん", &style),
+            None
+        );
     }
 
     #[test]
