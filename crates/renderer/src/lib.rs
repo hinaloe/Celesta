@@ -135,9 +135,55 @@ pub struct RasterizedText {
     /// Pixel row of the first line's baseline, from the top edge.
     baseline: f32,
     pixels: Vec<u8>,
+    /// The box a layer's anchor refers to, in image pixels. For text it is the
+    /// layout box (the advance width, and the line boxes or the visible rows
+    /// of a single line), which a stroke can reach past, so the image may be
+    /// larger. For everything else it is the whole image.
+    anchor_box: AnchorBox,
+}
+
+/// A rectangle in image pixels; see [`RasterizedText::anchor_in_image`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct AnchorBox {
+    left: u32,
+    top: u32,
+    width: u32,
+    height: u32,
 }
 
 impl RasterizedText {
+    /// An image whose anchor box is the whole image.
+    pub(crate) fn whole(width: u32, height: u32, baseline: f32, pixels: Vec<u8>) -> Self {
+        Self {
+            width,
+            height,
+            baseline,
+            pixels,
+            anchor_box: AnchorBox {
+                left: 0,
+                top: 0,
+                width,
+                height,
+            },
+        }
+    }
+
+    /// Converts an anchor normalized to the anchor box (what a layer's
+    /// `anchor` means) into one normalized to the whole image, which is what
+    /// placing the image needs. The identity when the two are the same.
+    pub fn anchor_in_image(&self, x: f64, y: f64) -> (f64, f64) {
+        let AnchorBox {
+            left,
+            top,
+            width,
+            height,
+        } = self.anchor_box;
+        (
+            (f64::from(left) + x * f64::from(width)) / f64::from(self.width),
+            (f64::from(top) + y * f64::from(height)) / f64::from(self.height),
+        )
+    }
+
     pub const fn width(&self) -> u32 {
         self.width
     }
@@ -477,8 +523,17 @@ impl TextRasterizer {
             height.max(run.line_top + run.line_height)
         });
         let baseline = buffer.layout_runs().next().map_or(0.0, |run| run.line_y);
-        let mask_width = width.unwrap_or(measured_width).ceil().max(1.0) as u32;
-        let mask_height = measured_height.ceil().max(1.0) as u32;
+        let layout_width = width.unwrap_or(measured_width).ceil().max(1.0) as u32;
+        let layout_height = measured_height.ceil().max(1.0) as u32;
+        // The stroke grows the glyphs by its width in every direction, which
+        // reaches past the layout box at the first and last glyph (and above
+        // and below tall or low glyphs), so leave that much room around it.
+        let stroke_radius = style.stroke.as_ref().map_or(0, |stroke| {
+            (stroke.width * f64::from(scale)).round().max(0.0) as u32
+        });
+        let pad = stroke_radius;
+        let mask_width = layout_width + 2 * pad;
+        let mask_height = layout_height + 2 * pad;
         let fill_paint =
             resolve_paint(style.fill.as_ref())?.map(|paint| paint.scaled(f64::from(scale)));
         // A gradient is painted over white glyphs below.
@@ -507,8 +562,8 @@ impl TextRasterizer {
             |x, y, width, height, color| {
                 for offset_y in 0..height as i32 {
                     for offset_x in 0..width as i32 {
-                        let pixel_x = x + offset_x;
-                        let pixel_y = y + offset_y;
+                        let pixel_x = x + offset_x + pad as i32;
+                        let pixel_y = y + offset_y + pad as i32;
                         if pixel_x < 0
                             || pixel_y < 0
                             || pixel_x >= mask_width as i32
@@ -536,8 +591,9 @@ impl TextRasterizer {
                 if pixel[3] == 0 || pixel[..3] != [255, 255, 255] {
                     continue;
                 }
-                let x = f64::from((index % mask_width as usize) as u32) + 0.5;
-                let y = f64::from((index / mask_width as usize) as u32) + 0.5;
+                // Gradient coordinates are relative to the layout box.
+                let x = f64::from((index % mask_width as usize) as u32) - f64::from(pad) + 0.5;
+                let y = f64::from((index / mask_width as usize) as u32) - f64::from(pad) + 0.5;
                 let color = gradient.color_at(x, y);
                 pixel[..3].copy_from_slice(&[color.red, color.green, color.blue]);
                 pixel[3] = (f64::from(pixel[3]) * f64::from(color.alpha) / 255.0).round() as u8;
@@ -550,30 +606,50 @@ impl TextRasterizer {
             height: mask_height,
             pixels: vec![0; pixel_count],
         };
-        if let Some(stroke) = &style.stroke {
-            let radius = (stroke.width * f64::from(scale)).round().max(0.0) as u32;
-            if radius > 0 {
-                let stroke_mask = dilate_mask(&mask, mask_width, mask_height, radius);
-                let stroke_paint =
-                    ResolvedPaint::from_paint(&stroke.paint)?.scaled(f64::from(scale));
-                composite_mask_with(&mut frame, &stroke_mask, mask_width, |x, y| {
-                    stroke_paint.color_at(f64::from(x) + 0.5, f64::from(y) + 0.5)
-                });
-            }
+        if let Some(stroke) = &style.stroke
+            && stroke_radius > 0
+        {
+            let stroke_mask = dilate_mask(&mask, mask_width, mask_height, stroke_radius);
+            let stroke_paint = ResolvedPaint::from_paint(&stroke.paint)?.scaled(f64::from(scale));
+            composite_mask_with(&mut frame, &stroke_mask, mask_width, |x, y| {
+                stroke_paint.color_at(
+                    f64::from(x) - f64::from(pad) + 0.5,
+                    f64::from(y) - f64::from(pad) + 0.5,
+                )
+            });
         }
         composite_rgba(&mut frame, &glyph_pixels, mask_width, mask_height, 0, 0);
         // Single-line text keeps its advance width, so leading and trailing
         // spaces still take up room, but drops the empty rows above and below
         // its ink: `anchorY` 0.5 centers the letters, not the line box.
         let mut top = 0;
-        if !text.contains('\n') {
+        let single_line = !text.contains('\n');
+        if single_line {
             (frame, top) = trim_transparent_rows(frame);
         }
+        // A single line is anchored by its visible rows, stroke included;
+        // several lines by their line boxes.
+        let anchor_box = if single_line {
+            AnchorBox {
+                left: pad,
+                top: 0,
+                width: layout_width,
+                height: frame.height,
+            }
+        } else {
+            AnchorBox {
+                left: pad,
+                top: pad,
+                width: layout_width,
+                height: layout_height,
+            }
+        };
         Ok(RasterizedText {
             width: frame.width,
             height: frame.height,
-            baseline: baseline - top as f32,
+            baseline: baseline + pad as f32 - top as f32,
             pixels: frame.pixels,
+            anchor_box,
         })
     }
 }
@@ -1056,9 +1132,13 @@ impl CpuRenderer {
         let text = self
             .text_rasterizer
             .rasterize(text, style, max_width, scale)?;
-        if baseline_anchor {
-            anchor.y = text.baseline_anchor();
-        }
+        let (anchor_x, anchor_y) = text.anchor_in_image(anchor.x, anchor.y);
+        anchor.x = anchor_x;
+        anchor.y = if baseline_anchor {
+            text.baseline_anchor()
+        } else {
+            anchor_y
+        };
         let image = DecodedImage {
             width: text.width,
             height: text.height,
@@ -1239,13 +1319,18 @@ pub fn rasterize_psd(
         // Group opacity is deliberately not applied: the `psd` crate reads it
         // from the wrong ("bounding section") record and reports 0 for every
         // folder in real PSDTool files. Per-layer opacity is read correctly.
+        // Likewise each layer's own blend mode is applied, and a folder's is
+        // not (folders pass through).
         let opacity = f64::from(layer.opacity()) / 255.0;
+        // The `psd` crate does not export its `BlendMode` type, only its
+        // values, so modes are told apart by name.
+        let mix = psd_blend_channel(&format!("{:?}", layer.blend_mode()));
         for (destination, source) in pixels.chunks_exact_mut(4).zip(layer.rgba().chunks_exact(4)) {
-            blend(
-                destination,
-                Color::rgba(source[0], source[1], source[2], source[3]),
-                opacity,
-            );
+            let source = Color::rgba(source[0], source[1], source[2], source[3]);
+            match mix {
+                Some(mix) => blend_mixed(destination, source, opacity, mix),
+                None => blend(destination, source, opacity),
+            }
         }
     }
     Ok(RgbaFrame {
@@ -1641,12 +1726,7 @@ fn rasterize_rect_pixels(
         }
     }
 
-    RasterizedText {
-        width: pixel_width,
-        height: pixel_height,
-        baseline: 0.0,
-        pixels,
-    }
+    RasterizedText::whole(pixel_width, pixel_height, 0.0, pixels)
 }
 
 /// Inigo Quilez's rounded-box signed distance function: negative inside the
@@ -2096,6 +2176,15 @@ fn blend_with_mode(destination: &mut [u8], source: Color, opacity: f64, mode: Bl
     if mode.is_normal() {
         return blend(destination, source, opacity);
     }
+    blend_mixed(destination, source, opacity, |backdrop, source| {
+        mode.blend_channel(backdrop, source)
+    });
+}
+
+/// Source-over compositing with a separable mixing function `mix(backdrop,
+/// source)` per channel, all in 0–1 (W3C Compositing, "simple alpha
+/// compositing" with blending).
+fn blend_mixed(destination: &mut [u8], source: Color, opacity: f64, mix: impl Fn(f64, f64) -> f64) {
     let source_alpha = (f64::from(source.alpha) / 255.0) * opacity.clamp(0.0, 1.0);
     if source_alpha == 0.0 {
         return;
@@ -2106,7 +2195,7 @@ fn blend_with_mode(destination: &mut [u8], source: Color, opacity: f64, mode: Bl
         let source_value = f64::from([source.red, source.green, source.blue][channel]) / 255.0;
         let backdrop_value = f64::from(destination[channel]) / 255.0;
         let mixed = (1.0 - backdrop_alpha) * source_value
-            + backdrop_alpha * mode.blend_channel(backdrop_value, source_value);
+            + backdrop_alpha * mix(backdrop_value, source_value);
         let output = (source_alpha * mixed
             + backdrop_alpha * backdrop_value * (1.0 - source_alpha))
             / output_alpha;
@@ -2132,6 +2221,99 @@ fn blend(destination: &mut [u8], source: Color, opacity: f64) {
         destination[channel] = output.round().clamp(0.0, 255.0) as u8;
     }
     destination[3] = (output_alpha * 255.0).round().clamp(0.0, 255.0) as u8;
+}
+
+/// The per-channel mixing function `B(backdrop, source)` of a PSD layer's
+/// blend mode, all in 0–1, for the modes that blend each channel on its own.
+/// `None` for normal, and for the modes drawn as normal because they mix
+/// whole colors (hue, saturation, color, luminosity, darker and lighter
+/// color) or noise (dissolve).
+fn psd_blend_channel(mode: &str) -> Option<fn(f64, f64) -> f64> {
+    fn screen(b: f64, s: f64) -> f64 {
+        b + s - b * s
+    }
+    fn color_burn(b: f64, s: f64) -> f64 {
+        if b >= 1.0 {
+            1.0
+        } else if s <= 0.0 {
+            0.0
+        } else {
+            1.0 - ((1.0 - b) / s).min(1.0)
+        }
+    }
+    fn color_dodge(b: f64, s: f64) -> f64 {
+        if b <= 0.0 {
+            0.0
+        } else if s >= 1.0 {
+            1.0
+        } else {
+            (b / (1.0 - s)).min(1.0)
+        }
+    }
+    fn hard_light(b: f64, s: f64) -> f64 {
+        if s <= 0.5 {
+            b * 2.0 * s
+        } else {
+            screen(b, 2.0 * s - 1.0)
+        }
+    }
+    fn soft_light(b: f64, s: f64) -> f64 {
+        if s <= 0.5 {
+            b - (1.0 - 2.0 * s) * b * (1.0 - b)
+        } else {
+            let d = if b <= 0.25 {
+                ((16.0 * b - 12.0) * b + 4.0) * b
+            } else {
+                b.sqrt()
+            };
+            b + (2.0 * s - 1.0) * (d - b)
+        }
+    }
+    fn vivid_light(b: f64, s: f64) -> f64 {
+        if s <= 0.5 {
+            color_burn(b, 2.0 * s)
+        } else {
+            color_dodge(b, 2.0 * s - 1.0)
+        }
+    }
+    fn pin_light(b: f64, s: f64) -> f64 {
+        if s <= 0.5 {
+            b.min(2.0 * s)
+        } else {
+            b.max(2.0 * s - 1.0)
+        }
+    }
+
+    Some(match mode {
+        "Darken" => f64::min,
+        "Multiply" => |b, s| b * s,
+        "ColorBurn" => color_burn,
+        "LinearBurn" => |b, s| (b + s - 1.0).max(0.0),
+        "Lighten" => f64::max,
+        "Screen" => screen,
+        "ColorDodge" => color_dodge,
+        "LinearDodge" => |b, s| (b + s).min(1.0),
+        "Overlay" => |b, s| hard_light(s, b),
+        "SoftLight" => soft_light,
+        "HardLight" => hard_light,
+        "VividLight" => vivid_light,
+        "LinearLight" => |b, s| (b + 2.0 * s - 1.0).clamp(0.0, 1.0),
+        "PinLight" => pin_light,
+        "HardMix" => |b, s| if b + s >= 1.0 { 1.0 } else { 0.0 },
+        "Difference" => |b, s| (b - s).abs(),
+        "Exclusion" => |b, s| b + s - 2.0 * b * s,
+        "Subtract" => |b, s| (b - s).max(0.0),
+        "Divide" => |b, s| {
+            if s <= 0.0 {
+                if b <= 0.0 { 0.0 } else { 1.0 }
+            } else {
+                (b / s).min(1.0)
+            }
+        },
+        // PassThrough, Normal, Dissolve, DarkerColor, LighterColor, Hue,
+        // Saturation, Color, Luminosity.
+        _ => return None,
+    })
 }
 
 #[derive(Debug)]
@@ -2761,6 +2943,106 @@ mod tests {
     }
 
     #[test]
+    fn a_text_stroke_reaches_past_both_ends_of_the_line() {
+        let plain_style = TextStyle {
+            font_size: Some(96.0),
+            ..TextStyle::default()
+        };
+        let stroked_style = TextStyle {
+            stroke: Some(celesta_composition::Stroke {
+                paint: Paint::Solid {
+                    color: "#000000FF".to_owned(),
+                },
+                width: 16.0,
+            }),
+            ..plain_style.clone()
+        };
+        let mut rasterizer = TextRasterizer::new();
+        let plain = rasterizer.rasterize("MW", &plain_style, None, 1.0).unwrap();
+        let stroked = rasterizer
+            .rasterize("MW", &stroked_style, None, 1.0)
+            .unwrap();
+
+        assert_eq!(stroked.width(), plain.width() + 32);
+        let column_has_ink = |x: u32| {
+            (0..stroked.height())
+                .any(|y| stroked.pixels()[((y * stroked.width() + x) * 4 + 3) as usize] > 0)
+        };
+        // Before, the stroke was cut off at the advance box on both sides.
+        assert!((0..16).any(column_has_ink), "no stroke left of the line");
+        assert!(
+            (stroked.width() - 16..stroked.width()).any(column_has_ink),
+            "no stroke right of the line"
+        );
+        // Anchors still refer to the advance box, not the padded image.
+        let (left, _) = stroked.anchor_in_image(0.0, 0.0);
+        let (right, _) = stroked.anchor_in_image(1.0, 0.0);
+        assert!((left - 16.0 / f64::from(stroked.width())).abs() < 1e-9);
+        assert!(
+            (right - f64::from(stroked.width() - 16) / f64::from(stroked.width())).abs() < 1e-9
+        );
+        assert_eq!(plain.anchor_in_image(0.25, 0.75), (0.25, 0.75));
+    }
+
+    #[test]
+    fn a_text_stroke_does_not_move_the_text() {
+        let ink_center = |stroke: Option<celesta_composition::Stroke>| {
+            let scene = Scene {
+                width: 640,
+                height: 360,
+                frame_rate: Rational::new(30, 1),
+                time: Time::ZERO,
+                fonts: Vec::new(),
+                layers: vec![Layer {
+                    id: "title".to_owned(),
+                    transform: EvaluatedTransform {
+                        position: Point { x: 320.0, y: 180.0 },
+                        ..EvaluatedTransform::default()
+                    },
+                    opacity: 1.0,
+                    blend_mode: BlendMode::Normal,
+                    effects: Default::default(),
+                    content: LayerContent::Text {
+                        text: "Celesta".to_owned(),
+                        style: TextStyle {
+                            font_size: Some(72.0),
+                            fill: Some(Paint::Solid {
+                                color: "#FFFFFFFF".to_owned(),
+                            }),
+                            stroke,
+                            ..TextStyle::default()
+                        },
+                        max_width: None,
+                        baseline_anchor: false,
+                    },
+                }],
+            };
+            let frame = CpuRenderer::default().render(&scene).unwrap();
+            // The white fill only: the stroke is black.
+            let (mut min_x, mut max_x) = (u32::MAX, 0);
+            for (index, pixel) in frame.pixels().chunks_exact(4).enumerate() {
+                if pixel[0] > 200 && pixel[1] > 200 {
+                    let x = index as u32 % frame.width();
+                    min_x = min_x.min(x);
+                    max_x = max_x.max(x);
+                }
+            }
+            f64::from(min_x + max_x) / 2.0
+        };
+        let plain = ink_center(None);
+        let stroked = ink_center(Some(celesta_composition::Stroke {
+            paint: Paint::Solid {
+                color: "#000000FF".to_owned(),
+            },
+            width: 12.0,
+        }));
+        assert!(
+            (plain - stroked).abs() <= 1.0,
+            "plain {plain}, stroked {stroked}"
+        );
+    }
+
+    #[test]
     fn single_line_text_keeps_the_width_of_its_spaces() {
         let mut rasterizer = TextRasterizer::new();
         let style = TextStyle {
@@ -3244,6 +3526,54 @@ mod tests {
         assert!(mouth[0] > 150 && mouth[0] > mouth[1] + 40 && mouth[0] > mouth[2] + 40);
         // A point clear of every visible layer stays transparent.
         assert_eq!(pixel_at(&frame, 5, 5), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn rasterize_psd_applies_each_layer_blend_mode() {
+        // 3×1: an opaque rgb(200, 100, 50) base; over it, one pixel each of a
+        // multiply layer of rgb(128, 128, 255), a screen layer of
+        // rgb(128, 128, 128), and a normal layer of rgb(10, 20, 30).
+        // Written with ag-psd, whose layers the `psd` crate reads as hidden,
+        // so they are listed as the visible set.
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/blend-modes.psd");
+        let layers = ["base", "multiply", "screen", "normal"].map(str::to_owned);
+        let frame = rasterize_psd("fixture", &fixture, &layers, &[], &[]).unwrap();
+        let close = |actual: [u8; 4], expected: [u8; 4]| {
+            actual.iter().zip(expected).all(|(a, e)| a.abs_diff(e) <= 1)
+        };
+        let multiply = pixel_at(&frame, 0, 0);
+        assert!(
+            close(multiply, [100, 50, 50, 255]),
+            "multiply: {multiply:?}"
+        );
+        let screen = pixel_at(&frame, 1, 0);
+        assert!(close(screen, [228, 178, 153, 255]), "screen: {screen:?}");
+        assert_eq!(pixel_at(&frame, 2, 0), [10, 20, 30, 255]);
+    }
+
+    #[test]
+    fn psd_blend_modes_mix_like_photoshop() {
+        let mix = |mode| psd_blend_channel(mode).unwrap();
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        assert!(psd_blend_channel("Normal").is_none());
+        assert!(psd_blend_channel("Hue").is_none());
+        assert!(close(mix("Multiply")(0.5, 0.5), 0.25));
+        assert!(close(mix("Screen")(0.5, 0.5), 0.75));
+        assert!(close(mix("Overlay")(0.25, 0.5), 0.25));
+        assert!(close(mix("Darken")(0.3, 0.6), 0.3));
+        assert!(close(mix("Lighten")(0.3, 0.6), 0.6));
+        assert!(close(mix("LinearDodge")(0.7, 0.6), 1.0));
+        assert!(close(mix("Subtract")(0.3, 0.6), 0.0));
+        assert!(close(mix("Difference")(0.3, 0.8), 0.5));
+        assert!(close(mix("ColorDodge")(0.25, 0.5), 0.5));
+        assert!(close(mix("ColorBurn")(0.75, 0.5), 0.5));
+        // White and black are neutral where Photoshop says they are.
+        for mode in ["Multiply", "ColorBurn", "LinearBurn"] {
+            assert!(close(mix(mode)(0.4, 1.0), 0.4), "{mode:?} with white");
+        }
+        for mode in ["Screen", "ColorDodge", "LinearDodge"] {
+            assert!(close(mix(mode)(0.4, 0.0), 0.4), "{mode:?} with black");
+        }
     }
 
     #[test]

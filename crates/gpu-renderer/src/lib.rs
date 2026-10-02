@@ -1056,18 +1056,31 @@ impl GpuRenderer {
         let mut depth = 0;
         let mut canvases = 1;
         let mut index = 0_u32;
+        // What each open canvas has drawn so far, in canvas pixels, so an
+        // effect only filters the part of its canvas its layers cover.
+        let mut covered: Vec<Option<PixelBounds>> = vec![None];
+        let cover = |covered: &mut Vec<Option<PixelBounds>>, bounds: Option<PixelBounds>| {
+            let top = covered.last_mut().expect("the root canvas is always open");
+            *top = PixelBounds::union(*top, bounds);
+        };
         for item in items {
             let layer = match item {
-                PreparedItem::Layer(layer) => layer,
+                PreparedItem::Layer(layer) => {
+                    cover(&mut covered, Some(layer.bounds()));
+                    layer
+                }
                 PreparedItem::Paths(_) => unreachable!("paths are rasterized into layers"),
                 PreparedItem::BeginGroup => {
                     depth += 1;
                     canvases = canvases.max(depth + 1);
+                    covered.push(None);
                     steps.push(GpuStep::BeginGroup);
                     continue;
                 }
                 PreparedItem::EndGroup(layer) => {
                     depth -= 1;
+                    let inner = covered.pop().flatten();
+                    cover(&mut covered, inner);
                     layer.write_instance(scene.width, scene.height, &mut instances);
                     steps.push(GpuStep::EndGroup {
                         instance: index,
@@ -1078,6 +1091,11 @@ impl GpuRenderer {
                 }
                 PreparedItem::EndEffect(layer, effects) => {
                     depth -= 1;
+                    let content = covered.pop().flatten();
+                    cover(
+                        &mut covered,
+                        content.map(|content| effects.output_bounds(content)),
+                    );
                     PreparedLayer::canvas(LayerState::default(), BlendMode::Normal, true)
                         .write_instance(scene.width, scene.height, &mut instances);
                     layer.write_instance(scene.width, scene.height, &mut instances);
@@ -1086,6 +1104,7 @@ impl GpuRenderer {
                         final_instance: index + 1,
                         blend_mode: layer.blend_mode,
                         effects,
+                        content,
                     });
                     index += 2;
                     continue;
@@ -1319,10 +1338,15 @@ impl GpuRenderer {
                     final_instance,
                     blend_mode,
                     effects,
+                    content,
                 } => {
                     depth -= 1;
+                    // Layers that drew nothing leave nothing to filter.
+                    let Some(content) = *content else {
+                        continue;
+                    };
                     let source = &self.canvases[depth + 1];
-                    let result = canvas_texture(
+                    let result = self.effects.take_canvas(
                         &self.device,
                         &self.texture_bind_group_layout,
                         scene.width,
@@ -1339,6 +1363,7 @@ impl GpuRenderer {
                             encoder,
                             source,
                             &self.texture_bind_group_layout,
+                            content,
                             shadow.blur,
                             shadow.offset,
                             Some(shadow.color),
@@ -1350,6 +1375,7 @@ impl GpuRenderer {
                             *inner_instance..*inner_instance + 1,
                             BlendMode::Normal,
                         );
+                        self.effects.recycle(filtered);
                     }
                     let filtered = (effects.blur > 0.0).then(|| {
                         self.effects.apply(
@@ -1357,6 +1383,7 @@ impl GpuRenderer {
                             encoder,
                             source,
                             &self.texture_bind_group_layout,
+                            content,
                             effects.blur,
                             [0.0, 0.0],
                             None,
@@ -1369,6 +1396,9 @@ impl GpuRenderer {
                         *inner_instance..*inner_instance + 1,
                         BlendMode::Normal,
                     );
+                    if let Some(filtered) = filtered {
+                        self.effects.recycle(filtered);
+                    }
                     draw(
                         encoder,
                         &self.canvases[depth],
@@ -1376,6 +1406,7 @@ impl GpuRenderer {
                         *final_instance..*final_instance + 1,
                         *blend_mode,
                     );
+                    self.effects.recycle(result);
                 }
             }
         }
@@ -1677,16 +1708,23 @@ impl GpuRenderer {
                         scale = (scale * limit as f32 / largest as f32 * 0.99).max(1.0);
                     };
                     let baseline = text.baseline_anchor();
+                    let origin = text.anchor_in_image(0.0, 0.0);
+                    let end = text.anchor_in_image(1.0, 1.0);
                     let mut image =
                         DecodedImage::new(text.width(), text.height(), text.into_pixels())?;
                     image.baseline_anchor = baseline;
+                    image.anchor_origin = origin;
+                    image.anchor_span = (end.0 - origin.0, end.1 - origin.1);
                     image.raster_scale = scale;
                     Ok(image)
                 })?;
                 let mut anchor = layer.transform.anchor;
-                if *baseline_anchor {
-                    anchor.y = texture.baseline_anchor;
-                }
+                anchor.x = texture.anchor_origin.0 + anchor.x * texture.anchor_span.0;
+                anchor.y = if *baseline_anchor {
+                    texture.baseline_anchor
+                } else {
+                    texture.anchor_origin.1 + anchor.y * texture.anchor_span.1
+                };
                 output.push(PreparedItem::Layer(PreparedLayer::new(
                     texture, anchor, state, blend_mode,
                 )));
@@ -2024,6 +2062,8 @@ fn upload_texture(
         width: image.width,
         height: image.height,
         baseline_anchor: image.baseline_anchor,
+        anchor_origin: image.anchor_origin,
+        anchor_span: image.anchor_span,
         raster_scale: image.raster_scale,
     }
 }
@@ -2156,6 +2196,11 @@ struct DecodedImage {
     pixels: Arc<Vec<u8>>,
     /// Normalized anchor `y` of the first text baseline; 0 for non-text images.
     baseline_anchor: f64,
+    /// Maps a layer anchor onto the image: `origin + anchor * span`, both
+    /// normalized. Text can be larger than the box its anchor refers to (a
+    /// stroke reaches past it); everything else is `(0, 0)` and `(1, 1)`.
+    anchor_origin: (f64, f64),
+    anchor_span: (f64, f64),
     /// Texels per layer unit: the scale text was rasterized at, else 1.
     raster_scale: f32,
 }
@@ -2184,6 +2229,8 @@ impl DecodedImage {
             height,
             pixels,
             baseline_anchor: 0.0,
+            anchor_origin: (0.0, 0.0),
+            anchor_span: (1.0, 1.0),
             raster_scale: 1.0,
         })
     }
@@ -2200,6 +2247,9 @@ struct LayerTexture {
     height: u32,
     /// See `DecodedImage::baseline_anchor`.
     baseline_anchor: f64,
+    /// See `DecodedImage::anchor_origin`.
+    anchor_origin: (f64, f64),
+    anchor_span: (f64, f64),
     /// See `DecodedImage::raster_scale`.
     raster_scale: f32,
 }
@@ -2252,9 +2302,63 @@ fn canvas_texture(
     }
 }
 
+/// An axis-aligned rectangle in canvas pixels: `[left, top, right, bottom]`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PixelBounds([f32; 4]);
+
+impl PixelBounds {
+    fn union(a: Option<Self>, b: Option<Self>) -> Option<Self> {
+        match (a, b) {
+            (Some(Self(a)), Some(Self(b))) => Some(Self([
+                a[0].min(b[0]),
+                a[1].min(b[1]),
+                a[2].max(b[2]),
+                a[3].max(b[3]),
+            ])),
+            (a, None) => a,
+            (None, b) => b,
+        }
+    }
+
+    fn expand(self, x: f32, y: f32) -> Self {
+        let [left, top, right, bottom] = self.0;
+        Self([left - x, top - y, right + x, bottom + y])
+    }
+
+    fn offset(self, [x, y]: [f32; 2]) -> Self {
+        let [left, top, right, bottom] = self.0;
+        Self([left + x, top + y, right + x, bottom + y])
+    }
+
+    /// The whole pixels the rectangle touches, clipped to `size`, as a
+    /// scissor rect; `None` when nothing of it is on the canvas.
+    fn scissor(self, size: wgpu::Extent3d) -> Option<[u32; 4]> {
+        let [left, top, right, bottom] = self.0;
+        let clamp = |value: f32, limit: u32| value.clamp(0.0, limit as f32);
+        let left = clamp(left.floor(), size.width) as u32;
+        let top = clamp(top.floor(), size.height) as u32;
+        let right = clamp(right.ceil(), size.width) as u32;
+        let bottom = clamp(bottom.ceil(), size.height) as u32;
+        (right > left && bottom > top).then(|| [left, top, right - left, bottom - top])
+    }
+}
+
+/// How far, in pixels, a blur of `radius` (the Gaussian's sigma in
+/// `effect.wgsl`) can carry a pixel: its kernel's extent, plus one pixel for
+/// the bilinear tap a fractional shadow offset reads.
+fn blur_reach(radius: f32) -> f32 {
+    let sigma = radius.clamp(0.0, 64.0);
+    (sigma * 3.0).ceil() + 1.0
+}
+
 struct EffectProcessor {
     layout: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
+    /// Scene-sized canvases effects filter through, kept across effects and
+    /// frames instead of allocating two or three per effect every frame. A
+    /// canvas goes back to the pool once the commands that read it are
+    /// encoded; the queue runs them in order, so reusing it later is safe.
+    pool: Vec<CanvasTexture>,
 }
 
 impl EffectProcessor {
@@ -2315,30 +2419,62 @@ impl EffectProcessor {
             multiview_mask: None,
             cache: None,
         });
-        Self { layout, pipeline }
+        Self {
+            layout,
+            pipeline,
+            pool: Vec::new(),
+        }
     }
 
+    /// A transparent-or-stale `width`x`height` canvas from the pool, or a new
+    /// one. Every user clears it before drawing.
+    fn take_canvas(
+        &mut self,
+        device: &wgpu::Device,
+        layer_layout: &wgpu::BindGroupLayout,
+        width: u32,
+        height: u32,
+    ) -> CanvasTexture {
+        self.pool.retain(|canvas| {
+            let size = canvas.texture.size();
+            size.width == width && size.height == height
+        });
+        self.pool
+            .pop()
+            .unwrap_or_else(|| canvas_texture(device, layer_layout, width, height))
+    }
+
+    fn recycle(&mut self, canvas: CanvasTexture) {
+        self.pool.push(canvas);
+    }
+
+    /// Blurs (and, with `color`, shifts and tints) `source`, whose layers
+    /// cover `content`. Each pass only shades the pixels its result can be
+    /// non-transparent at, so a small glow costs a small area, not the canvas.
     #[allow(clippy::too_many_arguments)]
     fn apply(
-        &self,
+        &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         source: &CanvasTexture,
         layer_layout: &wgpu::BindGroupLayout,
+        content: PixelBounds,
         radius: f32,
         offset: [f32; 2],
         color: Option<[f32; 4]>,
     ) -> CanvasTexture {
         let size = source.texture.size();
+        let reach = blur_reach(radius);
         let horizontal =
-            (radius > 0.0).then(|| canvas_texture(device, layer_layout, size.width, size.height));
-        let vertical = canvas_texture(device, layer_layout, size.width, size.height);
+            (radius > 0.0).then(|| self.take_canvas(device, layer_layout, size.width, size.height));
+        let vertical = self.take_canvas(device, layer_layout, size.width, size.height);
         if let Some(horizontal) = &horizontal {
             self.pass(
                 device,
                 encoder,
                 &source.view,
-                &horizontal.view,
+                horizontal,
+                content.expand(reach, 0.0),
                 [1.0, 0.0],
                 radius,
                 [0.0, 0.0],
@@ -2349,12 +2485,16 @@ impl EffectProcessor {
             device,
             encoder,
             &horizontal.as_ref().unwrap_or(source).view,
-            &vertical.view,
+            &vertical,
+            content.expand(reach, reach).offset(offset),
             [0.0, 1.0],
             radius,
             offset,
             color,
         );
+        if let Some(horizontal) = horizontal {
+            self.recycle(horizontal);
+        }
         vertical
     }
 
@@ -2364,7 +2504,8 @@ impl EffectProcessor {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         source: &wgpu::TextureView,
-        target: &wgpu::TextureView,
+        target: &CanvasTexture,
+        region: PixelBounds,
         direction: [f32; 2],
         radius: f32,
         offset: [f32; 2],
@@ -2407,9 +2548,14 @@ impl EffectProcessor {
         });
         let mut pass = begin_pass(
             encoder,
-            target,
+            &target.view,
             wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
         );
+        // Outside `region` the result is transparent, which the clear wrote.
+        let Some([x, y, width, height]) = region.scissor(target.texture.size()) else {
+            return;
+        };
+        pass.set_scissor_rect(x, y, width, height);
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
         pass.draw(0..3, 0..1);
@@ -2689,6 +2835,33 @@ impl PreparedLayer {
         output.extend(values.flat_map(f32::to_ne_bytes));
     }
 
+    /// Canvas pixels the layer's quad can touch: its transformed corners,
+    /// grown by a pixel for the filtered edge and the exact-copy rounding.
+    fn bounds(&self) -> PixelBounds {
+        let (texel_width, texel_height) = match &self.content {
+            PreparedContent::Texture(texture) => (texture.width, texture.height),
+            PreparedContent::Rect(rect) => (rect.pixel_width, rect.pixel_height),
+            PreparedContent::Canvas { .. } => unreachable!("only a group's end draws a canvas"),
+        };
+        let width = texel_width as f32 / self.raster_scale;
+        let height = texel_height as f32 / self.raster_scale;
+        let transform = self.state.transform;
+        let anchor = [self.anchor.x as f32, self.anchor.y as f32];
+        let corners = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]].map(|[u, v]| {
+            let x = (u - anchor[0]) * width;
+            let y = (v - anchor[1]) * height;
+            (
+                transform.a * x + transform.c * y + transform.tx,
+                transform.b * x + transform.d * y + transform.ty,
+            )
+        });
+        let xs = corners.map(|(x, _)| x);
+        let ys = corners.map(|(_, y)| y);
+        let min = |values: [f32; 4]| values.into_iter().fold(f32::INFINITY, f32::min);
+        let max = |values: [f32; 4]| values.into_iter().fold(f32::NEG_INFINITY, f32::max);
+        PixelBounds([min(xs), min(ys), max(xs), max(ys)]).expand(2.0, 2.0)
+    }
+
     /// The translation of a layer drawn texel for texel, moved so its
     /// top-left corner lands on a whole canvas pixel, as
     /// `celesta_renderer::render_image` places it. On a half pixel every pixel
@@ -2777,6 +2950,9 @@ enum GpuStep {
         final_instance: u32,
         blend_mode: BlendMode,
         effects: EffectSpec,
+        /// The part of the effect's canvas its layers drew on; `None` when
+        /// they drew nothing.
+        content: Option<PixelBounds>,
     },
 }
 
@@ -2795,6 +2971,21 @@ struct EffectSpec {
 }
 
 impl EffectSpec {
+    /// The canvas pixels the filtered result of layers covering `content`
+    /// can touch: the content itself, its blur, and each shifted shadow.
+    fn output_bounds(&self, content: PixelBounds) -> PixelBounds {
+        let mut bounds = content.expand(blur_reach(self.blur), blur_reach(self.blur));
+        for shadow in [self.shadow, self.glow].into_iter().flatten() {
+            let reach = blur_reach(shadow.blur);
+            bounds = PixelBounds::union(
+                Some(bounds),
+                Some(content.expand(reach, reach).offset(shadow.offset)),
+            )
+            .expect("both are some");
+        }
+        bounds
+    }
+
     fn parse(effects: &LayerEffects) -> Result<Self, GpuRenderError> {
         let parse_color = |color: &str| -> Result<[f32; 4], GpuRenderError> {
             let color = CpuColor::from_hex(color).map_err(GpuRenderError::Effects)?;
@@ -4139,6 +4330,81 @@ mod tests {
         );
     }
 
+    /// Effects filter only around what their layers cover; small, nested,
+    /// empty, and edge-crossing effects must still match the CPU
+    /// renderer, frame after frame as the pooled canvases are reused.
+    #[test]
+    fn effects_on_small_layers_match_cpu() {
+        use celesta_composition::{LayerEffects, LayerGlow, LayerShadow};
+
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        let effect = |id: &str, effects: LayerEffects, layers: Vec<Layer>| Layer {
+            id: id.to_owned(),
+            transform: EvaluatedTransform::default(),
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            effects,
+            content: LayerContent::Group { layers, clip: None },
+        };
+        let glow = |color: &str, blur: f64| LayerEffects {
+            glow: Some(LayerGlow {
+                color: color.to_owned(),
+                blur,
+            }),
+            ..LayerEffects::default()
+        };
+        let mut hidden = corner_rect("hidden", 40.0, 40.0, 8.0, 8.0, "#ffffff");
+        hidden.opacity = 0.0;
+        let mut nested = effect(
+            "nested",
+            LayerEffects::default(),
+            vec![corner_rect("inner", 84.0, 6.0, 8.0, 10.0, "#ff60c0")],
+        );
+        nested.blend_mode = BlendMode::Screen;
+        let mut scene = empty_scene(96, 64);
+        scene.layers = vec![
+            corner_rect("backdrop", 0.0, 0.0, 96.0, 64.0, "#203040"),
+            effect(
+                "small",
+                glow("#ffd060c0", 4.0),
+                vec![corner_rect("small", 18.0, 30.0, 10.0, 6.0, "#80ffa0")],
+            ),
+            effect(
+                "edge",
+                LayerEffects {
+                    blur: 1.0,
+                    shadow: Some(LayerShadow {
+                        color: "#000000a0".to_owned(),
+                        blur: 3.0,
+                        offset_x: 7.5,
+                        offset_y: -4.25,
+                    }),
+                    glow: None,
+                },
+                vec![nested],
+            ),
+            effect("empty", glow("#ff0000ff", 6.0), vec![hidden]),
+            effect(
+                "second",
+                glow("#60a0ffff", 2.5),
+                vec![corner_rect("dot", 50.0, 50.0, 4.0, 4.0, "#ffffff")],
+            ),
+        ];
+        let cpu = celesta_renderer::CpuRenderer::default()
+            .render(&scene)
+            .unwrap();
+        for frame in 0..3 {
+            let gpu = renderer.render(&scene).unwrap();
+            let difference = max_channel_difference(&gpu, &cpu);
+            assert!(
+                difference <= 5,
+                "frame {frame}: effect channels differ by up to {difference}"
+            );
+        }
+    }
+
     #[test]
     fn clips_groups_like_the_cpu_renderer() {
         let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
@@ -5425,6 +5691,78 @@ mod tests {
             assert_eq!(quality.as_str().parse::<RenderQuality>(), Ok(quality));
         }
         assert!("best".parse::<RenderQuality>().is_err());
+    }
+
+    #[test]
+    fn a_stroked_text_layer_keeps_its_place_and_its_whole_stroke() {
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        // Columns that differ from the black background, and the columns of
+        // the white fill on its own.
+        let mut extent = |stroke: Option<Stroke>| {
+            let mut scene = empty_scene(640, 240);
+            scene.layers.push(Layer {
+                id: "title".to_owned(),
+                transform: EvaluatedTransform {
+                    position: Point { x: 320.0, y: 120.0 },
+                    ..EvaluatedTransform::default()
+                },
+                opacity: 1.0,
+                blend_mode: BlendMode::Normal,
+                effects: Default::default(),
+                content: LayerContent::Text {
+                    text: "MW".to_owned(),
+                    style: TextStyle {
+                        font_size: Some(96.0),
+                        fill: Some(Paint::Solid {
+                            color: "#FFFFFFFF".to_owned(),
+                        }),
+                        stroke,
+                        ..TextStyle::default()
+                    },
+                    max_width: None,
+                    baseline_anchor: false,
+                },
+            });
+            let frame = renderer.render(&scene).unwrap();
+            let (mut ink, mut fill) = ((u32::MAX, 0), (u32::MAX, 0));
+            for (index, pixel) in frame.pixels().chunks_exact(4).enumerate() {
+                let x = index as u32 % frame.width();
+                if pixel[0] > 40 || pixel[1] > 40 {
+                    ink = (ink.0.min(x), ink.1.max(x));
+                }
+                if pixel[0] > 200 && pixel[2] > 200 {
+                    fill = (fill.0.min(x), fill.1.max(x));
+                }
+            }
+            (ink, fill)
+        };
+        let (plain_ink, plain_fill) = extent(None);
+        let (stroked_ink, stroked_fill) = extent(Some(Stroke {
+            paint: Paint::Solid {
+                color: "#FF0000FF".to_owned(),
+            },
+            width: 16.0,
+        }));
+        // The fill sits where it did without a stroke...
+        assert!(
+            plain_fill.0.abs_diff(stroked_fill.0) <= 1,
+            "{plain_fill:?} {stroked_fill:?}"
+        );
+        assert!(
+            plain_fill.1.abs_diff(stroked_fill.1) <= 1,
+            "{plain_fill:?} {stroked_fill:?}"
+        );
+        // ...and the stroke reaches its full width past both ends of it.
+        assert!(
+            plain_ink.0 - stroked_ink.0 >= 14,
+            "{plain_ink:?} {stroked_ink:?}"
+        );
+        assert!(
+            stroked_ink.1 - plain_ink.1 >= 14,
+            "{plain_ink:?} {stroked_ink:?}"
+        );
     }
 
     #[test]

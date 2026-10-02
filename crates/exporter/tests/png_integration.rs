@@ -45,10 +45,20 @@ fn json_cli_exports_first_last_and_rejects_overwrite_and_invalid_frames() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
+    assert!(result.stdout.is_empty());
+    assert!(
+        !result.stderr.contains(&0x1b),
+        "redirected progress contains ANSI escapes"
+    );
+    assert!(
+        !result.stderr.contains(&b'\r'),
+        "redirected progress contains carriage returns"
+    );
     assert_eq!(pixels(&dir.path().join("check-000000.png")).len(), 36);
     assert_eq!(pixels(&dir.path().join("check-000003.png")).len(), 36);
     assert!(!invoke("0,3", &[]).status.success());
     assert!(invoke("0,3", &["--overwrite"]).status.success());
+    assert!(invoke("0,3", &["--overwrite", "--no-ui"]).status.success());
     let invalid = invoke("0,4", &["--overwrite"]);
     assert!(!invalid.status.success());
     assert!(String::from_utf8_lossy(&invalid.stderr).contains("frame 4 is out of range"));
