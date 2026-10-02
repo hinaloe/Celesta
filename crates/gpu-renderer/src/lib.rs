@@ -1708,16 +1708,23 @@ impl GpuRenderer {
                         scale = (scale * limit as f32 / largest as f32 * 0.99).max(1.0);
                     };
                     let baseline = text.baseline_anchor();
+                    let origin = text.anchor_in_image(0.0, 0.0);
+                    let end = text.anchor_in_image(1.0, 1.0);
                     let mut image =
                         DecodedImage::new(text.width(), text.height(), text.into_pixels())?;
                     image.baseline_anchor = baseline;
+                    image.anchor_origin = origin;
+                    image.anchor_span = (end.0 - origin.0, end.1 - origin.1);
                     image.raster_scale = scale;
                     Ok(image)
                 })?;
                 let mut anchor = layer.transform.anchor;
-                if *baseline_anchor {
-                    anchor.y = texture.baseline_anchor;
-                }
+                anchor.x = texture.anchor_origin.0 + anchor.x * texture.anchor_span.0;
+                anchor.y = if *baseline_anchor {
+                    texture.baseline_anchor
+                } else {
+                    texture.anchor_origin.1 + anchor.y * texture.anchor_span.1
+                };
                 output.push(PreparedItem::Layer(PreparedLayer::new(
                     texture, anchor, state, blend_mode,
                 )));
@@ -2055,6 +2062,8 @@ fn upload_texture(
         width: image.width,
         height: image.height,
         baseline_anchor: image.baseline_anchor,
+        anchor_origin: image.anchor_origin,
+        anchor_span: image.anchor_span,
         raster_scale: image.raster_scale,
     }
 }
@@ -2187,6 +2196,11 @@ struct DecodedImage {
     pixels: Arc<Vec<u8>>,
     /// Normalized anchor `y` of the first text baseline; 0 for non-text images.
     baseline_anchor: f64,
+    /// Maps a layer anchor onto the image: `origin + anchor * span`, both
+    /// normalized. Text can be larger than the box its anchor refers to (a
+    /// stroke reaches past it); everything else is `(0, 0)` and `(1, 1)`.
+    anchor_origin: (f64, f64),
+    anchor_span: (f64, f64),
     /// Texels per layer unit: the scale text was rasterized at, else 1.
     raster_scale: f32,
 }
@@ -2215,6 +2229,8 @@ impl DecodedImage {
             height,
             pixels,
             baseline_anchor: 0.0,
+            anchor_origin: (0.0, 0.0),
+            anchor_span: (1.0, 1.0),
             raster_scale: 1.0,
         })
     }
@@ -2231,6 +2247,9 @@ struct LayerTexture {
     height: u32,
     /// See `DecodedImage::baseline_anchor`.
     baseline_anchor: f64,
+    /// See `DecodedImage::anchor_origin`.
+    anchor_origin: (f64, f64),
+    anchor_span: (f64, f64),
     /// See `DecodedImage::raster_scale`.
     raster_scale: f32,
 }
@@ -5672,6 +5691,78 @@ mod tests {
             assert_eq!(quality.as_str().parse::<RenderQuality>(), Ok(quality));
         }
         assert!("best".parse::<RenderQuality>().is_err());
+    }
+
+    #[test]
+    fn a_stroked_text_layer_keeps_its_place_and_its_whole_stroke() {
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        // Columns that differ from the black background, and the columns of
+        // the white fill on its own.
+        let mut extent = |stroke: Option<Stroke>| {
+            let mut scene = empty_scene(640, 240);
+            scene.layers.push(Layer {
+                id: "title".to_owned(),
+                transform: EvaluatedTransform {
+                    position: Point { x: 320.0, y: 120.0 },
+                    ..EvaluatedTransform::default()
+                },
+                opacity: 1.0,
+                blend_mode: BlendMode::Normal,
+                effects: Default::default(),
+                content: LayerContent::Text {
+                    text: "MW".to_owned(),
+                    style: TextStyle {
+                        font_size: Some(96.0),
+                        fill: Some(Paint::Solid {
+                            color: "#FFFFFFFF".to_owned(),
+                        }),
+                        stroke,
+                        ..TextStyle::default()
+                    },
+                    max_width: None,
+                    baseline_anchor: false,
+                },
+            });
+            let frame = renderer.render(&scene).unwrap();
+            let (mut ink, mut fill) = ((u32::MAX, 0), (u32::MAX, 0));
+            for (index, pixel) in frame.pixels().chunks_exact(4).enumerate() {
+                let x = index as u32 % frame.width();
+                if pixel[0] > 40 || pixel[1] > 40 {
+                    ink = (ink.0.min(x), ink.1.max(x));
+                }
+                if pixel[0] > 200 && pixel[2] > 200 {
+                    fill = (fill.0.min(x), fill.1.max(x));
+                }
+            }
+            (ink, fill)
+        };
+        let (plain_ink, plain_fill) = extent(None);
+        let (stroked_ink, stroked_fill) = extent(Some(Stroke {
+            paint: Paint::Solid {
+                color: "#FF0000FF".to_owned(),
+            },
+            width: 16.0,
+        }));
+        // The fill sits where it did without a stroke...
+        assert!(
+            plain_fill.0.abs_diff(stroked_fill.0) <= 1,
+            "{plain_fill:?} {stroked_fill:?}"
+        );
+        assert!(
+            plain_fill.1.abs_diff(stroked_fill.1) <= 1,
+            "{plain_fill:?} {stroked_fill:?}"
+        );
+        // ...and the stroke reaches its full width past both ends of it.
+        assert!(
+            plain_ink.0 - stroked_ink.0 >= 14,
+            "{plain_ink:?} {stroked_ink:?}"
+        );
+        assert!(
+            stroked_ink.1 - plain_ink.1 >= 14,
+            "{plain_ink:?} {stroked_ink:?}"
+        );
     }
 
     #[test]
