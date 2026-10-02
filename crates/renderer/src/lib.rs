@@ -619,53 +619,45 @@ impl TextRasterizer {
         // came out as a plain glyph. Ask for the color emoji font first for
         // the graphemes meant to look like emoji, unless the family asked
         // for is a color emoji font itself.
-        let emoji_spans = emoji_presentation_spans(text);
-        let emoji_family = if emoji_spans.is_empty()
-            || style
-                .font_family
-                .as_deref()
-                .is_some_and(|family| COLOR_EMOJI_FAMILIES.contains(&family))
+        let emoji_family = if style
+            .font_family
+            .as_deref()
+            .is_some_and(|family| COLOR_EMOJI_FAMILIES.contains(&family))
+            || emoji_presentation_spans(text).is_empty()
         {
             None
         } else {
             self.color_emoji_family()
         };
-        match emoji_family {
-            Some(emoji_family) => {
-                let emoji_weight = self
-                    .matched_weight(&emoji_family, requested_weight)
-                    .unwrap_or(requested_weight);
-                let emoji_attrs = attrs
-                    .clone()
-                    .family(Family::Name(&emoji_family))
-                    .weight(Weight(emoji_weight));
-                let mut spans = Vec::with_capacity(emoji_spans.len() * 2 + 1);
-                let mut end = 0;
-                for range in emoji_spans {
-                    if end < range.start {
-                        spans.push((&text[end..range.start], attrs.clone()));
-                    }
-                    end = range.end;
-                    spans.push((&text[range], emoji_attrs.clone()));
+        buffer.set_text(
+            &mut self.font_system,
+            text,
+            &attrs,
+            Shaping::Advanced,
+            alignment,
+        );
+        if let Some(emoji_family) = emoji_family {
+            let emoji_weight = self
+                .matched_weight(&emoji_family, requested_weight)
+                .unwrap_or(requested_weight);
+            let emoji_attrs = attrs
+                .clone()
+                .family(Family::Name(&emoji_family))
+                .weight(Weight(emoji_weight));
+            // Added to the lines `set_text` made rather than passed to
+            // `set_rich_text`, which splits lines differently (dropping
+            // the empty line after a trailing newline).
+            for line in &mut buffer.lines {
+                let spans = emoji_presentation_spans(line.text());
+                if spans.is_empty() {
+                    continue;
                 }
-                if end < text.len() {
-                    spans.push((&text[end..], attrs.clone()));
+                let mut attrs_list = line.attrs_list().clone();
+                for range in spans {
+                    attrs_list.add_span(range, &emoji_attrs);
                 }
-                buffer.set_rich_text(
-                    &mut self.font_system,
-                    spans,
-                    &attrs,
-                    Shaping::Advanced,
-                    alignment,
-                );
+                line.set_attrs_list(attrs_list);
             }
-            None => buffer.set_text(
-                &mut self.font_system,
-                text,
-                &attrs,
-                Shaping::Advanced,
-                alignment,
-            ),
         }
         buffer.shape_until_scroll(&mut self.font_system, false);
         buffer
@@ -953,18 +945,19 @@ impl Default for TextRasterizer {
 fn emoji_presentation_spans(text: &str) -> Vec<std::ops::Range<usize>> {
     let mut spans: Vec<std::ops::Range<usize>> = Vec::new();
     for (start, grapheme) in text.grapheme_indices(true) {
-        let Some(first) = grapheme.chars().next() else {
-            continue;
-        };
+        // Any character of the grapheme, not only the first: one may start
+        // with a prepended character (U+0600 before an emoji, say).
         let emoji = !grapheme.contains('\u{FE0E}')
             && (grapheme.contains('\u{FE0F}')
-                || matches!(
-                    first.emoji_status(),
-                    EmojiStatus::EmojiPresentation
-                        | EmojiStatus::EmojiPresentationAndModifierBase
-                        | EmojiStatus::EmojiPresentationAndEmojiComponent
-                        | EmojiStatus::EmojiPresentationAndModifierAndEmojiComponent
-                ));
+                || grapheme.chars().any(|character| {
+                    matches!(
+                        character.emoji_status(),
+                        EmojiStatus::EmojiPresentation
+                            | EmojiStatus::EmojiPresentationAndModifierBase
+                            | EmojiStatus::EmojiPresentationAndEmojiComponent
+                            | EmojiStatus::EmojiPresentationAndModifierAndEmojiComponent
+                    )
+                }));
         if !emoji {
             continue;
         }
@@ -4078,6 +4071,8 @@ mod font_tests {
         );
         // U+FE0E keeps an emoji-by-default character text.
         assert_eq!(spans("☔\u{FE0E}"), Vec::<String>::new());
+        // An emoji in a grapheme that starts with a prepended character.
+        assert_eq!(spans("\u{600}🎉"), ["\u{600}🎉"]);
         // A flag's regional indicators, and adjacent emoji, share one span.
         assert_eq!(spans("🇯🇵🎉 x"), ["🇯🇵🎉"]);
     }
@@ -4135,6 +4130,35 @@ mod font_tests {
                     "{weight:?} {emoji:?} was not drawn with {emoji_family}: {clusters:?}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn keeps_the_line_structure_of_text_with_emoji() {
+        let mut rasterizer = regular_only_rasterizer();
+        if rasterizer.color_emoji_family().is_none() {
+            eprintln!("skipping: no color emoji font is installed");
+            return;
+        }
+        let style = TextStyle {
+            font_family: Some("Bebas Neue".to_owned()),
+            font_size: Some(48.0),
+            line_height: Some(60.0),
+            ..TextStyle::default()
+        };
+        // A trailing newline adds an empty last line, emoji or not.
+        for (plain, emoji) in [
+            ("A\n", "A❤\u{FE0F}\n"),
+            ("A\nB", "A🎉\nB"),
+            ("A\r\nB\r\n", "A🎉\r\nB🇯🇵\r\n"),
+        ] {
+            let plain_metrics = rasterizer.measure(plain, &style, None);
+            let emoji_metrics = rasterizer.measure(emoji, &style, None);
+            assert_eq!(
+                (emoji_metrics.lines, emoji_metrics.height),
+                (plain_metrics.lines, plain_metrics.height),
+                "{emoji:?}"
+            );
         }
     }
 
