@@ -5,18 +5,24 @@
 //! the same pipelined `submit`/`drain` readback an export uses. Run as:
 //!
 //! ```text
-//! cargo run --release -p celesta-gpu-renderer --example dense-geometry-bench -- [frames] [ribbons] [strands]
+//! cargo run --release -p celesta-gpu-renderer --example dense-geometry-bench -- [frames] [ribbons] [strands] [bands]
 //! ```
 //!
 //! The defaults (120 frames, 3 ribbons of 9 strands: 3,024 rects) match the
 //! film's densest section.
+//!
+//! The same ribbons are then drawn as native `Path` layers (issue #31): each
+//! strand is split where its depth crosses into another of `bands` depth
+//! bands (default 3), and each run is one stroked path whose width and
+//! opacity come from its band, drawn back to front by band.
 
 use std::env;
 use std::f64::consts::PI;
 use std::time::{Duration, Instant};
 
 use celesta_composition::{
-    BlendMode, EvaluatedTransform, Layer, LayerContent, Paint, Point, Rational, Scene, Time,
+    BlendMode, EvaluatedTransform, Layer, LayerContent, LineCap, LineJoin, Paint, PathCommand,
+    Point, Rational, Scene, Stroke, Time,
 };
 use celesta_gpu_renderer::{GpuRenderOptions, GpuRenderer};
 
@@ -34,6 +40,7 @@ fn main() {
     let frames = next(120);
     let ribbons = next(3);
     let strands = next(9);
+    let bands = next(3);
 
     let mut renderer = GpuRenderer::new(GpuRenderOptions::default()).expect("gpu renderer");
     println!(
@@ -42,28 +49,41 @@ fn main() {
         renderer.adapter_info().backend
     );
 
-    let started = Instant::now();
-    let mut building = Duration::ZERO;
-    let mut rendered = 0;
-    let mut layers = 0;
-    for frame in 0..frames {
-        let build_started = Instant::now();
-        let scene = scene(frame, ribbons, strands);
-        building += build_started.elapsed();
-        layers = layers.max(count_layers(&scene.layers));
-        rendered += usize::from(renderer.submit(&scene).expect("frame renders").is_some());
-    }
-    rendered += renderer.drain().expect("frames drain").len();
-    let elapsed = started.elapsed();
-    assert_eq!(rendered, frames);
+    for (name, geometry) in [
+        ("rects", Geometry::Rects),
+        ("paths", Geometry::Paths { bands }),
+    ] {
+        let started = Instant::now();
+        let mut building = Duration::ZERO;
+        let mut rendered = 0;
+        let mut layers = 0;
+        for frame in 0..frames {
+            let build_started = Instant::now();
+            let scene = scene(frame, ribbons, strands, geometry);
+            building += build_started.elapsed();
+            layers = layers.max(count_layers(&scene.layers));
+            rendered += usize::from(renderer.submit(&scene).expect("frame renders").is_some());
+        }
+        rendered += renderer.drain().expect("frames drain").len();
+        let elapsed = started.elapsed();
+        assert_eq!(rendered, frames);
 
-    let per_frame = elapsed.as_secs_f64() * 1000.0 / frames as f64;
-    println!(
-        "{frames} frames of {WIDTH}x{HEIGHT}, up to {layers} layers: {elapsed:.2?} \
-         ({per_frame:.2} ms/frame, {:.1} fps; building scenes {:.2} ms/frame)",
-        frames as f64 / elapsed.as_secs_f64(),
-        building.as_secs_f64() * 1000.0 / frames as f64,
-    );
+        let per_frame = elapsed.as_secs_f64() * 1000.0 / frames as f64;
+        println!(
+            "{name}: {frames} frames of {WIDTH}x{HEIGHT}, up to {layers} layers: {elapsed:.2?} \
+             ({per_frame:.2} ms/frame, {:.1} fps; building scenes {:.2} ms/frame)",
+            frames as f64 / elapsed.as_secs_f64(),
+            building.as_secs_f64() * 1000.0 / frames as f64,
+        );
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Geometry {
+    /// One rotated rect per segment, as the film draws them.
+    Rects,
+    /// One path per run of a strand inside one of `bands` depth bands.
+    Paths { bands: usize },
 }
 
 fn count_layers(layers: &[Layer]) -> usize {
@@ -76,7 +96,7 @@ fn count_layers(layers: &[Layer]) -> usize {
         .sum()
 }
 
-fn scene(frame: usize, ribbons: usize, strands: usize) -> Scene {
+fn scene(frame: usize, ribbons: usize, strands: usize, geometry: Geometry) -> Scene {
     let time = frame as f64 / 30.0;
     let mut layers = vec![rect(
         "background",
@@ -102,6 +122,7 @@ fn scene(frame: usize, ribbons: usize, strands: usize) -> Scene {
                     510.0,
                     310.0,
                     strands,
+                    geometry,
                 ),
                 clip: None,
             },
@@ -129,7 +150,7 @@ fn scene(frame: usize, ribbons: usize, strands: usize) -> Scene {
 }
 
 /// The half-twist ribbon of `examples/afterimage/film.tsx`.
-fn ribbon(time: f64, x: f64, y: f64, size: f64, strands: usize) -> Vec<Layer> {
+fn ribbon(time: f64, x: f64, y: f64, size: f64, strands: usize, geometry: Geometry) -> Vec<Layer> {
     let yaw = time * 0.23;
     let pitch = 0.85 + (time * 0.19).sin() * 0.35;
     let project = |u: f64, v: f64| {
@@ -146,9 +167,12 @@ fn ribbon(time: f64, x: f64, y: f64, size: f64, strands: usize) -> Vec<Layer> {
             depth,
         )
     };
+    if let Geometry::Paths { bands } = geometry {
+        return ribbon_paths(&project, strands, bands.max(1));
+    }
     let mut segments = Vec::with_capacity(strands * SEGMENTS);
     for strand in 0..strands {
-        let v = 0.035 + strand as f64 / (strands as f64 - 1.0).max(1.0) * 0.47;
+        let v = strand_v(strand, strands);
         for index in 0..SEGMENTS {
             let a = project(index as f64 / SEGMENTS as f64 * PI * 4.0, v);
             let b = project((index + 1) as f64 / SEGMENTS as f64 * PI * 4.0, v);
@@ -172,6 +196,85 @@ fn ribbon(time: f64, x: f64, y: f64, size: f64, strands: usize) -> Vec<Layer> {
             );
             line.transform.anchor.y = 0.5;
             line
+        })
+        .collect()
+}
+
+fn strand_v(strand: usize, strands: usize) -> f64 {
+    0.035 + strand as f64 / (strands as f64 - 1.0).max(1.0) * 0.47
+}
+
+/// The ribbon as paths: each strand cut where its depth changes band.
+fn ribbon_paths(
+    project: &impl Fn(f64, f64) -> (f64, f64, f64),
+    strands: usize,
+    bands: usize,
+) -> Vec<Layer> {
+    let band_of = |depth: f64| {
+        ((((depth + 1.4) / 2.8).clamp(0.0, 1.0) * bands as f64) as usize).min(bands - 1)
+    };
+    // (band, points) runs of every strand.
+    let mut runs: Vec<(usize, Vec<(f64, f64)>)> = Vec::new();
+    for strand in 0..strands {
+        let v = strand_v(strand, strands);
+        let points: Vec<_> = (0..=SEGMENTS)
+            .map(|index| project(index as f64 / SEGMENTS as f64 * PI * 4.0, v))
+            .collect();
+        let first = runs.len();
+        for segment in points.windows(2) {
+            let band = band_of((segment[0].2 + segment[1].2) / 2.0);
+            let in_strand = runs.len() > first;
+            match runs.last_mut() {
+                Some((last, run)) if in_strand && *last == band => {
+                    run.push((segment[1].0, segment[1].1));
+                }
+                _ => runs.push((
+                    band,
+                    vec![(segment[0].0, segment[0].1), (segment[1].0, segment[1].1)],
+                )),
+            }
+        }
+        // The strand is a loop: its last run continues into its first.
+        if runs.len() - first > 1 && runs[first].0 == runs[runs.len() - 1].0 {
+            let (_, last) = runs.pop().expect("strand has runs");
+            let (_, head) = &mut runs[first];
+            *head = last.into_iter().chain(head.drain(1..)).collect();
+        }
+    }
+    runs.sort_by_key(|(band, _)| *band);
+    runs.into_iter()
+        .enumerate()
+        .map(|(index, (band, points))| {
+            let t = (band as f64 + 0.5) / bands as f64;
+            let depth = t * 2.8 - 1.4;
+            let commands = points
+                .iter()
+                .enumerate()
+                .map(|(index, &(x, y))| match index {
+                    0 => PathCommand::MoveTo { x, y },
+                    _ => PathCommand::LineTo { x, y },
+                })
+                .collect();
+            Layer {
+                id: format!("run-{index}"),
+                transform: EvaluatedTransform::default(),
+                opacity: 0.25 + t * 0.75,
+                blend_mode: BlendMode::Normal,
+                effects: Default::default(),
+                content: LayerContent::Path {
+                    commands,
+                    fill: None,
+                    stroke: Some(Stroke {
+                        paint: Paint::Solid {
+                            color: "#EF402B".to_owned(),
+                        },
+                        width: 1.5 + ((depth + 1.0) / 2.0).clamp(0.0, 1.0) * 0.8,
+                    }),
+                    line_cap: LineCap::Round,
+                    line_join: LineJoin::Round,
+                    miter_limit: 4.0,
+                },
+            }
         })
         .collect()
 }

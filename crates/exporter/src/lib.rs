@@ -1236,6 +1236,7 @@ fn absolutize_layer_content(content: &mut LayerContent, asset_root: &Path) {
         LayerContent::Group { layers, .. } => absolutize_layers(layers, asset_root),
         LayerContent::Text { .. }
         | LayerContent::Rect { .. }
+        | LayerContent::Path { .. }
         | LayerContent::MissingComponent { .. } => {}
     }
 }

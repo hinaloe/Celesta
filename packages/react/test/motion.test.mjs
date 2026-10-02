@@ -193,7 +193,7 @@ test('Stagger starts each child a fixed number of frames after the previous one'
   assert.deepEqual(texts(third), ['a:10', 'b:5', 'c:0']);
 });
 
-test('Line draws a rotated rect from its first point, with optional round caps', () => {
+test('Line draws a two-point path, with optional round caps', () => {
   const source = `
     function Body() {
       return (
@@ -206,14 +206,14 @@ test('Line draws a rotated rect from its first point, with optional round caps',
     }`;
   const [[butt, round, ...rest]] = render(source);
   assert.equal(rest.length, 0, 'a zero-length butt line draws nothing');
-  assert.deepEqual(butt.transform.position, { x: 10, y: 20 });
-  assert.equal(butt.transform.rotation, 90);
-  assert.equal(butt.content.width, 40);
-  assert.equal(butt.content.height, 4);
-  assert.deepEqual(butt.transform.anchor, { x: 0, y: 0.5 });
-  assert.equal(round.content.width, 60);
-  assert.equal(round.content.cornerRadius, 5);
-  assert.ok(Math.abs(round.transform.anchor.x - 5 / 60) < 1e-12);
+  assert.deepEqual(butt.content.commands, [
+    { type: 'moveTo', x: 10, y: 20 },
+    { type: 'lineTo', x: 10, y: 60 },
+  ]);
+  assert.deepEqual(butt.content.stroke, { paint: { type: 'solid', color: '#FF0000' }, width: 4 });
+  assert.equal(butt.content.lineCap, undefined);
+  assert.equal(round.content.lineCap, 'round');
+  assert.equal(round.content.stroke.width, 10);
 });
 
 test('Polyline draws the first part of its length and pointOnPolyline finds the tip', () => {
@@ -226,13 +226,13 @@ test('Polyline draws the first part of its length and pointOnPolyline finds the 
     function Body() {
       return <C.Polyline points={[[0, 0], [100, 0], [100, 100]]} progress={0.75} cap="butt" opacity={0.5} />;
     }`;
-  const [[group]] = render(source);
-  assert.equal(group.opacity, 0.5);
-  const [first, second] = group.content.layers;
-  assert.equal(group.content.layers.length, 2);
-  assert.equal(first.content.width, 100);
-  assert.equal(second.content.width, 50);
-  assert.deepEqual(second.transform.position, { x: 100, y: 0 });
+  const [[path]] = render(source);
+  assert.equal(path.opacity, 0.5);
+  assert.deepEqual(path.content.commands, [
+    { type: 'moveTo', x: 0, y: 0 },
+    { type: 'lineTo', x: 100, y: 0 },
+    { type: 'lineTo', x: 100, y: 50 },
+  ]);
 });
 
 test('Camera puts its focus point at the center and zooms about it', () => {

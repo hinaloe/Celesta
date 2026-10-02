@@ -24,6 +24,7 @@ import type {
   Layer,
   LayerContent,
   Paint,
+  PathCommand,
   ResolvedAsset,
   Scene,
   Stroke,
@@ -46,6 +47,7 @@ const HOST_TYPES = new Set([
   'group',
   'image',
   'rect',
+  'path',
   'text',
   'video',
   'audio',
@@ -482,12 +484,6 @@ function buildLayer(
       ...(props.anchorY === 'baseline' ? { baselineAnchor: true } : {}),
     };
   } else if (node.type === 'rect') {
-    const toPaint = (value: unknown): Paint | undefined =>
-      typeof value === 'string'
-        ? { type: 'solid', color: value }
-        : value && typeof value === 'object'
-          ? (value as Paint)
-          : undefined;
     const fill = toPaint(props.fill);
     const strokePaint = toPaint(props.stroke);
     const strokeWidth = numberOr(props.strokeWidth, 0);
@@ -500,6 +496,23 @@ function buildLayer(
       ...(fill ? { fill } : {}),
       ...(stroke ? { stroke } : {}),
       cornerRadius: numberOr(props.cornerRadius, 0),
+    };
+  } else if (node.type === 'path') {
+    const fill = toPaint(props.fill);
+    const strokePaint = toPaint(props.stroke);
+    const strokeWidth = numberOr(props.strokeWidth, 0);
+    const miterLimit = props.miterLimit;
+    if (miterLimit !== undefined && (typeof miterLimit !== 'number' || !Number.isFinite(miterLimit) || miterLimit < 1)) {
+      throw new Error('<Path> miterLimit must be a finite number of at least 1');
+    }
+    content = {
+      type: 'path',
+      commands: extractPathCommands(props.commands),
+      ...(fill ? { fill } : {}),
+      ...(strokePaint && strokeWidth > 0 ? { stroke: { paint: strokePaint, width: strokeWidth } } : {}),
+      ...(props.cap && props.cap !== 'butt' ? { lineCap: extractOneOf(props.cap, LINE_CAPS, 'cap') } : {}),
+      ...(props.join && props.join !== 'miter' ? { lineJoin: extractOneOf(props.join, LINE_JOINS, 'join') } : {}),
+      ...(miterLimit !== undefined && miterLimit !== 4 ? { miterLimit } : {}),
     };
   } else if (node.type === 'video') {
     // A React <Video> plays synced to the enclosing sequence chain's own
@@ -526,6 +539,55 @@ function buildLayer(
 
   return { id, transform, opacity, ...(blendMode !== 'normal' ? { blendMode } : {}),
     ...(effects ? { effects } : {}), content };
+}
+
+function toPaint(value: unknown): Paint | undefined {
+  return typeof value === 'string'
+    ? { type: 'solid', color: value }
+    : value && typeof value === 'object'
+      ? (value as Paint)
+      : undefined;
+}
+
+const LINE_CAPS = ['butt', 'round', 'square'] as const;
+const LINE_JOINS = ['miter', 'round', 'bevel'] as const;
+
+function extractOneOf<T extends string>(value: unknown, allowed: readonly T[], name: string): T {
+  if (!allowed.includes(value as T)) {
+    throw new Error(`<Path> ${name} must be one of ${allowed.map((v) => `'${v}'`).join(', ')}`);
+  }
+  return value as T;
+}
+
+/** The finite coordinates each path command type carries. */
+const PATH_COMMAND_FIELDS: Record<PathCommand['type'], readonly string[]> = {
+  moveTo: ['x', 'y'],
+  lineTo: ['x', 'y'],
+  quadTo: ['x1', 'y1', 'x', 'y'],
+  cubicTo: ['x1', 'y1', 'x2', 'y2', 'x', 'y'],
+  close: [],
+};
+
+function extractPathCommands(value: unknown): PathCommand[] {
+  if (!Array.isArray(value)) {
+    throw new Error('<Path> requires a `commands` array');
+  }
+  for (const command of value as Array<Record<string, unknown> | null>) {
+    const type = command?.type;
+    const fields = typeof type === 'string' && Object.prototype.hasOwnProperty.call(PATH_COMMAND_FIELDS, type)
+      ? PATH_COMMAND_FIELDS[type as PathCommand['type']]
+      : undefined;
+    if (!fields) {
+      throw new Error(`<Path> command type must be moveTo, lineTo, quadTo, cubicTo, or close, not ${JSON.stringify(type)}`);
+    }
+    for (const field of fields) {
+      const coordinate = command![field];
+      if (typeof coordinate !== 'number' || !Number.isFinite(coordinate)) {
+        throw new Error(`<Path> ${type} command requires a finite \`${field}\``);
+      }
+    }
+  }
+  return value as PathCommand[];
 }
 
 function extractEffects(props: Record<string, unknown>): Layer['effects'] | undefined {

@@ -100,7 +100,7 @@ cargo test --workspace
 | `celesta-editor` | Preview-only GPUI application: File menu open/reload, playback clock, GPU preview bridge, read-only asset list, timeline, and inspector, and MP4 export. |
 | `celesta-remote` | Resolves asset locations to local files: relative paths join the asset root, and `http`/`https` URLs download once into a per-user cache (`<cache dir>/remote-v1/<url hash>/<file name>`, never revalidated). Used by both renderers, the audio mixer, the editor's waveforms, and React `preloadMedia()` probes. Also reads `@font-face` stylesheets (`stylesheet_font_faces`), e.g. Google Fonts CSS links; `TextRasterizer::load_fonts` loads each face, unpacks WOFF/WOFF2 with `wuff`, and registers the CSS `font-family` as an extra family name. |
 | `celesta-react-bridge` | Spawns one long-lived `@celesta/react` Node.js process per composition and requests the evaluated `Scene` (plus that frame's `<Audio>` clips) for each exact frame time over stdin/stdout JSON, or resolves individual registered components for the editor preview. |
-| `packages/react` (`@celesta/react`, Node.js/TypeScript) | Declarative `Composition`/`Sequence`/`Group`/`Image`/`Rect`/`Text`/`Video`/`Audio` components rendered through a real `react-reconciler` host (hooks, including `useCurrentFrame`/`useVideoConfig`, work); `useProject`/`<ProjectTimeline />` embed a companion project's Rust-evaluated layers. The `celesta-react-render` CLI bundles a JSX/TSX entry with esbuild and emits `Scene`-shaped JSON plus per-frame audio declarations. |
+| `packages/react` (`@celesta/react`, Node.js/TypeScript) | Declarative `Composition`/`Sequence`/`Group`/`Image`/`Rect`/`Path`/`Text`/`Video`/`Audio` components rendered through a real `react-reconciler` host (hooks, including `useCurrentFrame`/`useVideoConfig`, work); `useProject`/`<ProjectTimeline />` embed a companion project's Rust-evaluated layers. The `celesta-react-render` CLI bundles a JSX/TSX entry with esbuild and emits `Scene`-shaped JSON plus per-frame audio declarations. |
 
 Important files:
 
@@ -274,6 +274,44 @@ Keep these boundaries intact:
   (`<Group mask>`) from the issue is not implemented. `examples/celesta-reel.tsx`
   now clips its scrolling timeline instead of covering the label column with
   an opaque rect; it renders the same pixels on a flat background.
+- Paths (2026-10-01, issue #31): `LayerContent::Path` holds absolute
+  `PathCommand`s (`moveTo`/`lineTo`/`quadTo`/`cubicTo`/`close`, SVG
+  semantics) in the layer's own coordinates, an optional `fill` (non-zero)
+  and `stroke` (`Paint` + width, drawn over the fill), `lineCap`
+  (butt/round/square), `lineJoin` (miter/round/bevel) and `miterLimit`
+  (SVG's ratio, default 4). The layer position is the origin and the anchor
+  is ignored, like `Group`. `celesta_renderer::rasterize_path` strokes it
+  with tiny-skia in local coordinates, transforms the outline to output
+  pixels (so scaling stays sharp and a non-uniform scale stretches the
+  stroke), and rasterizes anti-aliased coverage masks over the outline's
+  bounds cut to the frame; paint is applied per pixel with the same
+  `ResolvedPaint::color_at` rects use. Both renderers composite the result
+  unscaled at its pixel corner — the GPU's exact texel-for-texel path — so a
+  lone path is identical on CPU and GPU. The GPU batches consecutive path
+  layers that composite plainly through the same clip (across plain groups)
+  into one `PreparedItem::Paths`, rasterized after the frame is prepared by
+  `rasterize_paths`: coverage per path in parallel (each over its own
+  bounds, so batching never changes a path's coverage — tiny-skia's edge
+  clipper does when a path is clipped to bands), then composited in order
+  into an f32 premultiplied buffer in parallel bands of rows, with each
+  path's cumulative opacity painted in. A batch differs from layer-by-layer
+  compositing by at most a code value or two. React: `<Path points closed |
+  commands, stroke, strokeWidth, fill, cap, join, miterLimit>` (host type
+  `path`); `Line`/`Polyline` are now `Path`s (one layer instead of a `Rect`
+  per segment, so a translucent polyline no longer darkens at its joints;
+  `Polyline` gained `closed` and `join`). Benchmarks on an Apple M4, 1080p,
+  the three 9-strand ribbons of `dense-geometry-bench` (3,029 rect layers,
+  or 217 path layers with strands cut into 3 depth bands): GPU-only, rects
+  1.4 ms/frame and paths 6.8 ms/frame — the CPU rasterization dominates and
+  the GPU-shaded rects of issue #29 remain cheaper per frame (before
+  batching and threading paths took 33.7 ms). End to end through React
+  (`celesta-exporter --react`, 150 frames, `--preset ultrafast`, scratch
+  entries equivalent to the bench), rects exported at 55.7 fps (3.37 s,
+  1.0 MB of scene JSON per frame for 3,028 layers) and paths at 91.7 fps
+  (1.77 s, 245 KB for 165 layers): reconciling and serializing thousands of
+  layers costs more than the rasterization saves. A depth-banded path ribbon
+  quantizes opacity/width to its bands where the rects vary per segment.
+  `examples/afterimage/film.tsx` still uses its rect `Line`.
 - Export speed (2026-09-25): `GpuRenderer` caches layer textures across
   frames (images, PSD composites, text; keyed by their inputs, text
   also by `TextRasterizer::loaded_font_count`), so unchanged layers are

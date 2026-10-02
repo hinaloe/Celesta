@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 
 pub use animation::{AnimationError, evaluate_f64, integrate_f64};
 pub use model::{
-    AssetLocation, AudioClip, AudioGraph, BlendMode, Clip, EvaluatedTransform, ImageFit, Layer,
-    LayerContent, LayerEffects, LayerGlow, LayerShadow, MediaTiming, Point, ResolvedAsset, Scene,
+    AssetLocation, AudioClip, AudioGraph, BlendMode, Clip, DEFAULT_MITER_LIMIT, EvaluatedTransform,
+    ImageFit, Layer, LayerContent, LayerEffects, LayerGlow, LayerShadow, LineCap, LineJoin,
+    MediaTiming, PathCommand, Point, ResolvedAsset, Scene,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
