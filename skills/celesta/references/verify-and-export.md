@@ -232,6 +232,7 @@ most 16384 px on each side; the error says which limit was hit.
 | `H.264 MP4 export requires non-zero even dimensions, got 1921x1080` | Make width and height even. |
 | `output already exists: …` | Choose another path, or add `--overwrite` if replacing it is intended. |
 | `… missing component` | A JSON `component` item has no matching `registerComponent`, or the project was exported without its React entry. |
+| `warning: font family "X" (weight 400) has no glyph for "…"; text layer "y" draws them with a fallback font` | The family lacks those characters, so they are drawn in another font. With a Google Fonts `text=` subset, add the characters to `text=`; otherwise pick a family that covers them. Emoji are reported only when no font has them (they are drawn as boxes); then load an emoji font with `<Font>`. |
 | `favorite "x" not found in y.pfv (have: …)` | Use one of the listed favorites. |
 | `not a RIFF/WAVE file` / `unsupported WAV sample size` | `loadLipSync` needs uncompressed WAV; convert with `ffmpeg -i in.mp3 -c:a pcm_s16le out.wav`. |
 | `Could not find the Celesta React runtime` (inspect.mjs) | Pass `--runtime`, or build the runtime in a source checkout. |
