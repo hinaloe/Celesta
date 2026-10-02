@@ -16,6 +16,7 @@ Dialogue scenes combine three pieces:
 - [React props](#react-props)
 - [Automatic lip sync](#automatic-lip-sync)
 - [PSD portraits](#psd-portraits)
+- [Blinking](#blinking)
 - [JSON projects](#json-projects)
 - [Troubleshooting](#troubleshooting)
 
@@ -209,6 +210,7 @@ Image portrait:
   defaultExpression: 'calm',                    // must be a key of expressions
   expressions: { calm: './calm.png', smile: './smile.png' },
   lipSync?: { a, i, u, e, o, closed? },         // mouth images, see below
+  blink?: { closed: { calm: './calm-shut.png' }, half?, overlay? }, // see Blinking
 }
 ```
 
@@ -216,9 +218,10 @@ Image portrait:
 
 `character` (the character ref), common layer props (`x`, `y`, `scale`,
 anchors, `opacity`), and optionally `expression`, `mouth`
-(`'closed' | 'a' | 'i' | 'u' | 'e' | 'o'`), and `lipSync` (a track from
-`loadLipSync`). The portrait is drawn at its natural size; use `scale` for
-large artwork.
+(`'closed' | 'a' | 'i' | 'u' | 'e' | 'o'`), `lipSync` (a track from
+`loadLipSync`), and `blink` (`false` holds the eyes open; an object
+overrides the portrait's blink timing, see [Blinking](#blinking)). The
+portrait is drawn at its natural size; use `scale` for large artwork.
 
 ### `<Dialogue>`
 
@@ -318,6 +321,114 @@ export async function prepare() {
   mouth layers hidden, so list all of them in `lipSync`.
 - Large PSDs are big: set `scale` on the `<CharacterView>` (0.2–0.5 is
   common for full-body tachie in 1080p).
+- Each layer's blend mode is applied: multiply, screen, overlay, darken,
+  lighten, the dodges and burns, soft/hard/vivid/linear/pin light, hard mix,
+  difference, exclusion, subtract, and divide. Folders pass through (their own
+  blend mode and opacity are ignored), and dissolve, darker/lighter color,
+  hue, saturation, color, and luminosity layers draw as normal.
+
+### PSD expressions
+
+`expressions` names sets of layers shown on top of `layers`, which every
+expression shares. Pick one with `expression` on the `<CharacterView>` or a
+`<Dialogue>` line, as with image portraits; `defaultExpression` is shown
+otherwise. An expression is a list of layer paths, a PSDTool layer-state
+string, or `{ layers, lipSync }` when it has mouth layers of its own (common
+in PSDs that keep a mouth folder inside each face folder):
+
+```tsx
+<Character ref={hana} name="Hana" portrait={{
+  type: 'psd',
+  src: './hana/hana.psd',
+  layers: ['body', 'hair'],
+  defaultExpression: 'calm',
+  expressions: {
+    calm: ['face/calm'],
+    smile: smilePose,                       // e.g. a loadPsdPreset() result stored in prepare()
+    angry: { layers: ['face/angry'], lipSync: {
+      a: 'face/angry/mouth/a', i: 'face/angry/mouth/i', u: 'face/angry/mouth/u',
+      e: 'face/angry/mouth/e', o: 'face/angry/mouth/o', closed: 'face/angry/mouth/n',
+    } },
+  },
+  lipSync: { a: 'mouth/a', i: 'mouth/i', u: 'mouth/u', e: 'mouth/e', o: 'mouth/o', closed: 'mouth/n' },
+}} />
+// …
+<Dialogue character={hanaView} expression="smile">Nice to meet you.</Dialogue>
+```
+
+An expression that is not a key of `expressions` throws, as for image
+portraits.
+
+## Blinking
+
+A portrait with `blink` blinks on its own, every 4 seconds or so with the
+eyes shut for 0.1 s, at irregular moments. It needs nothing per line and
+keeps going through lip sync and expression changes.
+
+PSD portraits name the eye layers by full path (a path or a list of paths
+each). The open layers are forced visible and the shut ones hidden, and the
+other way round during a blink. `half` (half-shut eyes) is optional and
+shows on the frame either side of each blink (two at 60 fps):
+
+```tsx
+<Character ref={hana} name="Hana" portrait={{
+  type: 'psd',
+  src: './hana/hana.psd',
+  layers: ['body', 'hair'],
+  blink: { open: 'eyes/open', closed: 'eyes/closed', half: 'eyes/half' },
+  defaultExpression: 'calm',
+  expressions: {
+    calm: ['face/calm'],
+    // A face folder with eyes of its own (common in public character PSDs)
+    // blinks with those instead.
+    smile: { layers: ['face/smile'], blink: {
+      open: ['face/smile/eyes/l', 'face/smile/eyes/r'], closed: 'face/smile/eyes/shut',
+    } },
+    // Eyes already shut (^^): never blink.
+    happy: { layers: ['face/happy'], blink: false },
+  },
+}} />
+```
+
+An expression's `blink` replaces the portrait's eye layers as a set (its
+`half` is not borrowed from the portrait), while timing it leaves out still
+comes from the portrait's `blink`.
+
+Image portraits give an eyes-shut image per expression; an expression
+without one does not blink. By default the image replaces the expression's
+image during a blink; with `overlay: true` it is a transparent eyes image the
+same size as the portrait, drawn over it (under the mouth) like lip-sync
+mouths:
+
+```ts
+portrait: {
+  defaultExpression: 'calm',
+  expressions: { calm: './mira/calm.png', smile: './mira/smile.png' },
+  blink: {
+    closed: { calm: './mira/calm-shut.png', smile: './mira/smile-shut.png' },
+    half: { calm: './mira/calm-half.png' },   // optional
+  },
+}
+```
+
+Timing, on the portrait's `blink`, an expression's `blink`, or the view's
+`blink={{ … }}` (the later wins):
+
+| Field | Default | Notes |
+| --- | --- | --- |
+| `interval` | `4` | Average seconds between blinks; each gap varies between half and one and a half times this. |
+| `duration` | `0.1` | Seconds the eyes stay shut, at least one frame. |
+| `seed` | the character's id | Same seed, same blinks. Two characters with different ids already blink independently; give a character a different seed if two of its views should not blink together. |
+
+- Blinks are a pure function of the **composition** frame and the seed, so
+  preview and export match, and a cut to a new `<Sequence>` does not restart
+  them. `Math.random()` is never used.
+- `<CharacterView blink={false}>` holds the eyes open, for a close-up or a
+  dramatic stare. Switch it per frame like any other prop.
+- `blinkPhase(frame, fps, { interval?, duration?, seed? })` returns
+  `'open' | 'half' | 'closed'` for the same schedule, if something else
+  (a custom portrait, an eyelid effect) needs to blink in step.
+- JSON projects do not blink yet.
 
 ## JSON projects
 
@@ -389,11 +500,14 @@ active**, and portrait and subtitle positions come from the character.
 
 | Symptom | Check |
 | --- | --- |
-| `character has no expression "x"` | `expression` must be a key in `portrait.expressions`. |
+| `character has no expression "x"` | `expression` (and `defaultExpression`) must be a key in `portrait.expressions`, for image and PSD portraits alike. |
 | `<Dialogue> requires a declared character` | `character` must be a view ref attached to a rendered `<CharacterView>`, not the character ref. |
 | `<CharacterView> requires a character with a portrait` | The `<Character>` needs a `portrait`. |
 | The mouth never moves | WAV is uncompressed; transcript has kana/romaji vowels; `loadLipSync` runs in `prepare()`; the track is passed as `lipSync`; the sequence starts when the voice starts; PSD mouth paths match exactly (list them with `--psd-layers`). |
 | PSD portrait is empty or shows only a mouth | Set `layers` from a PSDTool favorite or layer list. |
 | `planDialogue(): voice file for line … not found` | The path is relative to the entry file; the message shows where it looked. |
 | `<DialogueSeries> line …: speaker "x" is not in views` | Add the speaker to `views`, or set `character` on the line. |
+| The portrait never blinks | `blink` is on the `portrait` (not the view); for an image portrait, `blink.closed` has a key for the current expression; the expression's `blink` is not `false`; the view is not `blink={false}`; a blink is 3 frames every ~4 s, so step frames rather than glancing at one. |
+| A PSD blink shows both eyes, or none | `open`, `closed`, and `half` must list every eye layer, by full path (`--psd-layers`). A layer in neither stays as `layers`/the expression set it, so open eyes left out of `open` show through shut ones. |
+| Two characters blink at the same time | They share an id or a `seed`; give each its own `seed`. |
 | Subtitle in the wrong place | React subtitle `x`/`y` are canvas coordinates with anchors like `Text`; JSON subtitle `position` is the text's center. |
