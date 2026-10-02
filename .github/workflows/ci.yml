@@ -75,6 +75,12 @@ jobs:
       - name: Test @celesta/react
         run: pnpm --dir packages/react run test
 
+      - name: Build and test @celesta/code
+        run: |
+          pnpm --dir packages/code run build
+          pnpm --dir packages/code run test
+          pnpm --dir packages/code run check:examples
+
       - name: Build
         # Compile normal binaries and test targets together so Cargo can schedule
         # them in parallel; the Test step reuses the compiled test targets.
