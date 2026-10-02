@@ -1,4 +1,4 @@
-// 立ち絵の演技：どの表情か、まばたき、話し始めの跳ね、ゆらぎ。
+// 立ち絵の演技：どの表情か、話し始めの跳ね、ゆらぎ（まばたきは立ち絵の `blink` に任せる）。
 // どれもフレーム番号だけから決まる（Celesta のフレームは前後どちらからでも
 // 描かれるので、前のフレームの状態を持ち越さない）。
 
@@ -26,19 +26,6 @@ export function faceAt<Face extends string>(speaker: Speaker, frame: number, ini
     if (t.speaker === speaker) face = t.face as Face;
   }
   return face;
-}
-
-/**
- * まばたきしているか。話者ごとに周期をずらして、二人が同時に目を閉じないようにする。
- * ずんだもんはときどき 2 回続けてまばたきする。
- */
-export function isBlinking(speaker: Speaker, frame: number): boolean {
-  const seed = speaker === 'zunda' ? 2 : 1;
-  const period = 104 + seed * 23;
-  const phase = (frame + seed * 37) % period;
-  const cycle = Math.floor((frame + seed * 37) / period);
-  const doubleBlink = seed % 2 === 0 && cycle % 3 === 0 && phase > 9 && phase < 13;
-  return phase < 4 || doubleBlink;
 }
 
 /** 台詞の頭で小さく跳ねる高さ（px）。 */

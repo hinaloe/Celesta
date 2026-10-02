@@ -40,8 +40,10 @@ function Stage() {
         const appear = spring({ frame: frame - (SCENE_AT.rewind + 10 + i * 6), fps: FPS, config: { damping: 14 } });
         if (appear <= 0) return null;
         const expanding = i === EXPANDED && expand > 0;
-        // 前後に揺らして、同じフレームには同じ絵が返ることを見せる。広げた 1 枚はそのまま再生を続ける。
-        const wobble = Math.round(24 * Math.sin((frame - line('r1').at) / 11 + i) * scrub);
+        // 前後に揺らして、同じフレームには同じ絵が返ることを見せる。広げた 1 枚は広げ始めたときの
+        // ずれで揺らしを止め、そのずれも広げる間に戻す（揺らしを残すと、再生が行ったり来たりする）。
+        const wobbleAt = (f: number) => 24 * Math.sin((f - line('r1').at) / 11 + i) * scrub;
+        const wobble = Math.round(expanding ? wobbleAt(EXPAND_AT) * (1 - expand) : wobbleAt(frame));
         const shownFrame = recalled.frame + wobble + (expanding ? frame - EXPAND_AT : 0);
         const home = { x: 580 + (i % 2) * (THUMB.width + 28), y: 96 + Math.floor(i / 2) * (THUMB.height + 64) };
         const t = expanding ? expand : 0;

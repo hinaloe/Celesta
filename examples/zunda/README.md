@@ -19,8 +19,8 @@ src/
   score.ts            BGM の音量
   fonts.ts            和文フォントを使う文字だけに絞って読み込む URL
   cast/               立ち絵と台詞
-    portraits.ts        PSD のどのレイヤーをどの表情・口で見せるか
-    acting.ts           いつどの表情か、まばたき、跳ね
+    portraits.ts        PSD のどのレイヤーをどの表情・目・口で見せるか
+    acting.ts           いつどの表情か、跳ね、ゆらぎ
     lipsync.ts          台詞ごとの口パクの読み込み
     speakers.ts         話者の名前と色
     Cast.tsx            キャラクターの宣言、立ち絵の表示、台詞の再生
@@ -46,8 +46,8 @@ package.json          このフォルダの .ts を ES モジュールとして�
 - **シーンは `SceneDefinition` を 1 つ export する。** `Stage` はカメラの内側（立ち絵と一緒に寄る）、`Overlay` は画面に固定、
   `prepare` は読み込み、`strings` はそのシーンが描く和文です。`scenes/index.tsx` に登録すると、チャプター表示・ワイプ・
   `prepare()`・和文フォントの絞り込みが自動でつながります。
-- **立ち絵の表情は PSD の `expressions` で表す。** まばたきは表情と対になった「目を閉じた表情」（`blinkOf(face)`）で表すので、
-  表情とまばたきはビュー（`<Cast>`）側で 1 か所で決め、台詞（`<Dialogue>`）は口パクだけを担当します。
+- **立ち絵の表情は PSD の `expressions` で表す。** 表情はビュー（`<Cast>`）側で 1 か所で決め、台詞（`<Dialogue>`）は
+  口パクだけを担当します。まばたきは表情ごとの `blink` に目のレイヤー（開・閉）を渡して Celesta に任せます。
   四国めたんのようにポーズごとに PSD が分かれている場合は、ポーズごとに `<Character>` を作ってビューの `character` を差し替えます。
 - **過去のフレームを描き直すには `<FrameRecall frame>`。** 描く中身は `WorldContext` で渡すので、シーンが自分を含む世界を
   import して循環することがありません。
@@ -74,7 +74,7 @@ package.json          このフォルダの .ts を ES モジュールとして�
 
 - **実際の機能**：VOICEVOX の音声を `Dialogue` で再生し、口の形は `prepare()` 内の `loadLipSync()` が音声と読みがなから作っています。
   立ち絵は公式 PSD（縮小しただけのもの）を `Character` の `portrait: { type: 'psd' }` で使い、表情は PSD の表情フォルダを
-  `expressions` に割り当てたもの、まばたきは目のレイヤーの切り替えです。
+  `expressions` に割り当てたもの、まばたきは表情ごとの `blink` による目のレイヤーの切り替えです。
   声のシーンの波形は WAV から読んだ実データです。「フレームは関数」のサムネイルは、録画ではなく過去のシーンのコンポーネントを
   `<Sequence from={現在 - 過去のフレーム}>` で再マウントし、その場で描き直しています。
   タイムラインのシーンのモニターに流れるのは実際の `<Video>` です。

@@ -16,9 +16,9 @@ import type { AssetReference, CharacterViewReference } from '@celesta/react';
 import type { MetanFace, Speaker, ZundaFace } from '../../script.ts';
 import { TIMED_LINES, line } from '../timing.ts';
 import { subtitleFor, wrapSubtitle } from '../ui/Subtitle.tsx';
-import { faceAt, hopAt, isBlinking, swayAt } from './acting.ts';
+import { faceAt, hopAt, swayAt } from './acting.ts';
 import { lipSyncOf } from './lipsync.ts';
-import { METAN_PORTRAITS, ZUNDA_PORTRAIT, blinkOf } from './portraits.ts';
+import { METAN_PORTRAITS, ZUNDA_PORTRAIT } from './portraits.ts';
 import { SPEAKERS } from './speakers.ts';
 
 /**
@@ -71,13 +71,13 @@ export function Cast() {
   const zundaIn = entrance('l1', 16, 620);
   const metanIn = entrance('l2', 12, -620);
   const y = (speaker: Speaker) => PLACEMENT[speaker].y - hopAt(speaker, frame) + swayAt(speaker, frame);
-  const expression = (speaker: Speaker, face: string) => (isBlinking(speaker, frame) ? blinkOf(face) : face);
   return (
     <>
-      <CharacterView ref={VIEW.metan} character={metanPoses[metanPose]} expression={expression('metan', metanPose)}
+      {/* めたんはポーズごとに別のキャラクター（id）なので、まばたきの間隔がポーズで変わらないよう seed をそろえる */}
+      <CharacterView ref={VIEW.metan} character={metanPoses[metanPose]} expression={metanPose} blink={{ seed: 'metan' }}
         mouth="closed" scale={PLACEMENT.metan.scale} x={PLACEMENT.metan.x + metanIn.dx} y={y('metan')}
         opacity={metanIn.shown ? 1 : 0} />
-      <CharacterView ref={VIEW.zunda} character={zunda} expression={expression('zunda', zundaFace)}
+      <CharacterView ref={VIEW.zunda} character={zunda} expression={zundaFace}
         mouth="closed" scale={PLACEMENT.zunda.scale} x={PLACEMENT.zunda.x + zundaIn.dx} y={y('zunda')}
         opacity={zundaIn.shown ? 1 : 0} />
     </>

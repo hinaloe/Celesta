@@ -149,7 +149,7 @@ function FaceList({ frame }: { frame: number }) {
       {panelTitle("expressions: { normal, smile, … }")}
       {FACE_PARADE.map((face, i) => {
         const on = face === current;
-        const { label, open } = ZUNDA_FACES[face];
+        const { label, eyes } = ZUNDA_FACES[face];
         return (
           <Group key={face} x={40} y={110 + i * 78}>
             <Rect width={580} height={64} cornerRadius={14} fill={on ? COLOR.zunda : '#FFFFFF10'} />
@@ -159,7 +159,7 @@ function FaceList({ frame }: { frame: number }) {
             </Text>
             <Text x={556} y={42} anchorX={1} anchorY="baseline"
               style={{ fontFamily: FONT.ja, fontSize: 18, fontWeight: 500, fill: solid(on ? '#0B2A06' : '#FFFFFF55') }}>
-              {open[open.length - 1]}
+              {eyes.open[0]}
             </Text>
           </Group>
         );
@@ -178,6 +178,6 @@ export const voiceScene: SceneDefinition = {
   // パネルに出す仮名とレイヤー名
   strings: [
     'text: PSD レイヤー: ', ...Object.values(SHAPE_KANA), ...WAVEFORM_LINES.map((id) => line(id).kana),
-    ...Object.values(ZUNDA_FACES).flatMap((face) => [face.label, ...face.open, ...Object.values(face.mouth)]),
+    ...Object.values(ZUNDA_FACES).flatMap((face) => [face.label, ...face.eyes.open, ...Object.values(face.mouth)]),
   ],
 };
