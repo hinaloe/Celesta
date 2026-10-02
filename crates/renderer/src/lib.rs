@@ -1239,13 +1239,18 @@ pub fn rasterize_psd(
         // Group opacity is deliberately not applied: the `psd` crate reads it
         // from the wrong ("bounding section") record and reports 0 for every
         // folder in real PSDTool files. Per-layer opacity is read correctly.
+        // Likewise each layer's own blend mode is applied, and a folder's is
+        // not (folders pass through).
         let opacity = f64::from(layer.opacity()) / 255.0;
+        // The `psd` crate does not export its `BlendMode` type, only its
+        // values, so modes are told apart by name.
+        let mix = psd_blend_channel(&format!("{:?}", layer.blend_mode()));
         for (destination, source) in pixels.chunks_exact_mut(4).zip(layer.rgba().chunks_exact(4)) {
-            blend(
-                destination,
-                Color::rgba(source[0], source[1], source[2], source[3]),
-                opacity,
-            );
+            let source = Color::rgba(source[0], source[1], source[2], source[3]);
+            match mix {
+                Some(mix) => blend_mixed(destination, source, opacity, mix),
+                None => blend(destination, source, opacity),
+            }
         }
     }
     Ok(RgbaFrame {
@@ -2096,6 +2101,15 @@ fn blend_with_mode(destination: &mut [u8], source: Color, opacity: f64, mode: Bl
     if mode.is_normal() {
         return blend(destination, source, opacity);
     }
+    blend_mixed(destination, source, opacity, |backdrop, source| {
+        mode.blend_channel(backdrop, source)
+    });
+}
+
+/// Source-over compositing with a separable mixing function `mix(backdrop,
+/// source)` per channel, all in 0–1 (W3C Compositing, "simple alpha
+/// compositing" with blending).
+fn blend_mixed(destination: &mut [u8], source: Color, opacity: f64, mix: impl Fn(f64, f64) -> f64) {
     let source_alpha = (f64::from(source.alpha) / 255.0) * opacity.clamp(0.0, 1.0);
     if source_alpha == 0.0 {
         return;
@@ -2106,7 +2120,7 @@ fn blend_with_mode(destination: &mut [u8], source: Color, opacity: f64, mode: Bl
         let source_value = f64::from([source.red, source.green, source.blue][channel]) / 255.0;
         let backdrop_value = f64::from(destination[channel]) / 255.0;
         let mixed = (1.0 - backdrop_alpha) * source_value
-            + backdrop_alpha * mode.blend_channel(backdrop_value, source_value);
+            + backdrop_alpha * mix(backdrop_value, source_value);
         let output = (source_alpha * mixed
             + backdrop_alpha * backdrop_value * (1.0 - source_alpha))
             / output_alpha;
@@ -2132,6 +2146,99 @@ fn blend(destination: &mut [u8], source: Color, opacity: f64) {
         destination[channel] = output.round().clamp(0.0, 255.0) as u8;
     }
     destination[3] = (output_alpha * 255.0).round().clamp(0.0, 255.0) as u8;
+}
+
+/// The per-channel mixing function `B(backdrop, source)` of a PSD layer's
+/// blend mode, all in 0–1, for the modes that blend each channel on its own.
+/// `None` for normal, and for the modes drawn as normal because they mix
+/// whole colors (hue, saturation, color, luminosity, darker and lighter
+/// color) or noise (dissolve).
+fn psd_blend_channel(mode: &str) -> Option<fn(f64, f64) -> f64> {
+    fn screen(b: f64, s: f64) -> f64 {
+        b + s - b * s
+    }
+    fn color_burn(b: f64, s: f64) -> f64 {
+        if b >= 1.0 {
+            1.0
+        } else if s <= 0.0 {
+            0.0
+        } else {
+            1.0 - ((1.0 - b) / s).min(1.0)
+        }
+    }
+    fn color_dodge(b: f64, s: f64) -> f64 {
+        if b <= 0.0 {
+            0.0
+        } else if s >= 1.0 {
+            1.0
+        } else {
+            (b / (1.0 - s)).min(1.0)
+        }
+    }
+    fn hard_light(b: f64, s: f64) -> f64 {
+        if s <= 0.5 {
+            b * 2.0 * s
+        } else {
+            screen(b, 2.0 * s - 1.0)
+        }
+    }
+    fn soft_light(b: f64, s: f64) -> f64 {
+        if s <= 0.5 {
+            b - (1.0 - 2.0 * s) * b * (1.0 - b)
+        } else {
+            let d = if b <= 0.25 {
+                ((16.0 * b - 12.0) * b + 4.0) * b
+            } else {
+                b.sqrt()
+            };
+            b + (2.0 * s - 1.0) * (d - b)
+        }
+    }
+    fn vivid_light(b: f64, s: f64) -> f64 {
+        if s <= 0.5 {
+            color_burn(b, 2.0 * s)
+        } else {
+            color_dodge(b, 2.0 * s - 1.0)
+        }
+    }
+    fn pin_light(b: f64, s: f64) -> f64 {
+        if s <= 0.5 {
+            b.min(2.0 * s)
+        } else {
+            b.max(2.0 * s - 1.0)
+        }
+    }
+
+    Some(match mode {
+        "Darken" => f64::min,
+        "Multiply" => |b, s| b * s,
+        "ColorBurn" => color_burn,
+        "LinearBurn" => |b, s| (b + s - 1.0).max(0.0),
+        "Lighten" => f64::max,
+        "Screen" => screen,
+        "ColorDodge" => color_dodge,
+        "LinearDodge" => |b, s| (b + s).min(1.0),
+        "Overlay" => |b, s| hard_light(s, b),
+        "SoftLight" => soft_light,
+        "HardLight" => hard_light,
+        "VividLight" => vivid_light,
+        "LinearLight" => |b, s| (b + 2.0 * s - 1.0).clamp(0.0, 1.0),
+        "PinLight" => pin_light,
+        "HardMix" => |b, s| if b + s >= 1.0 { 1.0 } else { 0.0 },
+        "Difference" => |b, s| (b - s).abs(),
+        "Exclusion" => |b, s| b + s - 2.0 * b * s,
+        "Subtract" => |b, s| (b - s).max(0.0),
+        "Divide" => |b, s| {
+            if s <= 0.0 {
+                if b <= 0.0 { 0.0 } else { 1.0 }
+            } else {
+                (b / s).min(1.0)
+            }
+        },
+        // PassThrough, Normal, Dissolve, DarkerColor, LighterColor, Hue,
+        // Saturation, Color, Luminosity.
+        _ => return None,
+    })
 }
 
 #[derive(Debug)]
@@ -3244,6 +3351,54 @@ mod tests {
         assert!(mouth[0] > 150 && mouth[0] > mouth[1] + 40 && mouth[0] > mouth[2] + 40);
         // A point clear of every visible layer stays transparent.
         assert_eq!(pixel_at(&frame, 5, 5), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn rasterize_psd_applies_each_layer_blend_mode() {
+        // 3×1: an opaque rgb(200, 100, 50) base; over it, one pixel each of a
+        // multiply layer of rgb(128, 128, 255), a screen layer of
+        // rgb(128, 128, 128), and a normal layer of rgb(10, 20, 30).
+        // Written with ag-psd, whose layers the `psd` crate reads as hidden,
+        // so they are listed as the visible set.
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/blend-modes.psd");
+        let layers = ["base", "multiply", "screen", "normal"].map(str::to_owned);
+        let frame = rasterize_psd("fixture", &fixture, &layers, &[], &[]).unwrap();
+        let close = |actual: [u8; 4], expected: [u8; 4]| {
+            actual.iter().zip(expected).all(|(a, e)| a.abs_diff(e) <= 1)
+        };
+        let multiply = pixel_at(&frame, 0, 0);
+        assert!(
+            close(multiply, [100, 50, 50, 255]),
+            "multiply: {multiply:?}"
+        );
+        let screen = pixel_at(&frame, 1, 0);
+        assert!(close(screen, [228, 178, 153, 255]), "screen: {screen:?}");
+        assert_eq!(pixel_at(&frame, 2, 0), [10, 20, 30, 255]);
+    }
+
+    #[test]
+    fn psd_blend_modes_mix_like_photoshop() {
+        let mix = |mode| psd_blend_channel(mode).unwrap();
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        assert!(psd_blend_channel("Normal").is_none());
+        assert!(psd_blend_channel("Hue").is_none());
+        assert!(close(mix("Multiply")(0.5, 0.5), 0.25));
+        assert!(close(mix("Screen")(0.5, 0.5), 0.75));
+        assert!(close(mix("Overlay")(0.25, 0.5), 0.25));
+        assert!(close(mix("Darken")(0.3, 0.6), 0.3));
+        assert!(close(mix("Lighten")(0.3, 0.6), 0.6));
+        assert!(close(mix("LinearDodge")(0.7, 0.6), 1.0));
+        assert!(close(mix("Subtract")(0.3, 0.6), 0.0));
+        assert!(close(mix("Difference")(0.3, 0.8), 0.5));
+        assert!(close(mix("ColorDodge")(0.25, 0.5), 0.5));
+        assert!(close(mix("ColorBurn")(0.75, 0.5), 0.5));
+        // White and black are neutral where Photoshop says they are.
+        for mode in ["Multiply", "ColorBurn", "LinearBurn"] {
+            assert!(close(mix(mode)(0.4, 1.0), 0.4), "{mode:?} with white");
+        }
+        for mode in ["Screen", "ColorDodge", "LinearDodge"] {
+            assert!(close(mix(mode)(0.4, 0.0), 0.4), "{mode:?} with black");
+        }
     }
 
     #[test]

@@ -225,6 +225,11 @@ export async function prepare() {
   mouth layers hidden, so list all of them in `lipSync`.
 - Large PSDs are big: set `scale` on the `<CharacterView>` (0.2–0.5 is
   common for full-body tachie in 1080p).
+- Each layer's blend mode is applied: multiply, screen, overlay, darken,
+  lighten, the dodges and burns, soft/hard/vivid/linear/pin light, hard mix,
+  difference, exclusion, subtract, and divide. Folders pass through (their own
+  blend mode and opacity are ignored), and dissolve, darker/lighter color,
+  hue, saturation, color, and luminosity layers draw as normal.
 
 ## JSON projects
 
