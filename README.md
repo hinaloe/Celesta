@@ -26,7 +26,7 @@ for more examples, see the [examples directory](examples) and the [gallery](docs
 - **Check audio:** see waveforms and track levels, mute or solo tracks, and
   set the preview volume.
 - **Create character dialogue:** combine portraits, expressions, subtitles,
-  voice recordings, and lip-sync cues.
+  voice recordings, lip-sync cues, and blinking.
 - **Compose with React:** use components, hooks, animation helpers, and layouts
   to build scenes, and combine React content with a project timeline. The
   preview reloads when you save the composition.

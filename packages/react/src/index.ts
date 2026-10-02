@@ -21,7 +21,9 @@ export type {
   CharacterProps,
   CharacterLipSync,
   CharacterPortrait,
+  ImageCharacterBlink,
   ImageCharacterPortrait,
+  PsdCharacterBlink,
   PsdCharacterLipSync,
   PsdCharacterPortrait,
   PsdExpression,
@@ -70,6 +72,9 @@ export type { VideoConfig } from './hooks';
 export { frameToTimecode, timecodeToFrame } from './time';
 
 export { noise, random } from './random';
+
+export { blinkPhase } from './blink';
+export type { BlinkPhase, BlinkTiming } from './blink';
 
 export { beatAt, cueAt, useBeat, useCue } from './timing';
 export type { ActiveCue, Beat, BeatOptions, Cue } from './timing';
