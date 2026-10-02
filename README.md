@@ -129,7 +129,8 @@ is currently imported as `@celesta/react`.
 Syntax-highlighted code is available separately in [`@celesta/code`](packages/code/README.md).
 Build it with `pnpm --dir packages/code run build` after the React package,
 then import `Code` from `@celesta/code`. It supports TSX, TypeScript, JSON,
-Bash, typing with `useTypewriter()`, line highlights, and measured caret positions.
+Bash, line highlights, and measured caret positions. For typing animations,
+combine it with `useTypewriter()` from `@celesta/react`.
 It is optional and does not add highlighting dependencies to `@celesta/react`.
 
 Visual layers and groups accept `blur`, `shadow`, and `glow`. Radii and shadow

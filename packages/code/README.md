@@ -70,7 +70,8 @@ fallback. The example loads the repository's IBM Plex Mono font explicitly.
   box and the full source width, even when only a prefix is visible.
 - `tabSize` defaults to 2. Tabs advance to the next tab stop, counted in code
   points rather than pixels; LF, CRLF, and CR are supported as line separators.
-- The usual group position, transform, opacity, and effect props are supported.
+- Group props are supported: `x`/`y`, `scale`/`scaleX`/`scaleY`, `rotation`,
+  `anchorX`/`anchorY`, `opacity`, `blendMode`, `blur`, `shadow`, and `glow`.
 
 The complete source is tokenized only when source or language changes. Line
 preparation also updates when tab size changes. Typing reveals the cached result;

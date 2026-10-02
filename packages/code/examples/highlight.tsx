@@ -10,7 +10,7 @@ const style = { fontFamily: 'IBM Plex Mono', fontSize: 24, lineHeight: 38 };
 
 function CodeDemo() {
   const { length, caretVisible } = useTypewriter(source, { from: 15, framesPerChar: 0.5 });
-  const typedLines = Array.from(source).slice(0, length).join('').split('\n');
+  const typedLines = Array.from(source).slice(0, length).join('').split(/\r\n|\r|\n/);
   const caret = useCodePoint(source, {
     line: typedLines.length, column: Array.from(typedLines[typedLines.length - 1]).length + 1,
   }, style);
