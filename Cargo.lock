@@ -1108,6 +1108,7 @@ dependencies = [
  "resvg 0.45.1",
  "tempfile",
  "unicode-properties",
+ "unicode-segmentation",
  "wuff",
 ]
 

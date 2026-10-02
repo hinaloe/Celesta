@@ -268,6 +268,14 @@ type TextStyle = {
   face at all only gets the warning above.
 - With Google Fonts, list every weight you use in the URL; a missing weight
   uses the family's nearest one.
+- Emoji meant to look like emoji (🎉, and a character followed by U+FE0F
+  such as ❤️ or 1️⃣, flags, skin tones, ZWJ sequences) are drawn with the
+  first installed color emoji font of Apple Color Emoji, Segoe UI Emoji,
+  Noto Color Emoji, Twemoji Mozilla, Twemoji, Twitter Color Emoji,
+  JoyPixels, and EmojiOne Color (a `<Font>` with one of these families
+  counts), even when a text font has a plain glyph for them. A `fontFamily`
+  that names one of them draws the emoji itself. U+FE0E keeps a character
+  as text.
 
 ## Time and animation
 
