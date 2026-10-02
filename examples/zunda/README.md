@@ -32,6 +32,7 @@ src/
 make-voices.ts        台本を VOICEVOX Engine で読み上げて voices/ と voices.json を作る
 prepare-assets.ts     立ち絵と映像素材を取得して assets/ に置く（素材はリポジトリに含めない）
 make-score.py         BGM を生成する（Python の標準ライブラリのみ）
+package.json          このフォルダの .ts を ES モジュールとして扱わせる（node で直接実行するため）
 ```
 
 ## このサンプルの書き方
