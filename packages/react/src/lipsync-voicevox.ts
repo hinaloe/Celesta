@@ -4,17 +4,18 @@
 // an AudioQuery states the length of every consonant and vowel the engine
 // will synthesize, so the mouth lines up with the voice exactly. Engines
 // that share VOICEVOX's API (AivisSpeech, COEIROINK v2, ...) return the same
-// shape.
+// shape; if one does not quantize to VOICEVOX's frame grid, pass its own
+// `frameRate` (or `null`).
 //
 // The timeline mirrors `_query_to_decoder_feature` in voicevox_engine's
 // `tts_pipeline/tts_engine.py`: optional interrogative upspeak, then
 // `prePhonemeLength` silence, every accent phrase's moras followed by its
 // `pause_mora`, `postPhonemeLength` silence; `pauseLength` /
 // `pauseLengthScale` adjust only the pause moras, and `speedScale` divides
-// everything. The engine also rounds each phoneme to its 93.75 Hz frame
-// grid; that is not reproduced here (it is engine-specific and shifts each
-// boundary by under 6 ms), so the track can differ from the WAV length by a
-// few milliseconds.
+// everything. Each phoneme is then rounded (half to even, like numpy) to the
+// engine's 93.75 Hz frame grid, which is what makes the result match the
+// synthesized WAV to the sample; without it the error accumulates (about
+// 50 ms over a 1.7 s line at `speedScale: 1.5`).
 
 import { lipSyncFromKeyframes, type LipSyncTrack, type MouthKeyframe } from './lipsync';
 import type { MouthShape } from './generated/MouthShape';
@@ -57,6 +58,24 @@ export interface VoicevoxLipSyncOptions {
    * Matches `/synthesis`'s `enable_interrogative_upspeak`, default `true`.
    */
   interrogativeUpspeak?: boolean;
+  /**
+   * Frames per second the engine quantizes each phoneme length to.
+   * VOICEVOX synthesizes at 24 kHz with a 256-sample hop: 93.75. Pass `null`
+   * to keep the unrounded lengths, e.g. for an engine that does not use
+   * this grid.
+   */
+  frameRate?: number | null;
+}
+
+const VOICEVOX_FRAME_RATE = 24000 / 256;
+
+// numpy's `np.round`: halves go to the even neighbour.
+function roundHalfToEven(value: number): number {
+  const floor = Math.floor(value);
+  const fraction = value - floor;
+  if (fraction > 0.5) return floor + 1;
+  if (fraction < 0.5) return floor;
+  return floor % 2 === 0 ? floor : floor + 1;
 }
 
 // Consonants made by closing both lips. Showing the next vowel's open mouth
@@ -118,13 +137,23 @@ export function lipSyncFromVoicevox(
   }
   const pauseLengthScale = query.pauseLengthScale ?? 1;
   const upspeak = options.interrogativeUpspeak ?? true;
+  const frameRate = options.frameRate === undefined ? VOICEVOX_FRAME_RATE : options.frameRate;
+  if (frameRate !== null && (!Number.isFinite(frameRate) || frameRate <= 0)) {
+    throw new Error(`lipSyncFromVoicevox: frameRate must be a positive number or null, got ${frameRate}`);
+  }
+  // Lengths at 1x speed -> seconds in the WAV, quantized like the engine.
+  const scaled = (length: number): number => {
+    const seconds = length / speedScale;
+    return frameRate === null ? seconds : roundHalfToEven(seconds * frameRate) / frameRate;
+  };
 
   const keyframes: MouthKeyframe[] = [];
   let cursor = 0;
   const push = (length: number, mouth: MouthShape): void => {
-    if (length <= 0) return;
-    keyframes.push({ seconds: cursor / speedScale, mouth });
-    cursor += length;
+    const seconds = scaled(length);
+    if (seconds <= 0) return;
+    keyframes.push({ seconds: cursor, mouth });
+    cursor += seconds;
   };
 
   push(lengthOf(query.prePhonemeLength, 'prePhonemeLength'), 'closed');
@@ -149,5 +178,5 @@ export function lipSyncFromVoicevox(
   }
   push(lengthOf(query.postPhonemeLength, 'postPhonemeLength'), 'closed');
 
-  return lipSyncFromKeyframes(keyframes, cursor / speedScale);
+  return lipSyncFromKeyframes(keyframes, cursor);
 }

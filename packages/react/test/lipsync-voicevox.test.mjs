@@ -1,8 +1,12 @@
 // Unit tests for `lipSyncFromVoicevox` / `lipSyncFromKeyframes`. Run after
 // `pnpm run build`:  node --test test/
 //
-// The fixture is a real VOICEVOX Engine `audio_query` response (Zundamon,
-// normal style) for 「こんにちは、ずんだもんなのだ。」.
+// `voicevox-zundamon-konnichiwa.json` is a real VOICEVOX Engine `audio_query`
+// response (Zundamon, normal style) for 「こんにちは、ずんだもんなのだ。」.
+// `voicevox-engine-0.26-synthesis.json` holds queries (some edited) together
+// with the sample count of the WAV that VOICEVOX Engine 0.26.0-dev
+// (docker `voicevox/voicevox_engine:cpu-ubuntu24.04-0.26.0-dev`) synthesized
+// from each one.
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -14,6 +18,11 @@ const fixture = JSON.parse(
   readFileSync(new URL('./fixtures/voicevox-zundamon-konnichiwa.json', import.meta.url), 'utf8'),
 );
 const clone = () => structuredClone(fixture);
+const synthesized = JSON.parse(
+  readFileSync(new URL('./fixtures/voicevox-engine-0.26-synthesis.json', import.meta.url), 'utf8'),
+);
+// Unrounded lengths, so phoneme midpoints can be computed by hand.
+const exact = { frameRate: null };
 
 const moras = fixture.accent_phrases.flatMap((phrase) => phrase.moras);
 const moraSum = moras.reduce((sum, m) => sum + (m.consonant_length ?? 0) + m.vowel_length, 0);
@@ -44,14 +53,27 @@ function assertSpans(track, spans, speedScale) {
   }
 }
 
-test('lipSyncFromVoicevox: duration is pre + moras + pause + post', () => {
-  const track = lipSyncFromVoicevox(fixture);
+test('lipSyncFromVoicevox: unrounded duration is pre + moras + pause + post', () => {
+  const track = lipSyncFromVoicevox(fixture, exact);
   assert.ok(Math.abs(track.durationInSeconds - (0.1 + moraSum + pause + 0.1)) < 1e-9);
   assert.ok(Math.abs(track.durationInSeconds - 2.5674) < 1e-4);
 });
 
+test('lipSyncFromVoicevox: duration matches the WAV VOICEVOX Engine synthesized', () => {
+  // 240 frames of 256 samples at 24 kHz.
+  assert.ok(Math.abs(lipSyncFromVoicevox(fixture).durationInSeconds - 2.56) < 1e-9);
+  for (const { name, query, wavSamples, sampleRate } of synthesized) {
+    const track = lipSyncFromVoicevox(query);
+    const wavSeconds = wavSamples / sampleRate;
+    assert.ok(
+      Math.abs(track.durationInSeconds - wavSeconds) < 1e-9,
+      `${name}: track ${track.durationInSeconds}s, WAV ${wavSeconds}s`,
+    );
+  }
+});
+
 test('lipSyncFromVoicevox: mouth shape at each phoneme', () => {
-  const track = lipSyncFromVoicevox(fixture);
+  const track = lipSyncFromVoicevox(fixture, exact);
   assertSpans(track, expectedSpans(fixture), 1);
 
   // Spot checks against hand-computed times.
@@ -78,7 +100,7 @@ test('lipSyncFromVoicevox: mouth shape at each phoneme', () => {
 test('lipSyncFromVoicevox: speedScale divides every length', () => {
   const query = clone();
   query.speedScale = 1.5;
-  const track = lipSyncFromVoicevox(query);
+  const track = lipSyncFromVoicevox(query, exact);
   assert.ok(Math.abs(track.durationInSeconds - (0.1 + moraSum + pause + 0.1) / 1.5) < 1e-9);
   assertSpans(track, expectedSpans(fixture), 1.5);
   // Frame 2 at 30 fps = 0.0667 s = 0.1 s of 1x time: コ's k (anticipating o).
@@ -94,18 +116,18 @@ test('lipSyncFromVoicevox: pauseLength replaces and pauseLengthScale scales paus
 
   const replaced = clone();
   replaced.pauseLength = 0.5;
-  assert.ok(Math.abs(lipSyncFromVoicevox(replaced).durationInSeconds - (base + 0.5)) < 1e-9);
+  assert.ok(Math.abs(lipSyncFromVoicevox(replaced, exact).durationInSeconds - (base + 0.5)) < 1e-9);
 
   const scaled = clone();
   scaled.pauseLengthScale = 2;
-  assert.ok(Math.abs(lipSyncFromVoicevox(scaled).durationInSeconds - (base + pause * 2)) < 1e-9);
+  assert.ok(Math.abs(lipSyncFromVoicevox(scaled, exact).durationInSeconds - (base + pause * 2)) < 1e-9);
 
   const both = clone();
   both.pauseLength = 0.5;
   both.pauseLengthScale = 2;
   both.speedScale = 2;
   // pre/post silence are not pauses: only speedScale touches them.
-  assert.ok(Math.abs(lipSyncFromVoicevox(both).durationInSeconds - (base + 1) / 2) < 1e-9);
+  assert.ok(Math.abs(lipSyncFromVoicevox(both, exact).durationInSeconds - (base + 1) / 2) < 1e-9);
 });
 
 test('lipSyncFromVoicevox: devoiced vowels, cl and interrogative upspeak', () => {
@@ -125,7 +147,7 @@ test('lipSyncFromVoicevox: devoiced vowels, cl and interrogative upspeak', () =>
     prePhonemeLength: 0,
     postPhonemeLength: 0,
   };
-  const track = lipSyncFromVoicevox(query);
+  const track = lipSyncFromVoicevox(query, exact);
   assert.ok(Math.abs(track.durationInSeconds - 0.65) < 1e-9); // + 0.15 upspeak
   assert.equal(track.mouthAtSeconds(0.05), 'u');
   assert.equal(track.mouthAtSeconds(0.15), 'u');
@@ -133,7 +155,7 @@ test('lipSyncFromVoicevox: devoiced vowels, cl and interrogative upspeak', () =>
   assert.equal(track.mouthAtSeconds(0.35), 'a');
   assert.equal(track.mouthAtSeconds(0.55), 'a'); // upspeak repeats the vowel
 
-  const flat = lipSyncFromVoicevox(query, { interrogativeUpspeak: false });
+  const flat = lipSyncFromVoicevox(query, { ...exact, interrogativeUpspeak: false });
   assert.ok(Math.abs(flat.durationInSeconds - 0.5) < 1e-9);
 });
 
@@ -141,6 +163,27 @@ test('lipSyncFromVoicevox rejects a non-positive speedScale', () => {
   const query = clone();
   query.speedScale = 0;
   assert.throws(() => lipSyncFromVoicevox(query), /speedScale/);
+  assert.throws(() => lipSyncFromVoicevox(fixture, { frameRate: 0 }), /frameRate/);
+});
+
+test('lipSyncFromVoicevox: frame rounding is half-to-even per phoneme', () => {
+  // 0.016 s * 93.75 = 1.5 frames -> 2; 0.048 s = 4.5 frames -> 4.
+  const query = {
+    accent_phrases: [
+      {
+        moras: [
+          { consonant: 'k', consonant_length: 0.016, vowel: 'a', vowel_length: 0.048, pitch: 5 },
+        ],
+      },
+    ],
+    prePhonemeLength: 0,
+    postPhonemeLength: 0,
+  };
+  const track = lipSyncFromVoicevox(query);
+  assert.ok(Math.abs(track.durationInSeconds - 6 / 93.75) < 1e-9);
+  assert.equal(track.mouthAtSeconds(1.9 / 93.75), 'a'); // still the k frame
+  assert.equal(track.mouthAtSeconds(5.9 / 93.75), 'a');
+  assert.equal(track.mouthAtSeconds(6 / 93.75), 'closed');
 });
 
 test('voicevoxVowelShape maps phonemes to mouth shapes', () => {

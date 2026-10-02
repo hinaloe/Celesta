@@ -208,7 +208,9 @@ const hello = lipSyncFromVoicevox(helloQuery);
   `pauseLength`, `pauseLengthScale` or phoneme lengths before `/synthesis`,
   pass the edited query; those edits are reflected in the track.
 - Time 0 is the start of the WAV, including `prePhonemeLength`, and
-  `durationInSeconds` is the WAV length (to within a few milliseconds).
+  `durationInSeconds` is the WAV length. Like VOICEVOX, each phoneme is
+  rounded to 1/93.75 s; for an engine that does not use that grid, pass
+  `{ frameRate: null }` (or its own rate).
 - Vowels `a i u e o` (and devoiced `A I U E O`) map to their shapes; `N` (ん),
   `cl` (っ), pauses and silence are `closed`. A consonant shows its mora's
   vowel, except `m`/`b`/`p`, which close the lips.
