@@ -1706,13 +1706,13 @@ impl GpuRenderer {
                     decoder.decode_frame_for(&layer.id, &path, timing.source_time_seconds)?;
                 let (width, height) =
                     fit_within(frame.width, frame.height, self.max_texture_dimension);
-                let image = if (width, height) == (frame.width, frame.height) {
-                    DecodedImage::shared(frame.width, frame.height, frame.pixels)?
-                } else {
+                // Checked against its size before anything reads it.
+                let mut image = DecodedImage::shared(frame.width, frame.height, frame.pixels)?;
+                if (width, height) != (frame.width, frame.height) {
                     let pixels =
-                        resize_rgba(frame.width, frame.height, &frame.pixels, width, height);
-                    DecodedImage::new(width, height, pixels.into_raw())?
-                };
+                        resize_rgba(frame.width, frame.height, &image.pixels, width, height);
+                    image = DecodedImage::new(width, height, pixels.into_raw())?;
+                }
                 let mut state = state;
                 let x = (f64::from(frame.width) / f64::from(width)) as f32;
                 let y = (f64::from(frame.height) / f64::from(height)) as f32;
@@ -5383,6 +5383,54 @@ mod tests {
             },
         };
         assert_split(&renderer.render(&scene).unwrap());
+    }
+
+    #[test]
+    fn rejects_a_malformed_video_frame_larger_than_the_texture_limit() {
+        struct Decoder;
+
+        impl VideoFrameDecoder for Decoder {
+            fn decode_frame(&mut self, _: &Path, _: f64) -> Result<VideoFrame, MediaError> {
+                // One pixel short of 8x4.
+                Ok(VideoFrame {
+                    width: 8,
+                    height: 4,
+                    pixels: vec![0; 31 * 4].into(),
+                })
+            }
+        }
+
+        let Some(renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        let mut renderer = renderer.with_video_decoder(Decoder);
+        renderer.max_texture_dimension = 4;
+        let mut scene = empty_scene(8, 4);
+        scene.layers.push(Layer {
+            id: "video".to_owned(),
+            transform: EvaluatedTransform::default(),
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            effects: Default::default(),
+            content: LayerContent::Video {
+                asset: ResolvedAsset {
+                    id: "clip".to_owned(),
+                    location: AssetLocation::File {
+                        path: "clip.mp4".to_owned(),
+                    },
+                },
+                timing: MediaTiming {
+                    local_time: Time::ZERO,
+                    source_start: Time::ZERO,
+                    source_time_seconds: 0.0,
+                    playback_rate: 1.0,
+                },
+            },
+        });
+        assert!(matches!(
+            renderer.render(&scene),
+            Err(GpuRenderError::InvalidImageData { .. })
+        ));
     }
 
     #[test]
