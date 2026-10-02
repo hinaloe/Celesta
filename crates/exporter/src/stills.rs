@@ -377,7 +377,7 @@ impl Exporter {
             ColorConversion::Encoder,
             self.options.render_quality,
         )?;
-        let mut fallbacks = HashSet::new();
+        let mut fallbacks = ReportedFontWarnings::default();
         for (index, &frame) in frames.iter().enumerate() {
             progress(ExportProgress::Rendering {
                 frame: index as u64 + 1,
@@ -486,7 +486,7 @@ impl Exporter {
             ColorConversion::Encoder,
             self.options.render_quality,
         )?;
-        let mut fallbacks = HashSet::new();
+        let mut fallbacks = ReportedFontWarnings::default();
         for (index, &frame) in frames.iter().enumerate() {
             progress(ExportProgress::Rendering {
                 frame: index as u64 + 1,

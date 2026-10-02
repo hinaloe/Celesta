@@ -11,7 +11,7 @@ them from npm.
 - [Layers](#layers): Composition, Rect, Path, Text, Group, Image, Video, Audio, Font, Assets
 - [Text styles and fonts](#text-styles-and-fonts)
 - [Time and animation](#time-and-animation): hooks, interpolate, Easings, spring, Sequence, Transition, timecodeToFrame
-- [Motion helpers](#motion-helpers): progress, Series, Stagger, useBeat, useCue, TextReveal, useTypewriter, useCountUp, Camera, Line, Polyline, random, noise, frameToTimecode
+- [Motion helpers](#motion-helpers): progress, Series, Stagger, planDialogue/DialogueSeries, useBeat, useCue, TextReveal, useTypewriter, useCountUp, Camera, Line, Polyline, random, noise, frameToTimecode
 - [Layout helpers](#layout-helpers): Center, SafeArea, Stack, Grid, Fit
 - [Media helpers](#media-helpers): preloadMedia, mediaDurationInFrames, measureText, useTextMetrics
 - [Project data](#project-data): ProjectProvider, useProjectProperty, defineProjectProperties, ProjectTimeline, ProjectTrack, registerComponent
@@ -255,8 +255,17 @@ type TextStyle = {
   `celesta-export` prints `warning: font family "…" (weight …) is not installed or loaded;
   text layer "…" uses a fallback font` to stderr, once per family and weight.
   `scripts/inspect.mjs` does not check fonts. For reproducible output, ship
-  the font file next to the entry and load it with `<Font>`. Characters the
-  font lacks (emoji) fall back per glyph.
+  the font file next to the entry and load it with `<Font>`.
+- Characters the family lacks fall back per glyph to another font, or are
+  drawn as a missing-glyph box (tofu) when no font has them. Apart from
+  emoji that a color emoji font draws, whitespace, and invisible
+  characters, the app lists them with the preview's warnings, and
+  `celesta-export` prints `warning: font family "…" (weight …) has no glyph
+  for "…"; text layer "…" draws them with a fallback font` (the first 10
+  characters, then `and N more characters`), naming each character once per
+  family and weight. This catches a Google Fonts URL whose `text=` subset
+  misses characters the video uses: add them to `text=`. A family with no
+  face at all only gets the warning above.
 - With Google Fonts, list every weight you use in the URL; a missing weight
   uses the family's nearest one.
 
@@ -388,6 +397,17 @@ const { durationInFrames } = computeSeries(SCENES);
 </Series>
 ```
 
+### `planDialogue(lines, { fps, gap?, sceneLeadIn? })` and `<DialogueSeries>`
+
+A voiced script laid out back to back from its recordings. In `prepare()`,
+`planDialogue()` measures each line's `audio` and returns a plan: every
+line's `from`, `durationInFrames` (the voice), `gapInFrames` after it
+(default 0.25 s), and the total `durationInFrames` for the `<Composition>`.
+`<DialogueSeries plan views>` renders one `<Sequence>` + `<Dialogue>` per
+line, and `plan.startOf(id)`, `plan.range(a, b)`, `plan.scene(id)` time scene
+cuts and camera moves to the lines. See
+[dialogue.md](dialogue.md#timing-a-script-from-its-voices).
+
 ### `<Stagger each from? durationInFrames?>`
 
 Wraps child *i* in a `<Sequence from={from + i * each}>`, so a component that
@@ -514,7 +534,9 @@ export async function prepare() {
 
 `preloadMedia(src)` resolves to
 `{ src, durationSeconds?, video?: { width, height, codec?, frameRate?, durationSeconds? }, audio: [{ codec?, sampleRate?, channels?, durationSeconds? }] }`.
-`mediaDurationInFrames(info, fps)` rounds up to whole frames.
+`mediaDurationInFrames(info, fps)` rounds up to whole frames. To lay out a
+whole voiced script this way, use `planDialogue()` (see
+[dialogue.md](dialogue.md#timing-a-script-from-its-voices)).
 
 ### Measure text
 

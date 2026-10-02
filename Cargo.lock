@@ -1107,6 +1107,7 @@ dependencies = [
  "psd",
  "resvg 0.45.1",
  "tempfile",
+ "unicode-properties",
  "wuff",
 ]
 

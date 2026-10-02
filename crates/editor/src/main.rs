@@ -558,6 +558,7 @@ impl PreviewWorker {
                         .map_err(|error| error.to_string())
                         .map(prepare_preview_frame);
                     warnings.extend(renderer.font_fallbacks().iter().map(ToString::to_string));
+                    warnings.extend(renderer.missing_glyphs().iter().map(ToString::to_string));
                     if result_tx
                         .send(PreviewResult {
                             generation: request.generation,
