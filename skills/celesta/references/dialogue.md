@@ -225,6 +225,43 @@ export async function prepare() {
   mouth layers hidden, so list all of them in `lipSync`.
 - Large PSDs are big: set `scale` on the `<CharacterView>` (0.2–0.5 is
   common for full-body tachie in 1080p).
+- Each layer's blend mode is applied: multiply, screen, overlay, darken,
+  lighten, the dodges and burns, soft/hard/vivid/linear/pin light, hard mix,
+  difference, exclusion, subtract, and divide. Folders pass through (their own
+  blend mode and opacity are ignored), and dissolve, darker/lighter color,
+  hue, saturation, color, and luminosity layers draw as normal.
+
+### PSD expressions
+
+`expressions` names sets of layers shown on top of `layers`, which every
+expression shares. Pick one with `expression` on the `<CharacterView>` or a
+`<Dialogue>` line, as with image portraits; `defaultExpression` is shown
+otherwise. An expression is a list of layer paths, a PSDTool layer-state
+string, or `{ layers, lipSync }` when it has mouth layers of its own (common
+in PSDs that keep a mouth folder inside each face folder):
+
+```tsx
+<Character ref={hana} name="Hana" portrait={{
+  type: 'psd',
+  src: './hana/hana.psd',
+  layers: ['body', 'hair'],
+  defaultExpression: 'calm',
+  expressions: {
+    calm: ['face/calm'],
+    smile: smilePose,                       // e.g. a loadPsdPreset() result stored in prepare()
+    angry: { layers: ['face/angry'], lipSync: {
+      a: 'face/angry/mouth/a', i: 'face/angry/mouth/i', u: 'face/angry/mouth/u',
+      e: 'face/angry/mouth/e', o: 'face/angry/mouth/o', closed: 'face/angry/mouth/n',
+    } },
+  },
+  lipSync: { a: 'mouth/a', i: 'mouth/i', u: 'mouth/u', e: 'mouth/e', o: 'mouth/o', closed: 'mouth/n' },
+}} />
+// …
+<Dialogue character={hanaView} expression="smile">Nice to meet you.</Dialogue>
+```
+
+An expression that is not a key of `expressions` throws, as for image
+portraits.
 
 ## JSON projects
 
@@ -296,7 +333,7 @@ active**, and portrait and subtitle positions come from the character.
 
 | Symptom | Check |
 | --- | --- |
-| `character has no expression "x"` | `expression` must be a key in `portrait.expressions`. |
+| `character has no expression "x"` | `expression` (and `defaultExpression`) must be a key in `portrait.expressions`, for image and PSD portraits alike. |
 | `<Dialogue> requires a declared character` | `character` must be a view ref attached to a rendered `<CharacterView>`, not the character ref. |
 | `<CharacterView> requires a character with a portrait` | The `<Character>` needs a `portrait`. |
 | The mouth never moves | WAV is uncompressed; transcript has kana/romaji vowels; `loadLipSync` runs in `prepare()`; the track is passed as `lipSync`; the sequence starts when the voice starts; PSD mouth paths match exactly (list them with `--psd-layers`). |
