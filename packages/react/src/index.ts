@@ -76,6 +76,17 @@ export type { ActiveCue, Beat, BeatOptions, Cue } from './timing';
 export { Series, Stagger, computeSeries } from './series';
 export type { SeriesItem, SeriesProps, SeriesSequenceProps, SeriesTiming, StaggerProps } from './series';
 
+export { DialogueSeries, planDialogue } from './dialogue-series';
+export type {
+  DialogueLine,
+  DialoguePlan,
+  DialogueRange,
+  DialogueScene,
+  DialogueSeriesProps,
+  PlanDialogueOptions,
+  PlannedDialogueLine,
+} from './dialogue-series';
+
 export { Line, Path, Polyline, pointOnPolyline } from './shapes';
 export type {
   LineCap,

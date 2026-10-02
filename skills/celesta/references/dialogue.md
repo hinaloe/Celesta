@@ -12,6 +12,7 @@ Dialogue scenes combine three pieces:
 ## Contents
 
 - [React: a two-line conversation](#react-a-two-line-conversation)
+- [Timing a script from its voices](#timing-a-script-from-its-voices)
 - [React props](#react-props)
 - [Automatic lip sync](#automatic-lip-sync)
 - [PSD portraits](#psd-portraits)
@@ -95,9 +96,101 @@ const lines = [
 ))}
 ```
 
-To fit lines to their recordings, measure them in `prepare()` with
-`preloadMedia(voice)` and `mediaDurationInFrames(info, fps)`, then compute
-`at`/`len` from those lengths (plus a small gap).
+To fit lines to their recordings, let `planDialogue()` measure them (next
+section) instead of writing `at`/`len` by hand.
+
+## Timing a script from its voices
+
+`planDialogue(lines, options)` measures every line's voice in `prepare()` and
+places the lines back to back: each starts after the previous line and its
+gap. `<DialogueSeries>` then renders the plan as `<Sequence>` + `<Dialogue>`
+pairs, and the plan tells the rest of the video when each line starts.
+
+```tsx
+import * as React from 'react';
+import { CharacterView, Composition, DialogueSeries, Rect, Sequence, planDialogue } from '@celesta/react';
+import type { AssetReference, CharacterViewReference, DialoguePlan } from '@celesta/react';
+
+const zunda = React.createRef<AssetReference>();
+const metan = React.createRef<AssetReference>();
+const zundaView = React.createRef<CharacterViewReference>();
+const metanView = React.createRef<CharacterViewReference>();
+
+let plan: DialoguePlan;
+export async function prepare() {
+  plan = await planDialogue(
+    [
+      { id: 'hello', scene: 'intro', speaker: 'zunda', audio: './voices/01.wav', text: 'ずんだもんなのだ。' },
+      { id: 'topic', scene: 'intro', speaker: 'metan', audio: './voices/02.wav', text: '今日は音声合成の話よ。', expression: 'smile' },
+      { id: 'how',   scene: 'body',  speaker: 'zunda', audio: './voices/03.wav', text: 'どうやって喋っているのだ？', gap: 0.6 },
+    ],
+    { fps: 30, sceneLeadIn: 1 },  // a 1 s pause before each new scene
+  );
+}
+
+export default function Root() {
+  return (
+    <Composition width={1920} height={1080} fps={30} durationInFrames={plan.durationInFrames}>
+      {/* …<Assets> with the two <Character>s… */}
+      <Sequence {...plan.scene('intro')}><Rect width={1920} height={1080} fill="#20243a" /></Sequence>
+      <Sequence {...plan.scene('body')}><Rect width={1920} height={1080} fill="#2f3b2a" /></Sequence>
+      <CharacterView ref={zundaView} character={zunda} x={1400} y={200} />
+      <CharacterView ref={metanView} character={metan} x={100} y={200} />
+      <DialogueSeries plan={plan} views={{ zunda: zundaView, metan: metanView }} />
+    </Composition>
+  );
+}
+```
+
+Each line:
+
+| Field | Notes |
+| --- | --- |
+| `text` | Subtitle. |
+| `audio` | Voice file, relative to the entry file. Its length (rounded up to whole frames) is the line's length. |
+| `durationInFrames` | Explicit length instead of measuring; required for a line without `audio`. |
+| `id` | Name for looking the line up; defaults to its index (`"0"`, `"1"`, …). Unique. |
+| `gap` | Seconds of silence after the line; defaults to the plan's `gap` (0.25 s). |
+| `leadIn` | Seconds of silence before the line. Defaults to `sceneLeadIn` on the first line of a new `scene` (not the script's first line), else 0. |
+| `scene` | Groups consecutive lines into a scene. |
+| `speaker` / `character` | Who speaks: a key of `<DialogueSeries views>`, or the `<CharacterView>` ref itself. |
+| `expression`, `mouth`, `lipSync`, `volume`, `muted` | Passed to the line's `<Dialogue>`. |
+
+Lines may carry extra fields of your own; the plan keeps the original line
+as `planned.line`.
+
+Options: `fps` (required), `gap` (default seconds after each line, 0.25),
+`sceneLeadIn` (default seconds before each new scene, 0). Seconds are
+rounded to whole frames.
+
+The plan:
+
+- `plan.durationInFrames`: the total, including the last gap. Use it as the
+  `<Composition durationInFrames>`.
+- `plan.lines`: `{ id, index, line, from, durationInFrames, gapInFrames, leadInFrames, spanInFrames }`
+  per line; `spanInFrames` is the line plus its gap.
+- `plan.startOf(id)`: the frame a line starts on, e.g. a camera move
+  `interpolate(frame, [plan.startOf('how'), plan.startOf('how') + 20], …)`.
+- `plan.range(firstId, lastId?)`: `{ from, durationInFrames }` from one line's
+  start to the end of another's gap, ready to spread onto a `<Sequence>`.
+- `plan.scenes` / `plan.scene(id)`: each scene's `{ id, from, durationInFrames, lines }`.
+  A scene starts at its first line's lead-in and lasts until the next scene
+  starts (the last one until the end), so backgrounds cut with no hole.
+
+`<DialogueSeries>` props:
+
+| Prop | Notes |
+| --- | --- |
+| `plan` | The result of `planDialogue()`. |
+| `views` | `{ speaker: viewRef }` for lines that use `speaker`. |
+| `holdThroughGap` | Keep each subtitle (and expression) through the gap after it. Default false: the line clears when its voice ends. |
+| `dialogueProps` | `(planned) => props` merged into each `<Dialogue>`, e.g. to move one subtitle. |
+
+For lip sync, load each track in `prepare()` and put it on the line:
+`lines = await Promise.all(lines.map(async (l) => ({ ...l, lipSync: await loadLipSync({ src: l.audio, text: l.reading }) })))`.
+
+A missing voice file fails `prepare()` with
+`planDialogue(): voice file for line "how" not found: ./voices/03.wav (looked at …)`.
 
 ## React props
 
@@ -301,4 +394,6 @@ active**, and portrait and subtitle positions come from the character.
 | `<CharacterView> requires a character with a portrait` | The `<Character>` needs a `portrait`. |
 | The mouth never moves | WAV is uncompressed; transcript has kana/romaji vowels; `loadLipSync` runs in `prepare()`; the track is passed as `lipSync`; the sequence starts when the voice starts; PSD mouth paths match exactly (list them with `--psd-layers`). |
 | PSD portrait is empty or shows only a mouth | Set `layers` from a PSDTool favorite or layer list. |
+| `planDialogue(): voice file for line … not found` | The path is relative to the entry file; the message shows where it looked. |
+| `<DialogueSeries> line …: speaker "x" is not in views` | Add the speaker to `views`, or set `character` on the line. |
 | Subtitle in the wrong place | React subtitle `x`/`y` are canvas coordinates with anchors like `Text`; JSON subtitle `position` is the text's center. |
