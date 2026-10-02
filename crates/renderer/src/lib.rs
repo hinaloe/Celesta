@@ -23,6 +23,8 @@ use cosmic_text::{
     Align, Attrs, Buffer, Color as CosmicColor, Family, FontSystem, Metrics, Shaping, SwashCache,
     Weight, Wrap,
 };
+use unicode_properties::{EmojiStatus, UnicodeEmoji};
+use unicode_segmentation::UnicodeSegmentation;
 pub mod image_source;
 mod path;
 pub mod psd_source;
@@ -264,7 +266,23 @@ pub struct TextRasterizer {
     /// `matched_weight` results by family and requested weight, cleared
     /// whenever a font is loaded.
     matched_weights: HashMap<(String, u16), Option<u16>>,
+    /// `color_emoji_family`'s result once looked up, cleared whenever a
+    /// font is loaded.
+    color_emoji_family: Option<Option<String>>,
 }
+
+/// Families of color emoji fonts, most preferred first: the ones macOS and
+/// Windows ship, then the ones Linux distributions and apps commonly carry.
+const COLOR_EMOJI_FAMILIES: &[&str] = &[
+    "Apple Color Emoji",
+    "Segoe UI Emoji",
+    "Noto Color Emoji",
+    "Twemoji Mozilla",
+    "Twemoji",
+    "Twitter Color Emoji",
+    "JoyPixels",
+    "EmojiOne Color",
+];
 
 impl TextRasterizer {
     pub fn new() -> Self {
@@ -281,6 +299,7 @@ impl TextRasterizer {
             swash_cache: SwashCache::new(),
             loaded_fonts: HashSet::new(),
             matched_weights: HashMap::new(),
+            color_emoji_family: None,
         }
     }
 
@@ -363,6 +382,7 @@ impl TextRasterizer {
             return Err(invalid("no font faces found"));
         }
         self.matched_weights.clear();
+        self.color_emoji_family = None;
         let Some(alias) = alias else {
             return Ok(());
         };
@@ -415,6 +435,23 @@ impl TextRasterizer {
             })
     }
 
+    /// The first of [`COLOR_EMOJI_FAMILIES`] with a loaded or installed face.
+    fn color_emoji_family(&mut self) -> Option<String> {
+        let database = self.font_system.db();
+        self.color_emoji_family
+            .get_or_insert_with(|| {
+                COLOR_EMOJI_FAMILIES
+                    .iter()
+                    .find(|family| {
+                        database
+                            .faces()
+                            .any(|face| face.families.iter().any(|(name, _)| name == *family))
+                    })
+                    .map(|family| (*family).to_owned())
+            })
+            .clone()
+    }
+
     /// Shapes `text` into a laid-out buffer. `width` and `scale` are in
     /// output pixels: `scale` multiplies the style's font size and line height.
     fn shaped_buffer(
@@ -458,13 +495,60 @@ impl TextRasterizer {
             TextAlign::Center => Align::Center,
             TextAlign::Right => Align::Right,
         });
-        buffer.set_text(
-            &mut self.font_system,
-            text,
-            &attrs,
-            Shaping::Advanced,
-            alignment,
-        );
+        // cosmic-text falls back per character to the first font with a
+        // glyph, trying the color emoji font only after text fonts, so an
+        // emoji that a text font also has (❤️, a keycap, a flag's letters)
+        // came out as a plain glyph. Ask for the color emoji font first for
+        // the graphemes meant to look like emoji, unless the family asked
+        // for is a color emoji font itself.
+        let emoji_spans = emoji_presentation_spans(text);
+        let emoji_family = if emoji_spans.is_empty()
+            || style
+                .font_family
+                .as_deref()
+                .is_some_and(|family| COLOR_EMOJI_FAMILIES.contains(&family))
+        {
+            None
+        } else {
+            self.color_emoji_family()
+        };
+        match emoji_family {
+            Some(emoji_family) => {
+                let emoji_weight = self
+                    .matched_weight(&emoji_family, requested_weight)
+                    .unwrap_or(requested_weight);
+                let emoji_attrs = attrs
+                    .clone()
+                    .family(Family::Name(&emoji_family))
+                    .weight(Weight(emoji_weight));
+                let mut spans = Vec::with_capacity(emoji_spans.len() * 2 + 1);
+                let mut end = 0;
+                for range in emoji_spans {
+                    if end < range.start {
+                        spans.push((&text[end..range.start], attrs.clone()));
+                    }
+                    end = range.end;
+                    spans.push((&text[range], emoji_attrs.clone()));
+                }
+                if end < text.len() {
+                    spans.push((&text[end..], attrs.clone()));
+                }
+                buffer.set_rich_text(
+                    &mut self.font_system,
+                    spans,
+                    &attrs,
+                    Shaping::Advanced,
+                    alignment,
+                );
+            }
+            None => buffer.set_text(
+                &mut self.font_system,
+                text,
+                &attrs,
+                Shaping::Advanced,
+                alignment,
+            ),
+        }
         buffer.shape_until_scroll(&mut self.font_system, false);
         buffer
     }
@@ -741,6 +825,38 @@ impl Default for TextRasterizer {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// The byte ranges of `text`'s graphemes that are meant to be drawn as
+/// emoji, with runs of adjacent ones merged: an emoji that is one by default
+/// (Emoji_Presentation, which covers flags' regional indicators), or any
+/// character followed by the emoji presentation selector U+FE0F (❤️, 1️⃣).
+/// The text presentation selector U+FE0E keeps a grapheme text.
+fn emoji_presentation_spans(text: &str) -> Vec<std::ops::Range<usize>> {
+    let mut spans: Vec<std::ops::Range<usize>> = Vec::new();
+    for (start, grapheme) in text.grapheme_indices(true) {
+        let Some(first) = grapheme.chars().next() else {
+            continue;
+        };
+        let emoji = !grapheme.contains('\u{FE0E}')
+            && (grapheme.contains('\u{FE0F}')
+                || matches!(
+                    first.emoji_status(),
+                    EmojiStatus::EmojiPresentation
+                        | EmojiStatus::EmojiPresentationAndModifierBase
+                        | EmojiStatus::EmojiPresentationAndEmojiComponent
+                        | EmojiStatus::EmojiPresentationAndModifierAndEmojiComponent
+                ));
+        if !emoji {
+            continue;
+        }
+        let end = start + grapheme.len();
+        match spans.last_mut() {
+            Some(span) if span.end == start => span.end = end,
+            _ => spans.push(start..end),
+        }
+    }
+    spans
 }
 
 pub struct CpuRenderer {
@@ -3692,6 +3808,84 @@ mod font_tests {
             rasterizer.font_fallback("title", &TextStyle::default()),
             None
         );
+    }
+
+    #[test]
+    fn marks_graphemes_meant_as_emoji() {
+        let spans = |text: &str| {
+            emoji_presentation_spans(text)
+                .into_iter()
+                .map(|range| text[range].to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(spans("CELESTA ずんだもん 2026"), Vec::<String>::new());
+        // Emoji by default, with a skin tone, and ZWJ sequences.
+        assert_eq!(spans("A🎉B👍🏽C👩\u{200D}💻"), ["🎉", "👍🏽", "👩\u{200D}💻"]);
+        // Text by default, emoji with U+FE0F: a heart and a keycap.
+        assert_eq!(
+            spans("❤ ❤\u{FE0F} 1 1\u{FE0F}\u{20E3}"),
+            ["❤\u{FE0F}", "1\u{FE0F}\u{20E3}"]
+        );
+        // U+FE0E keeps an emoji-by-default character text.
+        assert_eq!(spans("☔\u{FE0E}"), Vec::<String>::new());
+        // A flag's regional indicators, and adjacent emoji, share one span.
+        assert_eq!(spans("🇯🇵🎉 x"), ["🇯🇵🎉"]);
+    }
+
+    /// The family of the face each glyph cluster of `text` is drawn with.
+    fn cluster_families(
+        rasterizer: &mut TextRasterizer,
+        text: &str,
+        style: &TextStyle,
+    ) -> Vec<(String, String)> {
+        let buffer = rasterizer.shaped_buffer(text, style, None, 1.0);
+        let database = rasterizer.font_system.db();
+        let mut clusters = Vec::new();
+        for run in buffer.layout_runs() {
+            for glyph in run.glyphs {
+                let family = database
+                    .face(glyph.font_id)
+                    .and_then(|face| face.families.first())
+                    .map_or_else(String::new, |(family, _)| family.clone());
+                clusters.push((run.text[glyph.start..glyph.end].to_owned(), family));
+            }
+        }
+        clusters
+    }
+
+    #[test]
+    fn draws_emoji_presentation_with_the_color_emoji_font() {
+        let mut rasterizer = regular_only_rasterizer();
+        let Some(emoji_family) = rasterizer.color_emoji_family() else {
+            eprintln!("skipping: no color emoji font is installed");
+            return;
+        };
+        for weight in [None, Some(700)] {
+            let style = TextStyle {
+                font_family: Some("Bebas Neue".to_owned()),
+                font_size: Some(48.0),
+                font_weight: weight,
+                ..TextStyle::default()
+            };
+            // Text fonts have a plain heart, keycap, and regional indicator
+            // letters too; these still come from the color emoji font.
+            for emoji in ["❤\u{FE0F}", "1\u{FE0F}\u{20E3}", "🇯🇵", "🎉"] {
+                let text = format!("A{emoji}B");
+                let clusters = cluster_families(&mut rasterizer, &text, &style);
+                let families = clusters
+                    .iter()
+                    .map(|(_, family)| family.as_str())
+                    .collect::<Vec<_>>();
+                assert_eq!(families.first(), Some(&"Bebas Neue"), "{clusters:?}");
+                assert_eq!(families.last(), Some(&"Bebas Neue"), "{clusters:?}");
+                assert!(
+                    families[1..families.len() - 1]
+                        .iter()
+                        .all(|family| *family == emoji_family),
+                    "{weight:?} {emoji:?} was not drawn with {emoji_family}: {clusters:?}"
+                );
+            }
+        }
     }
 
     #[test]
