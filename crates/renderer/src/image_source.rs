@@ -169,6 +169,56 @@ impl ImageSources {
         Ok(image)
     }
 }
+
+/// The size `width` x `height` shrinks to, keeping its aspect ratio, so that
+/// neither side exceeds `max` (a GPU's largest texture). Sizes that already
+/// fit are returned unchanged.
+pub fn fit_within(width: u32, height: u32, max: u32) -> (u32, u32) {
+    let largest = width.max(height);
+    if largest <= max {
+        return (width, height);
+    }
+    let scale = f64::from(max) / f64::from(largest);
+    let fit = |side: u32| ((f64::from(side) * scale).round() as u32).clamp(1, max);
+    (fit(width), fit(height))
+}
+
+/// Resamples straight RGBA `pixels` (`width` x `height`) to `to_width` x
+/// `to_height`, weighting colors by alpha so transparent texels do not
+/// darken the edges they are averaged into.
+pub fn resize_rgba(
+    width: u32,
+    height: u32,
+    pixels: &[u8],
+    to_width: u32,
+    to_height: u32,
+) -> RgbaImage {
+    let mut premultiplied = pixels.to_vec();
+    for pixel in premultiplied.chunks_exact_mut(4) {
+        let alpha = u32::from(pixel[3]);
+        for channel in &mut pixel[..3] {
+            *channel = ((u32::from(*channel) * alpha + 127) / 255) as u8;
+        }
+    }
+    let premultiplied =
+        RgbaImage::from_raw(width, height, premultiplied).expect("pixels match their size");
+    let mut resized = image::imageops::resize(
+        &premultiplied,
+        to_width,
+        to_height,
+        image::imageops::FilterType::Triangle,
+    );
+    for pixel in resized.pixels_mut() {
+        let alpha = u32::from(pixel[3]);
+        for channel in &mut pixel.0[..3] {
+            if let Some(straight) = (u32::from(*channel) * 255 + alpha / 2).checked_div(alpha) {
+                *channel = straight.min(255) as u8;
+            }
+        }
+    }
+    resized
+}
+
 fn invalid(error: impl std::fmt::Display) -> image::ImageError {
     image::ImageError::IoError(std::io::Error::new(
         std::io::ErrorKind::InvalidData,
@@ -219,6 +269,24 @@ fn css_fallbacks(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fits_within_the_largest_texture_keeping_aspect_ratio() {
+        assert_eq!(fit_within(4832, 9488, 8192), (4172, 8192));
+        assert_eq!(fit_within(9488, 4832, 8192), (8192, 4172));
+        assert_eq!(fit_within(8192, 100, 8192), (8192, 100));
+        assert_eq!(fit_within(20000, 1, 8192), (8192, 1));
+    }
+
+    #[test]
+    fn resizing_does_not_darken_edges_next_to_transparency() {
+        // Opaque white beside fully transparent black.
+        let pixels = [[255, 255, 255, 255], [0, 0, 0, 0]].repeat(2).concat();
+        let resized = resize_rgba(2, 2, &pixels, 1, 1);
+        let pixel = resized.get_pixel(0, 0).0;
+        assert_eq!(&pixel[..3], &[255, 255, 255]);
+        assert!((100..=155).contains(&pixel[3]));
+    }
+
     #[test]
     fn raster_fit_preserves_aspect_ratio_and_centers_or_crops() {
         let mut cache = ImageSources::default();
