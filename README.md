@@ -126,6 +126,12 @@ Use the files in `packages/react/examples` as starting points. They demonstrate
 text, animation, layout, dialogue, and editable project properties. The package
 is currently imported as `@celesta/react`.
 
+Syntax-highlighted code is available separately in [`@celesta/code`](packages/code/README.md).
+Build it with `pnpm --dir packages/code run build` after the React package,
+then import `Code` from `@celesta/code`. It supports TSX, TypeScript, JSON,
+Bash, typing with `useTypewriter()`, line highlights, and measured caret positions.
+It is optional and does not add highlighting dependencies to `@celesta/react`.
+
 Visual layers and groups accept `blur`, `shadow`, and `glow`. Radii and shadow
 offsets use output pixels. All three can change each frame through React props:
 
