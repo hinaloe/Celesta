@@ -123,6 +123,10 @@ produces a video that differs between preview and export.
    - For JSON projects, or to check actual pixels, run a short export with
      `--from`/`--to` and `--preset ultrafast`, then extract a still with
      `ffmpeg` if it is installed, and look at the image.
+   - To see the whole video at once, export a contact sheet (for example
+     `--every 150 --contact-sheet /tmp/sheet.png`, one labelled tile every
+     5 s at 30 fps) and look at it, then export full-size `--frame`s where
+     something looks off.
 4. **Report back.** Tell the user which file to open (File → Open…) or reload
    (JSON projects need File → Reload; React entries reload on save), what you
    verified, and what you could not verify (for example, how a font looks).
