@@ -5,7 +5,7 @@ Celesta の機能を、9 つのチャプターで紹介する 52 秒のモーシ
 和文の Noto Sans JP を 120 BPM のオリジナルスコアに合わせて展開します。
 各チャプターは見出し・日本語の説明・それを実現する API・その場で動くデモの 4 つで構成されています。
 
-- `film.tsx` — Celesta の File → Open… で開く React ソース。映像はこの 1 ファイルだけ。
+- `film.tsx` — Celesta の File → Open… で開く React ソース（エントリ）。冒頭とインデックスとアウトロは `scenes/`、9 つのチャプターは `chapters/`（`chapters/index.ts` に一覧、デモは 1 ファイル 1 チャプター）、共通部品は `components/` にあります。
 - `make-score.py` — BGM を生成する Python スクリプト。標準ライブラリのみ。
 - `poster.jpg` — 書き出した映像から抽出した静止画。
 

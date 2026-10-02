@@ -11,7 +11,7 @@ to decay beneath the closing title.
 ## Watch / edit
 
 - `afterimage.mp4` — finished film, 1920 × 1080, 30 fps, stereo.
-- `film.tsx` — open in Celesta to preview; edit in your text editor.
+- `film.tsx` — open in Celesta to preview; edit in your text editor. The entry file only sequences the scenes in `scenes/`; shared pieces live in `components/`.
 - `poster.jpg` — a rendered still from the film.
 - `make-score.py` — deterministic, original soundtrack synthesizer.
 - `render.py` — optional: exports one-second batches in parallel and joins
