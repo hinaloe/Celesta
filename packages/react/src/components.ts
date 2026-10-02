@@ -190,8 +190,28 @@ export interface PsdCharacterPortrait extends CommonProps {
    * here. When omitted the PSD renders from its own saved visibility.
    */
   layers?: string[] | string;
+  /**
+   * Named expressions. Each is the layers shown on top of `layers` (which
+   * every expression shares) — a list of layer paths, or a PSDTool layer-state
+   * string — or `{ layers, lipSync }` for a PSD whose expressions have mouths
+   * of their own. `<CharacterView expression>` and `<Dialogue expression>`
+   * pick one; otherwise `defaultExpression` is used, if given.
+   */
+  expressions?: Record<string, PsdExpression>;
+  /** The expression shown when none is picked. Must be a key of `expressions`. */
+  defaultExpression?: string;
   lipSync?: PsdCharacterLipSync;
 }
+
+/** One expression of a PSD portrait; see `PsdCharacterPortrait.expressions`. */
+export type PsdExpression =
+  | string[]
+  | string
+  | {
+      layers: string[] | string;
+      /** Replaces the portrait's `lipSync` while this expression is shown. */
+      lipSync?: PsdCharacterLipSync;
+    };
 
 export type CharacterPortrait = ImageCharacterPortrait | PsdCharacterPortrait;
 

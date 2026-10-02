@@ -13,6 +13,7 @@ import { CompositionRuntimeContext } from './hooks';
 import { TextMetricsFontsContext } from './text-measure';
 import { ProjectLayersContext, ProjectTrackLayersContext } from './project-runtime';
 import { resolveVisibleLayers } from './psd-preset';
+import type { PsdCharacterLipSync, PsdExpression } from './components';
 import { resolveComponent } from './registry';
 import { type HostNode, type RootContainer, HostReconciler, createRoot } from './reconciler';
 import type {
@@ -378,14 +379,9 @@ function buildLayer(
                 type: 'psd';
                 src: unknown;
                 layers?: string[] | string;
-                lipSync?: {
-                  a: string;
-                  i: string;
-                  u: string;
-                  e: string;
-                  o: string;
-                  closed?: string;
-                };
+                expressions?: Record<string, PsdExpression>;
+                defaultExpression?: string;
+                lipSync?: PsdCharacterLipSync;
               };
         }
       | null;
@@ -396,17 +392,28 @@ function buildLayer(
     const mouthValue = override?.mouth ?? props.mouth;
     const mouth = typeof mouthValue === 'string' ? mouthValue : undefined;
     if (portrait.type === 'psd') {
-      const selectedLayer = mouth && portrait.lipSync
+      const expressionValue = override?.expression ?? props.expression;
+      const expressionName = typeof expressionValue === 'string' ? expressionValue : portrait.defaultExpression;
+      let expression: PsdExpression | undefined;
+      if (expressionName !== undefined) {
+        expression = portrait.expressions?.[expressionName];
+        if (expression === undefined) {
+          throw new Error(`character has no expression "${expressionName}"`);
+        }
+      }
+      // An expression is its layers, or `{ layers, lipSync }` with mouths of its own.
+      const { layers: expressionLayers, lipSync: expressionLipSync } =
+        typeof expression === 'object' && !Array.isArray(expression) ? expression : { layers: expression, lipSync: undefined };
+      const lipSync = expressionLipSync ?? portrait.lipSync;
+      const selectedLayer = mouth && lipSync
         ? mouth === 'closed'
-          ? portrait.lipSync.closed
-          : portrait.lipSync[mouth as 'a' | 'i' | 'u' | 'e' | 'o']
+          ? lipSync.closed
+          : lipSync[mouth as 'a' | 'i' | 'u' | 'e' | 'o']
         : undefined;
-      const mouthLayers = portrait.lipSync ? Object.values(portrait.lipSync) : [];
-      const visibleLayers = Array.isArray(portrait.layers)
-        ? portrait.layers
-        : typeof portrait.layers === 'string'
-          ? resolveVisibleLayers(portrait.layers)
-          : [];
+      const mouthLayers = lipSync ? Object.values(lipSync) : [];
+      const layerList = (layers: string[] | string | undefined) =>
+        Array.isArray(layers) ? layers : typeof layers === 'string' ? resolveVisibleLayers(layers) : [];
+      const visibleLayers = [...new Set([...layerList(portrait.layers), ...layerList(expressionLayers)])];
       content = {
         type: 'psd',
         asset: resolveAsset(portrait.src),
