@@ -86,6 +86,13 @@ package.json          このフォルダの .ts を ES モジュールとして�
 
 WAV・MP4 と `assets/` はリポジトリに含めません。クローン後、リポジトリのルートから次の順に実行します。
 
+前提：
+
+- **Node.js 22.18 以降**（23 系なら 23.6 以降）。スクリプトは `.ts` のまま `node` で直接実行します。
+  リポジトリの README にある React の要件（Node.js 18 以降）より新しい版が必要です。
+- **packages/react のセットアップ**（ルートの README の「Use React compositions」）。`prepare-assets.ts` は
+  PSD の縮小に、packages/react が依存している `ag-psd` を使います。
+
 ```sh
 node examples/zunda/prepare-assets.ts        # 立ち絵（PSD を縮小して保存）と映像素材。ffmpeg コマンドが必要
 docker run -d -p 50021:50021 voicevox/voicevox_engine:cpu-ubuntu24.04-latest
