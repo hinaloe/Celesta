@@ -269,6 +269,25 @@ const pod = (cx: number, cy: number, length: number, angle: number): Pt[] => {
   ]);
 };
 
+// 太い縁取りの文字。Text の stroke は文字列の左右の端で切れてしまうので、
+// 縁の色で塗った同じ文字を周囲にずらして重ね、その上に本体を描く。
+function OutlinedText({ children, style, outline, color, glow, shadow, ...props }: {
+  children: string; style: TextStyle; outline: number; color: string;
+  glow?: { color: string; blur: number }; shadow?: { color: string; blur: number; offsetX: number; offsetY: number };
+  x?: number; y?: number; anchorX?: number; anchorY?: number;
+}) {
+  const ring = Array.from({ length: 32 }, (_, i) => [Math.cos((i / 32) * Math.PI * 2), Math.sin((i / 32) * Math.PI * 2)]);
+  return (
+    <Group glow={glow} shadow={shadow}>
+      {ring.map(([dx, dy], i) => (
+        <Text key={i} {...props} x={(props.x ?? 0) + dx * outline} y={(props.y ?? 0) + dy * outline}
+          style={{ ...style, fill: solid(color) }}>{children}</Text>
+      ))}
+      <Text {...props} style={style}>{children}</Text>
+    </Group>
+  );
+}
+
 // ── コードパネル ─────────────────────────────────────────────────────────
 
 type CodeStep = { at: number; lines: string[] };
@@ -425,8 +444,9 @@ function Callout({ g, at, label, color = C.white }: { g: number; at: number; lab
   const out = 1 - progress(local, 52, 18);
   return (
     <Group x={960} y={430} scale={0.6 + 0.4 * s} opacity={Math.min(s, out)}>
-      <Text anchorX={0.5} anchorY={0.5} style={{ fontFamily: F.mono, fontSize: 64, fontWeight: 700,
-        fill: solid(color), stroke: { paint: solid('#00000088'), width: 4 } }} shadow={{ color: '#00000066', blur: 18, offsetX: 0, offsetY: 8 }}>{label}</Text>
+      <OutlinedText anchorX={0.5} anchorY={0.5} outline={3} color="#00000088"
+        style={{ fontFamily: F.mono, fontSize: 64, fontWeight: 700, fill: solid(color) }}
+        shadow={{ color: '#00000066', blur: 18, offsetX: 0, offsetY: 8 }}>{label}</OutlinedText>
     </Group>
   );
 }
@@ -457,14 +477,14 @@ function EffectsStage() {
   if (g < TITLE_AT) return null;
   return (
     <Group x={930} y={470} scale={0.55 + 0.45 * s} opacity={Math.min(1, s * 1.5)}>
-      <Text y={-128} anchorX={0.5} anchorY={0.5} style={{ fontFamily: F.ja, fontSize: 56, fontWeight: 800,
-        fill: solid(C.white), stroke: { paint: solid(C.zundaDeep), width: 10 } }}>ずんだもんとめたんの</Text>
-      <Text anchorX={0.5} anchorY={0.5}
-        style={{ fontFamily: F.title, fontSize: 168, fill: solid(C.white), stroke: { paint: solid(C.zundaDeep), width: 16 } }}
+      <OutlinedText y={-128} anchorX={0.5} anchorY={0.5} outline={6} color={C.zundaDeep}
+        style={{ fontFamily: F.ja, fontSize: 56, fontWeight: 800, fill: solid(C.white) }}>ずんだもんとめたんの</OutlinedText>
+      <OutlinedText anchorX={0.5} anchorY={0.5} outline={13} color={C.zundaDeep}
+        style={{ fontFamily: F.title, fontSize: 168, fill: solid(C.white) }}
         glow={glow > 0 ? { color: alpha('#D4FF6E', glow), blur: 8 + 26 * glow * pulse } : undefined}
         shadow={shadow > 0 ? { color: alpha('#0A2A06', 0.7 * shadow), blur: 14 * shadow, offsetX: 0, offsetY: 16 * shadow } : undefined}>
         Celesta 入門
-      </Text>
+      </OutlinedText>
     </Group>
   );
 }
@@ -973,8 +993,8 @@ function OutroStage() {
           y2={330 + 1400 * Math.sin(a)} stroke="#FFFFFF" strokeWidth={60} cap="butt" opacity={0.18} />;
       })}
       <Group x={960} y={300} scale={0.5 + 0.5 * logo} opacity={Math.min(1, logo * 1.5)}>
-        <Text anchorX={0.5} anchorY={0.5} style={{ fontFamily: F.title, fontSize: 200, fill: solid(C.white),
-          stroke: { paint: solid(C.zundaDeep), width: 18 } }} glow={{ color: '#FFFFFFAA', blur: 24 }}>Celesta</Text>
+        <OutlinedText anchorX={0.5} anchorY={0.5} outline={15} color={C.zundaDeep}
+          style={{ fontFamily: F.title, fontSize: 200, fill: solid(C.white) }} glow={{ color: '#FFFFFFAA', blur: 24 }}>Celesta</OutlinedText>
       </Group>
       <TextReveal x={960} y={440} align={0.5} from={L.o1.at - SCENE_AT.outro} stagger={4} durationInFrames={22}
         style={{ fontFamily: F.ja, fontSize: 64, fontWeight: 800, lineHeight: 84, fill: solid(C.zundaDeep) }}>
