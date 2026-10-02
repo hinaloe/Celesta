@@ -72,5 +72,5 @@ copyright notices are included beside each font:
 - [IBM Plex Mono](https://github.com/google/fonts/tree/main/ofl/ibmplexmono),
   by IBM — captions.
 
-Change the palette, scene timing, projection, and text in `film.tsx`.
+Change the palette in `constants.ts`, the projection in `components/Ribbon.tsx`, and the scene timing and text in `film.tsx` and `scenes/`.
 Cut times are in frames; one beat is 15 frames at the film's 120 BPM.

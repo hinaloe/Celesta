@@ -1,8 +1,7 @@
 import type { ReactNode } from 'react';
 import { Easings, Group, Rect, useCurrentFrame } from '@celesta/react';
-import { CHAPTERS } from '.';
 import { Label } from '../components/Label';
-import { C, DURATION, DW, DX } from '../constants';
+import { C, CHAPTER_COUNT, DURATION, DW, DX } from '../constants';
 import { clamp, hash, pad, progress, timecode } from '../helpers';
 
 // ── 08 · Export: frames become a file ─────────────────────────────────────
@@ -32,7 +31,7 @@ export function ExportDemo() {
     const on = i < filled;
     const head = i === Math.floor(filled) && !done;
     // Each tile stands for a frame of this film; its marks hint at which chapter.
-    const chapter = Math.floor((i / total) * (CHAPTERS.length + 2));
+    const chapter = Math.floor((i / total) * (CHAPTER_COUNT + 2));
     tiles.push(
       <Group key={i}>
         <Rect x={x} y={y} width={tw} height={th} fill={head ? C.paper : on ? C.ink : undefined}

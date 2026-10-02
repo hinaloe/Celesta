@@ -2,11 +2,11 @@ import { Group, Rect } from '@celesta/react';
 import { Ribbon } from '../components/Ribbon';
 import { Type } from '../components/Type';
 import { Margin } from '../components/Margin';
-import { PAPER, RED } from '../constants';
+import { FPS, PAPER, RED } from '../constants';
 import { clamp, ease } from '../math';
 
 export function Study({ f }: { f: number }) {
-  const t = f / 30;
+  const t = f / FPS;
   return <>
     <Ribbon time={t} x={1270} y={540} size={430} color={PAPER} turn={0.3} />
     {['LIGHT', 'LEAVES', 'A MARK.'].map((word, i) => <Group key={word}

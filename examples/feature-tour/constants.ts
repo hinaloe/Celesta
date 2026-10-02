@@ -5,6 +5,9 @@ export const H = 1080;
 export const FPS = 30;
 export const BEAT = 15;
 export const BAR = BEAT * 4;
+// Number of feature chapters. Keep equal to CHAPTERS.length (chapters/index.ts);
+// it lives here so chapter demos need not import the registry that imports them.
+export const CHAPTER_COUNT = 9;
 
 export const C = {
   ink: '#07080C',

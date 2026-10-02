@@ -2,11 +2,11 @@ import { Rect } from '@celesta/react';
 import { Ribbon } from '../components/Ribbon';
 import { Type } from '../components/Type';
 import { Margin } from '../components/Margin';
-import { H, INK, RED, W } from '../constants';
+import { FPS, H, INK, RED, W } from '../constants';
 import { ease } from '../math';
 
 export function Title({ f }: { f: number }) {
-  const t = f / 30;
+  const t = f / FPS;
   return <>
     <Ribbon time={t} x={1370} y={510} size={420} turn={0.5} />
     <Type x={65 - 110 * (1 - ease((f - 60) / 22))} y={180} size={435} color={INK}>AFTER</Type>

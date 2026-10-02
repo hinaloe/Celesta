@@ -59,7 +59,7 @@ target/release/celesta-exporter --preset medium --crf 17 \
 ## 立ち絵と音声
 
 既存のサンプルと同じ素材を相対パスで参照しています。`prism/` を単独で移動するときは
-次の素材も一緒に移し、`film.tsx` の `PSD` / `PRESET` / `VOICE` を更新してください。
+次の素材も一緒に移し、`character.ts` の `PSD` / `PRESET` / `VOICE` を更新してください。
 
 - `../assets/illust/琴葉姉妹_SD立ち絵.psd`
 - `../assets/illust/琴葉茜.pfv`

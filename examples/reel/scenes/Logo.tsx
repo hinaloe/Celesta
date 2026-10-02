@@ -4,7 +4,6 @@ import { Label } from '../components/Label';
 import { C, H, W } from '../constants';
 import { clamp, hash, progress } from '../helpers';
 import { LOGO_SIZE, logo } from '../metrics';
-import { S } from '../timeline';
 
 export function Logo() {
   const f = useCurrentFrame();

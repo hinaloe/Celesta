@@ -62,7 +62,7 @@ Celesta-export --react examples/feature-tour/film.tsx examples/feature-tour/feat
 ## 素材
 
 立ち絵と音声は既存のサンプル素材を相対パスで参照しています。
-`feature-tour/` を単独で移動するときは次の素材も一緒に移し、`film.tsx` の `PSD` / `PRESET` / `VOICE` を更新してください。
+`feature-tour/` を単独で移動するときは次の素材も一緒に移し、`voice.ts` の `PSD` / `PRESET` / `VOICE` を更新してください。
 
 - `../assets/illust/琴葉姉妹_SD立ち絵.psd`
 - `../assets/illust/琴葉茜.pfv`

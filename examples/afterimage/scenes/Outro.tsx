@@ -1,11 +1,11 @@
 import { Group, Rect } from '@celesta/react';
 import { Ribbon } from '../components/Ribbon';
 import { Type } from '../components/Type';
-import { H, INK, RED, W } from '../constants';
+import { FPS, H, INK, RED, W } from '../constants';
 import { clamp, ease, mix } from '../math';
 
 export function Outro({ f }: { f: number }) {
-  const t = f / 30;
+  const t = f / FPS;
   return <>
     <Ribbon time={t * 0.6} x={960} y={470} size={260} opacity={0.55 * (1 - ease((f - 652) / 55))} />
     <Group opacity={ease((f - 579) / 24)}>

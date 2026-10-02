@@ -2,11 +2,11 @@ import { Rect } from '@celesta/react';
 import { Ribbon } from '../components/Ribbon';
 import { Type } from '../components/Type';
 import { Margin } from '../components/Margin';
-import { H, INK, RED, W } from '../constants';
+import { FPS, H, INK, RED, W } from '../constants';
 import { ease } from '../math';
 
 export function Echo({ f }: { f: number }) {
-  const t = f / 30;
+  const t = f / FPS;
   return <>
     {[0, 1, 2].map(i => <Ribbon key={i} time={t - i * 0.35}
       x={960 + (i - 1) * (180 + 400 * (1 - ease((f - 420) / 100)))}
