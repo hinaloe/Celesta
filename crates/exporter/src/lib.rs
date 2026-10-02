@@ -1,5 +1,6 @@
 //! Frame-exact project export through the shared evaluator and renderers.
 
+mod contact_sheet;
 mod stills;
 
 use std::collections::{BTreeMap, HashSet};
@@ -23,6 +24,7 @@ use celesta_composition::{
 use celesta_evaluator::{EvaluationError, Evaluator};
 use celesta_gpu_renderer::{GpuRenderError, GpuRenderOptions, GpuRenderer, ReadbackFormat};
 pub use celesta_gpu_renderer::{RenderQuality, UnknownRenderQuality};
+pub use stills::{ContactSheet, FrameSelection, MAX_PNG_FRAMES, PngExport};
 use celesta_media::{AudioMixError, FfmpegBackend, mix_audio_graph_cancellable};
 use celesta_project::{LoadError, Project, TimelineContent};
 use celesta_react_bridge::{

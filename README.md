@@ -26,7 +26,7 @@ for more examples, see the [examples directory](examples) and the [gallery](docs
 - **Check audio:** see waveforms and track levels, mute or solo tracks, and
   set the preview volume.
 - **Create character dialogue:** combine portraits, expressions, subtitles,
-  voice recordings, and lip-sync cues.
+  voice recordings, lip-sync cues, and blinking.
 - **Compose with React:** use components, hooks, animation helpers, and layouts
   to build scenes, and combine React content with a project timeline. The
   preview reloads when you save the composition.
@@ -165,6 +165,16 @@ Export a project:
 cargo run -p celesta-exporter --release -- examples/editor-demo.celesta.json output.mp4
 ```
 
+In a terminal, exports show a [Ratatui](https://github.com/ratatui/ratatui)
+dashboard with a timed pipeline, rendered-frame progress, a throughput history
+graph, FPS, elapsed time, estimated rendering time remaining, export settings,
+and warnings. Smaller terminals use a compact layout. The dashboard stays
+in your terminal's scrollback after the export finishes. The rendering bar
+can reach 100% while audio mixing and MP4 muxing are still running.
+
+Use `--no-ui` for text progress. Redirected output, CI without a terminal,
+and `TERM=dumb` automatically use text progress without terminal control codes.
+
 Export a React composition after completing the React setup:
 
 ```sh
@@ -192,6 +202,17 @@ on the GPU. The exporter then reads less data back from the GPU, and the
 encoder has less work to do. `--color-conversion encoder` does the conversion
 in the encoder instead, which is how software renderers are always handled.
 `--color-conversion gpu` forces the GPU conversion.
+
+To check frames as PNG instead of encoding a video, select zero-based frames
+with `--frame`/`--frames`, or every *n*th frame (plus the last one) with
+`--every`, which can be narrowed with `--from`/`--to`. Add `--contact-sheet`
+to lay the selection out as labelled tiles on one image (`--columns`,
+`--tile-width`):
+
+```sh
+cargo run -p celesta-exporter --release -- --frames 0,90 examples/editor-demo.celesta.json check.png
+cargo run -p celesta-exporter --release -- --every 60 --contact-sheet examples/editor-demo.celesta.json sheet.png
+```
 
 ## Use with AI agents
 
