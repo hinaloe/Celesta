@@ -1669,6 +1669,7 @@ impl GpuRenderer {
                 disabled_layers,
             } => {
                 let path = self.local_asset_path(asset)?;
+                let density = f64::from(state.transform.stretch().0);
                 let image = self
                     .psd_sources
                     .render_within(
@@ -1677,7 +1678,7 @@ impl GpuRenderer {
                         visible_layers,
                         enabled_layers,
                         disabled_layers,
-                        f64::from(state.transform.stretch().0),
+                        density,
                         self.max_texture_dimension,
                     )
                     .map_err(GpuRenderError::Psd)?;
@@ -1689,9 +1690,13 @@ impl GpuRenderer {
                 state.transform.c *= y;
                 state.transform.d *= y;
                 let texture = self.cached_texture(
+                    // Keyed like the composite: a composite shrunk to the
+                    // limit can match another level's size with other pixels.
                     format!(
-                        "{}\0{}x{}",
+                        "{}\0{}\0{}\0{}x{}",
                         psd_key(asset, visible_layers, enabled_layers, disabled_layers),
+                        celesta_renderer::psd_source::level_for(density),
+                        self.max_texture_dimension,
                         image.width,
                         image.height
                     ),
@@ -5440,6 +5445,50 @@ mod tests {
             renderer.render(&scene),
             Err(GpuRenderError::InvalidImageData { .. })
         ));
+    }
+
+    #[test]
+    fn keeps_psd_composites_of_different_levels_apart_at_the_same_size() {
+        let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+            return;
+        };
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/assets/lipsync-fixture.psd");
+        renderer.max_texture_dimension = 80;
+        let portrait = |id: &str, scale: f64| Layer {
+            id: id.to_owned(),
+            transform: EvaluatedTransform {
+                position: Point { x: 120.0, y: 160.0 },
+                scale: Point { x: scale, y: scale },
+                ..EvaluatedTransform::default()
+            },
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            effects: Default::default(),
+            content: LayerContent::Psd {
+                asset: ResolvedAsset {
+                    id: "fixture".to_owned(),
+                    location: AssetLocation::File {
+                        path: fixture.to_string_lossy().into_owned(),
+                    },
+                },
+                visible_layers: vec!["body".to_owned(), "body/base".to_owned()],
+                enabled_layers: Vec::new(),
+                disabled_layers: Vec::new(),
+            },
+        };
+        // At full size the 240x320 canvas is composited at 120x160 and
+        // shrunk to 60x80; at a quarter it is composited at 60x80 directly.
+        let mut scene = empty_scene(240, 320);
+        scene.layers = vec![portrait("full", 1.0), portrait("quarter", 0.25)];
+        renderer.render(&scene).unwrap();
+        assert_eq!(renderer.textures.len(), 2);
+        assert!(
+            renderer
+                .textures
+                .values()
+                .all(|cached| (cached.texture.width, cached.texture.height) == (60, 80))
+        );
     }
 
     #[test]
