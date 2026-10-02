@@ -1,58 +1,43 @@
 // 画面の隅に出す「いま足したコード」のパネル。段階（step）ごとに行が増え、
 // いちばん新しい段階は 1 文字ずつ打ち込まれて、しばらく緑に光る。
 //
-// 色分けは見た目のための簡単な字句分割で、構文解析ではない。
+// 色分けは @celesta/code の <Code>。打ち込みの途中でも、完成したコードを一度だけ
+// 字句分割した色のまま、先頭から `visibleCharacters` 文字だけを見せる。
 
 import { Easings, Group, Rect, Text, progress } from '@celesta/react';
+import { Code, codeThemes } from '@celesta/code';
+import type { CodeLanguage, CodeTheme } from '@celesta/code';
 
-import { COLOR, FONT, MONO_ADVANCE, solid } from '../theme.ts';
+import { COLOR, FONT, solid } from '../theme.ts';
 
 /** `at` フレームから `lines` が打ち込まれる。前の段階の行の下に足される。 */
 export type CodeStep = { at: number; lines: string[] };
 
-const FONT_SIZE = 21;
-const LINE_HEIGHT = 31;
+const STYLE = { fontFamily: FONT.mono, fontSize: 21, fontWeight: 500, lineHeight: 31 } as const;
 /** 1 フレームに打ち込む文字数 */
 const TYPING_SPEED = 1.8;
 /** 足した行を光らせておくフレーム数 */
 const HIGHLIGHT_FRAMES = 50;
 
-// 文字列 / タグ / 属性名（直後が = か :）/ 数 / 空白 / 記号 / それ以外の語。
-const TOKEN = /("[^"]*"?|'[^']*'?|<\/?[A-Za-z]+|\/?>|[A-Za-z_]+(?=[=:])|-?\d+(?:\.\d+)?|\s+|[{}()[\],;=:]|[^\s"'{}()[\],;=:<>\d]+|.)/g;
-
-function tokenColor(token: string, next: string): string {
-  if (/^["']/.test(token)) return COLOR.string;
-  if (/^<\/?[A-Za-z]/.test(token) || /^\/?>$/.test(token)) return COLOR.tag;
-  if (/^[A-Za-z_]+$/.test(token) && /^[=:]/.test(next)) return COLOR.attribute;
-  if (/^-?\d/.test(token)) return COLOR.number;
-  if (/^[{}()[\],;=:]$/.test(token)) return COLOR.mute;
-  return COLOR.code;
-}
-
-function CodeLine({ text }: { text: string }) {
-  const tokens = text.match(TOKEN) ?? [];
-  let column = 0;
-  return (
-    <>
-      {tokens.map((token, i) => {
-        const x = column * FONT_SIZE * MONO_ADVANCE;
-        column += [...token].length;
-        if (!token.trim()) return null;
-        return (
-          <Text key={i} x={x} anchorY="baseline"
-            style={{ fontFamily: FONT.mono, fontSize: FONT_SIZE, fontWeight: 500, fill: solid(tokenColor(token, tokens[i + 1] ?? '')) }}>
-            {token}
-          </Text>
-        );
-      })}
-    </>
-  );
-}
+/** 動画全体の色に合わせたテーマ。トークンの名前は @celesta/code（twinkleplop）のもの。 */
+const THEME: CodeTheme = {
+  foreground: COLOR.code,
+  highlightLine: '#7CC24230',
+  tokens: {
+    ...codeThemes.dark.tokens,
+    string: COLOR.string, template: COLOR.string,
+    number: COLOR.number, boolean: COLOR.number, constant: COLOR.number,
+    tag_name: COLOR.tag, keyword: COLOR.tag,
+    attr_name: COLOR.attribute, property: COLOR.attribute,
+    punctuation: COLOR.mute, operator: COLOR.mute,
+  },
+};
 
 export type CodePanelProps = {
   /** 動画全体のフレーム（`steps` の `at` と同じ基準） */
   frame: number;
   steps: CodeStep[];
+  language?: CodeLanguage;
   x?: number;
   y?: number;
   width?: number;
@@ -62,22 +47,33 @@ export type CodePanelProps = {
   maxRows?: number;
 };
 
-export function CodePanel({ frame, steps, x = 40, y = 36, width = 660, title = 'film.tsx', maxRows = 9 }: CodePanelProps) {
+const codePoints = (text: string) => [...text].length;
+
+export function CodePanel({
+  frame, steps, language = 'tsx', x = 40, y = 36, width = 660, title = 'film.tsx', maxRows = 9,
+}: CodePanelProps) {
   const started = steps.filter((step) => frame >= step.at);
   if (started.length === 0) return null;
 
-  const rows: { text: string; fresh: boolean }[] = [];
-  started.forEach((step, i) => {
-    const latest = i === started.length - 1;
-    let typed = latest ? Math.floor((frame - step.at) * TYPING_SPEED) : Number.POSITIVE_INFINITY;
-    for (const text of step.lines) {
-      if (typed <= 0) break;
-      rows.push({ text: text.slice(0, typed), fresh: latest && frame - step.at < HIGHLIGHT_FRAMES });
-      typed -= text.length;
-    }
-  });
-  const visible = rows.slice(-maxRows);
-  const height = 62 + visible.length * LINE_HEIGHT + 14;
+  // 始まった段階の行をすべて 1 つのソースにする。前の段階は打ち終わっていて、
+  // いちばん新しい段階だけが途中まで打たれている。
+  const latest = started[started.length - 1];
+  const earlier = started.slice(0, -1).flatMap((step) => step.lines);
+  const lines = [...earlier, ...latest.lines];
+  const typed = Math.floor((frame - latest.at) * TYPING_SPEED);
+  const visibleCharacters = (earlier.length > 0 ? codePoints(earlier.join('\n')) + 1 : 0) + typed;
+
+  // 打ち始めた行の数（行の先頭が見えている行）
+  let rows = 0;
+  for (let offset = 0; rows < lines.length && offset < visibleCharacters; rows++) {
+    offset += codePoints(lines[rows]) + 1;
+  }
+  const scrolled = Math.max(0, rows - maxRows);
+  const fresh = frame - latest.at < HIGHLIGHT_FRAMES
+    ? Array.from({ length: rows - earlier.length }, (_, i) => earlier.length + i + 1)
+    : [];
+
+  const height = 62 + Math.min(rows, maxRows) * STYLE.lineHeight + 14;
   const appear = progress(frame, steps[0].at, 14, Easings.easeOutCubic);
 
   return (
@@ -91,14 +87,13 @@ export function CodePanel({ frame, steps, x = 40, y = 36, width = 660, title = '
         style={{ fontFamily: FONT.mono, fontSize: 16, fill: solid(COLOR.mute) }}>
         {title}
       </Text>
-      {visible.map((row, i) => (
-        <Group key={i} y={56 + i * LINE_HEIGHT}>
-          {row.fresh && <Rect width={width} height={LINE_HEIGHT} fill="#7CC24230" />}
-          <Group x={24} y={22}>
-            <CodeLine text={row.text} />
-          </Group>
-        </Group>
-      ))}
+      {/* 古い行は上に流す。パネルの外に出た分は切り取る */}
+      <Group y={56} clip={{ width, height: Math.min(rows, maxRows) * STYLE.lineHeight }}>
+        <Code x={24} y={-scrolled * STYLE.lineHeight} language={language} style={STYLE} theme={THEME}
+          visibleCharacters={visibleCharacters} highlightLines={fresh}>
+          {lines.join('\n')}
+        </Code>
+      </Group>
     </Group>
   );
 }

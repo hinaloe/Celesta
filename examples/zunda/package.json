@@ -1,4 +1,7 @@
 {
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@celesta/code": "link:../../packages/code"
+  }
 }

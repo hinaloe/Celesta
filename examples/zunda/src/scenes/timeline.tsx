@@ -152,7 +152,7 @@ function LowerThird() {
 function Overlay() {
   const frame = useFilmFrame('timeline');
   return (
-    <CodePanel frame={frame} title="project.celesta.json" width={620} maxRows={10} steps={[{ at: line('t1').at + 6, lines: [
+    <CodePanel frame={frame} language="json" title="project.celesta.json" width={620} maxRows={10} steps={[{ at: line('t1').at + 6, lines: [
       '{ "id": "broll",',
       '  "range": {',
       '    "start": { "value": 2, "timescale": 1 },',
