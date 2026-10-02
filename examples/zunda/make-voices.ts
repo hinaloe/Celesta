@@ -1,7 +1,7 @@
 // script.ts の各行を VOICEVOX Engine で読み上げて voices/<id>.wav を作り、
 // 読みがな（口パク用）と長さを voices.json に書き出す。
 //
-//   docker run -d -p 50021:50021 voicevox/voicevox_engine:cpu-ubuntu20.04-latest
+//   docker run -d -p 50021:50021 voicevox/voicevox_engine:cpu-ubuntu24.04-latest
 //   node examples/zunda/make-voices.ts
 //
 // VOICEVOX_URL で Engine の場所を変えられる。既にある WAV は、台本の
