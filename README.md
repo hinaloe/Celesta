@@ -203,6 +203,17 @@ encoder has less work to do. `--color-conversion encoder` does the conversion
 in the encoder instead, which is how software renderers are always handled.
 `--color-conversion gpu` forces the GPU conversion.
 
+To check frames as PNG instead of encoding a video, select zero-based frames
+with `--frame`/`--frames`, or every *n*th frame (plus the last one) with
+`--every`, which can be narrowed with `--from`/`--to`. Add `--contact-sheet`
+to lay the selection out as labelled tiles on one image (`--columns`,
+`--tile-width`):
+
+```sh
+cargo run -p celesta-exporter --release -- --frames 0,90 examples/editor-demo.celesta.json check.png
+cargo run -p celesta-exporter --release -- --every 60 --contact-sheet examples/editor-demo.celesta.json sheet.png
+```
+
 ## Use with AI agents
 
 [`skills/celesta`](skills/celesta) is an [Agent Skill](https://agentskills.io)
