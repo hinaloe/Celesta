@@ -9,29 +9,34 @@ import type { PsdCharacterLipSync, PsdCharacterPortrait, PsdExpression } from '@
 import type { MetanFace, ZundaFace } from '../../script.ts';
 import { ASSET } from '../theme.ts';
 
-/** 1 つの表情：目を開けているとき・まばたき中のレイヤーと、口パクの口。 */
+/** 1 つの表情：目以外の顔のレイヤー、目（開・閉）、口パクの口。 */
 type PsdFace = {
   /** 声のシーンの表で見せる名前 */
   label: string;
-  open: string[];
-  blink: string[];
+  /** 目以外に見せるレイヤー（眉、涙、「？」など） */
+  layers: string[];
+  /** まばたきで切り替える目。表情ごとに目のレイヤーが違うので、表情ごとに持つ */
+  eyes: { open: string[]; closed: string[] };
   mouth: PsdCharacterLipSync;
 };
 
-/** まばたき中の表情の名前。表情ごとに目のレイヤーが違うので、表情と対にして持つ。 */
-export const blinkOf = (expression: string) => `${expression}:blink`;
-
 /**
- * 表情の表から PSD 立ち絵を作る。`shared` はどの表情でも見せるレイヤー（体など）。
- * 各表情は、目を開けた版と、まばたき中の版（`blinkOf(name)`）の 2 つになる。
+ * 表情の表から PSD 立ち絵を作る。`shared` はどの表情でも見せるレイヤー（体など）、
+ * `defaultExpression` は表情を指定しないときの表情。
+ * まばたきは Celesta に任せる（表情ごとの `blink` に目のレイヤーを渡すと、
+ * フレーム番号から決まる間隔で目を閉じる）。
  */
-function psdPortrait(src: string, shared: string[], faces: Record<string, PsdFace>): PsdCharacterPortrait {
+function psdPortrait<Face extends string>(
+  src: string,
+  shared: string[],
+  faces: Record<Face, PsdFace>,
+  defaultExpression: NoInfer<Face>,
+): PsdCharacterPortrait {
   const expressions: Record<string, PsdExpression> = {};
-  for (const [name, face] of Object.entries(faces)) {
-    expressions[name] = { layers: face.open, lipSync: face.mouth };
-    expressions[blinkOf(name)] = { layers: face.blink, lipSync: face.mouth };
+  for (const [name, face] of Object.entries<PsdFace>(faces)) {
+    expressions[name] = { layers: [...face.layers, ...face.eyes.open], lipSync: face.mouth, blink: face.eyes };
   }
-  return { type: 'psd', src, layers: shared, expressions, defaultExpression: Object.keys(faces)[0] };
+  return { type: 'psd', src, layers: shared, expressions, defaultExpression };
 }
 
 // ── ずんだもん（公式 PSD）────────────────────────────────────────────────
@@ -48,11 +53,10 @@ function zundaFace(
 ): PsdFace {
   const inFolder = (name: string) => `${folder}/${name}`;
   const mouth = (name: string) => inFolder(`${mouthFolder}/${name}`);
-  const face = extra.map(inFolder);
   return {
     label,
-    open: [...face, inFolder(eyes.open)],
-    blink: [...face, inFolder(eyes.closed)],
+    layers: extra.map(inFolder),
+    eyes: { open: [inFolder(eyes.open)], closed: [inFolder(eyes.closed)] },
     mouth: {
       a: mouth(mouths.a ?? `あ${mouths.suffix}`),
       i: mouth(`い${mouths.suffix}`),
@@ -80,7 +84,7 @@ export const ZUNDA_FACES: Record<ZundaFace, PsdFace> = {
 };
 
 /** ずんだもんは 1 つの PSD に全部の表情が入っているので、立ち絵は 1 つ。 */
-export const ZUNDA_PORTRAIT = psdPortrait(ASSET.zunda, ['ベース'], ZUNDA_FACES);
+export const ZUNDA_PORTRAIT = psdPortrait(ASSET.zunda, ['ベース'], ZUNDA_FACES, 'normal');
 
 // ── 四国めたん（公式 SD 立ち絵）─────────────────────────────────────────
 // ポーズごとに別の PSD なので、ポーズごとに立ち絵を作って差し替える。
@@ -91,19 +95,19 @@ function twoStateMouth(open: string, closed: string): PsdCharacterLipSync {
 }
 
 const METAN_FACES: Record<MetanFace, PsdFace> = {
-  talk: { label: 'おしゃべり', open: ['レイヤー 112 のコピー'], blink: ['せん 3'],
+  talk: { label: 'おしゃべり', layers: [], eyes: { open: ['レイヤー 112 のコピー'], closed: ['せん 3'] },
     mouth: twoStateMouth('2 のコピー', '1 のコピー') },
-  happy: { label: 'にっこり', open: ['目あけ'], blink: ['目とじ'],
+  happy: { label: 'にっこり', layers: [], eyes: { open: ['目あけ'], closed: ['目とじ'] },
     mouth: twoStateMouth('口あけ', '口とじ') },
-  worried: { label: 'しょんぼり', open: ['目開け', '涙/レイヤー 17'], blink: ['目閉じ', '涙/レイヤー 17'],
+  worried: { label: 'しょんぼり', layers: ['涙/レイヤー 17'], eyes: { open: ['目開け'], closed: ['目閉じ'] },
     mouth: twoStateMouth('口/開け', '口/閉じ') },
-  what: { label: 'はてな', open: ['？', '目開け'], blink: ['？', '目閉じ'],
+  what: { label: 'はてな', layers: ['？'], eyes: { open: ['目開け'], closed: ['目閉じ'] },
     mouth: twoStateMouth('口/あけ', '口/とじ') },
 };
 
 export const METAN_PORTRAITS = Object.fromEntries(
   (Object.keys(METAN_FACES) as MetanFace[]).map((pose) => [
     pose,
-    psdPortrait(ASSET.metan[pose], [], { [pose]: METAN_FACES[pose] }),
+    psdPortrait(ASSET.metan[pose], [], { [pose]: METAN_FACES[pose] }, pose),
   ]),
 ) as Record<MetanFace, PsdCharacterPortrait>;
