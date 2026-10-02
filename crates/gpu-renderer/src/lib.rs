@@ -302,7 +302,7 @@ pub struct GpuRenderer {
     /// Bound for draws that shade their content (rects) instead of sampling.
     placeholder_texture: LayerTexture,
     asset_root: PathBuf,
-    images: HashMap<String, DecodedImage>,
+    psd_sources: celesta_renderer::psd_source::PsdSources,
     image_sources: celesta_renderer::image_source::ImageSources,
     video_decoder: Option<Box<dyn VideoFrameDecoder>>,
     text_rasterizer: TextRasterizer,
@@ -501,7 +501,7 @@ impl GpuRenderer {
             clip_entries: Vec::new(),
             placeholder_texture,
             asset_root: PathBuf::from("."),
-            images: HashMap::new(),
+            psd_sources: Default::default(),
             image_sources: Default::default(),
             video_decoder: None,
             text_rasterizer: TextRasterizer::new(),
@@ -1631,14 +1631,34 @@ impl GpuRenderer {
                 enabled_layers,
                 disabled_layers,
             } => {
+                let path = self.local_asset_path(asset)?;
+                let image = self
+                    .psd_sources
+                    .render(
+                        &asset.id,
+                        &path,
+                        visible_layers,
+                        enabled_layers,
+                        disabled_layers,
+                        f64::from(state.transform.stretch().0),
+                    )
+                    .map_err(GpuRenderError::Psd)?;
+                let mut state = state;
+                let x = (f64::from(image.canvas_width) / f64::from(image.width)) as f32;
+                let y = (f64::from(image.canvas_height) / f64::from(image.height)) as f32;
+                state.transform.a *= x;
+                state.transform.b *= x;
+                state.transform.c *= y;
+                state.transform.d *= y;
                 let texture = self.cached_texture(
-                    psd_key(asset, visible_layers, enabled_layers, disabled_layers),
+                    format!(
+                        "{}\0{}x{}",
+                        psd_key(asset, visible_layers, enabled_layers, disabled_layers),
+                        image.width,
+                        image.height
+                    ),
                     true,
-                    |renderer| {
-                        renderer
-                            .load_psd(asset, visible_layers, enabled_layers, disabled_layers)
-                            .cloned()
-                    },
+                    |_| DecodedImage::shared(image.width, image.height, image.pixels.clone()),
                 )?;
                 output.push(PreparedItem::Layer(PreparedLayer::new(
                     texture,
@@ -1924,30 +1944,6 @@ impl GpuRenderer {
         self.clip_entries
             .push(ClipEntry::new(clip, state.transform, state.clip, depth));
         Ok(index)
-    }
-
-    fn load_psd(
-        &mut self,
-        asset: &ResolvedAsset,
-        visible_layers: &[String],
-        enabled_layers: &[String],
-        disabled_layers: &[String],
-    ) -> Result<&DecodedImage, GpuRenderError> {
-        let key = psd_key(asset, visible_layers, enabled_layers, disabled_layers);
-        if !self.images.contains_key(&key) {
-            let path = self.local_asset_path(asset)?;
-            let frame = celesta_renderer::rasterize_psd(
-                &asset.id,
-                &path,
-                visible_layers,
-                enabled_layers,
-                disabled_layers,
-            )
-            .map_err(GpuRenderError::Psd)?;
-            let image = DecodedImage::new(frame.width(), frame.height(), frame.pixels().to_vec())?;
-            self.images.insert(key.clone(), image);
-        }
-        Ok(self.images.get(&key).expect("PSD image was cached"))
     }
 
     fn local_asset_path(&self, asset: &ResolvedAsset) -> Result<PathBuf, GpuRenderError> {
