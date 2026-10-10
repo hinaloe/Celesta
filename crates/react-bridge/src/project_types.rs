@@ -69,7 +69,7 @@ pub fn initialize_project(template: &Path, root: &Path) -> io::Result<ProjectTyp
     )?;
     write_new(
         &setup.root.join("film.tsx"),
-        include_str!("../templates/film.tsx"),
+        include_str!("../../../templates/blank/film.tsx"),
     )?;
     write_new(
         &setup.root.join(".gitignore"),

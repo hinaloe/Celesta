@@ -85,6 +85,7 @@ jobs:
       - name: Test Celesta packages
         run: |
           pnpm run test:runtime
+          pnpm --dir templates test
           pnpm --dir packages/code run check:examples
 
       - name: Test @celesta/website
