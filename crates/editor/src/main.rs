@@ -3,8 +3,7 @@
 use crate::icons::CelestaAssets;
 use celesta_editor_theme as theme;
 use celesta_react_bridge::{
-    ProjectTsconfig, initialize_project, project_types_template,
-    runtime_paths as react_runtime_paths,
+    ProjectTsconfig, initialize_project, runtime_paths as react_runtime_paths,
 };
 use clap::Parser;
 use gpui_kit::base::GlobalState;
@@ -70,7 +69,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let args = cli::Args::parse();
     if let Some(directory) = args.init {
         let (_, cli_script) = react_runtime_paths();
-        let setup = initialize_project(&project_types_template(&cli_script), &directory)?;
+        let setup = initialize_project(&cli_script, &directory, None)?.types;
         println!("Initialized Celesta project in {}", setup.root.display());
         if setup.tsconfig == ProjectTsconfig::MissingExtends {
             eprintln!(

@@ -74,7 +74,7 @@ impl EditorView {
                 .background_executor()
                 .spawn(async move {
                     let (_, cli_script) = react_runtime_paths();
-                    initialize_project(&project_types_template(&cli_script), &folder)
+                    initialize_project(&cli_script, &folder, None).map(|setup| setup.types)
                 })
                 .await;
             view.update_in(cx, |this, window, cx| {
