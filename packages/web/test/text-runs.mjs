@@ -11,6 +11,7 @@ const { build } = require('esbuild');
 const directory = mkdtempSync(join(tmpdir(), 'celesta-web-text-'));
 // A font every machine has: the repository's IBM Plex Mono, loaded as a web font.
 const plexMono = readFileSync(new URL('../../../examples/afterimage/assets/fonts/IBMPlexMono-Regular.ttf', import.meta.url)).toString('base64');
+const bebasNeue = readFileSync(new URL('../../../examples/afterimage/assets/fonts/BebasNeue-Regular.ttf', import.meta.url)).toString('base64');
 try {
   const module = fileURLToPath(new URL('../src/scene-canvas.ts', import.meta.url));
   const { outputFiles } = await build({ stdin: { contents: `
@@ -90,6 +91,23 @@ try {
         'text before a font run moved or changed ' + JSON.stringify([boldBefore, plainBefore]));
       const monoRun = await raster('AV office', { ...base, fontRuns: [{ start: 3, end: 9, fontFamily: 'Celesta Test Mono' }] });
       check(monoRun.some((n, i) => n !== plainRuns[i]), 'a family run drew the text font');
+      // A font stack skips a family with no face, and draws each character
+      // with the first family that has it: Bebas Neue has no Cyrillic, so Б
+      // comes from Plex Mono as a run in it would draw it.
+      const skipped = await raster('AV office', { ...base, fontFamily: ['Celesta Missing Family', 'Celesta Test Mono'] });
+      const monoOnly = await raster('AV office', { ...base, fontFamily: 'Celesta Test Mono' });
+      check(monoOnly.every((n, i) => n === skipped[i]), 'a stack did not skip a family with no face');
+      const displayFont = new FontFace('Celesta Test Display', 'url(data:font/ttf;base64,${bebasNeue})');
+      document.fonts.add(await displayFont.load());
+      const stacked = await raster('AБ AБ', { ...base, fontFamily: ['Celesta Test Display', 'Celesta Test Mono'] });
+      const spannedStack = await raster('AБ AБ', { ...base, fontFamily: 'Celesta Test Display',
+        fontRuns: [{ start: 1, end: 2, fontFamily: 'Celesta Test Mono' }, { start: 4, end: 5, fontFamily: 'Celesta Test Mono' }] });
+      let stackDiff = 0, stackInk = 0;
+      for (let i = 3; i < stacked.length; i += 4) {
+        if (stacked[i] > 0 || spannedStack[i] > 0) stackInk++;
+        if (Math.abs(stacked[i] - spannedStack[i]) > 32) stackDiff++;
+      }
+      check(stackInk > 0 && stackDiff / stackInk < 0.05, 'a stack drew its families unlike runs in them: ' + stackDiff + '/' + stackInk);
       // A line no run reaches is drawn exactly as without runs.
       const direct = await raster('AV\\noffice', base);
       const secondLineRun = await raster('AV\\noffice', { ...base, fontRuns: [{ start: 3, end: 9, fontWeight: 700 }] });
