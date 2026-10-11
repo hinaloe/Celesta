@@ -26,6 +26,14 @@ pub struct Args {
     #[arg(long, value_name = "DIRECTORY", num_args = 0..=1, default_missing_value = ".")]
     pub init: Option<PathBuf>,
 
+    /// Template to initialize from (see --list-templates); refuses to overwrite its files.
+    #[arg(long, value_name = "NAME", requires = "init")]
+    pub template: Option<String>,
+
+    /// List the templates --init --template accepts, then exit.
+    #[arg(long, conflicts_with_all = ["path", "init", "props", "props_file"])]
+    pub list_templates: bool,
+
     /// Graphics API to render the preview and exports with; auto takes the
     /// first one with a GPU.
     #[arg(
@@ -60,6 +68,28 @@ mod tests {
             parse(&["--", "-film.tsx"]).unwrap().path,
             Some("-film.tsx".into())
         );
+    }
+
+    #[test]
+    fn parses_templates() {
+        assert_eq!(
+            parse(&["--init", "v", "--template", "slideshow"])
+                .unwrap()
+                .template
+                .as_deref(),
+            Some("slideshow")
+        );
+        assert_eq!(
+            parse(&["--template", "slideshow"]).unwrap_err().kind(),
+            ErrorKind::MissingRequiredArgument
+        );
+        assert!(parse(&["--list-templates"]).unwrap().list_templates);
+        for args in [
+            &["--list-templates", "film.tsx"][..],
+            &["--list-templates", "--init"],
+        ] {
+            assert_eq!(parse(args).unwrap_err().kind(), ErrorKind::ArgumentConflict);
+        }
     }
 
     #[test]
