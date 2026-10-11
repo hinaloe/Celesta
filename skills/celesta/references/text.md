@@ -89,7 +89,7 @@ See [`examples/rich-text`](../../../examples/rich-text/film.tsx).
 
 ```ts
 type TextStyle = {
-  fontFamily?: string | string[];  // installed family, or one loaded with <Font>; a list is a font stack
+  fontFamily?: string | readonly string[];  // installed family, or one loaded with <Font>; a list is a font stack
   fontSize?: number;       // px, > 0
   fontWeight?: number;     // 100–900
   fill?: Paint;                                   // { type: 'solid', color } or a gradient

@@ -223,8 +223,9 @@ pub struct TextFontRun {
 #[serde(untagged)]
 pub enum FontFamily {
     Name(String),
-    /// Never empty.
-    Stack(Vec<String>),
+    /// Never empty. Read-only in TypeScript, so a stack declared `as const`
+    /// fits too.
+    Stack(#[cfg_attr(feature = "codegen", ts(type = "ReadonlyArray<string>"))] Vec<String>),
 }
 
 impl FontFamily {

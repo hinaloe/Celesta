@@ -21,7 +21,7 @@ export type PathCommand =
   | { type: 'cubicTo'; x1: number; y1: number; x2: number; y2: number; x: number; y: number }
   | { type: 'close' };
 /** A family name, or a font stack tried in order. */
-export type FontFamily = string | string[];
+export type FontFamily = string | readonly string[];
 export type FontRun = { start: number; end: number; fontWeight?: number | null; fontFamily?: FontFamily | null };
 export type TextStyle = {
   lang?: string | null;
