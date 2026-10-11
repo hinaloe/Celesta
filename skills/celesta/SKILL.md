@@ -141,8 +141,10 @@ produces a video that differs between preview and export.
      a React entry exactly like Celesta does, runs `prepare()`, evaluates
      frames, and reports every layer, audio clip, and missing media file.
      Entries that measure text (`useTextMetrics`, `TextBox`, `fitText`,
-     `@celesta/code`, …) need `--native <Celesta-export>`; without it those
-     frames report `UNSUPPORTED inspection` and exit code 2
+     `@celesta/code`, …) are evaluated through the exporter, which it finds
+     in the usual install and build locations or takes from
+     `--native <Celesta-export>`; without one those frames report
+     `UNSUPPORTED inspection` and exit code 2
      ([verify.md](references/verify.md#measured-text---native)).
    - If the project has a `tsconfig.json` extending `./.celesta/tsconfig.json`,
      type-check with `npx tsc --noEmit -p .` (or `pnpm typecheck`).

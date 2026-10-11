@@ -123,10 +123,9 @@ Pass the same `style` and `tabSize` you give `Code`.
 
 ## Limits
 
-- `Code` measures text, so check an entry that uses it with
-  `scripts/inspect.mjs --native <Celesta-export>`
-  ([verify.md](verify.md#measured-text---native)); plain `inspect.mjs`
-  reports those frames as `UNSUPPORTED inspection`. Check how it looks with
+- `Code` measures text, so `scripts/inspect.mjs` checks an entry that uses
+  it through the exporter ([verify.md](verify.md#measured-text---native));
+  without one it reports those frames as `UNSUPPORTED inspection`. Check how it looks with
   a PNG frame export ([verify.md](verify.md#look-at-real-frames)).
 - Each color run is its own `Text` layer. Ligatures, kerning, and combining
   clusters across color boundaries are not shaped as one run; use a
