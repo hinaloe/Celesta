@@ -61,10 +61,17 @@ libx264, which picks the High 10 profile. PNG output rejects `--bit-depth
   (`rgba64le`, 8 bytes per pixel) from `quantize.wgsl`'s `rgba16` into an
   `Rgba16Uint` texture, without a dither; libswscale converts it to
   `yuv420p10le`.
-- libx264 must be built for 10 bits (x264's default, `--bit-depth=all`).
-  Homebrew's FFmpeg 8 lists `yuv420p10le` for libx264; the Linux script's
-  Ubuntu `libx264-dev` and vcpkg's port were not checked. An 8-bit-only
-  x264 fails when the encoder opens.
+- libx264 must be built for 10 bits; an 8-bit-only x264 fails when the
+  encoder opens. Every build Celesta links is:
+  - macOS: Homebrew's FFmpeg 8 lists `yuv420p10le` among libx264's formats.
+  - Linux (CI, `scripts/build-ffmpeg-linux.sh`, `packaging/linux`): Ubuntu's
+    `libx264-dev` defines `X264_BIT_DEPTH 0` (all depths) in
+    `x264_config.h`, both 24.04's 0.164.3108+git31e19f9-2build2 and the
+    later 0.165.3223 package. The Docker image's runtime `libx264-164` comes
+    from the same source package. CI's Linux job runs the 10-bit
+    integration test (GPU and encoder conversions) through it.
+  - Windows (vcpkg 2026.07.29, x264 0.164.3108): the port passes no
+    `--bit-depth`, so x264's configure default `all` applies.
 
 On the same example (frame 5 of `--from 0.5 --to 1`, row 60), the 10-bit
 luma steps in 10-bit codes: 68 changes, longest run 56 px with the GPU
