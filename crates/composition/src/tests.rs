@@ -1,8 +1,8 @@
 use crate::time::{Rational, Time};
 use crate::{
-    AssetLocation, Clip, EvaluatedTransform, GroupMask, ImageFit, Layer, LayerContent,
-    LetterSpacing, LineCap, LineJoin, MaskMode, MediaTiming, Paint, PathCommand, Point,
-    ResolvedAsset, Stroke, TextStyle,
+    AssetLocation, Clip, EvaluatedTransform, F32Column, GroupMask, ImageFit, InstanceShape, Layer,
+    LayerContent, LetterSpacing, LineCap, LineJoin, MaskMode, MediaTiming, Paint, PathCommand,
+    Point, ResolvedAsset, Stroke, TextStyle, U8Column,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -436,10 +436,116 @@ fn every_tagged_variant_round_trips() {
                 miter_limit: if set { 2.0 } else { crate::DEFAULT_MITER_LIMIT },
             },
         ]);
+        for shape in [
+            InstanceShape::Rect {
+                corner_radius: if set { 2.0 } else { 0.0 },
+            },
+            InstanceShape::Circle,
+            InstanceShape::Image { asset: asset() },
+        ] {
+            round_trip(shape.clone());
+            contents.push(LayerContent::Instances {
+                count: 2,
+                shape,
+                width: set.then_some(4.0),
+                height: set.then_some(5.0),
+                color: set.then(|| "#ff0000".to_owned()),
+                x: F32Column::from(vec![1.0, 2.0]),
+                y: F32Column::from(vec![3.0, 4.0]),
+                widths: set.then(|| F32Column::from(vec![6.0, 7.0])),
+                heights: set.then(|| F32Column::from(vec![8.0, 9.0])),
+                rotation: set.then(|| F32Column::from(vec![10.0, 11.0])),
+                colors: set.then(|| U8Column::from(vec![1, 2, 3, 4, 5, 6, 7, 8])),
+            });
+        }
     }
     for content in contents {
         round_trip(content);
     }
+}
+
+#[test]
+fn instance_columns_round_trip_as_base64() {
+    let floats = F32Column::from(vec![1.5, -2.0]);
+    assert_eq!(serde_json::to_string(&floats).unwrap(), r#""AADAPwAAAMA=""#);
+    assert_eq!(
+        serde_json::from_str::<F32Column>(r#""AADAPwAAAMA=""#).unwrap(),
+        floats
+    );
+    let bytes = U8Column::from(vec![255, 0, 128, 64]);
+    assert_eq!(serde_json::to_string(&bytes).unwrap(), r#""/wCAQA==""#);
+    assert_eq!(serde_json::from_str::<U8Column>(r#""/wCAQA==""#).unwrap(), bytes);
+    let empty = F32Column::from(Vec::new());
+    assert_eq!(serde_json::to_string(&empty).unwrap(), r#""""#);
+    assert_eq!(serde_json::from_str::<F32Column>(r#""""#).unwrap(), empty);
+    // Not a whole number of f32s.
+    assert!(serde_json::from_str::<F32Column>(r#""/wCA""#).is_err());
+}
+
+fn instances(count: u32) -> LayerContent {
+    LayerContent::Instances {
+        count,
+        shape: InstanceShape::Circle,
+        width: Some(4.0),
+        height: None,
+        color: None,
+        x: F32Column::from(vec![1.0; count as usize]),
+        y: F32Column::from(vec![2.0; count as usize]),
+        widths: None,
+        heights: Some(F32Column::from(vec![3.0; count as usize])),
+        rotation: Some(F32Column::from(vec![4.0; count as usize])),
+        colors: Some(U8Column::from(vec![5; 4 * count as usize])),
+    }
+}
+
+#[test]
+fn instances_round_trip_with_every_column() {
+    let content = instances(2);
+    let json = serde_json::to_string(&content).unwrap();
+    assert!(json.starts_with(r#"{"type":"instances","#), "{json}");
+    for key in [r#""heights":"#, r#""rotation":"#, r#""colors":"#] {
+        assert!(json.contains(key), "{key} in {json}");
+    }
+    for key in [r#""widths":"#, r#""height":"#, r#""color":"#] {
+        assert!(!json.contains(key), "{key} in {json}");
+    }
+    assert_eq!(serde_json::from_str::<LayerContent>(&json).unwrap(), content);
+    let value = serde_json::to_value(&content).unwrap();
+    assert_eq!(serde_json::from_value::<LayerContent>(value).unwrap(), content);
+}
+
+#[test]
+fn instances_reject_columns_of_the_wrong_length() {
+    let mut value = serde_json::to_value(instances(2)).unwrap();
+    value["widths"] = value["heights"].clone();
+    let three = serde_json::to_value(F32Column::from(vec![0.0; 3])).unwrap();
+    for column in ["x", "y", "widths", "heights", "rotation"] {
+        let mut wrong = value.clone();
+        wrong[column] = three.clone();
+        let error = serde_json::from_value::<LayerContent>(wrong)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(&format!("`{column}`")), "{error}");
+        assert!(error.contains("count 2"), "{error}");
+    }
+    let mut wrong = value;
+    wrong["colors"] = serde_json::to_value(U8Column::from(vec![0; 7])).unwrap();
+    let error = serde_json::from_value::<LayerContent>(wrong)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("`colors`") && error.contains("count 2"), "{error}");
+}
+
+#[test]
+fn instances_with_no_particles_parse() {
+    let content: LayerContent = serde_json::from_str(
+        r#"{"type":"instances","count":0,"shape":{"type":"rect","cornerRadius":0},"x":"","y":""}"#,
+    )
+    .unwrap();
+    let LayerContent::Instances { count, x, y, .. } = content else {
+        panic!("{content:?}");
+    };
+    assert_eq!((count, x.len(), y.len()), (0, 0, 0));
 }
 
 #[test]

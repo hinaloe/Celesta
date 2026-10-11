@@ -765,6 +765,13 @@ impl GpuRenderer {
                     content: "missing component",
                 });
             }
+            // Drawn in a later change.
+            LayerContent::Instances { .. } => {
+                return Err(GpuRenderError::UnsupportedContent {
+                    layer: layer.id.clone(),
+                    content: "instances",
+                });
+            }
         }
         Ok(())
     }

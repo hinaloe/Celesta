@@ -1,7 +1,8 @@
 use crate::error::ExportError;
 use crate::{AUDIO_SECONDS_TIMESCALE, DEFAULT_REACT_AUDIO_SAMPLE_RATE};
 use celesta_composition::{
-    AssetLocation, AudioClip, AudioGraph, Layer, LayerContent, ResolvedAsset, Time, TimeRange,
+    AssetLocation, AudioClip, AudioGraph, InstanceShape, Layer, LayerContent, ResolvedAsset, Time,
+    TimeRange,
 };
 use celesta_evaluator::Evaluator;
 use celesta_project::{Project, TimelineContent};
@@ -152,7 +153,12 @@ pub(crate) fn absolutize_layer_content(content: &mut LayerContent, asset_root: &
                 absolutize_layers(&mut mask.layers, asset_root);
             }
         }
-        LayerContent::Text { .. }
+        LayerContent::Instances {
+            shape: InstanceShape::Image { asset },
+            ..
+        } => absolutize_asset(asset, asset_root),
+        LayerContent::Instances { .. }
+        | LayerContent::Text { .. }
         | LayerContent::Rect { .. }
         | LayerContent::Path { .. }
         | LayerContent::MissingComponent { .. } => {}

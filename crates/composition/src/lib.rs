@@ -17,9 +17,11 @@ pub use time::{Rational, Time, TimeError, TimeRange};
 pub use transform::{AnimatablePoint, Transform};
 
 mod animation;
+mod instances;
 mod model;
 
 pub use animation::{AnimationError, evaluate_f64, integrate_f64};
+pub use instances::{F32Column, InstanceShape, U8Column};
 pub use model::{
     AssetLocation, AudioClip, AudioGraph, BlendMode, Clip, DEFAULT_MITER_LIMIT, EvaluatedTransform,
     GroupMask, ImageFit, Layer, LayerContent, LayerEffects, LayerGlow, LayerShader, LayerShadow,

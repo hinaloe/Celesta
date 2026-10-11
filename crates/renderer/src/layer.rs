@@ -245,6 +245,8 @@ impl CpuRenderer {
                     render_output_pixels(frame, &path, &state);
                 }
             }
+            // Drawn in the next change.
+            LayerContent::Instances { .. } => {}
             LayerContent::MissingComponent { .. } => render_placeholder(
                 frame,
                 layer.transform.anchor,
