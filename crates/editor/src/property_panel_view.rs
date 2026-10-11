@@ -33,6 +33,8 @@ impl EditorView {
             .filter(|schema| !schema.fields.is_empty())?;
         let values = effective_values(&schema.fields, &react.disk_properties);
         let (issues, mut general) = issues_by_key(&react.property_issues);
+        // The props file could not be read at all: that belongs to no key.
+        general.splice(0..0, react.property_load_error.clone());
         // Issues for keys the schema does not declare have no row to sit on.
         general.extend(
             react
@@ -126,7 +128,7 @@ impl EditorView {
         let messages = row
             .invalid
             .iter()
-            .chain(&row.write_error)
+            .chain(&row.state.write_error)
             .chain(issues)
             .cloned()
             .map(move |message| div().text_xs().text_color(danger).child(message));

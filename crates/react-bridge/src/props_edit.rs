@@ -1,5 +1,5 @@
 //! Writes one property into a JSON props file, leaving the rest of the file's
-//! keys exactly where they were.
+//! top-level keys in their original order.
 //!
 //! The editor's Properties section edits the file the user (or another
 //! editor) also touches, so every edit re-reads the file, changes a single
@@ -93,7 +93,7 @@ impl Error for PropsEditError {
 
 /// Sets `key` to `value`, or removes it for `None`. A missing file counts as
 /// `{}`, so the first edit creates it. An existing key keeps its position and
-/// a new key is appended; every other key is written back as read.
+/// a new key is appended; every other top-level key keeps its order.
 pub fn set_property(file: &Path, key: &str, value: Option<&Value>) -> Result<(), PropsEditError> {
     let io_error = |source| PropsEditError::Io {
         file: file.to_owned(),
@@ -163,9 +163,11 @@ fn replace_file(file: &Path, text: &str) -> io::Result<()> {
 /// into `<project_root>/assets/` first. Always `/`-separated, starting with
 /// `./` or `../`.
 pub fn import_path(project_root: &Path, props_dir: &Path, chosen: &Path) -> io::Result<String> {
-    let project_root = std::path::absolute(project_root)?;
-    let props_dir = std::path::absolute(props_dir)?;
-    let chosen = std::path::absolute(chosen)?;
+    // Resolve `..` segments and symlinks first, so the three paths share one
+    // frame of reference whichever way each of them was spelled.
+    let project_root = resolve(project_root)?;
+    let props_dir = resolve(props_dir)?;
+    let chosen = resolve(chosen)?;
 
     if !chosen.is_file() {
         return Err(io::Error::new(
@@ -181,6 +183,30 @@ pub fn import_path(project_root: &Path, props_dir: &Path, chosen: &Path) -> io::
     };
 
     relative_path(&props_dir, &target)
+}
+
+/// `path` made absolute with `..` segments and symlinks resolved. A folder that
+/// does not exist yet (such as a props folder about to be created) keeps its
+/// missing tail, appended to its nearest existing ancestor.
+fn resolve(path: &Path) -> io::Result<PathBuf> {
+    let absolute = std::path::absolute(path)?;
+    if let Ok(canonical) = fs::canonicalize(&absolute) {
+        return Ok(canonical);
+    }
+
+    let mut missing = Vec::new();
+    let mut existing = absolute.as_path();
+    while let Some(parent) = existing.parent() {
+        if let Some(name) = existing.file_name() {
+            missing.push(name);
+        }
+        existing = parent;
+        if let Ok(mut canonical) = fs::canonicalize(existing) {
+            canonical.extend(missing.iter().rev());
+            return Ok(canonical);
+        }
+    }
+    Ok(absolute)
 }
 
 /// Copies `chosen` into `assets` and returns the copy's path. A file of the
@@ -491,6 +517,42 @@ mod tests {
             import_path(&root, &root, &chosen).unwrap(),
             "./assets/data-2"
         );
+    }
+
+    #[test]
+    fn a_props_folder_with_a_parent_segment_is_resolved() {
+        let (_scratch, root, _) = project("import-dotdot");
+        let chosen = root.join("assets/a.png");
+        write(&chosen, "a");
+        fs::create_dir_all(root.join("variants")).unwrap();
+        let props_dir = root.join("../other/../project/variants");
+
+        assert_eq!(
+            import_path(&root, &props_dir, &chosen).unwrap(),
+            "../assets/a.png"
+        );
+        assert!(!root.join("assets/a-2.png").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_project_reached_through_a_symlink_is_not_copied() {
+        let (scratch, root, _) = project("import-symlink");
+        let chosen = root.join("assets/a.png");
+        write(&chosen, "a");
+        let link = scratch.0.join("link");
+        std::os::unix::fs::symlink(&root, &link).unwrap();
+
+        // The project root is the real folder; the other two go through the link.
+        assert_eq!(
+            import_path(&root, &link, &link.join("assets/a.png")).unwrap(),
+            "./assets/a.png"
+        );
+        assert_eq!(
+            import_path(&link, &root.join("variants"), &chosen).unwrap(),
+            "../assets/a.png"
+        );
+        assert_eq!(fs::read_dir(root.join("assets")).unwrap().count(), 1);
     }
 
     #[test]

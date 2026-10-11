@@ -640,7 +640,7 @@ impl EditorView {
                 format_timecode(self.clock.end_frame(), self.frame_rate_value),
             ))
             .child(row("Renderer", self.gpu_name.to_string()))
-            .child(row("Properties", properties))
+            .child(row("Values from", properties))
             .child(div().h(px(4.0)))
             .child(
                 Button::new("reload-react-entry")

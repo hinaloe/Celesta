@@ -144,7 +144,8 @@ frames ([verify.md](verify.md)).
 
 The app previews and exports. It never edits your source; the only file it
 writes is the props file, when the user changes a value in the Properties
-section (see above).
+section (see above). A file the user chooses from outside the project is also
+copied into `assets/`.
 
 - **File → Open…** (Command-O / Ctrl-O) opens a `.celesta.json` or a React
   entry (`.tsx`, `.jsx`, `.ts`, `.js`). Passing a path on the command line

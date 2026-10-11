@@ -100,6 +100,8 @@ pub(crate) fn load_source(
                     properties,
                     property_schema,
                     property_issues: Vec::new(),
+                    property_load_error: None,
+                    properties_read_reload: 0,
                 }),
             ))
         }

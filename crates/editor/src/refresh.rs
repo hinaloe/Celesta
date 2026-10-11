@@ -114,7 +114,13 @@ pub(crate) fn reload_sample_applies(sequence: u64, watched_since: u64) -> bool {
 /// are kept even when the spawn failed (`disk_properties`), but the inputs the
 /// preview renders with (`properties`) only change on success. A failed load
 /// keeps the last schema so the panel can still show (and fix) the wrong value.
+/// A reload that could not read the props file keeps its message for the
+/// section, since no property key owns it.
 pub(crate) fn apply_property_outcome(preview: &mut ReactPreview, reload: &ReactReload) {
+    preview.property_load_error = match (&reload.properties, &reload.result) {
+        (None, Err(error)) => Some(error.message.clone()),
+        _ => None,
+    };
     if let Some(properties) = &reload.properties {
         preview.disk_properties = properties.clone();
     }
@@ -281,6 +287,9 @@ impl EditorView {
                 react.watched_mtime = reload.watched;
             }
             apply_property_outcome(react, &reload);
+            if reload.properties.is_some() {
+                react.properties_read_reload = sequence;
+            }
         }
         match reload.result {
             Ok((entry, metadata)) => {
@@ -464,6 +473,8 @@ mod property_outcome {
             disk_properties: PropertyInputs::default(),
             property_schema: schema,
             property_issues: Vec::new(),
+            property_load_error: None,
+            properties_read_reload: 0,
         }
     }
 
@@ -511,6 +522,35 @@ mod property_outcome {
 
         assert_eq!(preview.property_schema, Some(kept(&["b", "a"])));
         assert_eq!(preview.property_issues, vec![issue("a")]);
+    }
+
+    #[test]
+    fn a_reload_that_cannot_read_the_props_file_keeps_its_message() {
+        let mut preview = preview(Some(kept(&["a"])));
+        let unreadable = ReactReload {
+            watched: None,
+            properties: None,
+            result: Err(PreviewLoadError::from(
+                "Couldn’t read props.json".to_owned(),
+            )),
+        };
+
+        apply_property_outcome(&mut preview, &unreadable);
+        assert_eq!(
+            preview.property_load_error.as_deref(),
+            Some("Couldn’t read props.json")
+        );
+        // The last schema stays, so the section can still show the message.
+        assert_eq!(preview.property_schema, Some(kept(&["a"])));
+
+        // A reload that read the file, even one the entry then rejected, clears it.
+        let rejected = ReactReload {
+            watched: None,
+            properties: Some(inputs(r#"{"a": 1}"#)),
+            result: Err(PreviewLoadError::from("node exited".to_owned())),
+        };
+        apply_property_outcome(&mut preview, &rejected);
+        assert_eq!(preview.property_load_error, None);
     }
 
     #[test]

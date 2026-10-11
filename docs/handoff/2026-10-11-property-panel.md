@@ -82,7 +82,16 @@ inputs)` returning, per key, the value and its `ValueSource` (`Props`,
   flip it back; it follows the file again once a reload requested after the
   write has been applied.
 - A write error is shown on the row that committed it and leaves the file
-  unchanged; typed text stays as an edit.
+  unchanged; typed text stays as an edit. It clears on the row's next
+  successful write, or (for a props-file write failure) when a reload
+  requested after the failure has read the props file
+  (`ReactPreview.properties_read_reload`, `RowState::offer_read`).
+- A reload that cannot read the props file keeps its message in
+  `ReactPreview.property_load_error`, shown at the top of the section with
+  the other issues that belong to no key; the next reload that reads the file
+  clears it.
+- The panel's facts rows label the value sources `Values from`, so
+  `Properties` names only the section heading.
 
 ### Keybinding context
 
@@ -112,7 +121,8 @@ pnpm --dir templates test
 cargo test --workspace
 ```
 
-- `props_edit`: key order, append, replace, remove, create, keys
+- `props_edit`: paths are canonicalized first (a props folder with `..`, a
+  project reached through a symlink); key order, append, replace, remove, create, keys
   from another editor, broken or non-object files, no temp file, read-only
   file, relative / nested / spaces-and-Japanese paths, copy, reuse, `-2`
   numbering, no extension, a folder.

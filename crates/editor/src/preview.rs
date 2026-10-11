@@ -101,6 +101,11 @@ pub(crate) struct ReactPreview {
     pub(crate) property_schema: Option<KeptSchema>,
     /// Issues from the last load, empty after a successful one.
     pub(crate) property_issues: Vec<PropertyIssue>,
+    /// Why the last reload could not read the props file; cleared by the next
+    /// reload that read it.
+    pub(crate) property_load_error: Option<String>,
+    /// The number of the newest applied reload that read the props file.
+    pub(crate) properties_read_reload: u64,
 }
 
 /// The entry's project property schema with the order it declared its keys in

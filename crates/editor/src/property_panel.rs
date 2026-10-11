@@ -117,9 +117,19 @@ pub(crate) fn same_value(left: &Value, right: &Value) -> bool {
     }
 }
 
+/// Equal values for a row; colors also ignore the case of their hex digits
+/// (`#aabbcc` is `#AABBCC`).
+fn values_match(left: &Value, right: &Value, ignore_case: bool) -> bool {
+    match (left.as_str(), right.as_str()) {
+        (Some(left), Some(right)) if ignore_case => left.eq_ignore_ascii_case(right),
+        _ => same_value(left, right),
+    }
+}
+
 /// True when `value` is not the field's declared default.
 pub(crate) fn differs_from_default(field: &ComponentPropertyField, value: &Value) -> bool {
-    !same_value(value, &field.default_json())
+    let color = matches!(field, ComponentPropertyField::Color { .. });
+    !values_match(value, &field.default_json(), color)
 }
 
 /// The JSON a committed number is written as: whole numbers without a
@@ -242,6 +252,14 @@ pub(crate) struct RowState {
     edited: bool,
     /// A value to put into the controls on the next render.
     update: Option<(Value, TextUpdate)>,
+    /// Values are compared ignoring ASCII case (color rows).
+    ignore_case: bool,
+    /// Why this row's last write failed; cleared by its next successful one,
+    /// or by a reload that read the props file after the failure.
+    pub(crate) write_error: Option<String>,
+    /// The first reload number whose read of the props file clears
+    /// `write_error`; `None` keeps it until the next successful write.
+    error_released_by: Option<u64>,
 }
 
 impl RowState {
@@ -252,6 +270,37 @@ impl RowState {
             hold_until: 0,
             edited: false,
             update: None,
+            ignore_case: false,
+            write_error: None,
+            error_released_by: None,
+        }
+    }
+
+    /// A row for `field`: colors compare ignoring the case of their digits.
+    pub(crate) fn for_field(field: &ComponentPropertyField) -> Self {
+        Self {
+            ignore_case: matches!(field, ComponentPropertyField::Color { .. }),
+            ..Self::new()
+        }
+    }
+
+    /// Records why a write failed. With `released_by` (the number the next
+    /// reload will get), a later reload that read the props file clears it:
+    /// the cause may have been fixed there. `None` keeps it until a write
+    /// succeeds.
+    pub(crate) fn report_error(&mut self, message: String, released_by: Option<u64>) {
+        self.write_error = Some(message);
+        self.error_released_by = released_by;
+    }
+
+    /// The newest applied reload that read the props file is `read_reload`.
+    pub(crate) fn offer_read(&mut self, read_reload: u64) {
+        if self
+            .error_released_by
+            .is_some_and(|since| read_reload >= since)
+        {
+            self.write_error = None;
+            self.error_released_by = None;
         }
     }
 
@@ -259,7 +308,10 @@ impl RowState {
     /// a commit for this key is still on its way (`pending`) or the newest
     /// applied reload started before this row was last written.
     pub(crate) fn offer_loaded(&mut self, value: &Value, applied_reload: u64, pending: bool) {
-        if pending || applied_reload < self.hold_until || same_value(value, &self.shown) {
+        if pending
+            || applied_reload < self.hold_until
+            || values_match(value, &self.shown, self.ignore_case)
+        {
             return;
         }
         self.shown = value.clone();
@@ -278,7 +330,7 @@ impl RowState {
         // The text now holds (or is about to show) the committed value.
         self.edited = false;
         let shown = value.cloned().unwrap_or(default);
-        if value.is_some() && same_value(&shown, &self.shown) {
+        if value.is_some() && values_match(&shown, &self.shown, self.ignore_case) {
             return false;
         }
         self.shown = shown.clone();
@@ -289,6 +341,8 @@ impl RowState {
     /// The write succeeded; `next_reload` is the first reload that reads it.
     pub(crate) fn written(&mut self, next_reload: u64) {
         self.hold_until = next_reload;
+        self.write_error = None;
+        self.error_released_by = None;
     }
 
     /// The write failed and the file still holds `file_value`. The typed
@@ -365,8 +419,6 @@ pub(crate) struct PropertyRow {
     pub(crate) state: RowState,
     /// Why the typed text was not committed (not a number, not a color).
     pub(crate) invalid: Option<String>,
-    /// Why this row's last write failed; cleared by its next successful one.
-    pub(crate) write_error: Option<String>,
     /// The color picker's open state at its last notification, and whether a
     /// color was picked since it opened. The pick is committed on close.
     picker_open: bool,
@@ -475,6 +527,7 @@ impl EditorView {
             panel.applied = applied;
         }
         for row in panel.rows.values_mut() {
+            row.state.offer_read(react.properties_read_reload);
             if let Some((value, text)) = row.state.take_update() {
                 update_controls(row, value, text, window, cx);
             }
@@ -559,9 +612,8 @@ impl EditorView {
             field: field.clone(),
             control,
             // Differs from every effective value, so the first sync fills the controls.
-            state: RowState::new(),
+            state: RowState::for_field(field),
             invalid: None,
-            write_error: None,
             picker_open: false,
             picked: false,
             _subscriptions: subscriptions,
@@ -748,7 +800,6 @@ impl EditorView {
                 }
                 self.property_panel.reload_needed = true;
                 if let Some(row) = self.property_panel.rows.get_mut(key) {
-                    row.write_error = None;
                     row.state.written(next_reload);
                 }
             }
@@ -759,7 +810,9 @@ impl EditorView {
                     .as_ref()
                     .and_then(|react| effective_value(react, key));
                 if let Some(row) = self.property_panel.rows.get_mut(key) {
-                    row.write_error = Some(message);
+                    // A reload from now on reads the file as it is then.
+                    let released_by = self.react_reloads.next();
+                    row.state.report_error(message, Some(released_by));
                     // The file still holds the old value: show it again, but
                     // keep the typed text so the person can retry.
                     if !queued_again {
@@ -838,7 +891,7 @@ impl EditorView {
 
     fn set_property_write_error(&mut self, key: &str, message: String, cx: &mut Context<Self>) {
         if let Some(row) = self.property_panel.rows.get_mut(key) {
-            row.write_error = Some(message);
+            row.state.report_error(message, None);
             cx.notify();
         }
     }
@@ -1108,5 +1161,58 @@ mod tests {
         assert!(!row.commit(Some(&json!(2.0)), json!(0), TextUpdate::Keep));
         // Reset always writes: it removes the key even when it equals the default.
         assert!(row.commit(None, json!(0), TextUpdate::Always));
+    }
+
+    #[test]
+    fn a_write_error_clears_once_a_later_reload_read_the_file() {
+        let mut row = RowState::new();
+        // The write failed while the next reload to be requested was number 4.
+        row.report_error("Fix props.json before editing: …".to_owned(), Some(4));
+
+        // Reload 3 started before the failure, so it says nothing about the fix.
+        row.offer_read(3);
+        assert!(row.write_error.is_some());
+
+        row.offer_read(4);
+        assert_eq!(row.write_error, None);
+    }
+
+    #[test]
+    fn a_write_error_without_a_release_waits_for_a_successful_write() {
+        let mut row = RowState::new();
+        row.report_error("Couldn’t use the chosen file".to_owned(), None);
+
+        row.offer_read(100);
+        assert!(row.write_error.is_some());
+
+        row.written(5);
+        assert_eq!(row.write_error, None);
+    }
+
+    #[test]
+    fn colors_differing_only_in_case_are_the_same_value() {
+        let color = ComponentPropertyField::Color {
+            label: None,
+            default_value: "#AABBCC".to_owned(),
+        };
+        assert!(!differs_from_default(&color, &json!("#aabbcc")));
+        assert!(differs_from_default(&color, &json!("#aabbcd")));
+
+        // Typing the same color in another case writes nothing.
+        let mut row = RowState::for_field(&color);
+        assert!(row.commit(Some(&json!("#AABBCC")), json!("#000000"), TextUpdate::Keep));
+        assert!(!row.commit(Some(&json!("#aabbcc")), json!("#000000"), TextUpdate::Keep));
+        assert_eq!(row.shown, json!("#AABBCC"));
+        // Nor does a reload that read the other spelling replace the row.
+        row.take_update();
+        row.offer_loaded(&json!("#aabbcc"), 0, false);
+        assert_eq!(row.take_update(), None);
+
+        // A string field keeps case-sensitive comparison.
+        let text = ComponentPropertyField::String {
+            label: None,
+            default_value: "Hello".to_owned(),
+        };
+        assert!(differs_from_default(&text, &json!("hello")));
     }
 }

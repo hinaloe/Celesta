@@ -38,7 +38,7 @@ celesta-exporter --react film.tsx trip.mp4
 
 ## Properties
 
-To change these without editing JSON, open `film.tsx` in Celesta and use the preview panel's **Properties** section; it saves to `props.json`.
+To change these without editing JSON, open `film.tsx` in Celesta and use the preview panel's **Properties** section; it saves to the props file in use (`props.json`, or the `--props-file` the editor was opened with).
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
