@@ -277,7 +277,8 @@ celesta-editor --init my-video --template slideshow
 
 Each template except `blank` is a `film.tsx` that declares its inputs with
 `defineProjectProperties()`, a `props.json` holding their values, a data file
-for list-shaped content (slides, rows, lines), sample media, and a `README.md`
+for list-shaped content (slides, rows, lines), sample media where it applies
+(`slideshow`, `dialogue`), and a `README.md`
 that says what to replace. Edit `props.json` and the data file instead of the
 source; everything renders at 1920×1080 or 1080×1920 (`"format": "9:16"`), 30
 fps. The first preview or export downloads Noto Sans JP, and later ones use the

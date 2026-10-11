@@ -79,7 +79,7 @@ Precedence, highest first:
 5. the declared `defaultValue`
 6. the hook's or function's `defaultValue` argument
 
-Strictness (`packages/react/src/property-inputs.ts`): when the entry declares
+Strictness (`packages/cli/src/property-inputs.ts`): when the entry declares
 properties, `entryProps` is checked like `--props-file` (undeclared keys,
 types, colors, path existence, reported as `invalidProperties` with source
 `entryProps`); when it declares none the layer is ignored with a warning;

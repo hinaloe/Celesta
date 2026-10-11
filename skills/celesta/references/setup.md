@@ -68,8 +68,8 @@ Celesta --init my-video --template slideshow
 
 A template other than `blank` adds `props.json` (values for the entry's
 `defineProjectProperties()` inputs, loaded automatically by preview, export,
-and `inspect.mjs`), a data file, sample media, and a `README.md` saying what to
-replace. Change `props.json` and the data file rather than `film.tsx`; see
+and `inspect.mjs`), a data file, sample media where it applies (`slideshow`, `dialogue`),
+and a `README.md` saying what to replace. Change `props.json` and the data file rather than `film.tsx`; see
 [project-data.md](project-data.md#pass-values-from-the-command-line). `--init`
 prints the template's "edit" hint afterwards. An unknown name fails with the
 available names. With `--template`, `--init` writes nothing and lists the
