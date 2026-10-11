@@ -38,7 +38,11 @@ pub(crate) struct MaskPipelines {
 impl MaskPipelines {
     /// Reads both canvases through `texture_layout` (`layer.wgsl`'s), so a
     /// canvas's own bind group serves every shader.
-    pub(crate) fn new(device: &wgpu::Device, texture_layout: &wgpu::BindGroupLayout) -> Self {
+    pub(crate) fn new(
+        device: &wgpu::Device,
+        texture_layout: &wgpu::BindGroupLayout,
+        format: wgpu::TextureFormat,
+    ) -> Self {
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Celesta mask pipeline layout"),
             bind_group_layouts: &[Some(texture_layout), Some(texture_layout)],
@@ -63,7 +67,7 @@ impl MaskPipelines {
                     entry_point: Some(entry_point),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        format,
                         blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],

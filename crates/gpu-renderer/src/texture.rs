@@ -321,9 +321,32 @@ pub(crate) struct CanvasTexture {
     pub(crate) bind_group: wgpu::BindGroup,
 }
 
+/// The format layers composite in: half floats where the adapter can render
+/// and blend them, so what overlapping layers, gradients, and blurs mix is
+/// kept finer than 8-bit code values until the frame is quantized once, with
+/// a dither, for readback (see `Quantizer`). An 11-bit significand holds a
+/// code value to within 1/16 of a code. Without half floats, 8-bit
+/// canvases, which band as before.
+pub(crate) fn canvas_format(adapter: &wgpu::Adapter) -> wgpu::TextureFormat {
+    const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+    let features = adapter.get_texture_format_features(FORMAT);
+    let usages = wgpu::TextureUsages::RENDER_ATTACHMENT
+        | wgpu::TextureUsages::TEXTURE_BINDING
+        | wgpu::TextureUsages::COPY_SRC
+        | wgpu::TextureUsages::COPY_DST;
+    let flags =
+        wgpu::TextureFormatFeatureFlags::BLENDABLE | wgpu::TextureFormatFeatureFlags::FILTERABLE;
+    if features.allowed_usages.contains(usages) && features.flags.contains(flags) {
+        FORMAT
+    } else {
+        wgpu::TextureFormat::Rgba8Unorm
+    }
+}
+
 pub(crate) fn canvas_texture(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
+    format: wgpu::TextureFormat,
     width: u32,
     height: u32,
 ) -> CanvasTexture {
@@ -337,7 +360,7 @@ pub(crate) fn canvas_texture(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
+        format,
         // Copied from when a blended draw takes its backdrop.
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT
             | wgpu::TextureUsages::TEXTURE_BINDING

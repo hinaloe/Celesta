@@ -190,7 +190,10 @@ fn rounded_box(p: vec2<f32>, half_size: vec2<f32>, radius: f32) -> f32 {
 }
 
 // `celesta_renderer::sample_stops`: the stops from `paints[first]` at `t`,
-// interpolated premultiplied, as straight-alpha RGBA in whole 0-255 codes.
+// interpolated premultiplied, as straight-alpha RGBA in 0-255 code values.
+// Unlike the CPU renderer's, they are not rounded to whole codes: the canvas
+// keeps finer values (see `canvas_format`), and a gentle gradient rounded
+// here would band however the frame is quantized.
 fn sample_stops(first: u32, count: u32, t: f32) -> vec4<f32> {
     if count == 0u {
         return vec4<f32>(0.0);
@@ -220,10 +223,9 @@ fn sample_stops(first: u32, count: u32, t: f32) -> vec4<f32> {
     if alpha <= 0.0 {
         return vec4<f32>(0.0);
     }
-    // `floor(x + 0.5)` rounds halves up like Rust's `f64::round` here.
     return vec4<f32>(
-        clamp(floor(value.rgb * 255.0 / alpha + 0.5), vec3<f32>(0.0), vec3<f32>(255.0)),
-        clamp(floor(alpha + 0.5), 0.0, 255.0),
+        clamp(value.rgb * 255.0 / alpha, vec3<f32>(0.0), vec3<f32>(255.0)),
+        clamp(alpha, 0.0, 255.0),
     );
 }
 
@@ -287,6 +289,14 @@ fn rect_coverage_cap(half_size: vec2<f32>, inverse: vec4<f32>) -> f32 {
     return fractions.x * fractions.y;
 }
 
+// `coverage` in whole 1/255 steps, as the CPU renderer rounds a rect's
+// alpha. The scene position a fragment works from is interpolated, so a
+// pixel a rect or clip covers fully can come out a hair short of it, which
+// the readback's dither (`dither.wgsl`) would then round down a code.
+fn coverage_steps(coverage: f32) -> f32 {
+    return floor(coverage * 255.0 + 0.5) / 255.0;
+}
+
 // The rect under the pixel, straight alpha, as
 // `celesta_renderer::rasterize_rect_transformed` shades it at the pixel's
 // centre.
@@ -303,15 +313,15 @@ fn rect_color(input: VertexOutput) -> vec4<f32> {
     let radius = input.rect.z;
     let stroke_width = input.rect.w;
     let p = point - half_size;
-    let outer = clamp(
+    let outer = coverage_steps(clamp(
         0.5 - rect_distance(p, half_size, radius, input.inverse),
         0.0,
         input.inverse_translation_caps.z,
-    );
+    ));
     var color = paint_color(input.fill, point);
     if stroke_width > 0.0 {
         let stroke = paint_color(input.stroke, point);
-        let inner = clamp(
+        let inner = coverage_steps(clamp(
             0.5 - rect_distance(
                 p,
                 max(half_size - vec2<f32>(stroke_width), vec2<f32>(0.0)),
@@ -320,7 +330,7 @@ fn rect_color(input: VertexOutput) -> vec4<f32> {
             ),
             0.0,
             input.inverse_translation_caps.w,
-        );
+        ));
         // Of the part of the pixel the rect covers, the fill's share; the
         // rest is stroke.
         var fill_share = 0.0;
@@ -328,22 +338,21 @@ fn rect_color(input: VertexOutput) -> vec4<f32> {
             fill_share = min(inner / outer, 1.0);
         }
         // Mixed premultiplied, so a transparent fill does not pull the
-        // stroke's color toward black. `floor(x + 0.5)` rounds like Rust's
-        // `f64::round` for these non-negative values; WGSL's `round` rounds
-        // halves to even, and mixed channels often land exactly on a half.
+        // stroke's color toward black. Not rounded to whole codes as the CPU
+        // renderer's is, like `sample_stops`.
         let stroke_weight = stroke.a * (1.0 - fill_share);
         let fill_weight = color.a * fill_share;
         let alpha = stroke_weight + fill_weight;
         if alpha > 0.0 {
-            color = floor(vec4<f32>(
+            color = vec4<f32>(
                 (stroke.rgb * stroke_weight + color.rgb * fill_weight) / alpha,
                 alpha,
-            ) + 0.5);
+            );
         } else {
             color = vec4<f32>(0.0);
         }
     }
-    return vec4<f32>(color.rgb, floor(color.a * outer + 0.5)) / 255.0;
+    return vec4<f32>(color.rgb, color.a * outer) / 255.0;
 }
 
 // Scanlines sampled per pixel row, as `tiny_skia`'s anti-aliasing does.
@@ -474,7 +483,7 @@ fn clip_coverage(world: vec2<f32>, index: f32) -> f32 {
             matrix.y * world.x + matrix.w * world.y + placement.y,
         );
         let distance = rounded_box(local, placement.zw, shape.x);
-        coverage = coverage * clamp(0.5 - distance * shape.y, 0.0, 1.0);
+        coverage = coverage * coverage_steps(clamp(0.5 - distance * shape.y, 0.0, 1.0));
         current = shape.z;
     }
     return coverage;
@@ -577,9 +586,15 @@ fn source_color(input: VertexOutput) -> vec4<f32> {
     return vec4<f32>(color.rgb, color.a * input.size_opacity_kind.z * coverage);
 }
 
+// A float canvas keeps what a fragment writes outside 0-1, where an 8-bit
+// one clamps it; the canvases of `canvas_format` are clamped here instead.
+fn saturate(color: vec4<f32>) -> vec4<f32> {
+    return clamp(color, vec4<f32>(0.0), vec4<f32>(1.0));
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    return source_color(input);
+    return saturate(source_color(input));
 }
 
 // `celesta_composition::BlendMode::blend_channel` for all three channels.
@@ -622,8 +637,8 @@ fn fs_blend(input: VertexOutput) -> @location(0) vec4<f32> {
     let mode = u32(input.blend.x + 0.5);
     let mixed = (1.0 - backdrop.a) * source.rgb
         + backdrop.a * blend(mode, backdrop_color, source.rgb);
-    return vec4<f32>(
+    return saturate(vec4<f32>(
         source.a * mixed + backdrop.rgb * (1.0 - source.a),
         source.a + backdrop.a * (1.0 - source.a),
-    );
+    ));
 }

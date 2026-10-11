@@ -16,6 +16,7 @@ mod path;
 mod pipeline;
 mod plan;
 mod prepare;
+mod quantize;
 mod readback;
 mod renderer;
 mod shader;

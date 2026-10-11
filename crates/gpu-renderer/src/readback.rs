@@ -1,5 +1,6 @@
 use crate::BYTES_PER_PIXEL;
 use crate::error::GpuRenderError;
+use crate::texture::{CanvasTexture, canvas_texture};
 use crate::types::{GpuFrame, ReadbackFormat};
 use crate::yuv::YuvConverter;
 use std::sync::mpsc;
@@ -75,27 +76,35 @@ impl ReadbackLayout {
 /// One reusable texture/readback-buffer pair behind `GpuRenderer::submit`'s
 /// ring.
 pub(crate) struct ReadbackSlot {
-    pub(crate) texture: wgpu::Texture,
-    pub(crate) view: wgpu::TextureView,
+    /// What the frame is drawn onto, in `canvas_format`.
+    pub(crate) canvas: CanvasTexture,
     pub(crate) buffer: wgpu::Buffer,
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) readback: SlotReadback,
 }
 
-/// How a slot's rendered texture reaches its mapped `buffer`.
+/// How a slot's rendered frame reaches its mapped `buffer`.
 pub(crate) enum SlotReadback {
-    /// Copied as is, rows padded to the copy alignment.
-    Rgba8(ReadbackLayout),
+    /// Quantized into an RGBA texture (`Quantizer`), whose rows are then
+    /// copied, padded to the copy alignment.
+    Rgba8(Box<RgbaReadback>),
     /// Converted into Y, U, and V plane textures by two render passes, whose
     /// rows are then copied, padded, one plane after the other.
     Yuv420p(Box<YuvReadback>),
 }
 
+/// The 8-bit texture one RGBA slot quantizes its frame into.
+pub(crate) struct RgbaReadback {
+    pub(crate) texture: wgpu::Texture,
+    pub(crate) view: wgpu::TextureView,
+    pub(crate) layout: ReadbackLayout,
+}
+
 /// The plane textures one yuv420p slot converts into, and where each lands
 /// in the slot's readback buffer.
 pub(crate) struct YuvReadback {
-    /// Samples the slot's RGBA texture.
+    /// Samples the slot's canvas.
     pub(crate) bind_group: wgpu::BindGroup,
     /// Y, U, and V, in the order they are packed.
     pub(crate) planes: [YuvPlane; 3],
@@ -119,39 +128,32 @@ impl YuvReadback {
 }
 
 impl ReadbackSlot {
+    /// A slot whose frame is drawn onto a canvas of `canvas_format`, bound
+    /// through `texture_layout`.
     pub(crate) fn new(
         device: &wgpu::Device,
+        texture_layout: &wgpu::BindGroupLayout,
+        canvas_format: wgpu::TextureFormat,
         width: u32,
         height: u32,
         yuv_converter: Option<&YuvConverter>,
     ) -> Result<Self, GpuRenderError> {
         let layout = ReadbackLayout::new(width, height)?;
-        let mut usage = wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC;
-        if yuv_converter.is_some() {
-            usage |= wgpu::TextureUsages::TEXTURE_BINDING;
-        }
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Celesta pipelined offscreen frame"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let canvas = canvas_texture(device, texture_layout, canvas_format, width, height);
         let (readback, buffer_size) = match yuv_converter {
             None => {
+                let texture = rgba_texture(device, width, height);
+                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
                 let size = layout.buffer_size;
-                (SlotReadback::Rgba8(layout), size)
+                let rgba = RgbaReadback {
+                    texture,
+                    view,
+                    layout,
+                };
+                (SlotReadback::Rgba8(Box::new(rgba)), size)
             }
             Some(converter) => {
-                let yuv = converter.readback(device, &view, width, height)?;
+                let yuv = converter.readback(device, &canvas.view, width, height)?;
                 let size = yuv.buffer_size();
                 (SlotReadback::Yuv420p(Box::new(yuv)), size)
             }
@@ -163,8 +165,7 @@ impl ReadbackSlot {
             mapped_at_creation: false,
         });
         Ok(Self {
-            texture,
-            view,
+            canvas,
             buffer,
             width,
             height,
@@ -184,7 +185,7 @@ impl ReadbackSlot {
     pub(crate) fn readback(&self, submission: wgpu::SubmissionIndex) -> Readback {
         // Each plane's padded rows, packed one after the other.
         let planes = match &self.readback {
-            SlotReadback::Rgba8(layout) => vec![(0, *layout, self.height)],
+            SlotReadback::Rgba8(rgba) => vec![(0, rgba.layout, self.height)],
             SlotReadback::Yuv420p(yuv) => yuv
                 .planes
                 .iter()
@@ -200,6 +201,24 @@ impl ReadbackSlot {
             format: self.format(),
         }
     }
+}
+
+/// A `width`x`height` texture a frame is quantized into for RGBA readback.
+pub(crate) fn rgba_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Celesta RGBA readback frame"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    })
 }
 
 /// A submitted frame waiting in its slot's readback buffer.

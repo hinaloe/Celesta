@@ -30,7 +30,12 @@ impl YuvConverter {
             bind_group_layouts: &[Some(&bind_group_layout)],
             immediate_size: 0,
         });
-        let shader = device.create_shader_module(wgpu::include_wgsl!("yuv420p.wgsl"));
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Celesta yuv420p shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                concat!(include_str!("dither.wgsl"), include_str!("yuv420p.wgsl")).into(),
+            ),
+        });
         let target = Some(wgpu::ColorTargetState {
             format: Self::PLANE_FORMAT,
             blend: None,
@@ -75,7 +80,7 @@ impl YuvConverter {
     }
 
     /// The plane textures and bind group converting one `width`x`height`
-    /// slot whose RGBA texture is `frame`.
+    /// slot whose frame, composited in `canvas_format`, is `frame`.
     pub(crate) fn readback(
         &self,
         device: &wgpu::Device,
@@ -129,7 +134,7 @@ impl YuvConverter {
         Ok(YuvReadback { bind_group, planes })
     }
 
-    /// Renders the slot's RGBA texture into its Y, U, and V planes.
+    /// Renders the slot's frame into its Y, U, and V planes.
     pub(crate) fn encode(&self, encoder: &mut wgpu::CommandEncoder, yuv: &YuvReadback) {
         fn attachment(plane: &YuvPlane) -> Option<wgpu::RenderPassColorAttachment<'_>> {
             Some(wgpu::RenderPassColorAttachment {

@@ -74,6 +74,8 @@ pub(crate) struct ShaderProcessor {
     params_stride: u32,
     /// The most uses one frame's uniforms buffer can hold.
     pub(crate) max_uses: usize,
+    /// The format of the canvases shaders write, `canvas_format`'s.
+    format: wgpu::TextureFormat,
     /// How many times a shader was compiled, for tests of the cache.
     #[cfg(test)]
     pub(crate) compiles: usize,
@@ -81,8 +83,13 @@ pub(crate) struct ShaderProcessor {
 
 impl ShaderProcessor {
     /// Reads its source through `texture_layout` (`layer.wgsl`'s), so a
-    /// canvas's own bind group serves custom shaders too.
-    pub(crate) fn new(device: &wgpu::Device, texture_layout: &wgpu::BindGroupLayout) -> Self {
+    /// canvas's own bind group serves custom shaders too. Writes canvases of
+    /// `format`.
+    pub(crate) fn new(
+        device: &wgpu::Device,
+        texture_layout: &wgpu::BindGroupLayout,
+        format: wgpu::TextureFormat,
+    ) -> Self {
         let uniform = |binding, size| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -125,6 +132,7 @@ impl ShaderProcessor {
             builtins_stride,
             params_stride,
             max_uses,
+            format,
             #[cfg(test)]
             compiles: 0,
         }
@@ -420,7 +428,7 @@ impl ShaderProcessor {
                 entry_point: Some("celesta_fragment"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    format: self.format,
                     blend: None,
                     write_mask: wgpu::ColorWrites::ALL,
                 })],

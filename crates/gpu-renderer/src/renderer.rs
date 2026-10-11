@@ -7,10 +7,13 @@ use crate::mask::MaskPipelines;
 use crate::native_preview;
 use crate::path::PendingPath;
 use crate::pipeline::{PipelineKind, create_pipeline};
-use crate::readback::{ReadbackLayout, ReadbackSlot, ReadbackWorker, SlotReadback};
+use crate::quantize::Quantizer;
+use crate::readback::{ReadbackLayout, ReadbackSlot, ReadbackWorker, SlotReadback, rgba_texture};
 use crate::shader::ShaderProcessor;
 use crate::text::PendingText;
-use crate::texture::{CachedTexture, CanvasTexture, DecodedImage, LayerTexture, upload_texture};
+use crate::texture::{
+    CachedTexture, CanvasTexture, DecodedImage, LayerTexture, canvas_format, upload_texture,
+};
 use crate::transform::{CLIP_ENTRY_SIZE, ClipEntry};
 #[cfg(target_os = "macos")]
 use crate::types::NativePreviewFrame;
@@ -42,6 +45,13 @@ pub struct GpuRenderer {
     pub(crate) texture_bind_group_layout: wgpu::BindGroupLayout,
     pub(crate) backdrop_bind_group_layout: wgpu::BindGroupLayout,
     pub(crate) render_quality: RenderQuality,
+    /// The format every canvas below composites in (see `canvas_format`).
+    pub(crate) canvas_format: wgpu::TextureFormat,
+    /// Quantizes finished frames to 8-bit code values.
+    pub(crate) quantizer: Quantizer,
+    /// What `render` and `render_to_target` draw a frame onto before
+    /// quantizing it onto their target, kept while targets keep its size.
+    pub(crate) target_canvas: Option<CanvasTexture>,
     /// The scene-sized texture a frame that uses blend modes, isolated
     /// groups, effects or masks composites in. Isolated groups, effects and
     /// masks draw onto smaller canvases from `effects`' pool. Reused across
@@ -261,21 +271,20 @@ impl GpuRenderer {
                 immediate_size: 0,
             });
         let shader = device.create_shader_module(wgpu::include_wgsl!("layer.wgsl"));
-        let effects = EffectProcessor::new(&device, &texture_bind_group_layout);
-        let shaders = ShaderProcessor::new(&device, &texture_bind_group_layout);
-        let masks = MaskPipelines::new(&device, &texture_bind_group_layout);
+        let canvas_format = canvas_format(&adapter);
+        let effects = EffectProcessor::new(&device, &texture_bind_group_layout, canvas_format);
+        let shaders = ShaderProcessor::new(&device, &texture_bind_group_layout, canvas_format);
+        let masks = MaskPipelines::new(&device, &texture_bind_group_layout, canvas_format);
+        let quantizer = Quantizer::new(&device, &texture_bind_group_layout);
         let pipeline = create_pipeline(
             &device,
             &pipeline_layout,
             &shader,
-            wgpu::TextureFormat::Rgba8Unorm,
+            canvas_format,
             PipelineKind::Layer,
         );
         let mut pipelines = HashMap::new();
-        pipelines.insert(
-            (wgpu::TextureFormat::Rgba8Unorm, PipelineKind::Layer),
-            pipeline,
-        );
+        pipelines.insert((canvas_format, PipelineKind::Layer), pipeline);
         let instances = instance_buffer(&device, 1024 * LAYER_INSTANCE_SIZE);
         let clips = clip_buffer(&device, 64 * CLIP_ENTRY_SIZE);
         let paints = clip_buffer(&device, 64 * 16);
@@ -305,6 +314,9 @@ impl GpuRenderer {
             texture_bind_group_layout,
             backdrop_bind_group_layout,
             render_quality: RenderQuality::default(),
+            canvas_format,
+            quantizer,
+            target_canvas: None,
             canvas: None,
             backdrop: None,
             effects,
@@ -461,7 +473,7 @@ impl GpuRenderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Celesta preview commands"),
             });
-        self.encode_draws(&mut encoder, scene, target, &draws)?;
+        self.encode_frame(&mut encoder, scene, target, &draws)?;
         self.queue.submit([encoder.finish()]);
         Ok(())
     }
@@ -533,16 +545,7 @@ impl GpuRenderer {
             height: scene.height,
             depth_or_array_layers: 1,
         };
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Celesta offscreen frame"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
+        let texture = rgba_texture(&self.device, scene.width, scene.height);
         let output = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Celesta RGBA readback"),
             size: layout.buffer_size,
@@ -555,7 +558,7 @@ impl GpuRenderer {
                 label: Some("Celesta offscreen commands"),
             });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        self.encode_draws(
+        self.encode_frame(
             &mut encoder,
             scene,
             GpuRenderTarget {
@@ -676,13 +679,13 @@ impl GpuRenderer {
         // Cloned out first (a cheap handle clone, not a data copy) so it
         // doesn't keep `self.readback_slots` borrowed across the
         // `self.encode_draws` call below, which itself needs `&mut self`.
-        let slot_view = self.readback_slots[slot_index].view.clone();
+        let slot_view = self.readback_slots[slot_index].canvas.view.clone();
         self.encode_draws(
             &mut encoder,
             scene,
             GpuRenderTarget {
                 view: &slot_view,
-                format: wgpu::TextureFormat::Rgba8Unorm,
+                format: self.canvas_format,
                 width: scene.width,
                 height: scene.height,
             },
@@ -690,27 +693,26 @@ impl GpuRenderer {
         )?;
         let slot = &self.readback_slots[slot_index];
         match &slot.readback {
-            SlotReadback::Rgba8(layout) => encoder.copy_texture_to_buffer(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &slot.texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::TexelCopyBufferInfo {
-                    buffer: &slot.buffer,
-                    layout: wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(layout.padded_bytes_per_row),
-                        rows_per_image: Some(scene.height),
+            SlotReadback::Rgba8(rgba) => {
+                self.quantizer.encode(
+                    &mut encoder,
+                    &slot.canvas,
+                    &rgba.view,
+                    wgpu::TextureFormat::Rgba8Unorm,
+                );
+                encoder.copy_texture_to_buffer(
+                    rgba.texture.as_image_copy(),
+                    wgpu::TexelCopyBufferInfo {
+                        buffer: &slot.buffer,
+                        layout: wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(rgba.layout.padded_bytes_per_row),
+                            rows_per_image: Some(scene.height),
+                        },
                     },
-                },
-                wgpu::Extent3d {
-                    width: scene.width,
-                    height: scene.height,
-                    depth_or_array_layers: 1,
-                },
-            ),
+                    rgba.texture.size(),
+                );
+            }
             SlotReadback::Yuv420p(yuv) => {
                 let converter = self
                     .yuv_converter
@@ -785,7 +787,14 @@ impl GpuRenderer {
                     .expect("set_readback_format creates the converter"),
             ),
         };
-        ReadbackSlot::new(&self.device, width, height, converter)
+        ReadbackSlot::new(
+            &self.device,
+            &self.texture_bind_group_layout,
+            self.canvas_format,
+            width,
+            height,
+            converter,
+        )
     }
 
     pub fn render_preview(&mut self, scene: &Scene) -> Result<PreviewFrame, GpuRenderError> {

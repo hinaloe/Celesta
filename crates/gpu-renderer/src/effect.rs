@@ -13,6 +13,8 @@ pub(crate) struct EffectProcessor {
     pub(crate) sampler: wgpu::Sampler,
     /// The blur pass, then `effect.wgsl`'s `downsample` and `upsample`.
     pub(crate) pipelines: [wgpu::RenderPipeline; 3],
+    /// The format of every canvas, `canvas_format`'s.
+    pub(crate) format: wgpu::TextureFormat,
     /// Canvases groups draw onto and effects filter through, kept across
     /// effects and frames instead of allocating several per effect every
     /// frame, each with the frame it was last taken in. A canvas goes back
@@ -93,8 +95,13 @@ pub(crate) enum Filter {
 
 impl EffectProcessor {
     /// Reads its source through `texture_layout` (`layer.wgsl`'s), so a
-    /// canvas's own bind group serves both shaders.
-    pub(crate) fn new(device: &wgpu::Device, texture_layout: &wgpu::BindGroupLayout) -> Self {
+    /// canvas's own bind group serves both shaders. Its canvases are
+    /// `format`.
+    pub(crate) fn new(
+        device: &wgpu::Device,
+        texture_layout: &wgpu::BindGroupLayout,
+        format: wgpu::TextureFormat,
+    ) -> Self {
         let params_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Celesta effect parameters bind group layout"),
             entries: &[
@@ -146,7 +153,7 @@ impl EffectProcessor {
                     entry_point: Some(entry_point),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        format,
                         blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
@@ -169,6 +176,7 @@ impl EffectProcessor {
             params_layout,
             sampler,
             pipelines,
+            format,
             pool: Vec::new(),
             frame: 0,
             params,
@@ -254,7 +262,7 @@ impl EffectProcessor {
         };
         match self.pool.iter().rposition(fits) {
             Some(index) => self.pool.swap_remove(index).0,
-            None => canvas_texture(device, layer_layout, width, height),
+            None => canvas_texture(device, layer_layout, self.format, width, height),
         }
     }
 

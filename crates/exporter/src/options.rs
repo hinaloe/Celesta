@@ -135,7 +135,9 @@ impl Error for UnknownEncoderPreset {}
 /// encoder skips its own conversion. Both use the BT.601 limited-range
 /// matrix; the GPU averages each 2x2 block for chroma where libswscale
 /// filters bicubically, a difference of a few code values at hard color
-/// edges.
+/// edges. The GPU rounds each plane from the frame's own precision with a
+/// dither; the encoder converts the dithered 8-bit RGBA frame, so a dark
+/// gradient bands somewhat more there.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ColorConversion {
     /// On the GPU when it is a hardware GPU that supports it, otherwise in
