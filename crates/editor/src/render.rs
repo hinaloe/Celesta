@@ -22,13 +22,17 @@ impl Render for EditorView {
         window.set_window_title(&format!("{} — Celesta", self.project_name));
         // gpui-kit 0.6's `Root` does not mount its overlay layers, so the
         // view does. They sit outside the `CelestaEditor` key context so
-        // editor shortcuts don't fire from inside an overlay.
+        // editor shortcuts (Space, arrows, ⌘N…) don't fire from inside an
+        // overlay or behind a dialog. The dialog layer comes last, so a modal
+        // sits above notifications.
         let notification_layer = Root::render_notification_layer(window, cx);
+        let dialog_layer = Root::render_dialog_layer(window, cx);
         div()
             .relative()
             .size_full()
             .child(self.editor_shell(cx))
             .children(notification_layer)
+            .children(dialog_layer)
     }
 }
 
