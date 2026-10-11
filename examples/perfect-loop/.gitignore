@@ -1,0 +1,5 @@
+node_modules/
+.celesta/
+.DS_Store
+perfect-loop.mp4
+assets/score.wav
