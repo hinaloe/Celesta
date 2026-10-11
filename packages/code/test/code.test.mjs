@@ -284,11 +284,17 @@ for (const packaged of [false, true]) test(`${packaged ? 'packaged' : 'source'} 
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const entry = join(directory, 'entry.tsx');
   writeFileSync(entry, `
-    import { Composition } from '@celesta/react';
+    import { Composition, type TextColorRun } from '@celesta/react';
     import { useTypewriter } from '@celesta/text';
-    import { Code, codeCharacterCount } from '@celesta/code';
+    import { Code, codeCharacterCount, codeLines, highlightCode, tokenizeCode } from '@celesta/code';
+    import type { CodeLine, CodeRun, HighlightCodeOptions, HighlightedCodeLine, HighlightedCodeRun } from '@celesta/code';
     const source = 'const value = "😀";';
     const maximum: number = codeCharacterCount(source, { line: 1, column: Array.from(source).length + 1 });
+    const options: HighlightCodeOptions = { language: 'ts', tabSize: 4 };
+    const lines: HighlightedCodeLine[] = highlightCode(source, options);
+    const runs: HighlightedCodeRun[] = lines[0].runs;
+    export const colorRuns: TextColorRun[] = runs;
+    export const tokenRuns: CodeRun[] = codeLines(tokenizeCode(source, 'ts')).flatMap((line: CodeLine) => line.runs);
     function Demo() {
       const { length } = useTypewriter(source, { framesPerChar: 0.5 });
       return <Code language="ts" visibleCharacters={Math.min(length, maximum)} highlightLines={[1]} highlightWidth={800}>{source}</Code>;
