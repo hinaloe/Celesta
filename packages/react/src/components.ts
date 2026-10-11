@@ -150,6 +150,51 @@ export interface RectProps extends CommonProps {
   cornerRadius?: number;
 }
 
+/** One value per particle: a `Float32Array` (fastest) or an array of numbers. */
+export type InstanceColumn = Float32Array | ArrayLike<number>;
+
+export interface InstancesProps
+  extends Omit<CommonProps, 'x' | 'y' | 'rotation' | 'anchorX' | 'anchorY'> {
+  /** Number of particles; every column holds this many values. */
+  count: number;
+  /** Particle centres, in the layer's own coordinates. */
+  x: InstanceColumn;
+  y: InstanceColumn;
+  /**
+   * A number for every particle, or one value per particle. Required for a
+   * rect or circle; an image defaults to its natural size.
+   */
+  width?: number | InstanceColumn;
+  height?: number | InstanceColumn;
+  /** Degrees, clockwise, about each particle's centre. Defaults to 0. */
+  rotation?: InstanceColumn;
+  /**
+   * Straight-alpha RGBA in 0-255, four values per particle. A rect or circle
+   * is filled with it; an image's texels are multiplied by it.
+   */
+  color?: Uint8Array | ArrayLike<number>;
+  /** Hex colour of every particle when `color` is absent. Defaults to white. */
+  fill?: string;
+  /** Defaults to `'rect'`. Ignored when `src` is given. */
+  shape?: 'rect' | 'circle';
+  /** Corner radius of a rect, limited to half its shorter side. */
+  cornerRadius?: number;
+  /** Draws this image for every particle instead of a shape. */
+  src?: AssetInput;
+}
+
+/**
+ * Many particles of one shape (a rect, a circle, or an image) as one layer,
+ * drawn in order: particle `i` is centred on `(x[i], y[i])`. Tens of
+ * thousands animate every frame at the cost of a few layers. `x`, `y`, and
+ * `rotation` are always per-particle; wrap the layer in a `<Group>` to move
+ * or rotate the particles as a whole. A `blendMode` blends the composited
+ * particles as one layer, as on a `<Group>`.
+ */
+export function Instances(props: InstancesProps): ReturnType<typeof React.createElement> {
+  return React.createElement('instances', props);
+}
+
 export interface VideoProps extends CommonProps {
   src: AssetInput;
   name?: string;
