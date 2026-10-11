@@ -1,0 +1,13 @@
+{
+  "name": "@celesta/example-perfect-loop",
+  "private": true,
+  "scripts": {
+    "preview": "celesta-editor film.tsx",
+    "score": "python3 make-score.py",
+    "export": "celesta-exporter --json --react --crf 16 --overwrite film.tsx perfect-loop.mp4",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
