@@ -1,0 +1,1218 @@
+//! The Properties section of the React Preview panel: one row per property
+//! the entry declares, each committing its value to the entry's props file.
+//! This module holds the pure helpers, the panel state, and the commit flow;
+//! `property_panel_view.rs` renders it.
+
+use crate::preview::{KeptSchema, ReactPreview};
+use crate::source::{PropertyArgs, watched_mtime};
+use crate::view::EditorView;
+use crate::widgets::{format_component_number, json_display};
+use celesta_react_bridge::{
+    ComponentPropertyField, ENTRY_PROPS_FILE, PropertyInputs, PropertyIssue, effective_values,
+    import_path, resolve_props_file, set_property,
+};
+use gpui_kit::component::color_picker::{ColorPickerEvent, ColorPickerState};
+use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::select::{SelectEvent, SelectState};
+use gpui_kit::{
+    App, AppContext as _, Context, Entity, Focusable as _, Hsla, PathPromptOptions, Rgba,
+    Subscription, Window,
+};
+use serde_json::Value;
+use std::collections::{BTreeMap, VecDeque};
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+
+/// Commits waiting for the single writer, oldest first. A key appears at most
+/// once: a newer commit to a queued key replaces its value in place.
+#[derive(Debug, Default)]
+pub(crate) struct CommitQueue {
+    commits: VecDeque<(String, Option<Value>)>,
+}
+
+impl CommitQueue {
+    pub(crate) fn push(&mut self, key: String, value: Option<Value>) {
+        match self.commits.iter_mut().find(|(queued, _)| *queued == key) {
+            Some((_, queued)) => *queued = value,
+            None => self.commits.push_back((key, value)),
+        }
+    }
+
+    pub(crate) fn pop(&mut self) -> Option<(String, Option<Value>)> {
+        self.commits.pop_front()
+    }
+
+    pub(crate) fn contains(&self, key: &str) -> bool {
+        self.commits.iter().any(|(queued, _)| queued == key)
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.commits.is_empty()
+    }
+}
+
+/// A typed number: surrounding spaces are ignored, and only finite values
+/// count (`1e3` is fine, `NaN`, `inf`, and `1,5` are not).
+pub(crate) fn parse_number_input(text: &str) -> Result<f64, String> {
+    text.trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite())
+        .ok_or_else(|| "Enter a number".to_owned())
+}
+
+/// A typed color: `#RRGGBB` or `#RRGGBBAA` in either case, returned as typed
+/// (without surrounding spaces).
+pub(crate) fn parse_color_input(text: &str) -> Result<String, String> {
+    let text = text.trim();
+    let valid = text.strip_prefix('#').is_some_and(|digits| {
+        matches!(digits.len(), 6 | 8) && digits.chars().all(|digit| digit.is_ascii_hexdigit())
+    });
+    if valid {
+        Ok(text.to_owned())
+    } else {
+        Err("Enter a color as #RRGGBB or #RRGGBBAA".to_owned())
+    }
+}
+
+/// Splits the last load's issues into messages per property key and messages
+/// that concern a whole source (an empty key), which name that source.
+pub(crate) fn issues_by_key(
+    issues: &[PropertyIssue],
+) -> (BTreeMap<String, Vec<String>>, Vec<String>) {
+    let mut by_key: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut general = Vec::new();
+    for issue in issues {
+        if issue.key.is_empty() {
+            general.push(issue.to_string());
+        } else {
+            by_key
+                .entry(issue.key.clone())
+                .or_default()
+                .push(issue.message.clone());
+        }
+    }
+    (by_key, general)
+}
+
+/// The file a commit writes: the props file in use, or a new `props.json`
+/// beside the entry when there is none yet.
+pub(crate) fn props_target(entry: &Path, args: &PropertyArgs) -> PathBuf {
+    resolve_props_file(entry, args.props_file.as_deref()).map_or_else(
+        || {
+            entry
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(ENTRY_PROPS_FILE)
+        },
+        |choice| choice.path,
+    )
+}
+
+/// Equal values, with numbers compared by value (a file's `1` equals `1.0`).
+pub(crate) fn same_value(left: &Value, right: &Value) -> bool {
+    match (left.as_f64(), right.as_f64()) {
+        (Some(left), Some(right)) => left == right,
+        _ => left == right,
+    }
+}
+
+/// Equal values for a row; colors also ignore the case of their hex digits
+/// (`#aabbcc` is `#AABBCC`).
+fn values_match(left: &Value, right: &Value, ignore_case: bool) -> bool {
+    match (left.as_str(), right.as_str()) {
+        (Some(left), Some(right)) if ignore_case => left.eq_ignore_ascii_case(right),
+        _ => same_value(left, right),
+    }
+}
+
+/// True when `value` is not the field's declared default.
+pub(crate) fn differs_from_default(field: &ComponentPropertyField, value: &Value) -> bool {
+    let color = matches!(field, ComponentPropertyField::Color { .. });
+    !values_match(value, &field.default_json(), color)
+}
+
+/// The JSON a committed number is written as: whole numbers without a
+/// fraction (`2`, not `2.0`).
+pub(crate) fn number_value(value: f64) -> Value {
+    // Integers from 2^53 up are not exact in f64, so they stay floats.
+    const EXACT: f64 = 9_007_199_254_740_992.0;
+    if value.fract() == 0.0 && value.abs() < EXACT {
+        return Value::from(value as i64);
+    }
+    serde_json::Number::from_f64(value).map_or(Value::Null, Value::Number)
+}
+
+/// The text an input shows for a value: strings unquoted, numbers without a
+/// needless fraction, anything else (a wrong type in the file) as JSON.
+pub(crate) fn value_text(value: &Value) -> String {
+    match value {
+        Value::Number(number) => number
+            .as_f64()
+            .map_or_else(|| number.to_string(), format_component_number),
+        other => json_display(other),
+    }
+}
+
+/// `#RRGGBB`, or `#RRGGBBAA` when the color is not opaque.
+pub(crate) fn color_hex(color: Hsla) -> String {
+    let rgba = Rgba::from(color);
+    let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let rgb = format!(
+        "#{:02X}{:02X}{:02X}",
+        channel(rgba.r),
+        channel(rgba.g),
+        channel(rgba.b)
+    );
+    if channel(rgba.a) == u8::MAX {
+        rgb
+    } else {
+        format!("{rgb}{:02X}", channel(rgba.a))
+    }
+}
+
+/// A `#RRGGBB`/`#RRGGBBAA` string as a color, for the swatch.
+pub(crate) fn parse_color(value: &Value) -> Option<Hsla> {
+    let text = parse_color_input(value.as_str()?).ok()?;
+    Rgba::try_from(text.as_str()).ok().map(Hsla::from)
+}
+
+/// The schema's keys in declaration order, then any key the order missed.
+pub(crate) fn ordered_keys(schema: &KeptSchema) -> Vec<&str> {
+    let mut keys: Vec<&str> = schema
+        .order
+        .iter()
+        .map(String::as_str)
+        .filter(|key| schema.fields.contains_key(*key))
+        .collect();
+    for key in schema.fields.keys() {
+        if !keys.contains(&key.as_str()) {
+            keys.push(key);
+        }
+    }
+    keys
+}
+
+/// The label a row shows: the field's `label`, else its key.
+pub(crate) fn field_label<'a>(key: &'a str, field: &'a ComponentPropertyField) -> &'a str {
+    let label = match field {
+        ComponentPropertyField::String { label, .. }
+        | ComponentPropertyField::Number { label, .. }
+        | ComponentPropertyField::Boolean { label, .. }
+        | ComponentPropertyField::Color { label, .. }
+        | ComponentPropertyField::Select { label, .. }
+        | ComponentPropertyField::Path { label, .. } => label,
+    };
+    label.as_deref().unwrap_or(key)
+}
+
+/// The range hint a number field shows: `0–1`, `≥ 0`, or `≤ 10`.
+pub(crate) fn number_hint(min: Option<f64>, max: Option<f64>) -> Option<String> {
+    let number = format_component_number;
+    match (min, max) {
+        (Some(min), Some(max)) => Some(format!("{}–{}", number(min), number(max))),
+        (Some(min), None) => Some(format!("≥ {}", number(min))),
+        (None, Some(max)) => Some(format!("≤ {}", number(max))),
+        (None, None) => None,
+    }
+}
+
+/// The value the preview uses for one key, from the inputs last read from disk.
+fn effective_value(react: &ReactPreview, key: &str) -> Option<Value> {
+    let schema = react.property_schema.as_ref()?;
+    effective_values(&schema.fields, &react.disk_properties)
+        .remove(key)
+        .map(|effective| effective.value)
+}
+
+/// What Enter or blur in a row's text does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TextSubmit {
+    /// The person edited the text: parse and commit it.
+    Commit,
+    /// Focus left an unedited text: show the row's value, which may have
+    /// changed on disk while the person was in the field.
+    Refresh,
+    /// Enter in an unedited text: nothing to do.
+    Ignore,
+}
+
+/// A row's value and the decisions about it that need no window: what the
+/// controls show, when a loaded value may replace it, and when typed text
+/// counts as an edit.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RowState {
+    /// The value the controls show: the loaded value, or the one just
+    /// committed while its write and the reload after it run.
+    pub(crate) shown: Value,
+    /// The row was written before reload `hold_until` was requested; loaded
+    /// values from older reloads predate the write and are ignored.
+    hold_until: u64,
+    /// The person changed the text since it last showed `shown`.
+    edited: bool,
+    /// A value to put into the controls on the next render.
+    update: Option<(Value, TextUpdate)>,
+    /// Values are compared ignoring ASCII case (color rows).
+    ignore_case: bool,
+    /// Why this row's last write failed; cleared by its next successful one,
+    /// or by a reload that read the props file after the failure.
+    pub(crate) write_error: Option<String>,
+    /// The first reload number whose read of the props file clears
+    /// `write_error`; `None` keeps it until the next successful write.
+    error_released_by: Option<u64>,
+}
+
+impl RowState {
+    pub(crate) fn new() -> Self {
+        Self {
+            // Differs from every loaded value, so the first load fills the controls.
+            shown: Value::Null,
+            hold_until: 0,
+            edited: false,
+            update: None,
+            ignore_case: false,
+            write_error: None,
+            error_released_by: None,
+        }
+    }
+
+    /// A row for `field`: colors compare ignoring the case of their digits.
+    pub(crate) fn for_field(field: &ComponentPropertyField) -> Self {
+        Self {
+            ignore_case: matches!(field, ComponentPropertyField::Color { .. }),
+            ..Self::new()
+        }
+    }
+
+    /// Records why a write failed. With `released_by` (the number the next
+    /// reload will get), a later reload that read the props file clears it:
+    /// the cause may have been fixed there. `None` keeps it until a write
+    /// succeeds.
+    pub(crate) fn report_error(&mut self, message: String, released_by: Option<u64>) {
+        self.write_error = Some(message);
+        self.error_released_by = released_by;
+    }
+
+    /// The newest applied reload that read the props file is `read_reload`.
+    pub(crate) fn offer_read(&mut self, read_reload: u64) {
+        if self
+            .error_released_by
+            .is_some_and(|since| read_reload >= since)
+        {
+            self.write_error = None;
+            self.error_released_by = None;
+        }
+    }
+
+    /// A reload read `value` from disk. It replaces the shown value unless
+    /// a commit for this key is still on its way (`pending`) or the newest
+    /// applied reload started before this row was last written.
+    pub(crate) fn offer_loaded(&mut self, value: &Value, applied_reload: u64, pending: bool) {
+        if pending
+            || applied_reload < self.hold_until
+            || values_match(value, &self.shown, self.ignore_case)
+        {
+            return;
+        }
+        self.shown = value.clone();
+        self.update = Some((value.clone(), TextUpdate::UnlessFocused));
+    }
+
+    /// Shows `value` (`None`: the default, as the key is removed) and puts
+    /// it into the controls. False when the row already shows that value,
+    /// so there is nothing to write.
+    pub(crate) fn commit(
+        &mut self,
+        value: Option<&Value>,
+        default: Value,
+        text: TextUpdate,
+    ) -> bool {
+        // The text now holds (or is about to show) the committed value.
+        self.edited = false;
+        let shown = value.cloned().unwrap_or(default);
+        if value.is_some() && values_match(&shown, &self.shown, self.ignore_case) {
+            return false;
+        }
+        self.shown = shown.clone();
+        self.update = Some((shown, text));
+        true
+    }
+
+    /// The write succeeded; `next_reload` is the first reload that reads it.
+    pub(crate) fn written(&mut self, next_reload: u64) {
+        self.hold_until = next_reload;
+        self.write_error = None;
+        self.error_released_by = None;
+    }
+
+    /// The write failed and the file still holds `file_value`. The typed
+    /// text stays and counts as an edit, so the next Enter or blur retries.
+    pub(crate) fn write_failed(&mut self, file_value: Option<Value>) {
+        self.edited = true;
+        if let Some(value) = file_value {
+            self.shown = value.clone();
+            self.update = Some((value, TextUpdate::Keep));
+        }
+    }
+
+    pub(crate) fn text_edited(&mut self) {
+        self.edited = true;
+    }
+
+    /// The text was set to the shown value.
+    pub(crate) fn text_replaced(&mut self) {
+        self.edited = false;
+    }
+
+    /// Enter (`blur` false) or blur in the row's text.
+    pub(crate) fn submitted(&mut self, blur: bool) -> TextSubmit {
+        if self.edited {
+            TextSubmit::Commit
+        } else if blur {
+            self.update = Some((self.shown.clone(), TextUpdate::Always));
+            TextSubmit::Refresh
+        } else {
+            TextSubmit::Ignore
+        }
+    }
+
+    /// Escape: show the row's value again.
+    pub(crate) fn restore(&mut self) {
+        self.update = Some((self.shown.clone(), TextUpdate::Always));
+    }
+
+    pub(crate) fn take_update(&mut self) -> Option<(Value, TextUpdate)> {
+        self.update.take()
+    }
+}
+
+/// How putting a value into a row's controls treats its text input.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TextUpdate {
+    /// Leave the text as it is: it holds what the person typed.
+    Keep,
+    /// Replace the text unless the person is typing in it.
+    UnlessFocused,
+    /// Replace the text: the value was chosen elsewhere in the row.
+    Always,
+}
+
+/// The control a row edits its value with.
+pub(crate) enum RowControl {
+    /// `string`, `number`, and `path` fields.
+    Text(Entity<InputState>),
+    /// `boolean` fields; the switch shows `RowState::shown`.
+    Switch,
+    Select(Entity<SelectState<Vec<String>>>),
+    Color {
+        text: Entity<InputState>,
+        picker: Entity<ColorPickerState>,
+    },
+}
+
+/// One declared property's controls and what they show.
+pub(crate) struct PropertyRow {
+    pub(crate) field: ComponentPropertyField,
+    pub(crate) control: RowControl,
+    /// The row's value and when it changes; applied to `control` on render,
+    /// which has the window the controls need.
+    pub(crate) state: RowState,
+    /// Why the typed text was not committed (not a number, not a color).
+    pub(crate) invalid: Option<String>,
+    /// The color picker's open state at its last notification, and whether a
+    /// color was picked since it opened. The pick is committed on close.
+    picker_open: bool,
+    picked: bool,
+    _subscriptions: Vec<Subscription>,
+}
+
+/// The Properties section's state for the open entry. A new `EditorView`
+/// (another entry opened) starts with a fresh one.
+#[derive(Default)]
+pub(crate) struct PropertyPanelState {
+    /// The schema the rows were built for.
+    schema: Option<KeptSchema>,
+    /// The inputs the rows last showed, and the reload that read them.
+    inputs: Option<PropertyInputs>,
+    applied: u64,
+    pub(crate) rows: BTreeMap<String, PropertyRow>,
+    queue: CommitQueue,
+    /// The key being written right now; one write runs at a time.
+    writing: Option<String>,
+    /// A write succeeded since the last reload; reload once the queue drains.
+    reload_needed: bool,
+}
+
+impl PropertyPanelState {
+    /// A write is running or waiting.
+    pub(crate) fn is_writing(&self) -> bool {
+        self.writing.is_some() || !self.queue.is_empty()
+    }
+}
+
+/// Puts `value` into a row's controls.
+fn update_controls(
+    row: &mut PropertyRow,
+    value: Value,
+    text: TextUpdate,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let mut set_text = |input: &Entity<InputState>, window: &mut Window, cx: &mut App| {
+        let replace = match text {
+            TextUpdate::Keep => false,
+            TextUpdate::UnlessFocused => !input.focus_handle(cx).is_focused(window),
+            TextUpdate::Always => true,
+        };
+        if replace {
+            let shown = value_text(&value);
+            input.update(cx, |input, cx| input.set_value(shown, window, cx));
+            row.invalid = None;
+            row.state.text_replaced();
+        }
+    };
+    match &row.control {
+        RowControl::Text(input) => set_text(input, window, cx),
+        RowControl::Switch => {}
+        RowControl::Select(select) => {
+            let choice = value.as_str().map(str::to_owned);
+            select.update(cx, |select, cx| match &choice {
+                Some(choice) => select.set_selected_value(choice, window, cx),
+                None => select.set_selected_index(None, window, cx),
+            });
+        }
+        RowControl::Color { text, picker } => {
+            set_text(text, window, cx);
+            if let Some(color) = parse_color(&value) {
+                picker.update(cx, |picker, cx| picker.set_value(color, window, cx));
+            }
+        }
+    }
+}
+
+impl EditorView {
+    /// Builds rows for a new schema and puts newly read values into the
+    /// controls. Runs from `render`, which has the window inputs need, and
+    /// does nothing when neither changed.
+    pub(crate) fn sync_property_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(react) = self.react_preview.as_ref() else {
+            return;
+        };
+        if self.property_panel.schema != react.property_schema {
+            let schema = react.property_schema.clone();
+            self.rebuild_property_rows(schema.as_ref(), window, cx);
+            self.property_panel.schema = schema;
+            self.property_panel.inputs = None;
+        }
+        let Some(react) = self.react_preview.as_ref() else {
+            return;
+        };
+        let applied = self.react_reloads.applied();
+        let panel = &mut self.property_panel;
+        // A newer reload can release a row held for its write even when the
+        // inputs it read look the same.
+        if panel.inputs.as_ref() != Some(&react.disk_properties) || panel.applied != applied {
+            if let Some(schema) = panel.schema.as_ref() {
+                let values = effective_values(&schema.fields, &react.disk_properties);
+                for (key, row) in &mut panel.rows {
+                    // A commit on its way to the file shows its own value.
+                    let pending =
+                        panel.queue.contains(key) || panel.writing.as_deref() == Some(key);
+                    if let Some(effective) = values.get(key) {
+                        row.state.offer_loaded(&effective.value, applied, pending);
+                    }
+                }
+            }
+            panel.inputs = Some(react.disk_properties.clone());
+            panel.applied = applied;
+        }
+        for row in panel.rows.values_mut() {
+            row.state.offer_read(react.properties_read_reload);
+            if let Some((value, text)) = row.state.take_update() {
+                update_controls(row, value, text, window, cx);
+            }
+        }
+    }
+
+    /// Keeps rows whose field did not change, so their controls keep focus and
+    /// typed text, and builds the rest.
+    fn rebuild_property_rows(
+        &mut self,
+        schema: Option<&KeptSchema>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut previous = std::mem::take(&mut self.property_panel.rows);
+        let Some(schema) = schema else {
+            return;
+        };
+        for key in ordered_keys(schema) {
+            let field = &schema.fields[key];
+            let row = match previous.remove(key) {
+                Some(row) if row.field == *field => row,
+                _ => Self::new_property_row(key, field, window, cx),
+            };
+            self.property_panel.rows.insert(key.to_owned(), row);
+        }
+    }
+
+    fn new_property_row(
+        key: &str,
+        field: &ComponentPropertyField,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> PropertyRow {
+        let (control, subscriptions) = match field {
+            ComponentPropertyField::String { .. }
+            | ComponentPropertyField::Number { .. }
+            | ComponentPropertyField::Path { .. } => {
+                let (input, subscription) = Self::property_text_input(key, window, cx);
+                (RowControl::Text(input), vec![subscription])
+            }
+            ComponentPropertyField::Boolean { .. } => (RowControl::Switch, Vec::new()),
+            ComponentPropertyField::Select { options, .. } => {
+                let select = cx.new(|cx| SelectState::new(options.clone(), None, window, cx));
+                let key = key.to_owned();
+                let subscription = cx.subscribe_in(
+                    &select,
+                    window,
+                    move |this, _, event: &SelectEvent<Vec<String>>, _, cx| {
+                        if let SelectEvent::Confirm(Some(choice)) = event {
+                            let value = Value::String(choice.clone());
+                            this.commit_property(&key, Some(value), TextUpdate::Keep, cx);
+                        }
+                    },
+                );
+                (RowControl::Select(select), vec![subscription])
+            }
+            ComponentPropertyField::Color { .. } => {
+                let (text, typed) = Self::property_text_input(key, window, cx);
+                let picker = cx.new(|cx| ColorPickerState::new(window, cx));
+                let picked_key = key.to_owned();
+                let picked = cx.subscribe_in(
+                    &picker,
+                    window,
+                    move |this, _, _: &ColorPickerEvent, _, _| {
+                        if let Some(row) = this.property_panel.rows.get_mut(&picked_key) {
+                            row.picked = true;
+                        }
+                    },
+                );
+                let closed_key = key.to_owned();
+                let closed = cx.observe_in(&picker, window, move |this, picker, _, cx| {
+                    this.color_picker_notified(&closed_key, &picker, cx);
+                });
+                (
+                    RowControl::Color { text, picker },
+                    vec![typed, picked, closed],
+                )
+            }
+        };
+        PropertyRow {
+            field: field.clone(),
+            control,
+            // Differs from every effective value, so the first sync fills the controls.
+            state: RowState::for_field(field),
+            invalid: None,
+            picker_open: false,
+            picked: false,
+            _subscriptions: subscriptions,
+        }
+    }
+
+    /// A single-line input that commits its row on Enter or blur.
+    fn property_text_input(
+        key: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> (Entity<InputState>, Subscription) {
+        let input = cx.new(|cx| InputState::new(window, cx));
+        let key = key.to_owned();
+        let subscription =
+            cx.subscribe_in(&input, window, move |this, _, event: &InputEvent, _, cx| {
+                match event {
+                    // `set_value` emits no change, so this is the person typing.
+                    InputEvent::Change => {
+                        if let Some(row) = this.property_panel.rows.get_mut(&key) {
+                            row.state.text_edited();
+                        }
+                    }
+                    InputEvent::PressEnter { .. } => this.submit_property_text(&key, false, cx),
+                    InputEvent::Blur => this.submit_property_text(&key, true, cx),
+                    InputEvent::Focus => {}
+                }
+            });
+        (input, subscription)
+    }
+
+    /// Enter (`blur` false) or blur in a row's text: commits an edit, or
+    /// marks it invalid when it does not parse. Unedited text is never
+    /// written; on blur it shows the row's value, which may have changed on
+    /// disk meanwhile.
+    fn submit_property_text(&mut self, key: &str, blur: bool, cx: &mut Context<Self>) {
+        let Some(row) = self.property_panel.rows.get_mut(key) else {
+            return;
+        };
+        match row.state.submitted(blur) {
+            TextSubmit::Commit => {}
+            TextSubmit::Refresh => return cx.notify(),
+            TextSubmit::Ignore => return,
+        }
+        let input = match &row.control {
+            RowControl::Text(input) | RowControl::Color { text: input, .. } => input,
+            RowControl::Switch | RowControl::Select(_) => return,
+        };
+        let text = input.read(cx).value();
+        let parsed = match row.field {
+            ComponentPropertyField::Number { .. } => parse_number_input(&text).map(number_value),
+            ComponentPropertyField::Color { .. } => parse_color_input(&text).map(Value::String),
+            _ => Ok(Value::String(text.to_string())),
+        };
+        match parsed {
+            Ok(value) => {
+                row.invalid = None;
+                self.commit_property(key, Some(value), TextUpdate::Keep, cx);
+            }
+            Err(message) => row.invalid = Some(message),
+        }
+        cx.notify();
+    }
+
+    /// Escape in a row's text: show its value again and drop the typed text.
+    pub(crate) fn restore_property_text(&mut self, key: &str, cx: &mut Context<Self>) {
+        if let Some(row) = self.property_panel.rows.get_mut(key) {
+            row.state.restore();
+            cx.notify();
+        }
+    }
+
+    /// Commits the picked color when the picker closes.
+    fn color_picker_notified(
+        &mut self,
+        key: &str,
+        picker: &Entity<ColorPickerState>,
+        cx: &mut Context<Self>,
+    ) {
+        let (open, color) = {
+            let picker = picker.read(cx);
+            (picker.is_open(), picker.value())
+        };
+        let Some(row) = self.property_panel.rows.get_mut(key) else {
+            return;
+        };
+        let was_open = std::mem::replace(&mut row.picker_open, open);
+        if open && !was_open {
+            row.picked = false;
+        }
+        if !was_open || open || !std::mem::take(&mut row.picked) {
+            return;
+        }
+        if let Some(color) = color {
+            let value = Value::String(color_hex(color));
+            self.commit_property(key, Some(value), TextUpdate::Always, cx);
+        }
+    }
+
+    /// Queues a write of `value` (`None` removes the key) and shows it in the
+    /// row right away. A value the row already shows is not written again.
+    pub(crate) fn commit_property(
+        &mut self,
+        key: &str,
+        value: Option<Value>,
+        text: TextUpdate,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(row) = self.property_panel.rows.get_mut(key) else {
+            return;
+        };
+        // The controls follow the committed value; `Keep` leaves the typed
+        // text but still moves the picker or select.
+        if !row
+            .state
+            .commit(value.as_ref(), row.field.default_json(), text)
+        {
+            return;
+        }
+        self.property_panel.queue.push(key.to_owned(), value);
+        self.drain_property_commits(cx);
+        cx.notify();
+    }
+
+    /// Starts the next queued write unless one is running. Once the queue is
+    /// empty, reloads the entry if any write succeeded.
+    fn drain_property_commits(&mut self, cx: &mut Context<Self>) {
+        if self.property_panel.writing.is_some() {
+            return;
+        }
+        let Some(react) = self.react_preview.as_ref() else {
+            return;
+        };
+        let Some((key, value)) = self.property_panel.queue.pop() else {
+            if std::mem::take(&mut self.property_panel.reload_needed) {
+                self.request_react_reload(cx);
+            }
+            return;
+        };
+        let target = props_target(&react.entry, &react.property_args);
+        let entry = react.entry.clone();
+        let property_args = react.property_args.clone();
+        self.property_panel.writing = Some(key.clone());
+        let session = self.session;
+        cx.spawn(async move |view, cx| {
+            let written_key = key.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    set_property(&target, &written_key, value.as_ref())
+                        // Sampled after the write, so the reload watcher does
+                        // not take this write for an edit from elsewhere.
+                        .map(|()| watched_mtime(&entry, &property_args))
+                        .map_err(|error| error.to_string())
+                })
+                .await;
+            view.update(cx, |this, cx| {
+                // Another file opened meanwhile; its panel never queued this write.
+                if this.session == session {
+                    this.finish_property_commit(&key, result, cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn finish_property_commit(
+        &mut self,
+        key: &str,
+        result: Result<Option<SystemTime>, String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.property_panel.writing = None;
+        match result {
+            Ok(watched) => {
+                // Reloads requested from now on read this write.
+                let next_reload = self.react_reloads.next();
+                if let Some(react) = self.react_preview.as_mut()
+                    && watched.is_some()
+                {
+                    react.watched_mtime = watched;
+                    self.watched_since = next_reload;
+                }
+                self.property_panel.reload_needed = true;
+                if let Some(row) = self.property_panel.rows.get_mut(key) {
+                    row.state.written(next_reload);
+                }
+            }
+            Err(message) => {
+                let queued_again = self.property_panel.queue.contains(key);
+                let effective = self
+                    .react_preview
+                    .as_ref()
+                    .and_then(|react| effective_value(react, key));
+                if let Some(row) = self.property_panel.rows.get_mut(key) {
+                    // A reload from now on reads the file as it is then.
+                    let released_by = self.react_reloads.next();
+                    row.state.report_error(message, Some(released_by));
+                    // The file still holds the old value: show it again, but
+                    // keep the typed text so the person can retry.
+                    if !queued_again {
+                        row.state.write_failed(effective);
+                    }
+                }
+            }
+        }
+        self.drain_property_commits(cx);
+        cx.notify();
+    }
+
+    /// `Choose…` on a path row: imports the chosen file into the project and
+    /// commits the path the props file should hold.
+    pub(crate) fn choose_property_path(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(react) = self.react_preview.as_ref() else {
+            return;
+        };
+        let project_root = react
+            .entry
+            .parent()
+            .map_or_else(PathBuf::new, Path::to_path_buf);
+        let target = props_target(&react.entry, &react.property_args);
+        let props_dir = target
+            .parent()
+            .map_or_else(|| project_root.clone(), Path::to_path_buf);
+        let selection = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Choose".into()),
+        });
+        let key = key.to_owned();
+        let session = self.session;
+        cx.spawn(async move |view, cx| {
+            let chosen = match selection.await {
+                Ok(Ok(Some(paths))) => paths.into_iter().next(),
+                Ok(Ok(None)) | Err(_) => None,
+                Ok(Err(error)) => {
+                    view.update(cx, |this, cx| {
+                        if this.session == session {
+                            let message = format!("Couldn’t show the file dialog: {error}");
+                            this.set_property_write_error(&key, message, cx);
+                        }
+                    })
+                    .ok();
+                    None
+                }
+            };
+            let Some(chosen) = chosen else {
+                return;
+            };
+            let imported = cx
+                .background_executor()
+                .spawn(async move { import_path(&project_root, &props_dir, &chosen) })
+                .await;
+            view.update(cx, |this, cx| {
+                if this.session != session {
+                    return;
+                }
+                match imported {
+                    Ok(path) => {
+                        let value = Some(Value::String(path));
+                        this.commit_property(&key, value, TextUpdate::Always, cx);
+                    }
+                    Err(error) => {
+                        let message = format!("Couldn’t use the chosen file: {error}");
+                        this.set_property_write_error(&key, message, cx);
+                    }
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn set_property_write_error(&mut self, key: &str, message: String, cx: &mut Context<Self>) {
+        if let Some(row) = self.property_panel.rows.get_mut(key) {
+            row.state.report_error(message, None);
+            cx.notify();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn queued_commits_to_one_key_keep_the_last_value() {
+        let mut queue = CommitQueue::default();
+        queue.push("a".to_owned(), Some(json!(1)));
+        queue.push("b".to_owned(), Some(json!(2)));
+        queue.push("a".to_owned(), Some(json!(3)));
+
+        assert_eq!(queue.pop(), Some(("a".to_owned(), Some(json!(3)))));
+        assert_eq!(queue.pop(), Some(("b".to_owned(), Some(json!(2)))));
+        assert_eq!(queue.pop(), None);
+    }
+
+    #[test]
+    fn number_input_accepts_finite_numbers_only() {
+        assert_eq!(parse_number_input("1.5"), Ok(1.5));
+        assert_eq!(parse_number_input(" 2 "), Ok(2.0));
+        assert_eq!(parse_number_input("1e3"), Ok(1000.0));
+        for text in ["1,5", "", "NaN", "inf"] {
+            assert!(parse_number_input(text).is_err(), "{text:?} was accepted");
+        }
+    }
+
+    #[test]
+    fn color_input_accepts_six_or_eight_hex_digits() {
+        assert_eq!(parse_color_input("#AABBCC"), Ok("#AABBCC".to_owned()));
+        assert_eq!(parse_color_input("#aabbccdd"), Ok("#aabbccdd".to_owned()));
+        for text in ["#fff", "red", "AABBCC"] {
+            assert!(parse_color_input(text).is_err(), "{text:?} was accepted");
+        }
+    }
+
+    #[test]
+    fn issues_are_grouped_by_key() {
+        let issue = |key: &str, source: &str, message: &str| PropertyIssue {
+            key: key.to_owned(),
+            source: source.to_owned(),
+            message: message.to_owned(),
+        };
+        let (by_key, general) = issues_by_key(&[
+            issue("title", "props.json", "must be a string"),
+            issue("", "--props", "must be a JSON object"),
+            issue("opacity", "props.json", "must be at most 1"),
+            issue("title", "--props", "must not be empty"),
+        ]);
+
+        assert_eq!(
+            by_key,
+            BTreeMap::from([
+                ("opacity".to_owned(), vec!["must be at most 1".to_owned()]),
+                (
+                    "title".to_owned(),
+                    vec![
+                        "must be a string".to_owned(),
+                        "must not be empty".to_owned()
+                    ]
+                ),
+            ])
+        );
+        assert_eq!(general, vec!["--props: must be a JSON object".to_owned()]);
+    }
+
+    #[test]
+    fn the_target_is_the_props_file_in_use_or_a_new_props_json() {
+        let dir = std::env::temp_dir().join(format!("celesta-props-target-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("variants")).unwrap();
+        let entry = dir.join("film.tsx");
+
+        let variant = dir.join("variants").join("a.json");
+        let with_file = PropertyArgs::new(Some(variant.clone()), None);
+        assert_eq!(props_target(&entry, &with_file), variant);
+
+        // No props.json yet: the first commit creates one beside the entry.
+        assert_eq!(
+            props_target(&entry, &PropertyArgs::default()),
+            dir.join("props.json")
+        );
+
+        // An existing props.json is the file in use.
+        std::fs::write(dir.join("props.json"), "{}").unwrap();
+        assert_eq!(
+            props_target(&entry, &PropertyArgs::default()),
+            dir.join("props.json")
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn numbers_equal_to_the_default_are_not_a_difference() {
+        let number = ComponentPropertyField::Number {
+            label: None,
+            default_value: 1.0,
+            min: None,
+            max: None,
+            step: None,
+        };
+        assert!(!differs_from_default(&number, &json!(1)));
+        assert!(!differs_from_default(&number, &json!(1.0)));
+        assert!(differs_from_default(&number, &json!(0.5)));
+        assert!(differs_from_default(&number, &json!("1")));
+
+        let text = ComponentPropertyField::String {
+            label: None,
+            default_value: "Hello".to_owned(),
+        };
+        assert!(!differs_from_default(&text, &json!("Hello")));
+        assert!(differs_from_default(&text, &json!("Bye")));
+    }
+
+    #[test]
+    fn whole_numbers_are_written_without_a_fraction() {
+        assert_eq!(number_value(2.0), json!(2));
+        assert_eq!(number_value(-3.0), json!(-3));
+        assert_eq!(number_value(0.25), json!(0.25));
+        assert_eq!(number_value(1e300), json!(1e300));
+    }
+
+    #[test]
+    fn inputs_show_strings_unquoted_and_numbers_plainly() {
+        assert_eq!(value_text(&json!("./assets/a.png")), "./assets/a.png");
+        assert_eq!(value_text(&json!(2.0)), "2");
+        assert_eq!(value_text(&json!(0.5)), "0.5");
+        assert_eq!(value_text(&json!(true)), "true");
+    }
+
+    #[test]
+    fn picked_colors_are_written_as_hex() {
+        let opaque = Hsla::from(gpui_kit::Rgba {
+            r: 1.0,
+            g: 0.0,
+            b: 0x80 as f32 / 255.0,
+            a: 1.0,
+        });
+        assert_eq!(color_hex(opaque), "#FF0080");
+        let translucent = Hsla::from(gpui_kit::Rgba {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0x40 as f32 / 255.0,
+        });
+        assert_eq!(color_hex(translucent), "#00000040");
+    }
+
+    #[test]
+    fn keys_follow_the_declaration_order() {
+        let text = |default: &str| ComponentPropertyField::String {
+            label: None,
+            default_value: default.to_owned(),
+        };
+        let schema = KeptSchema {
+            fields: BTreeMap::from([
+                ("a".to_owned(), text("")),
+                ("b".to_owned(), text("")),
+                ("c".to_owned(), text("")),
+            ]),
+            order: vec!["c".to_owned(), "gone".to_owned(), "a".to_owned()],
+        };
+        assert_eq!(ordered_keys(&schema), vec!["c", "a", "b"]);
+    }
+
+    #[test]
+    fn number_hints_show_the_declared_range() {
+        assert_eq!(number_hint(Some(0.0), Some(1.0)), Some("0–1".to_owned()));
+        assert_eq!(number_hint(Some(0.5), None), Some("≥ 0.5".to_owned()));
+        assert_eq!(number_hint(None, Some(10.0)), Some("≤ 10".to_owned()));
+        assert_eq!(number_hint(None, None), None);
+    }
+
+    #[test]
+    fn a_stale_reload_does_not_revert_a_row_written_after_it_started() {
+        let mut row = RowState::new();
+        row.offer_loaded(&json!(false), 0, false);
+        row.take_update();
+        // Reload 1 starts and reads `false`; meanwhile `true` is written, so
+        // only reload 2 or later reads it.
+        assert!(row.commit(Some(&json!(true)), json!(false), TextUpdate::Keep));
+        row.take_update();
+        row.written(2);
+
+        row.offer_loaded(&json!(false), 1, false);
+        assert_eq!(row.shown, json!(true));
+        assert_eq!(row.take_update(), None);
+
+        // Reload 2 read the file after the write; an edit from elsewhere shows.
+        row.offer_loaded(&json!(false), 2, false);
+        assert_eq!(row.shown, json!(false));
+        assert_eq!(
+            row.take_update(),
+            Some((json!(false), TextUpdate::UnlessFocused))
+        );
+    }
+
+    #[test]
+    fn a_pending_commit_keeps_its_value() {
+        let mut row = RowState::new();
+        row.commit(Some(&json!("new")), json!(""), TextUpdate::Keep);
+        row.offer_loaded(&json!("old"), 5, true);
+        assert_eq!(row.shown, json!("new"));
+    }
+
+    #[test]
+    fn blur_without_an_edit_does_not_commit() {
+        let mut row = RowState::new();
+        row.offer_loaded(&json!("from disk"), 0, false);
+        row.take_update();
+        row.text_replaced();
+
+        // Focused while another editor changed the file: the text is stale.
+        row.offer_loaded(&json!("changed elsewhere"), 0, false);
+        row.take_update();
+        assert_eq!(row.submitted(false), TextSubmit::Ignore);
+        assert_eq!(row.submitted(true), TextSubmit::Refresh);
+        assert_eq!(
+            row.take_update(),
+            Some((json!("changed elsewhere"), TextUpdate::Always))
+        );
+
+        row.text_edited();
+        assert_eq!(row.submitted(true), TextSubmit::Commit);
+        row.commit(Some(&json!("typed")), json!(""), TextUpdate::Keep);
+        assert_eq!(row.submitted(true), TextSubmit::Refresh);
+    }
+
+    #[test]
+    fn a_failed_write_keeps_the_typed_text_as_an_edit() {
+        let mut row = RowState::new();
+        row.text_edited();
+        row.commit(Some(&json!("typed")), json!(""), TextUpdate::Keep);
+        row.take_update();
+
+        row.write_failed(Some(json!("on disk")));
+        assert_eq!(row.shown, json!("on disk"));
+        assert_eq!(
+            row.take_update(),
+            Some((json!("on disk"), TextUpdate::Keep))
+        );
+        assert_eq!(row.submitted(true), TextSubmit::Commit);
+    }
+
+    #[test]
+    fn a_typed_color_updates_the_picker() {
+        let mut row = RowState::new();
+        assert!(row.commit(Some(&json!("#AABBCC")), json!("#000000"), TextUpdate::Keep));
+        // Keep leaves the typed text alone but still updates the picker.
+        let (value, text) = row.take_update().expect("a control update");
+        assert_eq!(text, TextUpdate::Keep);
+        assert_eq!(
+            parse_color(&value),
+            Some(Hsla::from(Rgba::try_from("#AABBCC").unwrap()))
+        );
+    }
+
+    #[test]
+    fn committing_the_shown_value_writes_nothing() {
+        let mut row = RowState::new();
+        row.commit(Some(&json!(2)), json!(0), TextUpdate::Keep);
+        assert!(!row.commit(Some(&json!(2.0)), json!(0), TextUpdate::Keep));
+        // Reset always writes: it removes the key even when it equals the default.
+        assert!(row.commit(None, json!(0), TextUpdate::Always));
+    }
+
+    #[test]
+    fn a_write_error_clears_once_a_later_reload_read_the_file() {
+        let mut row = RowState::new();
+        // The write failed while the next reload to be requested was number 4.
+        row.report_error("Fix props.json before editing: …".to_owned(), Some(4));
+
+        // Reload 3 started before the failure, so it says nothing about the fix.
+        row.offer_read(3);
+        assert!(row.write_error.is_some());
+
+        row.offer_read(4);
+        assert_eq!(row.write_error, None);
+    }
+
+    #[test]
+    fn a_write_error_without_a_release_waits_for_a_successful_write() {
+        let mut row = RowState::new();
+        row.report_error("Couldn’t use the chosen file".to_owned(), None);
+
+        row.offer_read(100);
+        assert!(row.write_error.is_some());
+
+        row.written(5);
+        assert_eq!(row.write_error, None);
+    }
+
+    #[test]
+    fn colors_differing_only_in_case_are_the_same_value() {
+        let color = ComponentPropertyField::Color {
+            label: None,
+            default_value: "#AABBCC".to_owned(),
+        };
+        assert!(!differs_from_default(&color, &json!("#aabbcc")));
+        assert!(differs_from_default(&color, &json!("#aabbcd")));
+
+        // Typing the same color in another case writes nothing.
+        let mut row = RowState::for_field(&color);
+        assert!(row.commit(Some(&json!("#AABBCC")), json!("#000000"), TextUpdate::Keep));
+        assert!(!row.commit(Some(&json!("#aabbcc")), json!("#000000"), TextUpdate::Keep));
+        assert_eq!(row.shown, json!("#AABBCC"));
+        // Nor does a reload that read the other spelling replace the row.
+        row.take_update();
+        row.offer_loaded(&json!("#aabbcc"), 0, false);
+        assert_eq!(row.take_update(), None);
+
+        // A string field keeps case-sensitive comparison.
+        let text = ComponentPropertyField::String {
+            label: None,
+            default_value: "Hello".to_owned(),
+        };
+        assert!(differs_from_default(&text, &json!("hello")));
+    }
+}

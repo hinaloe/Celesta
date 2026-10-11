@@ -99,6 +99,16 @@ their full paths instead.
 Keep media, fonts, and voices inside the project folder and reference them
 with `./relative/paths` from the entry file.
 
+The user can change an entry's properties without editing JSON: in the app,
+the **Properties** section of the React Preview panel lists every property
+declared with `defineProjectProperties()`. A change is saved to the props file
+in use (`props.json`, or the `--props-file` the app was opened with) and the
+preview reloads. A file chosen from outside the project is copied into
+`assets/`. The panel writes the same props file you would edit, so edits from
+you and from the panel stay in step: the panel re-reads the file before each
+write and follows your changes. Keep the file valid JSON; the panel refuses to
+write over a broken one.
+
 ## npm dependencies
 
 - `react` and the Celesta packages in [SKILL.md](../SKILL.md#packages) always come from Celesta's
@@ -132,7 +142,10 @@ frames ([verify.md](verify.md)).
 
 ## Preview in the app
 
-The app only previews and exports; it never edits files.
+The app previews and exports. It never edits your source; the only file it
+writes is the props file, when the user changes a value in the Properties
+section (see above). A file the user chooses from outside the project is also
+copied into `assets/`.
 
 - **File → Open…** (Command-O / Ctrl-O) opens a `.celesta.json` or a React
   entry (`.tsx`, `.jsx`, `.ts`, `.js`). Passing a path on the command line

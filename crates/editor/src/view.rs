@@ -4,7 +4,9 @@ use crate::export_worker::ExportWorker;
 use crate::media_probe::{MediaAssetInfo, MediaProbeWorker};
 use crate::meter::MasterLevels;
 use crate::preview::{AudioPreview, PreviewPresentation, PreviewWorker, ReactPreview};
+use crate::property_panel::PropertyPanelState;
 use crate::react_audio::ReactAudioWorker;
+use crate::refresh::ReloadOrder;
 use crate::source::{PropertyArgs, load_source};
 use celesta_composition::Rational;
 use celesta_editor_core::{AssetSummary, EditorDocument, TimelineClock, TrackSummary};
@@ -47,6 +49,14 @@ pub(crate) struct EditorView {
     /// threaded into `PreviewRequest::react_reload` so the preview worker
     /// respawns Node against the freshly re-bundled code.
     pub(crate) react_reload_generation: u64,
+    /// Numbers the React entry's reloads so a slow older one is not applied
+    /// over a newer one.
+    pub(crate) react_reloads: ReloadOrder,
+    /// The next reload number when `ReactPreview::watched_mtime` was last
+    /// sampled outside a reload; older reloads' samples are not applied.
+    pub(crate) watched_since: u64,
+    /// The React Preview panel's Properties section.
+    pub(crate) property_panel: PropertyPanelState,
     pub(crate) preview_worker: PreviewWorker,
     pub(crate) preview_generation: u64,
     /// Generation of the newest preview frame actually shown. Results are
@@ -215,6 +225,9 @@ impl EditorView {
             react_preview,
             react_audio_worker,
             react_reload_generation: 0,
+            react_reloads: ReloadOrder::default(),
+            watched_since: 0,
+            property_panel: PropertyPanelState::default(),
             preview_worker,
             preview_generation: 0,
             preview_shown_generation: 0,

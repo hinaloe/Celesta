@@ -292,6 +292,13 @@ either. It is checked like `--props-file`, so an undeclared key or a wrong type
 is an error, and it is ignored with a warning when the entry declares no
 properties.
 
+You can change these values without editing JSON. Open `film.tsx` in Celesta
+and use the **Properties** section of the React Preview panel: it lists every
+property the entry declares, with a control for each type. A change is saved to
+the props file in use (`props.json`, or the `--props-file` you opened with) and
+the preview reloads. A file you pick from outside the project is copied into
+`assets/`.
+
 With `--template`, initialization refuses to write if any file the template
 would create already exists, and lists them; without it, existing files are
 kept as described above.

@@ -1,3 +1,4 @@
+use crate::types::ComponentPropertyField;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -145,6 +146,11 @@ impl PropertyInputs {
         self
     }
 
+    #[cfg(test)]
+    pub(crate) fn from_layers(layers: Vec<PropertyLayer>) -> Self {
+        Self { layers }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.layers.is_empty()
     }
@@ -152,6 +158,72 @@ impl PropertyInputs {
     pub fn layers(&self) -> &[PropertyLayer] {
         &self.layers
     }
+}
+
+/// Where a property's effective value comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ValueSource {
+    /// The `--props` option.
+    Props,
+    /// The props file (`--props-file` or the entry's `props.json`).
+    File,
+    /// The default declared in the schema.
+    Default,
+}
+
+/// The value the preview uses for one declared property, and where it came
+/// from. The value is exactly as written in its layer (paths are not resolved).
+#[derive(Clone, Debug, PartialEq)]
+pub struct EffectiveValue {
+    pub value: Value,
+    pub source: ValueSource,
+}
+
+/// Per declared key: the `--props` layer, else the props-file layer
+/// (`PropsFile` or `EntryProps`), else the declared default. Companion
+/// `Project` layers are ignored; standalone entries never have them.
+pub fn effective_values(
+    schema: &BTreeMap<String, ComponentPropertyField>,
+    inputs: &PropertyInputs,
+) -> BTreeMap<String, EffectiveValue> {
+    // The last layer of a kind that has the key wins.
+    let find = |key: &str, wanted: fn(PropertySource) -> bool| {
+        inputs
+            .layers()
+            .iter()
+            .rev()
+            .filter(|layer| wanted(layer.source))
+            .find_map(|layer| layer.values.get(key))
+    };
+
+    schema
+        .iter()
+        .map(|(key, field)| {
+            let effective = if let Some(value) = find(key, |source| source == PropertySource::Props)
+            {
+                EffectiveValue {
+                    value: value.clone(),
+                    source: ValueSource::Props,
+                }
+            } else if let Some(value) = find(key, |source| {
+                matches!(
+                    source,
+                    PropertySource::PropsFile | PropertySource::EntryProps
+                )
+            }) {
+                EffectiveValue {
+                    value: value.clone(),
+                    source: ValueSource::File,
+                }
+            } else {
+                EffectiveValue {
+                    value: field.default_json(),
+                    source: ValueSource::Default,
+                }
+            };
+            (key.clone(), effective)
+        })
+        .collect()
 }
 
 /// Reads one property file into a layer. `origin` names the file in errors,

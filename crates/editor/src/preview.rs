@@ -3,7 +3,10 @@ use crate::helpers::prepare_preview_frame;
 use crate::source::PropertyArgs;
 use celesta_composition::{Layer, LayerContent, Scene};
 use celesta_gpu_renderer::{GpuRenderer, RenderQuality};
-use celesta_react_bridge::{ComponentResolutionRequest, PropertyInputs, ReactBridge};
+use celesta_react_bridge::{
+    ComponentPropertyField, ComponentResolutionRequest, PropertyInputs, PropertyIssue, ReactBridge,
+    ReactCompositionMetadata,
+};
 use gpui_kit::RenderImage;
 use rodio::Player;
 use rodio::buffer::SamplesBuffer;
@@ -86,8 +89,41 @@ pub(crate) struct ReactPreview {
     pub(crate) watched_mtime: Option<SystemTime>,
     /// The command line's `--props`/`--props-file`, re-read on every reload.
     pub(crate) property_args: PropertyArgs,
-    /// The values `property_args` held at the last (re)load.
+    /// The values `property_args` held at the last *successful* (re)load: what
+    /// the preview worker renders with, so a bad value keeps showing the last
+    /// good render.
     pub(crate) properties: PropertyInputs,
+    /// The inputs most recently read from disk, even when the entry then
+    /// rejected them. Equal to `properties` after a successful load; the
+    /// property panel computes effective values from this one.
+    pub(crate) disk_properties: PropertyInputs,
+    /// The last schema a load of this entry returned; kept across failed loads.
+    pub(crate) property_schema: Option<KeptSchema>,
+    /// Issues from the last load, empty after a successful one.
+    pub(crate) property_issues: Vec<PropertyIssue>,
+    /// Why the last reload could not read the props file; cleared by the next
+    /// reload that read it.
+    pub(crate) property_load_error: Option<String>,
+    /// The number of the newest applied reload that read the props file.
+    pub(crate) properties_read_reload: u64,
+}
+
+/// The entry's project property schema with the order it declared its keys in
+/// (the map itself sorts them).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct KeptSchema {
+    pub(crate) fields: BTreeMap<String, ComponentPropertyField>,
+    pub(crate) order: Vec<String>,
+}
+
+impl KeptSchema {
+    /// The schema a load reported, or `None` when the entry declared none.
+    pub(crate) fn from_metadata(metadata: &ReactCompositionMetadata) -> Option<Self> {
+        metadata.project_property_schema.clone().map(|fields| Self {
+            fields,
+            order: metadata.project_property_order.clone(),
+        })
+    }
 }
 
 pub(crate) struct CpuPreviewFrame {

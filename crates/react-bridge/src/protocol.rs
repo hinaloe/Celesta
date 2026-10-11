@@ -1,6 +1,7 @@
 use crate::measure::MeasureTextRequest;
 use crate::probe::MediaProbeRequest;
 use crate::properties::{PropertyIssue, PropertyLayer};
+use crate::props_edit::OrderedObject;
 use crate::types::{
     ComponentPropertyField, ComponentPropertySchema, ReactAudioClipDescriptor,
     ReactCompositionConfig,
@@ -125,6 +126,25 @@ impl TryFrom<RawResponse> for Response {
             Err("response has none of collectedAudio, measureText, scene, components or error")
         }
     }
+}
+
+/// Just the declared order of the ready message's `propertySchema` keys,
+/// which the `BTreeMap` in [`ReadyMessage::Ready`] sorts away.
+#[derive(Deserialize)]
+struct ReadyOrder {
+    #[serde(default, rename = "propertySchema")]
+    schema: Option<OrderedObject>,
+}
+
+/// The `propertySchema` keys of a ready message in declaration order; empty
+/// when the entry declared none. The message already parsed once, so a parse
+/// failure here is not expected and just yields no order.
+pub(crate) fn ready_property_order(message: &[u8]) -> Vec<String> {
+    serde_json::from_slice::<ReadyOrder>(message)
+        .ok()
+        .and_then(|order| order.schema)
+        .map(|schema| schema.0.into_iter().map(|(key, _)| key).collect())
+        .unwrap_or_default()
 }
 
 #[derive(Deserialize)]
