@@ -58,15 +58,20 @@ impl From<String> for PreviewLoadError {
     }
 }
 
-/// Folds a reload into the entry's property state: fresh inputs are kept even
-/// when the spawn failed, and a failed load keeps the last schema so the panel
-/// can still show (and fix) the wrong value.
+/// Folds a reload into the entry's property state: the inputs read from disk
+/// are kept even when the spawn failed (`disk_properties`), but the inputs the
+/// preview renders with (`properties`) only change on success. A failed load
+/// keeps the last schema so the panel can still show (and fix) the wrong value.
 pub(crate) fn apply_property_outcome(preview: &mut ReactPreview, reload: &ReactReload) {
     if let Some(properties) = &reload.properties {
-        preview.properties = properties.clone();
+        preview.disk_properties = properties.clone();
     }
     match &reload.result {
         Ok((_, metadata)) => {
+            // Only a load the entry accepted becomes what the preview renders with.
+            if let Some(properties) = &reload.properties {
+                preview.properties = properties.clone();
+            }
             preview.property_schema = KeptSchema::from_metadata(metadata);
             preview.property_issues.clear();
         }
@@ -364,7 +369,7 @@ impl EditorView {
 }
 
 #[cfg(test)]
-mod tests {
+mod property_outcome {
     use super::*;
     use crate::source::PropertyArgs;
     use celesta_composition::Rational;
@@ -394,6 +399,7 @@ mod tests {
             watched_mtime: None,
             property_args: PropertyArgs::default(),
             properties: PropertyInputs::default(),
+            disk_properties: PropertyInputs::default(),
             property_schema: schema,
             property_issues: Vec::new(),
         }
@@ -457,7 +463,8 @@ mod tests {
 
         apply_property_outcome(&mut preview, &reload);
 
-        assert_eq!(preview.properties, fresh);
+        assert_eq!(preview.disk_properties, fresh);
+        assert_eq!(preview.properties, PropertyInputs::default());
         assert!(preview.property_issues.is_empty());
         assert_eq!(preview.property_schema, Some(kept(&["a"])));
     }
@@ -477,6 +484,7 @@ mod tests {
         assert_eq!(preview.property_schema, Some(kept(&["b", "a"])));
         assert!(preview.property_issues.is_empty());
         assert_eq!(preview.properties, inputs(r#"{"b": true}"#));
+        assert_eq!(preview.disk_properties, inputs(r#"{"b": true}"#));
     }
 
     #[test]

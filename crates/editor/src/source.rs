@@ -96,6 +96,7 @@ pub(crate) fn load_source(
                     entry,
                     watched_mtime,
                     property_args,
+                    disk_properties: properties.clone(),
                     properties,
                     property_schema,
                     property_issues: Vec::new(),
