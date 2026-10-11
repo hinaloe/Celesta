@@ -75,6 +75,13 @@ pub(crate) fn plan_groups(items: &[PreparedItem], scene: CanvasRegion) -> Vec<Gr
                     shape: Some(layer.shape()),
                 },
             ),
+            PreparedItem::Instances(instances) => cover(
+                &mut open,
+                Covered {
+                    content: Some(instances.bounds()),
+                    shape: Some(instances.shape()),
+                },
+            ),
             PreparedItem::PendingText | PreparedItem::PendingPath => {
                 unreachable!("pending text and paths are resolved")
             }

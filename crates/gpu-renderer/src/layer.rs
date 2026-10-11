@@ -1,6 +1,7 @@
 use crate::bounds::{CanvasRegion, PixelBounds};
 use crate::draw::RectShape;
 use crate::effect::EffectSpec;
+use crate::instances::PreparedInstances;
 use crate::mask::MaskSpec;
 use crate::path::ShadedPath;
 use crate::texture::LayerTexture;
@@ -24,6 +25,8 @@ pub(crate) enum PreparedContent {
 /// What `prepare_layer` produces, in painter's order.
 pub(crate) enum PreparedItem {
     Layer(PreparedLayer),
+    /// An `Instances` layer's particles, drawn source-over in order.
+    Instances(Box<PreparedInstances>),
     /// The items up to the matching `EndGroup` draw onto a transparent canvas
     /// of their own.
     BeginGroup,
@@ -136,53 +139,29 @@ impl PreparedLayer {
         // a whole pixel.
         let exact = transform.is_uniform_scale(self.raster_scale);
         let is_rect = matches!(self.content, PreparedContent::Rect(_));
-        let (tx, ty) = if exact && !is_rect {
-            self.pixel_aligned_translation(transform, texel_width, texel_height)
-        } else {
-            (transform.tx, transform.ty)
-        };
-        let level_of_detail = if exact {
-            0.0
-        } else {
-            transform
-                .texels_per_pixel(self.raster_scale)
-                .max(1.0)
-                .log2()
-        };
-        let (width, height) = self.size(texel_width, texel_height);
-        let values = [
-            transform.a,
-            transform.b,
-            transform.c,
-            transform.d,
-            tx,
-            ty,
-            width,
-            height,
-            self.anchor.x as f32,
-            self.anchor.y as f32,
-            self.state.opacity,
+        let level_of_detail = level_of_detail(transform, self.raster_scale, exact);
+        if exact && !is_rect {
+            (transform.tx, transform.ty) =
+                self.pixel_aligned_translation(transform, texel_width, texel_height);
+        }
+        let instance = layer_instance(&InstanceFields {
+            transform,
+            size: self.size(texel_width, texel_height),
+            anchor: [self.anchor.x as f32, self.anchor.y as f32],
+            opacity: self.state.opacity,
             kind,
-            target.width as f32,
-            target.height as f32,
-            blend_mode_index(self.blend_mode),
-            f32::from(u8::from(premultiplied)),
-        ]
-        .into_iter()
-        .chain(rect)
-        .chain(fill)
-        .chain(stroke)
-        // The innermost clip the layer is drawn through (-1 without one),
-        // whether to filter, the mip level to filter at, and texels per
-        // layer unit.
-        .chain([
-            self.state.clip.map_or(-1.0, |index| index as f32),
-            f32::from(u8::from(!exact)),
+            target,
+            blend_mode: self.blend_mode,
+            premultiplied,
+            rect,
+            fill,
+            stroke,
+            clip: self.state.clip,
+            exact,
             level_of_detail,
-            self.raster_scale,
-        ])
-        .chain([target.x as f32, target.y as f32, 0.0, 0.0]);
-        output.extend(values.flat_map(f32::to_ne_bytes));
+            raster_scale: self.raster_scale,
+        });
+        output.extend_from_slice(bytemuck::cast_slice(&instance));
     }
 
     /// Scene pixels the layer's quad can touch: the corners of the quad
@@ -286,6 +265,113 @@ impl PreparedLayer {
             align(transform.tx, texel_width, self.anchor.x),
             align(transform.ty, texel_height, self.anchor.y),
         )
+    }
+}
+
+/// Floats in one `LayerInstance` of `layer.wgsl`: nine `vec4<f32>`s.
+pub(crate) const LAYER_INSTANCE_FLOATS: usize = 36;
+
+/// Everything one `LayerInstance` holds, before it is laid out.
+pub(crate) struct InstanceFields {
+    /// Places the layer's local units; its translation is final (already
+    /// moved onto a whole pixel where that applies).
+    pub(crate) transform: Affine,
+    /// The layer's size in layer units.
+    pub(crate) size: (f32, f32),
+    pub(crate) anchor: [f32; 2],
+    pub(crate) opacity: f32,
+    /// 0 samples the texture, 1 shades a rect, 2 shades a path.
+    pub(crate) kind: f32,
+    /// The canvas the instance draws onto.
+    pub(crate) target: CanvasRegion,
+    pub(crate) blend_mode: BlendMode,
+    /// Whether the texture holds premultiplied alpha (an isolated group).
+    pub(crate) premultiplied: bool,
+    pub(crate) rect: [f32; 4],
+    pub(crate) fill: [f32; 4],
+    pub(crate) stroke: [f32; 4],
+    /// The innermost clip the layer is drawn through.
+    pub(crate) clip: Option<u32>,
+    /// Whether texels land one to one on canvas pixels (no filtering).
+    pub(crate) exact: bool,
+    /// The mip level to filter at.
+    pub(crate) level_of_detail: f32,
+    /// Texels per layer unit.
+    pub(crate) raster_scale: f32,
+}
+
+/// `fields` in `layer.wgsl`'s `LayerInstance` order.
+pub(crate) fn layer_instance(fields: &InstanceFields) -> [f32; LAYER_INSTANCE_FLOATS] {
+    let InstanceFields {
+        transform,
+        size: (width, height),
+        anchor: [anchor_x, anchor_y],
+        opacity,
+        kind,
+        target,
+        blend_mode,
+        premultiplied,
+        rect,
+        fill,
+        stroke,
+        clip,
+        exact,
+        level_of_detail,
+        raster_scale,
+    } = *fields;
+    let [r0, r1, r2, r3] = rect;
+    let [f0, f1, f2, f3] = fill;
+    let [s0, s1, s2, s3] = stroke;
+    [
+        transform.a,
+        transform.b,
+        transform.c,
+        transform.d,
+        transform.tx,
+        transform.ty,
+        width,
+        height,
+        anchor_x,
+        anchor_y,
+        opacity,
+        kind,
+        target.width as f32,
+        target.height as f32,
+        blend_mode_index(blend_mode),
+        f32::from(u8::from(premultiplied)),
+        r0,
+        r1,
+        r2,
+        r3,
+        f0,
+        f1,
+        f2,
+        f3,
+        s0,
+        s1,
+        s2,
+        s3,
+        // The innermost clip the layer is drawn through (-1 without one),
+        // whether to filter, the mip level to filter at, and texels per
+        // layer unit.
+        clip.map_or(-1.0, |index| index as f32),
+        f32::from(u8::from(!exact)),
+        level_of_detail,
+        raster_scale,
+        target.x as f32,
+        target.y as f32,
+        0.0,
+        0.0,
+    ]
+}
+
+/// The mip level a layer placed by `transform` is filtered at: 0 when its
+/// texels land one to one on pixels.
+pub(crate) fn level_of_detail(transform: Affine, raster_scale: f32, exact: bool) -> f32 {
+    if exact {
+        0.0
+    } else {
+        transform.texels_per_pixel(raster_scale).max(1.0).log2()
     }
 }
 

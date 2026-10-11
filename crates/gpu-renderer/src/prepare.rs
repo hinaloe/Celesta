@@ -3,6 +3,7 @@ use crate::compositor::BackdropTexture;
 use crate::draw::{LAYER_INSTANCE_SIZE, RectShape, clip_bind_group, clip_buffer, instance_buffer};
 use crate::effect::EffectSpec;
 use crate::error::GpuRenderError;
+use crate::instances::{InstanceColumns, PreparedInstanceShape, PreparedInstances};
 use crate::layer::{PreparedContent, PreparedItem, PreparedLayer};
 use crate::mask::MaskSpec;
 use crate::path::{PathEntries, PendingPath, path_entry_limit};
@@ -13,9 +14,13 @@ use crate::texture::{DecodedImage, TEXT_TEXTURE_PREFIX, canvas_texture, psd_key}
 use crate::texture::{rasterize_texts, text_jobs};
 use crate::transform::{Affine, CLIP_ENTRY_SIZE, ClipEntry, LayerState, MAX_CLIP_DEPTH};
 use crate::types::RenderQuality;
-use celesta_composition::{BlendMode, Clip, Layer, LayerContent, LayerEffects, Point, Scene};
+use celesta_composition::{
+    BlendMode, Clip, InstanceShape, Layer, LayerContent, LayerEffects, Point, Scene,
+};
 use celesta_renderer::image_source::{fit_within, resize_rgba};
-use celesta_renderer::{FlattenedPath, flatten_path, rasterize_path, resolve_rect_paint};
+use celesta_renderer::{
+    Color as CpuColor, FlattenedPath, flatten_path, rasterize_path, resolve_rect_paint,
+};
 use rayon::prelude::*;
 
 impl GpuRenderer {
@@ -76,22 +81,21 @@ impl GpuRenderer {
         // blends anything but source-over composites through canvases, so
         // its layers need one more instance: the one that copies the
         // finished root canvas onto the target.
-        let composited = items.iter().any(
-            |item| !matches!(item, PreparedItem::Layer(layer) if layer.blend_mode.is_normal()),
-        );
+        let composited = items.iter().any(|item| match item {
+            PreparedItem::Layer(layer) => !layer.blend_mode.is_normal(),
+            // A blended `Instances` layer is wrapped in an isolated group.
+            PreparedItem::Instances(_) => false,
+            _ => true,
+        });
         let instance_count = items
             .iter()
-            .filter(|item| {
-                !matches!(
-                    item,
-                    PreparedItem::BeginGroup | PreparedItem::BeginMask | PreparedItem::MaskContent
-                )
+            .map(|item| match item {
+                PreparedItem::BeginGroup | PreparedItem::BeginMask | PreparedItem::MaskContent => 0,
+                PreparedItem::EndEffect(..) => 2,
+                PreparedItem::Instances(instances) => instances.count() as usize,
+                _ => 1,
             })
-            .count()
-            + items
-                .iter()
-                .filter(|item| matches!(item, PreparedItem::EndEffect(..)))
-                .count()
+            .sum::<usize>()
             + usize::from(composited);
 
         // One buffer write for every layer, and one instanced draw for each
@@ -118,6 +122,19 @@ impl GpuRenderer {
             let target = open.last().expect("the root canvas is always open").canvas;
             let layer = match item {
                 PreparedItem::Layer(layer) => layer,
+                PreparedItem::Instances(particles) => {
+                    particles.write_instances(target, &mut instances);
+                    push_draw(
+                        &mut steps,
+                        GpuDraw {
+                            texture: self.placeholder_texture.clone(),
+                            vertices: 0..6,
+                            instances: index..index + particles.count(),
+                        },
+                    );
+                    index += particles.count();
+                    continue;
+                }
                 PreparedItem::PendingText | PreparedItem::PendingPath => {
                     unreachable!("pending text and paths are resolved")
                 }
@@ -223,16 +240,7 @@ impl GpuRenderer {
                     area,
                 });
             } else {
-                match steps.last_mut() {
-                    Some(GpuStep::Draw(last))
-                        if last.texture.bind_group == draw.texture.bind_group
-                            && last.vertices == (0..6)
-                            && draw.vertices == (0..6) =>
-                    {
-                        last.instances.end = index + 1;
-                    }
-                    _ => steps.push(GpuStep::Draw(draw)),
-                }
+                push_draw(&mut steps, draw);
             }
             index += 1;
         }
@@ -765,12 +773,77 @@ impl GpuRenderer {
                     content: "missing component",
                 });
             }
-            // Drawn in a later change.
-            LayerContent::Instances { .. } => {
-                return Err(GpuRenderError::UnsupportedContent {
-                    layer: layer.id.clone(),
-                    content: "instances",
-                });
+            LayerContent::Instances {
+                count,
+                shape,
+                width,
+                height,
+                color,
+                x,
+                y,
+                widths,
+                heights,
+                rotation,
+                colors,
+            } => {
+                let shape = match shape {
+                    InstanceShape::Rect { corner_radius } => PreparedInstanceShape::Rect {
+                        corner_radius: *corner_radius,
+                    },
+                    InstanceShape::Circle => PreparedInstanceShape::Circle,
+                    // Drawn in a later change.
+                    InstanceShape::Image { .. } => {
+                        return Err(GpuRenderError::UnsupportedContent {
+                            layer: layer.id.clone(),
+                            content: "instance images",
+                        });
+                    }
+                };
+                let color = match color {
+                    Some(color) => CpuColor::from_hex(color).map_err(GpuRenderError::Text)?,
+                    None => CpuColor::rgba(255, 255, 255, 255),
+                };
+                let columns = InstanceColumns {
+                    x: x.clone(),
+                    y: y.clone(),
+                    widths: widths.clone(),
+                    heights: heights.clone(),
+                    rotation: rotation.clone(),
+                    colors: colors.clone(),
+                    width: width.unwrap_or(0.0),
+                    height: height.unwrap_or(0.0),
+                    color: [color.red, color.green, color.blue, color.alpha].map(f32::from),
+                };
+                // Isolated like a group when blended: the particles composite
+                // with each other source-over at full opacity, then the canvas
+                // blends onto the parent as one layer.
+                let inner = if blend_mode.is_normal() {
+                    state
+                } else {
+                    LayerState {
+                        opacity: 1.0,
+                        ..state
+                    }
+                };
+                let Some(particles) = PreparedInstances::new(inner, shape, *count, columns) else {
+                    return Ok(());
+                };
+                let particles = PreparedItem::Instances(Box::new(particles));
+                if blend_mode.is_normal() {
+                    output.push(particles);
+                } else {
+                    output.push(PreparedItem::BeginGroup);
+                    output.push(particles);
+                    output.push(PreparedItem::EndGroup(PreparedLayer::canvas(
+                        LayerState {
+                            transform: Affine::IDENTITY,
+                            opacity: state.opacity,
+                            clip: None,
+                        },
+                        blend_mode,
+                        true,
+                    )));
+                }
             }
         }
         Ok(())
@@ -906,6 +979,23 @@ impl GpuRenderer {
             .for_each(|(entries, base, part)| entries.place(base, part));
         items.retain(|item| !matches!(item, PreparedItem::PendingPath));
         Ok(())
+    }
+}
+
+/// Appends a source-over `draw`, joining it to the previous draw when both
+/// sample the same texture with one quad per instance: a dense scene has
+/// thousands of layers, and consecutive rects all share the placeholder.
+fn push_draw(steps: &mut Vec<GpuStep>, draw: GpuDraw) {
+    match steps.last_mut() {
+        Some(GpuStep::Draw(last))
+            if last.texture.bind_group == draw.texture.bind_group
+                && last.vertices == (0..6)
+                && draw.vertices == (0..6)
+                && last.instances.end == draw.instances.start =>
+        {
+            last.instances.end = draw.instances.end;
+        }
+        _ => steps.push(GpuStep::Draw(draw)),
     }
 }
 
