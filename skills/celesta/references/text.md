@@ -14,6 +14,7 @@ Syntax-highlighted code is in [code.md](code.md).
 - [TextStyle](#textstyle)
 - [Line breaking](#line-breaking)
 - [Fonts, fallback, and emoji](#fonts-fallback-and-emoji)
+- [Font stacks (和欧混植)](#font-stacks-和欧混植)
 - [Language and fallback fonts](#language-and-fallback-fonts)
 - [Text motion](#text-motion): TextReveal, useTypewriter, useCountUp
 - [Measure text](#measure-text): useTextMetrics, measureText
@@ -61,6 +62,8 @@ measures as one, and its baseline stays where the text's own glyphs put it.
 - `fontWeight` uses the family's nearest face when it has no face at that
   weight, as the text's own `fontWeight` does. No bold is synthesized.
 - `fontFamily` must be installed or loaded with `<Font>`, like the text's.
+  It may be a [font stack](#font-stacks-和欧混植), which replaces the text's
+  whole stack inside the span.
 - Spans nest; an inner span overrides only the properties it sets.
 - `<Span>` works in `<Text>`, `<TextBox>`, `<TextReveal>`, `<Dialogue>`,
   `DialogueSeries` lines, `useTextMetrics`, `measureText`, `useFitText`,
@@ -86,7 +89,7 @@ See [`examples/rich-text`](../../../examples/rich-text/film.tsx).
 
 ```ts
 type TextStyle = {
-  fontFamily?: string;     // installed family, or one loaded with <Font>
+  fontFamily?: string | string[];  // installed family, or one loaded with <Font>; a list is a font stack
   fontSize?: number;       // px, > 0
   fontWeight?: number;     // 100–900
   fill?: Paint;                                   // { type: 'solid', color } or a gradient
@@ -151,12 +154,17 @@ installed fonts.
   font. The app lists it with the preview's warnings, and the exporter
   prints `warning: font family "…" (weight …) is not installed or loaded;
   text layer "…" uses a fallback font`, once per family and weight.
-- Characters the family lacks fall back per glyph to another font, or are
-  drawn as a missing-glyph box (tofu) when no font has them. The exporter
-  prints `warning: font family "…" (weight …) has no glyph for "…"; text
-  layer "…" draws them with a fallback font` (the first 10 characters, then
-  `and N more characters`). Emoji drawn by a color emoji font, whitespace,
-  and invisible characters are not reported.
+- Characters the family lacks fall back per glyph to an installed system
+  font chosen for the text's [`lang`](#language-and-fallback-fonts), or
+  are drawn as a missing-glyph box (tofu) when no font has them. The
+  exporter prints `warning: font family "…" (weight …) has no glyph for
+  "…"; text layer "…" draws them with a fallback font` (the first 10
+  characters, then `and N more characters`). Emoji drawn by a color emoji
+  font, whitespace, and invisible characters are not reported.
+- **Fonts loaded with `<Font>` are not fallback candidates.** With
+  `fontFamily: 'JetBrains Mono'` and Noto Sans JP loaded, Japanese is still
+  drawn with a system font (Hiragino Sans on macOS). To draw it with a
+  loaded font, list that font in a [font stack](#font-stacks-和欧混植).
 - Emoji meant to look like emoji (🎉, a character followed by U+FE0F such
   as ❤️ or 1️⃣, flags, skin tones, ZWJ sequences) are drawn with the first
   installed color emoji font of Apple Color Emoji, Segoe UI Emoji, Noto
@@ -168,6 +176,62 @@ installed fonts.
 
 `scripts/inspect.mjs` does not check fonts. Export a PNG frame and read the
 exporter's warnings (see [verify.md](verify.md#look-at-real-frames)).
+
+## Font stacks (和欧混植)
+
+`fontFamily` also takes a list of families, a font stack. Each grapheme
+cluster is drawn with the first family in the list that has a glyph for it,
+so Latin can come from one font and Japanese from the next:
+
+```tsx
+<Composition width={1920} height={1080} fps={30} durationInFrames={90} lang="ja-JP">
+  <Assets>
+    <Font src="https://fonts.googleapis.com/css2?family=Inter:wght@500" />
+    <Font src="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@500" />
+  </Assets>
+  <Text style={{ fontFamily: ['Inter', 'Noto Sans JP'], fontWeight: 500, fontSize: 64 }}>
+    Celesta 0.5.0 で字幕の組版を改善
+  </Text>
+</Composition>
+```
+
+- A cluster takes the first family with a glyph for every visible
+  character of it, so a combining mark or a variation selector is never
+  drawn from another font than its base character. When no family has the
+  whole cluster, it takes the first family with its first character.
+- Families with no installed or loaded face are skipped. The stack's
+  **primary family** is its first family with a face.
+- Characters no family in the stack has fall back to a system font, as
+  with one family (loaded fonts are not candidates; see above).
+- Baselines come from the primary family, as in CSS: glyphs from later
+  families do not move a line, so a paragraph keeps even line spacing
+  whether or not a line has Japanese. Their ink may reach above or below
+  the line box when the later family is taller.
+- Emoji stay with the color emoji font, unless the stack itself lists a
+  color emoji family that has them.
+- Weights match within each family on its own: with `fontWeight: 400` and
+  Noto Sans JP loaded only at 500, the Japanese is drawn at 500.
+- Measuring (`useTextMetrics`, `measureText()`, `useFitText`, `TextBox`),
+  wrapping, and drawing use the same choice, and so does `@celesta/code`:
+  `<Code style={{ fontFamily: ['JetBrains Mono', 'Noto Sans JP'] }}>` draws
+  Japanese comments and strings in Noto Sans JP, and its line highlight
+  covers them. Mixing a proportional font into code breaks column
+  alignment, so keep the first family monospaced.
+- `<Span style={{ fontFamily: [...] }}>` takes a stack too, which replaces
+  the text's stack inside the span.
+- Name real families. CSS generic names such as `sans-serif` and `serif`
+  have no face in export (`fontFamily: 'sans-serif'` alone already gets
+  the fallback warning), so a stack skips them.
+- Warnings judge the whole stack: `none of the font families "A", "B"
+  (weight …) is installed or loaded` when no family has a face, and `none
+  of the font families "A", "B" (weight …) has a glyph for "…"` for
+  characters no family has. A family missing from a stack whose other
+  families have faces is no warning; check the exporter's warnings when
+  the Japanese comes out in a system font.
+- The browser preview (`@celesta/web`) passes the stack to the browser as
+  a CSS `font-family` list. The browser picks families per character with
+  its own matching and falls back to its own system fonts, so a character
+  no family has can look different from export.
 
 ## Language and fallback fonts
 
@@ -198,8 +262,9 @@ is omitted or lacks a character. **Set it for any CJK video:**
   `measureText()`/`fitText()` there: `measureText('漢字とかな', { lang: 'ja-JP' })`.
 - `lang` only picks fallback fonts; the glyphs available still depend on
   installed or loaded fonts, and `lineBreak: 'phrase'` always uses the
-  Japanese model. Loading a font for the language with `<Font>` remains the
-  reproducible choice.
+  Japanese model. Loading a font for the language with `<Font>` and naming
+  it in `fontFamily` (alone, or after a Latin font in a
+  [font stack](#font-stacks-和欧混植)) remains the reproducible choice.
 
 ## Text motion
 

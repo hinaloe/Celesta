@@ -204,7 +204,7 @@ Load only the one you need; each is self-contained.
 | Start from a ready-made video (`--init --template slideshow\|ranking\|dialogue`, `--list-templates`), then edit its `props.json` and data file | [setup.md](references/setup.md#create-a-react-project) |
 | Entry file and `prepare()`, layer props, `Rect`/gradients, `Path`/`Line`/`Polyline`, `Circle`/`Ellipse`/`Arrow`, `Group` clip, `Image`, `Video`, `Audio`, `Font`/`Assets`, layout helpers (`Center`, `SafeArea`, `Stack`, `Grid`, `Fit`), `preloadMedia`, audio keyframes and `frameKeyframes`, debug guides | [react-core.md](references/react-core.md) |
 | Frame hooks, `interpolate`, `interpolateColor`, `Easings`, `spring`, `progress`, `Sequence`, `Series`, `TransitionSeries`, `Stagger`, `Transition`, `useBeat`, `useCue`, `Camera`, timecodes | [animation.md](references/animation.md) |
-| `Text`, `TextStyle`, fonts and fallback, text language (`lang`), emoji, line breaking, `TextReveal`, `useTypewriter`, `useCountUp`, `useTextMetrics`/`measureText`, `TextBox`/`useFitText`/`fitText` | [text.md](references/text.md) |
+| `Text`, `TextStyle`, fonts and fallback, font stacks (和欧混植), text language (`lang`), emoji, line breaking, `TextReveal`, `useTypewriter`, `useCountUp`, `useTextMetrics`/`measureText`, `TextBox`/`useFitText`/`fitText` | [text.md](references/text.md) |
 | Syntax-highlighted code, typing code, highlighted lines, carets (`@celesta/code`) | [code.md](references/code.md) |
 | Seeded random, noise, clamp/lerp/remap, waves, angles, points (`@celesta/math`) | [math.md](references/math.md) |
 | Custom WGSL filters: ripples, RGB splits, color grades (`@celesta/shader`, the `shader` prop) | [shader.md](references/shader.md) |

@@ -460,6 +460,10 @@
         "load-a-font-file-next-to-the": "エントリーの隣のフォントを読み込む",
         "can-also-be-a-web-font-stylesheet": "<slot0/> には Google Fonts の CSS リンクなど、ウェブフォントのスタイルシートも指定できます。<slot1/> にある全ファイルを読み込み、<slot2/> でファミリー名を使えます。リンクに必要なウェイトをすべて含めてください。不足する場合は提供された最も近いウェイトで描画します。",
         "load-a-google-fonts-family": "Google Fonts のファミリーを読み込む",
+        "font-stacks": "欧文と和文で書体を分ける（和欧混植）",
+        "font-stacks-body": "<slot0/> には書体名の並び（font stack）も指定できます。各文字は、並びの先頭から順に見て、その文字を持つ最初の書体で描かれます。英数字は欧文書体、かなと漢字は和文書体、という組み方ができます。文字と、それに付く結合文字や異体字セレクターは、常に同じ書体で描かれます。",
+        "a-latin-and-a-japanese-font-in-one-line": "一行の中で欧文書体と和文書体を使い分ける",
+        "font-stacks-details": "インストールも読み込みもされていない書体は飛ばします。基準線は、並びのうち使える最初の書体が決めます。そのため、和文を含む行と含まない行で行間が変わりません。並びのどの書体にもない文字は、<slot0/> に応じて選ばれる OS の書体にフォールバックします。<slot1/> で読み込んだ書体はフォールバック先には選ばれないので、並びに加えてください。計測と折り返しも並びに従います。<slot2/> にも並びを指定できます（<slot3/>）。<slot4/> も並びを受け付けます。書き出し時は、並びのどの書体もないときと、並びのどの書体にもない文字があるときに警告します。ブラウザーのプレビューは並びを CSS の font-family としてブラウザーに渡します。そのため、並びのどの書体にもない文字は、書き出しと見た目が変わることがあります。",
         "wraps-text-at-word-boundaries-and-positions": "<slot0/> は単語の境界で折り返し、<slot1/> はその幅の中に各行を配置します。文字列に <slot2/> を入れると任意の位置で改行できます。",
         "japanese-normally-wraps-between-most-characters-splitting": "日本語は通常、多くの文字の間で折り返すため「フレーム」のような単語も分かれます。禁則処理により「、」「。」などは行頭に来ません。スタイルに <slot0/> を指定すると、<slot1>BudouX</slot1> の日本語モデルで検出した句の境界だけで折り返します。<slot2/> は現在フォールバックフォントの選択だけに使われます。句が <slot3/> より長い場合は通常どおり内部で折り返します。ブラウザのプレビューは <slot4/> を無視し、空白でのみ折り返します。",
         "single-line-text-is-anchored-vertically-by": "単一行のテキストは見える字形を縦方向の基準にするので、<slot0/> は見えない行ボックスではなく文字自体を中央に置きます。幅は送り幅なので、前後の空白も幅を持ちます。改行や maxWidth での折り返しで複数行になったテキストは、measureText と同じ行ボックスを基準にします。",
@@ -467,7 +471,7 @@
         "metadata": {
           "title": "テキストとフォント",
           "description": "テキストの装飾と折り返し、ファイルやウェブからのフォント読み込み。",
-          "keywords": "文字 テキスト フォント 日本語 改行 折り返し 計測 自動調整 強調 太字 色分け 部分 リッチテキスト TextBox fitText useFitText measureText useTextMetrics Text Span rich text style font Font webfont woff woff2 Google Fonts css fontFamily fontWeight stroke outline lineHeight maxWidth wrap lineBreak phrase BudouX Japanese align baseline emoji"
+          "keywords": "文字 テキスト フォント 日本語 和欧混植 書体 フォールバック 改行 折り返し 計測 自動調整 強調 太字 色分け 部分 リッチテキスト TextBox fitText useFitText measureText useTextMetrics Text Span rich text style font Font webfont woff woff2 Google Fonts css fontFamily fontWeight stroke outline lineHeight maxWidth wrap lineBreak phrase BudouX Japanese align baseline emoji"
         },
         "rich-text": "文章の一部を強調する",
         "rich-text-body": "<slot0/> は文章の一部の <slot1/>、<slot2/>、<slot3/> を変えます。文章全体は一つの段落として組まれたままで、折り返し・揃え・計測も一つの段落として行われ、基準線は文章自身の文字が決める位置から動きません。Span は入れ子にでき、書体にないウェイトは最も近いウェイトで描かれます。",
