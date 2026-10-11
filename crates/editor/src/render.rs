@@ -11,6 +11,7 @@ impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.poll_background_work();
         self.update_playback(window);
+        self.sync_property_panel(window, cx);
         if self.preview_pending
             || self.media_pending
             || self.audio_pending

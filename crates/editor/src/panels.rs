@@ -547,8 +547,8 @@ impl EditorView {
     }
 
     /// Right-hand info panel shown instead of the asset/inspector panels while
-    /// previewing a standalone React composition. Read-only facts plus a
-    /// manual Reload button; live editing happens in the `.tsx` file.
+    /// previewing a standalone React composition: read-only facts, a manual
+    /// Reload button, and the Properties section that edits the props file.
     pub(crate) fn react_preview_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let entry = self
             .react_preview
@@ -584,6 +584,36 @@ impl EditorView {
                     sources.join(" + ")
                 }
             });
+        div()
+            .flex()
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .flex_col()
+            .bg(cx.theme().sidebar)
+            .child(panel_header("React Preview", 0, cx))
+            .child(
+                div()
+                    .id("react-preview-scroll")
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_x_hidden()
+                    .overflow_y_scroll()
+                    .child(self.react_preview_facts(entry, properties, cx))
+                    .children(self.property_section(cx)),
+            )
+    }
+
+    /// The entry, its composition facts, where property values come from,
+    /// and the Reload button.
+    fn react_preview_facts(
+        &self,
+        entry: String,
+        properties: String,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let label_color = cx.theme().muted_foreground;
         let value_color = cx.theme().foreground;
         let row = move |label: &str, value: String| {
@@ -597,54 +627,44 @@ impl EditorView {
         };
         div()
             .flex()
-            .flex_1()
-            .min_h_0()
-            .w_full()
             .flex_col()
-            .bg(cx.theme().sidebar)
-            .child(panel_header("React Preview", 0, cx))
+            .gap_2()
+            .p_3()
+            .child(div().text_xs().text_color(label_color).child("Entry"))
+            .child(div().text_xs().text_color(value_color).child(entry))
+            .child(div().h(px(4.0)))
+            .child(row("Size", self.dimensions.to_string()))
+            .child(row("Frame rate", self.frame_rate_label.to_string()))
+            .child(row(
+                "Duration",
+                format_timecode(self.clock.end_frame(), self.frame_rate_value),
+            ))
+            .child(row("Renderer", self.gpu_name.to_string()))
+            .child(row("Properties", properties))
+            .child(div().h(px(4.0)))
             .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .p_3()
-                    .child(div().text_xs().text_color(label_color).child("Entry"))
-                    .child(div().text_xs().text_color(value_color).child(entry))
-                    .child(div().h(px(4.0)))
-                    .child(row("Size", self.dimensions.to_string()))
-                    .child(row("Frame rate", self.frame_rate_label.to_string()))
-                    .child(row(
-                        "Duration",
-                        format_timecode(self.clock.end_frame(), self.frame_rate_value),
-                    ))
-                    .child(row("Renderer", self.gpu_name.to_string()))
-                    .child(row("Properties", properties))
-                    .child(div().h(px(4.0)))
-                    .child(
-                        Button::new("reload-react-entry")
-                            .small()
-                            .w_full()
-                            .label("Reload composition")
-                            .on_click(cx.listener(Self::reload_react_click)),
-                    )
-                    .when(!self.preview_warnings.is_empty(), |panel| {
-                        panel.child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap_1()
-                                .mt_2()
-                                .rounded(cx.theme().radius)
-                                .border_1()
-                                .border_color(cx.theme().warning.opacity(0.5))
-                                .bg(cx.theme().warning.opacity(0.12))
-                                .p_2()
-                                .text_xs()
-                                .text_color(cx.theme().warning)
-                                .children(self.preview_warnings.iter().cloned()),
-                        )
-                    }),
+                Button::new("reload-react-entry")
+                    .small()
+                    .w_full()
+                    .label("Reload composition")
+                    .on_click(cx.listener(Self::reload_react_click)),
             )
+            .when(!self.preview_warnings.is_empty(), |panel| {
+                panel.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .mt_2()
+                        .rounded(cx.theme().radius)
+                        .border_1()
+                        .border_color(cx.theme().warning.opacity(0.5))
+                        .bg(cx.theme().warning.opacity(0.12))
+                        .p_2()
+                        .text_xs()
+                        .text_color(cx.theme().warning)
+                        .children(self.preview_warnings.iter().cloned()),
+                )
+            })
     }
 }

@@ -168,6 +168,7 @@ impl EditorView {
         let (node, cli_script) = react_runtime_paths();
         let frame = self.clock.frame();
         let session = self.session;
+        self.react_reloads_running += 1;
         cx.spawn(async move |view, cx| {
             let reload = cx
                 .background_executor()
@@ -203,6 +204,7 @@ impl EditorView {
             view.update(cx, |this, cx| {
                 // Another file opened meanwhile; this result belongs to the old one.
                 if this.session == session {
+                    this.react_reloads_running = this.react_reloads_running.saturating_sub(1);
                     this.apply_react_reload(reload, frame, cx);
                 }
             })

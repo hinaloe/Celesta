@@ -30,6 +30,8 @@ mod media_probe;
 mod panels;
 mod playback;
 mod preview;
+mod property_panel;
+mod property_panel_view;
 mod react_audio;
 mod refresh;
 mod render;
@@ -104,6 +106,9 @@ fn run() -> Result<(), Box<dyn Error>> {
     app.run(move |cx: &mut App| {
         gpui_kit::init(cx);
         theme::init(cx);
+        // Keys that type text (letters, Space, arrows…) act on the editor only
+        // outside a text field, such as a property input.
+        const EDITOR_KEYS: Option<&str> = Some("CelestaEditor && !Input");
         cx.bind_keys([
             KeyBinding::new("secondary-n", CreateNewProject, Some("CelestaEditor")),
             KeyBinding::new("secondary-o", OpenProject, Some("CelestaEditor")),
@@ -111,27 +116,27 @@ fn run() -> Result<(), Box<dyn Error>> {
             KeyBinding::new("secondary-w", CloseWindow, Some("CelestaEditor")),
             KeyBinding::new("secondary-q", Quit, None),
             KeyBinding::new("secondary-shift-e", ExportProject, Some("CelestaEditor")),
-            KeyBinding::new("i", SetExportIn, Some("CelestaEditor")),
-            KeyBinding::new("o", SetExportOut, Some("CelestaEditor")),
-            KeyBinding::new("shift-x", ClearExportRange, Some("CelestaEditor")),
-            KeyBinding::new("shift-i", GoToIn, Some("CelestaEditor")),
-            KeyBinding::new("shift-o", GoToOut, Some("CelestaEditor")),
-            KeyBinding::new("space", TogglePlayback, Some("CelestaEditor")),
-            KeyBinding::new("k", PausePlayback, Some("CelestaEditor")),
-            KeyBinding::new("l", PlayForward, Some("CelestaEditor")),
-            KeyBinding::new("left", PreviousFrame, Some("CelestaEditor")),
-            KeyBinding::new("right", NextFrame, Some("CelestaEditor")),
-            KeyBinding::new("shift-left", JumpBackward, Some("CelestaEditor")),
-            KeyBinding::new("shift-right", JumpForward, Some("CelestaEditor")),
-            KeyBinding::new("home", GoToStart, Some("CelestaEditor")),
-            KeyBinding::new("end", GoToEnd, Some("CelestaEditor")),
-            KeyBinding::new("up", PreviousEditPoint, Some("CelestaEditor")),
-            KeyBinding::new("down", NextEditPoint, Some("CelestaEditor")),
+            KeyBinding::new("i", SetExportIn, EDITOR_KEYS),
+            KeyBinding::new("o", SetExportOut, EDITOR_KEYS),
+            KeyBinding::new("shift-x", ClearExportRange, EDITOR_KEYS),
+            KeyBinding::new("shift-i", GoToIn, EDITOR_KEYS),
+            KeyBinding::new("shift-o", GoToOut, EDITOR_KEYS),
+            KeyBinding::new("space", TogglePlayback, EDITOR_KEYS),
+            KeyBinding::new("k", PausePlayback, EDITOR_KEYS),
+            KeyBinding::new("l", PlayForward, EDITOR_KEYS),
+            KeyBinding::new("left", PreviousFrame, EDITOR_KEYS),
+            KeyBinding::new("right", NextFrame, EDITOR_KEYS),
+            KeyBinding::new("shift-left", JumpBackward, EDITOR_KEYS),
+            KeyBinding::new("shift-right", JumpForward, EDITOR_KEYS),
+            KeyBinding::new("home", GoToStart, EDITOR_KEYS),
+            KeyBinding::new("end", GoToEnd, EDITOR_KEYS),
+            KeyBinding::new("up", PreviousEditPoint, EDITOR_KEYS),
+            KeyBinding::new("down", NextEditPoint, EDITOR_KEYS),
             KeyBinding::new("secondary-/", ToggleLoop, Some("CelestaEditor")),
-            KeyBinding::new("'", ToggleSafeAreas, Some("CelestaEditor")),
-            KeyBinding::new("=", ZoomTimelineIn, Some("CelestaEditor")),
-            KeyBinding::new("-", ZoomTimelineOut, Some("CelestaEditor")),
-            KeyBinding::new("shift-z", ZoomTimelineToFit, Some("CelestaEditor")),
+            KeyBinding::new("'", ToggleSafeAreas, EDITOR_KEYS),
+            KeyBinding::new("=", ZoomTimelineIn, EDITOR_KEYS),
+            KeyBinding::new("-", ZoomTimelineOut, EDITOR_KEYS),
+            KeyBinding::new("shift-z", ZoomTimelineToFit, EDITOR_KEYS),
         ]);
         cx.on_action(|_: &Quit, cx| cx.quit());
         // macOS shows these in the system menu bar; elsewhere the title bar's
