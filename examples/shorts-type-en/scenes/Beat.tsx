@@ -2,6 +2,7 @@ import { Easings, Group, Rect, progress, useBeat, useCurrentFrame } from '@celes
 import { Burst } from '../components/Burst';
 import { Copy } from '../components/Copy';
 import { Stage } from '../components/Stage';
+import { TAPES } from '../tapes';
 import { AREA, BEAT, BPM, C, COL, TOP, tint } from '../constants';
 import { beatWords } from '../measure';
 
@@ -29,7 +30,7 @@ export function Beat() {
   const middle = x + (0.5 - look.ax) * word.width;
   return (
     <Stage bg={look.bg} tone={tint(look.fg, 0.2)} fg={look.fg} accent={accent}
-      tapes={['Cut on the beat.', 'useBeat()']}
+      tapes={TAPES.beat}
       rotation={i % 2 === 0 ? -1.5 : 1.5} zoom={1 + 0.025 * pulse} shake={3}>
       <Burst x={middle} y={TOP + look.y} t={(f - i * BEAT) / BEAT} color={accent} seed={i} />
       <Group blur={18 * (1 - drop)}>

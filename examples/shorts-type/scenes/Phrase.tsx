@@ -2,6 +2,7 @@ import { Easings, Group, Rect, Span, Text, progress, useCue, useCurrentFrame } f
 import { TextReveal } from '@celesta/text';
 import { Copy, Tag, textStyle } from '../components/Copy';
 import { Stage } from '../components/Stage';
+import { TAPES } from '../tapes';
 import { AREA, BEAT, C, COL, TOP, tint } from '../constants';
 
 const COPY = '長い一文を狭い画面に流し込んでも、言葉の途中では折れません。';
@@ -39,7 +40,7 @@ export function Phrase() {
   const width = from + (to - from) * progress(stop?.frame ?? 0, 0, 10, Easings.easeInOutCubic);
   return (
     <Stage bg={C.ink} tone={tint(C.grey, 0.3)} fg={C.paper} accent={C.hot}
-      tapes={['文節で、折り返す。', "lineBreak: 'phrase'"]} fade={0.62} y={AREA.height / 2 + 16 * progress(f, 0, BEAT * 8)}>
+      tapes={TAPES.phrase} fade={0.62} y={AREA.height / 2 + 16 * progress(f, 0, BEAT * 8)}>
       <TextReveal x={COL.x} y={TOP} lineHeight={124} baseline={0.8} from={-6} stagger={4} style={textStyle(108, 900)}>
         <Span style={{ fill: C.hot }}>文節</Span>{'で、\n折り返す。'}
       </TextReveal>

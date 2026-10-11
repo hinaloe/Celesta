@@ -14,8 +14,8 @@ export type StageProps = {
   accent: string;
   // Halftone dot colour, with alpha (#RRGGBBAA).
   tone: string;
-  // Copy for the two tapes: a line of the manifesto and the API it shows.
-  tapes: [string, string];
+  // Copy for the two tapes: a line of the manifesto and the API it shows (tapes.ts).
+  tapes: readonly [string, string];
   // Where the halftone starts, as a fraction of the height.
   fade?: number;
   zoom?: number;
@@ -41,9 +41,9 @@ export function Stage({ children, bg, fg, accent, tone, tapes, fade, zoom = 1, r
   return (
     <>
       <Rect width={W} height={H} fill={bg} shader={halftone({ time: f / fps, phase, tone, fade })} />
-      <Tape y={H - 290 - bounce} rotation={-7} text={tapes[0]} bg={accent} fg={accent === C.ink ? C.paper : C.ink}
-        speed={7} frame={f} />
-      <Tape y={H - 130 + bounce} rotation={4} text={tapes[1]} bg={fg} fg={bg} speed={-5} frame={f} size={40} mono />
+      <Tape y={H - 290 - bounce} rotation={-7} text={tapes[0]} kind="main" bg={accent}
+        fg={accent === C.ink ? C.paper : C.ink} speed={7} frame={f} />
+      <Tape y={H - 130 + bounce} rotation={4} text={tapes[1]} kind="code" bg={fg} fg={bg} speed={-5} frame={f} />
       <SafeArea padding={SAFE}>
         <Camera zoom={zoom * (0.9 + 0.1 * punch)} rotation={rotation} x={x} y={y} shake={shake} seed={7}>
           <Transition type={['fade', 'slide']} direction="out" slideFrom="top" distance={36}

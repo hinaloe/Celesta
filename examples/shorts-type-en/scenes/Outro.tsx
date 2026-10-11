@@ -2,13 +2,15 @@ import { Easings, Rect, progress, useBeat, useCurrentFrame } from '@celesta/reac
 import { Copy, Tag } from '../components/Copy';
 import { FitStack, stackHeight } from '../components/FitStack';
 import { Stage } from '../components/Stage';
+import { TAPES } from '../tapes';
 import { BAR, BEAT, BPM, C, COL, TOP, tint } from '../constants';
 import { hookLines } from '../measure';
 
 const Y = TOP + 180;
 
-// Back to the opening line on the opening background, so a looping player
-// cuts from here into the hook without a jump.
+// Back to the opening line on the opening background, so when a player
+// loops, the return to the hook reads as one more cut. It is not seamless:
+// the tapes, the halftone and the punch-in restart there as on every cut.
 export function Outro() {
   const f = useCurrentFrame();
   const { pulse } = useBeat({ bpm: BPM });
@@ -16,7 +18,7 @@ export function Outro() {
   const rule = Y + stackHeight(hookLines) + 60;
   return (
     <Stage bg={C.ink} tone={tint(C.hot, 0.35)} fg={C.paper} accent={C.hot}
-      tapes={['Write your video in code.', 'Celesta']} zoom={1.03 - 0.03 * progress(f, 0, BAR * 2, Easings.easeOutCubic)}>
+      tapes={TAPES.outro} zoom={1.03 - 0.03 * progress(f, 0, BAR * 2, Easings.easeOutCubic)}>
       <FitStack lines={hookLines} x={COL.x} y={Y} from={-6} stagger={BEAT}
         glow={{ color: tint(C.hot, 0.35 + 0.4 * pulse), blur: 24 }} />
       <Rect x={COL.x} y={rule} width={COL.width * mark} height={4} fill={C.dim} />

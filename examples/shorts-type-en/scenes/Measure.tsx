@@ -1,6 +1,7 @@
 import { Easings, Group, Rect, Text, progress, useCue, useCurrentFrame } from '@celesta/react';
 import { Copy, Tag, textStyle } from '../components/Copy';
 import { Stage } from '../components/Stage';
+import { TAPES } from '../tapes';
 import { BEAT, C, COL, TOP, tint } from '../constants';
 import { measured } from '../measure';
 
@@ -24,7 +25,7 @@ export function Measure() {
     <Rect x={-16} y={y} width={(COL.width + 32) * span} height={height} fill={color} />;
   return (
     <Stage bg={C.ink} tone={tint(C.grey, 0.3)} fg={C.paper} accent={C.hot}
-      tapes={['Every glyph, measured.', 'measureText()']} fade={0.62}>
+      tapes={TAPES.measure} fade={0.62}>
       <Copy x={COL.x} y={TOP + 10} size={72} weight={700} lineHeight={84} opacity={progress(f, -4, 8)}>
         {'Every glyph,\nmeasured.'}
       </Copy>

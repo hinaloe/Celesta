@@ -2,6 +2,7 @@ import { Easings, Rect, progress, useCurrentFrame } from '@celesta/react';
 import { Copy, Tag } from '../components/Copy';
 import { FitStack, stackHeight } from '../components/FitStack';
 import { Stage } from '../components/Stage';
+import { TAPES } from '../tapes';
 import { BAR, BEAT, C, COL, TOP, tint } from '../constants';
 import { frameLines } from '../measure';
 
@@ -16,7 +17,7 @@ export function Frame() {
   const rule = Y + stackHeight(frameLines) + 50;
   return (
     <Stage bg={C.paper} tone={tint(C.ink, 0.14)} fg={C.ink} accent={C.hot}
-      tapes={['Every frame is a function of its number.', 'useCurrentFrame()']}
+      tapes={TAPES.frame}
       rotation={-2.5 * (1 - settle)} zoom={1.04 - 0.04 * settle}>
       <Copy x={COL.x} y={TOP + 40} size={60} color={C.ink} opacity={progress(f, -3, 6)}>
         Every frame is

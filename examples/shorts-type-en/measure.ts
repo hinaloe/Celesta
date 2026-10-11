@@ -4,6 +4,8 @@ import type { FitTextStyle } from '@celesta/text';
 import { fitText } from '@celesta/text';
 import { C, COL, FONT, FONT_SRC } from './constants';
 import { textStyle } from './components/Copy';
+import type { TapeKind } from './tapes';
+import { TAPES, tapeRun, tapeStyle } from './tapes';
 
 // Everything here is measured once, in prepare(), with the renderer's own
 // shaping and the same fonts the frames draw with. inspect.mjs cannot shape
@@ -92,12 +94,15 @@ const inside = (box: { width: number; height: number }) =>
   ({ width: box.width - FIT_PAD * 2, height: box.height - FIT_PAD * 2 });
 const fitStyle = (tracking: number): FitTextStyle =>
   ({ ...display(tracking), align: 'center', fill: { type: 'solid', color: C.ink } });
-export type Fit = { fontSize: number; style: TextStyle; height: number };
+// `height` is the line boxes' total and `ascent` the first baseline's depth
+// in them, so the copy can be centred by its baseline.
+export type Fit = { fontSize: number; style: TextStyle; height: number; ascent: number };
 export let fits: Fit[] = FIT_BOXES.map((box) => {
   const { width, height } = inside(box);
   const fontSize = Math.floor(Math.sqrt((width * height) / (FIT_COPY.length * 0.84 * FIT_LINE_HEIGHT)));
   const style = { ...fitStyle(TRACK * fontSize), fontSize, lineHeight: fontSize * FIT_LINE_HEIGHT };
-  return { fontSize, style, height: Math.ceil((FIT_COPY.length * fontSize * 0.84) / width) * fontSize * FIT_LINE_HEIGHT };
+  const lines = Math.ceil((FIT_COPY.length * fontSize * 0.84) / width);
+  return { fontSize, style, height: lines * fontSize * FIT_LINE_HEIGHT, ascent: fontSize * FIT_LINE_HEIGHT * 0.8 };
 });
 
 async function fitBox(box: { width: number; height: number }): Promise<Fit> {
@@ -105,8 +110,19 @@ async function fitBox(box: { width: number; height: number }): Promise<Fit> {
     ...inside(box), minFontSize: 28, maxFontSize: 220, lineHeight: FIT_LINE_HEIGHT, step: 2, style: fitStyle(tracking), fonts,
   });
   const second = await fit(TRACK * (await fit(0)).fontSize);
-  return { fontSize: second.fontSize, style: second.style, height: second.metrics.height };
+  return { fontSize: second.fontSize, style: second.style, height: second.metrics.height, ascent: second.metrics.ascent };
 }
+
+// TAPES: the advance of one repeat of each tape's text, so a tape repeats it
+// just enough times (components/Tape.tsx). Estimated at 0.84 em a glyph for
+// Archivo Black and 0.6 em for JetBrains Mono.
+const tapeKey = (kind: TapeKind, text: string) => `${kind}\0${text}`;
+const TAPE_RUNS = Object.values(TAPES).flatMap(([main, code]) => [['main', main], ['code', code]] as const);
+const estimateRun = (kind: TapeKind, text: string) =>
+  Array.from(tapeRun(kind, text)).length * (tapeStyle(kind).fontSize ?? 54) * (kind === 'main' ? 0.84 : 0.6);
+let tapeAdvances = new Map(TAPE_RUNS.map(([kind, text]) => [tapeKey(kind, text), estimateRun(kind, text)] as const));
+export const tapeAdvance = (kind: TapeKind, text: string) =>
+  tapeAdvances.get(tapeKey(kind, text)) ?? estimateRun(kind, text);
 
 // SPAN: one paragraph whose lit word moves; each highlight is placed from the
 // measured glyphs, one bar per line it covers.
@@ -134,6 +150,10 @@ export async function measureAll() {
     measured = await Promise.all(MEASURE_WORDS.map(measureWord));
     spanLayout = await measureText(SPAN_COPY, SPAN_STYLE, { maxWidth: COL.width, fonts });
     fits = await Promise.all(FIT_BOXES.map(fitBox));
+    tapeAdvances = new Map(await Promise.all(TAPE_RUNS.map(async ([kind, text]) => {
+      const run = await measureText(tapeRun(kind, text), tapeStyle(kind), { fonts });
+      return [tapeKey(kind, text), run.width] as const;
+    })));
   } catch (error) {
     // Only inspect.mjs lands here; the estimates above keep every frame evaluable.
     if (!String(error).includes('inspect.mjs')) throw error;

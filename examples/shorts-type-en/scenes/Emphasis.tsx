@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Easings, Group, Rect, Span, Text, interpolateColor, progress, useCue, useCurrentFrame } from '@celesta/react';
 import { Copy, Tag } from '../components/Copy';
 import { Stage } from '../components/Stage';
+import { TAPES } from '../tapes';
 import { AREA, BEAT, C, COL, TOP, tint } from '../constants';
 import { SPAN_COPY, SPAN_STYLE, segmentsOf, spanLayout } from '../measure';
 
@@ -48,7 +49,7 @@ export function Emphasis() {
   const enter = progress(f, -4, 10, Easings.easeOutExpo);
   return (
     <Stage bg={C.ink} tone={tint(C.hot, 0.3)} fg={C.paper} accent={C.hot}
-      tapes={['Light another word, and the meaning moves.', '<Span>']}
+      tapes={TAPES.span}
       y={AREA.height / 2 + (focus - spanLayout.height / 2) * 0.15} zoom={1.02}>
       <Tag x={COL.x} y={TOP + 140} color={C.hot} opacity={enter}>{'<Span style={{ fill }}>'}</Tag>
       <Group x={COL.x} y={Y + 30 * (1 - enter)} opacity={enter}>

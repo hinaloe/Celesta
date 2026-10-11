@@ -2,6 +2,7 @@ import { Easings, Group, Rect, Text, progress, useCue, useCurrentFrame } from '@
 import { TextReveal } from '@celesta/text';
 import { Copy, Tag, textStyle } from '../components/Copy';
 import { Stage } from '../components/Stage';
+import { TAPES } from '../tapes';
 import { BEAT, C, COL, TOP, tint } from '../constants';
 import { FIT_BOXES, FIT_COPY, FIT_PAD, fits } from '../measure';
 
@@ -18,13 +19,16 @@ export function Fit() {
   const pop = 1 + 0.04 * (1 - progress(stop?.frame ?? 0, 0, 8, Easings.easeOutCubic));
   return (
     <Stage bg={C.sun} tone={tint(C.ink, 0.18)} fg={C.ink} accent={C.hot}
-      tapes={['箱に、収める。', 'fitText()']}>
+      tapes={TAPES.fit}>
       <TextReveal x={COL.x} y={TOP} lineHeight={124} baseline={0.8} from={-6} stagger={4} style={textStyle(108, 900, C.ink)}>
         {'箱に、\n収める。'}
       </TextReveal>
       <Group x={COL.x} y={BOX_Y} scale={pop} opacity={progress(f, -2, 6)}>
         <Rect width={box.width} height={box.height} stroke={C.ink} strokeWidth={5} />
-        <Text x={FIT_PAD} y={(box.height - fit.height) / 2} maxWidth={box.width - FIT_PAD * 2} style={fit.style}>
+        {/* Centred by the measured line boxes, so placed by its first baseline:
+            a top-anchored Text lines up its ink, not its line box (#235). */}
+        <Text x={FIT_PAD} y={(box.height - fit.height) / 2 + fit.ascent} anchorY="baseline"
+          maxWidth={box.width - FIT_PAD * 2} style={fit.style}>
           {FIT_COPY}
         </Text>
         <Tag y={box.height + 24} color={C.ink}>{`fitText() → ${fit.fontSize}px`}</Tag>

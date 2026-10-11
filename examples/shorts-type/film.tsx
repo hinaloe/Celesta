@@ -18,6 +18,7 @@ import { SCENES, TIMING } from './timeline';
 //
 //   timeline.ts    the scene list         scenes/       one file per scene
 //   measure.ts     text measured and fitted in prepare()
+//   tapes.ts       the copy on each scene's two tapes
 //   halftone.ts    background shader      fx.ts         finishing shader (RGB split, glitch, flash)
 //   components/    Copy/Tag (text), Stage (background, tapes, safe area, camera),
 //                  Fx (drives fx.ts), Tape, Burst (speed lines), Hud (scene and beat),

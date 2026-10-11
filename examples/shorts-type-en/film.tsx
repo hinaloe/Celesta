@@ -19,6 +19,7 @@ import { SCENES, TIMING } from './timeline';
 //
 //   timeline.ts    the scene list         scenes/       one file per scene
 //   measure.ts     headline sizes, glyph metrics and fits, measured in prepare()
+//   tapes.ts       the copy on each scene's two tapes
 //   halftone.ts    background shader      fx.ts         finishing shader (RGB split, glitch, flash)
 //   components/    Copy/Tag (text), FitStack (fitted headline lines),
 //                  Stage (background, tapes, safe area, camera),

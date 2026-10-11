@@ -4,6 +4,8 @@ import type { FitTextStyle } from '@celesta/text';
 import { fitText } from '@celesta/text';
 import { C, COL, FONT, FONT_SRC } from './constants';
 import { textStyle } from './components/Copy';
+import type { TapeKind } from './tapes';
+import { TAPES, tapeRun, tapeStyle } from './tapes';
 
 // Everything here is measured once, in prepare(), with the renderer's own
 // shaping and the same fonts the frames draw with. inspect.mjs cannot shape
@@ -33,13 +35,16 @@ export const FIT_BOXES = [
 export const FIT_PAD = 24;
 const inside = (box: { width: number; height: number }) =>
   ({ width: box.width - FIT_PAD * 2, height: box.height - FIT_PAD * 2 });
-export type Fit = { fontSize: number; style: TextStyle; height: number };
+// `height` is the line boxes' total and `ascent` the first baseline's depth
+// in them, so the copy can be centred by its baseline.
+export type Fit = { fontSize: number; style: TextStyle; height: number; ascent: number };
 export let fits: Fit[] = FIT_BOXES.map((box) => {
   const { width, height } = inside(box);
   // Biggest em square that tiles the box with every character.
   const fontSize = Math.floor(Math.sqrt((width * height) / (FIT_COPY.length * FIT_LINE_HEIGHT)));
   const style = ja({ ...FIT_STYLE, fontSize, lineHeight: fontSize * FIT_LINE_HEIGHT });
-  return { fontSize, style, height: Math.ceil((FIT_COPY.length * fontSize) / width) * fontSize * FIT_LINE_HEIGHT };
+  const lines = Math.ceil((FIT_COPY.length * fontSize) / width);
+  return { fontSize, style, height: lines * fontSize * FIT_LINE_HEIGHT, ascent: fontSize * FIT_LINE_HEIGHT * 0.8 };
 });
 
 // SPAN: one paragraph whose lit phrase moves; each phrase's highlight is
@@ -60,6 +65,20 @@ export function segmentsOf(phrase: string): Segment[] {
   });
 }
 
+// TAPES: the advance of one repeat of each tape's text, so a tape repeats it
+// just enough times (components/Tape.tsx). Estimated with one-em Japanese
+// glyphs and 0.6 em for the rest.
+const tapeKey = (kind: TapeKind, text: string) => `${kind}\0${text}`;
+const TAPE_RUNS = Object.values(TAPES).flatMap(([main, code]) => [['main', main], ['code', code]] as const);
+function estimateRun(kind: TapeKind, text: string): number {
+  const size = tapeStyle(kind).fontSize ?? 54;
+  return Array.from(tapeRun(kind, text))
+    .reduce((w, ch) => w + size * (kind === 'main' && (ch.codePointAt(0) ?? 0) > 0x2e80 ? 1 : 0.6), 0);
+}
+let tapeAdvances = new Map(TAPE_RUNS.map(([kind, text]) => [tapeKey(kind, text), estimateRun(kind, text)] as const));
+export const tapeAdvance = (kind: TapeKind, text: string) =>
+  tapeAdvances.get(tapeKey(kind, text)) ?? estimateRun(kind, text);
+
 export async function measureAll() {
   try {
     const caret = await measureText(HOOK_LAST_LINE, ja(textStyle(HOOK_SIZE, 900)), { fonts });
@@ -70,8 +89,12 @@ export async function measureAll() {
         ...inside(box), minFontSize: 28, maxFontSize: 220, lineHeight: FIT_LINE_HEIGHT, step: 2,
         style: ja(FIT_STYLE), fonts,
       });
-      return { fontSize: fit.fontSize, style: fit.style, height: fit.metrics.height };
+      return { fontSize: fit.fontSize, style: fit.style, height: fit.metrics.height, ascent: fit.metrics.ascent };
     }));
+    tapeAdvances = new Map(await Promise.all(TAPE_RUNS.map(async ([kind, text]) => {
+      const run = await measureText(tapeRun(kind, text), ja(tapeStyle(kind)), { fonts });
+      return [tapeKey(kind, text), run.width] as const;
+    })));
   } catch (error) {
     // Only inspect.mjs lands here; the estimates above keep every frame evaluable.
     if (!String(error).includes('inspect.mjs')) throw error;

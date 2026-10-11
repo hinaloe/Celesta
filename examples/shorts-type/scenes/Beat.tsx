@@ -2,6 +2,7 @@ import { Easings, Group, Rect, progress, useBeat, useCurrentFrame } from '@celes
 import { Burst } from '../components/Burst';
 import { Copy } from '../components/Copy';
 import { Stage } from '../components/Stage';
+import { TAPES } from '../tapes';
 import { AREA, BEAT, BPM, C, COL, TOP, tint } from '../constants';
 
 // One word per beat. Sizes are picked so every word fits the column on one
@@ -29,7 +30,7 @@ export function Beat() {
   const middle = x + (0.5 - word.ax) * word.text.length * word.size;
   return (
     <Stage bg={word.bg} tone={tint(word.fg, 0.2)} fg={word.fg} accent={accent}
-      tapes={['拍に合わせて、言葉を落とす。', 'useBeat()']}
+      tapes={TAPES.beat}
       rotation={i % 2 === 0 ? -1.5 : 1.5} zoom={1 + 0.025 * pulse} shake={3}>
       <Burst x={middle} y={TOP + word.y} t={(f - i * BEAT) / BEAT} color={accent} seed={i} />
       <Group blur={18 * (1 - drop)}>
