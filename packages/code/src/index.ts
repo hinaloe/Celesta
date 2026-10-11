@@ -124,17 +124,10 @@ export function Code({
   const resolvedStyle = codeStyle(style);
   const tokens = React.useMemo(() => tokenizeCode(children, language), [children, language]);
   const lines = React.useMemo(() => codeLines(tokens, tabSize), [tokens, tabSize]);
-  const coloredLines = React.useMemo(() => lines.map(line => {
-    const runs: TextColorRun[] = [];
-    for (const run of line.runs) {
-      const color = theme.tokens[run.type] ?? theme.foreground;
-      const end = run.column + Array.from(run.text).length;
-      const previous = runs[runs.length - 1];
-      if (previous?.color === color) previous.end = end;
-      else runs.push({ start: run.column, end, color });
-    }
-    return runs;
-  }), [lines, theme]);
+  // Color separately from tokenizing, so a theme change keeps the tokens and lines.
+  const coloredLines = React.useMemo(() => colorCodeLines(lines, theme).map(line => (
+    line.runs.map(({ start, end, color }): TextColorRun => ({ start, end, color }))
+  )), [lines, theme]);
   const metrics = useTextMetrics(lines.map(line => line.text).join('\n'), resolvedStyle);
   // Empty text has no glyph runs in some fonts, so measure a baseline explicitly.
   const baseline = useTextMetrics('M', resolvedStyle).ascent;
