@@ -12,10 +12,16 @@ rounds each frame to 8 bits once, with an ordered dither.
   backdrop canvases, and the readback slots' render targets all use it. Layer
   textures (images, text, video) stay `Rgba8Unorm`.
 - **One quantization, with a dither.** `dither.wgsl` holds an 8x8 Bayer
-  offset scaled to 7/8 of a code (±0.43): it depends on the pixel position
-  only, so a frame always reads back the same, and a value within 1/16 of a
-  whole code (a half float's rounding error) keeps that code, so solid fills
-  are unchanged. It is prepended to:
+  offset (±0.49 of a code) that depends on the pixel position only, so a
+  frame always reads back the same. `code` leaves a value within 1/8 of a
+  whole code (`WHOLE_CODE_TOLERANCE`: a half float's error, one ulp just
+  below 1, where a driver truncates on store as lavapipe and WARP do) at
+  that code, so solid fills are unchanged. A first version instead scaled
+  the dither to 7/8, which only tolerated rounding drivers: CI's software
+  renderers turned a `#336699` clear into 152 for blue on some pixels.
+  Scaling it to 3/4 fixed that but weakened the dither in MP4 (GPU
+  conversion's longest run 97 px instead of 40); the tolerance zone keeps
+  the full dither elsewhere. It is prepended to:
   - `quantize.wgsl` (`Quantizer`): RGBA readback (`render`, `submit` with
     `ReadbackFormat::Rgba8`) and preview targets (`render_to_target`, via
     `encode_frame` and a cached `target_canvas`). Alpha is dithered too;
@@ -47,7 +53,8 @@ libx264, which picks the High 10 profile. PNG output rejects `--bit-depth
 
 - GPU conversion: `ReadbackFormat::Yuv420p10`. `yuv420p.wgsl`'s `luma10` and
   `chroma10` use the 8-bit matrix times 4 (Y 64–940, chroma 64–960), dither
-  in 10-bit codes, and write `R16Uint` planes, read back as little-endian
+  in 10-bit codes (without the tolerance zone: a half float does not hold
+  10-bit codes exactly anyway), and write `R16Uint` planes, read back as little-endian
   16-bit samples (3 bytes per pixel). `YuvConverter::new` takes the depth;
   the renderer keeps one converter per YUV format.
 - Encoder conversion: `ReadbackFormat::Rgba16`, 16-bit RGBA
@@ -60,7 +67,7 @@ libx264, which picks the High 10 profile. PNG output rejects `--bit-depth
   x264 fails when the encoder opens.
 
 On the same example (frame 5 of `--from 0.5 --to 1`, row 60), the 10-bit
-luma steps in 10-bit codes: 68 changes, longest run 48 px with the GPU
+luma steps in 10-bit codes: 68 changes, longest run 56 px with the GPU
 conversion and 96 px with the encoder's. At CRF 18 x264 smooths the 10-bit
 dither away, so the steps remain, a quarter of an 8-bit step each. Decoded
 to 8-bit RGB by ffmpeg (no dither), the row shows 168 px runs again: how
@@ -69,7 +76,7 @@ dithering it. Contrast-stretched at 16 bits, the 10-bit export has neither
 rings nor the color streaks the 8-bit one keeps.
 
 The whole film exported in 5.5–5.9 s at 10 bits against 4.4–4.5 s at 8
-(two runs each), and its MP4 is 1.84 MB against 2.28 MB at 8 bits (the
+(two runs each), and its MP4 is 1.78 MB against 2.31 MB at 8 bits (the
 8-bit file carries the dither).
 
 ## Results
@@ -82,18 +89,18 @@ luma plane.
 
 | Output | Changes (before → after) | Longest flat run |
 | --- | --- | --- |
-| PNG | 39 → 884 | 54 → 16 px |
-| MP4, GPU conversion (default), RGB | 39 → 560 | 154 → 40 px |
-| MP4, GPU conversion (default), Y | 17 → 372 | 154 → 83 px |
-| MP4, encoder conversion, RGB | 39 → 298 | 154 → 66 px |
-| MP4, encoder conversion, Y | 17 → 287 | 154 → 70 px |
+| PNG | 39 → 903 | 54 → 16 px |
+| MP4, GPU conversion (default), RGB | 39 → 609 | 154 → 40 px |
+| MP4, GPU conversion (default), Y | 17 → 439 | 154 → 71 px |
+| MP4, encoder conversion, RGB | 39 → 343 | 154 → 66 px |
+| MP4, encoder conversion, Y | 17 → 331 | 154 → 66 px |
 
-Along a single row a Bayer pattern still leaves runs of about half a code
+Along a single row a Bayer pattern still leaves runs over half a code
 (each row holds 8 of the 64 thresholds); over 8 rows it averages out.
 
-Over the whole PNG frame, 89% of channel values are unchanged, 10.8% differ
-by 1 (gradients) and 0.014% by 2, all where text and shapes composite over
-the demo panel's linear gradient. Exporting the frame twice gives identical
+Over the whole PNG frame, 88.7% of channel values are unchanged, 11.3%
+differ by 1 (gradients) and 0.016% by 2, all where text and shapes
+composite over the demo panel's linear gradient. Exporting the frame twice gives identical
 PNGs.
 
 ## Performance
@@ -125,13 +132,13 @@ intended.
 The whole `shorts-tips` film (24 s, 720 frames, default MP4 settings, GPU
 yuv420p conversion) exported in a median 6.1 s before and 7.2 s after over
 six alternating runs each (noisy: 5.2–7.1 s and 4.6–10.5 s). The MP4 grew
-from 1.78 MB to 2.28 MB (+28%) at the same CRF 18: x264 spends bits keeping
+from 1.78 MB to 2.31 MB (+30%) at the same CRF 18: x264 spends bits keeping
 the dither.
 
 ## Tests
 
 - `dithers_gentle_gradients_and_keeps_solid_fills`: an 8-code gradient over
-  256 px no longer bands (runs ≤ 20 px instead of 32), each 32x8 block's
+  256 px no longer bands (runs ≤ 24 px instead of 32), each 32x8 block's
   mean is within 0.15 of the ideal, an opaque solid rect is exact, and two
   renders are identical.
 - `dithers_gentle_gradients_converted_to_yuv420p`: the same through the GPU

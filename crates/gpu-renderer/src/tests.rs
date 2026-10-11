@@ -2912,10 +2912,11 @@ fn dithers_gentle_gradients_and_keeps_solid_fills() {
     let (gradient, solid) = frame.pixels().split_at(256 * 8 * 4);
     let red: Vec<u8> = gradient.iter().step_by(4).copied().collect();
     // Rounded alone, each code would be a flat band 32 pixels wide. Along
-    // one row the pattern still leaves runs over about half a code, as only
-    // every eighth pixel has its lowest threshold.
+    // one row the pattern still leaves runs over half a code, as only every
+    // eighth pixel has its lowest threshold, and values within 1/8 of a code
+    // of a whole one are not dithered.
     for row in red.chunks_exact(256) {
-        assert!(longest_run(row) <= 20, "{row:?}");
+        assert!(longest_run(row) <= 24, "{row:?}");
     }
     // The dither keeps the gradient's average: over the eight rows its
     // pattern repeats in, each band's mean stays near the values it rounds.
@@ -2961,7 +2962,7 @@ fn dithers_gentle_gradients_converted_to_yuv420p() {
     // would step about every 37 pixels.
     let luma = &frame.pixels()[..256 * 10];
     for row in luma[..256 * 8].chunks_exact(256) {
-        assert!(longest_run(row) <= 24, "{row:?}");
+        assert!(longest_run(row) <= 28, "{row:?}");
         assert_eq!(row[0], 16);
     }
     // #102030, whose luma is 40.9 before rounding: within the dither's code
@@ -3213,8 +3214,9 @@ fn converts_frames_to_ten_bit_yuv420p() {
     let frame = renderer.drain().unwrap().remove(0);
     let luma = samples16(&frame.pixels()[..256 * 10 * 2]);
     for row in luma[..256 * 8].chunks_exact(256) {
-        assert_eq!(row[0], 64);
-        assert!((90..=93).contains(&row[255]), "{}", row[255]);
+        // 64.05 and 91.4 before rounding.
+        assert!(row[0].abs_diff(64) <= 1, "{}", row[0]);
+        assert!(row[255].abs_diff(91) <= 1, "{}", row[255]);
         assert!(longest_run16(row) <= 8, "{row:?}");
     }
 }
