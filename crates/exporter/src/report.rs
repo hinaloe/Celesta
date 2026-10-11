@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use celesta_composition::Rational;
 use celesta_exporter::{CompositionInfo, ExportError, ExportProgress, ExportedFile};
 use celesta_project::LoadError;
-use celesta_react_bridge::ReactBridgeError;
+use celesta_react_bridge::{PropsFileChoice, ReactBridgeError};
 use serde::Serialize;
 
 use crate::progress::State;
@@ -20,6 +20,12 @@ struct Report {
     error: Option<ErrorReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<PathBuf>,
+    /// The property file in effect: `--props-file`, else the entry's `props.json`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    props_file: Option<PathBuf>,
+    /// True when `props_file` was found beside the entry rather than named.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    props_file_auto: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     composition: Option<Composition>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -114,15 +120,17 @@ struct Stats {
 /// Runs `export`, then prints its report. Returns whether it succeeded.
 pub fn run(
     source: &Path,
+    props_file: Option<PropsFileChoice>,
     export: impl FnOnce(&mut dyn FnMut(ExportProgress)) -> Result<(), ExportError>,
 ) -> bool {
-    let (report, ok) = build(source, export);
+    let (report, ok) = build(source, props_file, export);
     print(&report);
     ok
 }
 
 fn build(
     source: &Path,
+    props_file: Option<PropsFileChoice>,
     export: impl FnOnce(&mut dyn FnMut(ExportProgress)) -> Result<(), ExportError>,
 ) -> (Report, bool) {
     let mut state = State::new();
@@ -148,6 +156,8 @@ fn build(
         },
         error: result.as_ref().err().map(error_report),
         source: Some(absolute(source)),
+        props_file_auto: props_file.as_ref().map(|choice| choice.auto),
+        props_file: props_file.map(|choice| choice.path),
         composition: composition.map(|info| Composition {
             width: info.width,
             height: info.height,
@@ -181,6 +191,8 @@ pub fn usage_error(message: &str) {
             issues: Vec::new(),
         }),
         source: None,
+        props_file: None,
+        props_file_auto: None,
         composition: None,
         outputs: None,
         warnings: None,
@@ -327,7 +339,7 @@ mod tests {
     fn report(
         export: impl FnOnce(&mut dyn FnMut(ExportProgress)) -> Result<(), ExportError>,
     ) -> serde_json::Value {
-        serde_json::to_value(build(Path::new("/tmp/film.tsx"), export).0).unwrap()
+        serde_json::to_value(build(Path::new("/tmp/film.tsx"), None, export).0).unwrap()
     }
 
     #[test]
@@ -369,6 +381,23 @@ mod tests {
                 }
             ])
         );
+    }
+
+    #[test]
+    fn json_report_names_the_props_file() {
+        let choice = PropsFileChoice {
+            path: PathBuf::from("/tmp/props.json"),
+            auto: true,
+        };
+        let value =
+            serde_json::to_value(build(Path::new("/tmp/film.tsx"), Some(choice), |_| Ok(())).0)
+                .unwrap();
+        assert_eq!(value["propsFile"], "/tmp/props.json");
+        assert_eq!(value["propsFileAuto"], true);
+
+        let value = report(|_| Ok(()));
+        assert!(value.get("propsFile").is_none());
+        assert!(value.get("propsFileAuto").is_none());
     }
 
     #[test]

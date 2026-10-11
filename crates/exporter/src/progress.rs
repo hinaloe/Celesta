@@ -36,6 +36,8 @@ pub struct Settings<'a> {
     pub png: bool,
     pub video: VideoEncoding,
     pub render_quality: RenderQuality,
+    /// The property file in effect: `props.json (auto)` or the `--props-file` name.
+    pub props: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -320,7 +322,7 @@ fn render(frame: &mut Frame, settings: &Settings<'_>, state: &State) {
         Constraint::Length(2),
         Constraint::Length(7),
         Constraint::Length(3),
-        Constraint::Length(6),
+        Constraint::Length(7),
         Constraint::Min(4),
         Constraint::Length(1),
     ])
@@ -445,25 +447,28 @@ fn render(frame: &mut Frame, settings: &Settings<'_>, state: &State) {
     } else {
         format!("{} / CRF {}", settings.video.preset, settings.video.crf)
     };
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(format!(
-                " Input    {}",
-                if settings.react {
-                    "React / TSX"
-                } else {
-                    "JSON project"
-                }
-            )),
-            Line::from(format!(" Quality  {}", settings.render_quality)),
-            Line::from(format!(" Encode   {encoding}")),
-            Line::from(if settings.png {
-                " Alpha    preserved".into()
+    let mut profile = vec![
+        Line::from(format!(
+            " Input    {}",
+            if settings.react {
+                "React / TSX"
             } else {
-                format!(" Color    {}", settings.video.color_conversion)
-            }),
-        ])
-        .block(panel(" EXPORT PROFILE ")),
+                "JSON project"
+            }
+        )),
+        Line::from(format!(" Quality  {}", settings.render_quality)),
+        Line::from(format!(" Encode   {encoding}")),
+        Line::from(if settings.png {
+            " Alpha    preserved".into()
+        } else {
+            format!(" Color    {}", settings.video.color_conversion)
+        }),
+    ];
+    if let Some(props) = &settings.props {
+        profile.push(Line::from(format!(" Props    {props}")));
+    }
+    frame.render_widget(
+        Paragraph::new(profile).block(panel(" EXPORT PROFILE ")),
         details[1],
     );
     let diagnostics = match &state.error {
@@ -755,6 +760,7 @@ mod tests {
             png: false,
             video: VideoEncoding::default(),
             render_quality: RenderQuality::default(),
+            props: Some("props.json (auto)".to_owned()),
         }
     }
 

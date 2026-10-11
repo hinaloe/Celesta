@@ -9,6 +9,7 @@ use celesta_composition::{Animatable, evaluate_f64};
 use celesta_editor_core::{CharacterSummary, ComponentClipSummary, DialogueClipSummary};
 use celesta_editor_theme as theme;
 use celesta_project::AssetKind;
+use celesta_react_bridge::{ENTRY_PROPS_FILE, resolve_props_file};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{ActiveTheme as _, Disableable as _, IconName, Sizable as _, TitleBar};
 use gpui_kit::prelude::*;
@@ -554,7 +555,8 @@ impl EditorView {
             .as_ref()
             .map(|react| react.entry.display().to_string())
             .unwrap_or_default();
-        // Where the values come from: the props file's name and/or --props.
+        // Where the values come from: the props file's name (`props.json (auto)`
+        // when discovered beside the entry) and/or --props.
         let properties = self
             .react_preview
             .as_ref()
@@ -569,6 +571,11 @@ impl EditorView {
                             .to_string_lossy()
                             .into_owned()
                     })
+                    .chain(
+                        resolve_props_file(&react.entry, args.props_file.as_deref())
+                            .filter(|choice| choice.auto)
+                            .map(|_| format!("{ENTRY_PROPS_FILE} (auto)")),
+                    )
                     .chain(args.props.iter().map(|_| "--props".to_owned()))
                     .collect();
                 if sources.is_empty() {

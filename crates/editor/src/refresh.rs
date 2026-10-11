@@ -113,7 +113,7 @@ impl EditorView {
                     // still differs from it and triggers another reload.
                     let watched = watched_mtime(&entry, &property_args);
                     // Re-read --props-file so edits to a variant show up too.
-                    let loaded = property_args.load().and_then(|properties| {
+                    let loaded = property_args.load(&entry).and_then(|properties| {
                         ReactBridge::spawn_with_properties(&node, &cli_script, &entry, &properties)
                             .map(|bridge| (entry, bridge.metadata().clone(), properties))
                             .map_err(|error| error.to_string())

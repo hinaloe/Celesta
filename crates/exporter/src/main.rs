@@ -16,7 +16,7 @@ use celesta_exporter::{
     ReactRuntimeOptions, RenderQuality, VideoEncoding, parse_timecode,
 };
 use celesta_project::Project;
-use celesta_react_bridge::PropertyInputs;
+use celesta_react_bridge::{PropertyInputs, PropsFileChoice, resolve_props_file};
 
 const AFTER_HELP: &str = "\
 Timecodes are HH:MM:SS(.mmm), MM:SS(.mmm) or SS(.mmm); --from/--to select a
@@ -201,8 +201,13 @@ fn main() -> ExitCode {
         .unwrap_or_else(|error| usage_error(cli.json, ErrorKind::ValueValidation, &error));
     let export =
         |on_progress: &mut dyn FnMut(ExportProgress)| export(&cli, png, range, on_progress);
+    // JSON projects carry their own properties, so only React exports have a props file.
+    let props_file = cli
+        .react
+        .then(|| resolve_props_file(&cli.source, cli.props_file.as_deref()))
+        .flatten();
     if cli.json {
-        return if report::run(&cli.source, export) {
+        return if report::run(&cli.source, props_file, export) {
             ExitCode::SUCCESS
         } else {
             ExitCode::FAILURE
@@ -215,6 +220,7 @@ fn main() -> ExitCode {
         png,
         video: cli.video(),
         render_quality: cli.render_quality,
+        props: props_file.as_ref().map(props_label),
     };
     match progress::run(settings, cli.no_ui, export) {
         Ok(()) => {
@@ -225,6 +231,21 @@ fn main() -> ExitCode {
             eprintln!("Celesta export: {error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// How the export profile names the property file: `props.json (auto)` for a
+/// discovered one, else the `--props-file` name.
+fn props_label(choice: &PropsFileChoice) -> String {
+    if choice.auto {
+        format!("{} (auto)", celesta_react_bridge::ENTRY_PROPS_FILE)
+    } else {
+        choice
+            .path
+            .file_name()
+            .unwrap_or(choice.path.as_os_str())
+            .to_string_lossy()
+            .into_owned()
     }
 }
 
@@ -356,7 +377,11 @@ fn export_range(start: Option<Time>, end: Option<Time>) -> Result<Option<ExportR
 
 fn react_runtime(cli: &Cli) -> Result<ReactRuntimeOptions, ExportError> {
     let (node, cli_script) = celesta_react_bridge::runtime_paths();
-    let properties = PropertyInputs::load(cli.props_file.as_deref(), cli.props.as_deref())
-        .map_err(ExportError::Properties)?;
+    let properties = PropertyInputs::load_for_entry(
+        &cli.source,
+        cli.props_file.as_deref(),
+        cli.props.as_deref(),
+    )
+    .map_err(ExportError::Properties)?;
     Ok(ReactRuntimeOptions::new(node, cli_script).with_properties(properties))
 }

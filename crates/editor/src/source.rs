@@ -48,8 +48,8 @@ impl PropertyArgs {
         self.props_file.is_none() && self.props.is_none()
     }
 
-    pub(crate) fn load(&self) -> Result<PropertyInputs, String> {
-        PropertyInputs::load(self.props_file.as_deref(), self.props.as_deref())
+    pub(crate) fn load(&self, entry: &Path) -> Result<PropertyInputs, String> {
+        PropertyInputs::load_for_entry(entry, self.props_file.as_deref(), self.props.as_deref())
             .map_err(|error| error.to_string())
     }
 }
@@ -70,7 +70,7 @@ pub(crate) fn load_source(
             let (node, cli_script) = react_runtime_paths();
             // Sampled before reading, so an edit made while Node starts is noticed.
             let watched_mtime = watched_mtime(path, &property_args);
-            let properties = property_args.load()?;
+            let properties = property_args.load(path)?;
             let metadata =
                 ReactBridge::spawn_with_properties(&node, &cli_script, path, &properties)
                     .map_err(|error| error.to_string())?
@@ -128,8 +128,9 @@ pub(crate) fn refresh_typescript_support(document: &EditorDocument) {
 /// `DEFAULT_REACT_AUDIO_SAMPLE_RATE` and every checked-in example project.
 pub(crate) const REACT_PREVIEW_SAMPLE_RATE: u32 = 48_000;
 
-/// Newest mtime among the entry's sources and its `--props-file`, which may
-/// live outside the entry's directory.
+/// Newest mtime among the entry's sources, its `--props-file` (which may live
+/// outside the entry's directory), and the entry directory itself, whose mtime
+/// moves when `props.json` is created or deleted.
 pub(crate) fn watched_mtime(entry: &Path, property_args: &PropertyArgs) -> Option<SystemTime> {
     let sources = entry.parent().and_then(newest_source_mtime);
     let props_file = property_args.props_file.as_deref().and_then(|file| {
@@ -137,7 +138,10 @@ pub(crate) fn watched_mtime(entry: &Path, property_args: &PropertyArgs) -> Optio
             .and_then(|meta| meta.modified())
             .ok()
     });
-    sources.max(props_file)
+    let folder = entry
+        .parent()
+        .and_then(|dir| std::fs::metadata(dir).and_then(|meta| meta.modified()).ok());
+    sources.max(props_file).max(folder)
 }
 
 /// Newest mtime among the JS/TS/JSON/CSS/WGSL source files under `dir` (recursively,
@@ -175,4 +179,34 @@ pub(crate) fn newest_source_mtime(dir: &Path) -> Option<SystemTime> {
     let mut newest = None;
     walk(dir, &mut newest, 0);
     newest
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn watched_mtime_notices_props_json_deletion() {
+        let dir = std::env::temp_dir().join(format!("celesta-watch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let entry = dir.join("film.tsx");
+        // Outlast the filesystem's mtime granularity.
+        let tick = || std::thread::sleep(Duration::from_millis(1100));
+        std::fs::write(dir.join("props.json"), "{}").unwrap();
+        tick();
+        // The entry is newer, so deleting props.json leaves the newest source mtime alone.
+        std::fs::write(&entry, "export default null;").unwrap();
+        tick();
+        let args = PropertyArgs::default();
+
+        let before = watched_mtime(&entry, &args);
+        tick();
+        std::fs::remove_file(dir.join("props.json")).unwrap();
+        let after = watched_mtime(&entry, &args);
+
+        assert_ne!(before, after);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
