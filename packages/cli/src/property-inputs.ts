@@ -10,11 +10,11 @@ import type { JsonValue, ProjectPropertyField, ProjectPropertySchema } from '@ce
 
 /**
  * One source of values, as the Rust bridge sends them, lowest precedence
- * first: a companion project's `properties`, then `--props-file`, then
- * `--props`.
+ * first: a companion project's `properties`, then either `--props-file` or
+ * the entry's sibling `props.json` (never both), then `--props`.
  */
 export interface PropertyInputLayer {
-  source: 'project' | 'propsFile' | 'props';
+  source: 'project' | 'propsFile' | 'entryProps' | 'props';
   /** The file the values came from; absent for `--props`. */
   file?: string;
   /** Where relative `path` values resolve from. */
@@ -44,9 +44,11 @@ const REMOTE_URL = /^https?:\/\//i;
 
 /**
  * Merges `layers` (later wins) after checking each value against `schema`.
- * `--props`/`--props-file` are strict: every key must be declared. A
- * companion project's `properties` predate this check and may hold values
- * for a `<ProjectProvider>` or other tools, so its undeclared keys are
+ * `--props`/`--props-file`/an entry's `props.json` are strict: every key must
+ * be declared, except that a `props.json` is ignored with a warning when the
+ * entry declares no properties at all (it is found by convention, not asked
+ * for). A companion project's `properties` predate this check and may hold
+ * values for a `<ProjectProvider>` or other tools, so its undeclared keys are
  * ignored; its declared ones are checked like the rest.
  */
 export function resolvePropertyInputs(
@@ -61,6 +63,10 @@ export function resolvePropertyInputs(
     const source = describeSource(layer);
     const strict = layer.source !== 'project';
     if (!schema) {
+      if (layer.source === 'entryProps') {
+        console.warn(`Celesta: ignoring ${layer.file}: the entry declares no project properties`);
+        continue;
+      }
       if (strict && Object.keys(layer.values).length > 0) {
         issues.push({
           key: '',
@@ -107,6 +113,8 @@ function describeSource(layer: PropertyInputLayer): string {
       return '--props';
     case 'propsFile':
       return `--props-file ${layer.file ?? ''}`.trimEnd();
+    case 'entryProps':
+      return `props.json ${layer.file ?? ''}`.trimEnd();
     case 'project':
       return `--project ${layer.file ?? ''}`.trimEnd();
   }

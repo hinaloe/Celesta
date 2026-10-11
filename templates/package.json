@@ -1,0 +1,28 @@
+{
+  "name": "@celesta/templates",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The ready-made projects Celesta offers when creating a new project.",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@celesta/character": "workspace:*",
+    "@celesta/layout": "workspace:*",
+    "@celesta/media-utils": "workspace:*",
+    "@celesta/project": "workspace:*",
+    "@celesta/react": "workspace:*",
+    "@celesta/text": "workspace:*",
+    "@celesta/transitions": "workspace:*",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.6",
+    "@types/react": "^18.3.18",
+    "typescript": "^5.7.3",
+    "vitest": "^5.0.3"
+  }
+}

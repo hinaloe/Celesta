@@ -49,7 +49,7 @@ Celesta-export --json --react scene.tsx out.mp4
 | --- | --- |
 | `--react` | The source is a React entry instead of a JSON project. |
 | `--project <file>` | Companion JSON project for `<ProjectTimeline />`/`<ProjectTrack />` (needs `--react`). Its `properties` also count as project property values. |
-| `--props-file <file>` | JSON object of project property values for the entry (needs `--react`); see [project-data.md](project-data.md#pass-values-from-the-command-line). |
+| `--props-file <file>` | JSON object of project property values for the entry (needs `--react`). Without it, a `props.json` in the entry's folder is used automatically; this option replaces it. See [project-data.md](project-data.md#pass-values-from-the-command-line). |
 | `--props <json>` | Inline JSON object of project property values (needs `--react`); wins over `--props-file`. |
 | `--from <t>`, `--to <t>` | Export only this span (`--to` exclusive); the output starts at 00:00. Times are seconds, `MM:SS.mmm`, or `HH:MM:SS.mmm`. |
 | `--overwrite` | Replace an existing output file. |
@@ -79,7 +79,9 @@ frame numbers, the warnings, and on failure an error code:
  "stats":{"elapsedSeconds":1.2,"renderFps":58.5}}
 ```
 
-(Shown wrapped here; the real output is one line.)
+(Shown wrapped here; the real output is one line.) When the entry used a
+props file, the result also has `propsFile` (its path) and `propsFileAuto`
+(`true` for the entry's automatic `props.json`, `false` for `--props-file`).
 
 - `composition.frames` is the frame count. Frames are zero-based, so the
   last one is `frames - 1` (an empty composition has none). Times are in seconds, rounded to milliseconds.

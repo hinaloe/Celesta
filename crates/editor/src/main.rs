@@ -3,7 +3,7 @@
 use crate::icons::CelestaAssets;
 use celesta_editor_theme as theme;
 use celesta_react_bridge::{
-    ProjectTsconfig, initialize_project, project_types_template,
+    ProjectTsconfig, initialize_project, list_templates, project_templates_dir,
     runtime_paths as react_runtime_paths,
 };
 use clap::Parser;
@@ -68,15 +68,29 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let args = cli::Args::parse();
+    if args.list_templates {
+        let (_, cli_script) = react_runtime_paths();
+        for template in list_templates(&project_templates_dir(&cli_script))? {
+            println!(
+                "{:<12}{} — {}",
+                template.name, template.title, template.description
+            );
+        }
+        return Ok(());
+    }
     if let Some(directory) = args.init {
         let (_, cli_script) = react_runtime_paths();
-        let setup = initialize_project(&project_types_template(&cli_script), &directory)?;
-        println!("Initialized Celesta project in {}", setup.root.display());
-        if setup.tsconfig == ProjectTsconfig::MissingExtends {
+        let setup = initialize_project(&cli_script, &directory, args.template.as_deref())?;
+        println!(
+            "Initialized Celesta project in {}",
+            setup.types.root.display()
+        );
+        if setup.types.tsconfig == ProjectTsconfig::MissingExtends {
             eprintln!(
                 "Add \"extends\": \"./.celesta/tsconfig.json\" to your existing tsconfig.json to enable Celesta types."
             );
         }
+        println!("{}", setup.template.edit);
         println!(
             "Open film.tsx with Celesta to preview. Run pnpm install for TypeScript or external dependencies."
         );

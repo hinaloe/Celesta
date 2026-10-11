@@ -5,12 +5,19 @@ use crate::actions::{
 use crate::source::load_source;
 use crate::view::EditorView;
 use celesta_react_bridge::{
-    ProjectTsconfig, ProjectTypesSetup, initialize_project, project_types_template,
+    DEFAULT_TEMPLATE, ProjectTsconfig, ProjectTypesSetup, TemplateInfo, initialize_project,
+    list_templates, project_templates_dir, project_types_template,
     runtime_paths as react_runtime_paths, set_up_project_types, set_up_project_types_in,
 };
-use gpui_kit::component::WindowExt as _;
-use gpui_kit::{ClickEvent, Context, PathPromptOptions, Window};
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::dialog::{DialogAction, DialogClose, DialogDescription, DialogFooter};
+use gpui_kit::component::radio::{Radio, RadioGroup};
+use gpui_kit::component::{ActiveTheme as _, WindowExt as _, v_flex};
+use gpui_kit::prelude::*;
+use gpui_kit::{ClickEvent, Context, PathPromptOptions, SharedString, Window, div};
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 impl EditorView {
     pub(crate) fn create_new_project_action(
@@ -31,7 +38,109 @@ impl EditorView {
         self.request_create_project(window, cx);
     }
 
+    /// File > Create New Project…: asks for a template, then for a folder.
     fn request_create_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.opening || window.has_active_dialog(cx) || !self.can_replace_contents(window, cx) {
+            return;
+        }
+        let (_, cli_script) = react_runtime_paths();
+        let dir = project_templates_dir(&cli_script);
+        let templates: Rc<[TemplateInfo]> = match list_templates(&dir) {
+            Ok(templates) if !templates.is_empty() => templates.into(),
+            Ok(_) => {
+                self.open_error = Some(
+                    format!(
+                        "Couldn’t create project: no templates found in {}",
+                        dir.display()
+                    )
+                    .into(),
+                );
+                cx.notify();
+                return;
+            }
+            Err(error) => {
+                self.open_error = Some(format!("Couldn’t create project: {error}").into());
+                cx.notify();
+                return;
+            }
+        };
+        // `list_templates` puts `blank` first, so it starts selected. The
+        // dialog is rebuilt every frame, so the choice lives outside it.
+        let selected = Rc::new(Cell::new(0_usize));
+        let view = cx.entity().downgrade();
+        window.open_dialog(cx, move |dialog, _, cx| {
+            let muted = cx.theme().muted_foreground;
+            let radios = templates.iter().map(|template| {
+                Radio::new(SharedString::from(template.name.clone()))
+                    .label(template.title.clone())
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(muted)
+                            .child(template.description.clone()),
+                    )
+            });
+            let selected_on_click = selected.clone();
+            let templates_on_ok = templates.clone();
+            let selected_on_ok = selected.clone();
+            let view = view.clone();
+            dialog
+                .title("Create New Project")
+                .child(
+                    v_flex()
+                        .gap_3()
+                        .child(
+                            DialogDescription::new()
+                                .child("Choose a template. You’ll pick the project folder next."),
+                        )
+                        .child(
+                            RadioGroup::vertical("project-templates")
+                                .children(radios)
+                                .selected_index(Some(selected.get()))
+                                .on_click(move |index, window, _| {
+                                    selected_on_click.set(*index);
+                                    window.refresh();
+                                }),
+                        ),
+                )
+                .footer(
+                    DialogFooter::new()
+                        .child(
+                            DialogClose::new().child(
+                                Button::new("create-project-cancel")
+                                    .label("Cancel")
+                                    .outline(),
+                            ),
+                        )
+                        .child(
+                            DialogAction::new().child(
+                                Button::new("create-project-create")
+                                    .label("Create")
+                                    .primary(),
+                            ),
+                        ),
+                )
+                .on_ok(move |_, window, cx| {
+                    let template = templates_on_ok
+                        .get(selected_on_ok.get())
+                        .and_then(|template| template_argument(&template.name));
+                    view.update(cx, |this, cx| {
+                        this.create_project_in_folder(template, window, cx)
+                    })
+                    .ok();
+                    true
+                })
+        });
+    }
+
+    /// Asks for a folder and initializes it from `template` (`None` keeps
+    /// the `blank` template's keep-existing behaviour).
+    fn create_project_in_folder(
+        &mut self,
+        template: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.opening || !self.can_replace_contents(window, cx) {
             return;
         }
@@ -74,7 +183,8 @@ impl EditorView {
                 .background_executor()
                 .spawn(async move {
                     let (_, cli_script) = react_runtime_paths();
-                    initialize_project(&project_types_template(&cli_script), &folder)
+                    initialize_project(&cli_script, &folder, template.as_deref())
+                        .map(|setup| setup.types)
                 })
                 .await;
             view.update_in(cx, |this, window, cx| {
@@ -374,5 +484,22 @@ impl EditorView {
         if self.is_react_preview() {
             self.watch_react_entry(cx);
         }
+    }
+}
+
+/// The `initialize_project` argument for a chosen template: `blank` is the
+/// default, which keeps any files already in the folder.
+fn template_argument(name: &str) -> Option<String> {
+    (name != DEFAULT_TEMPLATE).then(|| name.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::template_argument;
+
+    #[test]
+    fn blank_template_uses_the_default_initialization() {
+        assert_eq!(template_argument("blank"), None);
+        assert_eq!(template_argument("slideshow"), Some("slideshow".to_owned()));
     }
 }

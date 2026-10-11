@@ -51,7 +51,33 @@ cargo run -p celesta-editor --release -- --init my-video            # source che
 the GUI, the same thing is **File → Create New Project…** (Command-N /
 Ctrl-N), which then opens `film.tsx`.
 
-It creates, without overwriting anything that exists:
+By default it creates the `blank` starter. To start from a ready-made video,
+pick a template:
+
+```sh
+Celesta --list-templates                       # name, title, description
+Celesta --init my-video --template slideshow
+```
+
+| Template | Contents |
+| --- | --- |
+| `blank` | The 5-second title card below. The default. |
+| `slideshow` | Title card, then photos with captions and transitions, optional music (`slides.json`, `assets/`). |
+| `ranking` | Ranking card from a data file, with theme and accent (`data.json`, `variants/`). |
+| `dialogue` | Two characters with subtitles and lip sync; voices optional (`script.json`, `assets/`). |
+
+A template other than `blank` adds `props.json` (values for the entry's
+`defineProjectProperties()` inputs, loaded automatically by preview, export,
+and `inspect.mjs`), a data file, sample media where it applies (`slideshow`, `dialogue`),
+and a `README.md` saying what to replace. Change `props.json` and the data file rather than `film.tsx`; see
+[project-data.md](project-data.md#pass-values-from-the-command-line). `--init`
+prints the template's "edit" hint afterwards. An unknown name fails with the
+available names. With `--template`, `--init` writes nothing and lists the
+paths if any file the template would create already exists, so use a new or
+empty folder. In the GUI, **File → Create New Project…** shows the same
+choices first.
+
+The files the `blank` starter creates, without overwriting anything that exists:
 
 | File | Contents |
 | --- | --- |

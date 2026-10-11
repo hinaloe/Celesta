@@ -1,0 +1,24 @@
+{
+  "characters": {
+    "shizuku": {
+      "name": "しずく",
+      "color": "#3f8fd6",
+      "portraits": { "normal": "assets/shizuku-normal.png", "smile": "assets/shizuku-smile.png" },
+      "mouths": { "closed": "assets/mouth-closed.png", "a": "assets/mouth-a.png", "i": "assets/mouth-i.png", "u": "assets/mouth-u.png", "e": "assets/mouth-e.png", "o": "assets/mouth-o.png" }
+    },
+    "komugi": {
+      "name": "こむぎ",
+      "color": "#d97a2b",
+      "portraits": { "normal": "assets/komugi-normal.png", "smile": "assets/komugi-smile.png" },
+      "mouths": { "closed": "assets/mouth-closed.png", "a": "assets/mouth-a.png", "i": "assets/mouth-i.png", "u": "assets/mouth-u.png", "e": "assets/mouth-e.png", "o": "assets/mouth-o.png" }
+    }
+  },
+  "lines": [
+    { "scene": "intro", "speaker": "shizuku", "text": "こんにちは、しずくです。", "reading": "こんにちわ、しずくです" },
+    { "scene": "intro", "speaker": "komugi", "text": "こむぎです。今日はセリフの並べ方を紹介するよ。", "reading": "こむぎです。きょうわせりふのならべかたをしょうかいするよ" },
+    { "scene": "intro", "speaker": "shizuku", "text": "セリフの長さに合わせて、自動で並べてくれるんですね。", "reading": "せりふのながさにあわせて、じどうでならべてくれるんですね", "expression": "smile" },
+    { "scene": "how", "speaker": "komugi", "text": "セリフの後には、短い間が入るんだ。", "reading": "せりふのあとにわ、みじかいまがはいるんだ" },
+    { "scene": "how", "speaker": "shizuku", "text": "場面が変わるときは、少し長めに空けるんですね。", "reading": "ばめんがかわるときわ、すこしながめにあけるんですね" },
+    { "scene": "how", "speaker": "komugi", "text": "録音した声も、あとから足せるよ！", "reading": "ろくおんしたこえも、あとからたせるよ", "expression": "smile" }
+  ]
+}

@@ -21,17 +21,23 @@ pub use audio::{merge_react_audio_clips, react_audio_clips};
 pub use bridge::{PendingFrame, ReactBridge};
 pub use error::ReactBridgeError;
 pub use properties::{
-    PropertyInputError, PropertyInputs, PropertyIssue, PropertyLayer, PropertySource,
+    ENTRY_PROPS_FILE, PropertyInputError, PropertyInputs, PropertyIssue, PropertyLayer,
+    PropertySource, PropsFileChoice, resolve_props_file,
 };
 pub use types::{
     ComponentPropertyField, ComponentPropertySchema, ComponentResolutionRequest, FrameEvaluation,
     ProjectFrame, ReactAudioClipDescriptor, ReactCompositionMetadata,
 };
 
+mod project_templates;
 mod project_types;
 mod runtime;
+pub use project_templates::{
+    DEFAULT_TEMPLATE, ProjectSetup, TemplateError, TemplateInfo, initialize_project,
+    list_templates, project_templates_dir,
+};
 pub use project_types::{
-    PROJECT_TYPES_DIR, ProjectTsconfig, ProjectTypesSetup, initialize_project,
-    project_types_template, refresh_project_types, set_up_project_types, set_up_project_types_in,
+    PROJECT_TYPES_DIR, ProjectTsconfig, ProjectTypesSetup, project_types_template,
+    refresh_project_types, set_up_project_types, set_up_project_types_in,
 };
 pub use runtime::runtime_paths;

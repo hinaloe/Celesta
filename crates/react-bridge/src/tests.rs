@@ -1,7 +1,9 @@
 use crate::audio::{merge_react_audio_clips, react_audio_clips};
 use crate::bridge::ReactBridge;
 use crate::error::ReactBridgeError;
-use crate::properties::{PropertyInputError, PropertyInputs, PropertySource};
+use crate::properties::{
+    ENTRY_PROPS_FILE, PropertyInputError, PropertyInputs, PropertySource, resolve_props_file,
+};
 use crate::protocol::{PropertyInputsMessage, ReadyMessage, Response};
 use crate::types::{ComponentPropertyField, ReactAudioClipDescriptor};
 use celesta_composition::{Animatable, AssetLocation, Time};
@@ -460,6 +462,120 @@ fn rejects_props_that_are_not_json_objects() {
             .to_string()
             .starts_with("could not read --props-file no-such-props.json")
     );
+}
+
+/// A fresh temp directory holding a `film.tsx` entry, plus an optional `props.json`.
+fn entry_dir(name: &str, props: Option<&str>) -> (std::path::PathBuf, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!("celesta-entry-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let entry = dir.join("film.tsx");
+    std::fs::write(&entry, "export default null;").unwrap();
+    if let Some(props) = props {
+        std::fs::write(dir.join(ENTRY_PROPS_FILE), props).unwrap();
+    }
+    (dir, entry)
+}
+
+#[test]
+fn discovers_props_json_beside_the_entry() {
+    let (dir, entry) = entry_dir("discover", Some(r#"{"title":"Hello"}"#));
+    let inputs = PropertyInputs::load_for_entry(&entry, None, None).unwrap();
+    let layers = inputs.layers();
+    assert_eq!(layers.len(), 1);
+    assert_eq!(layers[0].source, PropertySource::EntryProps);
+    assert_eq!(layers[0].base_dir, dir);
+    assert_eq!(
+        layers[0].file.as_deref(),
+        Some(dir.join("props.json").as_path())
+    );
+    assert_eq!(layers[0].values["title"], "Hello");
+    let message = serde_json::to_value(PropertyInputsMessage {
+        property_inputs: layers,
+    })
+    .unwrap();
+    assert_eq!(message["propertyInputs"][0]["source"], "entryProps");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn explicit_props_file_replaces_the_entry_props() {
+    let (dir, entry) = entry_dir("explicit", Some(r#"{"title":"Auto"}"#));
+    let variant = dir.join("variant.json");
+    std::fs::write(&variant, r#"{"title":"Variant"}"#).unwrap();
+    let inputs = PropertyInputs::load_for_entry(&entry, Some(&variant), None).unwrap();
+    let layers = inputs.layers();
+    assert_eq!(layers.len(), 1);
+    assert_eq!(layers[0].source, PropertySource::PropsFile);
+    assert_eq!(layers[0].values["title"], "Variant");
+    let choice = resolve_props_file(&entry, Some(&variant)).unwrap();
+    assert_eq!(choice.path, variant);
+    assert!(!choice.auto);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn inline_props_stay_on_top() {
+    let (dir, entry) = entry_dir("inline", Some(r#"{"title":"Auto"}"#));
+    let inputs =
+        PropertyInputs::load_for_entry(&entry, None, Some(r#"{"title":"Inline"}"#)).unwrap();
+    let sources: Vec<_> = inputs.layers().iter().map(|layer| layer.source).collect();
+    assert_eq!(sources, [PropertySource::EntryProps, PropertySource::Props]);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn no_props_json_adds_no_layer() {
+    let (dir, entry) = entry_dir("none", None);
+    assert!(resolve_props_file(&entry, None).is_none());
+    assert!(
+        PropertyInputs::load_for_entry(&entry, None, None)
+            .unwrap()
+            .is_empty()
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn discovery_follows_the_entry_not_the_current_directory() {
+    let (dir, entry) = entry_dir("cwd", Some(r#"{"title":"Hello"}"#));
+    assert_ne!(std::env::current_dir().unwrap(), dir);
+    let choice = resolve_props_file(&entry, None).unwrap();
+    assert_eq!(choice.path, dir.join("props.json"));
+    assert!(choice.auto);
+    assert!(choice.path.is_absolute());
+    let inputs = PropertyInputs::load_for_entry(&entry, None, None).unwrap();
+    assert_eq!(inputs.layers()[0].source, PropertySource::EntryProps);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn malformed_entry_props_is_an_error() {
+    let (dir, entry) = entry_dir("malformed", Some("["));
+    let error = PropertyInputs::load_for_entry(&entry, None, None).unwrap_err();
+    assert!(matches!(
+        &error,
+        PropertyInputError::Parse { origin, .. } if origin.starts_with("props.json ")
+    ));
+    std::fs::write(dir.join(ENTRY_PROPS_FILE), "[1]").unwrap();
+    assert!(matches!(
+        PropertyInputs::load_for_entry(&entry, None, None),
+        Err(PropertyInputError::NotAnObject(origin)) if origin.starts_with("props.json ")
+    ));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn unreadable_entry_props_names_props_json_not_the_flag() {
+    let (dir, entry) = entry_dir("unreadable", None);
+    std::fs::write(dir.join(ENTRY_PROPS_FILE), [0xff, 0xfe, 0x00]).unwrap();
+    let error = PropertyInputs::load_for_entry(&entry, None, None).unwrap_err();
+    assert!(matches!(error, PropertyInputError::Read { .. }));
+    assert!(
+        error.to_string().starts_with("could not read props.json "),
+        "{error}"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

@@ -22,7 +22,7 @@ imported from `@celesta/react`; `useProjectProperty`, `ProjectProvider`,
 
 | You want… | Do this |
 | --- | --- |
-| One source rendered with different titles, colors, or data files | `defineProjectProperties` + `useProjectProperty`/`getProjectProperty`, exported with `--props-file`/`--props` |
+| One source rendered with different titles, colors, or data files | `defineProjectProperties` + `useProjectProperty`/`getProjectProperty`, with values in a `props.json` beside the entry or passed with `--props-file`/`--props`; `templates/ranking` is a worked example |
 | A React video whose title/colors come from a JSON project file | `ProjectProvider` + `useProjectProperty` |
 | A hand-placed JSON timeline with React overlays drawn over or under it | `<ProjectTimeline />` / `<ProjectTrack id>`, exported with `--react … --project …` |
 | JSON items that render a React component (lower thirds, cards) | `registerComponent` + a JSON `component` item, exported with `--react … --project …` |
@@ -82,17 +82,28 @@ node <skill>/scripts/inspect.mjs card.tsx --props-file variants/spring.json
 ```
 
 `--props-file` is a JSON object of values; `--props` is the same inline.
+
+A file named `props.json` in the entry's own folder (not a parent) is loaded
+automatically as if it were passed with `--props-file`; every project made
+with `--init --template` has one. Passing `--props-file` replaces it rather
+than stacking on it, and `--props` still wins over either. Its relative
+paths resolve from its folder, it is checked like `--props-file` (below),
+and the preview panel, the exporter dashboard, and `--json`
+(`propsFile`, `propsFileAuto: true`) say it was used. It is ignored with a
+warning when the entry declares no properties, but a `props.json` that is not
+a JSON object is always an error.
+
 Where a value comes from, highest precedence first:
 
 1. `--props`
-2. `--props-file`
+2. `--props-file`, or else the entry's `props.json`
 3. the `--project` companion file's `properties`
 4. the nearest `<ProjectProvider>`'s `properties` (`useProjectProperty` only;
    `getProjectProperty` cannot see the React tree)
 5. the `defineProjectProperties()` default
 6. the `defaultValue` argument
 
-Every `--props`/`--props-file` value is checked before `prepare()` runs, and
+Every `--props`/`--props-file`/`props.json` value is checked before `prepare()` runs, and
 all problems are reported together (`--json` code `invalid_properties`, one
 `issues` entry per key, or one entry with no `path` for a source that an
 entry without a schema cannot accept):
@@ -110,8 +121,9 @@ entry without a schema cannot accept):
 A `--project` file's declared keys are checked the same way; its undeclared
 keys are ignored. `<ProjectProvider>` values are not checked.
 
-The editor re-reads `--props-file` on reload and when the file changes, and
-exports from the editor use the same values.
+The editor re-reads `--props-file` or `props.json` on reload and when the file
+is created, changed, or deleted, and exports from the editor use the same
+values.
 
 ## Read values from a project
 

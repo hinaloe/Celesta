@@ -243,20 +243,58 @@ celesta-exporter --react film.tsx output.mp4
 
 Use `celesta-editor --init` to initialize the current directory. In the GUI,
 choose **File > Create New Project…** (Ctrl-N, or Command-N on macOS), or the
-toolbar's **Create New Project…**, and select a project folder. The folder
-picker can create a new folder. Celesta initializes it and opens `film.tsx`.
+toolbar's **Create New Project…**, pick a template, and select a project
+folder. The folder picker can create a new folder. Celesta initializes it and
+opens `film.tsx`.
 
 Initialization creates a five-second `film.tsx`, a private `package.json` with
-preview/export/typecheck scripts, `tsconfig.json`, `.gitignore`, and the matching
-type declarations in `.celesta/`. Preview and export use the bundled runtime
-without a package installation. Run `pnpm install` and `pnpm typecheck` to use
-the project's TypeScript compiler.
+preview/export/typecheck scripts, `tsconfig.json`, `.gitignore`, and the
+matching type declarations in `.celesta/`. Preview and export use the bundled
+runtime without a package installation. Run `pnpm install` and `pnpm typecheck`
+to use the project's TypeScript compiler.
 
 Re-running `--init` refreshes `.celesta/` and creates missing starter files.
 Existing source files, `package.json` (including dependencies and scripts),
 `.gitignore`, and `tsconfig.json` are kept unchanged. If your existing tsconfig
 does not extend `./.celesta/tsconfig.json`, Celesta reports the required change;
 merge the base configuration into your configuration as appropriate.
+
+#### Start from a template
+
+To start from a ready-made video, add `--template`:
+
+```sh
+celesta-editor --list-templates
+celesta-editor --init my-video --template slideshow
+```
+
+| Template | Contents |
+| --- | --- |
+| `blank` | A five-second title card. The default. |
+| `slideshow` | A title card, then photos with captions joined by transitions, with optional music. |
+| `ranking` | A ranking card built from a data file, with a theme and accent color. |
+| `dialogue` | Two characters talking, with subtitles and lip sync; recorded voices are optional. |
+
+Each template except `blank` is a `film.tsx` that declares its inputs with
+`defineProjectProperties()`, a `props.json` holding their values, a data file
+for list-shaped content (slides, rows, lines), sample media where it applies
+(`slideshow`, `dialogue`), and a `README.md`
+that says what to replace. Edit `props.json` and the data file instead of the
+source; everything renders at 1920×1080 or 1080×1920 (`"format": "9:16"`), 30
+fps. The first preview or export downloads Noto Sans JP, and later ones use the
+cache. The templates ship with Celesta, so a template always matches the
+runtime it runs on.
+
+A `props.json` next to the entry file is loaded automatically by the preview
+and the exporter; the preview panel and the exporter show it as
+`props.json (auto)`. `--props-file` replaces it, and `--props` still wins over
+either. It is checked like `--props-file`, so an undeclared key or a wrong type
+is an error, and it is ignored with a warning when the entry declares no
+properties.
+
+With `--template`, initialization refuses to write if any file the template
+would create already exists, and lists them; without it, existing files are
+kept as described above.
 
 For source builds, use `cargo run -p celesta-editor -- --init my-video` after
 building the React runtime above. Preview with
@@ -389,19 +427,20 @@ source. Pass a JSON object of values with `--props-file`, or inline with
 `--props` (which wins over the file). Relative paths in the file resolve from
 the file's folder. Every value is checked against the declaration before
 anything renders, and `--json` reports the problems with the code
-`invalid_properties`. [`examples/ranking`](examples/ranking/README.md) is a
+`invalid_properties`. [`templates/ranking`](templates/ranking/README.md) is a
 template with two variants:
 
 ```sh
-cargo run -p celesta-exporter --release -- --react examples/ranking/film.tsx spring.mp4 \
-  --props-file examples/ranking/variants/spring.json
-cargo run -p celesta-exporter --release -- --react examples/ranking/film.tsx autumn.mp4 \
-  --props-file examples/ranking/variants/autumn.json --props '{"title":"Autumn"}'
+cargo run -p celesta-exporter --release -- --react templates/ranking/film.tsx spring.mp4 \
+  --props-file templates/ranking/variants/spring.json
+cargo run -p celesta-exporter --release -- --react templates/ranking/film.tsx autumn.mp4 \
+  --props-file templates/ranking/variants/autumn.json --props '{"title":"秋のおすすめドリンク"}'
 ```
 
 `celesta-editor` takes the same `--props-file` and `--props` options for the
 preview and its exports. Values win over a `--project` file's `properties`,
-which win over the declared defaults.
+which win over the declared defaults. Without `--props-file`, a `props.json`
+next to the entry file is used (every template ships one).
 
 ### Export without a GPU on Linux
 

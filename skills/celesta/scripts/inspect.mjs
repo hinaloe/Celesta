@@ -18,7 +18,7 @@
 // referenced local file is missing.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
@@ -142,8 +142,8 @@ function probeMedia(mediaPath) {
 
 // ------------------------------------------------------------ inspection
 
-/** The same layers Celesta-export sends: --props-file, then --props on top. */
-function readPropertyInputs(options) {
+/** The same layers Celesta-export sends: --props-file or the entry's props.json, then --props on top. */
+function readPropertyInputs(options, entry) {
   const layers = [];
   const object = (text, origin) => {
     let value;
@@ -167,6 +167,18 @@ function readPropertyInputs(options) {
       values: object(readFileSync(file, 'utf8'), `--props-file ${options.propsFile}`),
     });
   }
+  if (options.propsFile === null) {
+    const baseDir = path.dirname(entry);
+    const file = path.join(baseDir, 'props.json');
+    if (existsSync(file) && statSync(file).isFile()) {
+      layers.push({
+        source: 'entryProps',
+        file,
+        baseDir,
+        values: object(readFileSync(file, 'utf8'), `props.json ${file}`),
+      });
+    }
+  }
   if (options.props !== null) {
     layers.push({ source: 'props', baseDir: process.cwd(), values: object(options.props, '--props') });
   }
@@ -180,7 +192,7 @@ async function inspectEntry(options) {
   const { cli, node } = findRuntime(options, [entryDir, process.cwd()]);
   if (!options.json) console.log(`runtime: ${cli}\nnode:    ${node}\nentry:   ${entry}\n`);
 
-  const propertyInputs = readPropertyInputs(options);
+  const propertyInputs = readPropertyInputs(options, entry);
   const args = propertyInputs.length > 0 ? [cli, entry, '--properties-stdin'] : [cli, entry];
   const child = spawn(node, args, { stdio: ['pipe', 'pipe', 'inherit'] });
   const timer = setTimeout(() => {
