@@ -1,4 +1,4 @@
-// skills/celesta/scripts/inspect.mjs without --native cannot shape text: an
+// skills/celesta/scripts/inspect.mjs --no-native cannot shape text: an
 // entry that measures and does not catch the refusal is reported as an
 // inspection the inspector does not support (exit code 2), not as a broken
 // scene. The native mode is covered by crates/exporter/tests/inspect_integration.rs.
@@ -19,7 +19,7 @@ function withEntry(prefix, body) {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   const entry = join(dir, 'entry.tsx');
   const inspect = (...args) =>
-    spawnSync(process.execPath, [inspector, entry, '--runtime', runtime, ...args], { encoding: 'utf8', timeout: 15000 });
+    spawnSync(process.execPath, [inspector, entry, '--no-native', '--runtime', runtime, ...args], { encoding: 'utf8', timeout: 15000 });
   try {
     body({ dir, entry, write: (source) => writeFileSync(entry, source), inspect });
   } finally {

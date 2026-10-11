@@ -288,3 +288,59 @@ fn inspect_flags_do_not_mix_with_export_flags() {
     assert!(!json.status.success());
     assert!(String::from_utf8_lossy(&json.stdout).contains("cannot be used"));
 }
+
+#[test]
+fn inspection_finds_a_source_build_of_the_exporter() {
+    if runtime().is_none() {
+        return;
+    }
+    // A checkout whose build is the exporter under test.
+    let (dir, entry) = entry(
+        r#"
+import { Composition, Text, useTextMetrics } from '@celesta/react';
+function Title() {
+  const m = useTextMetrics('Celesta', { fontSize: 96 });
+  return <Text x={(1920 - m.width) / 2} y={400} style={{ fontSize: 96 }}>Celesta</Text>;
+}
+export default function Root() {
+  return <Composition width={1920} height={1080} fps={30} durationInFrames={30}><Title /></Composition>;
+}
+"#,
+    );
+    let build = dir.path().join("target/debug");
+    std::fs::create_dir_all(&build).unwrap();
+    let exporter = build.join(
+        Path::new(env!("CARGO_BIN_EXE_celesta-exporter"))
+            .file_name()
+            .unwrap(),
+    );
+    if std::fs::hard_link(env!("CARGO_BIN_EXE_celesta-exporter"), &exporter).is_err() {
+        std::fs::copy(env!("CARGO_BIN_EXE_celesta-exporter"), &exporter).unwrap();
+    }
+    let run = |args: &[&str]| {
+        Command::new("node")
+            .env_remove("CELESTA_REACT_CLI")
+            .env_remove("CELESTA_NODE")
+            .arg(root().join("skills/celesta/scripts/inspect.mjs"))
+            .arg(&entry)
+            .args(["--frames", "0"])
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let found = run(&[]);
+    let output = String::from_utf8_lossy(&found.stdout);
+    assert_eq!(found.status.code(), Some(0), "{output}");
+    // `root()` is not normalized; the script prints the resolved path.
+    let checkout = dir.path().file_name().unwrap().to_string_lossy();
+    let native = output.lines().next().unwrap_or_default();
+    assert!(
+        native.contains(&*checkout) && native.ends_with(" (found)"),
+        "{output}"
+    );
+    assert!(output.contains(r#"text "Celesta""#), "{output}");
+
+    let node_only = run(&["--no-native"]);
+    assert_eq!(node_only.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&node_only.stderr).contains("UNSUPPORTED inspection"));
+}

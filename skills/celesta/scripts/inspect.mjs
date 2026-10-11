@@ -14,12 +14,15 @@
 // the file's directory).
 // Options: --runtime <cli.js> and --node <node> override runtime discovery
 // (also CELESTA_REACT_CLI / CELESTA_NODE). --timeout <seconds> (default 180).
-// --native <Celesta-export> evaluates through the exporter instead, with real
-// text shaping (measureText(), useTextMetrics(), <TextBox>, @celesta/code, …)
-// and media probing, still without rendering pixels.
+// Frames are evaluated through Celesta-export --inspect when it is found (a
+// source checkout's build above the entry or the current directory, then the
+// default macOS and Windows install locations), with real text shaping
+// (measureText(), useTextMetrics(), <TextBox>, @celesta/code, …) and media
+// probing, still without rendering pixels. --native <Celesta-export> picks the
+// exporter; --no-native evaluates in Node only, which cannot shape text.
 // Exit code 1 means the entry failed to load, a frame failed, or a
 // referenced local file is missing. Exit code 2 means only that text had to
-// be measured, which needs --native or a PNG export.
+// be measured, which needs the exporter or a PNG export.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -31,7 +34,7 @@ import * as readline from 'node:readline';
 const USAGE = `usage: node inspect.mjs <entry.tsx> [--frames 0,45,-1] [--every N] [--json]
                          [--props-file <file.json>] [--props <json>]
        node inspect.mjs --psd-layers <file.psd>
-options: --native <Celesta-export>  --runtime <cli.js>  --node <node>  --timeout <seconds>`;
+options: --native <Celesta-export>  --no-native  --runtime <cli.js>  --node <node>  --timeout <seconds>`;
 
 // Answers measureText requests in Node-only mode; an error carrying it is an
 // inspector limitation, not a scene error.
@@ -57,6 +60,7 @@ function parseArgs(argv) {
     else if (arg === '--psd-layers') options.psd = value();
     else if (arg === '--runtime') options.runtime = value();
     else if (arg === '--native') options.native = value();
+    else if (arg === '--no-native') options.native = false;
     else if (arg === '--node') options.node = value();
     else if (arg === '--timeout') options.timeout = Number(value());
     else if (arg === '--props') options.props = value();
@@ -121,6 +125,40 @@ function findNode(options, cli) {
     path.join(reactDir, '../node'),
   ].find((candidate) => existsSync(candidate));
   return bundled ?? process.execPath;
+}
+
+// --------------------------------------------------------------- exporter
+
+/** The first exporter that supports --inspect: a source build, then an install. */
+function findExporter(startDirs) {
+  const exe = process.platform === 'win32' ? '.exe' : '';
+  const candidates = [];
+  for (const start of startDirs) {
+    for (let dir = path.resolve(start); ; dir = path.dirname(dir)) {
+      // A source checkout: its newer build first.
+      candidates.push(
+        ...['release', 'debug']
+          .map((profile) => path.join(dir, 'target', profile, `celesta-exporter${exe}`))
+          .filter((candidate) => existsSync(candidate))
+          .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs),
+      );
+      if (path.dirname(dir) === dir) break;
+    }
+  }
+  if (process.platform === 'darwin') {
+    for (const apps of ['/Applications', path.join(homedir(), 'Applications')]) {
+      candidates.push(path.join(apps, 'Celesta.app/Contents/MacOS/Celesta-export'));
+    }
+  }
+  if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
+    candidates.push(path.join(process.env.LOCALAPPDATA, 'Programs/Celesta/Celesta-export.exe'));
+  }
+  // Exporters from before --inspect are skipped.
+  const supportsInspect = (exporter) => {
+    const help = spawnSync(exporter, ['--help'], { encoding: 'utf8', timeout: 10000 });
+    return help.status === 0 && help.stdout.includes('--inspect');
+  };
+  return candidates.find((candidate) => existsSync(candidate) && supportsInspect(candidate)) ?? false;
 }
 
 // ------------------------------------------------------------ media probe
@@ -201,6 +239,8 @@ async function inspectEntry(options) {
   const entry = path.resolve(options.entry);
   if (!existsSync(entry)) fail(`entry not found: ${entry}`);
   const entryDir = path.dirname(entry);
+  const found = options.native === null;
+  if (found) options.native = findExporter([entryDir, process.cwd()]);
   let child;
   if (options.native) {
     // The exporter finds its own runtime and reads the props itself.
@@ -211,7 +251,7 @@ async function inspectEntry(options) {
     if (node) args.push('--node', node);
     if (options.propsFile !== null) args.push('--props-file', options.propsFile);
     if (options.props !== null) args.push('--props', options.props);
-    if (!options.json) console.log(`native:  ${options.native}\nentry:   ${entry}\n`);
+    if (!options.json) console.log(`native:  ${options.native}${found ? ' (found)' : ''}\nentry:   ${entry}\n`);
     // Its own process group, so a timeout also ends the Node runtime it starts.
     child = spawn(options.native, args, { stdio: ['pipe', 'pipe', 'inherit'], detached: process.platform !== 'win32' });
     if (process.platform !== 'win32') {

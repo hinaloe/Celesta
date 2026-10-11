@@ -255,7 +255,7 @@ const subtitle: CharacterSubtitle = {
 | `text` | The line's text, as a plain string. |
 | `content` | The line as written, [`<Span>`](text.md#rich-text-with-span)s included: `<Text style={style}>{content}</Text>` keeps its emphasis. |
 | `character` | `{ id, name, displayName }` of the speaker. `displayName` is `<Character displayName>`, or `name` without one. |
-| `metrics` | The line measured with the subtitle's `style` and `maxWidth`, spans included, as `<Text>` lays it out (`width`, `height`, `lines`, …). Measured only when read, so a `render` that never reads it (nor spreads or destructures it) also works in plain `inspect.mjs`; one that does needs `inspect.mjs --native` ([verify.md](verify.md#measured-text---native)). |
+| `metrics` | The line measured with the subtitle's `style` and `maxWidth`, spans included, as `<Text>` lays it out (`width`, `height`, `lines`, …). Measured only when read, so a `render` that never reads it (nor spreads or destructures it) also works in `inspect.mjs --no-native`; one that does needs the exporter ([verify.md](verify.md#measured-text---native)). |
 | `style`, `maxWidth` | The subtitle's own, for drawing the text. |
 | `held` | True while the line has ended but the subtitle is kept up (below): draw the band, not the text. `text` and `metrics` stay the line's. |
 | `frame`, `durationInFrames` | Frames since the subtitle appeared and how long it stays: the enclosing `<Sequence>`, or the run of lines under `holdSubtitle`. Use them to fade the band in and out. |
