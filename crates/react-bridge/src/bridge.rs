@@ -229,6 +229,33 @@ impl ReactBridge {
         self.decode_frame(frame)
     }
 
+    /// Evaluates a frame past the composition's end as if the video went on,
+    /// for checking that a loop's last frame runs into its first: a
+    /// `<Sequence>` that ends with the composition stays open, and
+    /// `useVideoConfig()` still reports the real durations. Fails with
+    /// [`ReactBridgeError::OpenEndUnsupported`] when the runtime is too old
+    /// to honor the request.
+    pub fn evaluate_past_end(&mut self, time: Time) -> Result<FrameEvaluation, ReactBridgeError> {
+        self.write_request(Request {
+            time: Some(time),
+            project: None,
+            runtime: None,
+            components: None,
+            compact_transforms: true,
+            open_end: true,
+        })?;
+        let frame = self.receive_frame()?;
+        match self.decode_response(frame)? {
+            Response::Ok {
+                scene,
+                audio,
+                open_end: true,
+            } => Ok(FrameEvaluation { scene, audio }),
+            Response::Ok { .. } => Err(ReactBridgeError::OpenEndUnsupported),
+            response => Err(Self::unexpected_frame_response(response)),
+        }
+    }
+
     /// Asks Node to evaluate the frame at `time`, without waiting for it.
     /// Every submitted frame must be collected, in order, with
     /// [`Self::receive_frame`] before any other request is made.
@@ -251,6 +278,7 @@ impl ReactBridge {
             runtime: None,
             components: None,
             compact_transforms: true,
+            open_end: false,
         })
     }
 
@@ -266,17 +294,26 @@ impl ReactBridge {
         &mut self,
         frame: PendingFrame,
     ) -> Result<FrameEvaluation, ReactBridgeError> {
+        match self.decode_response(frame)? {
+            Response::Ok { scene, audio, .. } => Ok(FrameEvaluation { scene, audio }),
+            response => Err(Self::unexpected_frame_response(response)),
+        }
+    }
+
+    fn decode_response(&mut self, frame: PendingFrame) -> Result<Response, ReactBridgeError> {
         let response = serde_json::from_slice(&frame.0).map_err(ReactBridgeError::Protocol);
         // Keep the larger allocation for the next message.
         if frame.0.capacity() > self.message.capacity() {
             self.message = frame.0;
         }
-        match response? {
-            Response::Ok { scene, audio } => Ok(FrameEvaluation { scene, audio }),
-            Response::Components { .. } => Err(ReactBridgeError::UnexpectedResponse),
-            Response::CollectedAudio { .. } => Err(ReactBridgeError::UnexpectedResponse),
-            Response::Err { error } => Err(ReactBridgeError::Render(error)),
-            Response::MeasureText { .. } => Err(ReactBridgeError::UnexpectedResponse),
+        response
+    }
+
+    /// The error for a frame request answered with anything but a scene.
+    fn unexpected_frame_response(response: Response) -> ReactBridgeError {
+        match response {
+            Response::Err { error } => ReactBridgeError::Render(error),
+            _ => ReactBridgeError::UnexpectedResponse,
         }
     }
 
@@ -318,6 +355,7 @@ impl ReactBridge {
                     .collect(),
             ),
             compact_transforms: false,
+            open_end: false,
         };
         match self.request_response(request)? {
             Response::Components {

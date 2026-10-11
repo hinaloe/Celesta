@@ -79,9 +79,6 @@ function parseArgs(argv) {
   if (options.frames?.some(Number.isNaN)) fail('--frames takes comma-separated integers (negative counts from the end)');
   if (options.every !== null && !(options.every > 0)) fail('--every takes a positive integer');
   if (options.loop && (options.frames || options.every !== null)) fail('--loop picks its own frames; leave out --frames and --every');
-  if (options.loop && options.native) {
-    fail('--loop cannot run with --native yet: native inspection does not evaluate frames past the end. Leave out --native, or compare the seam in a contact sheet (loops.md)');
-  }
   if (!options.entry && !options.psd) fail(USAGE);
   return options;
 }
@@ -364,7 +361,7 @@ async function inspectEntry(options) {
   }
 
   const { config } = ready;
-  if (options.loop) await finish(await checkLoop(config, send, receive, options.json, ready));
+  if (options.loop) await finish(await checkLoop(config, send, receive, options, ready));
   const fps = config.frameRate.numerator / config.frameRate.denominator;
   const total = config.durationInFrames;
   let frames;
@@ -460,7 +457,7 @@ const LOOP_DIFFERENCE_LIMIT = 20;
  * across the seam. Returns the exit code: 1 when anything differs or fails,
  * 2 when only text measurement stopped it.
  */
-async function checkLoop(config, send, receive, json, ready) {
+async function checkLoop(config, send, receive, options, ready) {
   const fps = config.frameRate.numerator / config.frameRate.denominator;
   const total = config.durationInFrames;
   const timeOf = (frame) => ({ value: frame * config.frameRate.denominator, timescale: config.frameRate.numerator });
@@ -473,7 +470,11 @@ async function checkLoop(config, send, receive, json, ready) {
     send({ time: timeOf(total + start), openEnd: true });
     const past = await receive();
     if (!first.error && !past.error && past.openEnd !== true) {
-      fail('This Celesta runtime cannot evaluate frames past the end. Update Celesta, or pass --runtime <cli.js> from a newer build.');
+      fail(
+        options.native
+          ? `${options.native} cannot evaluate frames past the end. Update Celesta, or pass a newer build to --native.`
+          : 'This Celesta runtime cannot evaluate frames past the end. Update Celesta, or pass --runtime <cli.js> from a newer build.',
+      );
     }
     const pair = { frame: total + start, against: start };
     if (first.error || past.error) {
@@ -497,7 +498,7 @@ async function checkLoop(config, send, receive, json, ready) {
   }
 
   const code = problems ? 1 : unsupported ? 2 : 0;
-  if (json) {
+  if (options.json) {
     console.log(JSON.stringify({ ready, loop: pairs }, null, 2));
     return code;
   }
@@ -574,6 +575,7 @@ function diffScenes(end, start, where, out) {
 }
 
 function describeList(list) {
+  if (list.length === 0) return 'no layers';
   if (!list.every((item) => typeof item?.content?.type === 'string')) return `${list.length} items`;
   const types = list.slice(0, 6).map((item) => item.content.type);
   return `${list.length} layers: ${types.join(', ')}${list.length > types.length ? ', …' : ''}`;

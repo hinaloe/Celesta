@@ -37,6 +37,10 @@ pub(crate) struct Request<'a> {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub(crate) compact_transforms: bool,
+    /// Asks for a frame past the composition's end, evaluated as if the
+    /// video went on (see [`crate::ReactBridge::evaluate_past_end`]).
+    #[serde(rename = "openEnd", skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) open_end: bool,
 }
 
 /// The runtime context sent alongside component-resolution requests; the
@@ -80,6 +84,10 @@ pub(crate) enum Response {
         scene: Scene,
         #[serde(default)]
         audio: Vec<ReactAudioClipDescriptor>,
+        /// The runtime's echo of an `openEnd` request; an older runtime
+        /// ignores the request and leaves it out.
+        #[serde(default, rename = "openEnd")]
+        open_end: bool,
     },
     Components {
         components: Vec<Option<Vec<Layer>>>,
@@ -106,6 +114,8 @@ pub(crate) struct RawResponse {
     #[serde(default)]
     pub(crate) shaders: Vec<ShaderSource>,
     pub(crate) error: Option<String>,
+    #[serde(default)]
+    pub(crate) open_end: bool,
 }
 
 impl TryFrom<RawResponse> for Response {
@@ -121,6 +131,7 @@ impl TryFrom<RawResponse> for Response {
             Ok(Self::Ok {
                 scene,
                 audio: raw.audio,
+                open_end: raw.open_end,
             })
         } else if let Some(components) = raw.components {
             Ok(Self::Components {

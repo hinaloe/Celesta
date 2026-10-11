@@ -250,7 +250,7 @@ Celesta-export --react film.tsx --frames 95,96,383,0 --contact-sheet --columns 4
 
 `--loop` evaluates frames N and N + 1 as if the video went on and lists every
 value that differs from frames 0 and 1; the exit code is 1 when anything
-does. It does not combine with `--native` yet, so an entry that measures text
-stops with exit code 2; check its seam in the contact sheet. The contact sheet shows the last and first frames side by side, next
-to an ordinary pair of frames. How to read the results and make a video
+does. For an entry that measures text, add `--native <Celesta-export>` as
+in [Measured text](#measured-text---native). The contact sheet shows the last
+and first frames side by side, next to an ordinary pair of frames. How to read the results and make a video
 loop: [loops.md](loops.md#check-the-loop).

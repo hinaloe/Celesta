@@ -28,6 +28,12 @@ and how to check it (issue #229).
   with an explicit duration ending exactly at the end also stays open, as it
   cannot be told apart from the last `Series` scene. `durationInFrames` in
   `useVideoConfig()` is unchanged, so loop math sees the real length. Inside
-  a `<FreezeFrame>`, `openEnd` is false. The Rust bridge never sends it.
+  a `<FreezeFrame>`, `openEnd` is false.
+- `--loop --native`: the exporter's `--inspect` (`crates/exporter/src/inspect.rs`)
+  accepts `openEnd` on a request and calls `ReactBridge::evaluate_past_end`,
+  which sends the flag and fails with `ReactBridgeError::OpenEndUnsupported`
+  (a non-fatal `requestError`) when the runtime sends no echo. Preview and
+  export never send it.
 - Tests: `packages/math/test/math.test.mjs`,
-  `packages/react/test/sequence.test.mjs`, `packages/cli/test/open-end.test.mjs`.
+  `packages/react/test/sequence.test.mjs`, `packages/cli/test/open-end.test.mjs`,
+  `crates/react-bridge/src/tests.rs`, `crates/exporter/tests/inspect_integration.rs`.

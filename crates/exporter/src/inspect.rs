@@ -8,7 +8,9 @@
 //! when the entry does not load. Each stdin line `{"time":{value,timescale}}`
 //! is answered with one line: `{scene, audio}` or `{error, status, fatal}`,
 //! where `status` is `requestError`, `sceneError` or `runtimeError`. A
-//! runtime error is fatal and ends inspection.
+//! runtime error is fatal and ends inspection. A request with `"openEnd":
+//! true` evaluates a frame past the end as if the video went on (`inspect.mjs
+//! --loop`), and its answer echoes `"openEnd": true`.
 
 use std::io::{self, BufRead, Write};
 use std::path::Path;
@@ -21,6 +23,8 @@ use serde_json::{Value, json};
 #[derive(serde::Deserialize)]
 struct InspectRequest {
     time: Time,
+    #[serde(default, rename = "openEnd")]
+    open_end: bool,
 }
 
 /// Runs the inspection protocol until stdin closes; `false` if anything failed.
@@ -67,8 +71,8 @@ pub fn run(entry: &Path, runtime: &ReactRuntimeOptions) -> Result<bool, io::Erro
         if line.trim().is_empty() {
             continue;
         }
-        let time = match serde_json::from_str::<InspectRequest>(&line) {
-            Ok(request) => request.time,
+        let request = match serde_json::from_str::<InspectRequest>(&line) {
+            Ok(request) => request,
             Err(error) => {
                 ok = false;
                 let error = format!("invalid request JSON: {error}");
@@ -79,24 +83,36 @@ pub fn run(entry: &Path, runtime: &ReactRuntimeOptions) -> Result<bool, io::Erro
                 continue;
             }
         };
-        match bridge.evaluate_at(time, None) {
+        let evaluated = if request.open_end {
+            bridge.evaluate_past_end(request.time)
+        } else {
+            bridge.evaluate_at(request.time, None)
+        };
+        match evaluated {
+            Ok(frame) if request.open_end => write_line(
+                &mut output,
+                &json!({ "scene": frame.scene, "audio": frame.audio, "openEnd": true }),
+            )?,
             Ok(frame) => write_line(
                 &mut output,
                 &json!({ "scene": frame.scene, "audio": frame.audio }),
             )?,
             Err(error) => {
                 ok = false;
-                // A scene error leaves the runtime ready for the next frame;
-                // anything else means it is gone or out of step.
-                let fatal = !matches!(
-                    error,
-                    ReactBridgeError::Render(_) | ReactBridgeError::Time(_)
-                );
+                // A scene error leaves the runtime ready for the next frame,
+                // as does a runtime too old for `openEnd`; anything else
+                // means it is gone or out of step.
+                let status = match error {
+                    ReactBridgeError::Render(_) | ReactBridgeError::Time(_) => "sceneError",
+                    ReactBridgeError::OpenEndUnsupported => "requestError",
+                    _ => "runtimeError",
+                };
+                let fatal = status == "runtimeError";
                 write_line(
                     &mut output,
                     &json!({
                         "error": message(&error),
-                        "status": if fatal { "runtimeError" } else { "sceneError" },
+                        "status": status,
                         "fatal": fatal,
                     }),
                 )?;
