@@ -8,8 +8,9 @@ description: Write, edit, check, and export Celesta videos. Covers React composi
 Celesta is a code-first video tool. A video is source code: a React
 composition (`.tsx`) built from Celesta's React packages, a
 `.celesta.json` project timeline, or both combined. The Celesta app only
-**previews** and exports; it never edits files. You edit the source; the user
-watches the result in the app.
+**previews** and exports; it never edits your source (its Properties panel
+only writes the props file). You edit the source; the user watches the result
+in the app.
 
 ## Pick the format
 

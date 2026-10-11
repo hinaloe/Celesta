@@ -643,7 +643,9 @@ fn layer(source: PropertySource, values: serde_json::Value) -> crate::properties
 
 #[test]
 fn ready_message_keeps_the_declared_property_order() {
-    let json = serde_json::json!({
+    // A literal string: `json!` builds a sorted map unless `preserve_order` is
+    // on, which depends on which crates are built together.
+    let json = r##"{
         "config": {
             "width": 640,
             "height": 360,
@@ -655,8 +657,7 @@ fn ready_message_keeps_the_declared_property_order() {
             "subtitle": {"type": "string", "defaultValue": ""},
             "accent": {"type": "color", "defaultValue": "#ff8800"}
         }
-    })
-    .to_string();
+    }"##;
     assert_eq!(
         ready_property_order(json.as_bytes()),
         ["title", "subtitle", "accent"]
