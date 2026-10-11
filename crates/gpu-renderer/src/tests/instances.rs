@@ -288,3 +288,166 @@ fn empty_and_non_finite_instances_draw_nothing() {
     assert_eq!(pixel_at(&frame, 8, 8), [0, 0, 0, 255]);
     assert_eq!(pixel_at(&frame, 13, 8), [255, 255, 255, 255]);
 }
+
+fn image_particles(
+    path: &str,
+    x: Vec<f32>,
+    y: Vec<f32>,
+    colors: Vec<u8>,
+    size: Option<f32>,
+    rotation: Option<f32>,
+) -> LayerContent {
+    let count = x.len();
+    LayerContent::Instances {
+        count: count as u32,
+        shape: InstanceShape::Image {
+            asset: ResolvedAsset {
+                id: path.to_owned(),
+                location: AssetLocation::File {
+                    path: path.to_owned(),
+                },
+            },
+        },
+        width: size.map(f64::from),
+        height: size.map(f64::from),
+        color: None,
+        x: F32Column::from(x),
+        y: F32Column::from(y),
+        widths: None,
+        heights: None,
+        rotation: rotation.map(|degrees| F32Column::from(vec![degrees; count])),
+        colors: Some(U8Column::from(colors)),
+    }
+}
+
+/// A 4x4 opaque white image under `id`, decoded without reading a file.
+fn white_sprite(renderer: &mut GpuRenderer, id: &str) {
+    renderer.image_sources.insert_raster(
+        id,
+        image::RgbaImage::from_raw(4, 4, [255; 4].repeat(16)).unwrap(),
+    );
+}
+
+#[test]
+fn image_instances_multiply_their_colour() {
+    let Some(mut renderer) = black_renderer() else {
+        return;
+    };
+    white_sprite(&mut renderer, "spark");
+    let mut scene = empty_scene(16, 16);
+    scene.layers = vec![instances_layer(
+        "sparks",
+        image_particles(
+            "spark",
+            vec![4.0, 12.0],
+            vec![8.0, 8.0],
+            vec![255, 0, 0, 255, 0, 0, 255, 128],
+            None,
+            None,
+        ),
+    )];
+    let frame = renderer.render(&scene).unwrap();
+    assert_eq!(pixel_at(&frame, 2, 6), [255, 0, 0, 255]);
+    assert_eq!(pixel_at(&frame, 5, 9), [255, 0, 0, 255]);
+    let blue = pixel_at(&frame, 12, 8);
+    assert!(
+        blue[..2] == [0, 0] && blue[2].abs_diff(128) <= 1,
+        "{blue:?}"
+    );
+    assert_eq!(pixel_at(&frame, 8, 8), [0, 0, 0, 255]);
+    assert_eq!(pixel_at(&frame, 6, 8), [0, 0, 0, 255]);
+}
+
+#[test]
+fn image_instances_match_the_cpu_renderer() {
+    let Some(renderer) = renderer(GpuRenderOptions {
+        background: Color::rgba(10, 20, 30, 255),
+        ..GpuRenderOptions::default()
+    }) else {
+        return;
+    };
+    let mut renderer = renderer.with_asset_root(env!("CARGO_MANIFEST_DIR"));
+    let count = 20;
+    let mut scene = empty_scene(48, 48);
+    scene.layers = vec![instances_layer(
+        "checkers",
+        image_particles(
+            "tests/assets/checker.ppm",
+            (0..count).map(|i| (2 + 2 * i) as f32).collect(),
+            (0..count).map(|i| (3 + (i * 7) % 40) as f32).collect(),
+            (0..count)
+                .flat_map(|i| [255, (i * 40) as u8, (i * 90) as u8, 128 + i as u8])
+                .collect(),
+            None,
+            None,
+        ),
+    )];
+    let frame = renderer.render(&scene).unwrap();
+    let expected = celesta_renderer::CpuRenderer::new(celesta_renderer::RenderOptions {
+        background: celesta_renderer::Color::rgba(10, 20, 30, 255),
+    })
+    .with_asset_root(env!("CARGO_MANIFEST_DIR"))
+    .render(&scene)
+    .unwrap();
+    assert!(max_channel_difference(&frame, &expected) <= 1);
+}
+
+#[test]
+fn image_instances_scale_and_rotate() {
+    let Some(mut renderer) = black_renderer() else {
+        return;
+    };
+    white_sprite(&mut renderer, "spark");
+    let mut scene = empty_scene(16, 16);
+    scene.layers = vec![instances_layer(
+        "turned",
+        image_particles(
+            "spark",
+            vec![8.0],
+            vec![8.0],
+            vec![255; 4],
+            Some(8.0),
+            Some(90.0),
+        ),
+    )];
+    let frame = renderer.render(&scene).unwrap();
+    // Magnified and turned, the sprite is filtered: its edge pixels are
+    // anti-aliased, its inside is solid, and it reaches no further.
+    for (x, y) in [(5, 5), (10, 10), (5, 10), (10, 5), (8, 8)] {
+        assert_eq!(pixel_at(&frame, x, y), [255, 255, 255, 255], "({x}, {y})");
+    }
+    for (x, y) in [(2, 8), (13, 8), (8, 2), (8, 13)] {
+        assert_eq!(pixel_at(&frame, x, y), [0, 0, 0, 255], "({x}, {y})");
+    }
+    // Exactly as an `Image` layer of the particle's size draws it.
+    let mut image = empty_scene(16, 16);
+    image.layers = vec![Layer {
+        transform: EvaluatedTransform {
+            position: Point { x: 8.0, y: 8.0 },
+            rotation: 90.0,
+            anchor: Point { x: 0.5, y: 0.5 },
+            ..EvaluatedTransform::default()
+        },
+        content: LayerContent::Image {
+            asset: ResolvedAsset {
+                id: "spark".to_owned(),
+                location: AssetLocation::File {
+                    path: "spark".to_owned(),
+                },
+            },
+            width: Some(8.0),
+            height: Some(8.0),
+            fit: None,
+        },
+        ..instances_layer(
+            "image",
+            LayerContent::Group {
+                layers: Vec::new(),
+                clip: None,
+                mask: None,
+            },
+        )
+    }];
+    let expected = renderer.render(&image).unwrap();
+    assert_eq!(frame.pixels(), expected.pixels());
+}

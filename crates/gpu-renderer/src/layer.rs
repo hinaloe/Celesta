@@ -257,15 +257,26 @@ impl PreparedLayer {
         texel_width: u32,
         texel_height: u32,
     ) -> (f32, f32) {
-        let align = |translation: f32, texels: u32, anchor: f64| {
-            let offset = f64::from(texels) * anchor;
-            ((f64::from(translation) - offset).round() + offset) as f32
-        };
-        (
-            align(transform.tx, texel_width, self.anchor.x),
-            align(transform.ty, texel_height, self.anchor.y),
-        )
+        pixel_aligned_translation(transform, texel_width, texel_height, self.anchor)
     }
+}
+
+/// See `PreparedLayer::pixel_aligned_translation`, for a layer anchored at
+/// `anchor`.
+pub(crate) fn pixel_aligned_translation(
+    transform: Affine,
+    texel_width: u32,
+    texel_height: u32,
+    anchor: Point,
+) -> (f32, f32) {
+    let align = |translation: f32, texels: u32, anchor: f64| {
+        let offset = f64::from(texels) * anchor;
+        ((f64::from(translation) - offset).round() + offset) as f32
+    };
+    (
+        align(transform.tx, texel_width, anchor.x),
+        align(transform.ty, texel_height, anchor.y),
+    )
 }
 
 /// Floats in one `LayerInstance` of `layer.wgsl`: nine `vec4<f32>`s.
