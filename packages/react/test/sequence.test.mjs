@@ -94,3 +94,37 @@ test('Series evaluates only active scenes and keeps audio at overlapping boundar
     assert.deepEqual(seen.splice(0), expected, `evaluated scenes at frame ${frame}`);
   }
 });
+
+test('openEnd keeps windows that reach the composition end open past the last frame', () => {
+  function Clock({ name }) {
+    const frame = useCurrentFrame();
+    const { durationInFrames } = useVideoConfig();
+    return h(Text, null, `${name}:${frame}/${durationInFrames}`);
+  }
+  const composition = mount(() => h(Composition, { width: 10, height: 10, fps: 30, durationInFrames: 120 },
+    h(Clock, { name: 'root' }),
+    h(Sequence, { from: 30 },
+      h(Clock, { name: 'open' }),
+      h(Sequence, { from: 10, durationInFrames: 80 }, h(Clock, { name: 'nested' })),
+      h(Sequence, { from: 10, durationInFrames: 79 }, h(Clock, { name: 'nested-early' })),
+    ),
+    h(Sequence, { from: 0, durationInFrames: 119 }, h(Clock, { name: 'early' })),
+    h(Series, null,
+      h(Series.Sequence, { durationInFrames: 60 }, h(Clock, { name: 'a' })),
+      h(Series.Sequence, { durationInFrames: 60 }, h(Clock, { name: 'b' })),
+    ),
+    // Ends after the composition does: it keeps its own end.
+    h(Sequence, { from: 110, durationInFrames: 11 },
+      h(Clock, { name: 'overrun' }),
+      h(Sequence, { from: 5 }, h(Clock, { name: 'overrun-child' })),
+    ),
+  ));
+  const past = (frame) => texts(composition.renderAt({ value: frame, timescale: 30 }, null, { openEnd: true }).scene.layers);
+  assert.deepEqual(texts(at(composition, 120).scene.layers), ['root:120/120', 'overrun:10/11', 'overrun-child:5/6']);
+  // useVideoConfig() still reports the real durations, so loop math is unchanged.
+  assert.deepEqual(past(120), ['root:120/120', 'open:90/90', 'nested:80/80', 'b:60/60', 'overrun:10/11', 'overrun-child:5/6']);
+  assert.deepEqual(past(121), ['root:121/120', 'open:91/90', 'nested:81/80', 'b:61/60']);
+  // Inside the composition, openEnd changes nothing.
+  assert.deepEqual(past(118), texts(at(composition, 118).scene.layers));
+  assert.deepEqual(texts(at(composition, 120).scene.layers), ['root:120/120', 'overrun:10/11', 'overrun-child:5/6']);
+});

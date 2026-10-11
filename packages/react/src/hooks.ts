@@ -13,6 +13,13 @@ export interface CompositionRuntimeContextValue extends VideoConfig {
   time: Time;
   preview: boolean;
   lang?: string;
+  /**
+   * True while a frame past the composition's end is evaluated as if the
+   * video went on (inspect.mjs --loop compares frame N with frame 0), and
+   * this window ends with the composition: a `<Sequence>` here that also
+   * ends with it stays open.
+   */
+  openEnd?: boolean;
 }
 
 // Populated by render.ts around the entry's default export on every frame
