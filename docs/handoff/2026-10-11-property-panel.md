@@ -35,8 +35,10 @@ reload after it runs. Issues with no key appear at the top of the section.
 - `set_property(file, key, Option<&Value>)` re-reads the file at commit
   time (so edits from another editor are kept), sets or, for `None`, removes
   the key, and keeps the file's top-level key order; a new key is appended.
-  `serde_json`'s `preserve_order` is not enabled; `OrderedObject` parses the
-  object as an ordered list itself. Output is 2-space JSON plus a newline,
+  The project does not enable `serde_json`'s `preserve_order` itself (the
+  spec forbids adding it). GPUI enables it in workspace builds, but the code
+  does not depend on that: `OrderedObject` reads the object as an ordered
+  list. Output is 2-space JSON plus a newline,
   written to a temporary file in the same folder and renamed over the target.
 - A missing file is an empty object. A file that is not valid JSON, or not an
   object, is not touched: "Fix <file name> before editing: …" with the parse
@@ -110,19 +112,18 @@ pnpm --dir templates test
 cargo test --workspace
 ```
 
-- `props_edit` (18 tests): key order, append, replace, remove, create, keys
+- `props_edit`: key order, append, replace, remove, create, keys
   from another editor, broken or non-object files, no temp file, read-only
   file, relative / nested / spaces-and-Japanese paths, copy, reuse, `-2`
   numbering, no extension, a folder.
 - `react-bridge` `tests.rs`: `effective_values` precedence, ready-message
   property order.
-- editor (`property_panel` 18 tests, `refresh`): issues to rows, the kept
+- editor (`property_panel`, `refresh`): issues to rows, the kept
   schema after a failed load, collapsed queued commits, reload ordering and
   row holds.
 
 Last full run (`pnpm run build:runtime && pnpm --dir templates test &&
-cargo test --workspace`), all passing: templates 23 tests; cargo 524 tests in
-32 suites (react-bridge 65, editor 60).
+cargo test --workspace`), all passing on 2026-10-11.
 
 `ready_message_keeps_the_declared_property_order` builds its input as a
 literal string. With `serde_json::json!` the keys were sorted whenever
@@ -135,8 +136,11 @@ workspace run.
 - An entry whose first load fails has no schema to keep, so the panel cannot
   show. Fix the file in an external editor; the next successful load brings
   the panel back.
-- Nested objects in a props file get their keys sorted on write. Property
-  values are scalars, so this does not occur with declared properties.
+- Nested objects in a props file may get their keys sorted on write when
+  `preserve_order` is not unified in (for example a build of
+  `celesta-react-bridge` alone); in the editor binary they keep their order.
+  Property values are scalars, so this does not occur with declared
+  properties.
 - A failed reload whose props file could not be read releases a written
   row's hold, so the old value shows briefly.
 - `property_panel.rs` is about 1100 lines with its tests. Splitting
