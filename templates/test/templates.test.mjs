@@ -95,3 +95,45 @@ test('ranking rejects a null row', async () => {
   const result = await rankingWithData('[{ "name": "りんご", "score": 3 }, null]');
   assert.match(String(result.error), /data\.json: row 1 /);
 });
+
+// A TITLE_SECONDS card (90 frames) plus five 4-second slides (120 frames
+// each), overlapped by the five TRANSITION_FRAMES (20) transitions between
+// them, for the five sample slides in slides.json.
+const SLIDESHOW_SAMPLE_FRAMES = 590;
+
+function slideshow(values) {
+  const dir = join(templatesDir, 'slideshow');
+  return evaluate(join(dir, 'film.tsx'), [entryPropsLayer(dir), { source: 'props', baseDir: dir, values }]);
+}
+
+function slideshowWithSlides(contents) {
+  const slides = join(mkdtempSync(join(tmpdir(), 'celesta-slideshow-')), 'slides.json');
+  writeFileSync(slides, contents);
+  return slideshow({ slides });
+}
+
+for (const format of ['16:9', '9:16']) {
+  test(`slideshow evaluates in ${format}`, async () => {
+    const result = await slideshow({ format });
+    assert.ok(result.config, JSON.stringify(result));
+    assert.deepEqual([result.config.width, result.config.height], format === '16:9' ? [1920, 1080] : [1080, 1920]);
+    assert.equal(result.config.fps, 30);
+    assert.equal(result.config.durationInFrames, SLIDESHOW_SAMPLE_FRAMES);
+  });
+}
+
+test('slideshow rejects empty slides', async () => {
+  const result = await slideshowWithSlides('[]');
+  assert.match(String(result.error), /slides\.json: slides must be a non-empty array/);
+});
+
+test('slideshow rejects a slide without an image, naming the file and slide', async () => {
+  const result = await slideshowWithSlides('[{ "image": "a.png" }, { "caption": "朝の港" }]');
+  assert.match(String(result.error), /slides\.json: slide 1 has no image/);
+});
+
+test('slideshow without music', async () => {
+  const result = await slideshow({ music: '' });
+  assert.ok(result.config, JSON.stringify(result));
+  assert.equal(result.config.durationInFrames, SLIDESHOW_SAMPLE_FRAMES);
+});

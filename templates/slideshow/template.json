@@ -1,0 +1,5 @@
+{
+  "title": "写真スライドショー",
+  "description": "写真とキャプションを並べ、トランジションでつなぐスライドショー。",
+  "edit": "Edit props.json and slides.json, and replace the files in assets/."
+}

@@ -1,0 +1,10 @@
+{
+  "title": "旅の記録",
+  "subtitle": "2026 秋",
+  "format": "16:9",
+  "accent": "#f2c14e",
+  "transition": "crossfade",
+  "secondsPerSlide": 4,
+  "slides": "./slides.json",
+  "music": "./assets/music.wav"
+}
