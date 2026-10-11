@@ -499,6 +499,12 @@ fn font_families_take_a_name_or_a_stack() {
     assert!(!style.font_runs[1].font_family.as_ref().unwrap().is_stack());
     assert_eq!(serde_json::to_value(&style).unwrap(), json);
 
+    // Rust code can build an empty stack; it reads as one empty name.
+    let empty = FontFamily::Stack(Vec::new());
+    assert_eq!(empty.names(), [""]);
+    assert_eq!(empty.first(), "");
+    assert!(!empty.is_stack());
+
     let error = serde_json::from_value::<TextStyle>(serde_json::json!({ "fontFamily": [] }))
         .unwrap_err()
         .to_string();

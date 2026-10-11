@@ -43,12 +43,25 @@ different fonts in one paragraph. It is built on the per-range font spans of
   `face_runs` replaces `usable_font_runs`, so stack choices reuse the font
   run path (per-line byte spans, phrase joiners, the base span that keeps
   cosmic-text's ASCII fast path from merging, emoji spans on top).
-- Baselines (`run_baselines`): stack runs are runs, so glyphs from later
-  families do not move a line, as in CSS and `@celesta/web`. When every
-  glyph is in a run and the text has a stack, `primary_extent` places the
-  baselines from the primary face's ascent and descent; without a stack the
-  old rule (cosmic-text's baselines) stands. `rasterize` pads for ink that
-  reaches past the line boxes, as for spans.
+- Baselines (`run_baselines`): stack runs are runs, and in a text with a
+  stack a glyph outside runs counts only when its face belongs to the
+  primary family, so neither later families nor system fallback fonts
+  (emoji, characters no family has) move a line, as in CSS and
+  `@celesta/web`. When no glyph counts, `stack_extent` places the
+  baselines from the largest ascent and descent of the primary faces of
+  the text's stack and its runs' stacks (a `<Span>` stack can cover the
+  whole text). When every glyph counts, cosmic-text's baselines stand, so
+  a stack whose text is all in its primary family draws exactly as that
+  family alone. Text without a stack keeps the #206 rules. `rasterize`
+  pads for ink that reaches past the line boxes, as for spans.
+- Cluster choice is a request, not a guarantee: when no family has the
+  whole cluster, the run asks for the family with its first character,
+  and cosmic-text's fallback may still draw the cluster, whole, with a
+  system font that has all of it (Windows' Sans Serif Collection has
+  U+1AB0).
+- `FontFamily::names()` is never empty: an empty `Stack`, which
+  deserializing rejects but Rust code can build, reads as `[""]`, like
+  `Name("")`.
 - Warnings (`fonts.rs`, `text.rs`): `requested_faces` yields stacks;
   `font_fallback` reports a stack only when none of its families has a
   face; `missing_glyphs` counts a glyph as present when its face belongs to

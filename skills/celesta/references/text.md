@@ -198,15 +198,19 @@ so Latin can come from one font and Japanese from the next:
 - A cluster takes the first family with a glyph for every visible
   character of it, so a combining mark or a variation selector is never
   drawn from another font than its base character. When no family has the
-  whole cluster, it takes the first family with its first character.
+  whole cluster, it takes the first family with its first character; a
+  system font that has the whole cluster may draw it instead, as with one
+  family, so the export can differ between operating systems.
 - Families with no installed or loaded face are skipped. The stack's
   **primary family** is its first family with a face.
 - Characters no family in the stack has fall back to a system font, as
   with one family (loaded fonts are not candidates; see above).
-- Baselines come from the primary family, as in CSS: glyphs from later
-  families do not move a line, so a paragraph keeps even line spacing
-  whether or not a line has Japanese. Their ink may reach above or below
-  the line box when the later family is taller.
+- Baselines come from the primary family, as in CSS: neither glyphs from
+  later families nor fallback glyphs (an emoji, a character no family has)
+  move a line, so a paragraph keeps even line spacing whether or not a
+  line has Japanese. Their ink may reach above or below the line box when
+  their font is taller. With one family, fallback glyphs still move their
+  line, as before.
 - Emoji stay with the color emoji font, unless the stack itself lists a
   color emoji family that has them.
 - Weights match within each family on its own: with `fontWeight: 400` and

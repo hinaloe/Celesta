@@ -76,13 +76,18 @@ fn a_cluster_takes_one_family_for_its_marks_and_selectors() {
         };
         assert_eq!(family, expected, "code point {point}");
     }
-    // A mark no family has stays with the first family that has its base.
-    let families = families_by_point(&mut rasterizer, "Б\u{0335}\u{1AB0}", &bebas_then_mono(48.0));
+    // With a mark no family has, the cluster asks for the first family that
+    // has its base. A system font with the whole cluster may still draw it
+    // (Windows' Sans Serif Collection does), but never split.
+    let text = "Б\u{0335}\u{1AB0}";
+    let style = bebas_then_mono(48.0);
+    let runs = rasterizer.face_runs(text, &style);
+    assert_eq!(runs.len(), 1);
+    assert_eq!((runs[0].start, runs[0].end), (0, 3));
+    assert_eq!(runs[0].font_family.as_deref(), Some("IBM Plex Mono"));
+    let families = families_by_point(&mut rasterizer, text, &style);
     assert!(
-        families
-            .iter()
-            .filter(|(point, _)| *point < 2)
-            .all(|(_, family)| family == "IBM Plex Mono"),
+        families.iter().all(|(_, family)| *family == families[0].1),
         "{families:?}"
     );
 }
@@ -288,4 +293,76 @@ fn stack_choices_are_kept_until_a_font_loads() {
     let again = rasterizer.face_runs("AБ", &style);
     assert!(!std::sync::Arc::ptr_eq(&first, &again));
     assert_eq!(first, again);
+}
+
+#[test]
+fn characters_no_family_has_do_not_move_a_stacks_baselines() {
+    let mut rasterizer = two_family_rasterizer();
+    let style = TextStyle {
+        lang: Some("ja".to_owned()),
+        ..bebas_then_mono(48.0)
+    };
+    let bebas_ascent = rasterizer.measure("A", &bebas(48.0), None).ascent;
+    // ず is in neither family; a system font draws it, as 😀 comes from a
+    // color emoji font, and neither moves the line.
+    for text in ["Aず", "A😀", "AБず"] {
+        let ascent = rasterizer.measure(text, &style, None).ascent;
+        assert!(
+            (ascent - bebas_ascent).abs() < 1e-3,
+            "{text}: {ascent} vs {bebas_ascent}"
+        );
+    }
+}
+
+#[test]
+fn a_span_stack_over_the_whole_text_places_baselines_with_its_primary_family() {
+    let mut rasterizer = two_family_rasterizer();
+    let bebas_ascent = rasterizer.measure("A", &bebas(48.0), None).ascent;
+    let text = "A\nБ";
+    let style = TextStyle {
+        font_family: Some("IBM Plex Mono".into()),
+        font_runs: vec![celesta_composition::TextFontRun {
+            font_family: stack(&["Bebas Neue", "IBM Plex Mono"]),
+            ..run(0, 3, None, None)
+        }],
+        ..bebas(48.0)
+    };
+    let buffer = rasterizer.shaped_buffer(text, &style, None, 1.0);
+    let baselines = rasterizer.run_baselines(&buffer, text, &style).unwrap();
+    let line_height = buffer.metrics().line_height;
+    assert!(
+        (baselines[1] - baselines[0] - line_height).abs() < 1e-3,
+        "{baselines:?}"
+    );
+    let ascent = rasterizer.measure(text, &style, None).ascent;
+    assert!(
+        (ascent - bebas_ascent).abs() < 1e-3,
+        "{ascent} vs {bebas_ascent}"
+    );
+}
+
+#[test]
+fn an_empty_stack_draws_as_an_empty_name() {
+    let mut rasterizer = two_family_rasterizer();
+    let empty = TextStyle {
+        font_family: Some(FontFamily::Stack(Vec::new())),
+        font_runs: vec![celesta_composition::TextFontRun {
+            font_family: Some(FontFamily::Stack(Vec::new())),
+            ..run(0, 1, None, None)
+        }],
+        ..bebas(48.0)
+    };
+    let unnamed = TextStyle {
+        font_family: Some("".into()),
+        font_runs: vec![run(0, 1, None, Some(""))],
+        ..bebas(48.0)
+    };
+    assert_eq!(
+        rasterizer.rasterize("AB", &empty, None, 1.0).unwrap(),
+        rasterizer.rasterize("AB", &unnamed, None, 1.0).unwrap()
+    );
+    assert_eq!(
+        rasterizer.font_fallback("title", &empty),
+        rasterizer.font_fallback("title", &unnamed)
+    );
 }

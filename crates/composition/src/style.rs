@@ -223,16 +223,20 @@ pub struct TextFontRun {
 #[serde(untagged)]
 pub enum FontFamily {
     Name(String),
-    /// Never empty. Read-only in TypeScript, so a stack declared `as const`
-    /// fits too.
+    /// Deserializing rejects an empty list. Read-only in TypeScript, so a
+    /// stack declared `as const` fits too.
     Stack(#[cfg_attr(feature = "codegen", ts(type = "ReadonlyArray<string>"))] Vec<String>),
 }
 
 impl FontFamily {
-    /// The family names, in the order they are tried.
+    /// The family names, in the order they are tried; never empty. An empty
+    /// stack, which deserializing rejects but Rust code can build, reads as
+    /// one empty name: a family with no face, as `Name("")` is.
     pub fn names(&self) -> &[String] {
+        static NO_NAME: String = String::new();
         match self {
             Self::Name(name) => std::slice::from_ref(name),
+            Self::Stack(names) if names.is_empty() => std::slice::from_ref(&NO_NAME),
             Self::Stack(names) => names,
         }
     }
