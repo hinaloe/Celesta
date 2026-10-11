@@ -1,6 +1,7 @@
 import { Easings, Group, Rect, Sequence, Text, progress, useCurrentFrame } from '@celesta/react';
 import { Circle } from '@celesta/shapes';
 import { TransitionSeries } from '@celesta/transitions';
+import { withAlpha } from '../color';
 import { useAccent, useBarLoop, useStage } from '../components/DemoClock';
 import { BAR, C, DEMO, FONT, W } from '../constants';
 
@@ -121,7 +122,7 @@ function Timeline({ accent }: { accent: string }) {
         {label((SCENE - OVERLAP) * px + 16, 'Moon', '#F3F1EC')}
       </Group>
       <Group x={(SCENE - OVERLAP) * px} opacity={overlap}>
-        <Rect y={-8} width={OVERLAP * px} height={120} cornerRadius={6} fill={`${accent}40`} stroke={accent} strokeWidth={3} />
+        <Rect y={-8} width={OVERLAP * px} height={120} cornerRadius={6} fill={withAlpha(accent, 0x40 / 255)} stroke={accent} strokeWidth={3} />
         <Text x={(OVERLAP * px) / 2} y={-34} anchorX={0.5} anchorY={0.5}
           style={{ fontFamily: FONT.mono, fontSize: 28, fontWeight: 700, fill: { type: 'solid', color: accent } }}>
           {`wipe ${OVERLAP}f`}

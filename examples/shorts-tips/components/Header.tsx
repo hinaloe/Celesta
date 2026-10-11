@@ -1,5 +1,6 @@
 import { Group, Rect, Text } from '@celesta/react';
-import { C, FONT, HEADER, SAFE, SAFE_W } from '../constants';
+import { C, FONT, HEADER, SAFE } from '../constants';
+import { SLOTS } from '../slots';
 
 // The badge and the Tip's title, on screen from the first frame to the last.
 export function Header({ number, title, accent }: { number: number; title: string; accent: string }) {
@@ -15,11 +16,8 @@ export function Header({ number, title, accent }: { number: number; title: strin
         style={{ fontFamily: FONT.display, fontSize: 24, fontWeight: 800, letterSpacing: 4, fill: { type: 'solid', color: C.grey } }}>
         CELESTA
       </Text>
-      <Text y={HEADER.titleY - HEADER.y} maxWidth={SAFE_W}
-        style={{
-          fontFamily: FONT.ja, fontSize: HEADER.titleSize, fontWeight: 900, lineHeight: HEADER.titleLine,
-          lineBreak: 'phrase', fill: { type: 'solid', color: C.paper },
-        }}>
+      <Text y={HEADER.titleY - HEADER.y} maxWidth={SLOTS.title.maxWidth}
+        style={{ ...SLOTS.title.style, fill: { type: 'solid', color: C.paper } }}>
         {title}
       </Text>
     </Group>

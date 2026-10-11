@@ -11,6 +11,7 @@ Celesta の小技を 1 本に 1 つずつ紹介する、縦型ショート動画
 
 - `film.tsx` — Celesta の File → Open… で開く React ソース（エントリ）。
 - `properties.ts` — テンプレートの入力。`plan.ts` — コードの配置と各行の出現時刻、`prepare()` での検証。
+- `slots.ts` — タイトル・フック・締めのひとことの書式と、それぞれに収まる行数。`color.ts` — アクセントカラーの半透明の色。
 - `demos/` — Tip ごとのデモ（1 ファイル 1 デモ、`demos/index.ts` に ID ごとの一覧）。
 - `scenes/` — Hook・Build・Outro の 3 シーン。`components/` — ヘッダー、コード欄、デモの時計、背景。
 - `variants/` — Tip ごとの値。`make-score.py` — BGM を生成する Python スクリプト（標準ライブラリのみ）。
@@ -50,16 +51,18 @@ Celesta の小技を 1 本に 1 つずつ紹介する、縦型ショート動画
 | --- | --- | --- |
 | `tip` | select | 下半分に出すデモの ID（`demos/index.ts` のキー） |
 | `number` | number | `TIPS #01` の番号 |
-| `title` | string | ヘッダーのタイトル。文節で折り返します |
-| `hook` | string | 最初の 2 秒に出すひとこと |
+| `title` | string | ヘッダーのタイトル。2 行まで。文節で折り返します |
+| `hook` | string | 最初の 2 秒に出すひとこと。2 行まで |
 | `code` | string | 上半分のコード（TSX としてハイライト）。9 行まで |
 | `stages` | string | デモの各段階が始まるコードの行番号（1 始まり、カンマ区切り、昇順）。その行を打ち終えた時点で段階が始まります |
-| `closing` | string | 締めのひとこと |
-| `accent` | color | アクセントカラー |
+| `closing` | string | 締めのひとこと。4 行まで |
+| `accent` | color | アクセントカラー。`#RRGGBB` または `#RRGGBBAA` |
 | `guides` | boolean | セーフエリア外を赤く塗る確認用の表示。既定は `false` で、完成映像には描きません |
 
 コードの文字サイズは最長の行に合わせて 46〜34 px で決まります。収まらない行や、`stages` の数がデモと合わないときは、
 `prepare()` が最初のフレームより前にエラーで止めます。
+タイトル・フック・締めのひとことも組んでみて、それぞれの枠に収まる行数（`slots.ts`）を超えたら止めます。
+`inspect.mjs` は文字を組めないので、そこではこの確認を警告付きで飛ばします。書き出しでは必ず確認します。
 
 ## Tip を足すには
 

@@ -1,9 +1,10 @@
-import { getProjectProperty } from '@celesta/react';
+import { getProjectProperty, measureText } from '@celesta/react';
 import { tokenizeCode, type CodeTheme } from '@celesta/code';
 import {
-  BEAT, CODE, CODE_MAX_LINES, CODE_SIZE, MONO_ADVANCE, REVEAL_AT, REVEAL_BEATS, SAFE, TYPE_FRAMES,
+  BEAT, CODE, CODE_MAX_LINES, CODE_SIZE, FONT_URLS, MONO_ADVANCE, REVEAL_AT, REVEAL_BEATS, SAFE, TYPE_FRAMES,
 } from './constants';
 import { DEMOS, type TipId } from './demos';
+import { SLOTS, type SlotName } from './slots';
 
 // Token colours for the dark code panel. Unlisted token names use foreground.
 export const THEME: CodeTheme = {
@@ -67,7 +68,8 @@ function codeLines(source: string): CodeLine[] {
 }
 
 export function makePlan(code: string, stages: string, tip: TipId): Plan {
-  const source = code.replace(/\t/g, '  ').replace(/\s+$/, '');
+  // CRLF and lone CR end a line too (as in @celesta/code), so none is left inside a line.
+  const source = code.replace(/\r\n?/g, '\n').replace(/\t/g, '  ').replace(/\s+$/, '');
   const lines = codeLines(source);
   if (!source || lines.length > CODE_MAX_LINES) {
     throw new Error(`code: write 1 to ${CODE_MAX_LINES} lines (got ${source ? lines.length : 0})`);
@@ -117,6 +119,26 @@ export async function prepare(): Promise<void> {
     getProjectProperty<string>('stages'),
     getProjectProperty<TipId>('tip'),
   );
+  await checkSlots();
+}
+
+// The title, hook and closing line wrap, so whether they fit their slot is
+// only known by shaping them. scripts/inspect.mjs cannot shape text: there
+// the check is skipped with a warning, and every export still runs it.
+async function checkSlots(): Promise<void> {
+  for (const [name, slot] of Object.entries(SLOTS) as [SlotName, (typeof SLOTS)[SlotName]][]) {
+    const text = getProjectProperty<string>(name);
+    let lines: number;
+    try {
+      ({ lines } = await measureText(text, slot.style, { maxWidth: slot.maxWidth, fonts: [...FONT_URLS] }));
+    } catch (error) {
+      console.warn(`not checking how many lines the title, hook and closing take: ${error instanceof Error ? error.message : error}`);
+      return;
+    }
+    if (lines > slot.maxLines) {
+      throw new Error(`${name}: wraps to ${lines} lines, but ${slot.maxLines} fit; shorten it or break it with \\n`);
+    }
+  }
 }
 
 export function getPlan(): Plan {

@@ -1,5 +1,6 @@
 import { Easings, Group, Rect, Text, progress } from '@celesta/react';
 import { Circle, Polyline } from '@celesta/shapes';
+import { withAlpha } from '../color';
 import { useAccent, useStage } from '../components/DemoClock';
 import { C, DEMO, FONT } from '../constants';
 
@@ -37,7 +38,7 @@ function Column({ x, label, lineBreak, color, lit, mark }: {
         {`'${label}'`}
       </Text>
       <Rect x={-14} y={COLUMN_Y - 20} width={MAX_WIDTH + 28} height={COLUMN_H} cornerRadius={14}
-        fill="#0D1019" stroke={lit > 0 ? `${color}80` : C.dim} strokeWidth={2} />
+        fill="#0D1019" stroke={lit > 0 ? withAlpha(color, 0x80 / 255) : C.dim} strokeWidth={2} />
       {/* The maxWidth edge. */}
       <Rect x={MAX_WIDTH} y={COLUMN_Y - 8} width={3} height={COLUMN_H - 24} fill={C.grey} opacity={0.6} />
       {typed > 0 && (

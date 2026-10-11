@@ -1,4 +1,5 @@
 import { Group, Rect } from '@celesta/react';
+import { withAlpha } from '../color';
 import { C, DEMO, H, SAFE, W } from '../constants';
 import { DEMOS, type TipId } from '../demos';
 import { DemoClock } from './DemoClock';
@@ -9,7 +10,7 @@ export function Background({ accent }: { accent: string }) {
       <Rect width={W} height={H} fill={C.ink} />
       <Rect width={W} height={H}
         fill={{ type: 'radial', center: { x: 120, y: 160 }, radius: 1100,
-          stops: [{ offset: 0, color: `${accent}30` }, { offset: 1, color: `${accent}00` }] }} />
+          stops: [{ offset: 0, color: withAlpha(accent, 0x30 / 255) }, { offset: 1, color: withAlpha(accent, 0) }] }} />
     </>
   );
 }

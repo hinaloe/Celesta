@@ -11,6 +11,7 @@ with `defineProjectProperties()`, and each JSON file in `variants/` holds the va
 
 - `film.tsx` — the React source (entry) to open with Celesta's File → Open….
 - `properties.ts` — the template's inputs. `plan.ts` — code layout, each line's reveal time, and the checks in `prepare()`.
+- `slots.ts` — how the title, hook and closing line are set and how many lines each may take. `color.ts` — tints of the accent color.
 - `demos/` — one demo per Tip, one file each (`demos/index.ts` lists them by ID).
 - `scenes/` — the three scenes: Hook, Build and Outro. `components/` — the header, the code band, the demo clock and the background.
 - `variants/` — the values for each Tip. `make-score.py` — a Python script that generates the score (standard library only).
@@ -50,16 +51,18 @@ Each variant sets these values. Any value it leaves out takes the default from `
 | --- | --- | --- |
 | `tip` | select | The ID of the demo shown in the lower half (a key of `demos/index.ts`) |
 | `number` | number | The number in `TIPS #01` |
-| `title` | string | The header title. Japanese wraps between phrases |
-| `hook` | string | The line shown over the first 2 seconds |
+| `title` | string | The header title, up to 2 lines. Japanese wraps between phrases |
+| `hook` | string | The line shown over the first 2 seconds, up to 2 lines |
 | `code` | string | The code in the upper half, highlighted as TSX. Up to 9 lines |
 | `stages` | string | The code line (1-based, comma-separated, ascending) that starts each stage of the demo. A stage starts once its line has been typed |
-| `closing` | string | The closing line |
-| `accent` | color | The accent color |
+| `closing` | string | The closing line, up to 4 lines |
+| `accent` | color | The accent color, `#RRGGBB` or `#RRGGBBAA` |
 | `guides` | boolean | Tints everything outside the safe area red, for checking. Defaults to `false` and is never drawn in a delivered video |
 
 The code's font size follows its longest line, from 46 down to 34 px. If a line does not fit, or the number of `stages`
 does not match the demo, `prepare()` stops with an error before the first frame.
+It also shapes the title, hook and closing line and stops if one wraps to more lines than its slot holds
+(the limits are in `slots.ts`). `inspect.mjs` cannot shape text, so there this check is skipped with a warning; exports always run it.
 
 ## Adding a Tip
 

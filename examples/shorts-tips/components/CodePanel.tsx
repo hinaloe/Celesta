@@ -1,5 +1,6 @@
 import { Group, Rect, Span, Text, progress } from '@celesta/react';
 import { Circle } from '@celesta/shapes';
+import { withAlpha } from '../color';
 import { BAR, BEAT, C, CODE, FONT, SAFE, TYPE_FRAMES, W } from '../constants';
 import { THEME, getPlan } from '../plan';
 
@@ -33,7 +34,7 @@ export function CodePanel({ frame, accent }: { frame?: number; accent: string })
 
       {current >= 0 && band > 0 && (
         <Group y={top + current * lineHeight} opacity={band}>
-          <Rect width={W} height={lineHeight} fill={`${accent}26`} />
+          <Rect width={W} height={lineHeight} fill={withAlpha(accent, 0x26 / 255)} />
           <Rect width={CODE.textX - 24} height={lineHeight} fill={accent} />
         </Group>
       )}

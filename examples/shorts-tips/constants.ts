@@ -20,6 +20,8 @@ export const SAFE_W = SAFE.right - SAFE.left;
 // upper half) and the demo (the lower half).
 export const HEADER = { y: SAFE.top, titleY: 200, titleSize: 64, titleLine: 82 } as const;
 export const CODE = { y: 384, height: H / 2 - 384, bar: 56, textX: SAFE.left + 8, padY: 24 } as const;
+// Height of the hook's band across the code in the first two seconds.
+export const HOOK_BAND = 300;
 // A demo draws in its own coordinates: (0, 0) is the band's top-left, the
 // band is W × DEMO.height, and its text stays within DEMO.safe.
 export const DEMO = {
