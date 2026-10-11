@@ -5,7 +5,7 @@ use crate::probe::{MediaProbeResponse, media_probe_payload};
 use crate::properties::PropertyInputs;
 use crate::protocol::{
     ComponentRequest, ProjectPayload, PropertyInputsMessage, ReadyMessage, Request,
-    ResolutionRuntime, Response,
+    ResolutionRuntime, Response, ready_property_order,
 };
 use crate::types::{
     ComponentResolutionRequest, FrameEvaluation, ProjectFrame, ReactCompositionMetadata,
@@ -120,6 +120,13 @@ impl ReactBridge {
                     component_schemas,
                     project_property_schema,
                 } => {
+                    // Without an order, fall back to the map's sorted keys.
+                    let mut project_property_order = ready_property_order(&message);
+                    if project_property_order.is_empty()
+                        && let Some(schema) = &project_property_schema
+                    {
+                        project_property_order = schema.keys().cloned().collect();
+                    }
                     break ReactCompositionMetadata {
                         width: config.width,
                         height: config.height,
@@ -127,6 +134,7 @@ impl ReactBridge {
                         duration_in_frames: config.duration_in_frames,
                         component_schemas,
                         project_property_schema,
+                        project_property_order,
                     };
                 }
                 ReadyMessage::ProbeMedia { probe_media } => {

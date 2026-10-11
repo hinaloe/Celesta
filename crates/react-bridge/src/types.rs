@@ -34,6 +34,10 @@ pub struct ReactCompositionMetadata {
     /// schemas; only where their values live differs (project-level vs per
     /// timeline item).
     pub project_property_schema: Option<BTreeMap<String, ComponentPropertyField>>,
+    /// The keys of `project_property_schema` in the order the entry's
+    /// `defineProjectProperties()` declared them (the map itself sorts).
+    /// Empty when the entry declared none.
+    pub project_property_order: Vec<String>,
 }
 
 /// One audible `<Audio>` element as reported for a single rendered frame
@@ -110,6 +114,23 @@ pub enum ComponentPropertyField {
         label: Option<String>,
         default_value: String,
     },
+}
+
+impl ComponentPropertyField {
+    /// The declared default as the JSON value a props file would hold.
+    pub fn default_json(&self) -> serde_json::Value {
+        use serde_json::Value;
+        match self {
+            Self::String { default_value, .. }
+            | Self::Color { default_value, .. }
+            | Self::Select { default_value, .. }
+            | Self::Path { default_value, .. } => Value::String(default_value.clone()),
+            Self::Number { default_value, .. } => {
+                serde_json::Number::from_f64(*default_value).map_or(Value::Null, Value::Number)
+            }
+            Self::Boolean { default_value, .. } => Value::Bool(*default_value),
+        }
+    }
 }
 
 /// One registered component's declared props, keyed by prop name — the

@@ -21,8 +21,9 @@ pub use audio::{merge_react_audio_clips, react_audio_clips};
 pub use bridge::{PendingFrame, ReactBridge};
 pub use error::ReactBridgeError;
 pub use properties::{
-    ENTRY_PROPS_FILE, PropertyInputError, PropertyInputs, PropertyIssue, PropertyLayer,
-    PropertySource, PropsFileChoice, resolve_props_file,
+    ENTRY_PROPS_FILE, EffectiveValue, PropertyInputError, PropertyInputs, PropertyIssue,
+    PropertyLayer, PropertySource, PropsFileChoice, ValueSource, effective_values,
+    resolve_props_file,
 };
 pub use types::{
     ComponentPropertyField, ComponentPropertySchema, ComponentResolutionRequest, FrameEvaluation,

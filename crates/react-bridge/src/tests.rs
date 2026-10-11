@@ -2,9 +2,10 @@ use crate::audio::{merge_react_audio_clips, react_audio_clips};
 use crate::bridge::ReactBridge;
 use crate::error::ReactBridgeError;
 use crate::properties::{
-    ENTRY_PROPS_FILE, PropertyInputError, PropertyInputs, PropertySource, resolve_props_file,
+    ENTRY_PROPS_FILE, EffectiveValue, PropertyInputError, PropertyInputs, PropertySource,
+    ValueSource, effective_values, resolve_props_file,
 };
-use crate::protocol::{PropertyInputsMessage, ReadyMessage, Response};
+use crate::protocol::{PropertyInputsMessage, ReadyMessage, Response, ready_property_order};
 use crate::types::{ComponentPropertyField, ReactAudioClipDescriptor};
 use celesta_composition::{Animatable, AssetLocation, Time};
 use std::path::Path;
@@ -620,4 +621,111 @@ fn measuring_rejects_invalid_font_runs() {
             "could not measure text: text font run 0 (0..3) is invalid for 2 code points; runs must be ordered, non-overlapping ranges within the text"
         )
     );
+}
+
+fn effective_schema() -> std::collections::BTreeMap<String, ComponentPropertyField> {
+    let json = serde_json::json!({
+        "title": {"type": "string", "defaultValue": "Celesta"},
+        "accent": {"type": "color", "defaultValue": "#ff8800"},
+        "format": {"type": "select", "defaultValue": "16:9", "options": ["16:9", "9:16"]}
+    });
+    serde_json::from_value(json).unwrap()
+}
+
+fn layer(source: PropertySource, values: serde_json::Value) -> crate::properties::PropertyLayer {
+    crate::properties::PropertyLayer {
+        source,
+        file: None,
+        base_dir: std::path::PathBuf::new(),
+        values: values.as_object().unwrap().clone(),
+    }
+}
+
+#[test]
+fn ready_message_keeps_the_declared_property_order() {
+    let json = serde_json::json!({
+        "config": {
+            "width": 640,
+            "height": 360,
+            "frameRate": {"numerator": 30, "denominator": 1},
+            "durationInFrames": 30
+        },
+        "propertySchema": {
+            "title": {"type": "string", "defaultValue": "Celesta"},
+            "subtitle": {"type": "string", "defaultValue": ""},
+            "accent": {"type": "color", "defaultValue": "#ff8800"}
+        }
+    })
+    .to_string();
+    assert_eq!(
+        ready_property_order(json.as_bytes()),
+        ["title", "subtitle", "accent"]
+    );
+
+    let without = r#"{"config":{},"propertySchema":null}"#;
+    assert!(ready_property_order(without.as_bytes()).is_empty());
+}
+
+#[test]
+fn effective_values_follow_props_then_file_then_default() {
+    let inputs = PropertyInputs::from_layers(vec![
+        layer(
+            PropertySource::PropsFile,
+            serde_json::json!({"accent": "#000000"}),
+        ),
+        layer(PropertySource::Props, serde_json::json!({"format": "9:16"})),
+    ]);
+    let values = effective_values(&effective_schema(), &inputs);
+    assert_eq!(
+        values["title"],
+        EffectiveValue {
+            value: serde_json::json!("Celesta"),
+            source: ValueSource::Default
+        }
+    );
+    assert_eq!(
+        values["accent"],
+        EffectiveValue {
+            value: serde_json::json!("#000000"),
+            source: ValueSource::File
+        }
+    );
+    assert_eq!(
+        values["format"],
+        EffectiveValue {
+            value: serde_json::json!("9:16"),
+            source: ValueSource::Props
+        }
+    );
+}
+
+#[test]
+fn entry_props_count_as_the_file_layer() {
+    let inputs = PropertyInputs::from_layers(vec![layer(
+        PropertySource::EntryProps,
+        serde_json::json!({"title": "Hello"}),
+    )]);
+    let values = effective_values(&effective_schema(), &inputs);
+    assert_eq!(values["title"].source, ValueSource::File);
+    assert_eq!(values["title"].value, serde_json::json!("Hello"));
+}
+
+#[test]
+fn default_json_matches_each_field_type() {
+    let schema: std::collections::BTreeMap<String, ComponentPropertyField> =
+        serde_json::from_value(serde_json::json!({
+            "s": {"type": "string", "defaultValue": "a"},
+            "n": {"type": "number", "defaultValue": 1.5},
+            "b": {"type": "boolean", "defaultValue": true},
+            "c": {"type": "color", "defaultValue": "#fff"},
+            "o": {"type": "select", "defaultValue": "x", "options": ["x"]},
+            "p": {"type": "path", "defaultValue": "./a.png"}
+        }))
+        .unwrap();
+    assert_eq!(schema["s"].default_json(), serde_json::json!("a"));
+    assert_eq!(schema["n"].default_json(), serde_json::json!(1.5));
+    assert_eq!(schema["b"].default_json(), serde_json::json!(true));
+    assert_eq!(schema["c"].default_json(), serde_json::json!("#fff"));
+    assert_eq!(schema["o"].default_json(), serde_json::json!("x"));
+    assert_eq!(schema["p"].default_json(), serde_json::json!("./a.png"));
 }
