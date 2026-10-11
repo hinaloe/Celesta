@@ -12,6 +12,10 @@ column.
 - `make-score.py` — generates the score with Python's standard library.
 - `poster.jpg` — a still from the exported video.
 
+It runs in the Celesta desktop app and the exporter. The browser renderer
+(`@celesta/web`) cannot run custom shaders, and its text measurer has no
+per-glyph metrics, so this example does not run there.
+
 ![poster](poster.jpg)
 
 ## Scenes
@@ -27,15 +31,15 @@ on a downbeat.
 | 12–16 s | The box changes shape every other beat; the same copy refills it, centred, as large as it fits | `fitText`, `useCue` |
 | 16–20 s | The lit word moves every beat; the highlight bars are placed from the measured glyphs, and a word takes its trailing punctuation with it | `<Span>`, `measureText`, `useCue`, `interpolateColor` |
 | 20–24 s | One word per beat: "CUT / ON / THE / BEAT. / WRITE. / SAVE. / WATCH. / SHIP." | `useBeat`, `fitText` |
-| 24–28 s | The opening line and the wordmark, on the opening background, so a looping player cuts back into the hook without a jump | `fitText`, `TextReveal` |
+| 24–28 s | The opening line and the wordmark, on the opening background, so when a player loops, the return to the hook reads as one more cut (the tapes, halftone and punch-in restart there, as on every cut) | `fitText`, `TextReveal` |
 
 Headlines are stacked line by line (`components/FitStack.tsx`): `fitText()`
 finds, for each line on its own, the largest Archivo Black size that fits the
 column on one line, so every line runs the full width and the sizes give the
-hierarchy. Display type is tracked in by 2% of its size. `letterSpacing` is in
-pixels, so each fit runs twice: once for the size, then with the tracking that
-size implies, and the line is drawn with exactly the tracking it was measured
-with. English has no phrase line breaking to show, so the Japanese version's
+hierarchy. Display type is tracked in by 2% of its size
+(`letterSpacing` = −0.02 × `fontSize`). `letterSpacing` is in pixels, so each
+fit runs twice: once for the size, then with the tracking that size implies,
+and the line is drawn with exactly the tracking it was measured with. English has no phrase line breaking to show, so the Japanese version's
 `lineBreak: 'phrase'` scene is replaced by the measurement scene.
 
 ## Safe area
@@ -65,8 +69,12 @@ Celesta-export --react examples/shorts-type-en/film.tsx --props '{"guides":true}
   distance from the centre, so copy in the middle stays crisp; every cut gets
   7 frames of glitch slices and a 4-frame flash. That is one flash every four
   seconds, well under three per second.
-- **Tapes** (`components/Tape.tsx`): two slanted bands scroll the scene's line
-  and API through the platform UI area.
+- **Tapes** (`components/Tape.tsx`, copy in `tapes.ts`): two slanted bands
+  scroll the scene's line and API through the platform UI area. Each repeats
+  its text just enough times to cover the band for the whole scene, from the
+  width of one repeat measured in `prepare()`: too few leaves a bare stretch
+  of band, and too many makes a text raster wider than the GPU's 8,192 px
+  texture limit, which is drawn shrunk and blurred.
 - **Punch-in**: each scene's copy springs in from 0.9× and starts blurred, so
   it never leaves the safe area.
 - **Speed lines** (`components/Burst.tsx`): one `Path` of wedges per beat in

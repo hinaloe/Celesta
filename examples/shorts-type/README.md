@@ -18,6 +18,10 @@ of one of them. The same structure with English copy is
 - `make-score.py` — generates the score with Python's standard library.
 - `poster.jpg` — a still from the exported video.
 
+It runs in the Celesta desktop app and the exporter. The browser renderer
+(`@celesta/web`) cannot run custom shaders, and its text measurer has no
+per-glyph metrics, so this example does not run there.
+
 ![poster](poster.jpg)
 
 ## Scenes
@@ -33,7 +37,7 @@ on a downbeat.
 | 12–16 s | A box that changes shape every other beat; the same copy refills it as large as it fits | `fitText`, `useCue` |
 | 16–20 s | The lit phrase moves every beat; the highlight bars are placed from the measured glyphs | `<Span>`, `measureText`, `useCue`, `interpolateColor` |
 | 20–24 s | One word per beat: 「拍に／合わせて／言葉を／落とす。／書いて、／保存して、／すぐ／確かめる。」 ("On the beat, drop the words. Write, save, check right away.") | `useBeat` |
-| 24–28 s | The opening line and the wordmark, on the opening background, so a looping player cuts back into the hook without a jump | `TextReveal` |
+| 24–28 s | The opening line and the wordmark, on the opening background, so when a player loops, the return to the hook reads as one more cut (the tapes, halftone and punch-in restart there, as on every cut) | `TextReveal` |
 
 The HUD at the top (scene number and a four-beat metronome) is drawn with
 `cueAt()` and `useBeat()`, and with `blendMode="difference"` so it reads on
@@ -52,9 +56,13 @@ cuts.
   square of the distance from the centre, so copy in the middle stays crisp;
   every cut gets 7 frames of horizontal glitch slices and a 4-frame flash. That
   is one flash every four seconds, well under three per second.
-- **Tapes** (`components/Tape.tsx`): two slanted bands across the bottom scroll
-  the scene's line and API. They are decoration, so they may run through the
-  area the platform UI covers.
+- **Tapes** (`components/Tape.tsx`, copy in `tapes.ts`): two slanted bands
+  across the bottom scroll the scene's line and API. They are decoration, so
+  they may run through the area the platform UI covers. Each repeats its text
+  just enough times to cover the band for the whole scene, from the width of
+  one repeat measured in `prepare()`: too few leaves a bare stretch of band,
+  and too many makes a text raster wider than the GPU's 8,192 px texture
+  limit, which is drawn shrunk and blurred.
 - **Punch-in**: each scene's copy springs in from 0.9× and starts blurred. It
   grows from smaller, so it never leaves the safe area.
 - **Speed lines** (`components/Burst.tsx`): in the BEAT scene, one `Path` of
