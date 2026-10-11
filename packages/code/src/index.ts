@@ -2,10 +2,10 @@ import * as React from 'react';
 import { Group, Rect, Text, textCaret, useTextMetrics } from '@celesta/react';
 import type { CommonProps, TextColorRun, TextStyle } from '@celesta/react';
 import { codeLines, tokenizeCode, validateTabSize } from './syntax.js';
-import type { CodeLanguage } from './syntax.js';
+import type { CodeLanguage, CodeLine } from './syntax.js';
 
-export { tokenizeCode } from './syntax.js';
-export type { CodeLanguage, CodeToken } from './syntax.js';
+export { codeLines, tokenizeCode } from './syntax.js';
+export type { CodeLanguage, CodeLine, CodeRun, CodeToken } from './syntax.js';
 
 export interface CodeTheme {
   foreground: string;
@@ -36,6 +36,54 @@ export const codeThemes: Readonly<Record<'dark' | 'light', CodeTheme>> = {
     },
   },
 };
+
+/** One color over expanded code-point columns `[start, end)`; usable as a `TextColorRun`. */
+export interface HighlightedCodeRun {
+  start: number;
+  end: number;
+  color: string;
+  /** The first token's type; adjacent tokens of the same color share one run. */
+  type: string;
+}
+
+export interface HighlightedCodeLine {
+  /** The line with tabs expanded, without its line break. */
+  text: string;
+  /** Original source code points before the line, as Code.visibleCharacters counts them. */
+  start: number;
+  /** Expanded columns at each original source code-point boundary. */
+  columns: number[];
+  /** Runs cover the whole text in order; an empty line has none. */
+  runs: HighlightedCodeRun[];
+}
+
+export interface HighlightCodeOptions {
+  language?: CodeLanguage;
+  theme?: CodeTheme;
+  /** Width of a tab stop in code points. Defaults to 2. */
+  tabSize?: number;
+}
+
+function colorCodeLines(lines: readonly CodeLine[], theme: CodeTheme): HighlightedCodeLine[] {
+  return lines.map(({ text, start, columns, runs: tokens }) => {
+    const runs: HighlightedCodeRun[] = [];
+    for (const run of tokens) {
+      const color = theme.tokens[run.type] ?? theme.foreground;
+      const end = run.column + Array.from(run.text).length;
+      const previous = runs[runs.length - 1];
+      if (previous?.color === color) previous.end = end;
+      else runs.push({ start: run.column, end, color, type: run.type });
+    }
+    return { text, start, columns, runs };
+  });
+}
+
+/** Code's lines and color runs, for drawing code with your own Text layers. */
+export function highlightCode(
+  source: string, { language = 'text', theme = codeThemes.dark, tabSize = 2 }: HighlightCodeOptions = {},
+): HighlightedCodeLine[] {
+  return colorCodeLines(codeLines(tokenizeCode(source, language), tabSize), theme);
+}
 
 export interface CodeProps extends CommonProps {
   children: string;

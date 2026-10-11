@@ -75,21 +75,27 @@ export function expandTabs(text: string, tabSize: number, column = 0): string {
   return result;
 }
 
+/** Adjacent tokens of one type on one line, with tabs expanded. */
 export interface CodeRun {
   type: string;
   text: string;
+  /** Expanded code-point column where the run starts. */
   column: number;
 }
 
 export interface CodeLine {
+  /** The line with tabs expanded, without its line break. */
   text: string;
   runs: CodeRun[];
+  /** Original source code points before the line, as Code.visibleCharacters counts them. */
   start: number;
   /** Expanded columns at each original source code-point boundary. */
   columns: number[];
 }
 
-export function codeLines(tokens: readonly CodeToken[], tabSize: number): CodeLine[] {
+/** Splits tokens into lines at LF, CRLF and CR, expanding tabs as Code does. */
+export function codeLines(tokens: readonly CodeToken[], tabSize = 2): CodeLine[] {
+  validateTabSize(tabSize);
   const lines: CodeLine[] = [{ text: '', runs: [], start: 0, columns: [0] }];
   let offset = 0;
   let column = 0;
