@@ -13,7 +13,7 @@ pub(crate) fn run(
         start,
         end,
         font_weight: weight,
-        font_family: family.map(str::to_owned),
+        font_family: family.map(Into::into),
     }
 }
 
@@ -41,7 +41,7 @@ pub(crate) fn two_family_rasterizer() -> TextRasterizer {
 
 pub(crate) fn bebas(size: f64) -> TextStyle {
     TextStyle {
-        font_family: Some("Bebas Neue".to_owned()),
+        font_family: Some("Bebas Neue".into()),
         font_size: Some(size),
         ..TextStyle::default()
     }
@@ -96,7 +96,7 @@ fn advance(rasterizer: &mut TextRasterizer, text: &str, style: &TextStyle) -> f6
 
 /// Each glyph's line, byte offset in its line, source code point, and first
 /// family name, with the text shaped at `width`.
-fn glyph_families(
+pub(crate) fn glyph_families(
     rasterizer: &mut TextRasterizer,
     text: &str,
     style: &TextStyle,
@@ -125,7 +125,7 @@ fn a_family_run_shapes_its_range_with_that_family() {
         ..plain.clone()
     };
     let mono = TextStyle {
-        font_family: Some("IBM Plex Mono".to_owned()),
+        font_family: Some("IBM Plex Mono".into()),
         ..plain.clone()
     };
     // "AB" in Bebas, "CD" in Plex Mono, "EF" in Bebas.
@@ -171,7 +171,7 @@ fn a_weight_run_draws_its_range_with_the_bold_face() {
         return;
     };
     let plain = TextStyle {
-        font_family: Some(family.to_owned()),
+        font_family: Some(family.into()),
         font_size: Some(48.0),
         ..TextStyle::default()
     };
@@ -288,7 +288,7 @@ fn phrase_joiners_inside_a_run_keep_its_font() {
     use celesta_composition::LineBreak;
     let mut rasterizer = two_family_rasterizer();
     let style = TextStyle {
-        font_family: Some("IBM Plex Mono".to_owned()),
+        font_family: Some("IBM Plex Mono".into()),
         font_size: Some(32.0),
         letter_spacing: Some(2.0.into()),
         line_break: Some(LineBreak::Phrase),
@@ -323,7 +323,7 @@ fn emoji_in_a_run_use_the_color_emoji_font_when_the_text_family_is_one() {
     // needed outside the run; inside a Plex Mono run the heart still has to
     // come from the color emoji font, not from a text font that has ❤.
     let style = TextStyle {
-        font_family: Some(emoji_family.clone()),
+        font_family: Some(emoji_family.clone().into()),
         font_size: Some(48.0),
         font_runs: vec![run(0, 3, None, Some("IBM Plex Mono"))],
         ..TextStyle::default()
@@ -510,7 +510,7 @@ fn a_taller_run_is_not_clipped_by_a_tight_line_box() {
         ..bebas(48.0)
     };
     let alone = TextStyle {
-        font_family: Some("IBM Plex Mono".to_owned()),
+        font_family: Some("IBM Plex Mono".into()),
         line_height: Some(120.0),
         ..bebas(48.0)
     };
@@ -554,7 +554,7 @@ fn warnings_judge_each_character_by_the_family_it_asks_for() {
         rasterizer.missing_glyphs("title", "ABabず", &style),
         vec![MissingGlyphs {
             layer: "title".to_owned(),
-            family: "Bebas Neue".to_owned(),
+            families: vec!["Bebas Neue".to_owned()],
             weight: 400,
             characters: vec!['ず'],
         }]
@@ -566,7 +566,7 @@ fn warnings_judge_each_character_by_the_family_it_asks_for() {
     };
     let missing = rasterizer.missing_glyphs("title", "ずA", &japanese_run);
     assert_eq!(missing.len(), 1);
-    assert_eq!(missing[0].family, "IBM Plex Mono");
+    assert_eq!(missing[0].families, ["IBM Plex Mono"]);
     assert_eq!(missing[0].characters, ['ず']);
 }
 
@@ -591,7 +591,7 @@ fn a_run_family_with_no_face_is_a_fallback() {
     };
     let fallbacks = rasterizer.font_fallback("title", &style);
     assert_eq!(fallbacks.len(), 1);
-    assert_eq!(fallbacks[0].family, "Celesta Missing Family");
+    assert_eq!(fallbacks[0].families, ["Celesta Missing Family"]);
     assert_eq!(fallbacks[0].weight, 700);
     assert!(rasterizer.missing_glyphs("title", "AB", &style).is_empty());
 }
@@ -675,7 +675,7 @@ fn a_weight_run_asks_for_the_family_face_at_that_weight_everywhere() {
         Some(700)
     );
     let style = TextStyle {
-        font_family: Some("Celesta Weight Test".to_owned()),
+        font_family: Some("Celesta Weight Test".into()),
         font_size: Some(48.0),
         font_runs: vec![run(2, 4, Some(700), None)],
         ..TextStyle::default()
@@ -727,7 +727,7 @@ fn emoji_ask_for_the_color_emoji_font_inside_runs_everywhere() {
     // in the second, the text's own family is the color emoji font.
     for base in ["Bebas Neue", "Noto Color Emoji"] {
         let style = TextStyle {
-            font_family: Some(base.to_owned()),
+            font_family: Some(base.into()),
             font_size: Some(48.0),
             font_runs: vec![run(0, 3, None, Some("IBM Plex Mono"))],
             ..TextStyle::default()

@@ -469,11 +469,47 @@ fn text_font_runs_round_trip_and_stay_out_of_plain_styles() {
                 start: 3,
                 end: 4,
                 font_weight: None,
-                font_family: Some("Bebas Neue".to_owned()),
+                font_family: Some("Bebas Neue".into()),
             },
         ]
     );
     assert_eq!(serde_json::to_value(&style).unwrap(), json);
+}
+
+#[test]
+fn font_families_take_a_name_or_a_stack() {
+    use crate::FontFamily;
+    let json = serde_json::json!({
+        "fontFamily": ["Inter", "Noto Sans JP"],
+        "fontRuns": [
+            { "start": 0, "end": 1, "fontFamily": "Bebas Neue" },
+            { "start": 1, "end": 2, "fontFamily": ["IBM Plex Mono"] }
+        ]
+    });
+    let style: TextStyle = serde_json::from_value(json.clone()).unwrap();
+    let stack = style.font_family.as_ref().unwrap();
+    assert_eq!(stack.names(), ["Inter", "Noto Sans JP"]);
+    assert_eq!(stack.first(), "Inter");
+    assert!(stack.is_stack());
+    let name = style.font_runs[0].font_family.as_ref().unwrap();
+    assert_eq!(name, &FontFamily::Name("Bebas Neue".to_owned()));
+    assert_eq!(name.names(), ["Bebas Neue"]);
+    assert!(!name.is_stack());
+    // A one-name list is not a stack, and keeps its form.
+    assert!(!style.font_runs[1].font_family.as_ref().unwrap().is_stack());
+    assert_eq!(serde_json::to_value(&style).unwrap(), json);
+
+    let error = serde_json::from_value::<TextStyle>(serde_json::json!({ "fontFamily": [] }))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("at least one family"), "{error}");
+    let error = serde_json::from_value::<TextStyle>(serde_json::json!({ "fontFamily": 3 }))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("a font family name or a list of names"),
+        "{error}"
+    );
 }
 
 #[test]

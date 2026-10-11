@@ -115,32 +115,54 @@ pub struct GlyphMetrics {
     pub line: usize,
 }
 
-/// A `Text` layer whose `fontFamily` has no loaded or installed face, so it
-/// is drawn with a fallback font instead.
+/// `"A"`, or `"A", "B"` for a font stack.
+fn quoted_families(families: &[String]) -> String {
+    families
+        .iter()
+        .map(|family| format!("\"{family}\""))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// A `Text` layer whose `fontFamily` has no loaded or installed face (for a
+/// font stack, none of its families has one), so it is drawn with a fallback
+/// font instead.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FontFallback {
     pub layer: String,
-    pub family: String,
+    /// The family, or each family of the font stack in order.
+    pub families: Vec<String>,
     pub weight: u16,
 }
 
 impl fmt::Display for FontFallback {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "font family \"{}\" (weight {}) is not installed or loaded; text layer \"{}\" uses a fallback font",
-            self.family, self.weight, self.layer
-        )
+        let families = quoted_families(&self.families);
+        if self.families.len() == 1 {
+            write!(
+                formatter,
+                "font family {families} (weight {}) is not installed or loaded; text layer \"{}\" uses a fallback font",
+                self.weight, self.layer
+            )
+        } else {
+            write!(
+                formatter,
+                "none of the font families {families} (weight {}) is installed or loaded; text layer \"{}\" uses a fallback font",
+                self.weight, self.layer
+            )
+        }
     }
 }
 
-/// Characters of a `Text` layer that its `fontFamily` has no glyph for, so
-/// they are drawn with another font (or as a missing-glyph box) while the
-/// rest of the text uses the family.
+/// Characters of a `Text` layer that its `fontFamily` has no glyph for (for
+/// a font stack, that none of its families has), so they are drawn with
+/// another font (or as a missing-glyph box) while the rest of the text uses
+/// the family.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MissingGlyphs {
     pub layer: String,
-    pub family: String,
+    /// The family, or each family of the font stack in order.
+    pub families: Vec<String>,
     pub weight: u16,
     /// Each missing character once, in the order they first appear.
     pub characters: Vec<char>,
@@ -158,11 +180,20 @@ impl fmt::Display for MissingGlyphs {
             .iter()
             .take(Self::LISTED)
             .collect::<String>();
-        write!(
-            formatter,
-            "font family \"{}\" (weight {}) has no glyph for \"{listed}\"",
-            self.family, self.weight
-        )?;
+        let families = quoted_families(&self.families);
+        if self.families.len() == 1 {
+            write!(
+                formatter,
+                "font family {families} (weight {}) has no glyph for \"{listed}\"",
+                self.weight
+            )?;
+        } else {
+            write!(
+                formatter,
+                "none of the font families {families} (weight {}) has a glyph for \"{listed}\"",
+                self.weight
+            )?;
+        }
         if self.characters.len() > Self::LISTED {
             let more = self.characters.len() - Self::LISTED;
             write!(formatter, " and {more} more characters")?;
