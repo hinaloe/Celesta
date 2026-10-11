@@ -41,7 +41,7 @@ impl EditorView {
                 .filter(|issue| !issue.key.is_empty() && !schema.fields.contains_key(&issue.key))
                 .map(ToString::to_string),
         );
-        let busy = self.property_panel.is_writing() || self.react_reloads_running > 0;
+        let busy = self.property_panel.is_writing() || self.react_reloads.is_running();
         let danger = cx.theme().danger;
         let heading = div()
             .flex()
@@ -198,7 +198,7 @@ impl EditorView {
                 let key = key.to_owned();
                 Switch::new(row_id("switch", &key))
                     .small()
-                    .checked(row.shown.as_bool().unwrap_or(false))
+                    .checked(row.state.shown.as_bool().unwrap_or(false))
                     .disabled(locked)
                     .on_click(cx.listener(move |this, checked: &bool, _, cx| {
                         let value = Some(Value::Bool(*checked));
@@ -209,14 +209,14 @@ impl EditorView {
             (RowControl::Select(select), _) => Select::new(select)
                 .small()
                 .disabled(locked)
-                .placeholder(value_text(&row.shown))
+                .placeholder(value_text(&row.state.shown))
                 .into_any_element(),
             (RowControl::Color { text, picker }, _) => div()
                 .flex()
                 .items_center()
                 .gap_2()
                 .child(if locked {
-                    Self::color_swatch(parse_color(&row.shown), cx).into_any_element()
+                    Self::color_swatch(parse_color(&row.state.shown), cx).into_any_element()
                 } else {
                     ColorPicker::new(picker).small().into_any_element()
                 })

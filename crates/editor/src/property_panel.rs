@@ -215,6 +215,123 @@ fn effective_value(react: &ReactPreview, key: &str) -> Option<Value> {
         .map(|effective| effective.value)
 }
 
+/// What Enter or blur in a row's text does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TextSubmit {
+    /// The person edited the text: parse and commit it.
+    Commit,
+    /// Focus left an unedited text: show the row's value, which may have
+    /// changed on disk while the person was in the field.
+    Refresh,
+    /// Enter in an unedited text: nothing to do.
+    Ignore,
+}
+
+/// A row's value and the decisions about it that need no window: what the
+/// controls show, when a loaded value may replace it, and when typed text
+/// counts as an edit.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RowState {
+    /// The value the controls show: the loaded value, or the one just
+    /// committed while its write and the reload after it run.
+    pub(crate) shown: Value,
+    /// The row was written before reload `hold_until` was requested; loaded
+    /// values from older reloads predate the write and are ignored.
+    hold_until: u64,
+    /// The person changed the text since it last showed `shown`.
+    edited: bool,
+    /// A value to put into the controls on the next render.
+    update: Option<(Value, TextUpdate)>,
+}
+
+impl RowState {
+    pub(crate) fn new() -> Self {
+        Self {
+            // Differs from every loaded value, so the first load fills the controls.
+            shown: Value::Null,
+            hold_until: 0,
+            edited: false,
+            update: None,
+        }
+    }
+
+    /// A reload read `value` from disk. It replaces the shown value unless
+    /// a commit for this key is still on its way (`pending`) or the newest
+    /// applied reload started before this row was last written.
+    pub(crate) fn offer_loaded(&mut self, value: &Value, applied_reload: u64, pending: bool) {
+        if pending || applied_reload < self.hold_until || same_value(value, &self.shown) {
+            return;
+        }
+        self.shown = value.clone();
+        self.update = Some((value.clone(), TextUpdate::UnlessFocused));
+    }
+
+    /// Shows `value` (`None`: the default, as the key is removed) and puts
+    /// it into the controls. False when the row already shows that value,
+    /// so there is nothing to write.
+    pub(crate) fn commit(
+        &mut self,
+        value: Option<&Value>,
+        default: Value,
+        text: TextUpdate,
+    ) -> bool {
+        // The text now holds (or is about to show) the committed value.
+        self.edited = false;
+        let shown = value.cloned().unwrap_or(default);
+        if value.is_some() && same_value(&shown, &self.shown) {
+            return false;
+        }
+        self.shown = shown.clone();
+        self.update = Some((shown, text));
+        true
+    }
+
+    /// The write succeeded; `next_reload` is the first reload that reads it.
+    pub(crate) fn written(&mut self, next_reload: u64) {
+        self.hold_until = next_reload;
+    }
+
+    /// The write failed and the file still holds `file_value`. The typed
+    /// text stays and counts as an edit, so the next Enter or blur retries.
+    pub(crate) fn write_failed(&mut self, file_value: Option<Value>) {
+        self.edited = true;
+        if let Some(value) = file_value {
+            self.shown = value.clone();
+            self.update = Some((value, TextUpdate::Keep));
+        }
+    }
+
+    pub(crate) fn text_edited(&mut self) {
+        self.edited = true;
+    }
+
+    /// The text was set to the shown value.
+    pub(crate) fn text_replaced(&mut self) {
+        self.edited = false;
+    }
+
+    /// Enter (`blur` false) or blur in the row's text.
+    pub(crate) fn submitted(&mut self, blur: bool) -> TextSubmit {
+        if self.edited {
+            TextSubmit::Commit
+        } else if blur {
+            self.update = Some((self.shown.clone(), TextUpdate::Always));
+            TextSubmit::Refresh
+        } else {
+            TextSubmit::Ignore
+        }
+    }
+
+    /// Escape: show the row's value again.
+    pub(crate) fn restore(&mut self) {
+        self.update = Some((self.shown.clone(), TextUpdate::Always));
+    }
+
+    pub(crate) fn take_update(&mut self) -> Option<(Value, TextUpdate)> {
+        self.update.take()
+    }
+}
+
 /// How putting a value into a row's controls treats its text input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TextUpdate {
@@ -230,7 +347,7 @@ pub(crate) enum TextUpdate {
 pub(crate) enum RowControl {
     /// `string`, `number`, and `path` fields.
     Text(Entity<InputState>),
-    /// `boolean` fields; the switch shows `PropertyRow::shown`.
+    /// `boolean` fields; the switch shows `RowState::shown`.
     Switch,
     Select(Entity<SelectState<Vec<String>>>),
     Color {
@@ -243,12 +360,9 @@ pub(crate) enum RowControl {
 pub(crate) struct PropertyRow {
     pub(crate) field: ComponentPropertyField,
     pub(crate) control: RowControl,
-    /// The value the controls show: the effective value, or the one just
-    /// committed while its write and the reload after it run.
-    pub(crate) shown: Value,
-    /// A value to put into the controls on the next render, which has the
-    /// window the controls need.
-    update: Option<(Value, TextUpdate)>,
+    /// The row's value and when it changes; applied to `control` on render,
+    /// which has the window the controls need.
+    pub(crate) state: RowState,
     /// Why the typed text was not committed (not a number, not a color).
     pub(crate) invalid: Option<String>,
     /// Why this row's last write failed; cleared by its next successful one.
@@ -266,8 +380,9 @@ pub(crate) struct PropertyRow {
 pub(crate) struct PropertyPanelState {
     /// The schema the rows were built for.
     schema: Option<KeptSchema>,
-    /// The inputs the rows last showed.
+    /// The inputs the rows last showed, and the reload that read them.
     inputs: Option<PropertyInputs>,
+    applied: u64,
     pub(crate) rows: BTreeMap<String, PropertyRow>,
     queue: CommitQueue,
     /// The key being written right now; one write runs at a time.
@@ -301,6 +416,7 @@ fn update_controls(
             let shown = value_text(&value);
             input.update(cx, |input, cx| input.set_value(shown, window, cx));
             row.invalid = None;
+            row.state.text_replaced();
         }
     };
     match &row.control {
@@ -320,7 +436,6 @@ fn update_controls(
             }
         }
     }
-    row.shown = value;
 }
 
 impl EditorView {
@@ -340,26 +455,27 @@ impl EditorView {
         let Some(react) = self.react_preview.as_ref() else {
             return;
         };
+        let applied = self.react_reloads.applied();
         let panel = &mut self.property_panel;
-        if panel.inputs.as_ref() != Some(&react.disk_properties) {
+        // A newer reload can release a row held for its write even when the
+        // inputs it read look the same.
+        if panel.inputs.as_ref() != Some(&react.disk_properties) || panel.applied != applied {
             if let Some(schema) = panel.schema.as_ref() {
                 let values = effective_values(&schema.fields, &react.disk_properties);
                 for (key, row) in &mut panel.rows {
                     // A commit on its way to the file shows its own value.
                     let pending =
                         panel.queue.contains(key) || panel.writing.as_deref() == Some(key);
-                    if let Some(effective) = values.get(key)
-                        && !pending
-                        && !same_value(&effective.value, &row.shown)
-                    {
-                        row.update = Some((effective.value.clone(), TextUpdate::UnlessFocused));
+                    if let Some(effective) = values.get(key) {
+                        row.state.offer_loaded(&effective.value, applied, pending);
                     }
                 }
             }
             panel.inputs = Some(react.disk_properties.clone());
+            panel.applied = applied;
         }
         for row in panel.rows.values_mut() {
-            if let Some((value, text)) = row.update.take() {
+            if let Some((value, text)) = row.state.take_update() {
                 update_controls(row, value, text, window, cx);
             }
         }
@@ -443,8 +559,7 @@ impl EditorView {
             field: field.clone(),
             control,
             // Differs from every effective value, so the first sync fills the controls.
-            shown: Value::Null,
-            update: None,
+            state: RowState::new(),
             invalid: None,
             write_error: None,
             picker_open: false,
@@ -463,18 +578,34 @@ impl EditorView {
         let key = key.to_owned();
         let subscription =
             cx.subscribe_in(&input, window, move |this, _, event: &InputEvent, _, cx| {
-                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
-                    this.submit_property_text(&key, cx);
+                match event {
+                    // `set_value` emits no change, so this is the person typing.
+                    InputEvent::Change => {
+                        if let Some(row) = this.property_panel.rows.get_mut(&key) {
+                            row.state.text_edited();
+                        }
+                    }
+                    InputEvent::PressEnter { .. } => this.submit_property_text(&key, false, cx),
+                    InputEvent::Blur => this.submit_property_text(&key, true, cx),
+                    InputEvent::Focus => {}
                 }
             });
         (input, subscription)
     }
 
-    /// Commits a row's typed text, or marks it invalid when it does not parse.
-    fn submit_property_text(&mut self, key: &str, cx: &mut Context<Self>) {
+    /// Enter (`blur` false) or blur in a row's text: commits an edit, or
+    /// marks it invalid when it does not parse. Unedited text is never
+    /// written; on blur it shows the row's value, which may have changed on
+    /// disk meanwhile.
+    fn submit_property_text(&mut self, key: &str, blur: bool, cx: &mut Context<Self>) {
         let Some(row) = self.property_panel.rows.get_mut(key) else {
             return;
         };
+        match row.state.submitted(blur) {
+            TextSubmit::Commit => {}
+            TextSubmit::Refresh => return cx.notify(),
+            TextSubmit::Ignore => return,
+        }
         let input = match &row.control {
             RowControl::Text(input) | RowControl::Color { text: input, .. } => input,
             RowControl::Switch | RowControl::Select(_) => return,
@@ -498,7 +629,7 @@ impl EditorView {
     /// Escape in a row's text: show its value again and drop the typed text.
     pub(crate) fn restore_property_text(&mut self, key: &str, cx: &mut Context<Self>) {
         if let Some(row) = self.property_panel.rows.get_mut(key) {
-            row.update = Some((row.shown.clone(), TextUpdate::Always));
+            row.state.restore();
             cx.notify();
         }
     }
@@ -542,13 +673,13 @@ impl EditorView {
         let Some(row) = self.property_panel.rows.get_mut(key) else {
             return;
         };
-        let shown = value.clone().unwrap_or_else(|| row.field.default_json());
-        if value.is_some() && same_value(&shown, &row.shown) {
+        // The controls follow the committed value; `Keep` leaves the typed
+        // text but still moves the picker or select.
+        if !row
+            .state
+            .commit(value.as_ref(), row.field.default_json(), text)
+        {
             return;
-        }
-        row.shown = shown.clone();
-        if text != TextUpdate::Keep {
-            row.update = Some((shown, text));
         }
         self.property_panel.queue.push(key.to_owned(), value);
         self.drain_property_commits(cx);
@@ -607,14 +738,18 @@ impl EditorView {
         self.property_panel.writing = None;
         match result {
             Ok(watched) => {
+                // Reloads requested from now on read this write.
+                let next_reload = self.react_reloads.next();
                 if let Some(react) = self.react_preview.as_mut()
                     && watched.is_some()
                 {
                     react.watched_mtime = watched;
+                    self.watched_since = next_reload;
                 }
                 self.property_panel.reload_needed = true;
                 if let Some(row) = self.property_panel.rows.get_mut(key) {
                     row.write_error = None;
+                    row.state.written(next_reload);
                 }
             }
             Err(message) => {
@@ -627,9 +762,8 @@ impl EditorView {
                     row.write_error = Some(message);
                     // The file still holds the old value: show it again, but
                     // keep the typed text so the person can retry.
-                    if let Some(value) = effective.filter(|_| !queued_again) {
-                        row.shown = value.clone();
-                        row.update = Some((value, TextUpdate::Keep));
+                    if !queued_again {
+                        row.state.write_failed(effective);
                     }
                 }
             }
@@ -881,5 +1015,98 @@ mod tests {
         assert_eq!(number_hint(Some(0.5), None), Some("≥ 0.5".to_owned()));
         assert_eq!(number_hint(None, Some(10.0)), Some("≤ 10".to_owned()));
         assert_eq!(number_hint(None, None), None);
+    }
+
+    #[test]
+    fn a_stale_reload_does_not_revert_a_row_written_after_it_started() {
+        let mut row = RowState::new();
+        row.offer_loaded(&json!(false), 0, false);
+        row.take_update();
+        // Reload 1 starts and reads `false`; meanwhile `true` is written, so
+        // only reload 2 or later reads it.
+        assert!(row.commit(Some(&json!(true)), json!(false), TextUpdate::Keep));
+        row.take_update();
+        row.written(2);
+
+        row.offer_loaded(&json!(false), 1, false);
+        assert_eq!(row.shown, json!(true));
+        assert_eq!(row.take_update(), None);
+
+        // Reload 2 read the file after the write; an edit from elsewhere shows.
+        row.offer_loaded(&json!(false), 2, false);
+        assert_eq!(row.shown, json!(false));
+        assert_eq!(
+            row.take_update(),
+            Some((json!(false), TextUpdate::UnlessFocused))
+        );
+    }
+
+    #[test]
+    fn a_pending_commit_keeps_its_value() {
+        let mut row = RowState::new();
+        row.commit(Some(&json!("new")), json!(""), TextUpdate::Keep);
+        row.offer_loaded(&json!("old"), 5, true);
+        assert_eq!(row.shown, json!("new"));
+    }
+
+    #[test]
+    fn blur_without_an_edit_does_not_commit() {
+        let mut row = RowState::new();
+        row.offer_loaded(&json!("from disk"), 0, false);
+        row.take_update();
+        row.text_replaced();
+
+        // Focused while another editor changed the file: the text is stale.
+        row.offer_loaded(&json!("changed elsewhere"), 0, false);
+        row.take_update();
+        assert_eq!(row.submitted(false), TextSubmit::Ignore);
+        assert_eq!(row.submitted(true), TextSubmit::Refresh);
+        assert_eq!(
+            row.take_update(),
+            Some((json!("changed elsewhere"), TextUpdate::Always))
+        );
+
+        row.text_edited();
+        assert_eq!(row.submitted(true), TextSubmit::Commit);
+        row.commit(Some(&json!("typed")), json!(""), TextUpdate::Keep);
+        assert_eq!(row.submitted(true), TextSubmit::Refresh);
+    }
+
+    #[test]
+    fn a_failed_write_keeps_the_typed_text_as_an_edit() {
+        let mut row = RowState::new();
+        row.text_edited();
+        row.commit(Some(&json!("typed")), json!(""), TextUpdate::Keep);
+        row.take_update();
+
+        row.write_failed(Some(json!("on disk")));
+        assert_eq!(row.shown, json!("on disk"));
+        assert_eq!(
+            row.take_update(),
+            Some((json!("on disk"), TextUpdate::Keep))
+        );
+        assert_eq!(row.submitted(true), TextSubmit::Commit);
+    }
+
+    #[test]
+    fn a_typed_color_updates_the_picker() {
+        let mut row = RowState::new();
+        assert!(row.commit(Some(&json!("#AABBCC")), json!("#000000"), TextUpdate::Keep));
+        // Keep leaves the typed text alone but still updates the picker.
+        let (value, text) = row.take_update().expect("a control update");
+        assert_eq!(text, TextUpdate::Keep);
+        assert_eq!(
+            parse_color(&value),
+            Some(Hsla::from(Rgba::try_from("#AABBCC").unwrap()))
+        );
+    }
+
+    #[test]
+    fn committing_the_shown_value_writes_nothing() {
+        let mut row = RowState::new();
+        row.commit(Some(&json!(2)), json!(0), TextUpdate::Keep);
+        assert!(!row.commit(Some(&json!(2.0)), json!(0), TextUpdate::Keep));
+        // Reset always writes: it removes the key even when it equals the default.
+        assert!(row.commit(None, json!(0), TextUpdate::Always));
     }
 }

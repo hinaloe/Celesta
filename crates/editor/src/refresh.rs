@@ -58,6 +58,58 @@ impl From<String> for PreviewLoadError {
     }
 }
 
+/// Orders the React entry's reloads. Each reload gets a sequence number when
+/// it is requested; a result is applied only when it is newer than every
+/// result applied so far, so a slow older reload cannot undo a newer one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ReloadOrder {
+    requested: u64,
+    applied: u64,
+    running: u32,
+}
+
+impl ReloadOrder {
+    /// Numbers a new reload.
+    pub(crate) fn request(&mut self) -> u64 {
+        self.requested += 1;
+        self.running += 1;
+        self.requested
+    }
+
+    /// The number the next requested reload will get: a reload with this
+    /// number or higher starts after everything done so far.
+    pub(crate) fn next(&self) -> u64 {
+        self.requested + 1
+    }
+
+    /// The newest reload whose result was applied.
+    pub(crate) fn applied(&self) -> u64 {
+        self.applied
+    }
+
+    pub(crate) fn is_running(&self) -> bool {
+        self.running > 0
+    }
+
+    /// Reload `sequence` finished; true when its result should be applied.
+    pub(crate) fn finish(&mut self, sequence: u64) -> bool {
+        self.running = self.running.saturating_sub(1);
+        if sequence <= self.applied {
+            return false;
+        }
+        self.applied = sequence;
+        true
+    }
+}
+
+/// Whether reload `sequence`'s mtime sample may replace the watched mtime,
+/// which was last sampled with `watched_since` as the next reload number. An
+/// older reload sampled before that, so its sample would move the watched
+/// mtime back and make the watcher reload again.
+pub(crate) fn reload_sample_applies(sequence: u64, watched_since: u64) -> bool {
+    sequence >= watched_since
+}
+
 /// Folds a reload into the entry's property state: the inputs read from disk
 /// are kept even when the spawn failed (`disk_properties`), but the inputs the
 /// preview renders with (`properties`) only change on success. A failed load
@@ -168,7 +220,7 @@ impl EditorView {
         let (node, cli_script) = react_runtime_paths();
         let frame = self.clock.frame();
         let session = self.session;
-        self.react_reloads_running += 1;
+        let sequence = self.react_reloads.request();
         cx.spawn(async move |view, cx| {
             let reload = cx
                 .background_executor()
@@ -204,8 +256,7 @@ impl EditorView {
             view.update(cx, |this, cx| {
                 // Another file opened meanwhile; this result belongs to the old one.
                 if this.session == session {
-                    this.react_reloads_running = this.react_reloads_running.saturating_sub(1);
-                    this.apply_react_reload(reload, frame, cx);
+                    this.apply_react_reload(reload, sequence, frame, cx);
                 }
             })
             .ok();
@@ -216,11 +267,19 @@ impl EditorView {
     pub(crate) fn apply_react_reload(
         &mut self,
         reload: ReactReload,
+        sequence: u64,
         frame: i64,
         cx: &mut Context<Self>,
     ) {
+        // A newer reload already applied; this one read older files.
+        if !self.react_reloads.finish(sequence) {
+            cx.notify();
+            return;
+        }
         if let Some(react) = self.react_preview.as_mut() {
-            react.watched_mtime = reload.watched;
+            if reload_sample_applies(sequence, self.watched_since) {
+                react.watched_mtime = reload.watched;
+            }
             apply_property_outcome(react, &reload);
         }
         match reload.result {
@@ -296,6 +355,7 @@ impl EditorView {
                             if let Some(react) = this.react_preview.as_mut() {
                                 react.watched_mtime = latest;
                             }
+                            this.watched_since = this.react_reloads.next();
                             this.request_react_reload(cx);
                         })
                         .is_err()
@@ -501,5 +561,32 @@ mod property_outcome {
         apply_property_outcome(&mut preview, &reload);
 
         assert_eq!(preview.property_schema, None);
+    }
+
+    #[test]
+    fn a_reload_older_than_the_applied_one_is_dropped() {
+        let mut order = ReloadOrder::default();
+        let first = order.request();
+        let second = order.request();
+        assert!(order.is_running());
+        assert_eq!(order.next(), second + 1);
+
+        assert!(order.finish(second));
+        assert_eq!(order.applied(), second);
+        assert!(!order.finish(first));
+        assert_eq!(order.applied(), second);
+        assert!(!order.is_running());
+    }
+
+    #[test]
+    fn the_watched_mtime_never_goes_back_to_an_older_sample() {
+        let mut order = ReloadOrder::default();
+        // R1 starts and samples, then a write samples a newer mtime.
+        let first = order.request();
+        let watched_since = order.next();
+        let second = order.request();
+
+        assert!(!reload_sample_applies(first, watched_since));
+        assert!(reload_sample_applies(second, watched_since));
     }
 }
