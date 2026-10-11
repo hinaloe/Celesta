@@ -121,6 +121,14 @@ pub fn set_property(file: &Path, key: &str, value: Option<&Value>) -> Result<(),
         (None, None) => {}
     }
 
+    // Renaming over a read-only file would succeed, so refuse it explicitly.
+    if fs::metadata(file).is_ok_and(|metadata| metadata.permissions().readonly()) {
+        return Err(io_error(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "the file is read-only",
+        )));
+    }
+
     let mut text =
         serde_json::to_string_pretty(&object).map_err(|error| PropsEditError::Invalid {
             file: file.to_owned(),
@@ -264,28 +272,30 @@ mod tests {
         assert_eq!(names, vec![std::ffi::OsString::from("props.json")]);
     }
 
-    #[cfg(unix)]
     #[test]
     fn reports_a_read_only_file() {
-        use std::os::unix::fs::PermissionsExt;
-
         let scratch = Scratch::new("props-readonly");
         let file = scratch.0.join("props.json");
         write(&file, "{\"a\":1}");
-        // The file is replaced by a rename, which only needs the folder to be
-        // writable, so lock the folder as well as the file.
-        let folder = scratch.0.clone();
-        fs::set_permissions(&file, fs::Permissions::from_mode(0o444)).unwrap();
-        fs::set_permissions(&folder, fs::Permissions::from_mode(0o555)).unwrap();
+        let mut permissions = fs::metadata(&file).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&file, permissions).unwrap();
 
         let result = set_property(&file, "b", Some(&json!(2)));
 
-        fs::set_permissions(&folder, fs::Permissions::from_mode(0o755)).unwrap();
-        fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+        let mut permissions = fs::metadata(&file).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        permissions.set_readonly(false);
+        fs::set_permissions(&file, permissions).unwrap();
         assert!(
             matches!(result, Err(PropsEditError::Io { .. })),
             "{result:?}"
         );
         assert_eq!(text(&file), "{\"a\":1}");
+        let names: Vec<_> = fs::read_dir(&scratch.0)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("props.json")]);
     }
 }
