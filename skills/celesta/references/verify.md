@@ -5,7 +5,7 @@ cheapest first:
 
 | Check | Tool | Time | Proves |
 | --- | --- | --- | --- |
-| The React entry loads; layers, positions, audio, missing files per frame | `scripts/inspect.mjs` | seconds | structure and timing (not pixels, not fonts) |
+| The React entry loads; layers, positions, audio, missing files per frame | `scripts/inspect.mjs` (`--native` for measured text) | seconds | structure and timing (not pixels, not fonts) |
 | Types | `tsc` ([setup.md](setup.md#type-check)) | seconds | props and imports are valid |
 | A JSON project is valid | any short export (validation runs on load) | seconds | schema and references |
 | Real pixels at chosen frames | PNG export (`--frame`, `--frames`) | seconds | what the export will look like |
@@ -39,6 +39,7 @@ node <skill>/scripts/inspect.mjs scene.tsx --every 15       # every 15th frame (
 node <skill>/scripts/inspect.mjs scene.tsx --json           # raw Scene JSON
 node <skill>/scripts/inspect.mjs --psd-layers hana.psd      # PSD layer paths for portraits
 node <skill>/scripts/inspect.mjs card.tsx --props-file variants/spring.json  # with project property values
+node <skill>/scripts/inspect.mjs scene.tsx --native Celesta-export  # real text shaping (see below)
 ```
 
 It finds the runtime automatically (a source checkout above the entry or the
@@ -79,16 +80,52 @@ non-default opacity, blend mode, effects, and clip. Check that:
 - audio clips start and last as long as intended.
 
 The exit code is 1 when the entry fails to load, a frame fails, or a local
-file is missing.
+file is missing, and 2 when the only problem is text it could not measure
+(below).
+
+### Measured text: `--native`
+
+On its own, `inspect.mjs` cannot shape text. Entries that call
+`useTextMetrics`, `measureText`, `TextBox`, `useFitText`, `fitText`, use
+`@celesta/code`, or read `metrics` in a `subtitle.render` need it. Add
+`--native <Celesta-export>` (the exporter path from
+[setup.md](setup.md#find-the-celesta-tools)) to evaluate through the
+exporter instead: the same bridge, fonts, and shaping as an export, and
+`preloadMedia()` answered without `ffprobe`, but still no GPU and no pixels.
+The output is the same. `--props`/`--props-file` are passed on, and the
+exporter finds its own runtime (`--runtime`/`--node` still override it).
+
+```sh
+node <skill>/scripts/inspect.mjs scene.tsx --every 15 --native "/Applications/Celesta.app/Contents/MacOS/Celesta-export"
+```
+
+In a source checkout, `--native` takes the built executable:
+`cargo build -p celesta-exporter --release`, then
+`--native target/release/celesta-exporter` (`.exe` on Windows).
+
+Without `--native`, a measurement the entry does not catch is reported as
+`UNSUPPORTED inspection: inspect.mjs cannot shape text…` (with `--json`,
+`status: "unsupported"` on that frame) rather than `ERROR`. That is a limit
+of the inspector, not a broken scene: rerun with `--native`. If the
+measurement happens in `prepare()` or in frame 0 (which renders while the
+entry loads), no frame is inspected at all. A real `ERROR` elsewhere still
+makes the exit code 1. An entry that catches the refusal (in `prepare()`,
+say) uses its own fallback and inspects normally, but the placement it
+shows is the fallback's.
+
+An exporter older than `--inspect` exits before the handshake;
+`inspect.mjs` then says so. Update Celesta, or check those frames with PNG
+frames or a contact sheet ([below](#look-at-real-frames)).
+
+With `--native --json`, a failed frame's `status` is `sceneError` (the
+scene threw; later frames are still inspected), `requestError`, or
+`runtimeError` (the runtime is gone; inspection stops there).
 
 Limits:
 
-- **It cannot shape text.** Entries that call `useTextMetrics`,
-  `measureText`, `TextBox`, `useFitText`, `fitText`, or use
-  `@celesta/code` fail with `inspect.mjs cannot shape text…`. Use a PNG
-  export for those.
-- `preloadMedia()` and `planDialogue()` are answered with `ffprobe` when it
-  is installed; otherwise `prepare()` fails with a clear message.
+- Without `--native`, `preloadMedia()` and `planDialogue()` are answered
+  with `ffprobe` when it is installed; otherwise `prepare()` fails with a
+  clear message.
 - Entries that render `<ProjectTimeline />`, `<ProjectTrack />`, or
   `useProjectTrack()` need the Rust evaluator and fail here by design;
   verify those with a PNG export using `--project`.

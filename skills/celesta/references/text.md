@@ -364,9 +364,11 @@ The full example is `packages/cli/examples/with-text-box.tsx`.
 ## Verifying text
 
 `scripts/inspect.mjs` shows each text layer's string, position, font, and
-color, but it cannot shape text: **an entry that uses `useTextMetrics`,
-`measureText`, `TextBox`, `useFitText`, `fitText`, or `@celesta/code` fails
-in `inspect.mjs`** (unless `prepare()` catches the error and falls back).
-Check such entries, and anything about how text
-looks (font, wrapping, overflow, fallback), with a PNG frame export; see
-[verify.md](verify.md#look-at-real-frames).
+color. **An entry that uses `useTextMetrics`, `measureText`, `TextBox`,
+`useFitText`, `fitText`, or `@celesta/code` needs
+`inspect.mjs --native <Celesta-export>`**, which shapes text like an
+export; without it those frames report `UNSUPPORTED inspection` (unless
+`prepare()` catches the error and falls back). See
+[verify.md](verify.md#measured-text---native). Check anything about how
+text looks (font, wrapping, overflow, fallback) with a PNG frame export;
+see [verify.md](verify.md#look-at-real-frames).

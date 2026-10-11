@@ -140,8 +140,10 @@ produces a video that differs between preview and export.
    - `node <this skill>/scripts/inspect.mjs film.tsx --frames 0,45,-1` loads
      a React entry exactly like Celesta does, runs `prepare()`, evaluates
      frames, and reports every layer, audio clip, and missing media file.
-     It cannot shape text: entries using `useTextMetrics`, `TextBox`,
-     `fitText`, or `@celesta/code` fail there, so go straight to PNG frames.
+     Entries that measure text (`useTextMetrics`, `TextBox`, `fitText`,
+     `@celesta/code`, …) need `--native <Celesta-export>`; without it those
+     frames report `UNSUPPORTED inspection` and exit code 2
+     ([verify.md](references/verify.md#measured-text---native)).
    - If the project has a `tsconfig.json` extending `./.celesta/tsconfig.json`,
      type-check with `npx tsc --noEmit -p .` (or `pnpm typecheck`).
    - Pass `--json` to every `Celesta-export` call: it prints one line of

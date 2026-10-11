@@ -14,8 +14,12 @@
 // the file's directory).
 // Options: --runtime <cli.js> and --node <node> override runtime discovery
 // (also CELESTA_REACT_CLI / CELESTA_NODE). --timeout <seconds> (default 180).
+// --native <Celesta-export> evaluates through the exporter instead, with real
+// text shaping (measureText(), useTextMetrics(), <TextBox>, @celesta/code, …)
+// and media probing, still without rendering pixels.
 // Exit code 1 means the entry failed to load, a frame failed, or a
-// referenced local file is missing.
+// referenced local file is missing. Exit code 2 means only that text had to
+// be measured, which needs --native or a PNG export.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -27,11 +31,18 @@ import * as readline from 'node:readline';
 const USAGE = `usage: node inspect.mjs <entry.tsx> [--frames 0,45,-1] [--every N] [--json]
                          [--props-file <file.json>] [--props <json>]
        node inspect.mjs --psd-layers <file.psd>
-options: --runtime <cli.js>  --node <node>  --timeout <seconds>`;
+options: --native <Celesta-export>  --runtime <cli.js>  --node <node>  --timeout <seconds>`;
+
+// Answers measureText requests in Node-only mode; an error carrying it is an
+// inspector limitation, not a scene error.
+const TEXT_UNSUPPORTED =
+  'inspect.mjs cannot shape text, so measureText(), useTextMetrics(), fitText(), useFitText(), <TextBox>, ' +
+  '@celesta/code, and subtitle.render metrics fail here; inspect with --native <Celesta-export>, ' +
+  'or check this entry with a PNG export (Celesta-export --react <entry> --frame N out.png) instead';
 
 function parseArgs(argv) {
   const options = {
-    frames: null, every: null, json: false, psd: null, runtime: null, node: null, timeout: 180, entry: null,
+    frames: null, every: null, json: false, psd: null, native: null, runtime: null, node: null, timeout: 180, entry: null,
     props: null, propsFile: null,
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -45,6 +56,7 @@ function parseArgs(argv) {
     else if (arg === '--json') options.json = true;
     else if (arg === '--psd-layers') options.psd = value();
     else if (arg === '--runtime') options.runtime = value();
+    else if (arg === '--native') options.native = value();
     else if (arg === '--node') options.node = value();
     else if (arg === '--timeout') options.timeout = Number(value());
     else if (arg === '--props') options.props = value();
@@ -189,32 +201,73 @@ async function inspectEntry(options) {
   const entry = path.resolve(options.entry);
   if (!existsSync(entry)) fail(`entry not found: ${entry}`);
   const entryDir = path.dirname(entry);
-  const { cli, node } = findRuntime(options, [entryDir, process.cwd()]);
-  if (!options.json) console.log(`runtime: ${cli}\nnode:    ${node}\nentry:   ${entry}\n`);
-
-  const propertyInputs = readPropertyInputs(options, entry);
-  const args = propertyInputs.length > 0 ? [cli, entry, '--properties-stdin'] : [cli, entry];
-  const child = spawn(node, args, { stdio: ['pipe', 'pipe', 'inherit'] });
+  let child;
+  if (options.native) {
+    // The exporter finds its own runtime and reads the props itself.
+    const args = ['--inspect', '--react', entry];
+    const cli = options.runtime ?? process.env.CELESTA_REACT_CLI;
+    const node = options.node ?? process.env.CELESTA_NODE;
+    if (cli) args.push('--runtime', cli);
+    if (node) args.push('--node', node);
+    if (options.propsFile !== null) args.push('--props-file', options.propsFile);
+    if (options.props !== null) args.push('--props', options.props);
+    if (!options.json) console.log(`native:  ${options.native}\nentry:   ${entry}\n`);
+    // Its own process group, so a timeout also ends the Node runtime it starts.
+    child = spawn(options.native, args, { stdio: ['pipe', 'pipe', 'inherit'], detached: process.platform !== 'win32' });
+    if (process.platform !== 'win32') {
+      // Terminal signals reach only the foreground group; pass them on.
+      for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+        process.once(signal, () => {
+          try { process.kill(-child.pid, signal); } catch {}
+          process.kill(process.pid, signal);
+        });
+      }
+    }
+  } else {
+    const { cli, node } = findRuntime(options, [entryDir, process.cwd()]);
+    if (!options.json) console.log(`runtime: ${cli}\nnode:    ${node}\nentry:   ${entry}\n`);
+    const propertyInputs = readPropertyInputs(options, entry);
+    const args = propertyInputs.length > 0 ? [cli, entry, '--properties-stdin'] : [cli, entry];
+    child = spawn(node, args, { stdio: ['pipe', 'pipe', 'inherit'] });
+    if (propertyInputs.length > 0) child.stdin.write(`${JSON.stringify({ propertyInputs })}\n`);
+  }
+  const exited = new Promise((resolve) => child.once('close', resolve));
+  const stop = () => {
+    if (!options.native || !child.pid) child.kill();
+    else if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
+    else {
+      try { process.kill(-child.pid); }
+      catch (error) { if (error.code !== 'ESRCH') console.error(`could not stop native inspection: ${error.message}`); }
+    }
+  };
   const timer = setTimeout(() => {
     console.error(`timed out after ${options.timeout}s; is prepare() waiting on something?`);
-    child.kill();
+    stop();
     process.exit(1);
   }, options.timeout * 1000);
-  child.on('error', (error) => fail(`could not start ${node}: ${error.message}`));
+  child.on('error', (error) => fail(`could not start ${options.native ?? 'the Celesta runtime'}: ${error.message}`));
   const lines = readline.createInterface({ input: child.stdout })[Symbol.asyncIterator]();
+  let ready;
   const next = async () => {
     const { value, done } = await lines.next();
+    if (done && options.native && !ready) {
+      throw new Error(
+        `${options.native} exited before the inspection handshake (see the messages above). ` +
+          'If it does not support --inspect, update Celesta, or check this entry with PNG frames / a contact sheet ' +
+          '(Celesta-export --react <entry> --every 15 --contact-sheet out.png) instead',
+      );
+    }
     if (done) throw new Error('the Celesta runtime exited unexpectedly (see the messages above)');
     return JSON.parse(value);
   };
   const send = (message) => child.stdin.write(`${JSON.stringify(message)}\n`);
-  if (propertyInputs.length > 0) send({ propertyInputs });
 
   // `prepare()` may open a side channel before the handshake, and an entry that
   // does is still loadable: answer what can be answered here and let it fall
   // back. Text shaping is not one of those things — it lives in the renderer,
-  // which inspect.mjs has no access to — so measurements are refused and the
-  // entry's own offline fallback path takes over.
+  // which Node-only inspection has no access to — so measurements are refused
+  // and the entry's own offline fallback path takes over. --native answers
+  // both in the exporter.
   const receive = async () => {
     for (;;) {
       const message = await next();
@@ -223,33 +276,37 @@ async function inspectEntry(options) {
         continue;
       }
       if (message.measureText) {
-        send({
-          error:
-            'inspect.mjs cannot shape text, so measureText(), useTextMetrics(), fitText(), useFitText(), <TextBox>, ' +
-            'and @celesta/code fail here; check this entry with a PNG export (Celesta-export --react <entry> --frame N out.png) instead',
-        });
+        send({ error: TEXT_UNSUPPORTED });
         continue;
       }
+      if (message.error?.includes(TEXT_UNSUPPORTED)) message.status = 'unsupported';
       return message;
     }
   };
+  const finish = async (code) => {
+    clearTimeout(timer);
+    child.stdin.end();
+    // The exporter drops its bridge, ending Node, once stdin closes.
+    if (options.native) await exited;
+    else child.kill();
+    process.exit(code);
+  };
 
   let problems = 0;
-  let ready;
+  let unsupported = 0;
   for (;;) {
     const message = await receive();
     if (message.error) {
-      console.error(`ERROR loading entry: ${message.error}`);
-      child.kill();
-      process.exit(1);
+      if (options.json) console.log(JSON.stringify(message, null, 2));
+      else console.error(`${message.status === 'unsupported' ? 'UNSUPPORTED inspection' : 'ERROR loading entry'}: ${message.error}`);
+      await finish(message.status === 'unsupported' ? 2 : 1);
     }
     if (message.invalidProperties) {
       console.error('ERROR invalid project properties:');
       for (const { key, source, message: text } of message.invalidProperties) {
         console.error(`  - ${source}: ${key ? `${key}: ` : ''}${text}`);
       }
-      child.kill();
-      process.exit(1);
+      await finish(1);
     }
     ready = message;
     break;
@@ -275,10 +332,13 @@ async function inspectEntry(options) {
     const results = [];
     for (const frame of frames) {
       send({ time: { value: frame * config.frameRate.denominator, timescale: config.frameRate.numerator } });
-      results.push({ frame, ...(await receive()) });
+      const response = await receive();
+      results.push({ frame, ...response });
+      if (response.fatal) break;
     }
     console.log(JSON.stringify({ ready, frames: results }, null, 2));
-    problems += results.filter((result) => result.error).length;
+    problems += results.filter((result) => result.error && result.status !== 'unsupported').length;
+    unsupported += results.filter((result) => result.status === 'unsupported').length;
   } else {
     console.log(`composition: ${config.width}×${config.height} @ ${fmt(fps)} fps, ${total} frames (${fmt(total / fps)} s)`);
     const schemas = Object.keys(ready.componentSchemas ?? {});
@@ -299,8 +359,14 @@ async function inspectEntry(options) {
       const response = await receive();
       console.log(`\n── frame ${frame} (${fmt(frame / fps)} s) ──`);
       if (response.error) {
-        problems += 1;
-        console.log(`ERROR: ${response.error}`);
+        if (response.status === 'unsupported') {
+          unsupported += 1;
+          console.log(`UNSUPPORTED inspection: ${response.error}`);
+        } else {
+          problems += 1;
+          console.log(`ERROR: ${response.error}`);
+        }
+        if (response.fatal) break;
         continue;
       }
       const { scene, audio } = response;
@@ -323,13 +389,12 @@ async function inspectEntry(options) {
     console.log('');
     for (const warning of new Set(warnings)) console.log(`warning: ${warning}`);
     for (const src of missing) console.log(`missing: ${src} (relative paths resolve from ${entryDir})`);
-    console.log(problems ? `${problems} problem(s) found` : 'OK: entry loads and every inspected frame evaluates');
+    if (problems) console.log(`${problems} problem(s) found`);
+    else if (unsupported) console.log(`${unsupported} frame(s) measure text and could not be inspected; use --native <Celesta-export> or a PNG export`);
+    else console.log('OK: entry loads and every inspected frame evaluates');
   }
 
-  clearTimeout(timer);
-  child.stdin.end();
-  child.kill();
-  process.exit(problems ? 1 : 0);
+  await finish(problems ? 1 : unsupported ? 2 : 0);
 }
 
 function fmt(value) {

@@ -6,6 +6,7 @@ use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser, ValueEnum};
 
+mod inspect;
 mod progress;
 mod report;
 
@@ -36,7 +37,12 @@ checked against the declaration before anything renders.
 --json prints one line of JSON on stdout when the export ends, and nothing
 else: status, the composition's size, fps and frame count, every written
 file with its frame numbers, warnings, and on failure an error code and
-message. It suits scripts and AI agents.";
+message. It suits scripts and AI agents.
+
+--inspect evaluates a React entry's frames without rendering pixels, with
+the same text shaping and media probing as an export. It reads one JSON
+request per stdin line, each a composition time, and answers each with one
+JSON line on stdout; skills/celesta/scripts/inspect.mjs --native drives it.";
 
 /// Exports a Celesta project or React composition to MP4 video or PNG stills.
 #[derive(Parser)]
@@ -50,7 +56,25 @@ struct Cli {
     /// The project (.celesta.json), or with --react the entry (.tsx), to export.
     source: PathBuf,
     /// The .mp4 file to write, or the .png file for frame exports.
-    output: PathBuf,
+    #[arg(required_unless_present = "inspect")]
+    output: Option<PathBuf>,
+    /// Evaluate frames requested on stdin as JSON lines instead of exporting.
+    #[arg(
+        long,
+        requires = "react",
+        conflicts_with_all = [
+            "output", "project", "overwrite", "from", "to", "frames", "every",
+            "contact_sheet", "columns", "tile_width", "output_format", "preset",
+            "crf", "color_conversion", "render_quality", "driver", "no_ui", "json",
+        ]
+    )]
+    inspect: bool,
+    /// The React runtime's cli.js for --inspect (default: the bundled one).
+    #[arg(long, value_name = "CLI_JS")]
+    runtime: Option<PathBuf>,
+    /// The Node.js executable for --inspect (default: the bundled one).
+    #[arg(long, value_name = "NODE")]
+    node: Option<PathBuf>,
     /// Export a React composition instead of a JSON project.
     #[arg(long)]
     react: bool,
@@ -154,6 +178,12 @@ struct Cli {
 }
 
 impl Cli {
+    fn output(&self) -> &Path {
+        self.output
+            .as_deref()
+            .expect("clap requires <OUTPUT> without --inspect")
+    }
+
     fn video(&self) -> VideoEncoding {
         VideoEncoding {
             preset: self.preset,
@@ -195,6 +225,18 @@ fn main() -> ExitCode {
         }
         error.exit()
     });
+    if cli.inspect {
+        return inspect(&cli);
+    }
+    // clap counts `requires = "inspect"` as met once <OUTPUT>, which
+    // conflicts with --inspect, is given, so check it here.
+    if cli.runtime.is_some() || cli.node.is_some() {
+        usage_error(
+            cli.json,
+            ErrorKind::MissingRequiredArgument,
+            "--runtime and --node require --inspect",
+        );
+    }
     let png = png_output(&cli)
         .unwrap_or_else(|error| usage_error(cli.json, ErrorKind::ArgumentConflict, error));
     let range = export_range(cli.from, cli.to)
@@ -215,7 +257,7 @@ fn main() -> ExitCode {
     }
     let settings = progress::Settings {
         source: &cli.source,
-        output: &cli.output,
+        output: cli.output(),
         react: cli.react,
         png,
         video: cli.video(),
@@ -224,11 +266,33 @@ fn main() -> ExitCode {
     };
     match progress::run(settings, cli.no_ui, export) {
         Ok(()) => {
-            eprintln!("export complete: {}", cli.output.display());
+            eprintln!("export complete: {}", cli.output().display());
             ExitCode::SUCCESS
         }
         Err(error) => {
             eprintln!("Celesta export: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn inspect(cli: &Cli) -> ExitCode {
+    let result = match react_runtime(cli) {
+        Ok(runtime) => inspect::run(
+            &cli.source,
+            &ReactRuntimeOptions {
+                node: cli.node.clone().unwrap_or(runtime.node),
+                cli_script: cli.runtime.clone().unwrap_or(runtime.cli_script),
+                properties: runtime.properties,
+            },
+        ),
+        Err(error) => inspect::startup_failed(&error.to_string()),
+    };
+    match result {
+        Ok(true) => ExitCode::SUCCESS,
+        Ok(false) => ExitCode::FAILURE,
+        Err(error) => {
+            eprintln!("Celesta inspection: {error}");
             ExitCode::FAILURE
         }
     }
@@ -313,7 +377,7 @@ fn export(
                 &react_runtime(cli)?,
                 companion,
                 &png_export,
-                &cli.output,
+                cli.output(),
                 on_progress,
             )
         } else {
@@ -321,7 +385,7 @@ fn export(
                 &load(&cli.source)?,
                 asset_root(&cli.source),
                 &png_export,
-                &cli.output,
+                cli.output(),
                 on_progress,
             )
         }
@@ -332,18 +396,18 @@ fn export(
                 &cli.source,
                 &runtime,
                 companion,
-                &cli.output,
+                cli.output(),
                 on_progress,
             ),
             None => exporter.export_react_entry_with_progress(
                 &cli.source,
                 &runtime,
-                &cli.output,
+                cli.output(),
                 on_progress,
             ),
         }
     } else {
-        exporter.export_file_with_progress(&cli.source, &cli.output, on_progress)
+        exporter.export_file_with_progress(&cli.source, cli.output(), on_progress)
     }
 }
 
