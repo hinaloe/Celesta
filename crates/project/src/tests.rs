@@ -17,6 +17,28 @@ fn image_display_fields_round_trip_and_validate() {
     json["tracks"][0]["items"][0]["content"]["width"] = 0.into();
     assert!(Project::from_json(&json.to_string()).is_err());
 }
+
+#[test]
+fn text_letter_spacing_takes_px_or_em() {
+    let mut json: Value =
+        serde_json::from_str(include_str!("../../../examples/voiceroid.celesta.json")).unwrap();
+    for letter_spacing in [serde_json::json!(-1.5), serde_json::json!({ "em": -0.02 })] {
+        json["tracks"][0]["items"][0]["content"] = serde_json::json!({
+            "type": "text",
+            "text": "Celesta",
+            "style": { "fontSize": 64, "letterSpacing": letter_spacing },
+        });
+        let project = Project::from_json(&json.to_string()).unwrap();
+        let saved: Value = serde_json::from_str(&project.to_json().unwrap()).unwrap();
+        assert_eq!(
+            saved["tracks"][0]["items"][0]["content"]["style"]["letterSpacing"],
+            letter_spacing
+        );
+    }
+    json["tracks"][0]["items"][0]["content"]["style"]["letterSpacing"] =
+        serde_json::json!({ "px": 2 });
+    assert!(Project::from_json(&json.to_string()).is_err());
+}
 #[test]
 fn loads_the_minimal_project() {
     let project =

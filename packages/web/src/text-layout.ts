@@ -15,9 +15,15 @@ export function cssFont(style: TextStyle, run?: FontRun): string {
   return `${run?.fontWeight ?? style.fontWeight ?? 400} ${style.fontSize ?? 32}px ${family ? JSON.stringify(family) + ', ' : ''}system-ui, sans-serif`;
 }
 
+/** `style.letterSpacing` in px, resolving `{ em }` against the font size. */
+export function letterSpacingPx(style: TextStyle): number {
+  const spacing = style.letterSpacing ?? 0;
+  return typeof spacing === 'number' ? spacing : spacing.em * (style.fontSize ?? 32);
+}
+
 export function textStyle(ctx: Context, style: TextStyle) {
   ctx.font = cssFont(style);
-  ctx.letterSpacing = `${style.letterSpacing ?? 0}px`;
+  ctx.letterSpacing = `${letterSpacingPx(style)}px`;
   if ('lang' in ctx) ctx.lang = style.lang?.trim() || navigator.language;
 }
 

@@ -95,9 +95,10 @@ pub struct TextStyle {
     pub align: Option<TextAlign>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub line_height: Option<f64>,
-    /// Extra space after each glyph, in px. Negative values tighten.
+    /// Extra space after each glyph, in px or as `{ em }`, a multiple of the
+    /// font size. Negative values tighten.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub letter_spacing: Option<f64>,
+    pub letter_spacing: Option<LetterSpacing>,
     /// Solid color overrides in Unicode code-point ranges of the complete text.
     /// Ranges must be ordered and non-overlapping. A shaped cluster uses the
     /// color at its first code point, so color changes never split shaping.
@@ -116,6 +117,39 @@ pub struct TextStyle {
     /// Where a line may wrap when the text has a `maxWidth`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub line_break: Option<LineBreak>,
+}
+
+/// Space after each glyph: a number of px, or `{ em }`, a multiple of the
+/// font size that follows it as the size changes.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(untagged)]
+pub enum LetterSpacing {
+    Px(f64),
+    Em { em: f64 },
+}
+
+impl LetterSpacing {
+    /// The spacing in em for text of `font_size` px.
+    pub fn em(self, font_size: f64) -> f64 {
+        match self {
+            Self::Px(px) => px / font_size,
+            Self::Em { em } => em,
+        }
+    }
+
+    pub fn is_finite(self) -> bool {
+        match self {
+            Self::Px(value) | Self::Em { em: value } => value.is_finite(),
+        }
+    }
+}
+
+impl From<f64> for LetterSpacing {
+    fn from(px: f64) -> Self {
+        Self::Px(px)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

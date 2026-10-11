@@ -30,7 +30,7 @@ export type TextStyle = {
   stroke?: Stroke | null;
   align?: 'left' | 'center' | 'right' | null;
   lineHeight?: number | null;
-  letterSpacing?: number | null;
+  letterSpacing?: number | { em: number } | null;
   colorRuns?: { start: number; end: number; color: string }[];
   fontRuns?: FontRun[];
   visibleCharacters?: number | null;

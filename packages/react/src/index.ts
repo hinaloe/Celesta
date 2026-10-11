@@ -44,6 +44,7 @@ export type {
   LayerGlow,
   LayerShader,
   LayerShadow,
+  LetterSpacing,
   LineBreak,
   LineCap,
   LineJoin,

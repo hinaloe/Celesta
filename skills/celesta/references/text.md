@@ -93,7 +93,7 @@ type TextStyle = {
   stroke?: { paint: Paint; width: number };       // outline
   align?: 'left' | 'center' | 'right';
   lineHeight?: number;     // px, > 0 (TextBox's lineHeight is a multiple instead)
-  letterSpacing?: number;  // px added after each glyph; may be negative
+  letterSpacing?: number | { em: number };  // px, or a multiple of fontSize, after each glyph; may be negative
   lineBreak?: 'normal' | 'phrase';  // where maxWidth may wrap; default 'normal'
   lang?: string;           // language for fallback fonts, e.g. 'ja-JP'; overrides inherited lang
 };
@@ -105,6 +105,13 @@ type TextStyle = {
 are relative to the text's layout box. The same style fields are used by
 character subtitles and `.celesta.json` text items. `<Span>` writes
 `colorRuns` and an internal `fontRuns` field; set them through `<Span>`.
+
+`letterSpacing: { em: -0.02 }` tightens by 2% of `fontSize` and follows
+the size wherever it changes: in `<TextBox>`, `fitText()`, and
+`useFitText()` each size tried is measured with its own spacing, so the
+size chosen is the largest that fits with that spacing. A plain number
+stays the same px at every size. `<Span>` has no size of its own, so its
+text takes the same spacing.
 
 ## Line breaking
 
@@ -330,7 +337,8 @@ uses `maxFontSize`; longer text shrinks, down to `minFontSize`.
 
 - The size is chosen with the renderer's own shaping (same fonts,
   `letterSpacing`, `lineBreak`, and wrapping width), so preview and export
-  agree. It is found by bisection; rarely, a larger size could also fit
+  agree. For spacing that scales with the size, use `letterSpacing: { em }`.
+  The size is found by bisection; rarely, a larger size could also fit
   past one that does not, and the size chosen fits but is not the largest.
 - Empty text, and `null`, `undefined`, or boolean children, draw nothing.
   Children may hold `<Span>`; the fit is measured with the spans' weights

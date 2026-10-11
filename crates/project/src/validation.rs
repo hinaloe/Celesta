@@ -2,7 +2,9 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
 
-use celesta_composition::{Animatable, GradientStop, Paint, TextStyle, Time, Transform};
+use celesta_composition::{
+    Animatable, GradientStop, LetterSpacing, Paint, TextStyle, Time, Transform,
+};
 
 use crate::{AssetKind, Character, Project, SourceRange, TimelineContent, TimelineItem};
 
@@ -537,7 +539,11 @@ impl Validator<'_> {
         if let Some(letter_spacing) = style.letter_spacing
             && !letter_spacing.is_finite()
         {
-            self.error(format!("{path}.letterSpacing"), "must be finite");
+            let field = match letter_spacing {
+                LetterSpacing::Px(_) => "letterSpacing",
+                LetterSpacing::Em { .. } => "letterSpacing.em",
+            };
+            self.error(format!("{path}.{field}"), "must be finite");
         }
         if let Some(fill) = &style.fill {
             self.paint(&format!("{path}.fill"), fill);

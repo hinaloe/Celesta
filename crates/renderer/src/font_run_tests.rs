@@ -290,7 +290,7 @@ fn phrase_joiners_inside_a_run_keep_its_font() {
     let style = TextStyle {
         font_family: Some("IBM Plex Mono".to_owned()),
         font_size: Some(32.0),
-        letter_spacing: Some(2.0),
+        letter_spacing: Some(2.0.into()),
         line_break: Some(LineBreak::Phrase),
         font_runs: vec![run(0, 7, None, Some("Bebas Neue"))],
         ..TextStyle::default()

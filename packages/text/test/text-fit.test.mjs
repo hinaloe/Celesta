@@ -7,12 +7,15 @@ import { Composition, Font } from '@celesta/react';
 import { TextBox, fitText, useFitText } from '../dist/index.js';
 import { mount, setTextMeasurer } from '@celesta/react/internal';
 
-// Monospaced square glyphs: each character is `fontSize` wide, and lines
-// wrap by character count at `maxWidth`, but never inside a character.
+// Monospaced square glyphs: each character is `fontSize` wide plus the
+// letter spacing, and lines wrap by character count at `maxWidth`, but never
+// inside a character.
 function measureMonospace({ text, style, maxWidth }) {
   const size = style.fontSize;
+  const spacing = style.letterSpacing ?? 0;
+  const advance = size + (typeof spacing === 'number' ? spacing : spacing.em * size);
   const lineHeight = style.lineHeight ?? size * 1.25;
-  const perLine = Math.max(1, Math.floor(maxWidth / size));
+  const perLine = Math.max(1, Math.floor(maxWidth / advance));
   const paragraphs = text.split('\n');
   const rows = paragraphs.flatMap((line) => {
     const chars = Array.from(line);
@@ -22,7 +25,7 @@ function measureMonospace({ text, style, maxWidth }) {
     return out;
   });
   return {
-    width: Math.max(...rows) * size,
+    width: Math.max(...rows) * advance,
     height: rows.length * lineHeight,
     ascent: lineHeight * 0.8,
     descent: lineHeight * 0.2,
@@ -105,6 +108,18 @@ test('steps include both ends and round', async () => {
   assert.equal(fixed.fits, false);
 });
 
+test('letter spacing in em is measured at each size tried', async () => {
+  const requests = install();
+  // 10 characters at 1.25 × size must fit 400px on one line: 32px.
+  const style = { letterSpacing: { em: 0.25 } };
+  const fit = await fitText('0123456789', { width: 400, height: 100, minFontSize: 10, maxFontSize: 96, maxLines: 1, style });
+  assert.equal(fit.fontSize, 32);
+  assert.equal(fit.metrics.width, 400);
+  assert.deepEqual(fit.style, { letterSpacing: { em: 0.25 }, fontSize: 32 });
+  assert.ok(requests.length > 2);
+  for (const request of requests) assert.deepEqual(request.style.letterSpacing, { em: 0.25 });
+});
+
 test('invalid boxes and ranges are rejected', async () => {
   install();
   const base = { width: 100, height: 100, minFontSize: 10, maxFontSize: 20 };
@@ -158,6 +173,17 @@ test('TextBox draws the fitted text with the measured style and wrapping', () =>
   assert.equal(label.content.baselineAnchor, true);
   // Two 55px lines centred in 200px, placed by the first baseline.
   assert.equal(label.transform.position.y, (200 - 110) / 2 + 44);
+});
+
+test('TextBox draws letter spacing in em at the size it fits', () => {
+  install();
+  const scene = render(React.createElement(TextBox, {
+    width: 400, height: 100, minFontSize: 10, maxFontSize: 96, maxLines: 1,
+    style: { letterSpacing: { em: 0.25 } },
+  }, '0123456789'));
+  const [label] = scene.layers[0].content.layers;
+  assert.equal(label.content.style.fontSize, 32);
+  assert.deepEqual(label.content.style.letterSpacing, { em: 0.25 });
 });
 
 test('TextBox overflow clips, shows, or fails', () => {

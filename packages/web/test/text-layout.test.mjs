@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cssFont, measureLine, runPieces, textLines, textLineRanges, textMeasurer } from '../src/text-layout.ts';
+import { cssFont, letterSpacingPx, measureLine, runPieces, textLines, textLineRanges, textMeasurer, textStyle } from '../src/text-layout.ts';
 
 test('wrapping uses the requested language, including with older canvas contexts', t => {
   const locales = [], Segmenter = Intl.Segmenter;
@@ -108,6 +108,16 @@ test('the browser measurer rejects invalid font runs like scene rendering', t =>
 test('cssFont reads a run weight and family over the style', () => {
   assert.equal(cssFont({ fontSize: 20, fontFamily: 'Serif A' }), '400 20px "Serif A", system-ui, sans-serif');
   assert.equal(cssFont({ fontSize: 20, fontFamily: 'Serif A' }, { start: 0, end: 1, fontWeight: 700, fontFamily: 'Mono B' }), '700 20px "Mono B", system-ui, sans-serif');
+});
+
+test('letter spacing in em follows the font size', () => {
+  assert.equal(letterSpacingPx({}), 0);
+  assert.equal(letterSpacingPx({ fontSize: 20, letterSpacing: 3 }), 3);
+  assert.equal(letterSpacingPx({ fontSize: 50, letterSpacing: { em: -0.02 } }), -1);
+  assert.equal(letterSpacingPx({ letterSpacing: { em: 0.25 } }), 8);
+  const ctx = {};
+  textStyle(ctx, { fontSize: 50, letterSpacing: { em: 0.1 }, lang: 'en' });
+  assert.equal(ctx.letterSpacing, '5px');
 });
 
 test('the browser measurer wraps and measures with font runs', t => {

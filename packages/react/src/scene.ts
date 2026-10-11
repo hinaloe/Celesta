@@ -20,6 +20,7 @@ export type { LayerShadow } from './generated/LayerShadow';
 export type { LayerGlow } from './generated/LayerGlow';
 export type { LayerShader } from './generated/LayerShader';
 export type { LayerContent } from './generated/LayerContent';
+export type { LetterSpacing } from './generated/LetterSpacing';
 export type { LineBreak } from './generated/LineBreak';
 export type { LineCap } from './generated/LineCap';
 export type { LineJoin } from './generated/LineJoin';
