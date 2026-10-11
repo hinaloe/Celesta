@@ -396,7 +396,7 @@ template with two variants:
 cargo run -p celesta-exporter --release -- --react templates/ranking/film.tsx spring.mp4 \
   --props-file templates/ranking/variants/spring.json
 cargo run -p celesta-exporter --release -- --react templates/ranking/film.tsx autumn.mp4 \
-  --props-file templates/ranking/variants/autumn.json --props '{"title":"Autumn"}'
+  --props-file templates/ranking/variants/autumn.json --props '{"title":"秋のおすすめドリンク"}'
 ```
 
 `celesta-editor` takes the same `--props-file` and `--props` options for the

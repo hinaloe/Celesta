@@ -1,6 +1,6 @@
 {
-  "title": "Autumn Picks",
-  "subtitle": "Most-ordered seasonal drinks, September to November",
+  "title": "秋の人気ドリンク",
+  "subtitle": "9月〜11月によく注文された季節のドリンク",
   "accent": "#f2a33a",
   "theme": "dark",
   "data": "autumn-drinks.json"

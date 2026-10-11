@@ -18,20 +18,21 @@ celesta-exporter --react film.tsx ranking.mp4
 
 ## What to replace
 
-- `data.json` — the ranking, an array of `{ "name": ..., "score": ... }` rows.
-  The six highest scores are shown, sorted; scores must be non-negative and
-  the top score above 0.
+- `data.json` — the ranking, an array of `{ "name": ..., "score": ... }` rows
+  with a string `name` and a number `score`. The six highest scores are
+  shown, sorted; scores must be non-negative and the top score above 0. Long
+  names shrink to fit their row.
 - `props.json` — the title, colors, and format. Preview and export load it
   automatically.
-- The theme colors and layout numbers are in the constants block at the top
-  of `film.tsx`.
+- The theme colors, layout numbers, and motion timings are in the constants
+  block at the top of `film.tsx`.
 
 ## Properties
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `title` | string | `Top Picks` | The heading. |
-| `subtitle` | string | `Sample data` | The line under the heading. |
+| `title` | string | `人気ランキング` | The heading. Long titles shrink to fit one line. |
+| `subtitle` | string | `サンプルデータ` | The line under the heading. Long subtitles wrap. |
 | `accent` | color | `#4f8cff` | The stripe, rank numbers, and bars. |
 | `theme` | `dark` / `light` | `dark` | Background, panel, and text colors. |
 | `format` | `16:9` / `9:16` | `16:9` | 1920 × 1080, or 1080 × 1920 with taller rows in one column. |
@@ -51,7 +52,7 @@ celesta-exporter --react film.tsx autumn.mp4 --props-file variants/autumn.json
 
 ```sh
 celesta-exporter --react film.tsx autumn-vertical.mp4 \
-  --props-file variants/autumn.json --props '{"format":"9:16","title":"秋の人気ドリンク"}'
+  --props-file variants/autumn.json --props '{"format":"9:16","title":"秋のおすすめドリンク"}'
 ```
 
 Preview a variant with the same values (edits to the variant file reload the

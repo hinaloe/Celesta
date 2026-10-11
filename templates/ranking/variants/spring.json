@@ -1,6 +1,6 @@
 {
-  "title": "Spring Picks",
-  "subtitle": "Most-ordered seasonal drinks, March to May",
+  "title": "春の人気ドリンク",
+  "subtitle": "3月〜5月によく注文された季節のドリンク",
   "accent": "#ff6f9c",
   "theme": "light",
   "data": "spring-drinks.json"
