@@ -8,16 +8,19 @@ import { test } from 'vitest';
 
 const cli = fileURLToPath(new URL('../../cli/bin/celesta-react-render.js', import.meta.url));
 
-/** Renders frame 0 of a composition whose body is `body`, as the CLI's output lines. */
-function render(body, { allowFailure = false } = {}) {
+/**
+ * Renders frames 0 to `frames - 1` of a composition whose body is `body`, as
+ * the CLI's output lines: the config, then one line per frame.
+ */
+function render(body, { allowFailure = false, frames = 1 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-path-'));
   const entry = join(dir, 'entry.tsx');
   writeFileSync(
     entry,
-    `import { Composition } from '@celesta/react'; import { Arrow, Circle, Ellipse, Line, Path, Polyline } from '@celesta/shapes';\n` +
+    `import { Composition, Sequence } from '@celesta/react'; import { Arrow, Circle, Ellipse, Line, Path, Polyline } from '@celesta/shapes';\n` +
       `export default function Root() {\n` +
       `  return (\n` +
-      `    <Composition width={300} height={200} fps={30} durationInFrames={1}>\n` +
+      `    <Composition width={300} height={200} fps={30} durationInFrames={${frames}}>\n` +
       `      ${body}\n` +
       `    </Composition>\n` +
       `  );\n` +
@@ -25,7 +28,7 @@ function render(body, { allowFailure = false } = {}) {
   );
   try {
     const result = spawnSync(process.execPath, [cli, entry], {
-      input: '{"time":{"value":0,"timescale":1}}\n',
+      input: Array.from({ length: frames }, (_, frame) => `{"time":{"value":${frame},"timescale":30}}\n`).join(''),
       encoding: 'utf8',
     });
     if (allowFailure && result.status !== 0) {
@@ -269,8 +272,13 @@ test('shape dimensions are validated', () => {
     [`<Arrow x1={0} y1={0} x2={10} y2={0} headWidth={-3} />`, /positive `headWidth`/],
     [`<Arrow x1={0} y1={0} x2={10} y2={0} heads="none" />`, /heads must be/],
   ];
-  for (const [body, error] of cases) {
-    const [, frame] = render(body, { allowFailure: true });
-    assert.match(frame.error ?? '', error, body);
-  }
+  // One CLI process renders every case, each alone in its own frame: a frame
+  // that throws reports its error and the next frame renders afresh. Spawning
+  // a process per case is slow enough on Windows to time the test out. Frame
+  // 0 stays empty, since an error while mounting it ends the process.
+  const body = cases.map(([shape], i) => `<Sequence from={${i + 1}} durationInFrames={1}>${shape}</Sequence>`).join('');
+  const [, empty, ...frames] = render(body, { frames: cases.length + 1 });
+  assert.deepEqual(empty.scene.layers, []);
+  assert.equal(frames.length, cases.length);
+  cases.forEach(([shape, error], i) => assert.match(frames[i].error ?? '', error, shape));
 });
