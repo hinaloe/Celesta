@@ -14,6 +14,7 @@ pnpm install
 pnpm --dir packages/code run test
 pnpm --dir packages/code run check:examples
 cargo run -p celesta-editor --release -- packages/code/examples/highlight.tsx
+cargo run -p celesta-editor --release -- packages/code/examples/lines.tsx
 ```
 
 Like `@celesta/react`, this package is currently private and has not been
