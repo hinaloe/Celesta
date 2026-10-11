@@ -108,6 +108,29 @@ pub(crate) fn render_image_pixels(
     anchor: Point,
     state: &ParentState,
 ) {
+    render_tinted_image_pixels(
+        frame,
+        image_width,
+        image_height,
+        pixels,
+        anchor,
+        state,
+        [255; 4],
+    );
+}
+
+/// `render_image_pixels` with every texel's straight colour and alpha
+/// multiplied by `tint / 255`; white draws the image as it is.
+pub(crate) fn render_tinted_image_pixels(
+    frame: &mut RgbaFrame,
+    image_width: u32,
+    image_height: u32,
+    pixels: &[u8],
+    anchor: Point,
+    state: &ParentState,
+    tint: [u8; 4],
+) {
+    let multiply = |value: u8, by: u8| ((u16::from(value) * u16::from(by) + 127) / 255) as u8;
     let width = (f64::from(image_width) * state.scale.x.abs())
         .round()
         .max(1.0) as u32;
@@ -134,10 +157,10 @@ pub(crate) fn render_image_pixels(
             blend_with_mode(
                 &mut frame.pixels[destination_offset..destination_offset + 4],
                 Color::rgba(
-                    pixels[source_offset],
-                    pixels[source_offset + 1],
-                    pixels[source_offset + 2],
-                    pixels[source_offset + 3],
+                    multiply(pixels[source_offset], tint[0]),
+                    multiply(pixels[source_offset + 1], tint[1]),
+                    multiply(pixels[source_offset + 2], tint[2]),
+                    multiply(pixels[source_offset + 3], tint[3]),
                 ),
                 state.opacity * coverage,
                 state.blend_mode,

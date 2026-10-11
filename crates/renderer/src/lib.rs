@@ -18,6 +18,7 @@ mod font_stack_tests;
 mod font_tests;
 mod fonts;
 mod images;
+mod instances;
 mod layer;
 mod linebreak;
 #[cfg(test)]
