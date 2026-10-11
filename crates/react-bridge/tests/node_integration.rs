@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use celesta_composition::{
-    Animatable, BlendMode, EvaluatedTransform, Layer, LayerContent, Rational, TextStyle, Time,
+    Animatable, BlendMode, EvaluatedTransform, Layer, LayerContent, LetterSpacing, Rational,
+    TextStyle, Time,
 };
 use celesta_react_bridge::{
     ComponentPropertyField, ComponentResolutionRequest, ProjectFrame, PropertyInputs, ReactBridge,
@@ -272,6 +273,9 @@ fn text_boxes_fit_their_captions_with_the_renderer_shaping_when_node_is_availabl
         assert!(*baseline_anchor);
         let size = style.font_size.unwrap();
         assert_eq!(style.line_height, Some(size * 1.3));
+        // The tracking stays a fraction of the size, so `fits` tries each
+        // size with its own tracking.
+        assert_eq!(style.letter_spacing, Some(LetterSpacing::Em { em: -0.02 }));
         // The drawn style is the measured one, so what fits is what draws.
         let metrics = measurer.measure(text, style, *max_width);
         let fitted = fits(&mut measurer, text, style, size);

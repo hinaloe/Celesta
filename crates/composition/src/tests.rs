@@ -1,7 +1,8 @@
 use crate::time::{Rational, Time};
 use crate::{
-    AssetLocation, Clip, EvaluatedTransform, GroupMask, ImageFit, Layer, LayerContent, LineCap,
-    LineJoin, MaskMode, MediaTiming, Paint, PathCommand, Point, ResolvedAsset, Stroke, TextStyle,
+    AssetLocation, Clip, EvaluatedTransform, GroupMask, ImageFit, Layer, LayerContent,
+    LetterSpacing, LineCap, LineJoin, MaskMode, MediaTiming, Paint, PathCommand, Point,
+    ResolvedAsset, Stroke, TextStyle,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -544,4 +545,30 @@ fn custom_shaders_round_trip_and_omit_their_defaults() {
     );
     assert_eq!(serde_json::to_value(&parsed).unwrap(), bare);
     assert!(LayerEffects::default().is_empty());
+}
+
+#[test]
+fn letter_spacing_is_px_or_em() {
+    let parse = |json| {
+        serde_json::from_value::<TextStyle>(json)
+            .unwrap()
+            .letter_spacing
+    };
+    assert_eq!(
+        parse(serde_json::json!({ "letterSpacing": 2.5 })),
+        Some(LetterSpacing::Px(2.5))
+    );
+    assert_eq!(
+        parse(serde_json::json!({ "letterSpacing": { "em": -0.02 } })),
+        Some(LetterSpacing::Em { em: -0.02 })
+    );
+    assert_eq!(
+        serde_json::to_value(LetterSpacing::Em { em: -0.02 }).unwrap(),
+        serde_json::json!({ "em": -0.02 })
+    );
+    assert_eq!(LetterSpacing::Px(3.0).em(60.0), 0.05);
+    assert_eq!(LetterSpacing::Em { em: -0.02 }.em(60.0), -0.02);
+    assert!(
+        serde_json::from_value::<TextStyle>(serde_json::json!({ "letterSpacing": "1em" })).is_err()
+    );
 }

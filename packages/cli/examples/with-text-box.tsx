@@ -4,7 +4,8 @@ import type { ComponentPropertySchema } from '@celesta/react';
 
 // A lower-third caption: change only `text`, and the font size follows from
 // the box. Short text uses 64px; longer text shrinks to fit two lines, down
-// to 28px; past that, the box clips it.
+// to 28px; past that, the box clips it. Letters close up by 2% of whichever
+// size it picks.
 type CaptionProps = { text: string };
 
 export function Caption({ text }: CaptionProps) {
@@ -13,7 +14,10 @@ export function Caption({ text }: CaptionProps) {
     <TextBox id="caption-text" x={48} y={32} width={1024} height={136}
       minFontSize={28} maxFontSize={64} maxLines={2} lineHeight={1.3}
       verticalAlign="middle"
-      style={{ fontFamily: 'IBM Plex Mono', align: 'center', lineBreak: 'phrase', fill: { type: 'solid', color: '#ffffff' } }}>
+      style={{
+        fontFamily: 'IBM Plex Mono', align: 'center', lineBreak: 'phrase', letterSpacing: { em: -0.02 },
+        fill: { type: 'solid', color: '#ffffff' },
+      }}>
       {text}
     </TextBox>
   </Group>;

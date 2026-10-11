@@ -7,7 +7,7 @@ use crate::rect::rasterize_rect;
 use crate::renderer::CpuRenderer;
 use crate::text::TextMetrics;
 use crate::types::{Color, RenderOptions, RgbaFrame};
-use celesta_composition::{LineBreak, Point};
+use celesta_composition::{LetterSpacing, LineBreak, Point};
 
 use std::path::Path;
 
@@ -975,9 +975,33 @@ fn letter_spacing_widens_and_tightens_text() {
             .unwrap()
             .width()
     };
-    let (base, wide, tight) = (width(None), width(Some(10.0)), width(Some(-4.0)));
+    let (base, wide, tight) = (
+        width(None),
+        width(Some(10.0.into())),
+        width(Some((-4.0).into())),
+    );
     assert!(wide > base + 30, "wide {wide}, base {base}");
     assert!(tight < base - 10, "tight {tight}, base {base}");
+}
+
+#[test]
+fn em_letter_spacing_scales_with_the_font_size() {
+    let mut rasterizer = TextRasterizer::new();
+    let mut width = |font_size, letter_spacing| {
+        let style = TextStyle {
+            font_size: Some(font_size),
+            letter_spacing: Some(letter_spacing),
+            ..TextStyle::default()
+        };
+        rasterizer.measure("ABCD", &style, None).width
+    };
+    for font_size in [24.0, 48.0, 96.0] {
+        assert_eq!(
+            width(font_size, LetterSpacing::Em { em: -0.05 }),
+            width(font_size, LetterSpacing::Px(-0.05 * font_size)),
+            "{font_size}px"
+        );
+    }
 }
 
 /// `line` with every phrase segment joined.
@@ -1143,7 +1167,7 @@ fn measure_text(
 ) -> TextMetrics {
     let style = TextStyle {
         font_size: Some(40.0),
-        letter_spacing,
+        letter_spacing: letter_spacing.map(Into::into),
         line_break: Some(line_break),
         ..TextStyle::default()
     };

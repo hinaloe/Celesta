@@ -1,6 +1,6 @@
 import type { Scene, Layer, Asset, FontRun, Paint, TextStyle } from './types';
 import { loadFonts, releaseFonts } from './fonts';
-import { checkFontRuns, cssFont, measureLine, runPieces, textLineRanges, textStyle } from './text-layout';
+import { checkFontRuns, cssFont, letterSpacingPx, measureLine, runPieces, textLineRanges, textStyle } from './text-layout';
 import type { RunPiece } from './text-layout';
 
 type Canvas = HTMLCanvasElement;
@@ -201,7 +201,7 @@ export class SceneCanvas {
           point += count;
         }
       } finally { svg.remove(); }
-      const segments = pieces ? runSegments(text, pieces, regions, Math.abs(style.letterSpacing ?? 0) + 0.5) : [];
+      const segments = pieces ? runSegments(text, pieces, regions, Math.abs(letterSpacingPx(style)) + 0.5) : [];
       // Draws the line, or each run segment in its run's font and direction
       // where the tspans put it.
       const drawText = (target: Context, method: 'fillText' | 'strokeText') => {

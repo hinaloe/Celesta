@@ -290,7 +290,7 @@ fn a_fork_rasterizes_text_exactly_like_the_original() {
         (
             "CH07 +42.125",
             TextStyle {
-                letter_spacing: Some(3.5),
+                letter_spacing: Some(3.5.into()),
                 ..plain.clone()
             },
             None,

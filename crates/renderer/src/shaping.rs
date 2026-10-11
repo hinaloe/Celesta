@@ -74,7 +74,7 @@ impl TextRasterizer {
             && style.font_size.unwrap_or(32.0) > 0.0
         {
             // cosmic-text takes tracking in em.
-            attrs = attrs.letter_spacing((letter_spacing / style.font_size.unwrap_or(32.0)) as f32);
+            attrs = attrs.letter_spacing(letter_spacing.em(style.font_size.unwrap_or(32.0)) as f32);
         }
         let alignment = style.align.map(|align| match align {
             TextAlign::Left => Align::Left,
