@@ -389,14 +389,14 @@ source. Pass a JSON object of values with `--props-file`, or inline with
 `--props` (which wins over the file). Relative paths in the file resolve from
 the file's folder. Every value is checked against the declaration before
 anything renders, and `--json` reports the problems with the code
-`invalid_properties`. [`examples/ranking`](examples/ranking/README.md) is a
+`invalid_properties`. [`templates/ranking`](templates/ranking/README.md) is a
 template with two variants:
 
 ```sh
-cargo run -p celesta-exporter --release -- --react examples/ranking/film.tsx spring.mp4 \
-  --props-file examples/ranking/variants/spring.json
-cargo run -p celesta-exporter --release -- --react examples/ranking/film.tsx autumn.mp4 \
-  --props-file examples/ranking/variants/autumn.json --props '{"title":"Autumn"}'
+cargo run -p celesta-exporter --release -- --react templates/ranking/film.tsx spring.mp4 \
+  --props-file templates/ranking/variants/spring.json
+cargo run -p celesta-exporter --release -- --react templates/ranking/film.tsx autumn.mp4 \
+  --props-file templates/ranking/variants/autumn.json --props '{"title":"Autumn"}'
 ```
 
 `celesta-editor` takes the same `--props-file` and `--props` options for the

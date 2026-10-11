@@ -1,0 +1,5 @@
+{
+  "title": "ランキング",
+  "description": "データ JSON からランキングカードを作ります。配色やタイトルも差し替えられます。",
+  "edit": "Edit props.json and data.json."
+}

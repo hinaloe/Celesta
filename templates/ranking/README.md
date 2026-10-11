@@ -2,34 +2,76 @@
 
 One composition, several videos. `film.tsx` declares its inputs with
 `defineProjectProperties()` — title, subtitle, accent color, light or dark
-theme, and the data file — and each file in `variants/` picks values for
-them. `prepare()` reads the data file named by the `data` property, and the
-composition's length follows the number of displayed rows (up to six). 1280 × 720 / 30 fps.
+theme, format, and the data file — and `props.json` holds the values this
+project renders with. `prepare()` reads the data file named by the `data`
+property, and the composition's length follows the number of displayed rows
+(up to six). 1920 × 1080 (16:9) or 1080 × 1920 (9:16), 30 fps.
 
-From the repository root:
+Create a project from it:
 
 ```sh
-cargo run -p celesta-exporter --release -- --react examples/ranking/film.tsx spring.mp4 \
-  --props-file examples/ranking/variants/spring.json
-cargo run -p celesta-exporter --release -- --react examples/ranking/film.tsx autumn.mp4 \
-  --props-file examples/ranking/variants/autumn.json
+celesta-editor --init my-ranking --template ranking
+cd my-ranking
+celesta-editor film.tsx
+celesta-exporter --react film.tsx ranking.mp4
+```
+
+## What to replace
+
+- `data.json` — the ranking, an array of `{ "name": ..., "score": ... }` rows.
+  The six highest scores are shown, sorted; scores must be non-negative and
+  the top score above 0.
+- `props.json` — the title, colors, and format. Preview and export load it
+  automatically.
+- The theme colors and layout numbers are in the constants block at the top
+  of `film.tsx`.
+
+## Properties
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `title` | string | `Top Picks` | The heading. |
+| `subtitle` | string | `Sample data` | The line under the heading. |
+| `accent` | color | `#4f8cff` | The stripe, rank numbers, and bars. |
+| `theme` | `dark` / `light` | `dark` | Background, panel, and text colors. |
+| `format` | `16:9` / `9:16` | `16:9` | 1920 × 1080, or 1080 × 1920 with taller rows in one column. |
+| `data` | path | `./data.json` | The rows to rank. An http(s) URL is fetched instead. |
+
+## Variants
+
+Each file in `variants/` is another set of values. `--props-file` uses it
+instead of `props.json`:
+
+```sh
+celesta-exporter --react film.tsx spring.mp4 --props-file variants/spring.json
+celesta-exporter --react film.tsx autumn.mp4 --props-file variants/autumn.json
 ```
 
 `--props` overrides single values without another file:
 
 ```sh
-cargo run -p celesta-exporter --release -- --react examples/ranking/film.tsx autumn-ja.mp4 \
-  --props-file examples/ranking/variants/autumn.json --props '{"title":"秋の人気ドリンク"}'
+celesta-exporter --react film.tsx autumn-vertical.mp4 \
+  --props-file variants/autumn.json --props '{"format":"9:16","title":"秋の人気ドリンク"}'
 ```
 
 Preview a variant with the same values (edits to the variant file reload the
 preview):
 
 ```sh
-cargo run -p celesta-editor -- examples/ranking/film.tsx --props-file examples/ranking/variants/spring.json
+celesta-editor film.tsx --props-file variants/spring.json
 ```
 
-Without any values the template renders `data/sample.json` with its declared
-defaults. Relative paths in a variant file, such as `"data": "spring-drinks.json"`,
-resolve from that file's folder. Noto Sans JP is loaded from Google Fonts
-(SIL Open Font License).
+Relative paths in a variant file, such as `"data": "spring-drinks.json"`,
+resolve from that file's folder.
+
+From the repository root, the paths start with `templates/ranking/`:
+
+```sh
+cargo run -p celesta-exporter --release -- --react templates/ranking/film.tsx spring.mp4 \
+  --props-file templates/ranking/variants/spring.json
+```
+
+## License
+
+Noto Sans JP is loaded from Google Fonts (SIL Open Font License). The sample
+data is made up for this template.
