@@ -59,7 +59,7 @@ function run(entrySource, layers) {
   const input = layers ? `${JSON.stringify({ propertyInputs: layers })}\n${FRAME}\n` : `${FRAME}\n`;
   const result = spawnSync(process.execPath, args, { input, encoding: 'utf8' });
   const messages = result.stdout.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
-  return Object.assign(messages, { status: result.status });
+  return Object.assign(messages, { status: result.status, stderr: result.stderr });
 }
 
 function textOf(messages) {
@@ -173,4 +173,54 @@ test('a malformed handshake is reported as an error line', () => {
   const messages = run(SCHEMA_ENTRY, [{ source: 'props', baseDir: dir, values: null }]);
   assert.equal(messages.status, 1);
   assert.match(messages[0].error, /invalid project property inputs/);
+});
+
+test('entry props.json is strict when the entry declares properties', () => {
+  const file = join(dir, 'props.json');
+  const messages = run(SCHEMA_ENTRY, [
+    { source: 'entryProps', file, baseDir: dir, values: { titel: 'x', accent: 'red' } },
+  ]);
+  assert.equal(messages.status, 1);
+  const issues = messages[0].invalidProperties;
+  assert.equal(issues.length, 2, JSON.stringify(messages));
+  assert.deepEqual(
+    issues.map(({ key, source }) => [key, source]),
+    [
+      ['titel', `props.json ${file}`],
+      ['accent', `props.json ${file}`],
+    ],
+  );
+});
+
+test('entry props.json is ignored with a warning when the entry declares nothing', () => {
+  const entry =
+    `import { Composition, Text } from '@celesta/react';\n` +
+    `export default function Root() {\n` +
+    `  return <Composition width={64} height={64} fps={30} durationInFrames={1}><Text x={0} y={0}>ok</Text></Composition>;\n` +
+    `}\n`;
+  const file = join(dir, 'props.json');
+  const messages = run(entry, [{ source: 'entryProps', file, baseDir: dir, values: { title: 'x' } }]);
+  assert.equal(messages.status, 0, messages.stderr);
+  assert.ok(messages[0].config, JSON.stringify(messages));
+  assert.equal(textOf(messages).text, 'ok');
+  assert.match(messages.stderr, /ignoring .*props\.json.*declares no project properties/);
+});
+
+test('entry props.json values reach prepare() and rendering, and paths resolve from its folder', () => {
+  writeFileSync(join(dir, 'auto.txt'), 'auto-line\n');
+  const messages = run(SCHEMA_ENTRY, [
+    { source: 'entryProps', file: join(dir, 'props.json'), baseDir: dir, values: { title: 'Auto', data: './auto.txt' } },
+  ]);
+  assert.equal(messages.status, 0, messages.stderr);
+  assert.equal(textOf(messages).text, 'Auto|b|auto-line');
+});
+
+test('entry props.json naming a missing file is reported by key', () => {
+  const file = join(dir, 'props.json');
+  const messages = run(SCHEMA_ENTRY, [{ source: 'entryProps', file, baseDir: dir, values: { data: './gone.txt' } }]);
+  assert.equal(messages.status, 1);
+  const issues = messages[0].invalidProperties;
+  assert.equal(issues.length, 1, JSON.stringify(messages));
+  assert.equal(issues[0].key, 'data');
+  assert.match(issues[0].message, /gone\.txt is not an existing file/);
 });

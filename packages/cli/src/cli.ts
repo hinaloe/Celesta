@@ -262,7 +262,7 @@ function isPropertyInputLayer(layer: unknown): layer is PropertyInputLayer {
   if (layer === null || typeof layer !== 'object') return false;
   const { source, baseDir, values, file } = layer as Record<string, unknown>;
   return (
-    (source === 'project' || source === 'propsFile' || source === 'props') &&
+    (source === 'project' || source === 'propsFile' || source === 'entryProps' || source === 'props') &&
     typeof baseDir === 'string' &&
     values !== null &&
     typeof values === 'object' &&
