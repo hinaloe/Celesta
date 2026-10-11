@@ -24,7 +24,8 @@ for more examples, see the [examples directory](examples) and the [gallery](docs
   hold a scene at a chosen frame with `<FreezeFrame>`.
 - **Draw and lay out content:** combine rectangles, circles, ellipses, arrows,
   and paths with text. Load fonts, measure text, fit it into a box, and wrap
-  Japanese text at phrase boundaries.
+  Japanese text at phrase boundaries. Draw up to hundreds of thousands of
+  particles, as rects, circles, or image sprites, with `<Instances>`.
 - **Use media:** load local or HTTP(S) video, images, and audio. Remote files
   are downloaded into a cache for native preview and export.
 - **Preview frame by frame:** open a React composition, play it

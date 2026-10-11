@@ -22,6 +22,12 @@ do. Thousands of flat `Rect`s are cheap; a few dozen effects are not.
 
 ## Same picture, less work
 
+- **Draw thousands of similar elements with `<Instances>`.** Every layer
+  costs time in React, in sending the frame to the renderer, and in the
+  renderer itself: 100,000 `<Rect>`s take about 180 ms a frame, the same
+  100,000 particles in one `<Instances>` about 10 ms. Use it for particles,
+  dots, snow, and sprites; see
+  [react-core.md](react-core.md#instances-particles).
 - **Put one effect on a `Group`, not one on each layer.** A `Group`'s effect
   filters all its children together. Letters that fade one by one can
   share one `glow` on their `Group`; it follows each letter's opacity.

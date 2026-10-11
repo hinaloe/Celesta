@@ -26,6 +26,7 @@ provides `react` (18.x) and those packages; never install them from npm.
 - [Text (summary)](#text-summary)
 - [Group and clipping](#group-and-clipping)
 - [Image](#image)
+- [Instances (particles)](#instances-particles)
 - [Video](#video)
 - [Audio](#audio)
 - [Font and Assets](#font-and-assets)
@@ -282,6 +283,60 @@ image.
 Paths are relative to the entry file's folder. `http(s)://` URLs are
 downloaded once into a per-user cache and never revalidated; change the URL
 to pick up a new file.
+
+## Instances (particles)
+
+`<Instances>` draws many particles of one shape as one layer: rects,
+circles, or one image (`src`) for every particle. Use it for sparks, snow,
+star fields, and anything else with hundreds to hundreds of thousands of
+elements; 100,000 animated particles cost about as much per frame as a few
+hundred `Rect` layers. Particles draw in array order, later ones on top.
+
+```tsx
+import { Composition, Instances, useCurrentFrame } from '@celesta/react';
+
+const N = 20_000;
+const xs = new Float32Array(N);
+const ys = new Float32Array(N);
+const colors = new Uint8Array(N * 4);
+
+function Snow() {
+  const t = useCurrentFrame() / 30;
+  for (let i = 0; i < N; i++) {
+    xs[i] = (i * 97.3 + Math.sin(t + i) * 20) % 1920;
+    ys[i] = (i * 13.7 + t * (40 + (i % 60))) % 1080;
+    colors.set([255, 255, 255, 120 + (i % 100)], i * 4);
+  }
+  return <Instances count={N} x={xs} y={ys} color={colors} shape="circle" width={3} height={3} />;
+}
+```
+
+| Prop | Value |
+| --- | --- |
+| `count` | Number of particles; every column holds this many values. |
+| `x`, `y` | Particle **centres**, one per particle (`Float32Array` or array of numbers). Required. |
+| `width`, `height` | A number for every particle, or one per particle. Required for rects and circles; an image defaults to its natural size. |
+| `rotation` | Degrees per particle, about its centre. |
+| `color` | `Uint8Array` (or array) of straight RGBA 0-255, four per particle. Fills a rect or circle; multiplies an image's texels (white leaves the image as it is). |
+| `fill` | One hex colour for every particle when `color` is absent. Defaults to white. |
+| `shape` | `'rect'` (default) or `'circle'`; ignored with `src`. `cornerRadius` rounds rects. |
+| `src` | An image every particle draws, as for `<Image src>`. |
+
+- **`x`, `y`, and `rotation` always belong to the particles.** Move or turn
+  the whole set with a `<Group x y rotation>` around it. `scale`,
+  `opacity`, `blendMode`, `blur`, `glow`, `shadow`, and `shader` apply to
+  the layer as a whole.
+- **A `blendMode` blends the particles as one layer**, as on a `<Group>`:
+  they composite normally with each other, then the result blends with the
+  backdrop. Overlapping particles do not add up through `add` or `screen`.
+- **Fill the columns in place.** Allocate the typed arrays once at module
+  scope and overwrite them each frame; every frame sends their current
+  contents. `Float32Array`/`Uint8Array` columns are fastest; plain arrays
+  are converted every frame.
+- **A wrong length fails the frame** with an error naming the prop
+  (`<Instances> x has 3 values; count is 4`). A particle with a non-finite
+  value is not drawn.
+- The CPU reference renderer cannot rotate particles; export uses the GPU.
 
 ## Video
 
