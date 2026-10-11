@@ -20,6 +20,8 @@ import {
   lerp,
   lerpAngle,
   lerpPoint,
+  loopFbm,
+  loopNoise,
   midpoint,
   mod,
   noise,
@@ -172,6 +174,38 @@ test('fbm layers octaves and keeps the first octave', () => {
   assert.throws(() => fbm2D('s', 1, 1, { gain: Number.NaN }), /non-negative gain/);
   assert.throws(() => fbm3D('s', 1, 1, 1, { lacunarity: Number.POSITIVE_INFINITY }), /finite lacunarity/);
   assert.equal(fbm('s', 1.7, { octaves: 3, gain: 0 }), noise('s', 1.7));
+});
+
+test('loopNoise and loopFbm repeat every period and stay smooth across the seam', () => {
+  // A 384-frame loop sampled like noise(seed, frame / 20).
+  const period = 384 / 20;
+  for (const seed of ['sway', 7, 'drift-3']) {
+    for (const frame of [0, 1, 17, 200, 383]) {
+      const t = frame / 20;
+      close(loopNoise(seed, t + period, period), loopNoise(seed, t, period));
+      close(loopNoise(seed, t - period, period), loopNoise(seed, t, period));
+      close(loopFbm(seed, t + period, period), loopFbm(seed, t, period));
+    }
+    // The step across the seam is no bigger than a step anywhere else.
+    const seam = Math.abs(loopNoise(seed, 0, period) - loopNoise(seed, 383 / 20, period));
+    assert.ok(seam < 0.2, `seam step ${seam}`);
+  }
+  for (let i = 0; i < 500; i += 1) {
+    const value = loopNoise(i, i / 7, 5.3);
+    assert.ok(value >= -1 && value <= 1, `loopNoise(${i / 7}) = ${value}`);
+    const layered = loopFbm(i, i / 9, 5.3, { octaves: 5, lacunarity: 2.5 });
+    assert.ok(layered >= -1 && layered <= 1);
+  }
+  // A whole-number period follows noise until its last unit, which bends back to the start.
+  for (const t of [0, 0.5, 3.25, 9]) assert.equal(loopNoise('s', t, 10), noise('s', t));
+  assert.notEqual(loopNoise('s', 9.5, 10), noise('s', 9.5));
+  assert.equal(loopFbm('s', 1.7, 6, { octaves: 1 }), loopNoise('s', 1.7, 6));
+  // Even a period shorter than one unit moves.
+  assert.notEqual(loopNoise('s', 0.05, 0.4), loopNoise('s', 0.15, 0.4));
+  assert.throws(() => loopNoise('s', 1, 0), /loopNoise\(\) requires a positive, finite period/);
+  assert.throws(() => loopNoise('s', 1, Number.POSITIVE_INFINITY), /positive, finite period/);
+  assert.throws(() => loopNoise('s', Number.NaN, 4), /loopNoise\(\) requires a finite t/);
+  assert.throws(() => loopFbm('s', 1, 4, { octaves: 0 }), /whole number of octaves/);
 });
 
 test('scalar helpers', () => {
