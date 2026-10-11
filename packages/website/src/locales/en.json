@@ -918,16 +918,30 @@
         "tokens": "Tokens",
         "returns-the-tokens-behind-each-one-has": "<slot0/> returns the tokens behind <slot1/>: each one has the original <slot2/>, a <slot3/> (twinkleplop’s name, or <slot4/>), and its <slot5/> and <slot6/> offsets in UTF-16 units, end exclusive. Tokens preserve all of the source, whitespace included, and need neither HTML nor a DOM. Use them for your own rendering or to analyze the code:",
         "count-the-comments": "Count the comments",
+        "drawing-the-lines-yourself": "Drawing the lines yourself",
+        "returns-the-lines-and-color-runs-that": "<slot0/> returns the lines and color runs that <slot1/> draws, so you can keep its colors and stage the lines your own way: one line per beat, an accent beside a line, a band out to the frame edge. It follows <slot2/>’s rules and defaults (<slot3/>, <slot4/>, and a tab size of <slot5/>): LF, CRLF, and CR end a line, tabs expand to tab stops, and token types the theme does not list use <slot6/>. It is a plain function, so call it once outside the component when the source is fixed.",
+        "each-line": "Each line",
+        "draw-each-non-empty-line-as-one": "Draw each non-empty line as one <slot0/> with the same style as <slot1/>. <slot2/> puts each line’s baseline at the ascent of <slot3/> below the line’s top, read with <slot4/>; doing the same draws exactly what <slot5/> draws. This example types one line per beat:",
+        "type-one-line-per-beat": "Type one line per beat",
+        "to-color-with-span-instead": "To color with <slot0/> instead, slice <slot1/> by each run’s start and end. A Text takes <slot2/> or Span fills, not both.",
+        "does-not-know-glyph-widths": "<slot0/> does not know how wide a glyph is. Measure positions, such as a caret or where a line’s text ends: <slot1/> for a source position, or <slot2/> with <slot3/> on a line.",
+        "is-the-step-before-coloring": "<slot0/> is the step before coloring. It splits <slot1/>’s tokens into the same lines, with an uncolored run for each stretch of adjacent tokens of one type: its <slot2/>, tab-expanded <slot3/>, and expanded start <slot4/>. Use it when you need token types rather than merged colors.",
         "limits": "Limits",
-        "each-color-run-is-its-own-layer": "Each color run is its own <slot0/> layer, and the package measures prefixes of the source. Long lines with many colors cost more to measure, add layers, and take longer to rasterize. Keep snippets to what fits on screen.",
-        "shaping-does-not-carry-across-color-boundaries": "Shaping does not carry across color boundaries, so ligatures, kerning, combining characters, and right-to-left text are not preserved as one run. Use a monospaced font and left-to-right code.",
+        "each-line-is-one-layer": "Each non-empty line is one <slot0/> layer with color runs. Typing rasterizes the line being typed again for each new character; its shaping is cached. Keep snippets to what fits on screen.",
+        "shaping-carries-across-color-boundaries": "Kerning, ligatures, and combining characters are shaped across color boundaries; a shaped cluster takes its first character’s color and appears as a whole. A line wider than the GPU texture limit is rasterized at a smaller scale and can look softer.",
         "proportional-fonts-are-not-a-supported-layout": "Proportional fonts are not a supported layout guarantee.",
-        "blank-runs-get-no-layer-but-keep": "Blank runs get no <slot0/> layer but keep their measured spacing.",
-        "sharing-styled-text-shaping-in-the-core": "Sharing styled-text shaping in the core renderer is the planned fix; it is tracked in <slot0>issue 99</slot0>. Browser support is tracked in <slot1>issue 100</slot1>.",
+        "empty-lines-get-no-layer": "Empty lines get no <slot0/> layer but keep their row.",
+        "browser-support-is-tracked-in": "Browser support is tracked in <slot0>issue 100</slot0>.",
         "metadata": {
           "title": "code: typing, carets & tokens",
-          "description": "Reveal code as it is typed, place carets, and read tokens.",
-          "keywords": "visibleCharacters useTypewriter useCodePoint codeCharacterCount tokenizeCode caret annotation typing reveal limits performance ligatures"
+          "description": "Reveal code as it is typed, place carets, read tokens, and draw the lines yourself.",
+          "keywords": "visibleCharacters useTypewriter useCodePoint codeCharacterCount tokenizeCode highlightCode codeLines colorRuns line by line caret annotation typing reveal limits performance ligatures"
+        },
+        "api": {
+          "the-line-with-tabs-expanded": "The line with tabs expanded, without its line break. An empty line is an empty string and keeps its row.",
+          "original-source-characters-before-the-line": "Original source characters before the line, counted as <slot0/> counts them.",
+          "the-expanded-column-after-each-original": "The expanded column after each original character of the line: <slot0/> is <slot1/>, and the last entry is the length of <slot2/>. It turns a count of source characters into <slot3/>’s <slot4/>, which counts the expanded text.",
+          "color-runs-over-the-expanded-text": "Runs of <slot0/>, <slot1/>, <slot2/>, and <slot3/> over the expanded text, in order and covering all of it. Pass them as <slot4/> as they are. Neighboring tokens of one color share a run, which keeps the first token’s <slot5/>."
         }
       },
       "voicevox": {

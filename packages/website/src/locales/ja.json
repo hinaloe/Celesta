@@ -918,16 +918,30 @@
         "tokens": "トークン",
         "returns-the-tokens-behind-each-one-has": "<slot0/> は <slot1/> のトークンを返します。各トークンは元の <slot2/>、<slot3/>（twinkleplop の名前または <slot4/>）、UTF-16 単位の <slot5/> と <slot6/>（終了位置は含まない）を持ちます。空白も含め全ソースを保持し、HTML や DOM は不要です。独自の描画やコード分析に使えます。",
         "count-the-comments": "コメントを数える",
+        "drawing-the-lines-yourself": "行を自分で描く",
+        "returns-the-lines-and-color-runs-that": "<slot0/> は <slot1/> が描く行と色の区間を返します。色分けはそのままに、1 行ずつ拍に合わせて打ち込む、行の横に印を付ける、帯を画面の端まで伸ばす、といった見せ方を自分で組めます。規則と既定値は <slot2/> と同じです（<slot3/>、<slot4/>、タブ幅 <slot5/>）。LF・CRLF・CR で行が分かれ、タブはタブ位置まで展開し、テーマにないトークンの種類は <slot6/> になります。通常の関数なので、ソースが決まっているならコンポーネントの外で一度だけ呼びます。",
+        "each-line": "各行",
+        "draw-each-non-empty-line-as-one": "空でない行を、それぞれ <slot1/> と同じスタイルの <slot0/> 1 つで描きます。<slot2/> は各行のベースラインを、行の上端から <slot3/> の ascent だけ下に置きます。この値は <slot4/> で読めます。同じように置けば <slot5/> と同じ絵になります。次の例は 1 行ずつ拍に合わせて打ち込みます。",
+        "type-one-line-per-beat": "1 行ずつ打ち込む",
+        "to-color-with-span-instead": "代わりに <slot0/> で色を付けるときは、各区間の開始と終了で <slot1/> を切り出します。1 つの Text には <slot2/> と Span の fill のどちらか一方しか使えません。",
+        "does-not-know-glyph-widths": "<slot0/> は文字の幅を知りません。カーソルや行の文字の終わりなどの位置は計測します。ソース上の位置なら <slot1/>、行の中の位置なら <slot2/> と <slot3/> を使います。",
+        "is-the-step-before-coloring": "<slot0/> は色を付ける前の段階です。<slot1/> のトークンを同じ行に分け、隣り合う同じ種類のトークンごとに色のない区間を返します。区間は <slot2/>、タブを展開した <slot3/>、展開後の開始位置 <slot4/> を持ちます。色でまとめる前のトークンの種類が必要なときに使います。",
         "limits": "制限",
-        "each-color-run-is-its-own-layer": "色ごとの区間はそれぞれ <slot0/> レイヤーで、パッケージはソースの接頭部分を計測します。多色の長い行は計測・レイヤー・描画の負荷が増えます。画面に収まる量にしてください。",
-        "shaping-does-not-carry-across-color-boundaries": "色の境界を越えて字形処理されないので、合字・カーニング・結合文字・右から左の文字は一続きに保持されません。等幅フォントと左から右のコードを使います。",
+        "each-line-is-one-layer": "空でない行はそれぞれ色の区間を持つ <slot0/> レイヤー 1 つです。打ち込み中は、1 文字増えるたびにその行を描き直します（字形処理はキャッシュされます）。画面に収まる量にしてください。",
+        "shaping-carries-across-color-boundaries": "カーニング・合字・結合文字は色の境界をまたいで字形処理されます。字形のまとまりは最初の文字の色になり、まとめて表示されます。GPU のテクスチャ上限より幅の広い行は縮小して描かれ、ぼやけることがあります。",
         "proportional-fonts-are-not-a-supported-layout": "プロポーショナルフォントでの配置は保証されません。",
-        "blank-runs-get-no-layer-but-keep": "空白だけの区間は <slot0/> レイヤーを作りませんが、計測した間隔を保持します。",
-        "sharing-styled-text-shaping-in-the-core": "コア描画でスタイル付きテキストの字形処理を共有する修正を計画しており、<slot0>Issue 99</slot0> で追跡しています。ブラウザ対応は <slot1>Issue 100</slot1> です。",
+        "empty-lines-get-no-layer": "空行は <slot0/> レイヤーを作りませんが、行の高さは保ちます。",
+        "browser-support-is-tracked-in": "ブラウザ対応は <slot0>Issue 100</slot0> で追跡しています。",
         "metadata": {
           "title": "code：入力・カーソル・トークン",
-          "description": "入力風にコードを表示し、カーソルを配置し、トークンを取得します。",
-          "keywords": "コード 入力 カーソル トークン タイピング visibleCharacters useTypewriter useCodePoint codeCharacterCount tokenizeCode caret annotation typing reveal limits performance ligatures"
+          "description": "入力風にコードを表示し、カーソルを配置し、トークンを取得し、行を自分で描きます。",
+          "keywords": "コード 入力 カーソル トークン タイピング 行ごと 自分で描く visibleCharacters useTypewriter useCodePoint codeCharacterCount tokenizeCode highlightCode codeLines colorRuns line by line caret annotation typing reveal limits performance ligatures"
+        },
+        "api": {
+          "the-line-with-tabs-expanded": "タブを展開した行の文字列です。改行は含みません。空行は空文字列で、行の高さは保ちます。",
+          "original-source-characters-before-the-line": "行より前にある元のソースの文字数です。<slot0/> と同じ数え方です。",
+          "the-expanded-column-after-each-original": "行の元の文字ごとの、展開後の桁位置です。<slot0/> は <slot1/> で、最後の要素は <slot2/> の長さです。ソースの文字数を、展開後の文字列を数える <slot3/> の <slot4/> に変換できます。",
+          "color-runs-over-the-expanded-text": "展開後の文字列に対する <slot0/>・<slot1/>・<slot2/>・<slot3/> を持つ区間です。順に並び、文字列全体を覆います。そのまま <slot4/> に渡せます。隣り合う同じ色のトークンは 1 つの区間にまとまり、最初のトークンの <slot5/> を残します。"
         }
       },
       "voicevox": {
