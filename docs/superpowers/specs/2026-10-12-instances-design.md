@@ -182,8 +182,8 @@ pub struct U8Column(pub Arc<[u8]>);
   ts-rs emits them as `string`. `Arc` keeps cloning a `Scene` cheap.
 - Deserializing rejects a column whose length is not `count` (`4 * count`
   for `colors`), so renderers can index columns without checks. The check
-  lives in a `TryFrom` of a raw mirror, so it also guards scenes built by
-  deserialization in tests and project files.
+  runs in `LayerContent`'s `Deserialize` right after the tagged mirror, so
+  it guards every deserialized scene, not only the bridge's.
 - `LayerContent::Instances` and `InstanceShape` get externally tagged
   mirrors for `TypeTagged`, and join `every_tagged_variant_round_trips`.
 - Codegen regenerates `packages/react/src/generated/`; `scene.ts`
