@@ -966,13 +966,25 @@ export interface ResolutionRuntime {
 /** One resolution outcome: the component's layers, or null when its name has no registerComponent() match. */
 export type ComponentResolution = Layer[] | null;
 
+/** What one `Resolver.resolve` call produced. */
+export interface ComponentResolutions {
+  /** One outcome per request, in order. */
+  components: ComponentResolution[];
+  /**
+   * The custom shaders the resolved layers use, each once; absent when they
+   * use none. The caller merges them into the scene the layers go into.
+   */
+  shaders?: ShaderSource[];
+}
+
 export interface Resolver {
   /**
    * Renders each request's registered component against a dedicated
    * persistent root (separate from the composition's, so hook state in
    * resolved components survives across calls exactly as it does for the
    * main tree), returning the layers each one produced — or null for a
-   * name with no matching registerComponent() call. `runtime`, when given,
+   * name with no matching registerComponent() call — and the shader sources
+   * those layers use. `runtime`, when given,
    * is what those components' `useCurrentFrame()`/`useVideoConfig()` see;
    * without one they fall back to the placeholder frame-0 runtime.
    */
@@ -980,7 +992,7 @@ export interface Resolver {
     items: readonly ComponentResolutionRequest[],
     runtime?: ResolutionRuntime,
     fonts?: readonly ResolvedAsset[],
-  ): (Layer[] | null)[];
+  ): ComponentResolutions;
 }
 
 /**
@@ -1059,7 +1071,7 @@ export function createResolver(lang?: string): Resolver {
         runtime?.time ?? ZERO_TIME,
         runtimeValue.lang,
       );
-      return container.children.map((child, index) => {
+      const components = container.children.map((child, index) => {
         // An unresolved name renders the empty 'rawLayers' marker; anything
         // else is a resolved component's group (possibly one that rendered
         // no layers, which is still "resolved").
@@ -1067,14 +1079,11 @@ export function createResolver(lang?: string): Resolver {
           return null;
         }
         const audio: AudioClipDescriptor[] = [];
-        const layers = walkChildren(child, `resolve.${index}`, walkContext, audio);
-        // Resolutions carry only layers, so a shader's source has no way
-        // into the project's scene.
-        if (usedShaders(walkContext).length > 0) {
-          throw new Error(`${items[index]!.component}: custom shaders are not supported in components placed on project timelines`);
-        }
-        return layers;
+        return walkChildren(child, `resolve.${index}`, walkContext, audio);
       });
+      // Every item shares `walkContext`, so this lists each source once.
+      const shaders = usedShaders(walkContext);
+      return shaders.length > 0 ? { components, shaders } : { components };
     },
   };
 }

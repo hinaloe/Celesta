@@ -40,11 +40,16 @@ note records what landed and where it differs.
   `wgsl.d.ts`, which `index.d.ts` references with `preserve="true"` (TS 5.5+
   drops reference directives otherwise). The CLI bundles `.wgsl` as text,
   and the editor's reload watcher includes `.wgsl`.
+- Components on project timelines: `createResolver().resolve` returns
+  `{ components, shaders? }`, the sources every item's layers use, each
+  once. The CLI's `components` line carries them, the bridge reads them
+  with `#[serde(default)]` (`ComponentResolutions`), and the editor
+  preview's `splice_component_resolutions` adds them to the project
+  scene's `shaders`, skipping ids already listed. Exports render
+  components inside `<ProjectTimeline />`, in the entry's own tree, so
+  they needed no change.
 - Not supported, and failing loudly instead of drawing without the shader:
   the browser renderer (`@celesta/web` throws in `SceneCanvas`; the worker
-  does not serve `@celesta/shader`), and components resolved for project
-  timelines (`createResolver` throws). Component resolutions carry only
-  layers, so supporting the latter needs the bridge protocol to carry
-  sources and the editor to merge them into the project scene.
+  does not serve `@celesta/shader`).
 - Performance: `docs/performance/custom-shaders.md` and the `shaders`
   bench workload.

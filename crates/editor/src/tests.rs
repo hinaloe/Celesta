@@ -11,15 +11,19 @@ use crate::waveform::{
 use celesta_editor_core::ClipKind;
 use celesta_gpu_renderer::GpuDriver;
 
-use crate::preview::{collect_component_requests, strip_missing_components};
+use crate::preview::{
+    collect_component_requests, splice_component_resolutions, strip_missing_components,
+};
 use celesta_composition::{
     Animatable, AssetLocation, AudioClip, EvaluatedTransform, GroupMask, Layer, LayerContent,
-    MaskMode, Rational, ResolvedAsset, Time, TimeRange,
+    LayerEffects, LayerShader, MaskMode, Rational, ResolvedAsset, Scene, ShaderSource, Time,
+    TimeRange,
 };
 use celesta_editor_core::ClipSummary;
 use celesta_exporter::ExportCancellation;
 use celesta_media::{AudioBuffer, AudioDecoder};
 use celesta_project::Project;
+use celesta_react_bridge::ComponentResolutions;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -292,4 +296,83 @@ fn strips_missing_components_inside_masks() {
     };
     assert!(children.is_empty());
     assert!(mask.layers.is_empty());
+}
+
+fn shader(id: &str) -> ShaderSource {
+    ShaderSource {
+        id: id.to_owned(),
+        name: None,
+        wgsl: format!("fn effect(input: EffectInput) -> vec4f {{ return vec4f(0.0); }} // {id}"),
+        params: Vec::new(),
+    }
+}
+
+fn shaded(id: &str) -> Layer {
+    Layer {
+        effects: LayerEffects {
+            shader: Some(LayerShader {
+                id: id.to_owned(),
+                params: Vec::new(),
+                padding: 0.0,
+            }),
+            ..Default::default()
+        },
+        content: LayerContent::Group {
+            layers: Vec::new(),
+            clip: None,
+            mask: None,
+        },
+        ..missing(id)
+    }
+}
+
+#[test]
+fn splicing_component_resolutions_lists_their_shaders_once() {
+    let mut scene = Scene {
+        width: 16,
+        height: 16,
+        frame_rate: Rational::new(30, 1),
+        time: Time::new(0, 30),
+        fonts: Vec::new(),
+        shaders: vec![shader("listed")],
+        layers: vec![
+            missing("Ripple"),
+            masked_group(vec![missing("Unregistered")], vec![missing("Matte")]),
+        ],
+    };
+    let unresolved = splice_component_resolutions(
+        &mut scene,
+        ComponentResolutions {
+            components: vec![
+                Some(vec![shaded("ripple"), shaded("listed")]),
+                None,
+                Some(vec![shaded("ripple")]),
+            ],
+            shaders: vec![shader("ripple"), shader("listed")],
+        },
+    );
+
+    assert_eq!(unresolved, ["Unregistered"]);
+    let ids: Vec<_> = scene
+        .shaders
+        .iter()
+        .map(|shader| shader.id.as_str())
+        .collect();
+    assert_eq!(ids, ["listed", "ripple"]);
+    let LayerContent::Group { layers, .. } = &scene.layers[0].content else {
+        panic!("the component did not resolve to a group");
+    };
+    assert_eq!(layers.len(), 2);
+    let LayerContent::Group {
+        layers: children,
+        mask: Some(mask),
+        ..
+    } = &scene.layers[1].content
+    else {
+        panic!("the group lost its mask");
+    };
+    assert!(children.is_empty());
+    assert!(
+        matches!(&mask.layers[0].content, LayerContent::Group { layers, .. } if layers.len() == 1)
+    );
 }

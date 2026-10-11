@@ -6,7 +6,7 @@ use crate::types::{
     ComponentPropertyField, ComponentPropertySchema, ReactAudioClipDescriptor,
     ReactCompositionConfig,
 };
-use celesta_composition::{Layer, Scene, Time};
+use celesta_composition::{Layer, Scene, ShaderSource, Time};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -83,6 +83,8 @@ pub(crate) enum Response {
     },
     Components {
         components: Vec<Option<Vec<Layer>>>,
+        /// Absent from older runtimes, whose resolutions never used shaders.
+        shaders: Vec<ShaderSource>,
     },
     Err {
         error: String,
@@ -101,6 +103,8 @@ pub(crate) struct RawResponse {
     #[serde(default)]
     pub(crate) audio: Vec<ReactAudioClipDescriptor>,
     pub(crate) components: Option<Vec<Option<Vec<Layer>>>>,
+    #[serde(default)]
+    pub(crate) shaders: Vec<ShaderSource>,
     pub(crate) error: Option<String>,
 }
 
@@ -119,7 +123,10 @@ impl TryFrom<RawResponse> for Response {
                 audio: raw.audio,
             })
         } else if let Some(components) = raw.components {
-            Ok(Self::Components { components })
+            Ok(Self::Components {
+                components,
+                shaders: raw.shaders,
+            })
         } else if let Some(error) = raw.error {
             Ok(Self::Err { error })
         } else {

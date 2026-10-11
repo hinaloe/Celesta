@@ -58,7 +58,7 @@ test('render metrics cache by value and refresh for text, style, wrapping and co
   const preview = createResolver().resolve([{ component: 'MetricsLabelTest', props: {} }], {
     width: 400, height: 200, fps: 30, durationInFrames: 6,
     time: { value: 5, timescale: 30 }, preview: true,
-  }, mounted.fonts);
+  }, mounted.fonts).components;
   assert.deepEqual(preview[0][0].content, render(5).layers[0].content);
 });
 

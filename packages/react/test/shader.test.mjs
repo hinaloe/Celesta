@@ -93,13 +93,34 @@ test('shaderSource and shaderEffect check their invariants', () => {
   assert.throws(() => shaderEffect(source, [1, 2, 3], -1), /padding/);
 });
 
-test('components resolved for project timelines refuse shaders', () => {
+test('component resolutions list the shaders their layers use, each once', () => {
+  const tint = shaderSource({ name: 'tint', wgsl: WGSL, params: [{ name: 'amount', type: 'f32' }] });
   const plain = shaderSource({ wgsl: WGSL, params: [] });
-  registerComponent('ShadedForTimeline', () => h(Rect, { width: 4, height: 4, shader: shaderEffect(plain, [], 0) }));
-  assert.throws(
-    () => createResolver().resolve([{ component: 'ShadedForTimeline', props: {} }]),
-    /ShadedForTimeline: custom shaders are not supported in components placed on project timelines/,
-  );
+  registerComponent('TintedForTimeline', ({ amount }) =>
+    h(Rect, { width: 4, height: 4, shader: shaderEffect(tint, [amount], 0) }));
+  registerComponent('PlainForTimeline', () =>
+    h(Group, { shader: shaderEffect(plain, [], 0) }, h(Rect, { width: 4, height: 4, shader: shaderEffect(tint, [1], 0) })));
+  const { components, shaders } = createResolver().resolve([
+    { component: 'TintedForTimeline', props: { amount: 0.5 } },
+    { component: 'NotRegisteredForTimeline', props: {} },
+    { component: 'PlainForTimeline', props: {} },
+    { component: 'TintedForTimeline', props: { amount: 1 } },
+  ]);
+  assert.equal(components[1], null);
+  assert.deepEqual(components[0][0].effects.shader, { id: tint.id, params: [0.5] });
+  assert.deepEqual(components[2][0].effects.shader, { id: plain.id });
+  assert.deepEqual(components[3][0].effects.shader, { id: tint.id, params: [1] });
+  assert.deepEqual(shaders, [
+    { id: tint.id, name: 'tint', wgsl: WGSL, params: [{ name: 'amount', type: 'f32' }] },
+    { id: plain.id, wgsl: WGSL },
+  ]);
+});
+
+test('component resolutions without shaders have no shaders field', () => {
+  registerComponent('UnshadedForTimeline', () => h(Rect, { width: 4, height: 4 }));
+  const resolutions = createResolver().resolve([{ component: 'UnshadedForTimeline', props: {} }]);
+  assert.equal(resolutions.components.length, 1);
+  assert.equal('shaders' in resolutions, false);
 });
 
 test('two different shaders with the same id in one frame are refused', () => {

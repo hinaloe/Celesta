@@ -27,8 +27,8 @@ import {
 } from '@celesta/react/internal';
 import type {
   AudioClipDescriptor,
-  ComponentResolution,
   ComponentResolutionRequest,
+  ComponentResolutions,
   EntryComponent,
   MeasureTextRequest,
   MountedComposition,
@@ -217,7 +217,7 @@ async function main(): Promise<void> {
         writeLine({ collectedAudio: mounted.collectAudio() });
       } else if (isResolveRequest(request)) {
         resolver ??= createResolver(mounted.config.lang);
-        writeLine({ components: resolver.resolve(request.components, request.runtime, mounted.fonts) });
+        writeLine(resolver.resolve(request.components, request.runtime, mounted.fonts));
       } else {
         const { scene, audio } = mounted.renderAt(request.time, request.project ?? null);
         writeLine(
@@ -335,7 +335,7 @@ function writeLine(
     | { scene: Scene; audio: AudioClipDescriptor[] }
     | { scene: Omit<Scene, 'layers'> & { layers: CompactLayer[] }; audio: AudioClipDescriptor[] }
     | { collectedAudio: AudioClipDescriptor[] }
-    | { components: ComponentResolution[] }
+    | ComponentResolutions
     | { probeMedia: { path: string } }
     | { measureText: MeasureTextRequest }
     | { invalidProperties: PropertyIssue[] }

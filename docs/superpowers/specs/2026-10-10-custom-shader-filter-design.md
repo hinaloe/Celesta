@@ -327,6 +327,17 @@ export function shaderEffect(
 - The walker writes `effects.shader` (`id`, `params`, `padding`). It adds
   the source to the frame's `shaders` once per id, and `renderAt` writes
   `shaders` beside `fonts` when any layer used a shader that frame.
+- Components resolved for project timelines (`createResolver`) collect
+  sources the same way, across every item of one call: `resolve` returns
+  `{ components, shaders? }`, and the CLI writes that object as the
+  `components` response line. The bridge reads `shaders` with
+  `#[serde(default)]`, so an older runtime's line still parses, and
+  `ReactBridge::resolve_components` returns `ComponentResolutions`. The
+  editor preview's `splice_component_resolutions` places the layers and
+  adds the sources to the project scene's `shaders`, skipping ids it
+  already lists; the GPU renderer rejects a scene that lists an id twice.
+  Exports need nothing more: `<ProjectTimeline />` renders components in
+  the entry's own tree, so `renderAt` collects their sources.
 
 ### `@celesta/shader`
 
@@ -559,6 +570,10 @@ Scenes without shaders take exactly the code paths they take today.
   the frame; a broken shader is compiled once across several frames.
 - Cache: a changed source under the same id recompiles; an entry unused for
   300 frames is dropped.
+- `celesta-react-bridge`: a `components` response deserializes its
+  `shaders`, and one without them (an older runtime) has none.
+- `celesta-editor`: splicing component resolutions into a scene that
+  already lists a shader adds only the new ids.
 - `celesta-exporter`: a React entry with a shader imported from a `.wgsl`
   file renders through the export path (`png_integration.rs`) and matches
   the GPU renderer's frame.
@@ -577,6 +592,8 @@ Through `@celesta/react/internal` directly, without `@celesta/shader`:
 5. A `shader` prop that is not a `ShaderEffect` (a plain object of the
    same shape, a string) throws; each invariant check of `shaderSource`
    and `shaderEffect` throws.
+6. `createResolver().resolve` lists each source its components' layers
+   use once, across items, and has no `shaders` when they use none.
 
 ### `@celesta/shader` (`packages/shader/test/shader.test.mjs`)
 
@@ -591,7 +608,9 @@ Through `@celesta/react/internal` directly, without `@celesta/shader`:
    through the CLI, and the frame carries the file's text as the source.
 2. The staged project types make `import source from './x.wgsl'`
    type-check once `@celesta/shader` is imported.
-3. `@celesta/web`: importing `@celesta/shader` reports that it is
+3. A registered component that uses a shader resolves through the CLI's
+   `components` request, and the response line carries the source.
+4. `@celesta/web`: importing `@celesta/shader` reports that it is
    unavailable, and `SceneCanvas` rejects a scene with `effects.shader`.
 
 ### Performance
@@ -647,9 +666,5 @@ Two pull requests:
 - Shaders in project JSON timelines.
 - Shaders in the browser renderer (`@celesta/web`). It would need a WebGPU
   path beside Canvas 2D.
-- Shaders in components resolved for project timelines (`createResolver`).
-  Resolutions carry only layers, so the bridge protocol would have to carry
-  the sources and the editor merge them into the project's scene. The
-  resolver throws instead.
 - Protection against shaders that hang the GPU. A shader that runs too
   long can trigger the driver's timeout; the docs warn about it.

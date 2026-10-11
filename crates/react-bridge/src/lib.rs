@@ -26,8 +26,9 @@ pub use properties::{
     resolve_props_file,
 };
 pub use types::{
-    ComponentPropertyField, ComponentPropertySchema, ComponentResolutionRequest, FrameEvaluation,
-    ProjectFrame, ReactAudioClipDescriptor, ReactCompositionMetadata,
+    ComponentPropertyField, ComponentPropertySchema, ComponentResolutionRequest,
+    ComponentResolutions, FrameEvaluation, ProjectFrame, ReactAudioClipDescriptor,
+    ReactCompositionMetadata,
 };
 
 mod project_templates;

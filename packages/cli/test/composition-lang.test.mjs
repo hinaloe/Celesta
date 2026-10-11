@@ -64,7 +64,7 @@ test('composition language reaches nested text, project layers, metrics and comp
   const preview = createResolver(root.config.lang).resolve(
     [{ component: 'CompositionLanguageCaption', props: {} }],
     { ...config, time: { value: 0, timescale: 30 }, preview: true },
-  );
+  ).components;
   assert.deepEqual(texts(preview[0]), texts(scene.layers).filter(({ text }) => text === 'inherited' || text === 'override'));
   const plain = mount(() => React.createElement(Composition, config, React.createElement(Caption)));
   assert.equal(plain.config.lang, undefined);
@@ -119,7 +119,7 @@ test('nearest language scopes keep measurements, rendered text and previews alig
       assert.equal(layer.maxWidth, widths[layer.style.lang] ?? 20);
     }
     const preview = createResolver(languages[frame]).resolve(
-      [{ component: 'ScopedLanguageCaption', props: {} }], { ...config, time, preview: true });
+      [{ component: 'ScopedLanguageCaption', props: {} }], { ...config, time, preview: true }).components;
     assert.deepEqual(texts(preview[0]), content);
   }
   assert.deepEqual(sharedStyle, { fontSize: 40 });
@@ -177,7 +177,7 @@ test('fitted text measures with the inherited language and preserves explicit ov
   const preview = createResolver(root.config.lang).resolve(
     [{ component: 'CompositionLanguageFittedCaption', props: {} }],
     { ...config, time: { value: 0, timescale: 30 }, preview: true },
-  );
+  ).components;
   assert.deepEqual(texts(preview[0]), content);
   assert.deepEqual(options.style, { fontFamily: 'Test Font' });
 });

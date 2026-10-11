@@ -9,8 +9,9 @@ import { test } from 'vitest';
 import * as React from 'react';
 
 import { Composition, Group, Image, Rect, Text } from '../dist/index.js';
-import { mount } from '../dist/render.js';
+import { createResolver, mount } from '../dist/render.js';
 import { shaderEffect, shaderSource } from '../dist/internal.js';
+import { registerComponent } from '../dist/registry.js';
 
 v8.setFlagsFromString('--allow-natives-syntax');
 const sameMap = new Function('a', 'b', 'return %HaveSameMap(a, b)');
@@ -63,4 +64,22 @@ test('a frame has no cons or sliced strings in ids, text, colors, asset paths, o
   };
   const { scene } = mount(Scene).renderAt({ value: 0, timescale: 30 }, null);
   assert.deepEqual(nonFlatStrings(scene), []);
+});
+
+test('a component resolution has no cons or sliced strings in its layers or shaders', () => {
+  const frame = String(Math.floor(Math.random() * 1000)).padStart(4, '0');
+  const shader = shaderSource({
+    name: `ripple-${frame}-shader`,
+    wgsl: `fn effect(input: EffectInput) -> vec4f { return vec4f(${frame}.0); }`,
+    params: [{ name: `amount_${frame}_value`, type: 'f32' }],
+  });
+  registerComponent('FlatStringsResolution', () => h(
+    React.Fragment,
+    null,
+    h(Text, null, `FRAME ${frame} / 600`),
+    h(Rect, { id: `authored-${frame}-rect`, width: 1, height: 1, shader: shaderEffect(shader, [1], 0) }),
+  ));
+  const resolutions = createResolver().resolve([{ component: 'FlatStringsResolution', props: {} }]);
+  assert.equal(resolutions.shaders.length, 1);
+  assert.deepEqual(nonFlatStrings(resolutions), []);
 });
