@@ -252,9 +252,15 @@ impl fmt::Display for TemplateError {
                 available.join(", ")
             ),
             Self::Conflicts { root, paths } => {
+                // Template paths read the same on every platform: `assets/a.png`.
                 let paths: Vec<_> = paths
                     .iter()
-                    .map(|path| path.display().to_string())
+                    .map(|path| {
+                        path.components()
+                            .map(|part| part.as_os_str().to_string_lossy())
+                            .collect::<Vec<_>>()
+                            .join("/")
+                    })
                     .collect();
                 write!(
                     formatter,
