@@ -189,13 +189,12 @@ The radius (`0.8`) sets how much the field changes over one loop. See
    anything differs. `--json` lists every difference.
 
    It compares the picture only, not sound. An entry that measures text
-   (`useTextMetrics`, `TextBox`, `@celesta/code`, …) stops with exit code 2;
-   add `--native <Celesta-export>` to check it with real text shaping
-   ([verify.md](verify.md#measured-text---native)):
-
-   ```sh
-   node <skill>/scripts/inspect.mjs film.tsx --loop --native "/Applications/Celesta.app/Contents/MacOS/Celesta-export"
-   ```
+   (`useTextMetrics`, `TextBox`, `@celesta/code`, …) is checked through the
+   exporter, as in [verify.md](verify.md#measured-text---native); `--loop`
+   only uses an exporter recent enough to evaluate past the end. Without one
+   such an entry stops with exit code 2: pass a newer build with
+   `--native <Celesta-export>`, or compare the seam in the contact sheet
+   below.
 
 2. **Look at the seam.** Put the last and first frames side by side, next to
    an ordinary bar line for comparison:

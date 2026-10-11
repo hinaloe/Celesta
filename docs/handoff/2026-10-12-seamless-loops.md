@@ -33,7 +33,9 @@ and how to check it (issue #229).
   accepts `openEnd` on a request and calls `ReactBridge::evaluate_past_end`,
   which sends the flag and fails with `ReactBridgeError::OpenEndUnsupported`
   (a non-fatal `requestError`) when the runtime sends no echo. Preview and
-  export never send it.
+  export never send it. `--inspect`'s help mentions `openEnd`; when
+  `inspect.mjs` finds an exporter by itself, `--loop` skips one whose help
+  does not, and falls back to Node-only inspection.
 - Tests: `packages/math/test/math.test.mjs`,
   `packages/react/test/sequence.test.mjs`, `packages/cli/test/open-end.test.mjs`,
   `crates/react-bridge/src/tests.rs`, `crates/exporter/tests/inspect_integration.rs`.

@@ -138,7 +138,7 @@ function findNode(options, cli) {
 // --------------------------------------------------------------- exporter
 
 /** The first exporter that supports --inspect: a source build, then an install. */
-function findExporter(startDirs) {
+function findExporter(startDirs, loop) {
   const exe = process.platform === 'win32' ? '.exe' : '';
   const candidates = [];
   for (const start of startDirs) {
@@ -161,10 +161,11 @@ function findExporter(startDirs) {
   if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
     candidates.push(path.join(process.env.LOCALAPPDATA, 'Programs/Celesta/Celesta-export.exe'));
   }
-  // Exporters from before --inspect are skipped.
+  // Exporters from before --inspect are skipped, and for --loop those from
+  // before openEnd, which Node-only inspection handles.
   const supportsInspect = (exporter) => {
     const help = spawnSync(exporter, ['--help'], { encoding: 'utf8', timeout: 10000 });
-    return help.status === 0 && help.stdout.includes('--inspect');
+    return help.status === 0 && help.stdout.includes('--inspect') && (!loop || help.stdout.includes('openEnd'));
   };
   return candidates.find((candidate) => existsSync(candidate) && supportsInspect(candidate)) ?? false;
 }
@@ -248,7 +249,7 @@ async function inspectEntry(options) {
   if (!existsSync(entry)) fail(`entry not found: ${entry}`);
   const entryDir = path.dirname(entry);
   const found = options.native === null;
-  if (found) options.native = findExporter([entryDir, process.cwd()]);
+  if (found) options.native = findExporter([entryDir, process.cwd()], options.loop);
   let child;
   if (options.native) {
     // The exporter finds its own runtime and reads the props itself.

@@ -41,8 +41,9 @@ message. It suits scripts and AI agents.
 
 --inspect evaluates a React entry's frames without rendering pixels, with
 the same text shaping and media probing as an export. It reads one JSON
-request per stdin line, each a composition time, and answers each with one
-JSON line on stdout; skills/celesta/scripts/inspect.mjs --native drives it.";
+request per stdin line, each a composition time (with openEnd, a time past
+the end, evaluated as if the video went on), and answers each with one JSON
+line on stdout; skills/celesta/scripts/inspect.mjs --native drives it.";
 
 /// Exports a Celesta project or React composition to MP4 video or PNG stills.
 #[derive(Parser)]
