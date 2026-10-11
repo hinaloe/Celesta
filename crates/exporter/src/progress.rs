@@ -309,7 +309,9 @@ fn panel(title: impl Into<Line<'static>>) -> Block<'static> {
 
 fn render(frame: &mut Frame, settings: &Settings<'_>, state: &State) {
     let area = frame.area();
-    if area.width < 82 || area.height < 23 {
+    // The details row grows by a line when a props file is named.
+    let details_height = 6 + u16::from(settings.props.is_some());
+    if area.width < 82 || area.height < 17 + details_height {
         render_compact(frame, settings, state);
         return;
     }
@@ -322,7 +324,7 @@ fn render(frame: &mut Frame, settings: &Settings<'_>, state: &State) {
         Constraint::Length(2),
         Constraint::Length(7),
         Constraint::Length(3),
-        Constraint::Length(7),
+        Constraint::Length(details_height),
         Constraint::Min(4),
         Constraint::Length(1),
     ])

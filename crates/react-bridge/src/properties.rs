@@ -80,23 +80,11 @@ impl PropertyInputs {
     ) -> Result<Self, PropertyInputError> {
         let mut layers = Vec::new();
         if let Some(file) = props_file {
-            let read_error = |source| PropertyInputError::Read {
-                file: file.to_owned(),
-                source,
-            };
-            let absolute = std::path::absolute(file).map_err(read_error)?;
-            let text = fs::read_to_string(&absolute).map_err(read_error)?;
-            let value =
-                serde_json::from_str(&text).map_err(|source| PropertyInputError::Parse {
-                    origin: format!("--props-file {}", file.display()),
-                    source,
-                })?;
-            layers.push(PropertyLayer {
-                source: PropertySource::PropsFile,
-                file: Some(file.to_owned()),
-                base_dir: absolute.parent().map(Path::to_owned).unwrap_or_default(),
-                values: object(value, || format!("--props-file {}", file.display()))?,
-            });
+            layers.push(read_layer(
+                file,
+                PropertySource::PropsFile,
+                format!("--props-file {}", file.display()),
+            )?);
         }
         if let Some(props) = props {
             let value =
@@ -125,24 +113,8 @@ impl PropertyInputs {
     ) -> Result<Self, PropertyInputError> {
         match resolve_props_file(entry, props_file) {
             Some(PropsFileChoice { path, auto: true }) => {
-                let mut layers = Vec::new();
                 let origin = format!("{ENTRY_PROPS_FILE} {}", path.display());
-                let text =
-                    fs::read_to_string(&path).map_err(|source| PropertyInputError::Read {
-                        file: path.clone(),
-                        source,
-                    })?;
-                let value =
-                    serde_json::from_str(&text).map_err(|source| PropertyInputError::Parse {
-                        origin: origin.clone(),
-                        source,
-                    })?;
-                layers.push(PropertyLayer {
-                    source: PropertySource::EntryProps,
-                    base_dir: path.parent().map(Path::to_owned).unwrap_or_default(),
-                    file: Some(path),
-                    values: object(value, || origin)?,
-                });
+                let mut layers = vec![read_layer(&path, PropertySource::EntryProps, origin)?];
                 layers.extend(Self::load(None, props)?.layers);
                 Ok(Self { layers })
             }
@@ -182,6 +154,32 @@ impl PropertyInputs {
     }
 }
 
+/// Reads one property file into a layer. `origin` names the file in errors,
+/// e.g. `--props-file a.json`; relative paths in the values resolve from the
+/// file's directory.
+fn read_layer(
+    file: &Path,
+    source: PropertySource,
+    origin: String,
+) -> Result<PropertyLayer, PropertyInputError> {
+    let read_error = |source| PropertyInputError::Read {
+        origin: origin.clone(),
+        source,
+    };
+    let absolute = std::path::absolute(file).map_err(read_error)?;
+    let text = fs::read_to_string(&absolute).map_err(read_error)?;
+    let value = serde_json::from_str(&text).map_err(|source| PropertyInputError::Parse {
+        origin: origin.clone(),
+        source,
+    })?;
+    Ok(PropertyLayer {
+        source,
+        file: Some(file.to_owned()),
+        base_dir: absolute.parent().map(Path::to_owned).unwrap_or_default(),
+        values: object(value, || origin.clone())?,
+    })
+}
+
 fn object(
     value: Value,
     origin: impl FnOnce() -> String,
@@ -196,7 +194,8 @@ fn object(
 #[derive(Debug)]
 pub enum PropertyInputError {
     Read {
-        file: PathBuf,
+        /// The file as named in messages, e.g. `--props-file a.json`.
+        origin: String,
         source: io::Error,
     },
     Parse {
@@ -210,12 +209,8 @@ pub enum PropertyInputError {
 impl fmt::Display for PropertyInputError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Read { file, source } => {
-                write!(
-                    formatter,
-                    "could not read --props-file {}: {source}",
-                    file.display()
-                )
+            Self::Read { origin, source } => {
+                write!(formatter, "could not read {origin}: {source}")
             }
             Self::Parse { origin, source } => {
                 write!(formatter, "{origin} is not valid JSON: {source}")

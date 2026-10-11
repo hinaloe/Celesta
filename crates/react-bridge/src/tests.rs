@@ -566,6 +566,19 @@ fn malformed_entry_props_is_an_error() {
 }
 
 #[test]
+fn unreadable_entry_props_names_props_json_not_the_flag() {
+    let (dir, entry) = entry_dir("unreadable", None);
+    std::fs::write(dir.join(ENTRY_PROPS_FILE), [0xff, 0xfe, 0x00]).unwrap();
+    let error = PropertyInputs::load_for_entry(&entry, None, None).unwrap_err();
+    assert!(matches!(error, PropertyInputError::Read { .. }));
+    assert!(
+        error.to_string().starts_with("could not read props.json "),
+        "{error}"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn reads_invalid_properties_before_ready() {
     let message: ReadyMessage = serde_json::from_str(
         r#"{"invalidProperties":[{"key":"accent","source":"--props","message":"expected a color"},{"key":"","source":"--props-file a.json","message":"no schema"}]}"#,
