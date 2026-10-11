@@ -25,9 +25,8 @@ export function Fit() {
       </TextReveal>
       <Group x={COL.x} y={BOX_Y} scale={pop} opacity={progress(f, -2, 6)}>
         <Rect width={box.width} height={box.height} stroke={C.ink} strokeWidth={5} />
-        {/* Centred by the measured line boxes, so placed by its first baseline:
-            a top-anchored Text lines up its ink, not its line box (#235). */}
-        <Text x={FIT_PAD} y={(box.height - fit.height) / 2 + fit.ascent} anchorY="baseline"
+        {/* Centred by its measured line boxes, which a wrapped Text hangs from. */}
+        <Text x={FIT_PAD} y={(box.height - fit.height) / 2}
           maxWidth={box.width - FIT_PAD * 2} style={fit.style}>
           {FIT_COPY}
         </Text>

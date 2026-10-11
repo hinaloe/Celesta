@@ -53,12 +53,13 @@ export function Emphasis() {
       y={AREA.height / 2 + (focus - spanLayout.height / 2) * 0.15} zoom={1.02}>
       <Tag x={COL.x} y={TOP + 140} color={C.hot} opacity={enter}>{'<Span style={{ fill }}>'}</Tag>
       <Group x={COL.x} y={Y + 30 * (1 - enter)} opacity={enter}>
-        {/* Text and highlights both hang from the measured baselines. */}
+        {/* The highlights hang from the measured baselines, where the
+            top-anchored paragraph's lines sit too. */}
         {segments.map((s, i) => (
           <Rect key={i} x={s.x - PAD_X} y={s.y + spanLayout.ascent - SIZE * ABOVE - PAD_Y}
             width={(s.width + PAD_X * 2) * sweep} height={SIZE * (ABOVE + BELOW) + PAD_Y * 2} fill={C.hot} />
         ))}
-        <Text y={spanLayout.ascent} anchorY="baseline" maxWidth={COL.width}
+        <Text maxWidth={COL.width}
           style={{ ...SPAN_STYLE, fill: { type: 'solid', color: C.grey } }}>
           {lit(words, interpolateColor(sweep, [0, 1], [C.paper, C.ink]))}
         </Text>

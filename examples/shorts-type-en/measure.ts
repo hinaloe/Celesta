@@ -94,15 +94,14 @@ const inside = (box: { width: number; height: number }) =>
   ({ width: box.width - FIT_PAD * 2, height: box.height - FIT_PAD * 2 });
 const fitStyle = (tracking: number): FitTextStyle =>
   ({ ...display(tracking), align: 'center', fill: { type: 'solid', color: C.ink } });
-// `height` is the line boxes' total and `ascent` the first baseline's depth
-// in them, so the copy can be centred by its baseline.
-export type Fit = { fontSize: number; style: TextStyle; height: number; ascent: number };
+// `height` is the line boxes' total, so the copy can be centred by it.
+export type Fit = { fontSize: number; style: TextStyle; height: number };
 export let fits: Fit[] = FIT_BOXES.map((box) => {
   const { width, height } = inside(box);
   const fontSize = Math.floor(Math.sqrt((width * height) / (FIT_COPY.length * 0.84 * FIT_LINE_HEIGHT)));
   const style = { ...fitStyle(TRACK * fontSize), fontSize, lineHeight: fontSize * FIT_LINE_HEIGHT };
   const lines = Math.ceil((FIT_COPY.length * fontSize * 0.84) / width);
-  return { fontSize, style, height: lines * fontSize * FIT_LINE_HEIGHT, ascent: fontSize * FIT_LINE_HEIGHT * 0.8 };
+  return { fontSize, style, height: lines * fontSize * FIT_LINE_HEIGHT };
 });
 
 async function fitBox(box: { width: number; height: number }): Promise<Fit> {
@@ -110,7 +109,7 @@ async function fitBox(box: { width: number; height: number }): Promise<Fit> {
     ...inside(box), minFontSize: 28, maxFontSize: 220, lineHeight: FIT_LINE_HEIGHT, step: 2, style: fitStyle(tracking), fonts,
   });
   const second = await fit(TRACK * (await fit(0)).fontSize);
-  return { fontSize: second.fontSize, style: second.style, height: second.metrics.height, ascent: second.metrics.ascent };
+  return { fontSize: second.fontSize, style: second.style, height: second.metrics.height };
 }
 
 // TAPES: the advance of one repeat of each tape's text, so a tape repeats it

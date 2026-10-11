@@ -35,16 +35,15 @@ export const FIT_BOXES = [
 export const FIT_PAD = 24;
 const inside = (box: { width: number; height: number }) =>
   ({ width: box.width - FIT_PAD * 2, height: box.height - FIT_PAD * 2 });
-// `height` is the line boxes' total and `ascent` the first baseline's depth
-// in them, so the copy can be centred by its baseline.
-export type Fit = { fontSize: number; style: TextStyle; height: number; ascent: number };
+// `height` is the line boxes' total, so the copy can be centred by it.
+export type Fit = { fontSize: number; style: TextStyle; height: number };
 export let fits: Fit[] = FIT_BOXES.map((box) => {
   const { width, height } = inside(box);
   // Biggest em square that tiles the box with every character.
   const fontSize = Math.floor(Math.sqrt((width * height) / (FIT_COPY.length * FIT_LINE_HEIGHT)));
   const style = ja({ ...FIT_STYLE, fontSize, lineHeight: fontSize * FIT_LINE_HEIGHT });
   const lines = Math.ceil((FIT_COPY.length * fontSize) / width);
-  return { fontSize, style, height: lines * fontSize * FIT_LINE_HEIGHT, ascent: fontSize * FIT_LINE_HEIGHT * 0.8 };
+  return { fontSize, style, height: lines * fontSize * FIT_LINE_HEIGHT };
 });
 
 // SPAN: one paragraph whose lit phrase moves; each phrase's highlight is
@@ -89,7 +88,7 @@ export async function measureAll() {
         ...inside(box), minFontSize: 28, maxFontSize: 220, lineHeight: FIT_LINE_HEIGHT, step: 2,
         style: ja(FIT_STYLE), fonts,
       });
-      return { fontSize: fit.fontSize, style: fit.style, height: fit.metrics.height, ascent: fit.metrics.ascent };
+      return { fontSize: fit.fontSize, style: fit.style, height: fit.metrics.height };
     }));
     tapeAdvances = new Map(await Promise.all(TAPE_RUNS.map(async ([kind, text]) => {
       const run = await measureText(tapeRun(kind, text), ja(tapeStyle(kind)), { fonts });
