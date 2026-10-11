@@ -158,6 +158,98 @@ fn replace_file(file: &Path, text: &str) -> io::Result<()> {
     result
 }
 
+/// The value to store for `chosen` in a props file in `props_dir`. A file
+/// under `project_root` is referenced in place; any other file is copied
+/// into `<project_root>/assets/` first. Always `/`-separated, starting with
+/// `./` or `../`.
+pub fn import_path(project_root: &Path, props_dir: &Path, chosen: &Path) -> io::Result<String> {
+    let project_root = std::path::absolute(project_root)?;
+    let props_dir = std::path::absolute(props_dir)?;
+    let chosen = std::path::absolute(chosen)?;
+
+    if !chosen.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is not a file", chosen.display()),
+        ));
+    }
+
+    let target = if chosen.strip_prefix(&project_root).is_ok() {
+        chosen
+    } else {
+        copy_into_assets(&project_root.join("assets"), &chosen)?
+    };
+
+    relative_path(&props_dir, &target)
+}
+
+/// Copies `chosen` into `assets` and returns the copy's path. A file of the
+/// same name with the same bytes is reused; one with different bytes makes the
+/// copy take the next free `name-2.ext`, `name-3.ext`, ... name.
+fn copy_into_assets(assets: &Path, chosen: &Path) -> io::Result<PathBuf> {
+    let name_error = || io::Error::new(io::ErrorKind::InvalidInput, "the file has no name");
+    let stem = chosen.file_stem().ok_or_else(name_error)?.to_string_lossy();
+    let extension = chosen
+        .extension()
+        .map(|extension| extension.to_string_lossy());
+    let bytes = fs::read(chosen)?;
+
+    fs::create_dir_all(assets)?;
+    for number in 1_u32.. {
+        let name = match (number, &extension) {
+            (1, Some(extension)) => format!("{stem}.{extension}"),
+            (1, None) => stem.to_string(),
+            (number, Some(extension)) => format!("{stem}-{number}.{extension}"),
+            (number, None) => format!("{stem}-{number}"),
+        };
+        let candidate = assets.join(name);
+
+        if candidate.symlink_metadata().is_err() {
+            fs::write(&candidate, &bytes)?;
+            return Ok(candidate);
+        }
+        if fs::read(&candidate).is_ok_and(|existing| existing == bytes) {
+            return Ok(candidate);
+        }
+    }
+    unreachable!("the candidate numbers are unbounded")
+}
+
+/// `target` as seen from `from`, joined with `/` and starting with `./` or
+/// `../`. Both paths must be absolute.
+fn relative_path(from: &Path, target: &Path) -> io::Result<String> {
+    let from: Vec<_> = from.components().collect();
+    let target: Vec<_> = target.components().collect();
+    let common = from
+        .iter()
+        .zip(&target)
+        .take_while(|(left, right)| left == right)
+        .count();
+    if common == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "the paths have no folder in common",
+        ));
+    }
+
+    let mut parts = vec![".."; from.len() - common]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    parts.extend(
+        target[common..]
+            .iter()
+            .map(|component| component.as_os_str().to_string_lossy().into_owned()),
+    );
+
+    let joined = parts.join("/");
+    Ok(if joined.starts_with("..") {
+        joined
+    } else {
+        format!("./{joined}")
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,5 +389,117 @@ mod tests {
             .map(|entry| entry.unwrap().file_name())
             .collect();
         assert_eq!(names, vec![std::ffi::OsString::from("props.json")]);
+    }
+
+    fn project(name: &str) -> (Scratch, PathBuf, PathBuf) {
+        let scratch = Scratch::new(name);
+        let root = scratch.0.join("project");
+        let other = scratch.0.join("other");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&other).unwrap();
+        (scratch, root, other)
+    }
+
+    #[test]
+    fn a_file_in_the_project_is_relative_to_the_props_file() {
+        let (_scratch, root, _) = project("import-inside");
+        let chosen = root.join("assets/a.png");
+        write(&chosen, "a");
+
+        assert_eq!(
+            import_path(&root, &root, &chosen).unwrap(),
+            "./assets/a.png"
+        );
+        assert_eq!(
+            import_path(&root, &root.join("variants"), &chosen).unwrap(),
+            "../assets/a.png"
+        );
+    }
+
+    #[test]
+    fn a_file_in_a_nested_folder_with_spaces_and_japanese() {
+        let (_scratch, root, _) = project("import-nested");
+        let chosen = root.join("素材 フォルダ/b.png");
+        write(&chosen, "b");
+
+        assert_eq!(
+            import_path(&root, &root, &chosen).unwrap(),
+            "./素材 フォルダ/b.png"
+        );
+    }
+
+    #[test]
+    fn an_outside_file_is_copied_into_assets() {
+        let (_scratch, root, other) = project("import-copy");
+        let chosen = other.join("c.png");
+        write(&chosen, "c");
+
+        assert_eq!(
+            import_path(&root, &root, &chosen).unwrap(),
+            "./assets/c.png"
+        );
+        assert_eq!(fs::read(root.join("assets/c.png")).unwrap(), b"c");
+    }
+
+    #[test]
+    fn identical_content_is_reused() {
+        let (_scratch, root, other) = project("import-reuse");
+        let chosen = other.join("c.png");
+        write(&chosen, "c");
+
+        assert_eq!(
+            import_path(&root, &root, &chosen).unwrap(),
+            "./assets/c.png"
+        );
+        assert_eq!(
+            import_path(&root, &root, &chosen).unwrap(),
+            "./assets/c.png"
+        );
+        assert!(!root.join("assets/c-2.png").exists());
+    }
+
+    #[test]
+    fn different_content_gets_a_number() {
+        let (_scratch, root, other) = project("import-number");
+        write(&root.join("assets/c.png"), "first");
+        let chosen = other.join("c.png");
+        write(&chosen, "second");
+
+        assert_eq!(
+            import_path(&root, &root, &chosen).unwrap(),
+            "./assets/c-2.png"
+        );
+
+        write(&chosen, "third");
+        assert_eq!(
+            import_path(&root, &root, &chosen).unwrap(),
+            "./assets/c-3.png"
+        );
+        assert_eq!(fs::read(root.join("assets/c.png")).unwrap(), b"first");
+        assert_eq!(fs::read(root.join("assets/c-2.png")).unwrap(), b"second");
+        assert_eq!(fs::read(root.join("assets/c-3.png")).unwrap(), b"third");
+    }
+
+    #[test]
+    fn a_file_without_an_extension_gets_a_number() {
+        let (_scratch, root, other) = project("import-no-extension");
+        write(&root.join("assets/data"), "first");
+        let chosen = other.join("data");
+        write(&chosen, "second");
+
+        assert_eq!(
+            import_path(&root, &root, &chosen).unwrap(),
+            "./assets/data-2"
+        );
+    }
+
+    #[test]
+    fn a_folder_is_not_a_file() {
+        let (_scratch, root, other) = project("import-folder");
+
+        let error = import_path(&root, &root, &other).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(!root.join("assets").exists());
     }
 }
