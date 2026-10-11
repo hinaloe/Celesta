@@ -149,7 +149,8 @@ fn render_text_metrics_match_loaded_fonts_and_component_preview_when_node_is_ava
                 }],
                 time,
             )
-            .unwrap();
+            .unwrap()
+            .components;
         let preview_layers = all_layers(preview[0].as_deref().unwrap());
         assert_eq!(
             preview_layers
@@ -311,7 +312,8 @@ fn text_boxes_fit_their_captions_with_the_renderer_shaping_when_node_is_availabl
             }],
             time,
         )
-        .unwrap();
+        .unwrap()
+        .components;
     let preview_box = all_layers(preview[0].as_deref().unwrap())
         .into_iter()
         .find(|layer| layer.id == "caption-text")
@@ -367,7 +369,8 @@ fn debug_guides_only_render_during_component_preview_when_node_is_available() {
             }],
             Time::new(5, 30),
         )
-        .unwrap();
+        .unwrap()
+        .components;
     let layers = all_layers(resolved[0].as_deref().unwrap());
     assert!(layers.iter().any(|layer| matches!(
         &layer.content,
@@ -966,7 +969,8 @@ fn resolves_individual_components_through_the_bridge_when_node_is_available() {
 
     let resolved = bridge
         .resolve_components(&requests, Time::new(0, 30))
-        .unwrap();
+        .unwrap()
+        .components;
     assert_eq!(resolved.len(), 2);
     let registered = resolved[0]
         .as_ref()
@@ -1116,7 +1120,8 @@ fn resolves_components_against_the_requested_time_when_node_is_available() {
 
     let at_frame_fifteen = bridge
         .resolve_components(&request, Time::new(15, 30))
-        .unwrap();
+        .unwrap()
+        .components;
     let layers = at_frame_fifteen[0]
         .as_ref()
         .expect("the registered component resolves");
@@ -1129,7 +1134,8 @@ fn resolves_components_against_the_requested_time_when_node_is_available() {
     // than staying on the first one (hook state persists; the clock moves).
     let at_frame_seven = bridge
         .resolve_components(&request, Time::new(7, 30))
-        .unwrap();
+        .unwrap()
+        .components;
     let layers = at_frame_seven[0]
         .as_ref()
         .expect("the registered component resolves");

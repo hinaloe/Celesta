@@ -1,4 +1,4 @@
-use celesta_composition::{Animatable, Layer, Rational, Scene};
+use celesta_composition::{Animatable, Layer, Rational, Scene, ShaderSource};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -144,6 +144,18 @@ pub type ComponentPropertySchema = BTreeMap<String, ComponentPropertyField>;
 pub struct ComponentResolutionRequest<'a> {
     pub component: &'a str,
     pub props: &'a BTreeMap<String, serde_json::Value>,
+}
+
+/// What one [`ReactBridge::resolve_components`] call produced.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ComponentResolutions {
+    /// One rendered layer list per request, in order, with `None` for names
+    /// nothing registered.
+    pub components: Vec<Option<Vec<Layer>>>,
+    /// The custom shaders those layers use, each once. Whoever places the
+    /// layers in a scene adds these to its `shaders`, skipping ids it
+    /// already lists, or the GPU renderer rejects the scene.
+    pub shaders: Vec<ShaderSource>,
 }
 
 /// One frame's evaluation: the visual scene plus every `<Audio>` declaration

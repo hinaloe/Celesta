@@ -8,9 +8,10 @@ use crate::protocol::{
     ResolutionRuntime, Response, ready_property_order,
 };
 use crate::types::{
-    ComponentResolutionRequest, FrameEvaluation, ProjectFrame, ReactCompositionMetadata,
+    ComponentResolutionRequest, ComponentResolutions, FrameEvaluation, ProjectFrame,
+    ReactCompositionMetadata,
 };
-use celesta_composition::{AudioGraph, Layer, Scene, Time};
+use celesta_composition::{AudioGraph, Scene, Time};
 use celesta_media::FfmpegBackend;
 use celesta_remote::{RemoteAssetCache, is_remote_url};
 use celesta_renderer::TextRasterizer;
@@ -281,7 +282,8 @@ impl ReactBridge {
 
     /// Resolves individual `registerComponent()` names against the entry's
     /// registry without rendering the whole composition — one rendered layer
-    /// list per request, in order, with `None` for names nothing registered.
+    /// list per request, in order, with `None` for names nothing registered,
+    /// plus the custom shaders those layers use.
     /// Used by the GPUI editor preview to place resolved component content at
     /// `TimelineContent::Component` items it has already evaluated. The
     /// components' hooks see this composition's real static facts (from the
@@ -293,7 +295,7 @@ impl ReactBridge {
         &mut self,
         requests: &[ComponentResolutionRequest<'_>],
         time: Time,
-    ) -> Result<Vec<Option<Vec<Layer>>>, ReactBridgeError> {
+    ) -> Result<ComponentResolutions, ReactBridgeError> {
         let request = Request {
             time: None,
             project: None,
@@ -318,7 +320,13 @@ impl ReactBridge {
             compact_transforms: false,
         };
         match self.request_response(request)? {
-            Response::Components { components } => Ok(components),
+            Response::Components {
+                components,
+                shaders,
+            } => Ok(ComponentResolutions {
+                components,
+                shaders,
+            }),
             Response::Ok { .. } => Err(ReactBridgeError::UnexpectedResponse),
             Response::CollectedAudio { .. } => Err(ReactBridgeError::UnexpectedResponse),
             Response::Err { error } => Err(ReactBridgeError::Render(error)),

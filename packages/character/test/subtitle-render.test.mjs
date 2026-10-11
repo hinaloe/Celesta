@@ -225,7 +225,7 @@ test('an editor preview draws a rendered subtitle whose view mounts with it', ()
       h(Dialogue, { character: view }, 'Preview'),
     ),
   );
-  const [layers] = createResolver('ja-JP').resolve([{ component: 'SubtitlePreviewTest', props: {} }], {
+  const { components: [layers] } = createResolver('ja-JP').resolve([{ component: 'SubtitlePreviewTest', props: {} }], {
     width: 640, height: 360, fps: 30, durationInFrames: 30, time: { value: 0, timescale: 30 }, preview: true,
   });
   assert.equal(find(layers, 'facts').content.text, 'mira/mira/mira|Preview|false|0/30|600');

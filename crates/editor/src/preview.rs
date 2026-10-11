@@ -1,11 +1,11 @@
 use crate::audio::take_latest;
 use crate::helpers::prepare_preview_frame;
 use crate::source::PropertyArgs;
-use celesta_composition::{Layer, LayerContent, Scene};
+use celesta_composition::{Layer, LayerContent, Scene, ShaderSource};
 use celesta_gpu_renderer::{GpuRenderer, RenderQuality};
 use celesta_react_bridge::{
-    ComponentPropertyField, ComponentResolutionRequest, PropertyInputs, PropertyIssue, ReactBridge,
-    ReactCompositionMetadata,
+    ComponentPropertyField, ComponentResolutionRequest, ComponentResolutions, PropertyInputs,
+    PropertyIssue, ReactBridge, ReactCompositionMetadata,
 };
 use gpui_kit::RenderImage;
 use rodio::Player;
@@ -318,14 +318,7 @@ pub(crate) fn resolve_preview_components(
                 .collect();
             match bridge.resolve_components(&resolution_requests, scene.time) {
                 Ok(resolutions) => {
-                    let mut cursor = 0;
-                    let mut unresolved = Vec::new();
-                    splice_resolved_components(
-                        &mut scene.layers,
-                        &resolutions,
-                        &mut cursor,
-                        &mut unresolved,
-                    );
+                    let unresolved = splice_component_resolutions(scene, resolutions);
                     if !unresolved.is_empty() {
                         warnings
                             .push("Unresolved component(s) hidden from the preview:".to_owned());
@@ -421,6 +414,36 @@ pub(crate) fn strip_missing_components(layers: &mut Vec<Layer>) {
             _ => {}
         }
         index += 1;
+    }
+}
+
+/// Places `resolutions` at the scene's missing-component layers (see
+/// [`splice_resolved_components`]) and adds the shaders they use to
+/// `scene.shaders`, returning the names nothing registered.
+pub(crate) fn splice_component_resolutions(
+    scene: &mut Scene,
+    resolutions: ComponentResolutions,
+) -> Vec<String> {
+    let mut cursor = 0;
+    let mut unresolved = Vec::new();
+    splice_resolved_components(
+        &mut scene.layers,
+        &resolutions.components,
+        &mut cursor,
+        &mut unresolved,
+    );
+    merge_shaders(&mut scene.shaders, resolutions.shaders);
+    unresolved
+}
+
+/// Adds each of `incoming` whose id `shaders` doesn't list yet. An id names
+/// its source and parameters, and the GPU renderer rejects a scene that
+/// lists one twice.
+pub(crate) fn merge_shaders(shaders: &mut Vec<ShaderSource>, incoming: Vec<ShaderSource>) {
+    for shader in incoming {
+        if !shaders.iter().any(|listed| listed.id == shader.id) {
+            shaders.push(shader);
+        }
     }
 }
 

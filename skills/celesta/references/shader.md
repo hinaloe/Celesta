@@ -10,10 +10,10 @@ for what `blur`, `shadow`, `glow`, `blendMode`, and masks cannot do:
 ripples, RGB splits, pixelation, color grades, glitches. Celesta's runtime
 supplies the package; never install it from npm.
 
-Shaders run in the desktop preview and in export (on the GPU). The browser
-editor (`@celesta/web`) cannot run them, and components placed on project
-timelines (`registerComponent` resolved into a `.celesta.json`) cannot use
-them yet.
+Shaders run in the desktop preview and in export (on the GPU), including
+in components placed on project timelines (`registerComponent` resolved
+into a `.celesta.json`). The browser editor (`@celesta/web`) cannot run
+them.
 
 ## Contents
 

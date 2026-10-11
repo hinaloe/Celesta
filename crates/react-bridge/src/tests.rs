@@ -7,7 +7,9 @@ use crate::properties::{
 };
 use crate::protocol::{PropertyInputsMessage, ReadyMessage, Response, ready_property_order};
 use crate::types::{ComponentPropertyField, ReactAudioClipDescriptor};
-use celesta_composition::{Animatable, AssetLocation, Time};
+use celesta_composition::{
+    Animatable, AssetLocation, ShaderParam, ShaderParamType, ShaderSource, Time,
+};
 use std::path::Path;
 
 use celesta_composition::{Keyframe, KeyframeAnimation, KeyframeAnimationType};
@@ -298,7 +300,11 @@ fn deserializes_component_resolutions_from_a_response() {
     })
     .to_string();
 
-    let Response::Components { components } = serde_json::from_str(&json).unwrap() else {
+    let Response::Components {
+        components,
+        shaders,
+    } = serde_json::from_str(&json).unwrap()
+    else {
         panic!("expected a Components response");
     };
     assert_eq!(components.len(), 2);
@@ -306,6 +312,54 @@ fn deserializes_component_resolutions_from_a_response() {
     let resolved = components[1].as_ref().unwrap();
     assert_eq!(resolved.len(), 1);
     assert_eq!(resolved[0].id, "resolved");
+    // Older runtimes send no shaders.
+    assert!(shaders.is_empty());
+}
+
+#[test]
+fn deserializes_the_shaders_component_resolutions_use() {
+    let json = serde_json::json!({
+        "components": [[{
+            "id": "shaded",
+            "transform": {},
+            "opacity": 1.0,
+            "effects": {"blur": 0.0, "shader": {"id": "1b0a62b2133ed451", "params": [0.5]}},
+            "content": {"type": "group", "layers": []}
+        }]],
+        "shaders": [{
+            "id": "1b0a62b2133ed451",
+            "name": "tint",
+            "wgsl": "fn effect(input: EffectInput) -> vec4f { return vec4f(0.0); }",
+            "params": [{"name": "amount", "type": "f32"}]
+        }]
+    })
+    .to_string();
+
+    let Response::Components {
+        components,
+        shaders,
+    } = serde_json::from_str(&json).unwrap()
+    else {
+        panic!("expected a Components response");
+    };
+    let shader = components[0].as_ref().unwrap()[0]
+        .effects
+        .shader
+        .as_ref()
+        .unwrap();
+    assert_eq!(shader.id, "1b0a62b2133ed451");
+    assert_eq!(
+        shaders,
+        [ShaderSource {
+            id: "1b0a62b2133ed451".to_owned(),
+            name: Some("tint".to_owned()),
+            wgsl: "fn effect(input: EffectInput) -> vec4f { return vec4f(0.0); }".to_owned(),
+            params: vec![ShaderParam {
+                name: "amount".to_owned(),
+                ty: ShaderParamType::F32,
+            }],
+        }]
+    );
 }
 
 #[test]

@@ -6,6 +6,7 @@ export type {
   AudioClipDescriptor,
   ComponentResolution,
   ComponentResolutionRequest,
+  ComponentResolutions,
   EntryComponent,
   MountedComposition,
   ProjectFrame,

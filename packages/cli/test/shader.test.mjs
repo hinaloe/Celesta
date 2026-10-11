@@ -66,6 +66,30 @@ test('a composition imports a .wgsl file as the shader source', () => {
   }
 });
 
+test('a component resolution carries the shaders its layers use', () => {
+  const entry = ENTRY.replace(
+    "import { Composition, Rect, useCurrentFrame } from '@celesta/react';",
+    "import { Composition, Rect, registerComponent, useCurrentFrame } from '@celesta/react';",
+  ) + `
+registerComponent('Rippled', () => <Rect width={8} height={8} shader={ripple({ time: 0, tint: '#ffffff' })} />);
+`;
+  const dir = project({ 'entry.tsx': entry, 'ripple.wgsl': RIPPLE });
+  try {
+    const result = spawnSync(process.execPath, [cli, join(dir, 'entry.tsx')], {
+      input: '{"components":[{"component":"Rippled","props":{}},{"component":"Missing","props":{}}]}\n',
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const [, response] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    assert.equal(response.components[1], null);
+    assert.equal(response.shaders.length, 1);
+    assert.equal(response.shaders[0].wgsl, RIPPLE);
+    assert.equal(response.components[0][0].effects.shader.id, response.shaders[0].id);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('the staged project types check .wgsl imports and shader values', () => {
   const dir = project({
     'entry.tsx': `${ENTRY}
