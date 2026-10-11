@@ -78,3 +78,38 @@ test('file font URLs are reused across frames and isolated opacity is applied on
   assert.equal(faces.size, 0);
 
 });
+
+test('text wrapped at maxWidth is anchored by its line boxes, as text broken with newlines', async t => {
+  const originals = { document: globalThis.document, DOMMatrix: globalThis.DOMMatrix };
+  t.after(() => Object.assign(globalThis, originals));
+  globalThis.DOMMatrix = class { translate() { return this; } rotate() { return this; } scale() { return this; } };
+  const drawn = [];
+  const canvas = () => {
+    const element = { width: 400, height: 400, getContext() { return context; } };
+    const context = {
+      canvas: element, globalAlpha: 1, filter: 'none', globalCompositeOperation: 'source-over',
+      save() {}, restore() {}, setTransform() {}, fillRect() {}, drawImage() {},
+      // Each character is 10 px wide; the font's line box is 30 px above
+      // the baseline and 10 below, the ink 20 above and none below.
+      measureText: text => ({
+        width: text.length * 10, actualBoundingBoxLeft: 0, actualBoundingBoxRight: text.length * 10,
+        actualBoundingBoxAscent: 20, actualBoundingBoxDescent: 0, fontBoundingBoxAscent: 30, fontBoundingBoxDescent: 10,
+      }),
+      fillText(text, x, y) { drawn.push([text, y]); },
+    };
+    return element;
+  };
+  globalThis.document = { fonts: new Set(), createElement: canvas };
+  const renderer = new SceneCanvas(new Map());
+  const transform = { position: { x: 0, y: 0 }, scale: { x: 1, y: 1 }, anchor: { x: 0, y: 0 }, rotation: 0 };
+  const layer = text => ({ opacity: 1, transform, content: { type: 'text', text, style: { lineHeight: 40 }, maxWidth: 50 } });
+  const baselines = async text => {
+    drawn.length = 0;
+    await renderer.draw(canvas(), { width: 400, height: 400, fonts: [], layers: [layer(text)] });
+    return drawn.slice();
+  };
+  const broken = await baselines('abc\ndef');
+  assert.deepEqual(broken, [['abc', 30], ['def', 70]]);
+  assert.deepEqual(await baselines('abc def'), broken);
+  renderer.dispose();
+});

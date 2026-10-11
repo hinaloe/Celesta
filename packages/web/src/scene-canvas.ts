@@ -511,7 +511,8 @@ export class SceneCanvas {
         x: style.align === 'center' ? (width - m.width) / 2 : style.align === 'right' ? width - m.width : 0,
         baseline: i * lineHeight + (lineHeight - m.fontBoundingBoxAscent - m.fontBoundingBoxDescent) / 2 + m.fontBoundingBoxAscent,
       }));
-      const multiline = /[\r\n]/.test(content.text);
+      // Lines wrapped at maxWidth count as several lines too.
+      const multiline = /[\r\n]/.test(content.text) || lines.length > 1;
       const top = multiline ? 0 : Math.min(...placed.map((p, i) => p.baseline - measured[i].actualBoundingBoxAscent));
       const bottom = multiline ? lines.length * lineHeight : Math.max(...placed.map((p, i) => p.baseline + measured[i].actualBoundingBoxDescent));
       const height = bottom - top;

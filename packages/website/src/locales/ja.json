@@ -462,7 +462,7 @@
         "load-a-google-fonts-family": "Google Fonts のファミリーを読み込む",
         "wraps-text-at-word-boundaries-and-positions": "<slot0/> は単語の境界で折り返し、<slot1/> はその幅の中に各行を配置します。文字列に <slot2/> を入れると任意の位置で改行できます。",
         "japanese-normally-wraps-between-most-characters-splitting": "日本語は通常、多くの文字の間で折り返すため「フレーム」のような単語も分かれます。禁則処理により「、」「。」などは行頭に来ません。スタイルに <slot0/> を指定すると、<slot1>BudouX</slot1> の日本語モデルで検出した句の境界だけで折り返します。<slot2/> は現在フォールバックフォントの選択だけに使われます。句が <slot3/> より長い場合は通常どおり内部で折り返します。ブラウザのプレビューは <slot4/> を無視し、空白でのみ折り返します。",
-        "single-line-text-is-anchored-vertically-by": "単一行のテキストは見える字形を縦方向の基準にするので、<slot0/> は見えない行ボックスではなく文字自体を中央に置きます。幅は送り幅なので、前後の空白も幅を持ちます。",
+        "single-line-text-is-anchored-vertically-by": "単一行のテキストは見える字形を縦方向の基準にするので、<slot0/> は見えない行ボックスではなく文字自体を中央に置きます。幅は送り幅なので、前後の空白も幅を持ちます。改行や maxWidth での折り返しで複数行になったテキストは、measureText と同じ行ボックスを基準にします。",
         "anchors-text-on-its-first-line-s": "<slot0/> は最初の行のベースラインをアンカーにします。同じ <slot1/> を持つテキストは、文字やサイズによらずベースラインが揃います。",
         "metadata": {
           "title": "テキストとフォント",
