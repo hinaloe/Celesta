@@ -1,7 +1,7 @@
 // Every template under templates/ is staged with the runtime and evaluates
 // through the real CLI. Per-template cases are added below as templates land.
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -136,4 +136,122 @@ test('slideshow without music', async () => {
   const result = await slideshow({ music: '' });
   assert.ok(result.config, JSON.stringify(result));
   assert.equal(result.config.durationInFrames, SLIDESHOW_SAMPLE_FRAMES);
+});
+
+// The six sample lines have no voices, so each lasts SECONDS_PER_CHAR (0.15)
+// per character of its text, at least MIN_LINE_SECONDS (1.5), rounded up to
+// whole frames: 12, 23, 26, 17, 23 and 16 characters give 54, 104, 117, 77,
+// 104 and 72 frames (528). Around them: OPENING_SECONDS (30 frames) before
+// the first line, a LINE_GAP_SECONDS gap (9 frames) after each of the first
+// five, ENDING_SECONDS (30 frames) after the last, and SCENE_LEAD_IN_SECONDS
+// (45 frames) before the first line of the second scene:
+// 30 + 528 + 5 * 9 + 30 + 45.
+const DIALOGUE_SAMPLE_FRAMES = 678;
+
+function dialogue(values) {
+  const dir = join(templatesDir, 'dialogue');
+  return evaluate(join(dir, 'film.tsx'), [entryPropsLayer(dir), { source: 'props', baseDir: dir, values }]);
+}
+
+// A tiny valid WAV (a few silent samples) for lip sync to read; the harness
+// reports any existing file as 2 seconds long.
+function writeWav(file) {
+  const samples = 16;
+  const wav = Buffer.alloc(44 + samples * 2);
+  wav.write('RIFF', 0);
+  wav.writeUInt32LE(36 + samples * 2, 4);
+  wav.write('WAVEfmt ', 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(24000, 24);
+  wav.writeUInt32LE(48000, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write('data', 36);
+  wav.writeUInt32LE(samples * 2, 40);
+  writeFileSync(file, wav);
+  return file;
+}
+
+// A one-character script whose portraits are the template's own, given as
+// absolute paths so the script can live in a temporary folder. `lines` may
+// name `voice.wav`, a WAV written beside the script.
+async function dialogueWithLines(lines) {
+  const assets = join(templatesDir, 'dialogue/assets');
+  const mouths = Object.fromEntries(['closed', 'a', 'i', 'u', 'e', 'o'].map((shape) => [shape, join(assets, `mouth-${shape}.png`)]));
+  const characters = {
+    shizuku: {
+      name: 'しずく',
+      color: '#3f8fd6',
+      portraits: { normal: join(assets, 'shizuku-normal.png'), smile: join(assets, 'shizuku-smile.png') },
+      mouths,
+    },
+  };
+  const dir = mkdtempSync(join(tmpdir(), 'celesta-dialogue-'));
+  try {
+    writeWav(join(dir, 'voice.wav'));
+    const script = join(dir, 'script.json');
+    writeFileSync(script, JSON.stringify({ characters, lines }));
+    return await dialogue({ script });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+for (const format of ['16:9', '9:16']) {
+  test(`dialogue evaluates in ${format}`, async () => {
+    const result = await dialogue({ format });
+    assert.ok(result.config, JSON.stringify(result));
+    assert.deepEqual([result.config.width, result.config.height], format === '16:9' ? [1920, 1080] : [1080, 1920]);
+    assert.equal(result.config.fps, 30);
+    assert.equal(result.config.durationInFrames, DIALOGUE_SAMPLE_FRAMES);
+  });
+}
+
+// One line of 6 characters, between OPENING_SECONDS (30 frames) and
+// ENDING_SECONDS (30 frames): timed from its text it lasts MIN_LINE_SECONDS
+// (45 frames), so 30 + 45 + 30; with a voice it lasts the voice (60 frames),
+// so 30 + 60 + 30.
+test('dialogue times a line from its voice when it has one', async () => {
+  const line = { speaker: 'shizuku', text: 'こんにちは。' };
+  const withoutVoice = await dialogueWithLines([line]);
+  assert.equal(withoutVoice.config?.durationInFrames, 105, JSON.stringify(withoutVoice));
+  const withVoice = await dialogueWithLines([{ ...line, voice: 'voice.wav' }]);
+  assert.equal(withVoice.config?.durationInFrames, 120, JSON.stringify(withVoice));
+});
+
+test('dialogue rejects a missing voice, naming the file and line', async () => {
+  const result = await dialogueWithLines([
+    { speaker: 'shizuku', text: 'こんにちは。' },
+    { speaker: 'shizuku', text: 'よろしくね。', voice: 'voices/missing.wav' },
+  ]);
+  assert.match(String(result.error), /script\.json: line 1: voice .*voices[\\/]missing\.wav does not exist/);
+});
+
+test('dialogue rejects an unknown speaker', async () => {
+  const result = await dialogueWithLines([
+    { speaker: 'shizuku', text: 'こんにちは。' },
+    { speaker: 'mira', text: 'はじめまして。' },
+  ]);
+  assert.match(String(result.error), /script\.json: line 1: speaker "mira" is not in characters/);
+});
+
+test('dialogue rejects a missing expression', async () => {
+  const result = await dialogueWithLines([{ speaker: 'shizuku', text: 'こんにちは。', expression: 'angry' }]);
+  assert.match(String(result.error), /script\.json: line 0: shizuku has no "angry" portrait/);
+});
+
+test('dialogue with a background image and music', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'celesta-dialogue-'));
+  try {
+    const result = await dialogue({
+      background: join(templatesDir, 'dialogue/assets/shizuku-normal.png'),
+      music: writeWav(join(dir, 'music.wav')),
+    });
+    assert.ok(result.config, JSON.stringify(result));
+    assert.equal(result.config.durationInFrames, DIALOGUE_SAMPLE_FRAMES);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -1,0 +1,5 @@
+{
+  "title": "キャラクター会話",
+  "description": "立ち絵・字幕・音声で二人が会話する解説動画。",
+  "edit": "Edit props.json and script.json, and replace the portraits and voices in assets/."
+}

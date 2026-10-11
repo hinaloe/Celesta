@@ -143,14 +143,15 @@ needs no code:
 `mouths` lists `closed` and the vowels `a`, `i`, `u`, `e`, `o`. Paths
 resolve from the folder holding `script.json`. `prepare()` rejects a line
 whose `speaker` is not in `characters` or whose `expression` has no
-portrait. `planDialogue()` times the lines from their voice recordings and
-`<DialogueSeries>` plays them with subtitle bands, lip sync, and the
-speaker's name. In 9:16 the portraits sit at the bottom and the subtitle
+portrait. `voice` is optional: `planDialogue()` times a line with a voice
+from its recording, and a line without one from the length of its text,
+with the mouth moving through the vowels of its reading. `<DialogueSeries>`
+plays the lines with subtitle bands, lip sync, and the speaker's name. In 9:16 the portraits sit at the bottom and the subtitle
 band above them.
 
-Sample media: the portraits and voices from `examples/assets/dialogue-demo`,
-copied into the template. The template's README carries the CC BY 3.0
-attribution for the voices.
+Sample media: the portraits from `examples/assets/dialogue-demo`, copied
+into the template. The sample lines have no voices; the template's README
+explains how to add recordings.
 
 ### Template README
 

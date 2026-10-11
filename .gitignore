@@ -7,3 +7,6 @@ node_modules/
 *.mp3
 *.mp4
 *.wav
+
+# Template sample media is part of the templates.
+!templates/*/assets/**
