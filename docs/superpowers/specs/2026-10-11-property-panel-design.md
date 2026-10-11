@@ -28,8 +28,15 @@ A "Properties" section is added to the React Preview panel, below its
 existing rows (entry, property sources, Reload). It is shown only when the
 entry declares properties.
 
-One row per declared key, in the schema's order, labelled with the
-field's `label` or else the key.
+One row per declared key, in the order `defineProjectProperties()`
+declares them, labelled with the field's `label` or else the key.
+
+The bridge holds the schema as `BTreeMap<String, ComponentPropertyField>`
+(`types.rs`, `protocol.rs`), which sorts keys alphabetically and loses that
+order. The ready message's JSON object is in declaration order, so the
+bridge also records the key order (`project_property_order: Vec<String>`
+beside the existing map, read with the same ordered-object reader as
+`props_edit.rs`). The map stays as it is for existing callers.
 
 | Type | Control | Commits on |
 | --- | --- | --- |
@@ -141,6 +148,7 @@ Writes run on the background executor, never on the UI thread.
 | --- | --- |
 | `crates/react-bridge/src/props_edit.rs` (new) | `set_property`, `import_path`, the ordered JSON object reader; no GPUI |
 | `crates/react-bridge/src/properties.rs` | `effective_values` |
+| `crates/react-bridge/src/types.rs`, `protocol.rs` | `project_property_order` recorded from the ready message |
 | `crates/editor/src/property_panel.rs` (new) | the section: rows and their input state, the commit queue, the kept schema, issue-to-row mapping |
 | `crates/editor/src/panels.rs` | the React Preview panel calls the section |
 
@@ -158,6 +166,8 @@ Rust unit tests:
   the result uses `/` separators.
 - `effective_values`: the three-level precedence; a key set by `--props`
   reports `Props`.
+- The ready message's property order survives into `project_property_order`
+  (declared `title, subtitle, accent` stays in that order).
 - Editor: invalid-property issues map to the right rows; the kept schema
   is used after a failed load; queued commits to one key collapse to the
   last value.
