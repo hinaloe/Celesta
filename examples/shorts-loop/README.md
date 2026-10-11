@@ -11,7 +11,19 @@ ring across the finished frame on every bar.
 
 The composition is `film.tsx` (the one scene in `scenes/`, its pieces in
 `components/`, the shaders in `shaders/`); `poster.jpg` is a frame from the
-finished film. From the repository root:
+finished film.
+
+The commands below need Celesta and `ffmpeg`. `inspect.mjs` uses the React
+runtime of a source build, or of an installed Celesta app when there is none.
+`render.py` uses the exporter at `target/release/celesta-exporter` unless
+`--exporter` names another. To build both from a fresh checkout:
+
+```sh
+pnpm install && pnpm --dir packages/react run codegen && pnpm run build:runtime
+cargo build -p celesta-exporter --release
+```
+
+Then, from the repository root:
 
 ```sh
 python3 examples/shorts-loop/make-score.py
@@ -19,12 +31,13 @@ node skills/celesta/scripts/inspect.mjs examples/shorts-loop/film.tsx --every 30
 python3 examples/shorts-loop/render.py
 ```
 
-`render.py` exports with `target/release/celesta-exporter` (`--exporter`
-picks another build) and needs `ffmpeg`. It writes `shorts-loop.mp4`. The
-soundtrack and MP4 are generated and ignored by Git. Run the score generator
-before opening the composition on a fresh checkout. Bebas Neue and IBM Plex
-Mono are referenced from `../afterimage/assets/fonts/` (SIL Open Font
-License).
+With the macOS app instead of a build, skip the build and run
+`python3 examples/shorts-loop/render.py --exporter /Applications/Celesta.app/Contents/MacOS/Celesta-export`.
+
+`render.py` writes `shorts-loop.mp4`. The soundtrack and MP4 are generated
+and ignored by Git. Run the score generator before opening the composition on
+a fresh checkout. Bebas Neue and IBM Plex Mono are referenced from
+`../afterimage/assets/fonts/` (SIL Open Font License).
 
 ## How it loops
 
