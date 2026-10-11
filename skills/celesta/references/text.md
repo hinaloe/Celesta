@@ -365,10 +365,11 @@ The full example is `packages/cli/examples/with-text-box.tsx`.
 
 `scripts/inspect.mjs` shows each text layer's string, position, font, and
 color. **An entry that uses `useTextMetrics`, `measureText`, `TextBox`,
-`useFitText`, `fitText`, or `@celesta/code` needs
-`inspect.mjs --native <Celesta-export>`**, which shapes text like an
-export; without it those frames report `UNSUPPORTED inspection` (unless
-`prepare()` catches the error and falls back). See
+`useFitText`, `fitText`, or `@celesta/code` is inspected through the
+exporter**, which shapes text like an export; `inspect.mjs` finds it or
+takes `--native <Celesta-export>`. Without one, those frames report
+`UNSUPPORTED inspection` (unless `prepare()` catches the error and falls
+back). See
 [verify.md](verify.md#measured-text---native). Check anything about how
 text looks (font, wrapping, overflow, fallback) with a PNG frame export;
 see [verify.md](verify.md#look-at-real-frames).
