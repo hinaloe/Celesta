@@ -35,6 +35,10 @@ Anchoring:
 - Single-line text is anchored vertically by its visible glyph bounds, so
   `anchorY={0.5}` centers the letters themselves. Horizontally it keeps its
   advance width, so leading and trailing spaces take up room.
+- Text with several lines, whether broken with `\n` or wrapped at
+  `maxWidth`, is anchored by its line boxes instead: with `anchorY={0}` the
+  first line box's top is at `y` and the first baseline `ascent` below it,
+  exactly where [`useTextMetrics`/`measureText`](#measure-text) put them.
 - `anchorY="baseline"` anchors the text on its first line's baseline
   instead. Use it to line up separate `Text` layers (per-character
   animation, mixed font sizes) at one `y`, and with measured layouts
@@ -239,12 +243,14 @@ guessing widths. `text` may hold `<Span>`, measured with the spans' weights
 and families.
 
 - `width` is the advance width, including spaces. `height` is the line-box
-  height (single-line `<Text>` trims empty rows above and below its glyphs).
+  height (`<Text>` that fits on one line trims empty rows above and below
+  its glyphs; text with several lines keeps its line boxes).
   `ascent` runs from the first line's top to its baseline. `glyphs` has one
   entry per cluster, so per-letter layout is `glyphs[i].x`.
 - Pass the same `style` and `maxWidth` to the hook and the `<Text>`, and
   place the text at `y={padding + metrics.ascent}` with
-  `anchorY="baseline"`.
+  `anchorY="baseline"`. This lines up one line and several alike, so shapes
+  placed from `glyphs` (`y = padding + line * lineHeight`) sit on the text.
 - `<Font>` declarations in the composition are included automatically, even
   when they appear after the measuring component. Relative font paths
   resolve against the entry file. `fonts` lists extra files to load for

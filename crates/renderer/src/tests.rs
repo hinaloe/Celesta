@@ -39,6 +39,91 @@ fn measure_reports_line_metrics_and_per_glyph_advances() {
 }
 
 #[test]
+fn wrapped_text_is_anchored_by_its_line_boxes_like_measure() {
+    let style = TextStyle {
+        font_size: Some(40.0),
+        line_height: Some(56.0),
+        ..TextStyle::default()
+    };
+    let mut rasterizer = TextRasterizer::new();
+    let max_width = Some(120.0);
+    let metrics = rasterizer.measure("Celesta Celesta Celesta", &style, max_width);
+    assert!(metrics.lines > 1, "the text should wrap");
+    let text = rasterizer
+        .rasterize("Celesta Celesta Celesta", &style, max_width, 1.0)
+        .unwrap();
+    // Like text broken with `\n`: the anchor box is the line boxes, so the
+    // first baseline sits `ascent` below its top, where `measure` puts it.
+    assert_eq!(f64::from(text.anchor_box.height), metrics.height.ceil());
+    let baseline_in_box = f64::from(text.baseline() - text.anchor_box.top as f32);
+    assert!(
+        (baseline_in_box - metrics.ascent).abs() < 1e-3,
+        "baseline {baseline_in_box} is not {} below the top",
+        metrics.ascent
+    );
+}
+
+#[test]
+fn wrapped_text_anchored_at_its_top_draws_where_its_measured_baseline_does() {
+    let style = TextStyle {
+        font_size: Some(40.0),
+        line_height: Some(56.0),
+        fill: Some(Paint::Solid {
+            color: "#FFFFFFFF".to_owned(),
+        }),
+        ..TextStyle::default()
+    };
+    let text = "Celesta Celesta Celesta";
+    let max_width = 120.0;
+    let ascent = TextRasterizer::new()
+        .measure(text, &style, Some(max_width))
+        .ascent;
+    let ink_rows = |y: f64, baseline_anchor: bool| {
+        let scene = Scene {
+            width: 200,
+            height: 300,
+            frame_rate: Rational::new(30, 1),
+            time: Time::ZERO,
+            fonts: Vec::new(),
+            layers: vec![Layer {
+                id: "paragraph".to_owned(),
+                transform: EvaluatedTransform {
+                    position: Point { x: 20.0, y },
+                    anchor: Point { x: 0.0, y: 0.0 },
+                    ..EvaluatedTransform::default()
+                },
+                opacity: 1.0,
+                blend_mode: BlendMode::Normal,
+                effects: Default::default(),
+                content: LayerContent::Text {
+                    text: text.to_owned(),
+                    style: style.clone(),
+                    max_width: Some(max_width),
+                    baseline_anchor,
+                },
+            }],
+            shaders: Vec::new(),
+        };
+        let frame = CpuRenderer::default().render(&scene).unwrap();
+        let rows: Vec<u32> = (0..frame.height())
+            .filter(|&y| {
+                (0..frame.width()).any(|x| {
+                    let offset = ((y * frame.width() + x) * 4) as usize;
+                    frame.pixels()[offset] > 128
+                })
+            })
+            .collect();
+        (rows[0], rows[rows.len() - 1])
+    };
+    let (top, bottom) = ink_rows(40.0, false);
+    let (measured_top, measured_bottom) = ink_rows(40.0 + ascent, true);
+    assert!(
+        top.abs_diff(measured_top) <= 1 && bottom.abs_diff(measured_bottom) <= 1,
+        "top-anchored ink {top}–{bottom}, measured {measured_top}–{measured_bottom}"
+    );
+}
+
+#[test]
 fn rasterizes_color_emoji_glyphs_when_a_color_font_is_available() {
     let mut rasterizer = TextRasterizer::new();
     let rasterized = rasterizer

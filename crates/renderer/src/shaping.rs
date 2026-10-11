@@ -674,7 +674,8 @@ impl TextRasterizer {
         // spaces still take up room, but drops the empty rows above and below
         // its ink: `anchorY` 0.5 centers the letters, not the line box.
         let mut top = 0;
-        let single_line = !text.contains('\n');
+        // Lines wrapped at `max_width` count as several lines too.
+        let single_line = !text.contains('\n') && buffer.layout_runs().nth(1).is_none();
         if single_line {
             if (!style.color_runs.is_empty() || style.visible_characters.is_some())
                 && let Some((min, max)) = ink_rows
