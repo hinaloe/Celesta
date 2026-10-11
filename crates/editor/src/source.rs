@@ -1,5 +1,5 @@
 use crate::EDITOR_DEMO_PROJECT;
-use crate::preview::ReactPreview;
+use crate::preview::{KeptSchema, ReactPreview};
 use celesta_editor_core::EditorDocument;
 use celesta_react_bridge::{
     PropertyInputs, ReactBridge, project_types_template, refresh_project_types,
@@ -76,6 +76,8 @@ pub(crate) fn load_source(
                     .map_err(|error| error.to_string())?
                     .metadata()
                     .clone();
+            // A failed first load never opens, so there is no schema to keep.
+            let property_schema = KeptSchema::from_metadata(&metadata);
             let document = EditorDocument::react_preview(
                 path,
                 metadata.width,
@@ -95,6 +97,8 @@ pub(crate) fn load_source(
                     watched_mtime,
                     property_args,
                     properties,
+                    property_schema,
+                    property_issues: Vec::new(),
                 }),
             ))
         }

@@ -3,7 +3,10 @@ use crate::helpers::prepare_preview_frame;
 use crate::source::PropertyArgs;
 use celesta_composition::{Layer, LayerContent, Scene};
 use celesta_gpu_renderer::{GpuRenderer, RenderQuality};
-use celesta_react_bridge::{ComponentResolutionRequest, PropertyInputs, ReactBridge};
+use celesta_react_bridge::{
+    ComponentPropertyField, ComponentResolutionRequest, PropertyInputs, PropertyIssue, ReactBridge,
+    ReactCompositionMetadata,
+};
 use gpui_kit::RenderImage;
 use rodio::Player;
 use rodio::buffer::SamplesBuffer;
@@ -88,6 +91,28 @@ pub(crate) struct ReactPreview {
     pub(crate) property_args: PropertyArgs,
     /// The values `property_args` held at the last (re)load.
     pub(crate) properties: PropertyInputs,
+    /// The last schema a load of this entry returned; kept across failed loads.
+    pub(crate) property_schema: Option<KeptSchema>,
+    /// Issues from the last load, empty after a successful one.
+    pub(crate) property_issues: Vec<PropertyIssue>,
+}
+
+/// The entry's project property schema with the order it declared its keys in
+/// (the map itself sorts them).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct KeptSchema {
+    pub(crate) fields: BTreeMap<String, ComponentPropertyField>,
+    pub(crate) order: Vec<String>,
+}
+
+impl KeptSchema {
+    /// The schema a load reported, or `None` when the entry declared none.
+    pub(crate) fn from_metadata(metadata: &ReactCompositionMetadata) -> Option<Self> {
+        metadata.project_property_schema.clone().map(|fields| Self {
+            fields,
+            order: metadata.project_property_order.clone(),
+        })
+    }
 }
 
 pub(crate) struct CpuPreviewFrame {

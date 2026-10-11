@@ -1,7 +1,9 @@
 use crate::component_schema::ComponentSchemaRequest;
 use crate::helpers::format_time;
 use crate::media_probe::{MediaProbeRequest, ProbeAsset};
-use crate::preview::{PreviewRequest, ReactPreviewContext, ReactPreviewMode};
+use crate::preview::{
+    KeptSchema, PreviewRequest, ReactPreview, ReactPreviewContext, ReactPreviewMode,
+};
 use crate::source::{REACT_PREVIEW_SAMPLE_RATE, watched_mtime};
 use crate::timecode::format_timecode;
 use crate::view::EditorView;
@@ -10,11 +12,67 @@ use celesta_editor_core::{EditorDocument, TimelineClock};
 use celesta_gpu_renderer::RenderQuality;
 use celesta_project::AssetKind;
 use celesta_react_bridge::{
-    PropertyInputs, ReactBridge, ReactCompositionMetadata, runtime_paths as react_runtime_paths,
+    PropertyInputs, PropertyIssue, ReactBridge, ReactBridgeError, ReactCompositionMetadata,
+    runtime_paths as react_runtime_paths,
 };
 use gpui_kit::Context;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
+
+/// What one background reload of a React entry produced.
+pub(crate) struct ReactReload {
+    pub(crate) watched: Option<SystemTime>,
+    /// Inputs read from disk this time, even when the spawn then failed.
+    pub(crate) properties: Option<PropertyInputs>,
+    pub(crate) result: Result<(PathBuf, ReactCompositionMetadata), PreviewLoadError>,
+}
+
+/// Why a reload failed: the text shown to the user, and the per-property
+/// issues when the entry rejected the values.
+#[derive(Debug, Clone)]
+pub(crate) struct PreviewLoadError {
+    pub(crate) message: String,
+    pub(crate) property_issues: Vec<PropertyIssue>,
+}
+
+impl PreviewLoadError {
+    pub(crate) fn from_bridge(error: ReactBridgeError) -> Self {
+        let message = error.to_string();
+        let property_issues = match error {
+            ReactBridgeError::InvalidProperties(issues) => issues,
+            _ => Vec::new(),
+        };
+        Self {
+            message,
+            property_issues,
+        }
+    }
+}
+
+impl From<String> for PreviewLoadError {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            property_issues: Vec::new(),
+        }
+    }
+}
+
+/// Folds a reload into the entry's property state: fresh inputs are kept even
+/// when the spawn failed, and a failed load keeps the last schema so the panel
+/// can still show (and fix) the wrong value.
+pub(crate) fn apply_property_outcome(preview: &mut ReactPreview, reload: &ReactReload) {
+    if let Some(properties) = &reload.properties {
+        preview.properties = properties.clone();
+    }
+    match &reload.result {
+        Ok((_, metadata)) => {
+            preview.property_schema = KeptSchema::from_metadata(metadata);
+            preview.property_issues.clear();
+        }
+        Err(error) => preview.property_issues = error.property_issues.clone(),
+    }
+}
 
 impl EditorView {
     /// `HH:MM:SS:FF` for a composition time, rounded to the nearest frame.
@@ -106,25 +164,41 @@ impl EditorView {
         let frame = self.clock.frame();
         let session = self.session;
         cx.spawn(async move |view, cx| {
-            let (watched, loaded) = cx
+            let reload = cx
                 .background_executor()
                 .spawn(async move {
                     // Sampled before reading, so an edit made while Node starts
                     // still differs from it and triggers another reload.
                     let watched = watched_mtime(&entry, &property_args);
                     // Re-read --props-file so edits to a variant show up too.
-                    let loaded = property_args.load(&entry).and_then(|properties| {
-                        ReactBridge::spawn_with_properties(&node, &cli_script, &entry, &properties)
-                            .map(|bridge| (entry, bridge.metadata().clone(), properties))
-                            .map_err(|error| error.to_string())
-                    });
-                    (watched, loaded)
+                    match property_args.load(&entry) {
+                        Ok(properties) => {
+                            let result = ReactBridge::spawn_with_properties(
+                                &node,
+                                &cli_script,
+                                &entry,
+                                &properties,
+                            )
+                            .map(|bridge| (entry, bridge.metadata().clone()))
+                            .map_err(PreviewLoadError::from_bridge);
+                            ReactReload {
+                                watched,
+                                properties: Some(properties),
+                                result,
+                            }
+                        }
+                        Err(message) => ReactReload {
+                            watched,
+                            properties: None,
+                            result: Err(message.into()),
+                        },
+                    }
                 })
                 .await;
             view.update(cx, |this, cx| {
                 // Another file opened meanwhile; this result belongs to the old one.
                 if this.session == session {
-                    this.apply_react_reload(watched, loaded, frame, cx);
+                    this.apply_react_reload(reload, frame, cx);
                 }
             })
             .ok();
@@ -134,19 +208,16 @@ impl EditorView {
 
     pub(crate) fn apply_react_reload(
         &mut self,
-        watched: Option<SystemTime>,
-        loaded: Result<(PathBuf, ReactCompositionMetadata, PropertyInputs), String>,
+        reload: ReactReload,
         frame: i64,
         cx: &mut Context<Self>,
     ) {
         if let Some(react) = self.react_preview.as_mut() {
-            react.watched_mtime = watched;
+            react.watched_mtime = reload.watched;
+            apply_property_outcome(react, &reload);
         }
-        match loaded {
-            Ok((entry, metadata, properties)) => {
-                if let Some(react) = self.react_preview.as_mut() {
-                    react.properties = properties;
-                }
+        match reload.result {
+            Ok((entry, metadata)) => {
                 if let Ok(document) = EditorDocument::react_preview(
                     &entry,
                     metadata.width,
@@ -177,7 +248,7 @@ impl EditorView {
                 self.refresh_audio_preview();
             }
             Err(error) => {
-                self.preview_error = Some(format!("React reload failed: {error}").into());
+                self.preview_error = Some(format!("React reload failed: {}", error.message).into());
             }
         }
         cx.notify();
@@ -289,5 +360,136 @@ impl EditorView {
             self.component_schema_pending = false;
             self.component_schema_error = Some(error.into());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::source::PropertyArgs;
+    use celesta_composition::Rational;
+    use celesta_react_bridge::ComponentPropertyField;
+    use std::collections::BTreeMap;
+
+    fn field() -> ComponentPropertyField {
+        ComponentPropertyField::Boolean {
+            label: None,
+            default_value: false,
+        }
+    }
+
+    fn kept(keys: &[&str]) -> KeptSchema {
+        KeptSchema {
+            fields: keys
+                .iter()
+                .map(|key| ((*key).to_owned(), field()))
+                .collect(),
+            order: keys.iter().map(|key| (*key).to_owned()).collect(),
+        }
+    }
+
+    fn preview(schema: Option<KeptSchema>) -> ReactPreview {
+        ReactPreview {
+            entry: PathBuf::from("film.tsx"),
+            watched_mtime: None,
+            property_args: PropertyArgs::default(),
+            properties: PropertyInputs::default(),
+            property_schema: schema,
+            property_issues: Vec::new(),
+        }
+    }
+
+    fn inputs(json: &str) -> PropertyInputs {
+        PropertyInputs::load(None, Some(json)).unwrap()
+    }
+
+    fn metadata(keys: &[&str]) -> ReactCompositionMetadata {
+        let declared = kept(keys);
+        ReactCompositionMetadata {
+            width: 1920,
+            height: 1080,
+            frame_rate: Rational {
+                numerator: 30,
+                denominator: 1,
+            },
+            duration_in_frames: 30,
+            component_schemas: BTreeMap::new(),
+            project_property_schema: (!keys.is_empty()).then_some(declared.fields),
+            project_property_order: keys.iter().map(|key| (*key).to_owned()).collect(),
+        }
+    }
+
+    fn issue(key: &str) -> PropertyIssue {
+        PropertyIssue {
+            key: key.to_owned(),
+            source: "--props".to_owned(),
+            message: "must be a boolean".to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_failed_load_keeps_the_schema_and_records_issues() {
+        let mut preview = preview(Some(kept(&["b", "a"])));
+        let reload = ReactReload {
+            watched: None,
+            properties: None,
+            result: Err(PreviewLoadError {
+                message: "invalid project properties".to_owned(),
+                property_issues: vec![issue("a")],
+            }),
+        };
+
+        apply_property_outcome(&mut preview, &reload);
+
+        assert_eq!(preview.property_schema, Some(kept(&["b", "a"])));
+        assert_eq!(preview.property_issues, vec![issue("a")]);
+    }
+
+    #[test]
+    fn a_failed_load_still_updates_the_read_inputs() {
+        let mut preview = preview(Some(kept(&["a"])));
+        let fresh = inputs(r#"{"a": 1}"#);
+        let reload = ReactReload {
+            watched: None,
+            properties: Some(fresh.clone()),
+            result: Err(PreviewLoadError::from("node exited".to_owned())),
+        };
+
+        apply_property_outcome(&mut preview, &reload);
+
+        assert_eq!(preview.properties, fresh);
+        assert!(preview.property_issues.is_empty());
+        assert_eq!(preview.property_schema, Some(kept(&["a"])));
+    }
+
+    #[test]
+    fn a_successful_load_replaces_the_schema_and_clears_issues() {
+        let mut preview = preview(Some(kept(&["old"])));
+        preview.property_issues = vec![issue("old")];
+        let reload = ReactReload {
+            watched: None,
+            properties: Some(inputs(r#"{"b": true}"#)),
+            result: Ok((PathBuf::from("film.tsx"), metadata(&["b", "a"]))),
+        };
+
+        apply_property_outcome(&mut preview, &reload);
+
+        assert_eq!(preview.property_schema, Some(kept(&["b", "a"])));
+        assert!(preview.property_issues.is_empty());
+        assert_eq!(preview.properties, inputs(r#"{"b": true}"#));
+    }
+
+    #[test]
+    fn an_entry_without_properties_has_no_schema() {
+        let mut preview = preview(Some(kept(&["a"])));
+        let reload = ReactReload {
+            watched: None,
+            properties: Some(PropertyInputs::default()),
+            result: Ok((PathBuf::from("film.tsx"), metadata(&[]))),
+        };
+
+        apply_property_outcome(&mut preview, &reload);
+
+        assert_eq!(preview.property_schema, None);
     }
 }
