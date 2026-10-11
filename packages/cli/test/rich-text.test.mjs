@@ -36,6 +36,26 @@ test('adjacent runs with the same attributes merge', () => {
   assert.deepEqual(flat.fontRuns, [{ start: 0, end: 4, fontWeight: 700 }]);
 });
 
+test('a span takes a font stack, and equal stacks merge', () => {
+  const stack = ['JetBrains Mono', 'Noto Sans JP'];
+  const flat = flattenTextContent([
+    h(Span, { style: { fontFamily: stack } }, 'ab'),
+    h(Span, { style: { fontFamily: [...stack] } }, 'cd'),
+    h(Span, { style: { fontFamily: 'JetBrains Mono' } }, 'e'),
+  ], '<Text> children');
+  assert.deepEqual(flat.fontRuns, [
+    { start: 0, end: 4, fontFamily: stack },
+    { start: 4, end: 5, fontFamily: 'JetBrains Mono' },
+  ]);
+  // The run keeps its own copy of the list.
+  stack.push('Mutated');
+  assert.deepEqual(flat.fontRuns[0].fontFamily, ['JetBrains Mono', 'Noto Sans JP']);
+  for (const fontFamily of ['', ' ', [], ['Inter', ''], ['Inter', 3], 3]) {
+    assert.throws(() => flattenTextContent(h(Span, { style: { fontFamily } }, 'a'), '<Text> children'),
+      /<Span> fontFamily must be a non-empty string or a non-empty array of them/, JSON.stringify(fontFamily));
+  }
+});
+
 test('empty spans emit no runs', () => {
   const flat = flattenTextContent(['a', h(Span, { style: { fontWeight: 700 } }), h(Span, { style: { fill: '#ff0000' } }, null, false), 'b'], '<Text> children');
   assert.deepEqual(flat, { text: 'ab', colorRuns: [], fontRuns: [] });

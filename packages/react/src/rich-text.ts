@@ -5,14 +5,15 @@
 import * as React from 'react';
 import type { ReactNode } from 'react';
 
-import type { Paint, TextColorRun, TextFontRun, TextStyle } from './scene';
+import type { FontFamily, Paint, TextColorRun, TextFontRun, TextStyle } from './scene';
 
 export interface SpanStyle {
   /** A hex color (`"#RRGGBB"` or `"#RRGGBBAA"`) or a solid `Paint` with one; other formats throw. */
   fill?: string | Paint;
   /** 1–1000; a family without that weight uses its nearest face. */
   fontWeight?: number;
-  fontFamily?: string;
+  /** A family name, or a font stack: names tried in order for each character. */
+  fontFamily?: FontFamily;
 }
 
 export interface SpanProps {
@@ -41,7 +42,12 @@ export interface FlatText {
 interface Inherited {
   color?: string;
   fontWeight?: number;
-  fontFamily?: string;
+  fontFamily?: FontFamily;
+}
+
+function sameFamily(a: FontFamily | null | undefined, b: FontFamily | null | undefined): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((name, i) => name === b[i]);
+  return a === b;
 }
 
 /** The color formats the renderer reads; checked here so a bad one fails at the span, not at export. */
@@ -66,10 +72,12 @@ function resolveSpan(style: SpanStyle | undefined, inherited: Inherited): Inheri
     next.fontWeight = weight;
   }
   if (style?.fontFamily !== undefined) {
-    if (typeof style.fontFamily !== 'string' || style.fontFamily.trim() === '') {
-      throw new Error('<Span> fontFamily must be a non-empty string');
+    const family: unknown = style.fontFamily;
+    const isName = (name: unknown) => typeof name === 'string' && name.trim() !== '';
+    if (Array.isArray(family) ? family.length === 0 || !family.every(isName) : !isName(family)) {
+      throw new Error('<Span> fontFamily must be a non-empty string or a non-empty array of them');
     }
-    next.fontFamily = style.fontFamily;
+    next.fontFamily = Array.isArray(family) ? [...family] : style.fontFamily;
   }
   return next;
 }
@@ -109,7 +117,7 @@ export function flattenTextContent(content: ReactNode, what: string): FlatText {
           end: length,
           ...(inherited.fontWeight !== undefined ? { fontWeight: inherited.fontWeight } : {}),
           ...(inherited.fontFamily !== undefined ? { fontFamily: inherited.fontFamily } : {}),
-        }, (a, b) => a.fontWeight === b.fontWeight && a.fontFamily === b.fontFamily);
+        }, (a, b) => a.fontWeight === b.fontWeight && sameFamily(a.fontFamily, b.fontFamily));
       }
       return;
     }
