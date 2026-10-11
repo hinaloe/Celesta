@@ -9,7 +9,9 @@ different fonts in one paragraph. It is built on the per-range font spans of
 - Scene type (`crates/composition/src/style.rs`): `FontFamily` is an
   untagged enum, `Name(String)` or `Stack(Vec<String>)`, used by
   `TextStyle.font_family` and `TextFontRun.font_family`. ts-rs generates
-  `FontFamily = string | Array<string>`. A name serializes as a plain string,
+  `FontFamily = string | ReadonlyArray<string>` (a `ts(type)` on the
+  `Stack` field; `untagged` enums take no container override), so a stack
+  declared `as const` type-checks. A name serializes as a plain string,
   so existing scenes and projects round-trip unchanged; an empty list is a
   deserialization error. `names()`, `first()`, and `is_stack()` (more than
   one name) are the accessors.
@@ -32,6 +34,11 @@ different fonts in one paragraph. It is built on the per-range font spans of
   family) becomes a run, merged with equal neighbours. The face checked is
   the one `matched_weight` picks, so a family loaded only at 500 is checked
   (and drawn) at 500 for a 400 request.
+  The result is kept in `stacked_runs`, by text and the family, weight, and
+  font runs it depends on (a reveal or a fill change reuses it), and
+  `matched_face` keeps its face id in `matched_faces`; both are cleared when
+  a font loads. Shaping and every `run_baselines` call ask for the runs, so
+  without the cache each measure or draw resolved the text again.
 - Shaping (`shaped_buffer`): the base attributes use the primary family;
   `face_runs` replaces `usable_font_runs`, so stack choices reuse the font
   run path (per-line byte spans, phrase joiners, the base span that keeps
