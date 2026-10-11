@@ -3,7 +3,7 @@
 use crate::fonts::{COLOR_EMOJI_FAMILIES, TextRasterizer};
 use crate::linebreak::{emoji_presentation_spans, is_visible_character};
 use crate::shaping::usable_font_runs;
-use celesta_composition::{FontFamily, TextStyle};
+use celesta_composition::{FontFamily, TextFontRun, TextStyle};
 use cosmic_text::{Family, Font, Weight, fontdb};
 use std::sync::Arc;
 use unicode_segmentation::UnicodeSegmentation;
@@ -13,11 +13,11 @@ use unicode_segmentation::UnicodeSegmentation;
 /// stack draws with a family other than its primary one. Omitted fields use
 /// the text's own.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct FaceRun<'a> {
+pub(crate) struct FaceRun {
     pub start: usize,
     pub end: usize,
     pub font_weight: Option<u16>,
-    pub font_family: Option<&'a str>,
+    pub font_family: Option<Arc<str>>,
 }
 
 /// The families of one stack at one weight that have a face, with the face
@@ -47,11 +47,18 @@ impl TextRasterizer {
     /// cosmic-text picks it for the weight [`Self::matched_weight`] returns.
     pub(crate) fn matched_face(&mut self, family: &str, weight: u16) -> Option<Arc<Font>> {
         let matched = self.matched_weight(family, weight)?;
-        let id = self.font_system.db().query(&fontdb::Query {
-            families: &[Family::Name(family)],
-            weight: Weight(matched),
-            ..fontdb::Query::default()
-        })?;
+        let database = self.font_system.db();
+        // A query walks every installed face, so it is looked up once.
+        let id = (*self
+            .matched_faces
+            .entry((family.to_owned(), matched))
+            .or_insert_with(|| {
+                database.query(&fontdb::Query {
+                    families: &[Family::Name(family)],
+                    weight: Weight(matched),
+                    ..fontdb::Query::default()
+                })
+            }))?;
         self.font_system.get_font(id, Weight(matched))
     }
 
@@ -59,7 +66,7 @@ impl TextRasterizer {
     /// runs') draw with a family other than the text's primary one, in
     /// order. Without a stack these are `style`'s usable font runs as they
     /// are, so text without one shapes exactly as before stacks existed.
-    pub(crate) fn face_runs<'a>(&mut self, text: &str, style: &'a TextStyle) -> Vec<FaceRun<'a>> {
+    pub(crate) fn face_runs(&mut self, text: &str, style: &TextStyle) -> Arc<[FaceRun]> {
         let spans = if style.font_runs.is_empty() {
             Vec::new()
         } else {
@@ -76,18 +83,49 @@ impl TextRasterizer {
                     start: run.start,
                     end: run.end,
                     font_weight: run.font_weight,
-                    font_family: run.font_family.as_ref().map(FontFamily::first),
+                    font_family: run.font_family.as_ref().map(|family| family.first().into()),
                 })
                 .collect();
         }
+        // Measuring and drawing ask for the same text's runs again and
+        // again (each frame of a typing animation, say), and choosing a
+        // family looks at every cluster.
+        let key = (text.len() <= 100_000).then(|| {
+            format!(
+                "{text:?}\0{:?}",
+                (&style.font_family, style.font_weight, &style.font_runs)
+            )
+        });
+        if let Some(runs) = key.as_ref().and_then(|key| self.stacked_runs.get(key)) {
+            return Arc::clone(runs);
+        }
+        let runs: Arc<[FaceRun]> = self.resolve_stacks(text, style, &spans).into();
+        if let Some(key) = key {
+            if self.stacked_runs.len() >= 64 {
+                self.stacked_runs.clear();
+            }
+            self.stacked_runs.insert(key, Arc::clone(&runs));
+        }
+        runs
+    }
+
+    /// [`Self::face_runs`] for text with a font stack: each grapheme
+    /// cluster's family, from its span's stack or the text's.
+    fn resolve_stacks(
+        &mut self,
+        text: &str,
+        style: &TextStyle,
+        spans: &[&TextFontRun],
+    ) -> Vec<FaceRun> {
         let requested = style.font_weight.unwrap_or(400);
         let primary = style
             .font_family
             .as_ref()
             .map(|family| self.primary_family(family, requested));
         let emoji = emoji_presentation_spans(text);
-        let mut stacks: Vec<StackFaces<'a>> = Vec::new();
-        let mut runs: Vec<FaceRun<'a>> = Vec::new();
+        let mut next_emoji = 0;
+        let mut stacks: Vec<StackFaces> = Vec::new();
+        let mut runs: Vec<FaceRun> = Vec::new();
         let mut point = 0;
         let mut next_span = 0;
         for (byte, cluster) in text.grapheme_indices(true) {
@@ -120,7 +158,12 @@ impl TextRasterizer {
                             stacks.len() - 1
                         }
                     };
-                    let is_emoji = emoji.iter().any(|range| range.contains(&byte));
+                    while next_emoji < emoji.len() && emoji[next_emoji].end <= byte {
+                        next_emoji += 1;
+                    }
+                    let is_emoji = emoji
+                        .get(next_emoji)
+                        .is_some_and(|range| range.start <= byte);
                     Some(cluster_family(&stacks[index], cluster, is_emoji))
                 }
                 None => None,
@@ -132,7 +175,7 @@ impl TextRasterizer {
             match runs.last_mut() {
                 Some(last)
                     if last.end == start
-                        && last.font_family == font_family
+                        && last.font_family.as_deref() == font_family
                         && last.font_weight == font_weight =>
                 {
                     last.end = point;
@@ -141,7 +184,7 @@ impl TextRasterizer {
                     start,
                     end: point,
                     font_weight,
-                    font_family,
+                    font_family: font_family.map(Into::into),
                 }),
             }
         }

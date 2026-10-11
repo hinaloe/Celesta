@@ -91,8 +91,8 @@ impl TextRasterizer {
         // the text's) at the weight CSS matching picks within that family.
         let font_runs = self.face_runs(source, style);
         let mut run_attrs: Vec<(Attrs, u16)> = Vec::with_capacity(font_runs.len());
-        for run in &font_runs {
-            let family = run.font_family.or(family);
+        for run in font_runs.iter() {
+            let family = run.font_family.as_deref().or(family);
             let requested = run.font_weight.or(style.font_weight).unwrap_or(400);
             let weight = family
                 .and_then(|family| self.matched_weight(family, requested))

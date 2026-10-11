@@ -257,3 +257,35 @@ fn warnings_judge_the_whole_stack() {
             .is_empty()
     );
 }
+
+#[test]
+fn stack_choices_are_kept_until_a_font_loads() {
+    let mut rasterizer = two_family_rasterizer();
+    let style = bebas_then_mono(48.0);
+    let first = rasterizer.face_runs("AБ", &style);
+    assert_eq!(first.len(), 1);
+    // A reveal or a fill does not change the choice, so it is reused.
+    let revealed = TextStyle {
+        visible_characters: Some(1),
+        ..style.clone()
+    };
+    assert!(std::sync::Arc::ptr_eq(
+        &first,
+        &rasterizer.face_runs("AБ", &revealed)
+    ));
+    // A loaded font can have glyphs the stack lacked, so it is chosen again.
+    rasterizer
+        .load_font_data(
+            "extra",
+            std::fs::read(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../examples/afterimage/assets/fonts/BebasNeue-Regular.ttf"),
+            )
+            .unwrap(),
+            Some("Celesta Extra".to_owned()),
+        )
+        .unwrap();
+    let again = rasterizer.face_runs("AБ", &style);
+    assert!(!std::sync::Arc::ptr_eq(&first, &again));
+    assert_eq!(first, again);
+}

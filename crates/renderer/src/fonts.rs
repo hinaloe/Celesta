@@ -1,5 +1,6 @@
 use crate::assets::{is_sfnt_or_woff, local_asset_path, read_asset};
 use crate::error::RenderError;
+use crate::font_stack::FaceRun;
 use crate::linebreak::{is_emoji_cluster, is_visible_character};
 use crate::shaping::{source_offsets, usable_font_runs};
 use crate::text::{FontFallback, MissingGlyphs};
@@ -27,6 +28,12 @@ pub struct TextRasterizer {
     /// `matched_weight` results by family and requested weight, cleared
     /// whenever a font is loaded.
     pub(crate) matched_weights: HashMap<(String, u16), Option<u16>>,
+    /// `matched_face`'s face by family and matched weight, cleared whenever
+    /// a font is loaded. Every locale's system shares the database's ids.
+    pub(crate) matched_faces: HashMap<(String, u16), Option<fontdb::ID>>,
+    /// `face_runs` results for text with a font stack, by text and the
+    /// style fields they depend on, cleared whenever a font is loaded.
+    pub(crate) stacked_runs: HashMap<String, Arc<[FaceRun]>>,
     /// `color_emoji_family`'s result once looked up, cleared whenever a
     /// font is loaded.
     pub(crate) color_emoji_family: Option<Option<String>>,
@@ -95,6 +102,8 @@ impl TextRasterizer {
             swash_cache: SwashCache::new(),
             loaded_fonts: HashSet::new(),
             matched_weights: HashMap::new(),
+            matched_faces: HashMap::new(),
+            stacked_runs: HashMap::new(),
             color_emoji_family: None,
             missing_characters: HashMap::new(),
             shaped_buffers: HashMap::new(),
@@ -116,6 +125,8 @@ impl TextRasterizer {
             swash_cache: SwashCache::new(),
             loaded_fonts: self.loaded_fonts.clone(),
             matched_weights: HashMap::new(),
+            matched_faces: HashMap::new(),
+            stacked_runs: HashMap::new(),
             color_emoji_family: None,
             missing_characters: HashMap::new(),
             shaped_buffers: HashMap::new(),
@@ -230,6 +241,8 @@ impl TextRasterizer {
         }
         self.locale_systems.clear();
         self.matched_weights.clear();
+        self.matched_faces.clear();
+        self.stacked_runs.clear();
         self.color_emoji_family = None;
         self.missing_characters.clear();
         self.shaped_buffers.clear();
