@@ -149,6 +149,28 @@ test('a held Dialogue keeps a rendered band but no plain subtitle', () => {
   assert.deepEqual(texts(scene.layers), ['Mira/Mira/Mira|Bye|true|3/30|600']);
 });
 
+test('subtitle.render measures only when it reads metrics', () => {
+  // Like inspect.mjs, which cannot shape text and refuses every measurement.
+  const refuse = () => {
+    throw new Error('cannot shape text');
+  };
+  setTextMeasurer(async (request) => refuse(request), refuse);
+  const mira = React.createRef();
+  const view = React.createRef();
+  const Root = ({ render }) =>
+    h(
+      Composition,
+      { width: 640, height: 360, fps: 30, durationInFrames: 30 },
+      h(Assets, null, h(Character, { ref: mira, name: 'mira', portrait: portrait('mira'), subtitle: subtitle({ render }) })),
+      h(CharacterView, { ref: view, character: mira }),
+      h(Dialogue, { character: view }, 'Hello'),
+    );
+  const plain = ({ text }) => h(Text, { id: 'said' }, text);
+  const [scene] = renderFrames(() => h(Root, { render: plain }), [0]);
+  assert.equal(find(scene.layers, 'said').content.text, 'Hello');
+  assert.throws(() => renderFrames(() => h(Root, { render: band }), [0]), /cannot shape text/);
+});
+
 test('DialogueSeries holdSubtitle keeps the band through gaps and restarts it after a lead-in', async () => {
   installMeasurer();
   const plan = await planDialogue(

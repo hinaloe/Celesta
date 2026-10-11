@@ -205,8 +205,11 @@ export interface SubtitleRenderProps {
   /** The line as given, spans included: draw it with `<Text style={style}>{content}</Text>`. */
   content: ReactNode;
   character: SubtitleCharacter;
-  /** `text` measured with the subtitle's `style` and `maxWidth`, as `<Text>` lays it out. */
-  metrics: TextMetrics;
+  /**
+   * `text` measured with the subtitle's `style` and `maxWidth`, as `<Text>`
+   * lays it out. Measured when first read.
+   */
+  readonly metrics: TextMetrics;
   style: TextStyle;
   maxWidth?: number;
   /**
@@ -399,11 +402,14 @@ function useRenderedSubtitle(
       fonts,
     })
     : null;
-  const metrics = React.useMemo(
-    () => (key === null ? null : synchronousMeasurer('subtitle.render')(JSON.parse(key) as MeasureTextRequest)),
-    [key],
-  );
-  if (!render || !character || !metrics || !runtime) {
+  // Measured when `render` first reads `metrics`, so a render that never
+  // does needs no text shaper (inspect.mjs has none).
+  const measure = React.useMemo(() => {
+    let metrics: TextMetrics | undefined;
+    return () =>
+      (metrics ??= synchronousMeasurer('subtitle.render')(JSON.parse(key!) as MeasureTextRequest));
+  }, [key]);
+  if (!render || !character || key === null || !runtime) {
     return null;
   }
   const localFrame = Math.round(secondsFromTime(runtime.time) * runtime.fps);
@@ -413,7 +419,9 @@ function useRenderedSubtitle(
     text,
     content: children,
     character: { id: character.id, name, displayName: character.displayName ?? name },
-    metrics,
+    get metrics() {
+      return measure();
+    },
     style,
     ...(maxWidth !== undefined ? { maxWidth } : {}),
     held,

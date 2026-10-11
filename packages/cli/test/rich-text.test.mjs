@@ -157,6 +157,9 @@ test('subtitles carry spans to the text layer and to render', () => {
   assert.equal(seen.text, 'ぜひ一度お試しを');
   assert.equal(seen.style.colorRuns, undefined);
   assert.ok(React.isValidElement(seen.content[1]));
+  // `metrics` is measured on first read only.
+  assert.ok(!requests.some((request) => request.text === 'ぜひ一度お試しを'));
+  assert.equal(seen.metrics.width, 10);
   assert.ok(requests.some((request) => request.text === 'ぜひ一度お試しを'));
 });
 
