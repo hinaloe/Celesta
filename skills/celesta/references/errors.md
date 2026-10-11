@@ -4,7 +4,7 @@ Find the message (or its start) and apply the fix. The exporter prefixes
 failures with `Celesta export:`, or with `--json` reports them as
 `error.message` next to an `error.code`
 ([export.md](export.md#json-results)); `inspect.mjs` prints `ERROR loading entry:`
-or `ERROR:` per frame. Dialogue, portrait, and lip-sync symptoms are in
+or `ERROR:` per frame (`UNSUPPORTED inspection:` for text it cannot measure). Dialogue, portrait, and lip-sync symptoms are in
 [dialogue.md](dialogue.md#troubleshooting).
 
 ## Entry and components (React)
@@ -34,7 +34,8 @@ or `ERROR:` per frame. Dialogue, portrait, and lip-sync symptoms are in
 
 | Message | Cause and fix |
 | --- | --- |
-| `inspect.mjs cannot shape text, …` | Expected: `inspect.mjs` cannot run `useTextMetrics`/`measureText`/`TextBox`/`useFitText`/`fitText`/`@celesta/code`. Verify with a PNG export ([verify.md](verify.md#look-at-real-frames)). |
+| `UNSUPPORTED inspection: inspect.mjs cannot shape text, …` | Not a scene error: plain `inspect.mjs` cannot run `useTextMetrics`/`measureText`/`TextBox`/`useFitText`/`fitText`/`@celesta/code`/`subtitle.render` `metrics`. Rerun with `--native <Celesta-export>` ([verify.md](verify.md#measured-text---native)), or verify with a PNG export. |
+| `… exited before the inspection handshake` (inspect.mjs `--native`) | The exporter is older than `--inspect`: update Celesta, or verify with PNG frames / a contact sheet ([verify.md](verify.md#look-at-real-frames)). |
 | `fitText: … must be a finite number greater than 0` / `maxFontSize … must not be less than minFontSize` / `maxLines must be a whole number of at least 1` | Fix the `TextBox`/`useFitText`/`fitText` options. |
 | `<TextBox> text "…" does not fit W×H … even at minFontSize N` | `overflow="error"` and the text is too long: shorten it, enlarge the box, allow more lines, or lower `minFontSize`. |
 | `Code only supports left alignment` / `Code requires positive fontSize and lineHeight` / `Code line is out of range` / `Code column is out of range` | Fix `@celesta/code` props; positions are one-based ([code.md](code.md)). |
