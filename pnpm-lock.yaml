@@ -290,25 +290,6 @@ importers:
         specifier: ^18.3.31
         version: 18.3.31
 
-  examples/ranking:
-    dependencies:
-      '@celesta/project':
-        specifier: workspace:*
-        version: link:../../packages/project
-      '@celesta/react':
-        specifier: workspace:*
-        version: link:../../packages/react
-      '@celesta/text':
-        specifier: workspace:*
-        version: link:../../packages/text
-      react:
-        specifier: ^18.3.1
-        version: 18.3.1
-    devDependencies:
-      '@types/react':
-        specifier: ^18.3.31
-        version: 18.3.31
-
   examples/reel:
     dependencies:
       '@celesta/react':
