@@ -2570,3 +2570,48 @@ fn blended_instances_match_a_blended_group() {
         render(vec![backdrop(), group]).pixels()
     );
 }
+
+#[test]
+fn one_instance_image_dimension_keeps_its_aspect_ratio() {
+    let mut renderer = CpuRenderer::new(RenderOptions {
+        background: Color::rgba(0, 0, 0, 255),
+    });
+    renderer.image_sources.insert_raster(
+        "wide",
+        image::RgbaImage::from_raw(4, 2, [255; 4].repeat(8)).unwrap(),
+    );
+    let scene = Scene {
+        width: 16,
+        height: 16,
+        layers: vec![instance_layer(
+            "wide",
+            LayerContent::Instances {
+                count: 1,
+                shape: InstanceShape::Image {
+                    asset: ResolvedAsset {
+                        id: "wide".to_owned(),
+                        location: AssetLocation::File {
+                            path: "wide.png".to_owned(),
+                        },
+                    },
+                },
+                width: Some(8.0),
+                height: None,
+                color: None,
+                x: F32Column::from(vec![8.0]),
+                y: F32Column::from(vec![8.0]),
+                widths: None,
+                heights: None,
+                rotation: None,
+                colors: None,
+            },
+        )],
+        ..clip_scene(Vec::new())
+    };
+    let frame = renderer.render(&scene).unwrap();
+    // 8 wide, so 4 tall: rows 6 to 9.
+    assert_eq!(pixel(&frame, 8, 6), [255, 255, 255, 255]);
+    assert_eq!(pixel(&frame, 8, 9), [255, 255, 255, 255]);
+    assert_eq!(pixel(&frame, 8, 5), [0, 0, 0, 255]);
+    assert_eq!(pixel(&frame, 8, 10), [0, 0, 0, 255]);
+}

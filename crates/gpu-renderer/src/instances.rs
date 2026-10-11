@@ -8,7 +8,9 @@ use crate::layer::{
 };
 use crate::texture::LayerTexture;
 use crate::transform::{Affine, LayerState};
-use celesta_composition::{BlendMode, EvaluatedTransform, F32Column, Point, U8Column};
+use celesta_composition::{
+    BlendMode, EvaluatedTransform, F32Column, Point, U8Column, instance_size,
+};
 
 /// What every particle draws.
 pub(crate) enum PreparedInstanceShape {
@@ -30,10 +32,27 @@ pub(crate) struct InstanceColumns {
     pub(crate) rotation: Option<F32Column>,
     pub(crate) colors: Option<U8Column>,
     /// The size of every particle without its own.
-    pub(crate) width: f64,
-    pub(crate) height: f64,
+    pub(crate) width: Option<f64>,
+    pub(crate) height: Option<f64>,
+    /// An image's own size, which fills in a size the layer does not give.
+    pub(crate) natural: Option<(f64, f64)>,
     /// Straight RGBA in 0-255, for every particle without its own colour.
     pub(crate) color: [f32; 4],
+}
+
+impl InstanceColumns {
+    /// Particle `i`'s size; see `celesta_composition::instance_size`.
+    pub(crate) fn size(&self, i: usize) -> (f64, f64) {
+        let width = self
+            .widths
+            .as_ref()
+            .map_or(self.width, |widths| Some(f64::from(widths[i])));
+        let height = self
+            .heights
+            .as_ref()
+            .map_or(self.height, |heights| Some(f64::from(heights[i])));
+        instance_size(width, height, self.natural)
+    }
 }
 
 /// One particle, placed in the scene.
@@ -123,14 +142,7 @@ impl PreparedInstances {
         let columns = &self.columns;
         let x = f64::from(columns.x[i]);
         let y = f64::from(columns.y[i]);
-        let width = columns
-            .widths
-            .as_ref()
-            .map_or(columns.width, |widths| f64::from(widths[i]));
-        let height = columns
-            .heights
-            .as_ref()
-            .map_or(columns.height, |heights| f64::from(heights[i]));
+        let (width, height) = columns.size(i);
         let rotation = columns
             .rotation
             .as_ref()

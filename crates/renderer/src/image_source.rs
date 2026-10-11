@@ -69,6 +69,54 @@ impl ImageSources {
             .or_insert(Source::Raster(Arc::new(pixels)));
     }
 
+    /// Reads and parses (an SVG) or decodes (a raster image) the file at
+    /// `path` under `key`, once.
+    fn load(&mut self, key: &str, path: &Path) -> Result<(), image::ImageError> {
+        if self.sources.contains_key(key) {
+            return Ok(());
+        }
+        let data = std::fs::read(path)?;
+        let svg = path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"))
+            || std::str::from_utf8(&data).is_ok_and(|s| s.contains("<svg"));
+        let source = if svg {
+            let text = std::str::from_utf8(&data).map_err(invalid)?;
+            let text = css_fallbacks(text);
+            let mut options = usvg::Options {
+                resources_dir: path.parent().map(Path::to_path_buf),
+                ..Default::default()
+            };
+            options.fontdb_mut().load_system_fonts();
+            Source::Svg(Box::new(
+                usvg::Tree::from_str(&text, &options).map_err(invalid)?,
+            ))
+        } else {
+            Source::Raster(Arc::new(
+                ImageReader::new(std::io::Cursor::new(data))
+                    .with_guessed_format()?
+                    .decode()?
+                    .to_rgba8(),
+            ))
+        };
+        self.sources.insert(key.to_owned(), source);
+        Ok(())
+    }
+
+    /// The image's own size in layer units, loading it under `key` without
+    /// rasterizing it.
+    pub fn natural_size(
+        &mut self,
+        key: &str,
+        path: &Path,
+    ) -> Result<(f64, f64), image::ImageError> {
+        self.load(key, path)?;
+        Ok(match &self.sources[key] {
+            Source::Raster(image) => (image.width() as f64, image.height() as f64),
+            Source::Svg(tree) => (tree.size().width() as f64, tree.size().height() as f64),
+        })
+    }
+
     pub fn render(
         &mut self,
         key: &str,
@@ -78,33 +126,7 @@ impl ImageSources {
         fit: Option<ImageFit>,
         density: f64,
     ) -> Result<DisplayImage, image::ImageError> {
-        if !self.sources.contains_key(key) {
-            let data = std::fs::read(path)?;
-            let svg = path
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"))
-                || std::str::from_utf8(&data).is_ok_and(|s| s.contains("<svg"));
-            let source = if svg {
-                let text = std::str::from_utf8(&data).map_err(invalid)?;
-                let text = css_fallbacks(text);
-                let mut options = usvg::Options {
-                    resources_dir: path.parent().map(Path::to_path_buf),
-                    ..Default::default()
-                };
-                options.fontdb_mut().load_system_fonts();
-                Source::Svg(Box::new(
-                    usvg::Tree::from_str(&text, &options).map_err(invalid)?,
-                ))
-            } else {
-                Source::Raster(Arc::new(
-                    ImageReader::new(std::io::Cursor::new(data))
-                        .with_guessed_format()?
-                        .decode()?
-                        .to_rgba8(),
-                ))
-            };
-            self.sources.insert(key.to_owned(), source);
-        }
+        self.load(key, path)?;
         let source = &self.sources[key];
         let (sw, sh) = match source {
             Source::Raster(image) => (image.width() as f64, image.height() as f64),

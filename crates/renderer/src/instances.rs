@@ -7,7 +7,7 @@ use crate::paint::ResolvedPaint;
 use crate::rect::{RectPaint, rasterize_rect_transformed};
 use crate::renderer::CpuRenderer;
 use crate::types::{Color, RgbaFrame};
-use celesta_composition::{InstanceShape, Layer, LayerContent, Point};
+use celesta_composition::{InstanceShape, Layer, LayerContent, Point, instance_size};
 
 const CENTRE: Point = Point { x: 0.5, y: 0.5 };
 
@@ -40,52 +40,53 @@ impl CpuRenderer {
             Some(color) => Color::from_hex(color)?,
             None => Color::rgba(255, 255, 255, 255),
         };
+        // Particle `i`'s own or the shared size, before an image fills in
+        // a missing side.
+        let given = |i: usize| {
+            (
+                widths
+                    .as_ref()
+                    .map_or(*width, |widths| Some(f64::from(widths[i]))),
+                heights
+                    .as_ref()
+                    .map_or(*height, |heights| Some(f64::from(heights[i]))),
+            )
+        };
         let image = match shape {
             InstanceShape::Image { asset } => {
                 let path = self.local_asset_path(asset)?;
-                let mut render = |density: f64| {
-                    self.image_sources
-                        .render(&asset.id, &path, None, None, None, density)
-                        .map_err(|source| RenderError::ImageDecode {
-                            asset: asset.id.clone(),
-                            source,
-                        })
+                let decode_error = |source| RenderError::ImageDecode {
+                    asset: asset.id.clone(),
+                    source,
                 };
-                let scale = state.scale.x.abs().max(state.scale.y.abs());
-                let display = render(scale)?;
-                // An SVG drawn larger than its natural size is rasterized
-                // for the largest particle, as an `Image` layer is for its
-                // own size.
-                let largest = [widths, heights]
-                    .into_iter()
-                    .flatten()
-                    .flat_map(|column| column.iter().map(|&value| f64::from(value)))
-                    .chain([*width, *height].into_iter().flatten())
-                    .filter(|value| value.is_finite())
-                    .fold(0.0, f64::max);
-                let natural = display.width.max(display.height);
-                if display.is_svg && natural > 0.0 && largest > natural {
-                    Some(render(scale * largest / natural)?)
-                } else {
-                    Some(display)
-                }
+                let natural = self
+                    .image_sources
+                    .natural_size(&asset.id, &path)
+                    .map_err(decode_error)?;
+                // An SVG is rasterized once, for the particle drawn largest
+                // relative to its natural size, as an `Image` layer is for
+                // its own size.
+                let largest = (0..*count as usize)
+                    .map(|i| {
+                        let (w, h) = given(i);
+                        let (w, h) = instance_size(w, h, Some(natural));
+                        (w / natural.0).max(h / natural.1)
+                    })
+                    .filter(|scale| scale.is_finite())
+                    .fold(1.0, f64::max);
+                let density = state.scale.x.abs().max(state.scale.y.abs()) * largest;
+                let display = self
+                    .image_sources
+                    .render(&asset.id, &path, None, None, None, density)
+                    .map_err(decode_error)?;
+                Some((display, natural))
             }
             InstanceShape::Rect { .. } | InstanceShape::Circle => None,
         };
         for i in 0..*count as usize {
-            let (natural_width, natural_height) = image
-                .as_ref()
-                .map_or((0.0, 0.0), |image| (image.width, image.height));
-            let particle_width = widths
-                .as_ref()
-                .map_or(width.unwrap_or(natural_width), |widths| {
-                    f64::from(widths[i])
-                });
-            let particle_height = heights
-                .as_ref()
-                .map_or(height.unwrap_or(natural_height), |heights| {
-                    f64::from(heights[i])
-                });
+            let (w, h) = given(i);
+            let (particle_width, particle_height) =
+                instance_size(w, h, image.as_ref().map(|(_, natural)| *natural));
             let degrees = rotation
                 .as_ref()
                 .map_or(0.0, |rotation| f64::from(rotation[i]));
@@ -131,7 +132,7 @@ impl CpuRenderer {
                 },
                 ..state.clone()
             };
-            if let Some(image) = &image {
+            if let Some((image, _)) = &image {
                 let pixels = &image.pixels;
                 let mut particle = particle;
                 particle.scale.x *= particle_width / f64::from(pixels.width());

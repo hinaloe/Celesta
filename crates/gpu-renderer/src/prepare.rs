@@ -512,6 +512,7 @@ impl GpuRenderer {
                     *height,
                     *fit,
                     largest_stretch(state.transform),
+                    false,
                 )?;
                 let mut state = state;
                 state.transform.a *= (display_width / f64::from(texture.width)) as f32;
@@ -744,59 +745,52 @@ impl GpuRenderer {
                 rotation,
                 colors,
             } => {
-                // The size of a particle without its own; an image's display
-                // size when the layer gives none.
-                let (mut width, mut height) = (*width, *height);
-                let shape = match shape {
-                    InstanceShape::Rect { corner_radius } => PreparedInstanceShape::Rect {
-                        corner_radius: *corner_radius,
-                    },
-                    InstanceShape::Circle => PreparedInstanceShape::Circle,
-                    InstanceShape::Image { asset } => {
-                        let density = largest_stretch(state.transform);
-                        let (mut texture, display_width, display_height) =
-                            self.image_texture(asset, None, None, None, density)?;
-                        // An SVG drawn larger than its display size is
-                        // rasterized for the largest particle, as an `Image`
-                        // layer is for its own size.
-                        let largest = [widths, heights]
-                            .into_iter()
-                            .flatten()
-                            .flat_map(|column| column.iter().map(|&value| f64::from(value)))
-                            .chain([width, height].into_iter().flatten())
-                            .filter(|value| value.is_finite())
-                            .fold(0.0, f64::max);
-                        let natural = display_width.max(display_height);
-                        if natural > 0.0 && largest > natural {
-                            texture = self
-                                .image_texture(
-                                    asset,
-                                    None,
-                                    None,
-                                    None,
-                                    density * largest / natural,
-                                )?
-                                .0;
-                        }
-                        width = width.or(Some(display_width));
-                        height = height.or(Some(display_height));
-                        PreparedInstanceShape::Image(texture)
-                    }
-                };
                 let color = match color {
                     Some(color) => CpuColor::from_hex(color).map_err(GpuRenderError::Text)?,
                     None => CpuColor::rgba(255, 255, 255, 255),
                 };
-                let columns = InstanceColumns {
+                let mut columns = InstanceColumns {
                     x: x.clone(),
                     y: y.clone(),
                     widths: widths.clone(),
                     heights: heights.clone(),
                     rotation: rotation.clone(),
                     colors: colors.clone(),
-                    width: width.unwrap_or(0.0),
-                    height: height.unwrap_or(0.0),
+                    width: *width,
+                    height: *height,
+                    natural: None,
                     color: [color.red, color.green, color.blue, color.alpha].map(f32::from),
+                };
+                let shape = match shape {
+                    InstanceShape::Rect { corner_radius } => PreparedInstanceShape::Rect {
+                        corner_radius: *corner_radius,
+                    },
+                    InstanceShape::Circle => PreparedInstanceShape::Circle,
+                    InstanceShape::Image { asset } => {
+                        let path = self.local_asset_path(asset)?;
+                        let natural = self.image_sources.natural_size(&asset.id, &path).map_err(
+                            |source| GpuRenderError::ImageDecode {
+                                asset: asset.id.clone(),
+                                source,
+                            },
+                        )?;
+                        columns.natural = Some(natural);
+                        // An SVG is rasterized once, for the particle drawn
+                        // largest relative to its natural size, as an `Image`
+                        // layer is for its own size; smaller particles sample
+                        // its mipmaps.
+                        let largest = (0..*count as usize)
+                            .map(|i| {
+                                let (width, height) = columns.size(i);
+                                (width / natural.0).max(height / natural.1)
+                            })
+                            .filter(|scale| scale.is_finite())
+                            .fold(1.0, f64::max);
+                        let density = largest_stretch(state.transform) * largest;
+                        let (texture, _, _) =
+                            self.image_texture(asset, None, None, None, density, true)?;
+                        PreparedInstanceShape::Image(texture)
+                    }
                 };
                 // Isolated like a group when blended: the particles composite
                 // with each other source-over at full opacity, then the canvas
@@ -969,6 +963,7 @@ impl GpuRenderer {
 impl GpuRenderer {
     /// The texture `asset` draws from, rasterized (an SVG) for `density`
     /// output pixels per layer unit, and its display size in layer units.
+    /// A raster image always has mipmaps; an SVG only with `svg_mipmaps`.
     pub(crate) fn image_texture(
         &mut self,
         asset: &ResolvedAsset,
@@ -976,6 +971,7 @@ impl GpuRenderer {
         height: Option<f64>,
         fit: Option<ImageFit>,
         density: f64,
+        svg_mipmaps: bool,
     ) -> Result<(LayerTexture, f64, f64), GpuRenderError> {
         let path = self.local_asset_path(asset)?;
         let display = self
@@ -990,11 +986,16 @@ impl GpuRenderer {
             display.pixels.height(),
             self.max_texture_dimension,
         );
+        // An `Image` layer's SVG is rasterized for its own draw, and mipmaps
+        // would blur its downscaled edges relative to the CPU renderer. One
+        // SVG serves image particles of many sizes, so the smaller ones need
+        // them.
+        let mipmaps = svg_mipmaps || !display.is_svg;
         let texture = self.cached_texture(
             // Both sizes: SVG rasterized at different densities can shrink to
             // the same texture size from different pixels.
             format!(
-                "image\0{}\0{:?}\0{:?}\0{:?}\0{}x{}\0{}x{}",
+                "image\0{}\0{:?}\0{:?}\0{:?}\0{}x{}\0{}x{}\0{}",
                 asset.id,
                 width,
                 height,
@@ -1002,11 +1003,10 @@ impl GpuRenderer {
                 display.pixels.width(),
                 display.pixels.height(),
                 texture_width,
-                texture_height
+                texture_height,
+                mipmaps,
             ),
-            // SVG is already rasterized for this draw; mipmaps blur its
-            // downscaled edges relative to the CPU renderer.
-            !display.is_svg,
+            mipmaps,
             |_| {
                 let pixels = if (texture_width, texture_height) == display.pixels.dimensions() {
                     display.pixels.as_ref().clone()

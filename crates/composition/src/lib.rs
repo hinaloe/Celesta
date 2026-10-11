@@ -21,7 +21,7 @@ mod instances;
 mod model;
 
 pub use animation::{AnimationError, evaluate_f64, integrate_f64};
-pub use instances::{F32Column, InstanceShape, U8Column};
+pub use instances::{F32Column, InstanceShape, U8Column, instance_size};
 pub use model::{
     AssetLocation, AudioClip, AudioGraph, BlendMode, Clip, DEFAULT_MITER_LIMIT, EvaluatedTransform,
     GroupMask, ImageFit, Layer, LayerContent, LayerEffects, LayerGlow, LayerShader, LayerShadow,

@@ -451,3 +451,130 @@ fn image_instances_scale_and_rotate() {
     let expected = renderer.render(&image).unwrap();
     assert_eq!(frame.pixels(), expected.pixels());
 }
+
+/// The sprite textures the renderer holds, as (width, height, mip levels).
+fn image_textures(renderer: &GpuRenderer) -> Vec<(u32, u32, u32)> {
+    renderer
+        .textures
+        .iter()
+        .filter(|(key, _)| key.starts_with("image\0"))
+        .map(|(_, cached)| {
+            let texture = &cached.texture;
+            (
+                texture.width,
+                texture.height,
+                texture._texture.mip_level_count(),
+            )
+        })
+        .collect()
+}
+
+fn svg_sprite(svg: &str, width: Option<f32>) -> (tempfile::TempDir, LayerContent) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sprite.svg");
+    std::fs::write(&path, svg).unwrap();
+    let mut content = image_particles(
+        path.to_str().unwrap(),
+        vec![10.0, 30.0],
+        vec![40.0, 40.0],
+        vec![255; 8],
+        None,
+        None,
+    );
+    if let LayerContent::Instances { width: shared, .. } = &mut content {
+        *shared = width.map(f64::from);
+    }
+    (dir, content)
+}
+
+const TALL_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="40"><rect width="10" height="40" fill="white"/></svg>"#;
+
+#[test]
+fn an_svg_sprite_rasterizes_once_for_its_largest_particle() {
+    let Some(mut renderer) = black_renderer() else {
+        return;
+    };
+    // Twice (eight times) as wide as the SVG, so as much taller too:
+    // rasterized at that scale on both axes, once, and reused by the next
+    // frame.
+    for (width, size) in [(20.0, (20, 80)), (80.0, (80, 320))] {
+        let (_dir, content) = svg_sprite(TALL_SVG, Some(width));
+        let mut scene = empty_scene(64, 128);
+        scene.layers = vec![instances_layer("tall", content)];
+        for _ in 0..2 {
+            renderer.render(&scene).unwrap();
+            let textures = image_textures(&renderer);
+            assert_eq!(textures.len(), 1, "{textures:?}");
+            assert_eq!((textures[0].0, textures[0].1), size, "{textures:?}");
+        }
+    }
+}
+
+#[test]
+fn an_svg_sprite_has_mipmaps_for_smaller_particles() {
+    let Some(mut renderer) = black_renderer() else {
+        return;
+    };
+    let (_dir, content) = svg_sprite(TALL_SVG, None);
+    let mut scene = empty_scene(64, 128);
+    scene.layers = vec![instances_layer("tall", content)];
+    renderer.render(&scene).unwrap();
+    let textures = image_textures(&renderer);
+    assert!(
+        textures.iter().all(|&(_, _, levels)| levels > 1),
+        "{textures:?}"
+    );
+}
+
+#[test]
+fn one_sprite_dimension_keeps_the_images_aspect_ratio() {
+    let Some(mut renderer) = black_renderer() else {
+        return;
+    };
+    renderer.image_sources.insert_raster(
+        "wide",
+        image::RgbaImage::from_raw(4, 2, [255; 4].repeat(8)).unwrap(),
+    );
+    let mut content = image_particles("wide", vec![8.0], vec![8.0], vec![255; 4], None, None);
+    if let LayerContent::Instances { width, .. } = &mut content {
+        *width = Some(8.0);
+    }
+    let mut scene = empty_scene(16, 16);
+    scene.layers = vec![instances_layer("wide", content)];
+    let frame = renderer.render(&scene).unwrap();
+    // 8 wide, so 4 tall (rows 6 to 9), magnified and so filtered: solid
+    // inside, anti-aliased at its edges, nothing beyond.
+    assert_eq!(pixel_at(&frame, 8, 7), [255, 255, 255, 255]);
+    assert_eq!(pixel_at(&frame, 8, 8), [255, 255, 255, 255]);
+    assert_eq!(pixel_at(&frame, 8, 3), [0, 0, 0, 255]);
+    assert_eq!(pixel_at(&frame, 8, 12), [0, 0, 0, 255]);
+    // Exactly as `<Image width={8}>` draws it.
+    let mut image = empty_scene(16, 16);
+    image.layers = vec![Layer {
+        transform: EvaluatedTransform {
+            position: Point { x: 8.0, y: 8.0 },
+            anchor: Point { x: 0.5, y: 0.5 },
+            ..EvaluatedTransform::default()
+        },
+        content: LayerContent::Image {
+            asset: ResolvedAsset {
+                id: "wide".to_owned(),
+                location: AssetLocation::File {
+                    path: "wide".to_owned(),
+                },
+            },
+            width: Some(8.0),
+            height: None,
+            fit: None,
+        },
+        ..instances_layer(
+            "image",
+            LayerContent::Group {
+                layers: Vec::new(),
+                clip: None,
+                mask: None,
+            },
+        )
+    }];
+    assert_eq!(frame.pixels(), renderer.render(&image).unwrap().pixels());
+}

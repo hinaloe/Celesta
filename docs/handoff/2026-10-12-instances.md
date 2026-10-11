@@ -15,9 +15,16 @@ from React to Rust and 6 ms to render on an Apple M4, against 158 ms and
   `widths`/`heights` or the shared `width`/`height`), rotated `rotation[i]`
   degrees, filled with `colors[i]` (straight RGBA) or the shared `color`
   (white by default). A circle's corner radius is half its shorter side.
-- An image shape stretches the image over the particle (its display size
-  when no size is given) and multiplies every texel by the particle's
-  colour.
+- An image shape stretches the image over the particle and multiplies every
+  texel by the particle's colour. Given neither size it draws at the
+  image's natural size; given one, it keeps the image's aspect ratio, as
+  `<Image>` does (`celesta_composition::instance_size`, shared by both
+  renderers).
+- An SVG sprite is rasterized once per frame, for the particle drawn
+  largest relative to the SVG's natural size, and always has mipmaps for
+  the smaller ones. `ImageSources::natural_size` reads the size without
+  rasterizing: rendering the same SVG layout at two resolutions in one
+  frame would evict one with the other and rasterize twice every frame.
 - `x`, `y`, and `rotation` on `<Instances>` are always particle columns.
   The walker gives the layer an identity position and rotation; `scale`,
   `opacity`, `blendMode`, and effects keep their layer meaning.

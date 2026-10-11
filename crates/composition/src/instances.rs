@@ -48,6 +48,28 @@ enum InstanceShapeDef {
     Image { asset: ResolvedAsset },
 }
 
+/// A particle's size from its own (or the shared) `width` and `height`.
+/// An image's particle given one of them keeps the image's aspect ratio,
+/// and given neither is the image's `natural` size, as `Image` layers are;
+/// a rect's or circle's (`natural` is `None`) missing side is 0.
+pub fn instance_size(
+    width: Option<f64>,
+    height: Option<f64>,
+    natural: Option<(f64, f64)>,
+) -> (f64, f64) {
+    match (width, height, natural) {
+        (Some(width), Some(height), _) => (width, height),
+        (Some(width), None, Some((natural_width, natural_height))) => {
+            (width, width * natural_height / natural_width)
+        }
+        (None, Some(height), Some((natural_width, natural_height))) => {
+            (height * natural_width / natural_height, height)
+        }
+        (None, None, Some(natural)) => natural,
+        (width, height, None) => (width.unwrap_or(0.0), height.unwrap_or(0.0)),
+    }
+}
+
 /// One `f32` per particle, sent as base64 of its little-endian bytes so
 /// neither side formats or parses a number per particle.
 #[derive(Clone, Debug, PartialEq)]
