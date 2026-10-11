@@ -10,6 +10,7 @@ cheapest first:
 | A JSON project is valid | any short export (validation runs on load) | seconds | schema and references |
 | Real pixels at chosen frames | PNG export (`--frame`, `--frames`) | seconds | what the export will look like |
 | The whole video at a glance | contact sheet (`--every … --contact-sheet`) | seconds–minutes | pacing, layout across scenes |
+| A seamless loop: the last frame runs into the first | `scripts/inspect.mjs --loop` | seconds | frame N's Scene equals frame 0's |
 | Audio and the final file | short MP4 export + `ffprobe` | longer | sound, streams, duration |
 
 Never claim the video "looks right" unless you rendered a frame and looked
@@ -25,6 +26,7 @@ at the image.
 - [Contact sheets](#contact-sheets)
 - [Check a JSON project](#check-a-json-project)
 - [Check audio](#check-audio)
+- [Check a seamless loop](#check-a-seamless-loop)
 
 ## inspect.mjs
 
@@ -40,6 +42,7 @@ node <skill>/scripts/inspect.mjs scene.tsx --json           # raw Scene JSON
 node <skill>/scripts/inspect.mjs --psd-layers hana.psd      # PSD layer paths for portraits
 node <skill>/scripts/inspect.mjs card.tsx --props-file variants/spring.json  # with project property values
 node <skill>/scripts/inspect.mjs scene.tsx --native Celesta-export  # pick the exporter (see below)
+node <skill>/scripts/inspect.mjs loop.tsx --loop            # frame N against frame 0 (seamless loops)
 ```
 
 It finds the runtime automatically (a source checkout above the entry or the
@@ -234,3 +237,20 @@ ffprobe -v error -show_entries format=duration:stream=codec_type -of compact /tm
 
 `inspect.mjs` already lists when each audio clip starts and how long it
 plays, which is usually enough to check timing.
+
+## Check a seamless loop
+
+For a video meant to repeat (Shorts, TikTok), check that frame N (one past
+the last) equals frame 0, then look at the seam:
+
+```sh
+node <skill>/scripts/inspect.mjs film.tsx --loop
+Celesta-export --react film.tsx --frames 95,96,383,0 --contact-sheet --columns 4 /tmp/celesta-seam.png
+```
+
+`--loop` evaluates frames N and N + 1 as if the video went on and lists every
+value that differs from frames 0 and 1; the exit code is 1 when anything
+does. It does not combine with `--native` yet, so an entry that measures text
+stops with exit code 2; check its seam in the contact sheet. The contact sheet shows the last and first frames side by side, next
+to an ordinary pair of frames. How to read the results and make a video
+loop: [loops.md](loops.md#check-the-loop).

@@ -772,6 +772,9 @@
         "fbm-options": "fbm の設定",
         "a-rough-horizon-line": "凹凸のある地平線",
         "invalid-options-throw-an-error-that-names": "無効な設定は <slot0/> のような関数名を含むエラーを投げます。",
+        "noise-that-loops": "ループするノイズ",
+        "noise-and-fbm-never-repeat": "<slot0/> と <slot1/> は繰り返しません。繰り返し再生される動画（Shorts や TikTok）でこれらを使って揺らすと、最後のフレームから最初のフレームへ戻るところで値が飛びます。<slot2/> は同じく滑らかなノイズで、<slot4/> と同じ単位で数えた <slot3/> ごとに繰り返します。ループの長さをフレームと同じ尺度にして渡します。重ねたノイズには <slot5/> を使います。",
+        "a-sway-that-loops": "ループする揺れ",
         "which-one-do-i-use": "どれを使う？",
         "choosing-a-noise-function": "ノイズ関数の選び方",
         "choosing-a-noise-function-label": "ノイズ関数の選び方",
@@ -779,6 +782,7 @@
         "use": "使用する関数",
         "one-value-that-drifts-over-time": "時間とともに揺れる値",
         "a-value-that-wanders-on-several-scales": "複数の尺度で変化する値",
+        "a-value-that-drifts-in-a-looping-video": "ループ動画の中で揺れる値",
         "a-pattern-across-the-screen": "画面全体の模様",
         "or-sampled-at-scaled-positions": "縮小した座標を <slot0/> または <slot1/> に渡す",
         "a-pattern-across-the-screen-that-moves": "動く画面全体の模様",
@@ -788,7 +792,7 @@
         "metadata": {
           "title": "math：ノイズと fbm",
           "description": "滑らかで再現可能な漂い・揺れ・有機的な場。",
-          "keywords": "数学 ノイズ ゆらぎ 揺れ 地形 noise noise2D noise3D fbm fbm2D fbm3D octaves lacunarity gain perlin wobble drift shake clouds smoke terrain"
+          "keywords": "数学 ノイズ ゆらぎ 揺れ 地形 noise noise2D noise3D fbm fbm2D fbm3D loopNoise loopFbm octaves lacunarity gain perlin wobble drift shake clouds smoke terrain"
         },
         "api": {
           "how-many-layers-to-add-a-whole": "重ねる層数。1 以上の整数で、既定は <slot0/>。増やすと細部が増え、呼び出しの負荷も少し増えます。",

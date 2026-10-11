@@ -58,6 +58,33 @@ All return smooth values in `[-1, 1]`; different seeds give unrelated fields.
 - `fbm(seed, t, opts?)`, `fbm2D(seed, x, y, opts?)`, `fbm3D(seed, x, y, z,
   opts?)`: layered noise with detail at several scales. `opts` are
   `octaves` (4), `lacunarity` (2), and `gain` (0.5).
+- `loopNoise(seed, t, period)` / `loopFbm(seed, t, period, opts?)`: the same
+  as `noise` / `fbm`, but repeating every `period` (in the units of `t`).
+
+### Noise in a looping video
+
+`noise` and `fbm` never repeat: `noise(seed, frame / 20)` at the last frame
+is unrelated to its value at frame 0, so a video meant to loop jumps there.
+Pass the loop length in the same units as `t` to `loopNoise` instead:
+
+```tsx
+// A 384-frame loop. Was: noise('sway', frame / 20)
+const sway = loopNoise('sway', frame / 20, 384 / 20);
+```
+
+It splits the period into about one random value per unit, so the motion is
+as busy as `noise`'s. `loopFbm` repeats every layer on the same period.
+
+For a 2D field that changes over the loop, move the third coordinate of
+`noise3D` (or `fbm3D`) around a circle; the radius sets how much the field
+changes in one loop:
+
+```tsx
+const angle = (TAU * frame) / 384;
+const n = noise3D('field', x / 200 + 0.8 * Math.cos(angle), y / 200, 0.8 * Math.sin(angle));
+```
+
+Making the rest of a video loop: [loops.md](loops.md).
 
 ## Numbers
 
@@ -74,7 +101,8 @@ prefer `interpolate` ([animation.md](animation.md#interpolate)).
 `sineWave(t)`, `triangleWave(t)`, `squareWave(t)`, `sawtoothWave(t)`: period
 1, range `[-1, 1]`, all in phase: positive for the first half of each period
 and negative for the second (sine, triangle, and sawtooth start at 0; the
-square wave starts at 1). Pass `frame / framesPerCycle`.
+square wave starts at 1). Pass `frame / framesPerCycle`; in a looping video,
+pick a `framesPerCycle` that divides `durationInFrames`.
 
 ## Angles and points
 
