@@ -117,18 +117,23 @@ without another file:
 celesta-exporter --react film.tsx talk-vertical.mp4 --props '{"format":"9:16"}'
 ```
 
-From the repository root, the paths start with `templates/dialogue/`:
+## In the Celesta repository
+
+The same commands work from a checkout of the Celesta repository, with the
+paths starting at `templates/dialogue/`:
 
 ```sh
 cargo run -p celesta-exporter --release -- --react templates/dialogue/film.tsx talk.mp4
 ```
+
+The portraits and mouths come from `examples/assets/dialogue-demo` in the
+repository, which also has the script that drew them (it is not copied into
+projects).
 
 ## License
 
 The characters しずく (Shizuku, a water drop) and こむぎ (Komugi, a bread
 bun), their portraits and mouths in `assets/`, and `script.json` are made
 for Celesta and licensed like the Celesta repository (MIT OR Apache-2.0).
-They come from `examples/assets/dialogue-demo` in the Celesta repository,
-which also has the script that drew them. Noto Sans JP is loaded from
-Google Fonts (SIL Open Font License). Voices you add are under their own
-licenses.
+Noto Sans JP is loaded from Google Fonts (SIL Open Font License). Voices
+you add are under their own licenses.

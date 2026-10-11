@@ -1,7 +1,8 @@
 // Every template under templates/ is staged with the runtime and evaluates
 // through the real CLI. Per-template cases are added below as templates land.
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +27,29 @@ test('staging copies every template and leaves out source/', () => {
   for (const name of templateNames()) {
     assert.ok(existsSync(join(staged, name, 'template.json')), name);
     assert.ok(!existsSync(join(staged, name, 'source')), `${name}/source`);
+  }
+});
+
+// Stray OS and editor files never ship: staging a template that holds some
+// leaves them out, and the staged tree holds none.
+test('staging leaves out OS and editor files', () => {
+  const stage = fileURLToPath(new URL('../../packages/cli/scripts/stage-templates.mjs', import.meta.url));
+  const staged = fileURLToPath(new URL('../../packages/cli/dist/templates/', import.meta.url));
+  const junk = ['.DS_Store', 'assets/.DS_Store', 'assets/._photo-01.png', 'Thumbs.db', 'desktop.ini', 'film.tsx~', '.film.tsx.swp'];
+  const planted = junk.map((name) => join(templatesDir, 'slideshow', name));
+  const isJunk = (name) => /^(\.DS_Store|Thumbs\.db|desktop\.ini|\._.*|.*~|\..*\.sw.)$/s.test(name);
+  const stagedFiles = (dir) =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+      entry.isDirectory() ? stagedFiles(join(dir, entry.name)) : [join(dir, entry.name)]);
+  try {
+    for (const file of planted) writeFileSync(file, 'junk');
+    execFileSync(process.execPath, [stage]);
+    for (const name of junk) assert.ok(!existsSync(join(staged, 'slideshow', name)), name);
+    assert.ok(existsSync(join(staged, 'slideshow/assets/photo-01.png')));
+    assert.deepEqual(stagedFiles(staged).filter((file) => isJunk(file.split('/').pop())), []);
+  } finally {
+    for (const file of planted) rmSync(file, { force: true });
+    execFileSync(process.execPath, [stage]);
   }
 });
 
@@ -176,8 +200,9 @@ function writeWav(file) {
 
 // A one-character script whose portraits are the template's own, given as
 // absolute paths so the script can live in a temporary folder. `lines` may
-// name `voice.wav`, a WAV written beside the script.
-async function dialogueWithLines(lines) {
+// name `voice.wav`, a WAV written beside the script; `setup(dir)` may replace
+// it or add files there.
+async function dialogueWithLines(lines, setup = () => {}) {
   const assets = join(templatesDir, 'dialogue/assets');
   const mouths = Object.fromEntries(['closed', 'a', 'i', 'u', 'e', 'o'].map((shape) => [shape, join(assets, `mouth-${shape}.png`)]));
   const characters = {
@@ -191,6 +216,7 @@ async function dialogueWithLines(lines) {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-dialogue-'));
   try {
     writeWav(join(dir, 'voice.wav'));
+    setup(dir);
     const script = join(dir, 'script.json');
     writeFileSync(script, JSON.stringify({ characters, lines }));
     return await dialogue({ script });
@@ -227,6 +253,16 @@ test('dialogue rejects a missing voice, naming the file and line', async () => {
     { speaker: 'shizuku', text: 'よろしくね。', voice: 'voices/missing.wav' },
   ]);
   assert.match(String(result.error), /script\.json: line 1: voice .*voices[\\/]missing\.wav does not exist/);
+});
+
+test('dialogue names the script, line, and voice when a recording cannot be read', async () => {
+  // loadLipSync decodes the file in Node (only probeMedia is faked), and a
+  // PNG named voice.wav is not a WAV.
+  const result = await dialogueWithLines(
+    [{ speaker: 'shizuku', text: 'こんにちは。', voice: 'voice.wav' }],
+    (dir) => copyFileSync(join(templatesDir, 'dialogue/assets/shizuku-normal.png'), join(dir, 'voice.wav')),
+  );
+  assert.match(String(result.error), /script\.json: line 0: voice .*voice\.wav: \S/);
 });
 
 test('dialogue rejects an unknown speaker', async () => {

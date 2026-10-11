@@ -78,17 +78,18 @@ without another file:
 celesta-exporter --react film.tsx trip-vertical.mp4 --props '{"format":"9:16"}'
 ```
 
-From the repository root, the paths start with `templates/slideshow/`:
+## In the Celesta repository
+
+The same commands work from a checkout of the Celesta repository, with the
+paths starting at `templates/slideshow/`:
 
 ```sh
 cargo run -p celesta-exporter --release -- --react templates/slideshow/film.tsx trip.mp4
 ```
 
-## Regenerating the sample media
-
-The sample photos are drawn with Celesta and the music is synthesized; the
-scripts are in `source/` in the Celesta repository (they are not copied into
-projects). `source/generate.sh` writes all six files into `assets/`:
+To regenerate the sample media: the photos are drawn with Celesta and the
+music is synthesized, by scripts in `source/` (not copied into projects).
+`source/generate.sh` writes all six files into `assets/`:
 
 ```sh
 CELESTA_EXPORTER="cargo run -p celesta-exporter --release --" sh templates/slideshow/source/generate.sh

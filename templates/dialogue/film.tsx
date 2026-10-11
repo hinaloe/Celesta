@@ -272,7 +272,7 @@ export async function prepare(): Promise<void> {
     // Lip sync follows the kana reading; kanji in `text` have no vowels to follow.
     const spoken = reading ?? line.text;
     const timing = line.audio !== undefined
-      ? { lipSync: await loadLipSync({ src: line.audio, text: spoken }) }
+      ? { lipSync: await loadVoice(file, i, line.audio, spoken) }
       : textTiming(line.text, spoken);
     return {
       ...line,
@@ -285,6 +285,16 @@ export async function prepare(): Promise<void> {
 
   const music = getProjectProperty<string>('music');
   musicFrames = music === '' ? undefined : mediaDurationInFrames(await preloadMedia(music), FPS);
+}
+
+// A recorded line's lip sync, with a failure to read the recording (a file
+// that is not an uncompressed WAV, say) named by script, line, and voice.
+async function loadVoice(file: string, i: number, src: string, text: string) {
+  try {
+    return await loadLipSync({ src, text });
+  } catch (error) {
+    throw new Error(`${file}: line ${i}: voice ${src}: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 // A line without a voice: its length from its text, and a mouth that opens

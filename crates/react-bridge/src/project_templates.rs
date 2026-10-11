@@ -12,6 +12,7 @@ use crate::project_types::{
 };
 use serde::Deserialize;
 use std::error::Error;
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::io::{self, Write};
@@ -120,7 +121,7 @@ pub fn initialize_project(
             .collect();
         if !conflicts.is_empty() {
             return Err(TemplateError::Conflicts {
-                root: root.to_owned(),
+                root: std::path::absolute(root)?,
                 paths: conflicts,
             });
         }
@@ -167,11 +168,27 @@ fn collect_files(dir: &Path, relative: &Path, files: &mut Vec<PathBuf>) -> io::R
         let path = relative.join(entry.file_name());
         if entry.file_type()?.is_dir() {
             collect_files(&entry.path(), &path, files)?;
-        } else {
+        } else if !is_junk_file(&entry.file_name()) {
             files.push(path);
         }
     }
     Ok(())
+}
+
+/// OS and editor leftovers that never belong to a template: Finder and
+/// Explorer metadata, AppleDouble files, editor backups and vim swap files.
+/// Keep in step with `isJunkFile` in `packages/cli/scripts/stage-templates.mjs`.
+fn is_junk_file(name: &OsStr) -> bool {
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+    let bytes = name.as_bytes();
+    matches!(name, ".DS_Store" | "Thumbs.db" | "desktop.ini")
+        || name.starts_with("._")
+        || name.ends_with('~')
+        || (name.starts_with('.')
+            && bytes.len() >= 4
+            && &bytes[bytes.len() - 4..bytes.len() - 1] == b".sw")
 }
 
 /// Copies `from` to `to` without replacing a file that is already there.
@@ -213,7 +230,7 @@ pub enum TemplateError {
         available: Vec<String>,
     },
     /// Files the template would create that already exist, relative to
-    /// `root` and sorted.
+    /// `root` (made absolute) and sorted.
     Conflicts {
         root: PathBuf,
         paths: Vec<PathBuf>,
@@ -431,6 +448,8 @@ mod tests {
         let TemplateError::Conflicts { root, paths } = &error else {
             panic!("expected conflicts, got {error:?}");
         };
+        let project = std::path::absolute(&project).unwrap();
+        assert!(root.is_absolute());
         assert_eq!(root, &project);
         assert_eq!(
             paths,
@@ -450,6 +469,69 @@ mod tests {
             fs::read_to_string(project.join("film.tsx")).unwrap(),
             "// mine\n"
         );
+    }
+
+    #[test]
+    fn junk_files_are_neither_copied_nor_conflicts() {
+        let scratch = Scratch::new("tpl-junk");
+        let cli = runtime(&scratch.0, "v1");
+        let slides = scratch.0.join("runtime/dist/templates/slides");
+        for junk in [
+            ".DS_Store",
+            "assets/.DS_Store",
+            "assets/._a.png",
+            "Thumbs.db",
+            "desktop.ini",
+            "film.tsx~",
+            ".film.tsx.swp",
+        ] {
+            write(&slides.join(junk), "junk");
+        }
+        let project = scratch.0.join("video");
+        write(&project.join(".DS_Store"), "mine");
+
+        initialize_project(&cli, &project, Some("slides")).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(project.join(".DS_Store")).unwrap(),
+            "mine"
+        );
+        assert!(project.join("assets/a.png").is_file());
+        for junk in [
+            "assets/.DS_Store",
+            "assets/._a.png",
+            "Thumbs.db",
+            "desktop.ini",
+            "film.tsx~",
+            ".film.tsx.swp",
+        ] {
+            assert!(!project.join(junk).exists(), "{junk}");
+        }
+    }
+
+    #[test]
+    fn junk_file_names() {
+        for junk in [
+            ".DS_Store",
+            "._film.tsx",
+            "Thumbs.db",
+            "desktop.ini",
+            "film.tsx~",
+            ".film.tsx.swp",
+            ".film.tsx.swo",
+        ] {
+            assert!(is_junk_file(OsStr::new(junk)), "{junk}");
+        }
+        for kept in [
+            "film.tsx",
+            ".gitkeep",
+            ".swatch",
+            "swap.swp",
+            "props.json",
+            "assets",
+        ] {
+            assert!(!is_junk_file(OsStr::new(kept)), "{kept}");
+        }
     }
 
     #[test]
