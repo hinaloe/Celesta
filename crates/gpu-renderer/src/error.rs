@@ -69,8 +69,8 @@ pub enum GpuRenderError {
     NativePreview(i32),
     /// The GPU cannot produce frames in this [`ReadbackFormat`].
     UnsupportedReadbackFormat(ReadbackFormat),
-    /// [`ReadbackFormat::Yuv420p`] subsamples chroma 2x2, so it needs even
-    /// dimensions.
+    /// [`ReadbackFormat::Yuv420p`] and [`ReadbackFormat::Yuv420p10`]
+    /// subsample chroma 2x2, so they need even dimensions.
     OddYuv420pSize {
         width: u32,
         height: u32,

@@ -4,7 +4,7 @@ use ez_ffmpeg::stream_info::{StreamInfo, find_audio_stream_info, find_video_stre
 use ez_ffmpeg::{FfmpegContext, Input, Output};
 use celesta_composition::{Rational, Time, TimeRange};
 use celesta_exporter::{
-    ColorConversion, EncoderPreset, ExportCancellation, ExportError, ExportOptions, ExportRange,
+    BitDepth, ColorConversion, EncoderPreset, ExportCancellation, ExportError, ExportOptions, ExportRange,
     Exporter, VideoEncoding,
 };
 use celesta_gpu_renderer::GpuRenderError;
@@ -361,44 +361,77 @@ fn converting_colors_on_the_gpu_matches_the_encoder_conversion() {
     });
 
     // Lossless encodes, so any difference comes from the conversion itself.
-    let export = |color_conversion, name: &str| {
+    let export = |color_conversion, bit_depth, name: &str| {
         let output = directory.path().join(name);
         let result = Exporter::new(ExportOptions {
             video: VideoEncoding {
                 preset: EncoderPreset::Ultrafast,
                 crf: 0,
                 color_conversion,
+                bit_depth,
             },
             ..ExportOptions::default()
         })
         .export_project(&project, directory.path(), &output);
         result.map(|()| output)
     };
-    let on_gpu = match export(ColorConversion::Gpu, "gpu.mp4") {
-        Ok(output) => output,
-        Err(ExportError::Render(
-            GpuRenderError::RequestAdapter(_) | GpuRenderError::UnsupportedReadbackFormat(_),
-        )) => {
-            eprintln!("skipping GPU color conversion test: not supported here");
-            return;
-        }
-        Err(error) => panic!("GPU conversion export failed: {error}"),
-    };
-    let in_encoder = export(ColorConversion::Encoder, "encoder.mp4").unwrap();
+    let mut pixel_formats: Vec<i32> = Vec::new();
+    for bit_depth in BitDepth::ALL {
+        let on_gpu = match export(
+            ColorConversion::Gpu,
+            bit_depth,
+            &format!("gpu-{bit_depth}.mp4"),
+        ) {
+            Ok(output) => output,
+            Err(ExportError::Render(
+                GpuRenderError::RequestAdapter(_) | GpuRenderError::UnsupportedReadbackFormat(_),
+            )) => {
+                eprintln!("skipping GPU color conversion test: not supported here");
+                return;
+            }
+            Err(error) => panic!("GPU conversion export failed: {error}"),
+        };
+        let in_encoder = export(
+            ColorConversion::Encoder,
+            bit_depth,
+            &format!("encoder-{bit_depth}.mp4"),
+        )
+        .unwrap();
 
-    let mut decoder = FfmpegBackend::new();
-    for time in [0.0, 0.5] {
-        let gpu = decoder.decode_frame(&on_gpu, time).unwrap();
-        let encoder = decoder.decode_frame(&in_encoder, time).unwrap();
-        assert_eq!(gpu.pixels.len(), encoder.pixels.len());
-        let difference: u64 = gpu
-            .pixels
-            .iter()
-            .zip(encoder.pixels.iter())
-            .map(|(left, right)| u64::from(left.abs_diff(*right)))
-            .sum();
-        let mean = difference as f64 / gpu.pixels.len() as f64;
-        // The two differ only in how chroma is filtered at color edges.
-        assert!(mean < 2.0, "mean difference {mean} at {time}s");
+        let mut decoder = FfmpegBackend::new();
+        for time in [0.0, 0.5] {
+            let gpu = decoder.decode_frame(&on_gpu, time).unwrap();
+            let encoder = decoder.decode_frame(&in_encoder, time).unwrap();
+            assert_eq!(gpu.pixels.len(), encoder.pixels.len());
+            let difference: u64 = gpu
+                .pixels
+                .iter()
+                .zip(encoder.pixels.iter())
+                .map(|(left, right)| u64::from(left.abs_diff(*right)))
+                .sum();
+            let mean = difference as f64 / gpu.pixels.len() as f64;
+            // The two differ only in how chroma is filtered at color edges.
+            assert!(
+                mean < 2.0,
+                "{bit_depth}-bit: mean difference {mean} at {time}s"
+            );
+        }
+        for output in [&on_gpu, &in_encoder] {
+            let url = output.to_string_lossy().into_owned();
+            let Some(StreamInfo::Video { pixel_format, .. }) =
+                find_video_stream_info(&url).unwrap()
+            else {
+                panic!("exported file has no video stream");
+            };
+            pixel_formats.push(pixel_format);
+        }
     }
+    // yuv420p (AV_PIX_FMT_YUV420P is 0) for 8 bits; another, the same for
+    // both conversions, for 10.
+    let [eight_gpu, eight_encoder, ten_gpu, ten_encoder] = pixel_formats[..] else {
+        panic!("{pixel_formats:?}");
+    };
+    assert_eq!((eight_gpu, eight_encoder), (0, 0));
+    assert_eq!(ten_gpu, ten_encoder);
+    assert_ne!(ten_gpu, 0);
 }

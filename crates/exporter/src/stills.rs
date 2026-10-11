@@ -1,7 +1,7 @@
 use crate::control::{CompositionInfo, ExportProgress, ExportedFile};
 use crate::error::ExportError;
 use crate::exporter::Exporter;
-use crate::options::ColorConversion;
+use crate::options::{BitDepth, ColorConversion};
 use crate::project::{absolutize_fonts, absolutize_layers, visual_only_project};
 use crate::range::{ExportRange, resolve_window};
 use crate::react::{CompanionProject, ReactRuntimeOptions};
@@ -415,6 +415,7 @@ impl Exporter {
             asset_root,
             frame_rate,
             ColorConversion::Encoder,
+            BitDepth::Eight,
             self.options.render_quality,
             self.options.driver,
         )?;
@@ -537,6 +538,7 @@ impl Exporter {
             asset_root,
             metadata.frame_rate,
             ColorConversion::Encoder,
+            BitDepth::Eight,
             self.options.render_quality,
             self.options.driver,
         )?;

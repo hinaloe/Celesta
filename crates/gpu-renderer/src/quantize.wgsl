@@ -1,6 +1,7 @@
 // Quantizes a finished frame, composited in `canvas_format`, to the 8-bit
 // code values of an RGBA readback or a preview target, texel for texel,
-// through `dither` (`dither.wgsl`, prepended).
+// through `dither` (`dither.wgsl`, prepended); `rgba16` to 16-bit codes,
+// finer than a half float, so it needs no dither.
 
 @group(0) @binding(0)
 var frame: texture_2d<f32>;
@@ -24,4 +25,11 @@ fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     // Premultiplied, over a transparent background: no channel above alpha.
     let rgb = vec3<f32>(code(color.r, offset), code(color.g, offset), code(color.b, offset));
     return vec4<f32>(min(rgb, vec3<f32>(alpha)), alpha);
+}
+
+@fragment
+fn rgba16(@builtin(position) position: vec4<f32>) -> @location(0) vec4<u32> {
+    let color = clamp(textureLoad(frame, vec2<u32>(position.xy), 0), vec4<f32>(0.0), vec4<f32>(1.0));
+    let codes = vec4<u32>(floor(color * 65535.0 + 0.5));
+    return vec4<u32>(min(codes.rgb, vec3<u32>(codes.a)), codes.a);
 }

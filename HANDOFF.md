@@ -220,6 +220,9 @@ covered by the dated handoff notes.
 - `--from`/`--to` export a clamped, frame-snapped composition span. Output starts
   at its own zero time, with the audio graph shifted by the window start.
 - `--preset` and `--crf` control libx264 encoding (defaults: `medium`, 18).
+  `--bit-depth 10` encodes yuv420p10le (High 10): the GPU converts to 10-bit
+  planes (`ReadbackFormat::Yuv420p10`), or reads back 16-bit RGBA
+  (`ReadbackFormat::Rgba16`, rgba64le) for the encoder to convert.
   `--color-conversion auto|gpu|encoder` chooses yuv420p conversion; auto uses
   GPU conversion unless the renderer is software. GPU readback returns I420
   at 1.5 bytes/pixel and uses BT.601 limited range. Its 2x2 chroma averaging

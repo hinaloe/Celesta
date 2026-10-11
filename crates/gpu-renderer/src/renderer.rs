@@ -120,8 +120,9 @@ pub struct GpuRenderer {
     pub(crate) readback_worker: Option<ReadbackWorker>,
     /// The layout newly submitted frames are read back in.
     pub(crate) readback_format: ReadbackFormat,
-    /// Created by the first switch to [`ReadbackFormat::Yuv420p`].
-    pub(crate) yuv_converter: Option<YuvConverter>,
+    /// The converter of each YUV readback format, created by the first
+    /// switch to it.
+    pub(crate) yuv_converters: HashMap<ReadbackFormat, YuvConverter>,
     /// GPU textures for layer content that is identical from one frame to
     /// the next (images, PSD composites, and text), keyed by what
     /// produced them. A cache hit skips re-rasterizing the text on the
@@ -349,7 +350,7 @@ impl GpuRenderer {
             readback_free: Vec::new(),
             readback_worker: None,
             readback_format: ReadbackFormat::Rgba8,
-            yuv_converter: None,
+            yuv_converters: HashMap::new(),
             textures: HashMap::new(),
             texture_generation: 0,
             text_font_count: 0,
@@ -382,6 +383,7 @@ impl GpuRenderer {
     }
 
     /// Whether this GPU can convert frames to [`ReadbackFormat::Yuv420p`]
+    /// and [`ReadbackFormat::Yuv420p10`]
     /// (it renders the U and V planes as two render targets at once).
     pub fn supports_yuv420p_readback(&self) -> bool {
         self.device.limits().max_color_attachments >= 2
@@ -402,11 +404,16 @@ impl GpuRenderer {
     /// always returns RGBA. Frames already in flight keep the format they
     /// were submitted with.
     pub fn set_readback_format(&mut self, format: ReadbackFormat) -> Result<(), GpuRenderError> {
-        if format == ReadbackFormat::Yuv420p && self.yuv_converter.is_none() {
+        if format.is_yuv() && !self.yuv_converters.contains_key(&format) {
             if !self.supports_yuv420p_readback() {
                 return Err(GpuRenderError::UnsupportedReadbackFormat(format));
             }
-            self.yuv_converter = Some(YuvConverter::new(&self.device));
+            let converter = YuvConverter::new(&self.device, format == ReadbackFormat::Yuv420p10);
+            self.yuv_converters.insert(format, converter);
+        }
+        if format == ReadbackFormat::Rgba16 {
+            self.quantizer
+                .ensure_pipeline(&self.device, wgpu::TextureFormat::Rgba16Uint);
         }
         self.readback_format = format;
         Ok(())
@@ -633,9 +640,7 @@ impl GpuRenderer {
             });
         }
         let format = self.readback_format;
-        if format == ReadbackFormat::Yuv420p
-            && (!scene.width.is_multiple_of(2) || !scene.height.is_multiple_of(2))
-        {
+        if format.is_yuv() && (!scene.width.is_multiple_of(2) || !scene.height.is_multiple_of(2)) {
             return Err(GpuRenderError::OddYuv420pSize {
                 width: scene.width,
                 height: scene.height,
@@ -693,13 +698,9 @@ impl GpuRenderer {
         )?;
         let slot = &self.readback_slots[slot_index];
         match &slot.readback {
-            SlotReadback::Rgba8(rgba) => {
-                self.quantizer.encode(
-                    &mut encoder,
-                    &slot.canvas,
-                    &rgba.view,
-                    wgpu::TextureFormat::Rgba8Unorm,
-                );
+            SlotReadback::Rgba(rgba) => {
+                self.quantizer
+                    .encode(&mut encoder, &slot.canvas, &rgba.view, rgba.format);
                 encoder.copy_texture_to_buffer(
                     rgba.texture.as_image_copy(),
                     wgpu::TexelCopyBufferInfo {
@@ -713,11 +714,11 @@ impl GpuRenderer {
                     rgba.texture.size(),
                 );
             }
-            SlotReadback::Yuv420p(yuv) => {
+            SlotReadback::Yuv(yuv) => {
                 let converter = self
-                    .yuv_converter
-                    .as_ref()
-                    .expect("a yuv420p slot is only created with a converter");
+                    .yuv_converters
+                    .get(&slot.format())
+                    .expect("a yuv slot is only created with a converter");
                 converter.encode(&mut encoder, yuv);
                 for plane in &yuv.planes {
                     encoder.copy_texture_to_buffer(
@@ -779,20 +780,19 @@ impl GpuRenderer {
         width: u32,
         height: u32,
     ) -> Result<ReadbackSlot, GpuRenderError> {
-        let converter = match self.readback_format {
-            ReadbackFormat::Rgba8 => None,
-            ReadbackFormat::Yuv420p => Some(
-                self.yuv_converter
-                    .as_ref()
-                    .expect("set_readback_format creates the converter"),
-            ),
-        };
+        let format = self.readback_format;
+        let converter = format.is_yuv().then(|| {
+            self.yuv_converters
+                .get(&format)
+                .expect("set_readback_format creates the converter")
+        });
         ReadbackSlot::new(
             &self.device,
             &self.texture_bind_group_layout,
             self.canvas_format,
             width,
             height,
+            format,
             converter,
         )
     }

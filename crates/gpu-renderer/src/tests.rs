@@ -3148,6 +3148,121 @@ fn pipelines_yuv420p_frames_with_padded_plane_rows() {
     assert_eq!(frame.pixels(), [1, 2, 3, 255].repeat(12));
 }
 
+/// The little-endian 16-bit samples of `bytes`.
+fn samples16(bytes: &[u8]) -> Vec<u16> {
+    bytes
+        .chunks_exact(2)
+        .map(|sample| u16::from_le_bytes([sample[0], sample[1]]))
+        .collect()
+}
+
+#[test]
+fn converts_frames_to_ten_bit_yuv420p() {
+    let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+        return;
+    };
+    if !renderer.supports_yuv420p_readback() {
+        eprintln!("skipping yuv420p10 test: the GPU cannot convert to yuv420p");
+        return;
+    }
+    renderer
+        .set_readback_format(ReadbackFormat::Yuv420p10)
+        .unwrap();
+    // Each color's Y, U, and V: the 8-bit codes times 4. Only red's Y and U
+    // fall between codes (325.9 and 360.8), which the dither rounds either
+    // way.
+    let colors = [
+        (
+            Color::rgba(255, 0, 0, 255),
+            [326, 361, 960],
+            [false, false, true],
+        ),
+        (Color::rgba(255, 255, 255, 255), [940, 512, 512], [true; 3]),
+        (Color::rgba(0, 0, 0, 255), [64, 512, 512], [true; 3]),
+    ];
+    let mut frames = Vec::new();
+    for (color, _, _) in colors {
+        renderer.options.background = color;
+        frames.extend(renderer.submit(&empty_scene(6, 2)).unwrap());
+    }
+    frames.extend(renderer.drain().unwrap());
+    for (frame, (_, expected, exact)) in frames.iter().zip(colors) {
+        assert_eq!(frame.format(), ReadbackFormat::Yuv420p10);
+        // 12 luma and 3 + 3 chroma samples of 2 bytes each.
+        assert_eq!(frame.pixels().len(), 36);
+        let samples = samples16(frame.pixels());
+        let planes = [&samples[..12], &samples[12..15], &samples[15..]];
+        for ((plane, expected), exact) in planes.into_iter().zip(expected).zip(exact) {
+            let allowed = if exact { 0 } else { 1 };
+            assert!(
+                plane
+                    .iter()
+                    .all(|value| value.abs_diff(expected) <= allowed),
+                "{plane:?}, expected {expected}"
+            );
+        }
+    }
+
+    // Ten bits step four times finer than eight: the 8-code gradient spans
+    // about 28 luma codes instead of 7.
+    renderer.options.background = Color::rgba(0, 0, 0, 255);
+    if !composites_in_half_floats(&renderer) {
+        return;
+    }
+    assert!(renderer.submit(&gentle_gradient_scene()).unwrap().is_none());
+    let frame = renderer.drain().unwrap().remove(0);
+    let luma = samples16(&frame.pixels()[..256 * 10 * 2]);
+    for row in luma[..256 * 8].chunks_exact(256) {
+        assert_eq!(row[0], 64);
+        assert!((90..=93).contains(&row[255]), "{}", row[255]);
+        assert!(longest_run16(row) <= 8, "{row:?}");
+    }
+}
+
+/// The longest run of equal values in `values`.
+fn longest_run16(values: &[u16]) -> usize {
+    values
+        .chunk_by(|first, second| first == second)
+        .map(<[u16]>::len)
+        .max()
+        .unwrap_or(0)
+}
+
+#[test]
+fn reads_frames_back_in_sixteen_bits() {
+    let Some(mut renderer) = renderer(GpuRenderOptions {
+        background: Color::rgba(0, 0, 0, 255),
+        ..GpuRenderOptions::default()
+    }) else {
+        return;
+    };
+    if !composites_in_half_floats(&renderer) {
+        return;
+    }
+    renderer
+        .set_readback_format(ReadbackFormat::Rgba16)
+        .unwrap();
+    assert!(renderer.submit(&gentle_gradient_scene()).unwrap().is_none());
+    let frame = renderer.drain().unwrap().remove(0);
+    assert_eq!(frame.format(), ReadbackFormat::Rgba16);
+    assert_eq!(frame.pixels().len(), 256 * 10 * 8);
+    let samples = samples16(frame.pixels());
+    let (gradient, solid) = samples.split_at(256 * 8 * 4);
+    // Not rounded to 8 bits: the red channel rises smoothly, sample by
+    // sample, from black to 8 of 255.
+    let red: Vec<u16> = gradient[..256 * 4].iter().step_by(4).copied().collect();
+    assert!(red.is_sorted(), "{red:?}");
+    assert!(red.chunk_by(|first, second| first == second).count() > 200);
+    let last = f64::from(red[255]) / 257.0;
+    assert!((last - 7.98).abs() < 0.05, "{last}");
+    // #102030 within the half float's precision of 257 times each code.
+    for pixel in solid.chunks_exact(4) {
+        for (value, code) in pixel.iter().zip([0x10_u16, 0x20, 0x30, 255]) {
+            assert!(value.abs_diff(code * 257) <= 8, "{pixel:?}");
+        }
+    }
+}
+
 #[test]
 fn fits_a_widescreen_scene_inside_a_square_preview() {
     let viewport = PreviewViewport::fit(1920, 1080, 1000, 1000).unwrap();

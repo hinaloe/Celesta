@@ -36,7 +36,41 @@ rounds each frame to 8 bits once, with an ordered dither.
 
 Not changed: the macOS native preview (NV12 through IOSurface) still draws
 onto an 8-bit target and rounds without a dither; the CPU renderer is
-unchanged. 10-bit output (issue item 3, optional) is not implemented.
+unchanged.
+
+## 10-bit output (`--bit-depth 10`)
+
+Issue item 3. `VideoEncoding::bit_depth` (`BitDepth::Eight` by default,
+`Ten`) and the exporter's `--bit-depth 8|10` encode `yuv420p10le` with
+libx264, which picks the High 10 profile. PNG output rejects `--bit-depth
+10` (stills stay 8-bit).
+
+- GPU conversion: `ReadbackFormat::Yuv420p10`. `yuv420p.wgsl`'s `luma10` and
+  `chroma10` use the 8-bit matrix times 4 (Y 64–940, chroma 64–960), dither
+  in 10-bit codes, and write `R16Uint` planes, read back as little-endian
+  16-bit samples (3 bytes per pixel). `YuvConverter::new` takes the depth;
+  the renderer keeps one converter per YUV format.
+- Encoder conversion: `ReadbackFormat::Rgba16`, 16-bit RGBA
+  (`rgba64le`, 8 bytes per pixel) from `quantize.wgsl`'s `rgba16` into an
+  `Rgba16Uint` texture, without a dither; libswscale converts it to
+  `yuv420p10le`.
+- libx264 must be built for 10 bits (x264's default, `--bit-depth=all`).
+  Homebrew's FFmpeg 8 lists `yuv420p10le` for libx264; the Linux script's
+  Ubuntu `libx264-dev` and vcpkg's port were not checked. An 8-bit-only
+  x264 fails when the encoder opens.
+
+On the same example (frame 5 of `--from 0.5 --to 1`, row 60), the 10-bit
+luma steps in 10-bit codes: 68 changes, longest run 48 px with the GPU
+conversion and 96 px with the encoder's. At CRF 18 x264 smooths the 10-bit
+dither away, so the steps remain, a quarter of an 8-bit step each. Decoded
+to 8-bit RGB by ffmpeg (no dither), the row shows 168 px runs again: how
+smooth a 10-bit file looks on an 8-bit display depends on the player
+dithering it. Contrast-stretched at 16 bits, the 10-bit export has neither
+rings nor the color streaks the 8-bit one keeps.
+
+The whole film exported in 5.5–5.9 s at 10 bits against 4.4–4.5 s at 8
+(two runs each), and its MP4 is 1.84 MB against 2.28 MB at 8 bits (the
+8-bit file carries the dither).
 
 ## Results
 
@@ -106,3 +140,7 @@ the dither.
   is not a whole code; `decodes_and_rotates_a_nested_image_on_the_gpu`
   allows one code at its filtered edge texels.
 - The dither tests skip when the adapter cannot composite in half floats.
+- `converts_frames_to_ten_bit_yuv420p` and
+  `reads_frames_back_in_sixteen_bits` cover the two 10-bit readbacks;
+  `converting_colors_on_the_gpu_matches_the_encoder_conversion` now also
+  exports both conversions at 10 bits and checks the stream's pixel format.

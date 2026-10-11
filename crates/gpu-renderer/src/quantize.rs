@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 /// The pass that quantizes a frame composited in `canvas_format` to 8-bit
 /// code values, with a dither (`quantize.wgsl`), onto a target of any 8-bit
-/// format.
+/// format, or to 16-bit codes onto an `Rgba16Uint` one.
 pub(crate) struct Quantizer {
     layout: wgpu::PipelineLayout,
     shader: wgpu::ShaderModule,
@@ -36,6 +36,11 @@ impl Quantizer {
     }
 
     pub(crate) fn ensure_pipeline(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
+        let entry_point = if format == wgpu::TextureFormat::Rgba16Uint {
+            "rgba16"
+        } else {
+            "fragment"
+        };
         self.pipelines.entry(format).or_insert_with(|| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Celesta quantize pipeline"),
@@ -51,7 +56,7 @@ impl Quantizer {
                 multisample: wgpu::MultisampleState::default(),
                 fragment: Some(wgpu::FragmentState {
                     module: &self.shader,
-                    entry_point: Some("fragment"),
+                    entry_point: Some(entry_point),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format,
