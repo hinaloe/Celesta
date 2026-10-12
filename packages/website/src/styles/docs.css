@@ -15,6 +15,8 @@
 .docs-contents nav a:hover { color: var(--text); }
 .docs-contents nav a[aria-current] { color: var(--text); }
 .docs-contents nav a[aria-current]::before { content: ''; position: absolute; left: 0; top: 13px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.docs-contents nav a.docs-nav-child { padding-left: 32px; }
+.docs-contents nav a.docs-nav-child[aria-current]::before { left: 16px; }
 .docs-search-status { color: var(--muted); font-size: 13px; line-height: 1.7; margin-top: 12px; }
 .docs-sidebar-note { border-top: 1px solid var(--line); padding: 20px 0 16px; margin-top: 28px; }
 .docs-sidebar-note p { font-size: 15px; line-height: 1.4; color: var(--muted); margin-bottom: 12px; }
@@ -105,6 +107,7 @@ kbd { display: inline-block; border: 1px solid var(--line-strong); padding: 0 6p
 .docs-index ul { list-style: none; padding: 0; margin: 0; }
 .docs-index li { margin: 0; border-bottom: 1px solid var(--line); }
 .docs-index li a { display: block; padding: 12px 0; }
+.docs-index li.docs-index-child a { padding-left: 20px; }
 .docs-index li strong { display: block; font-size: 16px; font-weight: 500; color: var(--text); }
 .docs-index li span { display: block; font-size: 13.5px; line-height: 1.5; color: var(--muted); margin-top: 2px; }
 .docs-index li a:hover strong { color: var(--accent); }
