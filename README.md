@@ -179,7 +179,7 @@ manner of Remotion; import each piece from the package that provides it:
 | --- | --- |
 | [`@celesta/react`](packages/react) | `<Composition>`, `<Sequence>`, `<Series>`, `<FreezeFrame>`, `<Group>`, `<Rect>`, `<Text>`, `<Span>`, `<Image>`, `<Video>`, `<Audio>`, `<Font>`, `<Assets>`, frame and config hooks, `interpolate`, `spring`, `Easings`, keyframes, beats and cues, text measurement, `registerComponent`, and `defineProjectProperties` |
 | [`@celesta/shapes`](packages/shapes) | `<Line>`, `<Polyline>`, `<Path>`, `<Circle>`, `<Ellipse>`, `<Arrow>`, `pointOnPolyline` |
-| [`@celesta/layout`](packages/layout) | `<Center>`, `<Stack>`, `<Grid>`, `<Fit>`, `<SafeArea>`, `useLayoutBounds`, `<Camera>` |
+| [`@celesta/layout`](packages/layout) | `<Center>`, `<Stack>`, `<Grid>`, `<Fit>`, `<SafeArea>`, `safeAreaInsets`, `useLayoutBounds`, `<Camera>` |
 | [`@celesta/transitions`](packages/transitions) | `<Transition>`, `<TransitionSeries>` and its hooks |
 | [`@celesta/text`](packages/text) | `<TextReveal>`, `useTypewriter`, `useCountUp`, `<TextBox>`, `fitText`, `useFitText` |
 | [`@celesta/character`](packages/character) | `<Character>`, `<CharacterView>`, `<Dialogue>`, `<DialogueSeries>`, `planDialogue`, lip sync, blinking, PSD presets |

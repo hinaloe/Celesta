@@ -796,6 +796,7 @@ fn open_end_frame_requests_ask_for_and_read_back_the_echo() {
         components: None,
         compact_transforms: true,
         open_end,
+        debug_guides: false,
         statics: None,
     };
     let past = serde_json::to_value(request(true)).unwrap();
@@ -821,6 +822,24 @@ fn open_end_frame_requests_ask_for_and_read_back_the_echo() {
         panic!("expected an Ok response");
     };
     assert!(!open_end);
+}
+
+#[test]
+fn frame_requests_ask_for_debug_guides_only_when_set() {
+    let request = |debug_guides| Request {
+        time: Some(Time::ZERO),
+        project: None,
+        runtime: None,
+        components: None,
+        compact_transforms: true,
+        open_end: false,
+        debug_guides,
+        statics: None,
+    };
+    let guides = serde_json::to_value(request(true)).unwrap();
+    assert_eq!(guides["debugGuides"], true);
+    let plain = serde_json::to_value(request(false)).unwrap();
+    assert!(plain.get("debugGuides").is_none(), "{plain}");
 }
 
 mod statics {
@@ -1006,6 +1025,7 @@ mod statics {
             components: None,
             compact_transforms: true,
             open_end: false,
+            debug_guides: false,
             statics,
         };
         let json = serde_json::to_string(&request(Some(StaticsRequest { decoded: 3 }))).unwrap();

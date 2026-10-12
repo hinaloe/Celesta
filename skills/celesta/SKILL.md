@@ -173,10 +173,10 @@ layers sit; it does not prove the rendered pixels.
 
 | Package | Provides |
 | --- | --- |
-| `@celesta/react` | `Composition`, `Sequence`, `Series`, `Stagger`, `FreezeFrame`, `Group`, `Rect`, `Text`, `Span`, `Image`, `Video`, `Audio`, `Font`, `Assets`, `useCurrentFrame`/`useCurrentTime`/`useVideoConfig`/`useIsPreview`, `interpolate`, `interpolateColor`, `Easings`, `spring`, `progress`, `frameKeyframes`, `useBeat`/`useCue`, timecodes, `measureText`/`useTextMetrics`/`textCaret`, `registerComponent`, `defineProjectProperties`/`getProjectProperty`, and the scene types |
+| `@celesta/react` | `Composition`, `Sequence`, `Series`, `Stagger`, `FreezeFrame`, `Group`, `Rect`, `Text`, `Span`, `Image`, `Video`, `Audio`, `Font`, `Assets`, `useCurrentFrame`/`useCurrentTime`/`useVideoConfig`/`useIsPreview`/`useDebugGuides`, `interpolate`, `interpolateColor`, `Easings`, `spring`, `progress`, `frameKeyframes`, `useBeat`/`useCue`, timecodes, `measureText`/`useTextMetrics`/`textCaret`, `registerComponent`, `defineProjectProperties`/`getProjectProperty`, and the scene types |
 | `@celesta/shapes` | `Line`, `Polyline`, `Path`, `Circle`, `Ellipse`, `Arrow`, `pointOnPolyline` |
 | `@celesta/shader` | `defineShader` (custom WGSL filters for the `shader` prop) |
-| `@celesta/layout` | `Center`, `Stack`, `Grid`, `Fit`, `SafeArea`, `useLayoutBounds`, `Camera` |
+| `@celesta/layout` | `Center`, `Stack`, `Grid`, `Fit`, `SafeArea`, `safeAreaInsets`, `useLayoutBounds`, `Camera` |
 | `@celesta/transitions` | `Transition`, `TransitionSeries`, `useTransitionSeriesScene`, `useTransitionVolume` |
 | `@celesta/text` | `TextReveal`, `useTypewriter`, `useCountUp`, `TextBox`, `fitText`, `useFitText` |
 | `@celesta/character` | `Character`, `CharacterView`, `Dialogue`, `DialogueSeries`, `planDialogue`, `loadLipSync`, `useLipSync`, `blinkPhase`, `loadPsdPreset`, and their types |
@@ -202,7 +202,7 @@ Load only the one you need; each is self-contained.
 | --- | --- |
 | Find `Celesta`/`Celesta-export`, start a project (`--init`), add npm packages, type-check, how the user previews | [setup.md](references/setup.md) |
 | Start from a ready-made video (`--init --template slideshow\|ranking\|dialogue`, `--list-templates`), then edit its `props.json` and data file | [setup.md](references/setup.md#create-a-react-project) |
-| Entry file and `prepare()`, layer props, `Rect`/gradients, `Path`/`Line`/`Polyline`, `Circle`/`Ellipse`/`Arrow`, `Group` clip, `Image`, `Video`, `Audio`, `Font`/`Assets`, layout helpers (`Center`, `SafeArea`, `Stack`, `Grid`, `Fit`), `preloadMedia`, audio keyframes and `frameKeyframes`, debug guides | [react-core.md](references/react-core.md) |
+| Entry file and `prepare()`, layer props, `Rect`/gradients, `Path`/`Line`/`Polyline`, `Circle`/`Ellipse`/`Arrow`, `Group` clip, `Image`, `Video`, `Audio`, `Font`/`Assets`, layout helpers (`Center`, `SafeArea`, `Stack`, `Grid`, `Fit`), vertical video and platform UI safe areas, `preloadMedia`, audio keyframes and `frameKeyframes`, debug guides | [react-core.md](references/react-core.md) |
 | Frame hooks, `interpolate`, `interpolateColor`, `Easings`, `spring`, `progress`, `Sequence`, `Series`, `TransitionSeries`, `Stagger`, `Transition`, `useBeat`, `useCue`, `Camera`, timecodes | [animation.md](references/animation.md) |
 | `Text`, `TextStyle`, fonts and fallback, font stacks (和欧混植), text language (`lang`), emoji, line breaking, `TextReveal`, `useTypewriter`, `useCountUp`, `useTextMetrics`/`measureText`, `TextBox`/`useFitText`/`fitText` | [text.md](references/text.md) |
 | Syntax-highlighted code, typing code, highlighted lines, carets, drawing code lines yourself (`@celesta/code`) | [code.md](references/code.md) |

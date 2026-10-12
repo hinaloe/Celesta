@@ -383,13 +383,23 @@ fn prepare_can_preload_media_metadata_when_node_is_available() {
 }
 
 #[test]
-fn debug_guides_only_render_during_component_preview_when_node_is_available() {
+fn debug_guides_render_in_component_preview_or_when_asked_when_node_is_available() {
     let Some((node, cli_script, package_root)) = live_react_runtime() else {
         return;
     };
 
     let entry = package_root.join("examples/with-debug.tsx");
     let mut bridge = ReactBridge::spawn(&node, &cli_script, &entry).unwrap();
+    assert!(bridge.scene_at(Time::new(5, 30)).unwrap().layers.is_empty());
+
+    // PNG exports with --debug-guides ask for them in the whole composition.
+    bridge.set_debug_guides(true);
+    let guided = bridge.scene_at(Time::new(5, 30)).unwrap();
+    assert!(all_layers(&guided.layers).iter().any(|layer| matches!(
+        &layer.content,
+        LayerContent::Text { text, .. } if text == "frame 5 · 640×360"
+    )));
+    bridge.set_debug_guides(false);
     assert!(bridge.scene_at(Time::new(5, 30)).unwrap().layers.is_empty());
 
     let props = BTreeMap::new();

@@ -62,6 +62,7 @@ For randomness and noise, use [`@celesta/math`](math.md).
 | `useCurrentTime()` | Exact `{ value, timescale }` time, local to the innermost `<Sequence>`. |
 | `useVideoConfig()` | `{ width, height, fps, durationInFrames }`; inside a `Sequence`, `durationInFrames` is the sequence's. |
 | `useIsPreview()` | `true` only in the Celesta app preview, `false` in exports. |
+| `useDebugGuides()` | `true` where debug guides are drawn: the app preview, and PNG exports with `--debug-guides`. Never in an MP4. |
 
 Hooks work in any component Celesta renders, including `Root`, but not in
 `prepare()`, at module level, or in plain helper functions.

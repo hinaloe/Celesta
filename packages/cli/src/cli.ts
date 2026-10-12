@@ -66,6 +66,8 @@ interface FrameRequest {
    * older runtime that ignored it.
    */
   openEnd?: boolean;
+  /** Draw debug guides, for PNG exports with `--debug-guides`. */
+  debugGuides?: boolean;
 }
 
 interface ResolveRequest {
@@ -230,6 +232,7 @@ async function main(): Promise<void> {
           openEnd,
           compact: request.compactTransforms === true,
           statics: request.statics,
+          debugGuides: request.debugGuides === true,
         });
         writeLine({
           scene,

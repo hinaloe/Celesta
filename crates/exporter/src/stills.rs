@@ -62,6 +62,10 @@ pub struct PngExport {
     pub frames: FrameSelection,
     /// `None` writes one PNG per frame.
     pub contact_sheet: Option<ContactSheet>,
+    /// Draws a React entry's debug guides (`<DebugOverlay>`, `<DebugBounds>`,
+    /// `useDebugGuides()`) into the frames, which otherwise only the editor
+    /// preview shows. A JSON project has none to draw.
+    pub debug_guides: bool,
 }
 
 /// Most frames one export writes as separate PNG files.
@@ -368,6 +372,7 @@ impl Exporter {
             &PngExport {
                 frames: FrameSelection::Frames(frames.to_vec()),
                 contact_sheet: None,
+                debug_guides: false,
             },
             output,
             progress,
@@ -458,6 +463,7 @@ impl Exporter {
             &PngExport {
                 frames: FrameSelection::Frames(frames.to_vec()),
                 contact_sheet: None,
+                debug_guides: false,
             },
             output,
             progress,
@@ -486,6 +492,7 @@ impl Exporter {
         });
         let project = project_owned.as_ref().map(|(p, root)| (*p, root.as_path()));
         let mut bridge = runtime.spawn(entry, project)?;
+        bridge.set_debug_guides(request.debug_guides);
         let metadata = bridge.metadata().clone();
         progress(ExportProgress::Composition(CompositionInfo {
             width: metadata.width,

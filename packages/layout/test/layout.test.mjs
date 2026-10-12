@@ -52,3 +52,61 @@ test('layout components position children inside inherited bounds', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('safe areas take per-edge insets and scale presets to the canvas', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'celesta-layout-'));
+  const entry = join(dir, 'entry.tsx');
+  writeFileSync(
+    entry,
+    `import { Composition, Text } from '@celesta/react'; import { Center, SafeArea, safeAreaInsets } from '@celesta/layout';\n` +
+      `export default function Root() {\n` +
+      `  return (\n` +
+      `    <Composition width={1080} height={1920} fps={30} durationInFrames={1}>\n` +
+      `      <SafeArea padding="vertical-social"><Center><Text>preset</Text></Center></SafeArea>\n` +
+      `      <SafeArea padding={{ right: 100, bottom: 300 }}><Center><Text>edges</Text></Center></SafeArea>\n` +
+      `      <Text>{JSON.stringify(safeAreaInsets('vertical-social', 720, 1280))}</Text>\n` +
+      `    </Composition>\n` +
+      `  );\n` +
+      `}\n`,
+  );
+
+  try {
+    const result = spawnSync(process.execPath, [cli, entry], {
+      input: '{"time":{"value":0,"timescale":1}}\n',
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const [, frame] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    const [preset, edges, scaled] = frame.scene.layers;
+    // top 192, right 200, bottom 384, left 72 px on 1080×1920.
+    assert.deepEqual(preset.transform.position, { x: 72, y: 192 });
+    assert.deepEqual(preset.content.layers[0].transform.position, { x: 404, y: 672 });
+    assert.deepEqual(edges.transform.position, { x: 0, y: 0 });
+    assert.deepEqual(edges.content.layers[0].transform.position, { x: 490, y: 810 });
+    assert.deepEqual(JSON.parse(scaled.content.text), { top: 128, right: 133, bottom: 256, left: 48 });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('an unknown safe area preset names the known ones', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'celesta-layout-'));
+  const entry = join(dir, 'entry.tsx');
+  writeFileSync(
+    entry,
+    `import { Composition } from '@celesta/react'; import { SafeArea } from '@celesta/layout';\n` +
+      `export default function Root() {\n` +
+      `  return <Composition width={1080} height={1920} fps={30} durationInFrames={1}><SafeArea padding="shorts" /></Composition>;\n` +
+      `}\n`,
+  );
+
+  try {
+    const result = spawnSync(process.execPath, [cli, entry], {
+      input: '{"time":{"value":0,"timescale":1}}\n',
+      encoding: 'utf8',
+    });
+    assert.match(result.stdout, /unknown safe area preset 'shorts' \(expected 'vertical-social'\)/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

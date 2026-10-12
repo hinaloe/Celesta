@@ -31,15 +31,68 @@ export interface Insets {
   left?: number;
 }
 
-export interface SafeAreaProps extends GroupProps {
-  padding: number | Insets;
-}
+/**
+ * A named safe area. `'vertical-social'` keeps clear of the UI that YouTube
+ * Shorts, TikTok and Instagram Reels draw over a vertical video: the top 10%
+ * (search and tabs), the bottom 20% (caption, channel name, progress bar),
+ * the right 18.5% (like, comment and share buttons) and the left 1/15. On a
+ * 1080×1920 canvas that is top 192, right 200, bottom 384 and left 72 px.
+ * These are rough guides, not the platforms' own figures, and they do not
+ * follow changes to the platforms' UI.
+ */
+export type SafeAreaPreset = 'vertical-social';
+
+/** A safe area as a uniform inset, per-edge insets (missing edges are 0), or a preset. */
+export type SafeAreaValue = number | Insets | SafeAreaPreset;
+
+// Fractions of the canvas height (top, bottom) and width (left, right).
+const SAFE_AREA_PRESETS: Record<SafeAreaPreset, Required<Insets>> = {
+  'vertical-social': { top: 0.1, right: 0.185, bottom: 0.2, left: 1 / 15 },
+};
 
 function finiteNonNegative(value: number, name: string): number {
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(`${name} must be a finite non-negative number`);
   }
   return value;
+}
+
+/**
+ * Resolves a safe area to pixel insets for a `width`×`height` canvas. A
+ * preset scales with the canvas and rounds to whole pixels.
+ */
+export function safeAreaInsets(area: SafeAreaValue, width: number, height: number): Required<Insets> {
+  if (typeof area === 'string') {
+    const fractions = Object.prototype.hasOwnProperty.call(SAFE_AREA_PRESETS, area)
+      ? SAFE_AREA_PRESETS[area]
+      : undefined;
+    if (!fractions) {
+      const names = Object.keys(SAFE_AREA_PRESETS).map((name) => `'${name}'`).join(', ');
+      throw new Error(`unknown safe area preset '${area}' (expected ${names})`);
+    }
+    return {
+      top: Math.round(fractions.top * height),
+      right: Math.round(fractions.right * width),
+      bottom: Math.round(fractions.bottom * height),
+      left: Math.round(fractions.left * width),
+    };
+  }
+  const values = typeof area === 'number' ? { top: area, right: area, bottom: area, left: area } : area;
+  return {
+    top: finiteNonNegative(values.top ?? 0, 'safe area top inset'),
+    right: finiteNonNegative(values.right ?? 0, 'safe area right inset'),
+    bottom: finiteNonNegative(values.bottom ?? 0, 'safe area bottom inset'),
+    left: finiteNonNegative(values.left ?? 0, 'safe area left inset'),
+  };
+}
+
+export interface SafeAreaProps extends GroupProps {
+  /**
+   * The inset on every edge, per-edge insets, or a preset. A preset is
+   * sized from the composition canvas, so use it on a `<SafeArea>` that
+   * covers the whole canvas.
+   */
+  padding: SafeAreaValue;
 }
 
 /** Insets children and makes the reduced dimensions available to nested layout components. */
@@ -51,11 +104,8 @@ export function SafeArea({
   ...props
 }: SafeAreaProps): ReturnType<typeof React.createElement> {
   const bounds = useLayoutBounds();
-  const values = typeof padding === 'number' ? { top: padding, right: padding, bottom: padding, left: padding } : padding;
-  const top = finiteNonNegative(values.top ?? 0, 'SafeArea top padding');
-  const right = finiteNonNegative(values.right ?? 0, 'SafeArea right padding');
-  const bottom = finiteNonNegative(values.bottom ?? 0, 'SafeArea bottom padding');
-  const left = finiteNonNegative(values.left ?? 0, 'SafeArea left padding');
+  const canvas = useVideoConfig();
+  const { top, right, bottom, left } = safeAreaInsets(padding, canvas.width, canvas.height);
   const inner = { width: Math.max(0, bounds.width - left - right), height: Math.max(0, bounds.height - top - bottom) };
   return React.createElement(
     LayoutBoundsContext.Provider,

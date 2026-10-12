@@ -73,7 +73,7 @@ export type {
 } from './scene';
 export type { ShaderEffect } from './shader';
 
-export { useCurrentFrame, useCurrentTime, useIsPreview, useVideoConfig } from './hooks';
+export { useCurrentFrame, useCurrentTime, useDebugGuides, useIsPreview, useVideoConfig } from './hooks';
 export type { VideoConfig } from './hooks';
 
 export { frameToTimecode, timecodeToFrame } from './time';

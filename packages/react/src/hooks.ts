@@ -12,6 +12,11 @@ export interface VideoConfig {
 export interface CompositionRuntimeContextValue extends VideoConfig {
   time: Time;
   preview: boolean;
+  /**
+   * True when the caller asked for debug guides outside the preview: PNG
+   * exports with `--debug-guides`. Never set for video exports.
+   */
+  debugGuides?: boolean;
   lang?: string;
   /**
    * True while a frame past the composition's end is evaluated as if the
@@ -104,4 +109,13 @@ export function useCurrentFrame(): number {
 /** True only while the GPUI editor resolves a component for its preview. */
 export function useIsPreview(): boolean {
   return useRuntimeContext('useIsPreview').preview;
+}
+
+/**
+ * True where debug guides are drawn: in the editor preview, and in PNG
+ * frames and contact sheets exported with `--debug-guides`. Never in a video.
+ */
+export function useDebugGuides(): boolean {
+  const { preview, debugGuides } = useRuntimeContext('useDebugGuides');
+  return preview || debugGuides === true;
 }

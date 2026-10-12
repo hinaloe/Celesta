@@ -32,6 +32,8 @@ pub struct ReactBridge {
     pub(crate) text_measurer: Option<TextRasterizer>,
     /// The `<Static>` subtrees the runtime has sent.
     pub(crate) statics: StaticCache,
+    /// Whether frame requests ask for debug guides.
+    pub(crate) debug_guides: bool,
 }
 
 impl Drop for ReactBridge {
@@ -195,11 +197,21 @@ impl ReactBridge {
             metadata,
             text_measurer,
             statics: StaticCache::default(),
+            debug_guides: false,
         })
     }
 
     pub const fn metadata(&self) -> &ReactCompositionMetadata {
         &self.metadata
+    }
+
+    /// Makes later frame requests draw debug guides: `<DebugOverlay>`,
+    /// `<DebugBounds>` and whatever else reads `useDebugGuides()`, which
+    /// otherwise draw only in the editor preview. For checking stills; a
+    /// video export leaves this off. A runtime too old to know the request
+    /// ignores it.
+    pub const fn set_debug_guides(&mut self, debug_guides: bool) {
+        self.debug_guides = debug_guides;
     }
 
     /// Requests the evaluated `Scene` at an exact composition time.
@@ -247,6 +259,7 @@ impl ReactBridge {
             components: None,
             compact_transforms: true,
             open_end: true,
+            debug_guides: self.debug_guides,
             statics: Some(StaticsRequest {
                 decoded: self.statics.decoded(),
             }),
@@ -287,6 +300,7 @@ impl ReactBridge {
             components: None,
             compact_transforms: true,
             open_end: false,
+            debug_guides: self.debug_guides,
             statics: Some(StaticsRequest {
                 decoded: self.statics.decoded(),
             }),
@@ -385,6 +399,7 @@ impl ReactBridge {
             ),
             compact_transforms: false,
             open_end: false,
+            debug_guides: false,
             statics: None,
         };
         match self.request_response(request)? {

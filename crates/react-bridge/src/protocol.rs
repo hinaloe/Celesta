@@ -42,6 +42,10 @@ pub(crate) struct Request<'a> {
     /// video went on (see [`crate::ReactBridge::evaluate_past_end`]).
     #[serde(rename = "openEnd", skip_serializing_if = "std::ops::Not::not")]
     pub(crate) open_end: bool,
+    /// Asks the runtime to draw debug guides (`useDebugGuides()`) in this
+    /// frame (see [`crate::ReactBridge::set_debug_guides`]).
+    #[serde(rename = "debugGuides", skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) debug_guides: bool,
     /// Sent with frame requests: the runtime may then refer to `<Static>`
     /// subtrees by key (see [`crate::statics`]).
     #[serde(skip_serializing_if = "Option::is_none")]
