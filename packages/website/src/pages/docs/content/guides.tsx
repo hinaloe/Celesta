@@ -308,7 +308,7 @@ export const contents: Record<string, ReactNode> = {
       <DocCode label="media.tsx" language="tsx" code={mediaScene.trim()} />
       <ul>
         <li>{text('docs.chapters.media.an-or-is-drawn-at-its-own', [<code>Image</code>, <code>Video</code>, <code>x</code>, <code>y</code>, <code>scale</code>, <code>Fit</code>])}</li>
-        <li>{text('docs.chapters.media.and-accept-seconds-into-the-file-and', [<code>Video</code>, <code>Audio</code>, <code>startFrom</code>, <code>playbackRate</code>, <code>Audio</code>, <code>volume</code>, <code>muted</code>])}</li>
+        <li>{text('docs.chapters.media.and-accept-seconds-into-the-file-and', [<code>Video</code>, <code>Audio</code>, <code>startFrom</code>, <code>playbackRate</code>, <code>volume</code>, <code>muted</code>, <code>Video</code>, <code>Audio</code>, <code>muted</code>])}</li>
         <li>{text('docs.chapters.media.media-placed-inside-a-starts-when-the', [<code>Sequence</code>])}</li>
         <li>{text('docs.chapters.media.and-an-audio-can-be-a-number', [<code>volume</code>, <code>playbackRate</code>, <code>{'{ value, timescale }'}</code>])}</li>
       </ul>

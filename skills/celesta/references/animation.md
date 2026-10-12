@@ -182,8 +182,8 @@ It accepts common layer props.
 </Group>
 ```
 
-- Frozen children are always silent: `<Audio>` and voiced `<Dialogue>` inside
-  are not collected. For delayed playback with sound, use `<Sequence from>`.
+- Frozen children are always silent: `<Audio>`, the sound of a `<Video>`,
+  and voiced `<Dialogue>` inside are not collected. For delayed playback with sound, use `<Sequence from>`.
 - Portraits can be redrawn too. A `<CharacterView>` inside never takes over
   its ref, so the live `<Dialogue>`s keep driving the live view. A
   `<Dialogue>` inside drives only a view drawn inside the same
@@ -258,7 +258,7 @@ Timing rules:
 - Progress over *n* frames is 1/(n+1) … n/(n+1): every overlapped frame shows
   both scenes; the frames either side show one scene whole.
 - Audio of overlapping scenes plays together at its own volume. For an
-  audio cross-fade, give an `<Audio>` placed directly in the scene
+  audio cross-fade, give an `<Audio>` or `<Video>` placed directly in the scene
   `volume={useTransitionVolume(level)}`: `level`, ramping from/to 0 over the
   scene's transitions in and out. `useTransitionSeriesScene()` returns
   `{ index, enter, exit }` (`{ type, durationInFrames }` or `null`) for other

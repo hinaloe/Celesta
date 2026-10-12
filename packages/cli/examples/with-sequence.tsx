@@ -23,9 +23,10 @@ function Caption() {
 }
 
 // <Sequence> offsets its children on the composition's timeline: the video
-// and audio start playing at frame 30 (1s in) synced to the sequence's own
-// clock, and the caption is only present during frames 60-89. The audio
-// clip's audible range follows the sequence that contains it.
+// (picture and soundtrack) and the voice-over start playing at frame 30 (1s
+// in) synced to the sequence's own clock, and the caption is only present
+// during frames 60-89. Their audible range follows the sequence that
+// contains them.
 export default function Root() {
   return (
     <Composition width={640} height={360} fps={30} durationInFrames={90}>

@@ -479,7 +479,7 @@
         "and-read-files-through-relative-paths-start": "<slot0/>、<slot1/>、<slot2/> は <slot3/> からファイルを読み込みます。相対パスはコンポジションのファイルが基準なので、プロジェクト内でメディアを隣に置いてください。",
         "can-also-be-an-or-url-celesta": "<slot0/> には <slot1/> または <slot2/> の URL も指定できます。ネイティブのプレビュー、書き出し、<slot3/> は初回にダウンロードし、ローカルにキャッシュします。以後は更新確認をせずに再利用するため、内容が変わった場合は URL を変更するかキャッシュを削除してください。",
         "an-or-is-drawn-at-its-own": "<slot0/> と <slot1/> は自身のピクセルサイズで描画されます。<slot2/> / <slot3/> とアンカーで配置し、<slot4/> または <slot5/> で拡縮します。画像は PNG、JPEG、WebP、PNM に対応します。",
-        "and-accept-seconds-into-the-file-and": "<slot0/> と <slot1/> は <slot2/>（ファイル内の開始秒）と <slot3/> を取ります。<slot4/> は <slot5/> と <slot6/> も取ります。",
+        "and-accept-seconds-into-the-file-and": "<slot0/> と <slot1/> は <slot2/>（ファイル内の開始秒）、<slot3/>、<slot4/>、<slot5/> を取ります。<slot6/> は動画の音声も鳴らすので、音を聞くために同じファイルの <slot7/> を並べる必要はありません。映像だけにするときは <slot8/> を指定します。",
         "media-placed-inside-a-starts-when-the": "<slot0/> 内のメディアはシーケンスの開始と同時に始まり、終了時に止まります。",
         "and-an-audio-can-be-a-number": "<slot0/> と音声の <slot1/> には数値またはキーフレームを使えます。時刻は親シーケンスの開始からの秒数で、<slot2/> の形式です。",
         "size-a-scene-to-its-media": "メディアに合わせてシーンの長さを決める",
