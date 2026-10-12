@@ -586,3 +586,17 @@ fn prepared_items_stay_small() {
     let size = std::mem::size_of::<PreparedItem>();
     assert!(size <= 160, "PreparedItem is {size} bytes");
 }
+
+#[test]
+fn gpu_refuses_a_static_ref() {
+    let Some(mut renderer) = black_renderer() else {
+        return;
+    };
+    let mut scene = empty_scene(4, 4);
+    scene.layers = vec![instances_layer("s", LayerContent::StaticRef { key: 3 })];
+    let error = renderer.prepare_draws(&scene).err().unwrap();
+    assert!(
+        matches!(&error, GpuRenderError::UnsupportedContent { layer, content: "static reference" } if layer == "s"),
+        "{error}"
+    );
+}

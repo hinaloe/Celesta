@@ -8,6 +8,7 @@ import { listProjectProperties } from '@celesta/react';
 import type {
   ComponentPropertySchema,
   CompositionConfig,
+  Layer,
   ProjectPropertyField,
   Scene,
   TextMetrics,
@@ -54,6 +55,11 @@ interface FrameRequest {
    * fields, an opacity of 1, and a rect's corner radius of 0.
    */
   compactTransforms?: boolean;
+  /**
+   * Sent by bridges that keep `<Static>` subtrees: refer to them by key.
+   * `decoded` is the `seq` of the last frame the bridge decoded.
+   */
+  statics?: { decoded: number };
   /**
    * Evaluate a frame past the end as if the video went on (inspect.mjs
    * --loop). The response echoes `openEnd: true`, so a caller can tell an
@@ -220,11 +226,23 @@ async function main(): Promise<void> {
         const openEnd = request.openEnd === true;
         // Compact frames leave out what Rust reads back by default, which
         // shrinks a NEBULA frame (1,500 particles) from 554 KiB to 458 KiB.
-        const { scene, audio } = mounted.renderAt(request.time, request.project ?? null, {
+        const { scene, audio, statics } = mounted.renderAt(request.time, request.project ?? null, {
           openEnd,
           compact: request.compactTransforms === true,
+          statics: request.statics,
         });
-        writeLine({ scene, audio, ...(openEnd ? { openEnd } : {}) });
+        writeLine({
+          scene,
+          audio,
+          ...(statics
+            ? {
+              seq: statics.seq,
+              ...(statics.defined.length > 0 ? { statics: statics.defined } : {}),
+              ...(statics.dropped.length > 0 ? { droppedStatics: statics.dropped } : {}),
+            }
+            : {}),
+          ...(openEnd ? { openEnd } : {}),
+        });
       }
     } catch (error) {
       writeLine({ error: describeError(error) });
@@ -332,7 +350,13 @@ function writeLine(
         componentSchemas: Record<string, ComponentPropertySchema>;
         propertySchema: Record<string, ProjectPropertyField> | null;
       }
-    | { scene: Scene; audio: AudioClipDescriptor[] }
+    | {
+        scene: Scene;
+        audio: AudioClipDescriptor[];
+        seq?: number;
+        statics?: { key: number; layers: Layer[] }[];
+        droppedStatics?: number[];
+      }
     | { collectedAudio: AudioClipDescriptor[] }
     | ComponentResolutions
     | { probeMedia: { path: string } }

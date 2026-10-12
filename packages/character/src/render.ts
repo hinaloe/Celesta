@@ -241,6 +241,8 @@ function dialogueContent(node: HostNode, walk: HostWalk): LayerContent {
           type: 'text',
           props: { ...character.subtitle, id: undefined, children: props.text },
           children: [],
+          parent: null,
+          changedAt: 0,
         },
         [walk.id, 'subtitle'].join('.'),
       ),

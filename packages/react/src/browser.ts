@@ -4,7 +4,7 @@ import * as React from 'react';
 
 export { React };
 export {
-  Audio, Assets, Composition, Font, FreezeFrame, Group, Image, Instances, Rect, Sequence, Text, Video,
+  Audio, Assets, Composition, Font, FreezeFrame, Group, Image, Instances, Rect, Sequence, Static, Text, Video,
 } from './components';
 export { useCurrentFrame, useCurrentTime, useIsPreview, useVideoConfig } from './hooks';
 export { Easings, interpolate, interpolateColor, progress, spring } from './animation';

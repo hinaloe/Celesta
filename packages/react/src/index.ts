@@ -8,6 +8,7 @@ export {
   Instances,
   Rect,
   Sequence,
+  Static,
   Text,
   Video,
   Font,
@@ -29,6 +30,7 @@ export type {
   InstancesProps,
   RectProps,
   SequenceProps,
+  StaticProps,
   TextProps,
   VideoProps,
 } from './components';

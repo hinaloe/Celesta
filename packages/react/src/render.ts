@@ -15,6 +15,7 @@ import { flattenTextContent, withTextRuns } from './rich-text';
 import { ProjectLayersContext, ProjectTrackLayersContext } from './hooks';
 import { type HostWalk, hasHostElementPreparation, hostElement } from './host-elements';
 import { instancesContent } from './instances';
+import { type StaticsFrame, StaticSubtrees } from './static';
 import { resolveComponent } from './registry';
 import { type HostNode, type RootContainer, HostReconciler, createRoot } from './reconciler';
 import type {
@@ -48,6 +49,7 @@ const HOST_TYPES = new Set([
   'group',
   'image',
   'instances',
+  'static',
   'rect',
   'path',
   'text',
@@ -136,7 +138,22 @@ interface WalkContext {
   frameState: Map<unknown, unknown>;
   /** Leave out what Rust reads back by default; see `renderAt`'s `compact`. */
   compact: boolean;
+  /** Where `<Static>` layers are cached; `null` where nothing is reused. */
+  statics: StaticWalk | null;
+  /** Walking a `<Static>`'s children, which cannot depend on the time. */
+  insideStatic: boolean;
 }
+
+interface StaticWalk {
+  cache: StaticSubtrees;
+  /** Emit a `<Static>` as a reference by key instead of its layers. */
+  refer: boolean;
+  /** The keys this frame refers to. */
+  referenced: Set<number>;
+}
+
+/** Host types whose layers depend on the time, which `<Static>` cannot hold. */
+const TIME_DEPENDENT_TYPES = new Set(['video', 'audio', 'sequence', 'freeze-frame', 'rawLayers']);
 
 export interface MountedComposition {
   /** Unmounts the persistent React root and runs effect cleanup. */
@@ -162,8 +179,14 @@ export interface MountedComposition {
        * corner radius of 0. Such a scene is only for Rust to read.
        */
       compact?: boolean;
+      /**
+       * Sent by the Rust bridge: emit each `<Static>` as a reference by key
+       * and return the layers the bridge still needs. `decoded` is the
+       * `seq` of the last frame it decoded.
+       */
+      statics?: { decoded: number };
     },
-  ): { scene: Scene; audio: AudioClipDescriptor[] };
+  ): { scene: Scene; audio: AudioClipDescriptor[]; statics?: StaticsFrame };
   /** Sweeps every frame without constructing visual layers; hooks and font measurements still run. */
   collectAudio(): AudioClipDescriptor[];
 }
@@ -209,6 +232,7 @@ function rootWalkContext(
   lang?: string,
   openEnd = false,
   compact = false,
+  statics: StaticWalk | null = null,
 ): WalkContext {
   const endSec = durationInFrames / fps;
   return {
@@ -225,6 +249,8 @@ function rootWalkContext(
     idPrefix: '',
     frameState: new Map(),
     compact,
+    statics,
+    insideStatic: false,
   };
 }
 
@@ -585,9 +611,14 @@ function extractShader(value: unknown, context: WalkContext): NonNullable<Layer[
   if (!(value instanceof ShaderEffect)) {
     throw new Error("shader must be a value returned by a shader from @celesta/shader's defineShader()");
   }
+  useShaderSource(ShaderEffect.source(value).source, context);
+  return ShaderEffect.serialize(value);
+}
+
+/** Lists `source` among the frame's shaders. */
+function useShaderSource(source: ShaderSource, context: WalkContext): void {
   const sources = usedShaders(context);
   context.frameState.set(SHADER_SOURCES, sources);
-  const { source } = ShaderEffect.source(value);
   // A frame uses a few shaders. Keying a Map by the id would internalize
   // it into a thin string, which `flat-strings.test.mjs` rejects.
   const used = sources.find((other) => other.id === source.id);
@@ -598,7 +629,6 @@ function extractShader(value: unknown, context: WalkContext): NonNullable<Layer[
     // cannot both reach the renderer.
     throw new Error(`two different shaders share the id ${source.id}; change either one's source`);
   }
-  return ShaderEffect.serialize(value);
 }
 
 function extractEffects(props: Record<string, unknown>, context: WalkContext): Layer['effects'] | undefined {
@@ -700,6 +730,8 @@ function childSequenceContext(node: HostNode, context: WalkContext): WalkContext
     idPrefix: context.idPrefix,
     frameState: context.frameState,
     compact: context.compact,
+    statics: context.statics,
+    insideStatic: context.insideStatic,
   };
 }
 
@@ -724,6 +756,8 @@ function childFreezeContext(node: HostNode, context: WalkContext, layerId: strin
     idPrefix: `${layerId}/`,
     frameState: context.frameState,
     compact: context.compact,
+    statics: context.statics,
+    insideStatic: context.insideStatic,
   };
 }
 
@@ -780,6 +814,12 @@ function walkNode(
   audioOnly = false,
 ): Layer[] {
   const element = hostElement(node.type);
+  if (context.insideStatic && (element || TIME_DEPENDENT_TYPES.has(node.type))) {
+    throw new Error(`<Static> cannot contain <${node.type}>`);
+  }
+  if (node.type === 'static') {
+    return audioOnly ? [] : [staticLayer(node, path, context, audio)];
+  }
   if (element) {
     element.audio?.(node, hostWalk(path, context, audio));
     return audioOnly || !element.content ? [] : [buildLayer(node, path, context, audio)];
@@ -847,6 +887,53 @@ function collectFonts(node: HostNode, fonts: ResolvedAsset[]): void {
 
 function sameLocation(left: ResolvedAsset, right: ResolvedAsset): boolean {
   return JSON.stringify(left.location) === JSON.stringify(right.location);
+}
+
+/**
+ * A `<Static>`: a group layer whose children are walked only when something
+ * they depend on changed, and which a frame asked for with `statics` sends
+ * as a reference to layers the bridge already has.
+ */
+function staticLayer(node: HostNode, path: string, context: WalkContext, audio: AudioClipDescriptor[]): Layer {
+  const { statics } = context;
+  const key = { path, lang: context.lang, idPrefix: context.idPrefix, compact: context.compact };
+  // The children are walked with a frame state of their own, so the custom
+  // shaders they use are known and can be listed again on frames that reuse
+  // their layers. No host element, the other user of frame state, can be
+  // inside.
+  const walk = () => {
+    const childContext: WalkContext = {
+      ...context,
+      insideStatic: true,
+      // A definition holds its nested `<Static>`s' layers, never references.
+      statics: statics && { ...statics, refer: false },
+      frameState: new Map(),
+    };
+    const layers = walkChildren(node, path, childContext, audio);
+    return { layers, shaders: usedShaders(childContext) };
+  };
+  const entry = statics ? (statics.cache.lookup(node, key) ?? statics.cache.store(node, walk(), key)) : null;
+  const walked = entry ? undefined : walk();
+  for (const shader of entry ? entry.shaders : walked!.shaders) useShaderSource(shader, context);
+  let content: LayerContent;
+  if (entry && statics?.refer) {
+    statics.referenced.add(entry.key);
+    content = { type: 'staticRef', key: entry.key };
+  } else {
+    content = { type: 'group', layers: entry ? entry.layers : walked!.layers };
+  }
+  const identity: EvaluatedTransform = {
+    position: { x: 0, y: 0 },
+    scale: { x: 1, y: 1 },
+    rotation: 0,
+    anchor: { x: 0, y: 0 },
+  };
+  return {
+    id: path,
+    transform: context.compact ? compactTransform(identity) : identity,
+    ...(context.compact ? {} : { opacity: 1 }),
+    content,
+  } as Layer;
 }
 
 function walkChildren(
@@ -949,6 +1036,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
   const initialFonts: ResolvedAsset[] = [];
   collectFonts(compositionInstance, initialFonts);
   fonts = initialFonts;
+  const staticSubtrees = new StaticSubtrees();
 
   const renderFrame = (
     time: Time,
@@ -956,6 +1044,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
     audioOnly = false,
     openEnd = false,
     compact = false,
+    statics?: { decoded: number },
   ) => {
     rerenderRequested = false;
     renderTree(time, project, config, openEnd);
@@ -981,6 +1070,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
       resolveTextLanguage(instance.props.lang),
       openEnd,
       compact,
+      audioOnly ? null : { cache: staticSubtrees, refer: statics !== undefined, referenced: new Set() },
     );
     if (!audioOnly && hasHostElementPreparation()) {
       for (const child of instance.children) {
@@ -995,7 +1085,12 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
       audioOnly,
     );
     const shaders = usedShaders(context);
+    if (!audioOnly) staticSubtrees.sweep(container.children);
+    const staticsFrame = statics && context.statics
+      ? staticSubtrees.frame(context.statics.referenced, statics.decoded)
+      : undefined;
     return {
+      ...(staticsFrame ? { statics: staticsFrame } : {}),
       scene: {
         width: config.width,
         height: config.height,
@@ -1014,7 +1109,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
     config,
     get fonts() { return fonts; },
     renderAt: (time, project, options) =>
-      renderFrame(time, project, false, options?.openEnd === true, options?.compact === true),
+      renderFrame(time, project, false, options?.openEnd === true, options?.compact === true, options?.statics),
     collectAudio() {
       const audio: AudioClipDescriptor[] = [];
       for (let frame = 0; frame < config.durationInFrames; frame++) {

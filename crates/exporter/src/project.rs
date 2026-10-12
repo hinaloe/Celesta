@@ -161,6 +161,7 @@ pub(crate) fn absolutize_layer_content(content: &mut LayerContent, asset_root: &
         LayerContent::Text { .. }
         | LayerContent::Rect { .. }
         | LayerContent::Path { .. }
+        | LayerContent::StaticRef { .. }
         | LayerContent::MissingComponent { .. } => {}
     }
 }

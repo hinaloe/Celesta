@@ -361,6 +361,11 @@ pub enum LayerContent {
         #[cfg_attr(feature = "codegen", ts(type = "string"))]
         colors: Option<U8Column>,
     },
+    /// A `<Static>` subtree the React bridge already sent under `key`. It
+    /// only travels inside the bridge, which replaces it with a `Group` of
+    /// that subtree's layers before handing the scene on; renderers refuse
+    /// it.
+    StaticRef { key: u32 },
     MissingComponent {
         component: String,
         props: BTreeMap<String, Value>,
@@ -508,6 +513,9 @@ enum LayerContentDef {
         rotation: Option<F32Column>,
         #[serde(default)]
         colors: Option<U8Column>,
+    },
+    StaticRef {
+        key: u32,
     },
     MissingComponent {
         component: String,

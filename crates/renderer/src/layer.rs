@@ -244,6 +244,11 @@ impl CpuRenderer {
                     })?;
                 }
             }
+            LayerContent::StaticRef { .. } => {
+                return Err(RenderError::UnresolvedStatic {
+                    layer: layer.id.clone(),
+                });
+            }
             LayerContent::MissingComponent { .. } => render_placeholder(
                 frame,
                 layer.transform.anchor,
