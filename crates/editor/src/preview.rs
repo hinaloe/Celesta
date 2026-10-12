@@ -236,9 +236,10 @@ pub(crate) fn ensure_react_bridge<'a>(
                 &react.properties,
             ) {
                 Ok(mut bridge) => {
-                    // The preview draws <DebugOverlay>/<DebugBounds>; whole
-                    // `.tsx` frames are requested like an export's, so ask.
-                    bridge.set_debug_guides(true);
+                    // Whole `.tsx` frames are requested like an export's;
+                    // say they are the preview, so `useIsPreview()` is true
+                    // and <DebugOverlay>/<DebugBounds> draw.
+                    bridge.set_preview(true);
                     ReactPreviewBridge {
                         context: react.clone(),
                         bridge: Some(bridge),

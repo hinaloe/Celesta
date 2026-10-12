@@ -797,6 +797,7 @@ fn open_end_frame_requests_ask_for_and_read_back_the_echo() {
         compact_transforms: true,
         open_end,
         debug_guides: false,
+        preview: false,
         statics: None,
     };
     let past = serde_json::to_value(request(true)).unwrap();
@@ -834,12 +835,33 @@ fn frame_requests_ask_for_debug_guides_only_when_set() {
         compact_transforms: true,
         open_end: false,
         debug_guides,
+        preview: false,
         statics: None,
     };
     let guides = serde_json::to_value(request(true)).unwrap();
     assert_eq!(guides["debugGuides"], true);
     let plain = serde_json::to_value(request(false)).unwrap();
     assert!(plain.get("debugGuides").is_none(), "{plain}");
+}
+
+#[test]
+fn frame_requests_ask_for_the_preview_only_when_set() {
+    let request = |preview| Request {
+        time: Some(Time::ZERO),
+        project: None,
+        runtime: None,
+        components: None,
+        compact_transforms: true,
+        open_end: false,
+        debug_guides: false,
+        preview,
+        statics: None,
+    };
+    let preview = serde_json::to_value(request(true)).unwrap();
+    assert_eq!(preview["preview"], true);
+    // Exports and inspection leave it out, so older runtimes see the same request.
+    let plain = serde_json::to_value(request(false)).unwrap();
+    assert!(plain.get("preview").is_none(), "{plain}");
 }
 
 mod statics {
@@ -1026,6 +1048,7 @@ mod statics {
             compact_transforms: true,
             open_end: false,
             debug_guides: false,
+            preview: false,
             statics,
         };
         let json = serde_json::to_string(&request(Some(StaticsRequest { decoded: 3 }))).unwrap();

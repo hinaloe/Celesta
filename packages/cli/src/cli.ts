@@ -68,6 +68,11 @@ interface FrameRequest {
   openEnd?: boolean;
   /** Draw debug guides, for PNG exports with `--debug-guides`. */
   debugGuides?: boolean;
+  /**
+   * Sent only by the editor's preview: `useIsPreview()` is true. Absent from
+   * exports, inspection and older bridges.
+   */
+  preview?: boolean;
 }
 
 interface ResolveRequest {
@@ -233,6 +238,7 @@ async function main(): Promise<void> {
           compact: request.compactTransforms === true,
           statics: request.statics,
           debugGuides: request.debugGuides === true,
+          preview: request.preview === true,
         });
         writeLine({
           scene,
