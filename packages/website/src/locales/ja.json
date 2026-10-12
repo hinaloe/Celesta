@@ -275,8 +275,8 @@
         "mark-export-start-end": "書き出し範囲の開始 / 終了を設定",
         "listen-as-you-look": "映像と一緒に音を確認",
         "playback-synchronizes-the-picture-and-audio-use": "再生時は映像と音声が同期します。波形とトラックレベルでタイミングを確認し、ミュートやソロで音を切り分け、プレビュー音量を調整できます。タイムラインの目盛りをドラッグすると好きな時点に移動できます。",
-        "preview-only-guides": "プレビュー専用のガイド",
-        "draws-the-frame-edge-a-safe-area": "<slot0/> はフレームの外枠、セーフエリア、中心を描画し、<slot1/> はレイヤーのグループに枠を付けます。どちらもプレビューにだけ表示され、書き出しには含まれないので、作業中は残しておけます。<slot2/> で自作コンポーネントもプレビューかどうか判定できます。",
+        "debug-guides": "デバッグ用のガイド",
+        "draws-a-safe-area-and-shade-in-preview-and-png": "<slot0/> はセーフエリアの枠、その外側の網掛け、中心を描画し、<slot1/> はレイヤーのグループに枠を付けます。どちらも Celesta のプレビューと、<slot2/> を付けて書き出した PNG フレームやコンタクトシートに描かれ、動画には含まれないので、作業中は残しておけます。<slot3/> で自作コンポーネントもガイドを描くかどうか判定できます。",
         "metadata": {
           "title": "プレビューの使い方",
           "description": "アプリで開く・再読み込み・再生・スクラブを行います。",
@@ -416,6 +416,10 @@
         "layout-helpers": "レイアウトのヘルパー",
         "a-centered-list-inside-a-safe-margin": "セーフマージン内の中央揃えリスト",
         "helpers-position-child-origins-they-do-not": "ヘルパーは子の原点を配置し、描画サイズは計測しません。配置点を中心にするには、子のアンカーを <slot0/> にします。",
+        "vertical-video": "Shorts・TikTok・Reels 向けの縦型動画",
+        "vertical-video-body": "キャンバスは 1080×1920 にします。プレーヤーは動画の上に自分の UI を重ねます。キャプション、チャンネル名、再生バーが下の約 20% を覆い、いいね・コメント・共有のボタンが右端に並びます。見出し、字幕、ロゴ、呼びかけなど読ませるものは <slot0/> の内側に置き、背景、映像、装飾は端まで使います。プリセット <slot1/> は、キャンバスの上 10%、右 18.5%、下 20%、左 1/15 を避けます（1080×1920 では上 192、右 200、下 384、左 72 px）。目安であり、各プラットフォームの仕様ではなく、UI の変更にも追従しません。より正確な値が分かるときは <slot2/> で指定します。",
+        "vertical-video-example": "文字はプラットフォームのセーフエリア内、背景は端まで",
+        "vertical-video-check": "確かめるには、<slot0/> に同じセーフエリアを渡し、<slot1/> を付けて PNG フレームかコンタクトシートを書き出します（<slot2>書き出し</slot2>を参照）。UI が重なる範囲が網掛けされるので、文字が動いている間も含めて、すべて枠の内側に収まっているかを見ます。",
         "clip-a-group": "グループを切り抜く",
         "give-a-a-to-draw-its-children": "<slot0/> に <slot1/> を指定すると、グループの座標系にある矩形 <slot2/> の内側にだけ子を描きます。マスクによる表示、ワイプ、パネル内のスクロールに使えます。クリップはグループとともに移動・拡縮・回転し、境界はアンチエイリアスされます。入れ子のクリップは共通部分だけを表示します。",
         "text-sliding-up-from-behind-an-edge": "境界の裏からテキストをスライド",
@@ -426,7 +430,7 @@
         },
         "api": {
           "moves-the-origin-to-the-center-of": "原点をキャンバスまたは親 <slot0/> の中心に移動します。",
-          "insets-its-children-by-a-number-or": "<slot0/>（数値または <slot1/>）で余白を取り、内側のヘルパーが見る領域を縮めます。",
+          "insets-its-children-by-a-number-edges-or-a-preset": "<slot0/>（数値、<slot1/>、またはプリセット <slot2/>）で余白を取り、内側のヘルパーが見る領域を縮めます。",
           "places-each-child-pixels-apart-by-default": "子を <slot0/> ピクセル間隔で並べます。既定は <slot1/>、<slot2/> も選べます。",
           "places-children-into-of-cells-with-optional": "<slot0/> 列、<slot1/> × <slot2/> のセルに子を配置します。間隔も指定できます。",
           "scales-content-designed-at-to-or-the": "<slot0/> × <slot1/> で設計した内容を、現在の領域に <slot2/> または <slot3/> で合わせます。"
@@ -642,7 +646,7 @@
           "read-values-from-a-json-project": "JSON プロジェクトから値を読みます。",
           "draw-a-companion-json-project-s-timeline": "対応する JSON のタイムライン全体、または 1 トラックを描画します。",
           "make-components-and-properties-available-to-json": "JSON プロジェクトや Inspector でコンポーネント・プロパティを使えるようにします。",
-          "preview-only-guides-that-never-appear-in": "書き出しに含まれないプレビュー専用のガイド。",
+          "debug-guides-in-preview-and-png-never-in-video": "プレビューと、--debug-guides を付けた PNG 書き出しに描かれるデバッグ用のガイド。動画には含まれません。",
           "text-measure-and-fit": "組版後の文字を測ったり、枠に収まる文字サイズを選んだりします。詳しくは<slot0>テキストとフォント</slot0>を参照してください。",
           "dialogue-series": "音声の長さをもとにタイミングを計算し、会話を順に描画します。詳しくは<slot0>キャラクターの台詞</slot0>を参照してください。"
         },
@@ -979,6 +983,8 @@
       "png-frames-body": "--frame / --frames で、0 から始まるフレーム番号を指定します。複数指定すると check-000090.png のような名前で保存されます。--every N は --from/--to の範囲（省略時は全体）から N フレームごとと最後のフレームを選びます。--contact-sheet を加えると、番号付きの一覧画像を作れます。列数は --columns、各画像の幅は --tile-width で指定します。フレーム番号の直接指定は --every、--from、--to と併用できません。",
       "export-selected-frames": "指定したフレームを書き出す",
       "export-contact-sheet": "コンタクトシートを書き出す",
+      "png-debug-guides-body": "<slot0/> を加えると、React コンポジションの <slot1/> と <slot2/> を、プレビューと同じように PNG フレームやコンタクトシートに描きます。動画の書き出しには描かれません。",
+      "export-contact-sheet-with-debug-guides": "コンタクトシートでセーフエリアを確かめる",
       "graphics-driver": "描画に使う API を選ぶ",
       "graphics-driver-body": "アプリと書き出しツールの両方で、--driver に auto（既定）、vulkan、dx12（Windows）、metal（macOS）、gl を指定できます。auto は wgpu の順序（Vulkan、Metal、DX12、OpenGL）で利用可能な描画アダプタを探します。明示した API は、そのビルドと実行環境の両方で利用できる必要があります。これは描画用 API の選択で、MP4 のエンコードには引き続き libx264 を使います。",
       "select-graphics-driver": "描画 API を指定する",

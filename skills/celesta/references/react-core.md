@@ -32,9 +32,10 @@ provides `react` (18.x) and those packages; never install them from npm.
 - [Audio](#audio)
 - [Font and Assets](#font-and-assets)
 - [Layout helpers](#layout-helpers)
+- [Vertical video (Shorts, TikTok, Reels)](#vertical-video-shorts-tiktok-reels)
 - [Media info](#media-info)
 - [Keyframe values](#keyframe-values)
-- [Preview-only debug guides](#preview-only-debug-guides)
+- [Debug guides](#debug-guides)
 
 ## Entry file shape
 
@@ -431,7 +432,7 @@ Anchor children at `0.5` to center them on those points.
 | Component | Props | Behavior |
 | --- | --- | --- |
 | `Center` | common props | Moves the origin to the center of the canvas or the enclosing `SafeArea`/`Fit`. `x`/`y` offset from there. |
-| `SafeArea` | `padding`: number or `{ top, right, bottom, left }` | Insets children; nested helpers see the smaller area. |
+| `SafeArea` | `padding`: number, `{ top, right, bottom, left }` (missing edges are 0), or `'vertical-social'` | Insets children; nested helpers see the smaller area. A preset is sized from the canvas ([vertical video](#vertical-video-shorts-tiktok-reels)). |
 | `Stack` | `spacing` (required), `direction`: `'vertical'` (default) or `'horizontal'` | Child *i* is placed at `i * spacing`. |
 | `Grid` | `columns`, `columnWidth`, `rowHeight`, `columnGap?`, `rowGap?` | Fills cells row by row; each child's origin is its cell's top-left. |
 | `Fit` | `sourceWidth`, `sourceHeight`, `mode`: `'contain'` (default) or `'cover'` | Scales content designed at the source size to the current area and centers it. |
@@ -452,6 +453,51 @@ Anchor children at `0.5` to center them on those points.
 
 For layouts that depend on text size (pills, rows of labels), measure the
 text with `useTextMetrics()`; see [text.md](text.md#measure-text).
+
+`safeAreaInsets(padding, width, height)` resolves any `padding` value to
+`{ top, right, bottom, left }` pixels, for placing things at the safe area's
+edges yourself.
+
+## Vertical video (Shorts, TikTok, Reels)
+
+Use a 1080×1920 canvas (`width={1080} height={1920}`). The players draw
+their own UI over the video, and not evenly: the caption, channel name, and
+progress bar cover about the bottom 20%, the like/comment/share buttons run
+down the right edge, and search or tabs sit at the top. Split the frame in
+two:
+
+- **Inside the safe area**: everything meant to be read or tapped
+  (headlines, body text, subtitles, code, numbers, logos, calls to action),
+  and faces or the subject a shot is about.
+- **Edge to edge**: backgrounds, footage, images, gradients, textures, and
+  decorative motion. They may run under the UI; only don't let the meaning
+  depend on the part that is covered.
+
+`'vertical-social'` is a preset for that area: top 10%, right 18.5%, bottom
+20%, left 1/15 of the canvas, which is top 192, right 200, bottom 384, left
+72 px at 1080×1920. It is a rough guide covering the three platforms, not
+any platform's own figures, and it does not follow their UI changes; pass
+per-edge numbers when you know better. The safe area is off-center (wider
+margin on the right, more at the bottom), so center copy inside it with
+`<Center>`, not on the canvas.
+
+```tsx
+<Composition width={1080} height={1920} fps={30} durationInFrames={300}>
+  <Image src="./bg.jpg" width={1080} height={1920} />  {/* edge to edge */}
+  <SafeArea padding="vertical-social">
+    <Center>
+      <Text anchorX={0.5} anchorY={0.5} maxWidth={760}
+        style={{ fontSize: 96, align: 'center' }}>Readable copy</Text>
+    </Center>
+  </SafeArea>
+  <DebugOverlay safeArea="vertical-social" />
+</Composition>
+```
+
+Leave some room inside the safe area for motion: a zoom or slide that
+starts inside it can carry copy out. Check the result with the guides drawn
+into PNG frames (`--debug-guides`, see
+[verify.md](verify.md#check-a-vertical-videos-safe-area)).
 
 ## Media info
 
@@ -529,13 +575,20 @@ const { fps } = useVideoConfig();
 
 See `packages/cli/examples/with-volume-fade.tsx`.
 
-## Preview-only debug guides
+## Debug guides
 
 Imported from `@celesta/debug`.
 
-`<DebugOverlay safeArea? color? showCenter? showFrame? />` draws the safe
-area, center cross, and frame counter. `<DebugBounds width height label?
-color? showOrigin?>` wraps children and outlines a box. Both render only in
-the app preview (never in exports or PNG frames), so they are safe to leave
-in. `useIsPreview()` returns `true` only in the app preview, for your own
-preview-only aids.
+`<DebugOverlay safeArea? shade? color? showCenter? showFrame? />` outlines
+the safe area, shades the canvas outside it, and draws a center cross and
+frame counter. `safeArea` takes the same values as `<SafeArea padding>`: a
+number, `{ top, right, bottom, left }`, or `'vertical-social'` (default: 5%
+of the shorter side on every edge). `shade` is the fill outside the safe
+area, `false` for none. `<DebugBounds width height label? color?
+showOrigin?>` wraps children and outlines a box.
+
+Both draw in the app preview and in PNG frames and contact sheets exported
+with `--debug-guides` ([verify.md](verify.md#look-at-real-frames)), and
+never in an MP4, so they are safe to leave in. `useDebugGuides()` returns
+`true` where guides are drawn, for your own guides. `useIsPreview()` returns
+`true` only in the app preview.

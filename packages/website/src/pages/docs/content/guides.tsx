@@ -132,6 +132,8 @@ function ExportCommands() {
     <p>{text('docs.shared.png-frames-body')}</p>
     <DocCode label={t('docs.shared.export-selected-frames')} code={`${executable} --react --frames 0,90 first-scene.tsx check.png`} />
     <DocCode label={t('docs.shared.export-contact-sheet')} code={`${executable} --react --every 30 --contact-sheet --columns 4 --tile-width 320 first-scene.tsx sheet.png`} />
+    <p>{text('docs.shared.png-debug-guides-body', [<code>--debug-guides</code>, <code>{'<DebugOverlay>'}</code>, <code>{'<DebugBounds>'}</code>])}</p>
+    <DocCode label={t('docs.shared.export-contact-sheet-with-debug-guides')} code={`${executable} --react --every 30 --contact-sheet --debug-guides first-scene.tsx sheet.png`} />
     <h3>{text('docs.shared.graphics-driver')}</h3>
     <p>{text('docs.shared.graphics-driver-body')}</p>
     <DocCode label={t('docs.shared.select-graphics-driver')} code={`${executable} --react --driver auto first-scene.tsx output.mp4`} />
@@ -163,7 +165,7 @@ export const contents: Record<string, ReactNode> = {
         <tr><td>{text('docs.chapters.preview.mark-export-start-end')}</td><td colSpan={2}><kbd>I</kbd> / <kbd>O</kbd></td></tr>
       </tbody></table></div>
       <h3>{text('docs.chapters.preview.listen-as-you-look')}</h3><p>{text('docs.chapters.preview.playback-synchronizes-the-picture-and-audio-use')}</p>
-      <h3>{text('docs.chapters.preview.preview-only-guides')}</h3><p>{text('docs.chapters.preview.draws-the-frame-edge-a-safe-area', [<code>{'<DebugOverlay />'}</code>, <code>{'<DebugBounds>'}</code>, <code>useIsPreview()</code>])}</p>
+      <h3>{text('docs.chapters.preview.debug-guides')}</h3><p>{text('docs.chapters.preview.draws-a-safe-area-and-shade-in-preview-and-png', [<code>{'<DebugOverlay />'}</code>, <code>{'<DebugBounds>'}</code>, <code>--debug-guides</code>, <code>useDebugGuides()</code>])}</p>
     </>,
   'react-compositions': <>
       <p>{text('docs.chapters.react-compositions.the-installed-app-already-includes-the-react', [<a href={docPath('create-project')} />, <code>film.tsx</code>])}</p>
@@ -255,13 +257,16 @@ export const contents: Record<string, ReactNode> = {
       <h3>{text('docs.chapters.layout.group-and-arrange')}</h3><p>{text('docs.chapters.layout.has-no-size-of-its-own-its', [<code>Group</code>, <code>x</code>, <code>y</code>])}</p>
       <Api caption={t('docs.chapters.layout.layout-helpers')} rows={[
         [<code>Center</code>, <>{text('docs.chapters.layout.api.moves-the-origin-to-the-center-of', [<code>SafeArea</code>])}</>],
-        [<code>SafeArea</code>, <>{text('docs.chapters.layout.api.insets-its-children-by-a-number-or', [<code>padding</code>, <code>{'{ top, right, bottom, left }'}</code>])}</>],
+        [<code>SafeArea</code>, <>{text('docs.chapters.layout.api.insets-its-children-by-a-number-edges-or-a-preset', [<code>padding</code>, <code>{'{ top, right, bottom, left }'}</code>, <code>'vertical-social'</code>])}</>],
         [<code>Stack</code>, <>{text('docs.chapters.layout.api.places-each-child-pixels-apart-by-default', [<code>spacing</code>, <code>vertical</code>, <code>horizontal</code>])}</>],
         [<code>Grid</code>, <>{text('docs.chapters.layout.api.places-children-into-of-cells-with-optional', [<code>columns</code>, <code>columnWidth</code>, <code>rowHeight</code>])}</>],
         [<code>Fit</code>, <>{text('docs.chapters.layout.api.scales-content-designed-at-to-or-the', [<code>sourceWidth</code>, <code>sourceHeight</code>, <code>contain</code>, <code>cover</code>])}</>],
       ]} />
       <DocCode label={t('docs.chapters.layout.a-centered-list-inside-a-safe-margin')} language="tsx" code={"<SafeArea padding={96}>\n  <Center>\n    <Stack spacing={96} y={-96}>\n      {['Write', 'Preview', 'Export'].map((step) => (\n        <Text key={step} anchorX={0.5} anchorY={0.5}\n          style={{ fontSize: 64, fill: { type: 'solid', color: '#332f3b' } }}>\n          {step}\n        </Text>\n      ))}\n    </Stack>\n  </Center>\n</SafeArea>"} />
       <p>{text('docs.chapters.layout.helpers-position-child-origins-they-do-not', [<code>0.5</code>])}</p>
+      <h3>{text('docs.chapters.layout.vertical-video')}</h3><p>{text('docs.chapters.layout.vertical-video-body', [<code>{'<SafeArea>'}</code>, <code>'vertical-social'</code>, <code>{'{ top, right, bottom, left }'}</code>])}</p>
+      <DocCode label={t('docs.chapters.layout.vertical-video-example')} language="tsx" code={"<Composition width={1080} height={1920} fps={30} durationInFrames={300}>\n  <Image src=\"./bg.jpg\" width={1080} height={1920} />\n  <SafeArea padding=\"vertical-social\">\n    <Center>\n      <Text anchorX={0.5} anchorY={0.5} maxWidth={760}\n        style={{ fontSize: 96, align: 'center' }}>\n        Readable copy\n      </Text>\n    </Center>\n  </SafeArea>\n  <DebugOverlay safeArea=\"vertical-social\" />\n</Composition>"} />
+      <p>{text('docs.chapters.layout.vertical-video-check', [<code>{'<DebugOverlay>'}</code>, <code>--debug-guides</code>, <a href={docPath('export')} />])}</p>
       <h3>{text('docs.chapters.layout.clip-a-group')}</h3><p>{text('docs.chapters.layout.give-a-a-to-draw-its-children', [<code>Group</code>, <code>clip</code>, <code>{'{ x, y, width, height, cornerRadius }'}</code>])}</p>
       <DocCode label={t('docs.chapters.layout.text-sliding-up-from-behind-an-edge')} language="tsx" code={"<Group x={120} y={200} clip={{ width: 720, height: 96 }}>\n  <Text y={96 * (1 - reveal)}\n    style={{ fontSize: 88, fill: { type: 'solid', color: '#332f3b' } }}>\n    Layer it.\n  </Text>\n</Group>"} />
     </>,
@@ -429,7 +434,7 @@ export const contents: Record<string, ReactNode> = {
         [<><code>TextBox</code> / <code>fitText</code> / <code>useFitText</code> / <code>measureText</code> / <code>useTextMetrics</code></>, <>{text('docs.chapters.reference.api.text-measure-and-fit', [<a href={docPath('text-fonts')} />])}</>, '@celesta/text, @celesta/react'],
         [<><code>Center</code>, <code>SafeArea</code>, <code>Stack</code>, <code>Grid</code>, <code>Fit</code></>, <>{text('docs.chapters.reference.api.arrange-child-layers-see', [<a href={docPath('layout')} />, text('docs.chapters.reference.layout-helpers')])}</>, '@celesta/layout'],
         [<><code>preloadMedia</code> / <code>mediaDurationInFrames</code></>, <>{text('docs.chapters.reference.api.read-a-media-file-s-length-and', [<code>prepare()</code>])}</>, '@celesta/media-utils'],
-        [<><code>DebugOverlay</code> / <code>DebugBounds</code> / <code>useIsPreview()</code></>, <>{text('docs.chapters.reference.api.preview-only-guides-that-never-appear-in')}</>, '@celesta/debug, @celesta/react'],
+        [<><code>DebugOverlay</code> / <code>DebugBounds</code> / <code>useDebugGuides()</code> / <code>useIsPreview()</code></>, <>{text('docs.chapters.reference.api.debug-guides-in-preview-and-png-never-in-video')}</>, '@celesta/debug, @celesta/react'],
       ]} />
       <h3>{text('docs.chapters.reference.legacy-api')}</h3><p>{text('docs.chapters.reference.legacy-api-body')}</p>
       <Api caption={t('docs.chapters.reference.legacy-api')} rows={[

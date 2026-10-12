@@ -10,6 +10,7 @@ cheapest first:
 | A JSON project is valid | any short export (validation runs on load) | seconds | schema and references |
 | Real pixels at chosen frames | PNG export (`--frame`, `--frames`) | seconds | what the export will look like |
 | The whole video at a glance | contact sheet (`--every … --contact-sheet`) | seconds–minutes | pacing, layout across scenes |
+| Copy stays clear of platform UI (vertical video) | PNG frames or a contact sheet with `--debug-guides` | seconds | what the safe area covers |
 | A seamless loop: the last frame runs into the first | `scripts/inspect.mjs --loop` | seconds | frame N's Scene equals frame 0's |
 | Audio and the final file | short MP4 export + `ffprobe` | longer | sound, streams, duration |
 
@@ -24,6 +25,7 @@ at the image.
 - [inspect.mjs](#inspectmjs)
 - [Look at real frames](#look-at-real-frames)
 - [Contact sheets](#contact-sheets)
+- [Check a vertical video's safe area](#check-a-vertical-videos-safe-area)
 - [Check a JSON project](#check-a-json-project)
 - [Check audio](#check-audio)
 - [Check a seamless loop](#check-a-seamless-loop)
@@ -180,8 +182,9 @@ shorter span, or a contact sheet.
 PNG export uses the same GPU renderer as MP4 in `final` quality, with RGBA
 output including transparency, one `prepare()` call for all frames, no
 audio, and odd canvas sizes allowed. Debug guides (`DebugOverlay`,
-`DebugBounds`) are not drawn. Font fallback and missing-glyph warnings are
-printed to stderr: read them.
+`DebugBounds`, anything gated on `useDebugGuides()`) are drawn only with
+`--debug-guides` (React entries; never in an MP4). Font fallback and
+missing-glyph warnings are printed to stderr: read them.
 
 **Only overwrite a file the user asked for or one you created.** Write
 checks to a scratch path such as `/tmp/celesta-*.png`.
@@ -206,10 +209,36 @@ Celesta-export project.celesta.json --every 10 --from 20 --to 30 \
 | `--contact-sheet` | Write one grid image instead of one PNG per frame. Works with `--frame`, `--frames` (tiles in the given order) or `--every`. |
 | `--columns <n>` | Tiles per row (default 5; fewer frames use one row). |
 | `--tile-width <px>` | Tile width (default 320); the height keeps the composition's aspect ratio. |
+| `--debug-guides` | Draw the entry's `<DebugOverlay>` and `<DebugBounds>` into the tiles (also works without `--contact-sheet`). |
 
 Tiles are reduced by averaging, so thin lines and small text blur rather
 than vanish; read text and fine details in a full-size `--frame` export. A
 sheet holds at most 400 frames and is at most 16384 px on each side.
+
+## Check a vertical video's safe area
+
+For Shorts, TikTok, or Reels, check that everything meant to be read sits
+inside the safe area and only backgrounds and decoration run under the
+platform UI ([react-core.md](react-core.md#vertical-video-shorts-tiktok-reels)).
+
+1. Put `<DebugOverlay safeArea="vertical-social" />` (or the per-edge
+   `{ top, right, bottom, left }` you laid out with) last in the
+   `<Composition>`, so it draws on top. It draws nothing in an MP4, so it
+   can stay.
+2. Export with `--debug-guides`. The area outside the safe area is shaded
+   and the safe area is outlined:
+
+   ```sh
+   Celesta-export --react film.tsx --every 30 --contact-sheet --debug-guides /tmp/celesta-safe.png
+   Celesta-export --react film.tsx --frames 0,150 --debug-guides /tmp/celesta-safe.png
+   ```
+
+3. Look at every tile. Text, subtitles, logos, and faces must be inside the
+   outline for their whole time on screen, including while they move in or
+   out and at the peak of a zoom or shake. Check a doubtful frame at full
+   size, since tiles are small.
+4. Export without `--debug-guides` for the final check: the guides must be
+   gone.
 
 ## Check a JSON project
 

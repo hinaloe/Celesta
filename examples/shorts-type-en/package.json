@@ -2,6 +2,7 @@
   "name": "@celesta/example-shorts-type-en",
   "private": true,
   "dependencies": {
+    "@celesta/debug": "workspace:*",
     "@celesta/layout": "workspace:*",
     "@celesta/math": "workspace:*",
     "@celesta/react": "workspace:*",

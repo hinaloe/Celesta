@@ -614,3 +614,81 @@ export default function Root() {
         .collect();
     assert_eq!(keys, ["fill", "frame"]);
 }
+
+#[test]
+fn debug_guides_draw_into_png_frames_and_contact_sheets_only_when_asked() {
+    if !root().join("packages/cli/dist/cli.js").exists() {
+        eprintln!("skipping React debug guide test: build packages/cli first");
+        return;
+    }
+    let dir = tempfile::tempdir_in(root().join("packages/cli")).unwrap();
+    let entry = dir.path().join("film.tsx");
+    // The safe area's shade covers the corner pixel; its outline and the
+    // other guides are transparent.
+    std::fs::write(
+        &entry,
+        r##"
+import { Composition, Rect } from '@celesta/react';
+import { DebugOverlay } from '@celesta/debug';
+export default function Root() {
+  return <Composition width={3} height={3} fps={4} durationInFrames={4}>
+    <Rect width={3} height={3} fill="#ff0000" />
+    <DebugOverlay safeArea={{ top: 1 }} shade="#00ff00" color="#00000000" showFrame={false} />
+  </Composition>;
+}
+"##,
+    )
+    .unwrap();
+    let run = |args: &[&str], output: &Path| {
+        Command::new(env!("CARGO_BIN_EXE_celesta-exporter"))
+            .args(["--react", "--overwrite"])
+            .args(args)
+            .arg(&entry)
+            .arg(output)
+            .output()
+            .unwrap()
+    };
+
+    let plain = dir.path().join("plain.png");
+    let result = run(&["--frame", "0"], &plain);
+    assert!(result.status.success(), "{}", stderr(&result));
+    assert_eq!(&pixels(&plain)[..4], &[255, 0, 0, 255]);
+
+    let guided = dir.path().join("guided.png");
+    let result = run(&["--frame", "0", "--debug-guides"], &guided);
+    assert!(result.status.success(), "{}", stderr(&result));
+    let guided = pixels(&guided);
+    assert_eq!(&guided[..4], &[0, 255, 0, 255]);
+    // The bottom row is inside the safe area.
+    assert_eq!(&guided[24..28], &[255, 0, 0, 255]);
+
+    let sheet = dir.path().join("sheet.png");
+    let result = run(
+        &[
+            "--every",
+            "2",
+            "--contact-sheet",
+            "--tile-width",
+            "3",
+            "--debug-guides",
+        ],
+        &sheet,
+    );
+    assert!(result.status.success(), "{}", stderr(&result));
+    let (_, _, sheet_pixels) = decode(&sheet);
+    assert!(
+        sheet_pixels
+            .chunks_exact(4)
+            .any(|pixel| pixel == [0, 255, 0, 255])
+    );
+
+    let video = dir.path().join("film.mp4");
+    let result = run(&["--debug-guides"], &video);
+    assert!(!result.status.success());
+    assert!(
+        stderr(&result).contains("--debug-guides applies to PNG output"),
+        "{}",
+        stderr(&result)
+    );
+    assert!(!video.exists());
+}

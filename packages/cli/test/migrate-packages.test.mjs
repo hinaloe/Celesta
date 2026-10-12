@@ -21,6 +21,9 @@ function exportsOf(pkgs) {
   )]));
 }
 
+// Names the packages export that @celesta/react never did, so need no move.
+const NEVER_IN_REACT = new Set(['CharacterReference', 'SafeAreaPreset', 'SafeAreaValue', 'safeAreaInsets']);
+
 // Type-checking the declarations takes a few seconds on CI runners.
 test('the moved names match what the packages export', { timeout: 60_000 }, () => {
   const exported = exportsOf(['react', ...Object.keys(movedExports).map((pkg) => pkg.slice('@celesta/'.length))]);
@@ -32,8 +35,7 @@ test('the moved names match what the packages export', { timeout: 60_000 }, () =
       assert.ok(own.has(name), `${pkg} does not export ${name}`);
       assert.ok(!core.has(name), `@celesta/react still exports ${name}`);
     }
-    // Names new with the split never were in @celesta/react, so need no move.
-    const unlisted = [...own].filter((name) => !core.has(name) && !moved.has(name) && name !== 'CharacterReference');
+    const unlisted = [...own].filter((name) => !core.has(name) && !moved.has(name) && !NEVER_IN_REACT.has(name));
     assert.deepEqual(unlisted, [], `${pkg} exports names the migration does not know`);
   }
 });

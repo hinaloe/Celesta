@@ -1,6 +1,8 @@
 // SHORTS TYPE (EN) — vertical canvas, timebase (120 BPM, one beat = 15
 // frames), safe area, palette and fonts.
 
+import { safeAreaInsets } from '@celesta/layout';
+
 export const W = 1080;
 export const H = 1920;
 export const FPS = 30;
@@ -10,8 +12,9 @@ export const BAR = BEAT * 4;
 
 // Shorts and TikTok draw their caption, buttons and progress bar over the
 // bottom ~20% and the right edge, and a header over the top. Every scene lays
-// its copy out inside this inset (local coordinates start at its top-left).
-export const SAFE = { top: 192, right: 200, bottom: 384, left: 72 } as const;
+// its copy out inside this inset (local coordinates start at its top-left):
+// the 'vertical-social' preset, top 192, right 200, bottom 384, left 72 px.
+export const SAFE = safeAreaInsets('vertical-social', W, H);
 export const AREA = { width: W - SAFE.left - SAFE.right, height: H - SAFE.top - SAFE.bottom } as const;
 // The text column, kept narrower than the area so a camera push-in of a few
 // percent still stays inside it.

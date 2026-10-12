@@ -185,6 +185,8 @@ export interface MountedComposition {
        * `seq` of the last frame it decoded.
        */
       statics?: { decoded: number };
+      /** Draw debug guides (`useDebugGuides()`), as PNG exports with `--debug-guides` ask. */
+      debugGuides?: boolean;
     },
   ): { scene: Scene; audio: AudioClipDescriptor[]; statics?: StaticsFrame };
   /** Sweeps every frame without constructing visual layers; hooks and font measurements still run. */
@@ -982,6 +984,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
     project: ProjectFrame | null,
     config: CompositionConfig | PlaceholderConfig,
     openEnd = false,
+    debugGuides = false,
   ) => {
     const runtimeValue = {
       time,
@@ -990,6 +993,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
       fps: config.frameRate.numerator,
       durationInFrames: config.durationInFrames,
       preview: false,
+      ...(debugGuides ? { debugGuides } : {}),
       lang: config.lang,
       openEnd,
     };
@@ -1045,9 +1049,10 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
     openEnd = false,
     compact = false,
     statics?: { decoded: number },
+    debugGuides = false,
   ) => {
     rerenderRequested = false;
-    renderTree(time, project, config, openEnd);
+    renderTree(time, project, config, openEnd, debugGuides);
     let instance = findCompositionInstance(container);
     const nextFonts: ResolvedAsset[] = [];
     collectFonts(instance, nextFonts);
@@ -1059,7 +1064,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
       // Reconcile again with the complete font list and refs before
       // emitting layers.
       rerenderRequested = false;
-      renderTree(time, project, config, openEnd);
+      renderTree(time, project, config, openEnd, debugGuides);
       instance = findCompositionInstance(container);
     }
     const audio: AudioClipDescriptor[] = [];
@@ -1109,7 +1114,15 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
     config,
     get fonts() { return fonts; },
     renderAt: (time, project, options) =>
-      renderFrame(time, project, false, options?.openEnd === true, options?.compact === true, options?.statics),
+      renderFrame(
+        time,
+        project,
+        false,
+        options?.openEnd === true,
+        options?.compact === true,
+        options?.statics,
+        options?.debugGuides === true,
+      ),
     collectAudio() {
       const audio: AudioClipDescriptor[] = [];
       for (let frame = 0; frame < config.durationInFrames; frame++) {

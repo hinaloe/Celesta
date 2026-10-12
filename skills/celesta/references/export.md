@@ -60,7 +60,7 @@ Celesta-export --json --react scene.tsx out.mp4
 | `--render-quality <q>` | `final` (default) or `draft`. `draft` draws scaled text from a scale-1 texture, so it is softer; use it only to check timing. |
 | `--json` | No progress output; one line of JSON on stdout when the export ends. See [JSON results](#json-results). |
 | `--no-ui` | Plain text progress instead of the terminal dashboard (automatic when stderr is not a terminal). |
-| `--frame`, `--frames`, `--every`, `--contact-sheet`, `--columns`, `--tile-width`, `--output-format` | PNG output; see [verify.md](verify.md#look-at-real-frames). |
+| `--frame`, `--frames`, `--every`, `--contact-sheet`, `--columns`, `--tile-width`, `--debug-guides`, `--output-format` | PNG output; see [verify.md](verify.md#look-at-real-frames). |
 
 MP4 export needs non-zero, even `width` and `height`.
 

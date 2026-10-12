@@ -76,7 +76,8 @@ cut, and a kick on every beat.
 Shorts and TikTok draw their UI over the bottom ~20% of the frame (caption,
 progress bar) and along the right edge (like, comment and share buttons).
 Copy meant to be read (headlines, body, code) stays inside `SAFE` in
-`constants.ts` (top 192, right 200, bottom 384, left 72 px). Backgrounds, the
+`constants.ts`, the `'vertical-social'` preset of `<SafeArea>` (top 192,
+right 200, bottom 384, left 72 px). Backgrounds, the
 halftone, the tapes and the speed lines fill the whole frame.
 
 Each scene draws its full-frame layers in `components/Stage.tsx`, and puts only
@@ -85,10 +86,13 @@ centre of the safe area, so a push-in never pushes copy towards the UI. The
 text column (`COL`, 760 px wide) is a little narrower than the safe area,
 leaving room for a zoom of a few percent.
 
-To see the covered areas, turn on the `guides` project property:
+`film.tsx` ends with `<DebugOverlay safeArea={SAFE} />`, which outlines the
+safe area and shades the area the UI covers. It shows in the preview, and in
+PNG frames and contact sheets exported with `--debug-guides`, never in the
+video:
 
 ```sh
-Celesta-export --react examples/shorts-type/film.tsx --props '{"guides":true}' --every 30 --contact-sheet sheet.png
+Celesta-export --react examples/shorts-type/film.tsx --debug-guides --every 30 --contact-sheet sheet.png
 ```
 
 ## Measuring and inspect.mjs

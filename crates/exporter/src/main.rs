@@ -27,7 +27,8 @@ PNG output is selected by --frame/--frames or --every. Multiple frames use
 output-000090.png names; frame numbers are zero-based. --every <n> picks
 frames 0, n, 2n, ... of the --from/--to span (or the whole composition) plus
 its last frame. --contact-sheet writes the selection as one labelled grid
-image instead.
+image instead. --debug-guides draws a React entry's <DebugOverlay> and
+<DebugBounds> into the PNGs, as the editor preview does.
 
 --props and --props-file set the values an entry declares with
 defineProjectProperties(). Highest precedence first: --props, --props-file,
@@ -67,7 +68,7 @@ struct Cli {
             "output", "project", "overwrite", "from", "to", "frames", "every",
             "contact_sheet", "columns", "tile_width", "output_format", "preset",
             "crf", "color_conversion", "bit_depth", "render_quality", "driver", "no_ui",
-            "json",
+            "json", "debug_guides",
         ]
     )]
     inspect: bool,
@@ -114,6 +115,10 @@ struct Cli {
     /// Write the selected frames as one labelled grid image.
     #[arg(long)]
     contact_sheet: bool,
+    /// Draw the entry's debug guides (<DebugOverlay>, <DebugBounds>) into
+    /// PNG frames and contact sheets; never into an MP4.
+    #[arg(long, requires = "react")]
+    debug_guides: bool,
     /// Contact sheet columns.
     #[arg(
         long,
@@ -346,6 +351,9 @@ fn png_output(cli: &Cli) -> Result<bool, &'static str> {
     if png && !selected {
         return Err("PNG output requires --frame, --frames or --every");
     }
+    if cli.debug_guides && !png {
+        return Err("--debug-guides applies to PNG output; MP4 exports never draw debug guides");
+    }
     if png && cli.bit_depth != BitDepth::Eight {
         return Err("--bit-depth applies to MP4 output; PNG stills are 8-bit");
     }
@@ -385,6 +393,7 @@ fn export(
                 columns: cli.columns.get(),
                 tile_width: cli.tile_width.get(),
             }),
+            debug_guides: cli.debug_guides,
         };
         if cli.react {
             exporter.export_react_png_with(

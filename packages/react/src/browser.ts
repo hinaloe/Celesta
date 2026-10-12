@@ -6,7 +6,7 @@ export { React };
 export {
   Audio, Assets, Composition, Font, FreezeFrame, Group, Image, Instances, Rect, Sequence, Static, Text, Video,
 } from './components';
-export { useCurrentFrame, useCurrentTime, useIsPreview, useVideoConfig } from './hooks';
+export { useCurrentFrame, useCurrentTime, useDebugGuides, useIsPreview, useVideoConfig } from './hooks';
 export { Easings, interpolate, interpolateColor, progress, spring } from './animation';
 export { frameToTimecode, timecodeToFrame } from './time';
 export { beatAt, cueAt, useBeat, useCue } from './timing';

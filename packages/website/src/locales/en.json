@@ -275,8 +275,8 @@
         "mark-export-start-end": "Mark export start / end",
         "listen-as-you-look": "Listen as you look",
         "playback-synchronizes-the-picture-and-audio-use": "Playback synchronizes the picture and audio. Use waveforms and track levels to check timing, mute or solo tracks to isolate a sound, and adjust the preview volume. Drag along the timeline ruler to scrub to a specific moment.",
-        "preview-only-guides": "Preview-only guides",
-        "draws-the-frame-edge-a-safe-area": "<slot0/> draws the frame edge, a safe-area inset, and the center point, and <slot1/> outlines a group of layers. Both appear only in the Celesta preview and add nothing to an export, so you can leave them in while you work. <slot2/> tells your own components the same thing.",
+        "debug-guides": "Debug guides",
+        "draws-a-safe-area-and-shade-in-preview-and-png": "<slot0/> outlines a safe area, shades the canvas outside it, and marks the center point, and <slot1/> outlines a group of layers. They appear in the Celesta preview, and in PNG frames and contact sheets exported with <slot2/>, but never in a video, so you can leave them in while you work. <slot3/> tells your own components when guides are drawn.",
         "metadata": {
           "title": "Preview your work",
           "description": "Open, reload, play, and scrub in the desktop app.",
@@ -416,6 +416,10 @@
         "layout-helpers": "Layout helpers",
         "a-centered-list-inside-a-safe-margin": "A centered list inside a safe margin",
         "helpers-position-child-origins-they-do-not": "Helpers position child origins; they do not measure what the children draw. Anchor children at <slot0/> when you want them centered on those points.",
+        "vertical-video": "Vertical video for Shorts, TikTok, and Reels",
+        "vertical-video-body": "Use a 1080×1920 canvas. The players draw their own UI over the video: the caption, channel name, and progress bar cover about the bottom 20%, and the like, comment, and share buttons run down the right edge. Keep everything meant to be read (headlines, subtitles, logos, calls to action) inside <slot0/>, and let backgrounds, footage, and decoration run to the edges. The <slot1/> preset keeps top 10%, right 18.5%, bottom 20%, and left 1/15 of the canvas clear (top 192, right 200, bottom 384, left 72 px at 1080×1920). It is a rough guide, not a platform specification, and does not follow changes to the platforms' UI; pass <slot2/> when you know better.",
+        "vertical-video-example": "Copy inside the platform safe area, background to the edges",
+        "vertical-video-check": "To check, give <slot0/> the same safe area and export PNG frames or a contact sheet with <slot1/> (see <slot2>Export</slot2>). The area the UI covers is shaded; every line of text must stay inside the outline, including while it moves.",
         "clip-a-group": "Clip a group",
         "give-a-a-to-draw-its-children": "Give a <slot0/> a <slot1/> to draw its children only inside a rectangle, <slot2/>, in the group’s own coordinates. Use it for a mask reveal, a wipe, or content that scrolls inside a panel. The clip moves, scales, and rotates with the group, its edge is anti-aliased, and clips nested inside one another intersect.",
         "text-sliding-up-from-behind-an-edge": "Text sliding up from behind an edge",
@@ -426,7 +430,7 @@
         },
         "api": {
           "moves-the-origin-to-the-center-of": "Moves the origin to the center of the canvas or the enclosing <slot0/>.",
-          "insets-its-children-by-a-number-or": "Insets its children by <slot0/> (a number, or <slot1/>) and shrinks the area nested helpers see.",
+          "insets-its-children-by-a-number-edges-or-a-preset": "Insets its children by <slot0/> (a number, <slot1/>, or the <slot2/> preset) and shrinks the area nested helpers see.",
           "places-each-child-pixels-apart-by-default": "Places each child <slot0/> pixels apart, <slot1/> by default or <slot2/>.",
           "places-children-into-of-cells-with-optional": "Places children into <slot0/> of <slot1/> × <slot2/> cells, with optional gaps.",
           "scales-content-designed-at-to-or-the": "Scales content designed at <slot0/> × <slot1/> to <slot2/> or <slot3/> the current area."
@@ -642,7 +646,7 @@
           "read-values-from-a-json-project": "Read values from a JSON project.",
           "draw-a-companion-json-project-s-timeline": "Draw a companion JSON project’s timeline, or one of its tracks.",
           "make-components-and-properties-available-to-json": "Make components and properties available to JSON projects and the Inspector.",
-          "preview-only-guides-that-never-appear-in": "Preview-only guides that never appear in an export.",
+          "debug-guides-in-preview-and-png-never-in-video": "Debug guides drawn in the preview and in PNG exports with --debug-guides, never in a video.",
           "text-measure-and-fit": "Measure shaped text or choose a font size for a box; see <slot0>Text & fonts</slot0>.",
           "dialogue-series": "Plan voice-length timing and render a sequence of dialogue lines; see <slot0>Character dialogue</slot0>."
         },
@@ -979,6 +983,8 @@
       "png-frames-body": "--frame / --frames selects zero-based frame numbers. Multiple frames create names such as check-000090.png. --every N selects every Nth frame of the --from/--to range (or the whole composition) and its last frame. Add --contact-sheet to place them in one labelled grid; --columns and --tile-width control its layout. Explicit frame numbers cannot be combined with --every, --from, or --to.",
       "export-selected-frames": "Export selected frames",
       "export-contact-sheet": "Export a contact sheet",
+      "png-debug-guides-body": "Add <slot0/> to draw a React composition's <slot1/> and <slot2/> into the PNG frames or contact sheet, as the preview shows them. A video export never draws them.",
+      "export-contact-sheet-with-debug-guides": "Check the safe area in a contact sheet",
       "graphics-driver": "Select the graphics API",
       "graphics-driver-body": "Both the editor and exporter accept --driver auto (default), vulkan, dx12 (Windows), metal (macOS), or gl. Auto chooses an available adapter in wgpu’s backend order: Vulkan, Metal, DX12, then OpenGL. A specific driver must be available in the build and supported by the machine. This chooses the rendering API; MP4 encoding still uses libx264.",
       "select-graphics-driver": "Choose a rendering API",
