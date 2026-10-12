@@ -222,10 +222,14 @@ ignoring them.
 
 ## Not included
 
-- **An engine-neutral `SpeechTiming` in `@celesta/character`.** VOICEVOX is
-  the only producer; #178 and #239 consume seconds, not this type; the
-  engine-neutral seam that exists, `lipSyncFromKeyframes`, already covers the
-  mouth. Extract a shared type when a second engine or an aligner needs it.
+- **An engine-neutral `SpeechTiming` in `@celesta/character`.** Deferred
+  while VOICEVOX was the only producer. `@celesta/aivis-speech` (#276, merged
+  into this branch) became the second one, so the shared type was extracted
+  in the same PR: `SpeechTiming` and `lipSyncFromSpeechTiming` in
+  `@celesta/character`, with `exact` telling the engine's own times
+  (VOICEVOX) from times estimated from the WAV (AivisSpeech).
+  `VoicevoxTiming` extends it with upspeak moras and keeps the names above as
+  aliases.
 - **`clauses`** (accent phrases grouped between pauses). #239 needs only
   `pauses[i].start`; add a derived view when its implementation settles the
   shape.
