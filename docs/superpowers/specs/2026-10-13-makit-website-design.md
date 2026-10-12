@@ -51,7 +51,8 @@ packages/website/
 │   ├── index.tsx + index.meta.ts  → /en/, /ja/
 │   ├── showcase/index.tsx         → /en/showcase/
 │   ├── showcase/<slug>.tsx        → /en/showcase/<slug>/ (one thin file per work)
-│   └── _components/, _copy/       # shared parts and per-locale copy
+│   └── _components/               # shared parts
+├── site/                          # copy, links, downloads, locales, showcase catalog
 ├── theme/                         # Tungsten (theme.extends: "./theme")
 ├── playground/                    # Vite island → public/_playground/
 ├── examples/                      # documentation example sources (moved from src/pages/docs/examples)
@@ -84,14 +85,15 @@ Conversions:
 | `<h3>`, `<p>`, lists, `<code>`, `<kbd>`, `<strong>`, links via `docPath()` | Markdown equivalents; links are relative (`../export/`) |
 | OS picker (`macOS` / `Windows` / `Linux` buttons) | `####` subsections per platform, in order |
 | `DocCode` with a label | Fenced code block with the label as the file name (```` ```sh "macOS dependencies" ````) |
-| `DocCode` with a raw-imported example | ```` ```tsx file=../../examples/first-scene.tsx ```` (see below) |
-| `Note` | Blockquote whose first line is bold (`> **Title**`), styled by the theme as a note |
+| `DocCode` with a raw-imported example | ```` ```tsx file=examples/first-scene.tsx ```` (see below) |
+| `Note` | GitHub alert `> [!NOTE]` followed by `> **Title**`; the theme hides Makit's generic alert label |
 | `Api` table | GFM table |
 | Download buttons in Installation | Plain links to the download URLs |
 
 `plugins/remark-include.ts` is a remark plugin registered in `markdown.remarkPlugins`. A code
 fence whose meta contains `file=<path>` and whose body is empty is replaced by the file's
-contents, resolved relative to the Markdown file. A missing file fails the build. This keeps
+contents, resolved relative to the package root (Makit does not pass the Markdown file's path to
+remark plugins). A missing file fails the build. This keeps
 examples in real files, so `pnpm check:examples` still type-checks them against
 `@celesta/react` and `@celesta/voicevox`. The JSON timeline example keeps pointing at
 `examples/editor-demo.celesta.json` in the repository, and the CLI example at
@@ -111,7 +113,7 @@ sections as today: hero with running timecode, specs list, playground, features,
 tags, and getting started. The timecode is a small client component.
 
 Copy moves from the i18next catalogs (`home.*`, `showcase.*`, `common.*`) to
-`pages/_copy/en.ts` and `pages/_copy/ja.ts`: plain typed objects where `ja` must satisfy the
+`site/copy/en.ts` and `site/copy/ja.ts` (shared by `pages/` and `theme/`): plain typed objects where `ja` must satisfy the
 type of `en`. Rich text is written as JSX-returning functions where a sentence contains code or
 links. `i18next` and `react-i18next` are removed.
 
@@ -122,12 +124,12 @@ to `public/showcase/` by the island build so static pages can reference them by 
 
 Download links: Vite no longer builds these pages, so `VITE_DOWNLOAD_URL*` become
 `CELESTA_DOWNLOAD_URL`, `CELESTA_DOWNLOAD_URL_MACOS`, and `CELESTA_DOWNLOAD_URL_WINDOWS`, with the
-same defaults (latest GitHub release). `pages/_components/downloads.ts` reads them from
+same defaults (latest GitHub release). `site/downloads.ts` reads them from
 `process.env` in Server Components, which run in Node while Makit prerenders the static export;
 the resolved URLs are passed as props to the client-side, platform-aware download button. The
 header's download link uses the same module. The first implementation step verifies that the
 variables reach prerendering; if Makit's Next.js process does not inherit them, the build script
-writes the resolved URLs to `pages/_components/downloads.generated.ts` (git-ignored) before
+writes the resolved URLs to `site/downloads.generated.ts` (git-ignored) before
 `makit build` instead. `.env.example`, the README, and the release workflow's `deploy-website`
 job are updated to the new names.
 
@@ -188,7 +190,7 @@ light and dark and maps them onto `--makit-color-*` so Makit's prose and default
 | accent | `#ffb020` | `#b86e00` (text), `#ffb020` (fills) |
 
 Motifs: monospace timecodes and labels, a ruler with a playhead under the hero, square-ish
-corners (3–4 px), tally-lamp dot. Notes (blockquotes starting with bold) get an amber left rule.
+corners (3–4 px), tally-lamp dot. Notes (`.makit-alert`) get an amber left rule.
 Code blocks use Shiki's `vitesse-dark` / `vitesse-light`. Respects `prefers-reduced-motion`.
 
 ## Routing and deployment
