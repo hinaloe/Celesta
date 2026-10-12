@@ -169,7 +169,7 @@ assets and runs `pnpm run deploy`. It needs the `CLOUDFLARE_API_TOKEN` and
   `src/pages/docs/DocCode.tsx` supplies accessible copy controls for code examples.
   `src/pages/docs/syntax.ts` highlights code with [twinkleplop](https://twinkleplop.pngwn.at)
   (TSX, JSON, and shell) in documentation.
-- `src/pages/docs/examples/`: complete documentation examples (including title, media, dialogue, dialogue sequencing,
+- `examples/`: complete documentation examples (including title, media, dialogue, dialogue sequencing,
   fitted text, reusable data, VOICEVOX, and AivisSpeech entries). The
   docs import them as raw text. They are excluded from the site's own
   type-check and checked against the real `@celesta/react` and the separately staged `@celesta/voicevox` and `@celesta/aivis-speech` instead.
@@ -221,7 +221,7 @@ pnpm deploy:check
 ```
 
 `check:examples` type-checks the playground scene and every file in
-`src/pages/docs/examples/` against the declarations staged by `packages/cli`'s build
+`examples/` against the declarations staged by `packages/cli`'s build
 (`dist/project-types/`). Run `pnpm run build:runtime` from the repository root
 first.
 

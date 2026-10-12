@@ -3,9 +3,9 @@ import { t, text, homePath } from '../../../site/i18n';
 import type { ReactNode } from 'react';
 import { DocCode } from '../DocCode';
 import { Api, Note } from './shared';
-import voicevoxScene from '../examples/voicevox.tsx?raw';
-import aivisSpeechScene from '../examples/aivis-speech.tsx?raw';
-import codeLinesScene from '../examples/code-lines.tsx?raw';
+import voicevoxScene from '../../../../examples/voicevox.tsx?raw';
+import aivisSpeechScene from '../../../../examples/aivis-speech.tsx?raw';
+import codeLinesScene from '../../../../examples/code-lines.tsx?raw';
 
 // Chapters for the packages that ship beside the core Celesta packages.
 
