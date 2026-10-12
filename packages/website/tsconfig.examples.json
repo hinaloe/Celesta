@@ -1,5 +1,5 @@
 {
   "//": "Type-checks the playground scene and documentation examples against the real Celesta package declarations. Build packages/cli first.",
   "extends": "../cli/dist/project-types/tsconfig.json",
-  "include": ["src/features/playground/demo/title-scene.tsx", "examples/*.tsx"]
+  "include": ["playground/demo/title-scene.tsx", "examples/*.tsx"]
 }

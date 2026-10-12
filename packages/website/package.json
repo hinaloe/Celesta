@@ -17,7 +17,9 @@
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "site:dev": "makit dev",
     "site:build": "makit build --clean",
-    "site:check": "makit check"
+    "site:check": "makit check",
+    "playground:build": "vite build -c playground/vite.config.ts",
+    "playground:dev": "vite build -c playground/vite.config.ts --watch"
   },
   "dependencies": {
     "@celesta/web": "workspace:*",

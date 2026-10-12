@@ -8,13 +8,10 @@ import { richText } from '../src/site/i18n.ts';
 import { translate } from '../src/site/catalog.ts';
 import { languageRedirect, localeCodes, type Locale } from '../src/site/locales.ts';
 import { parseRoute } from '../src/site/routes.ts';
-import { showcase } from '../src/site/showcase-catalog.ts';
+import { showcase, showcaseAssetDirectories } from '../site/showcase-catalog.ts';
 
 const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const site = 'https://celesta.natsuneko.cat';
-
-/** Repository directories the showcase reads at `/showcase-assets/<directory>/<file>`. */
-const showcaseAssetDirectories = ['examples/afterimage/assets/fonts', 'examples/versus/bench/assets/fonts', 'examples/versus/bench/assets/licenses', 'examples/assets/dialogue-demo/portraits'];
 
 /** The repository file a `/showcase-assets/` request names, or undefined unless it is a file directly inside one of those directories. */
 export function showcaseAsset(root: string, pathname: string): string | undefined {

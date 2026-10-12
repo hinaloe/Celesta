@@ -1,8 +1,13 @@
-import { t, text } from '../../site/i18n';
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { cloneElement, lazy, Suspense, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import initialSource from './demo/title-scene.tsx?raw';
 import { Engine, SceneCanvas, exportMp4, type CompositionConfig } from '@celesta/web';
-const SourceEditor = lazy(() => import('./SourceEditor'));
+import type { PlaygroundCopy, Slot } from './copy.ts';
+const SourceEditor = lazy(() => import('./SourceEditor.tsx'));
+
+/** A copy slot that renders `element` around the translated children. */
+const wrap = (element: ReactElement<{ children?: ReactNode }>): Slot => children => cloneElement(element, undefined, children);
+/** A copy slot that renders a value in place of the slot. */
+const value = (node: ReactNode): Slot => () => node;
 
 function download(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
@@ -18,9 +23,9 @@ function timecode(frame: number, fps: number) {
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}:${String(frame % fps).padStart(2, '0')}`;
 }
 
-export function Playground({ initialFiles, entry = 'my-first-scene.tsx', initialFrame = 60, baseURL, silent = false, title }: {
-  initialFiles?: Record<string, string>; entry?: string; initialFrame?: number; baseURL?: string; silent?: boolean; title?: string;
-} = {}) {
+export function Playground({ copy: c, initialFiles, entry = 'my-first-scene.tsx', initialFrame = 60, baseURL, silent = false, title }: {
+  copy: PlaygroundCopy; initialFiles?: Record<string, string>; entry?: string; initialFrame?: number; baseURL?: string; silent?: boolean; title?: string;
+}) {
   const [files, setFiles] = useState(initialFiles ?? { [entry]: initialSource });
   const [activeEntry, setActiveEntry] = useState(entry);
   const [name, setName] = useState(entry);
@@ -31,7 +36,7 @@ export function Playground({ initialFiles, entry = 'my-first-scene.tsx', initial
   const [renderer, setRenderer] = useState(() => new SceneCanvas(new Map(), baseURL));
   const [frame, setFrame] = useState(initialFrame);
   const [playing, setPlaying] = useState(false);
-  const [message, setMessage] = useState(t('playground.status.preparing'));
+  const [message, setMessage] = useState(c.status.preparing);
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -51,7 +56,7 @@ export function Playground({ initialFiles, entry = 'my-first-scene.tsx', initial
     setHasAudio(false);
     setError('');
     const timeout = setTimeout(() => {
-      setMessage(t('playground.status.compiling'));
+      setMessage(c.status.compiling);
       next = new Engine();
       void next.compile(files[activeEntry], { files, entry: activeEntry, baseURL, silent }).then(result => {
         if (!current) return;
@@ -59,18 +64,19 @@ export function Playground({ initialFiles, entry = 'my-first-scene.tsx', initial
         setEngine(next);
         setConfig(result);
         setError('');
-        setMessage(t('playground.status.ready'));
+        setMessage(c.status.ready);
         setFrame(previous => Math.min(previous, result.durationInFrames - 1));
       }).catch(cause => {
         if (!current) return;
         setEngine(null);
         setConfig(null);
         setError(cause instanceof Error ? cause.message : String(cause));
-        setMessage(t('playground.status.fix-code'));
+        setMessage(c.status.fixCode);
       });
     }, 450);
+    // Unmounting (or a new compile) terminates this compile's worker.
     return () => { current = false; clearTimeout(timeout); next?.dispose(); };
-  }, [files, activeEntry, baseURL, silent]);
+  }, [files, activeEntry, baseURL, silent, c]);
 
   useEffect(() => {
     if (!engine || !canvas.current || exporting) return;
@@ -152,16 +158,16 @@ export function Playground({ initialFiles, entry = 'my-first-scene.tsx', initial
     setExporting(true);
     setProgress(0);
     setError('');
-    setMessage(t('playground.status.exporting'));
+    setMessage(c.status.exporting);
     const abort = new AbortController();
     controller.current = abort;
     try {
       const blob = await exportMp4(engine, config, renderer, abort.signal, (done, total) => setProgress(Math.round(done / total * 100)));
       download(blob, activeEntry.replace(/\.[^.]+$/, '') + '.mp4');
-      setMessage(t('playground.status.downloaded'));
+      setMessage(c.status.downloaded);
     } catch (cause) {
-      if (abort.signal.aborted) setMessage(t('playground.status.canceled'));
-      else { setError(cause instanceof Error ? cause.message : String(cause)); setMessage(t('playground.status.failed')); }
+      if (abort.signal.aborted) setMessage(c.status.canceled);
+      else { setError(cause instanceof Error ? cause.message : String(cause)); setMessage(c.status.failed); }
     } finally {
       controller.current = null;
       setExporting(false);
@@ -172,35 +178,35 @@ export function Playground({ initialFiles, entry = 'my-first-scene.tsx', initial
   const last = (config?.durationInFrames ?? 1) - 1;
   const ready = !!engine && !!config && !error && compiledFiles.current === files;
 
-  return <section id="playground" aria-labelledby="playground-heading" className="playground-section shell">
-    <div className="section-top">
-      <p className="eyebrow">{text('playground.label')}</p><h2 id="playground-heading">{title ?? text('playground.the-scene-below-is-code-change-a', [<br />, <em />])}</h2>
-      <span className="hand-note">{initialFiles ? t('showcase.edit-hint') : text('playground.try-editing-title')}</span>
+  return <div className="pg">
+    <div className="pg-top">
+      <p className="pg-eyebrow">{c.label}</p><h2 id="playground-heading">{title ?? c.theSceneBelowIsCodeChangeA(wrap(<br />), wrap(<em />))}</h2>
+      <span className="pg-hint">{initialFiles ? c.showcase.editHint : c.tryEditingTitle}</span>
     </div>
-    <div className="studio">
-      <div className="studio-bar flex items-center justify-between">{text('playground.celesta-web-editor', [<span />, name, <span className="flex items-center gap-2" />, <i className="status-dot" />])}</div>
-      <div className="studio-main grid">
-        <div className="source-panel">
-          {initialFiles && <div className="source-files"><label>{t('showcase.source-file')}<select aria-label={t('showcase.source-file')} value={name} disabled={exporting} onChange={event => setName(event.target.value)}>{Object.keys(files).sort().map(path => <option key={path} value={path}>{path}</option>)}</select></label><button disabled={exporting} onClick={resetSample}>{t('showcase.reset')}</button></div>}
-          <div className="flex items-center justify-between source-heading">{text('playground.tsx-your-composition-copy-source', [<span />, <b />, <button onClick={() => { void navigator.clipboard.writeText(source).then(() => setMessage(t('playground.status.copied-source'))).catch(() => setMessage(t('playground.status.copy-source-failed'))); }} className="copy-button" />])}</div>
-          <div className="source-scroll"><div className="source-editor"><Suspense fallback={<p className="editor-loading" role="status">{t('playground.editor-loading')}</p>}><SourceEditor key={editorVersion} name={name} source={source} readOnly={exporting} onChange={value => { setPlaying(false); setFiles(previous => ({ ...previous, [name]: value })); }} /></Suspense></div></div>
-          <div className="source-footer flex items-center justify-between gap-2"><span>{text('playground.lines-not-saved-download-to-keep-it', [source.split('\n').length])}</span><div className="flex gap-3">{text('playground.open-tsx-download-tsx', [<label className="file-action" />, <input type="file" accept=".tsx,.jsx,.ts,.js" onChange={event => { void openSource(event.target.files?.[0]); event.target.value = ''; }} />, <button onClick={() => download(new Blob([source], { type: 'text/plain;charset=utf-8' }), name)} />])}</div></div>
+    <div className="pg-studio">
+      <div className="pg-bar">{c.celestaWebEditor(wrap(<span />), value(name), wrap(<span className="pg-bar-state" />), wrap(<i className="pg-lamp" />))}</div>
+      <div className="pg-main">
+        <div className="pg-source">
+          {initialFiles && <div className="pg-files"><label>{c.showcase.sourceFile}<select aria-label={c.showcase.sourceFile} value={name} disabled={exporting} onChange={event => setName(event.target.value)}>{Object.keys(files).sort().map(path => <option key={path} value={path}>{path}</option>)}</select></label><button type="button" disabled={exporting} onClick={resetSample}>{c.showcase.reset}</button></div>}
+          <div className="pg-source-heading">{c.tsxYourCompositionCopySource(wrap(<span />), wrap(<b />), wrap(<button type="button" onClick={() => { void navigator.clipboard.writeText(source).then(() => setMessage(c.status.copiedSource)).catch(() => setMessage(c.status.copySourceFailed)); }} className="pg-link-button" />))}</div>
+          <div className="pg-source-scroll"><div className="pg-editor"><Suspense fallback={<p className="pg-editor-loading" role="status">{c.editorLoading}</p>}><SourceEditor key={editorVersion} name={name} source={source} readOnly={exporting} loading={c.editorLoading} label={c.compositionSourceCode} onChange={value => { setPlaying(false); setFiles(previous => ({ ...previous, [name]: value })); }} /></Suspense></div></div>
+          <div className="pg-source-footer"><span>{c.linesNotSavedDownloadToKeepIt(value(source.split('\n').length))}</span><div className="pg-source-actions">{c.openTsxDownloadTsx(wrap(<label className="pg-file-action" />), wrap(<input type="file" accept=".tsx,.jsx,.ts,.js" onChange={event => { void openSource(event.target.files?.[0]); event.target.value = ''; }} />), wrap(<button type="button" onClick={() => download(new Blob([source], { type: 'text/plain;charset=utf-8' }), name)} />))}</div></div>
         </div>
-        <div className="preview-panel">
-          <div className="preview-heading flex justify-between">{text('playground.composition-preview', [<span />, <span />, config ? `${config.width} × ${config.height} · ${fps} FPS` : t('playground.status.waiting')])}</div>
-          <canvas ref={canvas} className="scene" width={1920} height={1080} role="img" aria-label={t('playground.controls.preview-at', { frame })} />
-          <div className="transport flex items-center gap-4">
-            <button className="play-button" disabled={!ready || exporting} aria-label={playing ? t('playground.controls.pause') : t('playground.controls.play')} onClick={() => { if (!playing && frame >= last) setFrame(0); setPlaying(!playing); }}>{playing ? <span aria-hidden="true">Ⅱ</span> : <svg aria-hidden="true" viewBox="0 0 20 20"><path d="m7 4 10 6-10 6z" fill="currentColor" /></svg>}</button>
-            <input type="range" min="0" max={last} value={Math.min(frame, last)} disabled={!ready || exporting} aria-label={t('playground.preview-frame')} aria-valuetext={t('playground.controls.frame-of', { frame, last })} onChange={event => { setPlaying(false); setFrame(Number(event.target.value)); }} />
-            <output className="timecode">{timecode(frame, fps)}</output>
+        <div className="pg-preview">
+          <div className="pg-preview-heading">{c.compositionPreview(wrap(<span />), wrap(<span />), value(config ? `${config.width} × ${config.height} · ${fps} FPS` : c.status.waiting))}</div>
+          <canvas ref={canvas} className="pg-scene" width={1920} height={1080} role="img" aria-label={c.controls.previewAt({ frame })} />
+          <div className="pg-transport">
+            <button type="button" className="pg-play" disabled={!ready || exporting} aria-label={playing ? c.controls.pause : c.controls.play} onClick={() => { if (!playing && frame >= last) setFrame(0); setPlaying(!playing); }}>{playing ? <span aria-hidden="true">Ⅱ</span> : <svg aria-hidden="true" viewBox="0 0 20 20"><path d="m7 4 10 6-10 6z" fill="currentColor" /></svg>}</button>
+            <input type="range" min="0" max={last} value={Math.min(frame, last)} disabled={!ready || exporting} aria-label={c.previewFrame} aria-valuetext={c.controls.frameOf({ frame, last })} onChange={event => { setPlaying(false); setFrame(Number(event.target.value)); }} />
+            <output className="pg-timecode">{timecode(frame, fps)}</output>
           </div>
-          <div className="studio-tools">{text('playground.add-media', [<label className="file-action" />, <input type="file" multiple accept="image/*,video/*,audio/*" onChange={event => { addMedia(event.target.files); event.target.value = ''; }} />, <span />, mediaNames.length ? mediaNames.join(', ') : t('playground.media-hint')])}</div>
-          <div className="studio-export">{text('playground.export-mp4', [<button className="button button-primary" disabled={!ready || exporting} onClick={() => { void exportFile(); }} />, exporting && <button onClick={() => controller.current?.abort()}>{t('playground.controls.cancel')}</button>, exporting && <progress aria-label={t('playground.controls.export-progress')} max="100" value={progress} />])}</div>
-          <p className={`studio-status ${error ? 'is-error' : ''}`} role="status">{error || message}</p>
-          {hasAudio && <p className="studio-audio-note">{text('playground.video-preview-is-silent-mp4-export-includes')}</p>}
+          <div className="pg-tools">{c.addMedia(wrap(<label className="pg-file-action" />), wrap(<input type="file" multiple accept="image/*,video/*,audio/*" onChange={event => { addMedia(event.target.files); event.target.value = ''; }} />), wrap(<span />), value(mediaNames.length ? mediaNames.join(', ') : c.mediaHint))}</div>
+          <div className="pg-export">{c.exportMp4(wrap(<button type="button" className="pg-button" disabled={!ready || exporting} onClick={() => { void exportFile(); }} />), value(exporting && <button type="button" onClick={() => controller.current?.abort()}>{c.controls.cancel}</button>), value(exporting && <progress aria-label={c.controls.exportProgress} max="100" value={progress} />))}</div>
+          <p className={`pg-status ${error ? 'is-error' : ''}`} role="status">{error || message}</p>
+          {hasAudio && <p className="pg-audio-note">{c.videoPreviewIsSilentMp4ExportIncludes}</p>}
         </div>
       </div>
     </div>
-    <div className="studio-caption flex flex-wrap justify-between gap-2"><p>{text('playground.esbuild-compiles-your-tsx-in-a-web')}</p><span>{text('playground.runs-entirely-in-your-browser')}</span></div>
-  </section>;
+    <div className="pg-caption"><p>{c.esbuildCompilesYourTsxInAWeb}</p><span>{c.runsEntirelyInYourBrowser}</span></div>
+  </div>;
 }

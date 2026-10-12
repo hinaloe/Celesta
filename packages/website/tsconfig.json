@@ -26,6 +26,6 @@
     "worker-configuration.d.ts"
   ],
   "exclude": [
-    "src/features/playground/demo/title-scene.tsx"
+    "playground/demo/title-scene.tsx"
   ]
 }

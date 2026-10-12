@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { localeCodes } from '../src/site/locales.ts';
 import { getDocGroups } from '../src/site/docs-nav.ts';
-import { showcase } from '../src/site/showcase-catalog.ts';
+import { showcase } from '../site/showcase-catalog.ts';
 import { docPath, parseRoute, showcasePath } from '../src/site/routes.ts';
 
 test('parse home, documentation and showcase addresses', () => {
