@@ -27,6 +27,7 @@ provides `react` (18.x) and those packages; never install them from npm.
 - [Group and clipping](#group-and-clipping)
 - [Image](#image)
 - [Instances (particles)](#instances-particles)
+- [Static (still subtrees)](#static-still-subtrees)
 - [Video](#video)
 - [Audio](#audio)
 - [Font and Assets](#font-and-assets)
@@ -337,6 +338,38 @@ function Snow() {
   (`<Instances> x has 3 values; count is 4`). A particle with a non-finite
   value is not drawn.
 - The CPU reference renderer cannot rotate particles; export uses the GPU.
+
+## Static (still subtrees)
+
+`<Static>` marks content that stays the same from frame to frame. React
+renders it only when `deps` change, and its layers are walked, sent to the
+renderer, and parsed once and then reused. 100,000 still rects inside one
+`<Static>` cost about 7 ms a frame, against 85 ms in a `React.memo`
+component and more without one.
+
+```tsx
+import { Static } from '@celesta/react';
+
+<Static deps={[theme, rows]}>
+  <Background />
+  {rows.map((row) => <Row key={row.id} {...row} />)}
+</Static>
+<Cursor />
+```
+
+- **`deps`** works like `useMemo`'s: the content is rebuilt when one of
+  them changes (`Object.is`). Leave it out for content fixed for as long as
+  it is mounted. `children` is not compared.
+- **Keep the frame out of it.** A component inside that calls
+  `useCurrentFrame()` still draws correctly, but the subtree is then
+  rebuilt and sent again on every frame it changes, and saves nothing.
+- **It cannot contain** `<Video>`, `<Audio>`, `<Sequence>`,
+  `<FreezeFrame>`, or elements from other packages that register their own
+  host elements (characters, dialogue): the frame fails with
+  `<Static> cannot contain <video>` and similar. Rects, paths, text,
+  images, `<Instances>`, groups, clips, masks, and effects are fine.
+- It is drawn as a group with no transform of its own. Move or fade the
+  content with a `<Group>` around it; that does not rebuild it.
 
 ## Video
 
