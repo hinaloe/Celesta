@@ -16,6 +16,7 @@ function render(request) {
     export default function Film() {
       return <Composition width={64} height={64} fps={30} durationInFrames={1}>
         <Rect id="plain" width={4} height={4} fill="#ffffff" />
+        <Rect id="faded" width={4} height={4} opacity={0.5} cornerRadius={2} />
         <Group id="group" x={3} rotation={10} anchorX={0.5} anchorY={0.5}>
           <Rect id="centred" x={1} y={2} scale={2} anchorX={0.5} anchorY={0.5} width={4} height={4} />
         </Group>
@@ -35,7 +36,7 @@ function render(request) {
 }
 
 test('compactTransforms leaves out transform fields equal to the Rust defaults', () => {
-  const [plain, group] = render({ time: { value: 0, timescale: 1 }, compactTransforms: true });
+  const [plain, , group] = render({ time: { value: 0, timescale: 1 }, compactTransforms: true });
   // React's default anchor is the top-left corner, Rust's is the centre.
   assert.deepEqual(plain.transform, { anchor: { x: 0, y: 0 } });
   assert.deepEqual(group.transform, { position: { x: 3, y: 0 }, rotation: 10 });
@@ -53,4 +54,18 @@ test('frames requested without compactTransforms keep every transform field', ()
     rotation: 0,
     anchor: { x: 0, y: 0 },
   });
+});
+
+test('compactTransforms also leaves out full opacity and square corners', () => {
+  const [plain, faded] = render({ time: { value: 0, timescale: 1 }, compactTransforms: true });
+  assert.equal('opacity' in plain, false);
+  assert.equal('cornerRadius' in plain.content, false);
+  assert.equal(faded.opacity, 0.5);
+  assert.equal(faded.content.cornerRadius, 2);
+});
+
+test('frames requested without compactTransforms keep opacity and corner radius', () => {
+  const [plain] = render({ time: { value: 0, timescale: 1 } });
+  assert.equal(plain.opacity, 1);
+  assert.equal(plain.content.cornerRadius, 0);
 });

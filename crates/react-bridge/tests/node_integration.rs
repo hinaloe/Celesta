@@ -1194,7 +1194,7 @@ fn embeds_pre_evaluated_project_layers_into_project_timeline_when_node_is_availa
         effects: Default::default(),
         content: LayerContent::Text {
             text: "from the project".to_owned(),
-            style: TextStyle::default(),
+            style: Box::new(TextStyle::default()),
             max_width: None,
             baseline_anchor: false,
         },
@@ -1348,7 +1348,7 @@ fn embeds_per_track_layers_for_use_project_track_when_node_is_available() {
         effects: Default::default(),
         content: LayerContent::Text {
             text: "a title".to_owned(),
-            style: TextStyle::default(),
+            style: Box::new(TextStyle::default()),
             max_width: None,
             baseline_anchor: false,
         },
@@ -1361,7 +1361,7 @@ fn embeds_per_track_layers_for_use_project_track_when_node_is_available() {
         effects: Default::default(),
         content: LayerContent::Text {
             text: "an overlay".to_owned(),
-            style: TextStyle::default(),
+            style: Box::new(TextStyle::default()),
             max_width: None,
             baseline_anchor: false,
         },

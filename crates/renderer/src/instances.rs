@@ -52,7 +52,7 @@ impl CpuRenderer {
                     .map_or(*height, |heights| Some(f64::from(heights[i]))),
             )
         };
-        let image = match shape {
+        let image = match shape.as_ref() {
             InstanceShape::Image { asset } => {
                 let path = self.local_asset_path(asset)?;
                 let decode_error = |source| RenderError::ImageDecode {
@@ -151,7 +151,7 @@ impl CpuRenderer {
                 );
                 continue;
             }
-            let corner_radius = match shape {
+            let corner_radius = match shape.as_ref() {
                 InstanceShape::Rect { corner_radius } => *corner_radius,
                 _ => particle_width.min(particle_height) / 2.0,
             };

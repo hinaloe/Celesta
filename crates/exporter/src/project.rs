@@ -153,12 +153,12 @@ pub(crate) fn absolutize_layer_content(content: &mut LayerContent, asset_root: &
                 absolutize_layers(&mut mask.layers, asset_root);
             }
         }
-        LayerContent::Instances {
-            shape: InstanceShape::Image { asset },
-            ..
-        } => absolutize_asset(asset, asset_root),
-        LayerContent::Instances { .. }
-        | LayerContent::Text { .. }
+        LayerContent::Instances { shape, .. } => {
+            if let InstanceShape::Image { asset } = shape.as_mut() {
+                absolutize_asset(asset, asset_root);
+            }
+        }
+        LayerContent::Text { .. }
         | LayerContent::Rect { .. }
         | LayerContent::Path { .. }
         | LayerContent::MissingComponent { .. } => {}

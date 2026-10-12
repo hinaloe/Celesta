@@ -28,22 +28,22 @@ pub(crate) fn evaluate_effects(
             .shadow
             .as_ref()
             .map(|shadow| -> Result<_, EvaluationError> {
-                Ok(LayerShadow {
+                Ok(Box::new(LayerShadow {
                     color: evaluate_effect_color(&shadow.color, time)?,
                     blur: evaluate_f64(&shadow.blur, time)?.max(0.0),
                     offset_x: evaluate_f64(&shadow.offset_x, time)?,
                     offset_y: evaluate_f64(&shadow.offset_y, time)?,
-                })
+                }))
             })
             .transpose()?,
         glow: effects
             .glow
             .as_ref()
             .map(|glow| -> Result<_, EvaluationError> {
-                Ok(LayerGlow {
+                Ok(Box::new(LayerGlow {
                     color: evaluate_effect_color(&glow.color, time)?,
                     blur: evaluate_f64(&glow.blur, time)?.max(0.0),
-                })
+                }))
             })
             .transpose()?,
         // Project timelines have no custom shaders.

@@ -105,13 +105,13 @@ fn scene(frame: usize, count: usize) -> Scene {
             effects: Default::default(),
             content: LayerContent::Text {
                 text: format!("Line {index}: 回線を、自動で見分ける。"),
-                style: TextStyle {
+                style: Box::new(TextStyle {
                     font_size: Some(40.0),
                     fill: Some(Paint::Solid {
                         color: "#FFFFFF".to_owned(),
                     }),
                     ..TextStyle::default()
-                },
+                }),
                 max_width: None,
                 baseline_anchor: false,
             },

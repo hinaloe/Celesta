@@ -441,17 +441,17 @@ fn blur(canvas: &Canvas, frame: usize) -> Vec<Layer> {
                 corner_radius: canvas.len(24.0),
             },
         );
-        card.effects.shadow = Some(LayerShadow {
+        card.effects.shadow = Some(Box::new(LayerShadow {
             color: "#000000B0".to_owned(),
             blur: canvas.len(24.0),
             offset_x: 0.0,
             offset_y: canvas.len(12.0),
-        });
+        }));
         if index % 2 == 0 {
-            card.effects.glow = Some(LayerGlow {
+            card.effects.glow = Some(Box::new(LayerGlow {
                 color: "#8FB8FF".to_owned(),
                 blur: canvas.len(16.0),
-            });
+            }));
         }
         layers.push(card);
     }
@@ -536,7 +536,7 @@ fn text(canvas: &Canvas, frame: usize) -> Vec<Layer> {
                 },
                 LayerContent::Text {
                     text: format!("Line {index}: 回線を、自動で見分ける。"),
-                    style: style(40.0, "#FFFFFF"),
+                    style: Box::new(style(40.0, "#FFFFFF")),
                     max_width: None,
                     baseline_anchor: false,
                 },
@@ -550,14 +550,14 @@ fn text(canvas: &Canvas, frame: usize) -> Vec<Layer> {
             text: "Celesta はコードで動画を書くためのツールです。タイムラインを JSON や \
                    React で記述し、プレビューしながら MP4 に書き出せます。"
                 .repeat(3),
-            style: TextStyle {
+            style: Box::new(TextStyle {
                 line_break: Some(LineBreak::Phrase),
                 stroke: Some(Stroke {
                     paint: solid("#000000"),
                     width: canvas.len(2.0),
                 }),
                 ..style(28.0, "#E0E6FF")
-            },
+            }),
             max_width: Some(canvas.len(560.0)),
             baseline_anchor: false,
         },
@@ -572,7 +572,7 @@ fn text(canvas: &Canvas, frame: usize) -> Vec<Layer> {
                 frame / 60 % 60,
                 frame % 60
             ),
-            style: style(64.0, "#FFB13E"),
+            style: Box::new(style(64.0, "#FFB13E")),
             max_width: None,
             baseline_anchor: false,
         },
@@ -764,11 +764,11 @@ fn shaders(canvas: &Canvas, frame: usize) -> Vec<Layer> {
             fit: Some(ImageFit::Cover),
         },
     );
-    backdrop.effects.shader = Some(LayerShader {
+    backdrop.effects.shader = Some(Box::new(LayerShader {
         id: "bench-grade".to_owned(),
         params: vec![0.5 + 0.5 * (t * 0.8).sin(), 1.0, 0.92, 0.85, 1.0, 0.6],
         padding: 0.0,
-    });
+    }));
     let amplitude = canvas.len(6.0);
     let mut layers = vec![backdrop];
     layers.extend((0..6).map(|index| {
@@ -777,20 +777,20 @@ fn shaders(canvas: &Canvas, frame: usize) -> Vec<Layer> {
             at(canvas.at(960.0, 140.0 + index as f64 * 160.0)),
             LayerContent::Text {
                 text: format!("Ripple {index}: 波紋が広がる"),
-                style: TextStyle {
+                style: Box::new(TextStyle {
                     font_size: Some(canvas.len(72.0)),
                     fill: Some(solid("#FFFFFF")),
                     ..TextStyle::default()
-                },
+                }),
                 max_width: None,
                 baseline_anchor: false,
             },
         );
-        line.effects.shader = Some(LayerShader {
+        line.effects.shader = Some(Box::new(LayerShader {
             id: "bench-ripple".to_owned(),
             params: vec![t + index as f64 * 0.4, amplitude, 0.06 / canvas.k],
             padding: amplitude + 2.0,
-        });
+        }));
         line
     }));
     layers

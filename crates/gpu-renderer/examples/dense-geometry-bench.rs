@@ -249,7 +249,7 @@ fn ribbon_instances(segments: &[((f64, f64, f64), (f64, f64, f64), f64)]) -> Lay
         effects: Default::default(),
         content: LayerContent::Instances {
             count: segments.len() as u32,
-            shape: InstanceShape::Rect { corner_radius: 0.0 },
+            shape: Box::new(InstanceShape::Rect { corner_radius: 0.0 }),
             width: None,
             height: None,
             color: None,

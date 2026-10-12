@@ -660,7 +660,7 @@ impl GpuRenderer {
                         item: output.len(),
                         key,
                         text: text.clone(),
-                        style: style.clone(),
+                        style: style.as_ref().clone(),
                         max_width: *max_width,
                         raster_scale,
                         anchor: layer.transform.anchor,
@@ -761,7 +761,7 @@ impl GpuRenderer {
                     natural: None,
                     color: [color.red, color.green, color.blue, color.alpha].map(f32::from),
                 };
-                let shape = match shape {
+                let shape = match shape.as_ref() {
                     InstanceShape::Rect { corner_radius } => PreparedInstanceShape::Rect {
                         corner_radius: *corner_radius,
                     },

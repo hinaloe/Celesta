@@ -134,6 +134,8 @@ interface WalkContext {
   idPrefix: string;
   /** Shared by host elements for one frame; see `HostVisit.frameState`. */
   frameState: Map<unknown, unknown>;
+  /** Leave out what Rust reads back by default; see `renderAt`'s `compact`. */
+  compact: boolean;
 }
 
 export interface MountedComposition {
@@ -152,7 +154,15 @@ export interface MountedComposition {
   renderAt(
     time: Time,
     project: ProjectFrame | null,
-    options?: { openEnd?: boolean },
+    options?: {
+      openEnd?: boolean;
+      /**
+       * Leave out what Rust reads back by default: transform fields equal
+       * to `EvaluatedTransform`'s defaults, an opacity of 1, and a rect's
+       * corner radius of 0. Such a scene is only for Rust to read.
+       */
+      compact?: boolean;
+    },
   ): { scene: Scene; audio: AudioClipDescriptor[] };
   /** Sweeps every frame without constructing visual layers; hooks and font measurements still run. */
   collectAudio(): AudioClipDescriptor[];
@@ -192,7 +202,14 @@ function readCompositionConfig(instance: HostNode): CompositionConfig {
   };
 }
 
-function rootWalkContext(fps: number, durationInFrames: number, time: Time, lang?: string, openEnd = false): WalkContext {
+function rootWalkContext(
+  fps: number,
+  durationInFrames: number,
+  time: Time,
+  lang?: string,
+  openEnd = false,
+  compact = false,
+): WalkContext {
   const endSec = durationInFrames / fps;
   return {
     lang,
@@ -207,6 +224,7 @@ function rootWalkContext(fps: number, durationInFrames: number, time: Time, lang
     frozen: false,
     idPrefix: '',
     frameState: new Map(),
+    compact,
   };
 }
 
@@ -247,6 +265,22 @@ function extractTransform(props: Record<string, unknown>): EvaluatedTransform {
     // — `x`/`y` then address that centre instead.
     anchor: { x: numberOr(props.anchorX, 0), y: numberOr(props.anchorY, 0) },
   };
+}
+
+/**
+ * `transform` without the fields equal to Rust's `EvaluatedTransform`
+ * defaults (position 0, scale 1, rotation 0, anchor 0.5), which Rust fills
+ * back in. React's own default anchor is the top-left corner, so it is
+ * kept.
+ */
+function compactTransform(transform: EvaluatedTransform): EvaluatedTransform {
+  const { position, scale, rotation, anchor } = transform;
+  const compact: Partial<EvaluatedTransform> = {};
+  if (position.x !== 0 || position.y !== 0) compact.position = position;
+  if (scale.x !== 1 || scale.y !== 1) compact.scale = scale;
+  if (rotation !== 0) compact.rotation = rotation;
+  if (anchor.x !== 0.5 || anchor.y !== 0.5) compact.anchor = anchor;
+  return compact as EvaluatedTransform;
 }
 
 /** A `<Group clip>` prop as the scene's `Clip`; `undefined` when not set. */
@@ -367,11 +401,12 @@ function buildLayer(
   const { props } = node;
   const id = typeof props.id === 'string' && props.id.length > 0 ? flatString(`${context.idPrefix}${props.id}`) : path;
   // An `<Instances>`'s x, y, and rotation are its particles', not its own.
-  const transform = extractTransform(
+  const fullTransform = extractTransform(
     node.type === 'instances'
       ? { ...props, x: undefined, y: undefined, rotation: undefined, anchorX: undefined, anchorY: undefined }
       : props,
   );
+  const transform = context.compact ? compactTransform(fullTransform) : fullTransform;
   const opacity = typeof props.rawOpacity === 'number' ? props.rawOpacity : numberOr(props.opacity, 1);
   const blendMode = extractBlendMode(props.blendMode);
   const effects = extractEffects(props, context);
@@ -428,14 +463,16 @@ function buildLayer(
     const strokeWidth = numberOr(props.strokeWidth, 0);
     const stroke: Stroke | undefined =
       strokePaint && strokeWidth > 0 ? { paint: strokePaint, width: strokeWidth } : undefined;
+    const cornerRadius = numberOr(props.cornerRadius, 0);
     content = {
       type: 'rect',
       width: numberOr(props.width, 0),
       height: numberOr(props.height, 0),
       ...(fill ? { fill } : {}),
       ...(stroke ? { stroke } : {}),
-      cornerRadius: numberOr(props.cornerRadius, 0),
-    };
+      // Rust reads a missing corner radius as 0.
+      ...(cornerRadius !== 0 || !context.compact ? { cornerRadius } : {}),
+    } as LayerContent;
   } else if (node.type === 'path') {
     const fill = toPaint(props.fill);
     const strokePaint = toPaint(props.stroke);
@@ -476,8 +513,10 @@ function buildLayer(
     throw new Error(`unreachable: unknown host node type "${node.type}"`);
   }
 
-  return { id, transform, opacity, ...(blendMode !== 'normal' ? { blendMode } : {}),
-    ...(effects ? { effects } : {}), content };
+  // Rust reads a missing opacity as 1.
+  return { id, transform, ...(opacity !== 1 || !context.compact ? { opacity } : {}),
+    ...(blendMode !== 'normal' ? { blendMode } : {}),
+    ...(effects ? { effects } : {}), content } as Layer;
 }
 
 function toPaint(value: unknown): Paint | undefined {
@@ -660,6 +699,7 @@ function childSequenceContext(node: HostNode, context: WalkContext): WalkContext
     frozen: context.frozen,
     idPrefix: context.idPrefix,
     frameState: context.frameState,
+    compact: context.compact,
   };
 }
 
@@ -683,6 +723,7 @@ function childFreezeContext(node: HostNode, context: WalkContext, layerId: strin
     frozen: true,
     idPrefix: `${layerId}/`,
     frameState: context.frameState,
+    compact: context.compact,
   };
 }
 
@@ -909,7 +950,13 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
   collectFonts(compositionInstance, initialFonts);
   fonts = initialFonts;
 
-  const renderFrame = (time: Time, project: ProjectFrame | null, audioOnly = false, openEnd = false) => {
+  const renderFrame = (
+    time: Time,
+    project: ProjectFrame | null,
+    audioOnly = false,
+    openEnd = false,
+    compact = false,
+  ) => {
     rerenderRequested = false;
     renderTree(time, project, config, openEnd);
     let instance = findCompositionInstance(container);
@@ -933,6 +980,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
       time,
       resolveTextLanguage(instance.props.lang),
       openEnd,
+      compact,
     );
     if (!audioOnly && hasHostElementPreparation()) {
       for (const child of instance.children) {
@@ -965,7 +1013,8 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
     dispose() { HostReconciler.flushSync(() => { HostReconciler.updateContainer(null, root, null, null); }); },
     config,
     get fonts() { return fonts; },
-    renderAt: (time, project, options) => renderFrame(time, project, false, options?.openEnd === true),
+    renderAt: (time, project, options) =>
+      renderFrame(time, project, false, options?.openEnd === true, options?.compact === true),
     collectAudio() {
       const audio: AudioClipDescriptor[] = [];
       for (let frame = 0; frame < config.durationInFrames; frame++) {

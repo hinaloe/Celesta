@@ -21,7 +21,7 @@ fn particles(shape: InstanceShape, count: usize, size: f32) -> LayerContent {
     let step = |i: usize| i as f32 / count as f32;
     LayerContent::Instances {
         count: count as u32,
-        shape,
+        shape: Box::new(shape),
         width: None,
         height: Some(7.0),
         color: None,
@@ -105,7 +105,7 @@ fn centred_rects(content: &LayerContent) -> Vec<Layer> {
                     height,
                     fill: Some(Paint::Solid { color }),
                     stroke: None,
-                    corner_radius: match shape {
+                    corner_radius: match shape.as_ref() {
                         InstanceShape::Rect { corner_radius } => *corner_radius,
                         _ => width.min(height) / 2.0,
                     },
@@ -253,7 +253,7 @@ fn empty_and_non_finite_instances_draw_nothing() {
     };
     let empty = LayerContent::Instances {
         count: 0,
-        shape: InstanceShape::Circle,
+        shape: Box::new(InstanceShape::Circle),
         width: Some(4.0),
         height: Some(4.0),
         color: None,
@@ -270,7 +270,7 @@ fn empty_and_non_finite_instances_draw_nothing() {
 
     let three = |middle_x: f32| LayerContent::Instances {
         count: 3,
-        shape: InstanceShape::Rect { corner_radius: 0.0 },
+        shape: Box::new(InstanceShape::Rect { corner_radius: 0.0 }),
         width: Some(4.0),
         height: Some(4.0),
         color: Some("#ffffff".to_owned()),
@@ -300,14 +300,14 @@ fn image_particles(
     let count = x.len();
     LayerContent::Instances {
         count: count as u32,
-        shape: InstanceShape::Image {
+        shape: Box::new(InstanceShape::Image {
             asset: ResolvedAsset {
                 id: path.to_owned(),
                 location: AssetLocation::File {
                     path: path.to_owned(),
                 },
             },
-        },
+        }),
         width: size.map(f64::from),
         height: size.map(f64::from),
         color: None,

@@ -310,11 +310,11 @@ fn shader(id: &str) -> ShaderSource {
 fn shaded(id: &str) -> Layer {
     Layer {
         effects: LayerEffects {
-            shader: Some(LayerShader {
+            shader: Some(Box::new(LayerShader {
                 id: id.to_owned(),
                 params: Vec::new(),
                 padding: 0.0,
-            }),
+            })),
             ..Default::default()
         },
         content: LayerContent::Group {

@@ -267,12 +267,12 @@ fn a_shadow_follows_the_cut_out_shape() {
         mask(vec![rect(0.0, 0.0, 10.0, 40.0, "#FFFFFFFF")]),
         vec![red_square()],
     );
-    layer.effects.shadow = Some(LayerShadow {
+    layer.effects.shadow = Some(Box::new(LayerShadow {
         color: "#000000FF".to_owned(),
         blur: 0.0,
         offset_x: 10.0,
         offset_y: 0.0,
-    });
+    }));
     let frame = render(vec![layer]);
     assert_eq!(pixel(&frame, 5, 20), RED);
     assert_eq!(pixel(&frame, 15, 20), [0, 0, 0, 255]);

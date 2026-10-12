@@ -397,14 +397,14 @@ fn absolutizes_an_instance_image() {
         effects: Default::default(),
         content: LayerContent::Instances {
             count: 0,
-            shape: InstanceShape::Image {
+            shape: Box::new(InstanceShape::Image {
                 asset: ResolvedAsset {
                     id: "spark.png".to_owned(),
                     location: AssetLocation::File {
                         path: "spark.png".to_owned(),
                     },
                 },
-            },
+            }),
             width: None,
             height: None,
             color: None,
@@ -418,11 +418,10 @@ fn absolutizes_an_instance_image() {
     }];
     let root = Path::new("/project");
     absolutize_layers(&mut layers, root);
-    let LayerContent::Instances {
-        shape: InstanceShape::Image { asset },
-        ..
-    } = &layers[0].content
-    else {
+    let LayerContent::Instances { shape, .. } = &layers[0].content else {
+        panic!("not an instance layer");
+    };
+    let InstanceShape::Image { asset } = shape.as_ref() else {
         panic!("not an image instance layer");
     };
     assert_eq!(
