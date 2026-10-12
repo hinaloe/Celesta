@@ -168,7 +168,18 @@ for a PSD portrait with lip-sync.
 ## Use React compositions
 
 For source builds, complete [Run from source](#run-from-source) first. React
-compositions under `examples/*` are workspace packages too.
+compositions under `examples/*` are workspace packages too. Examples with a
+`tsconfig.json` are type-checked in CI; after `pnpm run build:runtime`, check
+them all or name some:
+
+```sh
+pnpm run typecheck:examples
+pnpm run typecheck:examples apex reel
+```
+
+This copies the editor's TypeScript support files into each example's
+`.celesta/` (ignored by Git) and adds no other files, so it also prepares an
+example for your text editor.
 
 Use the files in [`packages/cli/examples`](packages/cli/examples) as
 starting points. They demonstrate text, animation, layout, shapes, dialogue,

@@ -5,7 +5,8 @@
   "scripts": {
     "build": "turbo run build",
     "build:runtime": "pnpm --filter \"@celesta/cli...\" run build",
-    "test:runtime": "pnpm --filter \"@celesta/cli...\" run test"
+    "test:runtime": "pnpm --filter \"@celesta/cli...\" run test",
+    "typecheck:examples": "node scripts/typecheck-examples.mjs"
   },
   "devDependencies": {
     "turbo": "^2.11.7"
