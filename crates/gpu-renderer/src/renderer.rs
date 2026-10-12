@@ -683,24 +683,16 @@ impl GpuRenderer {
             });
         // Cloned out first (a cheap handle clone, not a data copy) so it
         // doesn't keep `self.readback_slots` borrowed across the
-        // `self.encode_draws` call below, which itself needs `&mut self`.
-        let slot_view = self.readback_slots[slot_index].canvas.view.clone();
-        self.encode_draws(
-            &mut encoder,
-            scene,
-            GpuRenderTarget {
-                view: &slot_view,
-                format: self.canvas_format,
-                width: scene.width,
-                height: scene.height,
-            },
-            &draws,
-        )?;
+        // `self.encode_scene` call below, which itself needs `&mut self`.
+        let slot_canvas = self.readback_slots[slot_index].canvas.clone();
+        // A composited frame is read from the root canvas, which the next
+        // frame only draws onto after this one's readback passes.
+        let frame = self.encode_scene(&mut encoder, scene, &draws, &slot_canvas)?;
         let slot = &self.readback_slots[slot_index];
         match &slot.readback {
             SlotReadback::Rgba(rgba) => {
                 self.quantizer
-                    .encode(&mut encoder, &slot.canvas, &rgba.view, rgba.format);
+                    .encode(&mut encoder, &frame, &rgba.view, rgba.format);
                 encoder.copy_texture_to_buffer(
                     rgba.texture.as_image_copy(),
                     wgpu::TexelCopyBufferInfo {
@@ -719,7 +711,12 @@ impl GpuRenderer {
                     .yuv_converters
                     .get(&slot.format())
                     .expect("a yuv slot is only created with a converter");
-                converter.encode(&mut encoder, yuv);
+                if frame.texture == slot.canvas.texture {
+                    converter.encode(&mut encoder, yuv, &yuv.bind_group);
+                } else {
+                    let bind_group = converter.frame_bind_group(&self.device, &frame.view);
+                    converter.encode(&mut encoder, yuv, &bind_group);
+                }
                 for plane in &yuv.planes {
                     encoder.copy_texture_to_buffer(
                         plane.texture.as_image_copy(),

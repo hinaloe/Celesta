@@ -27,8 +27,10 @@ fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
     return vec4<f32>(positions[index], 0.0, 1.0);
 }
 
+// Clamped to 0-1 as the layer pipelines' output is: a composited frame is
+// converted straight from the root canvas.
 fn rgb(pixel: vec2<u32>) -> vec3<f32> {
-    return textureLoad(frame, pixel, 0).rgb;
+    return clamp(textureLoad(frame, pixel, 0).rgb, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
 // The pixel's luma in 8-bit code values, unrounded.
