@@ -1,0 +1,149 @@
+import { RouteLink } from '@natsuneko-laboratory/makit-runtime';
+import type { StaticPageComponentProps } from '@natsuneko-laboratory/makit-runtime';
+import type { ReactNode } from 'react';
+import { copy, isLocale } from '../site/copy/index.ts';
+import { downloadLinks, type Platform } from '../site/downloads.ts';
+import { repository } from '../site/links.ts';
+import { DownloadAlternatives, DownloadButton } from './_components/DownloadButton.tsx';
+import { PlaygroundMount } from './_components/PlaygroundMount.tsx';
+import { Timecode } from './_components/Timecode.tsx';
+import './_components/landing.css';
+
+const platforms: Platform[] = ['macOS', 'Windows'];
+const br = () => <br />;
+const em = (children?: ReactNode) => <em>{children}</em>;
+const hidden = (children?: ReactNode) => <span aria-hidden="true">{children}</span>;
+
+/** The landing page: hero, playground, features, ideas, and getting started. */
+export default function Landing({ locale: urlLocale }: StaticPageComponentProps) {
+  const locale = isLocale(urlLocale) ? urlLocale : 'en';
+  const { home, download } = copy(locale);
+  const docs = (slug: string) => `/${locale}/docs/${slug}/`;
+  const docsLink = (slug: string, label: ReactNode) => <RouteLink className="lp-more" href={docs(slug)}>{label}</RouteLink>;
+
+  // Resolved while prerendering; the button picks the visitor's platform in the browser.
+  const links = downloadLinks();
+  const button = <DownloadButton links={links} labels={{ any: download.label, macOS: download.downloadPlatform({ platform: 'macOS' }), Windows: download.downloadPlatform({ platform: 'Windows' }) }} />;
+  const alternatives = (current: Platform | null) => download.installGuideAllReleases(
+    () => (current ? download.alsoFor : download.for),
+    () => platforms.filter(platform => platform !== current).map((platform, i) => <span key={platform}>{i > 0 && download.and}<a href={links[platform]}>{platform}</a></span>),
+    hidden,
+    children => <RouteLink href={docs('installation')}>{children}</RouteLink>,
+    hidden,
+    children => <a href={links.all}>{children}</a>,
+    hidden,
+  );
+  const variants = { any: alternatives(null), macOS: alternatives('macOS'), Windows: alternatives('Windows') };
+
+  return <div className="lp">
+    <section className="lp-hero" aria-labelledby="hero-title">
+      <div className="tg-shell">
+        <div className="lp-hero-meta tg-mono">{home.openSourceInActiveDevelopmentTc(
+          children => <a className="lp-badge" href={`${repository}/commits`}>{children}</a>,
+          hidden,
+          children => <span className="lp-hero-timecode" aria-hidden="true">{children}<span className="lp-rec"><span className="tg-tally" />REC</span></span>,
+          () => <Timecode />,
+        )}</div>
+        <h1 id="hero-title">{home.motionWrittenDown(br, em)}</h1>
+        <div className="lp-hero-lower">
+          <p className="lp-hero-description">{home.celestaRendersReactComponentsToVideoScrub}</p>
+          <div className="lp-hero-cta">
+            <div className="lp-actions">{home.tryItInTheBrowser(() => button, children => <a className="tg-button-secondary" href="#playground">{children}</a>)}</div>
+            <DownloadAlternatives variants={variants} />
+          </div>
+        </div>
+      </div>
+      <div className="lp-timeline tg-shell" aria-hidden="true">
+        <div className="lp-ruler-labels tg-mono">{Array.from({ length: 10 }, (_, second) => <span key={second} style={{ left: `${second * 10}%` }}>{`00:${String(second).padStart(2, '0')}`}</span>)}</div>
+        <div className="lp-ruler" />
+        <div className="lp-clips tg-mono"><i>{home.storyTsx}</i><i>{home.atmosphere}</i><i>{home.voiceWav}</i></div>
+      </div>
+      <dl className="lp-specs tg-shell" aria-label={home.atAGlance}>
+        <div><dt>{home['01Write']}</dt><dd>{home.plainReactComponentsAndHooksWrittenIn(children => <small>{children}</small>)}</dd></div>
+        <div><dt>{home['02Preview']}</dt><dd>{home.frameAccurateScrubInTheBrowserOr(children => <small>{children}</small>)}</dd></div>
+        <div><dt>{home['03Export']}</dt><dd>{home.h264AndAacMp4FilesFrom(children => <small>{children}</small>)}</dd></div>
+        <div><dt>{home['04License']}</dt><dd>{home.mitOrApache20FreeAnd(children => <small>{children}</small>)}</dd></div>
+      </dl>
+    </section>
+
+    <section id="playground" className="lp-playground tg-shell" aria-labelledby="playground-heading">
+      <PlaygroundMount options={{ kind: 'home', locale }} fallback={<p className="lp-fallback">{home.metadata.noscript(children => <a href={`${repository}#readme`}>{children}</a>)}</p>} />
+    </section>
+
+    <section id="features" className="lp-section tg-shell" aria-labelledby="features-heading">
+      <div className="lp-section-top">
+        <p className="lp-eyebrow tg-mono">{home.whyCelesta}</p>
+        <div>
+          <h2 id="features-heading">{home.everyFrameIsAFunctionCall(br, em)}</h2>
+          <p className="lp-section-description">{home.givesYouANumberPositionOpacityAnd(() => <code>useCurrentFrame()</code>)}</p>
+        </div>
+      </div>
+      <div className="lp-features">
+        <article className="lp-feature">
+          <div className="lp-feature-visual lp-code-visual" aria-hidden="true">{home.yournextidea(children => <span className="tg-mono">{children}</span>, children => <i>{children}</i>, children => <i>{children}</i>)}</div>
+          <span className="lp-feature-number tg-mono">{home['01Compose']}</span>
+          <h3>{home.componentsAndHooks}</h3>
+          <p>{home.buildScenesFromAndAnimateWithAnd(() => <code>Rect</code>, () => <code>Text</code>, () => <code>Image</code>, () => <code>Group</code>, () => <code>interpolate()</code>)}</p>
+          {docsLink('react-compositions', home.reactCompositions(hidden))}
+        </article>
+        <article className="lp-feature">
+          <div className="lp-feature-visual lp-track-visual tg-mono" aria-hidden="true">
+            <div className="lp-mini-ruler"><span>00:00</span><span>00:02</span><span>00:04</span></div>
+            <div className="lp-mini-track">{home.storyTsx}</div>
+            <div className="lp-mini-track">{home.atmosphere}</div>
+            <div className="lp-mini-track">{home.voiceWav}</div>
+            <div className="lp-mini-playhead" />
+          </div>
+          <span className="lp-feature-number tg-mono">{home.previewStep}</span>
+          <h3>{home.scrubToAnyFrame}</h3>
+          <p>{home.theBrowserPlaygroundPreviewsWithoutSoundThe}</p>
+          {docsLink('preview', home.previewing(hidden))}
+        </article>
+        <article className="lp-feature">
+          <div className="lp-feature-visual lp-export-visual" aria-hidden="true">
+            <dl className="lp-file-art tg-mono">
+              <div><dt>{home.file}</dt><dd>{home.yourStoryMp4}</dd></div>
+              <div><dt>{home.video}</dt><dd>{home.h26419201080}</dd></div>
+              <div><dt>{home.audio}</dt><dd>{home.aac48Khz}</dd></div>
+              <div><dt>{home.frames}</dt><dd>{home['15030Fps']}</dd></div>
+            </dl>
+          </div>
+          <span className="lp-feature-number tg-mono">{home.exportStep}</span>
+          <h3>{home.aStandardMp4}</h3>
+          <p>{home.h264VideoWithAacAudioReady}</p>
+          {docsLink('export', home.exporting(hidden))}
+        </article>
+      </div>
+    </section>
+
+    <section className="lp-section tg-shell" aria-labelledby="ideas-heading">
+      <div className="lp-section-top">
+        <p className="lp-eyebrow tg-mono">{home.goodFor}</p>
+        <div><h2 id="ideas-heading">{home.videoYouWouldRatherDescribeThanDrag(br, em)}</h2></div>
+      </div>
+      <ul className="lp-ideas">{[home.ideas.title, home.ideas.dialogue, home.ideas.data, home.ideas.loops].map((idea, i) =>
+        <li key={idea}><span className="tg-mono">{String(i + 1).padStart(2, '0')}</span>{idea}</li>)}</ul>
+    </section>
+
+    <section id="start" className="lp-start" aria-labelledby="start-heading">
+      <div className="tg-shell lp-start-card">
+        <div className="lp-start-intro">
+          <p className="lp-eyebrow tg-mono">{home.getStarted}</p>
+          <h2 id="start-heading">{home.startWithOneFile(br, em)}</h2>
+          <p className="lp-section-description">{home.theDesktopAppShipsWithNodeJs}</p>
+          {button}
+          <DownloadAlternatives variants={variants} />
+        </div>
+        <div className="lp-steps">
+          <p className="lp-eyebrow tg-mono">{home.setup}</p>
+          <ol>
+            <li><span className="tg-mono">01</span><div><h3>{home.installTheApp}</h3><p>{home.packagesAreAvailableForMacosAndWindows}</p></div></li>
+            <li><span className="tg-mono">02</span><div><h3>{home.writeAComposition}</h3><p>{home.aSingleFileInAnyFolder(() => <code>.tsx</code>)}</p></div></li>
+            <li><span className="tg-mono">03</span><div><h3>{home.openPreviewExport}</h3><p>{home.openTheFileInCelestaItReloads}</p></div></li>
+          </ol>
+          {docsLink('examples', home.browseTheExamples(hidden))}
+        </div>
+      </div>
+    </section>
+  </div>;
+}

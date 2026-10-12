@@ -1,11 +1,9 @@
 import type { HeaderProps } from '@natsuneko-laboratory/makit-runtime';
 import { copy } from '../site/copy/index.ts';
+import { downloadLinks } from '../site/downloads.ts';
 import { Brand } from './Brand.tsx';
 import { HeaderMenu, type NavLink } from './HeaderMenu.tsx';
 import { localeOf } from './locale.ts';
-
-// Ruling R2: Task 8 replaces this with `downloadLinks().all`.
-const downloadHref = 'https://github.com/mika-f/Celesta/releases/latest';
 
 /**
  * Wordmark, the site sections, `header.links` from `makit.config.ts`, the download button, then
@@ -23,7 +21,7 @@ export function Header({ header, siteTitle, homeHref, actions }: HeaderProps) {
   return <header className="tg-header">
     <div className="tg-shell tg-header-inner">
       <Brand href={homeHref} label={navigation.label} title={header.title ?? siteTitle} />
-      <HeaderMenu links={links} download={{ href: downloadHref, label: navigation.download }} labels={{ menu: navigation.menu, close: navigation.close, main: navigation.main }} />
+      <HeaderMenu links={links} download={{ href: downloadLinks().all, label: navigation.download }} labels={{ menu: navigation.menu, close: navigation.close, main: navigation.main }} />
       {actions && <div className="tg-header-actions">{actions}</div>}
     </div>
   </header>;

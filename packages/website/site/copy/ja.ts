@@ -105,6 +105,14 @@ export const ja: Copy = {
     previewStep: '02 — プレビュー',
     exportStep: '03 — 書き出し',
   },
+  download: {
+    label: 'Celesta をダウンロード',
+    downloadPlatform: (v: { platform: string }) => `${v.platform} 版をダウンロード`,
+    alsoFor: 'ほかの OS：',
+    for: '対応 OS：',
+    and: '・',
+    installGuideAllReleases: (s0: Slot, s1: Slot, s2: Slot, s3: Slot, s4: Slot, s5: Slot, s6: Slot) => h(Fragment, null, s0(), s1(), s2(' · '), s3('インストール方法'), s4(' · '), s5(h(Fragment, null, 'リリース一覧 ', s6('↗')))),
+  },
   showcase: {
     label: 'ショーケース',
     madeWith: 'Celesta で制作',

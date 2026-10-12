@@ -106,6 +106,14 @@ export const en = {
     previewStep: '02 — Preview',
     exportStep: '03 — Export',
   },
+  download: {
+    label: 'Download Celesta',
+    downloadPlatform: (v: { platform: string }) => `Download for ${v.platform}`,
+    alsoFor: 'Also for',
+    for: 'For',
+    and: ' and ',
+    installGuideAllReleases: (s0: Slot, s1: Slot, s2: Slot, s3: Slot, s4: Slot, s5: Slot, s6: Slot) => h(Fragment, null, s0(), ' ', s1(), s2(' · '), s3('Install guide'), s4(' · '), s5(h(Fragment, null, 'All releases ', s6('↗')))),
+  },
   showcase: {
     label: 'Showcase',
     madeWith: 'Made with Celesta',

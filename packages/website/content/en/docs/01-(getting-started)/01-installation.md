@@ -1,9 +1,9 @@
 Download the Celesta package for your operating system from the release assets. Check the release notes for the supported OS versions and available architectures.
 
-- [Download for macOS ↓](https://github.com/mika-f/Celesta/releases/latest)
-- [Download for Windows ↓](https://github.com/mika-f/Celesta/releases/latest)
+- [Download for macOS ↓](celesta:download/macos)
+- [Download for Windows ↓](celesta:download/windows)
 
-Looking for another version or architecture? [Browse all releases](https://github.com/mika-f/Celesta/releases/latest).
+Looking for another version or architecture? [Browse all releases](celesta:download/all).
 
 > [!NOTE]
 > **Everything you need to run Celesta**

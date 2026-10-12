@@ -1,9 +1,9 @@
 リリースの添付ファイルから、OS に合う Celesta パッケージをダウンロードします。対応 OS のバージョンとアーキテクチャはリリースノートで確認してください。
 
-- [macOS 用をダウンロード ↓](https://github.com/mika-f/Celesta/releases/latest)
-- [Windows 用をダウンロード ↓](https://github.com/mika-f/Celesta/releases/latest)
+- [macOS 用をダウンロード ↓](celesta:download/macos)
+- [Windows 用をダウンロード ↓](celesta:download/windows)
 
-ほかのバージョンやアーキテクチャをお探しですか？ [すべてのリリースを見る](https://github.com/mika-f/Celesta/releases/latest)。
+ほかのバージョンやアーキテクチャをお探しですか？ [すべてのリリースを見る](celesta:download/all)。
 
 > [!NOTE]
 > **Celesta の実行に必要なものを同梱**

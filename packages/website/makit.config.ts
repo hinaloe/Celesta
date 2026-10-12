@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@natsuneko-laboratory/makit';
+import { remarkDownloadLinks } from './plugins/remark-download-links.ts';
 import { remarkInclude } from './plugins/remark-include.ts';
 import { repository } from './site/links.ts';
 
@@ -28,7 +29,7 @@ export default defineConfig({
   },
   markdown: {
     code: { copyButton: true },
-    remarkPlugins: [[remarkInclude, { root: fileURLToPath(new URL('.', import.meta.url)) }]],
+    remarkPlugins: [[remarkInclude, { root: fileURLToPath(new URL('.', import.meta.url)) }], remarkDownloadLinks],
     shiki: { themes: { light: 'vitesse-light', dark: 'vitesse-dark' } },
   },
   llms: { enabled: true },
