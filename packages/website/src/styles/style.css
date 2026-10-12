@@ -51,9 +51,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, pre:focus-visible { 
 .nav { gap: 32px; font-size: 14px; color: var(--muted); }
 .nav a:hover, .footer a:hover { color: var(--text); }
 .nav a span { margin-left: 2px; }
-.nav-download { color: var(--text); border-bottom: 1px solid var(--text); padding-bottom: 1px; }
-.nav .nav-download:hover { color: var(--accent); border-color: var(--accent); }
-.nav a[aria-current] { color: var(--text); }
+/* Underlines mark only the current section; Download is a button, the language a setting after a divider. */
+.nav > a[aria-current] { color: var(--text); text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 6px; }
+.nav-download { padding: 5px 12px; border: 1px solid var(--line-strong); border-radius: 2px; color: var(--text); }
+.nav .nav-download:hover { border-color: var(--text); }
+.nav .language-switcher { padding-left: 20px; border-left: 1px solid var(--line-strong); }
 .menu-toggle { display: none; color: var(--text); font-size: 14px; }
 
 /* Shared type */
@@ -256,15 +258,19 @@ h2 { font-size: clamp(34px, 4.6vw, 64px); line-height: 1; letter-spacing: -.04em
   .start-card h2 { margin-top: 56px; }
   .getting-started ol { margin-top: 28px; }
 }
-@media (max-width: 779px) {
+@media (max-width: 859px) {
   .header-inner { height: 56px; position: relative; }
   .menu-toggle { display: block; padding: 10px 0 10px 16px; }
   .nav { display: none; position: absolute; top: 56px; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--line-strong); padding: 8px 18px 20px; z-index: 10; }
   .nav.is-open { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
   .nav a { padding: 14px 0; font-size: 22px; letter-spacing: -.02em; color: var(--text); border-bottom: 1px solid var(--line); }
-  .nav .nav-download { border-bottom: 1px solid var(--line); padding-bottom: 14px; color: var(--accent); }
+  .nav > a[aria-current] { position: relative; padding-left: 18px; text-decoration: none; }
+  .nav > a[aria-current]::before { content: ''; position: absolute; left: 0; top: 50%; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%; background: var(--accent); }
+  .nav .nav-download { padding: 14px 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; color: var(--accent); }
+  .nav .language-switcher { padding-left: 0; border-left: 0; }
   .nav.is-open .language-switcher { padding-top: 14px; }
-  .nav.is-open .language-switcher a { font-size: 14px; padding: 8px 0; }
+  .nav.is-open .language-switcher a { font-size: 14px; padding: 8px 0; border-bottom: 0; color: var(--muted); }
+  .nav.is-open .language-switcher a[aria-current="page"] { color: var(--text); }
 }
 @media (max-width: 640px) {
   .shell { padding-inline: 18px; }
@@ -300,7 +306,7 @@ h2 { font-size: clamp(34px, 4.6vw, 64px); line-height: 1; letter-spacing: -.04em
 }
 
 .language-switcher { white-space: nowrap; flex-shrink: 0; display: inline-flex; gap: 12px; font-size: 13px; }
-.language-switcher a[aria-current="page"] { color: var(--text); text-decoration: underline; text-underline-offset: 4px; }
+.language-switcher a[aria-current="page"] { color: var(--text); }
 :lang(ja) h1, :lang(ja) h2 { line-height: 1.2; letter-spacing: -.025em; }
 :lang(ja) .hero h1 { font-size: clamp(48px, 9vw, 140px); line-height: 1.15; }
 :lang(ja) .nav { gap: 20px; }

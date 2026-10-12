@@ -30,6 +30,10 @@ function Timecode() {
 }
 
 export function HomePage() {
+  useEffect(() => {
+    // React mounts the sections after the browser has looked for the hash target, so scroll to it here for links such as `/en/#playground`.
+    if (window.location.hash) document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ behavior: 'instant' });
+  }, []);
   return <>
     <a href="#main" className="skip-link">{text('home.skip-to-content')}</a>
     <SiteHeader />
