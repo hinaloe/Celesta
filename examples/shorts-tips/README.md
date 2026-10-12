@@ -62,7 +62,9 @@ Each variant sets these values. Any value it leaves out takes the default from `
 The code's font size follows its longest line, from 46 down to 34 px. If a line does not fit, or the number of `stages`
 does not match the demo, `prepare()` stops with an error before the first frame.
 It also shapes the title, hook and closing line and stops if one wraps to more lines than its slot holds
-(the limits are in `slots.ts`). `inspect.mjs` cannot shape text, so there this check is skipped with a warning; exports always run it.
+(the limits are in `slots.ts`). Exports always run this check, and so does `inspect.mjs` when it evaluates frames through an exporter,
+which it finds on its own in a source checkout or an installed Celesta. Without one (or with `--no-native`) it cannot shape text,
+so it skips this check with a warning and inspects the rest.
 
 ## Adding a Tip
 
@@ -85,11 +87,13 @@ stays inside `SAFE` in `constants.ts`. To check, export with `--props '{"guides"
 ## How the code is drawn
 
 The code is highlighted with `tokenizeCode()` from `@celesta/code` and drawn as one `<Text>` per line, colored with `<Span>`.
-The `<Code>` component measures text while rendering, so `inspect.mjs` cannot evaluate frames that use it.
-JetBrains Mono advances every glyph by 0.6 em, so positions are computed here without measuring.
-Japanese, which JetBrains Mono lacks, is drawn in Noto Sans JP through `<Span>` and counted as 1 em.
-It does not depend on the operating system's font fallback, so it looks the same on every machine.
-As a result, `inspect.mjs` can check every frame.
+It is drawn by hand rather than with the `<Code>` component to control the look: a band on the newest line with a colored edge,
+a caret that blinks on the beat, and bands that run to the frame's edges.
+
+The code's font is the stack `['JetBrains Mono', 'Noto Sans JP']` (`CODE_FONTS` in `constants.ts`): Japanese in a snippet,
+which JetBrains Mono lacks, is drawn in the loaded Noto Sans JP rather than a system font, so it looks the same on every machine.
+JetBrains Mono advances every glyph by 0.6 em and Noto Sans JP its Japanese by 1 em, so positions such as the caret's
+are computed without measuring. `inspect.mjs` can therefore check every frame even without an exporter (`--no-native`).
 
 ## Regenerating
 

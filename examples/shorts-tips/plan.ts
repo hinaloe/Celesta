@@ -19,8 +19,7 @@ export const THEME: CodeTheme = {
   },
 };
 
-/** `wide` runs are East Asian text, drawn in the Japanese face (FONT.ja). */
-export type CodeRun = { text: string; color: string; wide: boolean };
+export type CodeRun = { text: string; color: string };
 export type CodeLine = {
   text: string;
   runs: CodeRun[];
@@ -40,9 +39,8 @@ export type Plan = {
   stageAt: number[];
 };
 
-// JetBrains Mono has no East Asian glyphs. Those characters are drawn in
-// the loaded Japanese face rather than whichever system font the fallback
-// would pick, so they look the same everywhere and advance exactly 1 em.
+// JetBrains Mono has no East Asian glyphs; the code's font stack
+// (CODE_FONTS) draws those in Noto Sans JP, which advances them by 1 em.
 const WIDE = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/u;
 
 // Splits the tokenized snippet into lines of coloured runs.
@@ -52,15 +50,15 @@ function codeLines(source: string): CodeLine[] {
     const color = THEME.tokens[token.type] ?? THEME.foreground;
     token.text.split('\n').forEach((part, i) => {
       if (i > 0) lines.push({ text: '', runs: [], length: 0, advances: [] });
+      if (!part) return;
       const line = lines[lines.length - 1];
+      const last = line.runs[line.runs.length - 1];
+      if (last?.color === color) last.text += part;
+      else line.runs.push({ text: part, color });
+      line.text += part;
       for (const ch of part) {
-        const wide = WIDE.test(ch);
-        const last = line.runs[line.runs.length - 1];
-        if (last?.color === color && last.wide === wide) last.text += ch;
-        else line.runs.push({ text: ch, color, wide });
-        line.text += ch;
         line.length += 1;
-        line.advances.push(wide ? 1 : MONO_ADVANCE);
+        line.advances.push(WIDE.test(ch) ? 1 : MONO_ADVANCE);
       }
     });
   }
@@ -123,8 +121,10 @@ export async function prepare(): Promise<void> {
 }
 
 // The title, hook and closing line wrap, so whether they fit their slot is
-// only known by shaping them. scripts/inspect.mjs cannot shape text: there
-// the check is skipped with a warning, and every export still runs it.
+// only known by shaping them. Exports always run this check, and so does
+// scripts/inspect.mjs when it evaluates frames through an exporter. Without
+// one (or with --no-native) it cannot shape text: then the check is skipped
+// with a warning and the rest of the inspection still runs.
 async function checkSlots(): Promise<void> {
   for (const [name, slot] of Object.entries(SLOTS) as [SlotName, (typeof SLOTS)[SlotName]][]) {
     const text = getProjectProperty<string>(name);

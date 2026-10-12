@@ -71,6 +71,9 @@ export const FONT = {
   ja: 'Noto Sans JP',
   mono: 'JetBrains Mono',
 } as const;
+// The code's font stack: Japanese in a snippet, which JetBrains Mono lacks,
+// is drawn in the loaded Noto Sans JP instead of a system fallback font.
+export const CODE_FONTS = [FONT.mono, FONT.ja] as const;
 
 // Titles, hooks and closing lines come from the variant files, so the
 // Japanese face is loaded whole rather than subset to the glyphs used.

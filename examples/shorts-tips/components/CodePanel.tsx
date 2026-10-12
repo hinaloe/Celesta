@@ -1,7 +1,7 @@
 import { Group, Rect, Span, Text, progress } from '@celesta/react';
 import { Circle } from '@celesta/shapes';
 import { withAlpha } from '../color';
-import { BAR, BEAT, C, CODE, FONT, SAFE, TYPE_FRAMES, W } from '../constants';
+import { BAR, BEAT, C, CODE, CODE_FONTS, FONT, SAFE, TYPE_FRAMES, W } from '../constants';
 import { THEME, getPlan } from '../plan';
 
 // The code band across the upper half: an editor holding the variant's
@@ -9,9 +9,12 @@ import { THEME, getPlan } from '../plan';
 // reveal time, with a band on the newest line; without it the whole snippet
 // is shown.
 //
-// Lines are drawn without measuring: JetBrains Mono's fixed advance gives the
-// caret position, so scripts/inspect.mjs can evaluate every frame (the
-// <Code> component of @celesta/code measures text, which inspect.mjs cannot).
+// It is drawn here rather than with @celesta/code's <Code>, to control the
+// look: a band on the newest line, a caret that blinks on the beat, and a
+// band that runs to the frame's edges. The colours come from tokenizeCode()
+// (plan.ts). Positions come from JetBrains Mono's fixed advance instead of
+// measuring, so scripts/inspect.mjs can evaluate every frame even without
+// an exporter to shape text (--no-native).
 export function CodePanel({ frame, accent }: { frame?: number; accent: string }) {
   const { lines, fontSize, lineHeight, revealAt } = getPlan();
   const top = CODE.bar + CODE.padY;
@@ -45,12 +48,10 @@ export function CodePanel({ frame, accent }: { frame?: number; accent: string })
         return (
           <Text key={i} x={CODE.textX} y={top + i * lineHeight + lineHeight * 0.72} anchorY="baseline"
             style={{
-              fontFamily: FONT.mono, fontSize, fill: { type: 'solid', color: THEME.foreground },
+              fontFamily: CODE_FONTS, fontSize, fill: { type: 'solid', color: THEME.foreground },
               visibleCharacters: typed < line.length ? typed : undefined,
             }}>
-            {line.runs.map((run, j) => (
-              <Span key={j} style={{ fill: run.color, fontFamily: run.wide ? FONT.ja : undefined }}>{run.text}</Span>
-            ))}
+            {line.runs.map((run, j) => <Span key={j} style={{ fill: run.color }}>{run.text}</Span>)}
           </Text>
         );
       })}
