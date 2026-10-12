@@ -187,7 +187,7 @@ light and dark and maps them onto `--makit-color-*` so Makit's prose and default
 | line | `#2c2a26` | `#d8d3c8` |
 | text | `#efe9df` | `#1a1916` |
 | muted | `#958e82` | `#6b655b` |
-| accent | `#ffb020` | `#b86e00` (text), `#ffb020` (fills) |
+| accent | `#ffb020` | `#945700` (text), `#ffb020` (fills) |
 
 Motifs: monospace timecodes and labels, a ruler with a playhead under the hero, square-ish
 corners (3–4 px), tally-lamp dot. Notes (`.makit-alert`) get an amber left rule.
