@@ -97,8 +97,9 @@ project are a usage error.
 Evaluates React frames without rendering pixels, with real text shaping
 and media probing — the same evaluation as `Celesta-export --inspect`.
 
-- Input: `entry` (React only), `frames` or `every` (default
-  `[0, -1]`), `loop` (boolean), `props`, `propsFile`.
+- Input: `entry` (React only), `frames` or `every` (default: the
+  first, middle, and last frames, as `inspect.mjs` does), `loop`
+  (boolean), `props`, `propsFile`.
 - Implementation: spawn a `ReactBridge` with the property inputs, then
   `evaluate_at` each frame; with `loop`, evaluate frames `N` and `N + 1`
   with `evaluate_past_end` and compare them with frames `0` and `1`.
@@ -167,7 +168,9 @@ Exports an MP4.
   250 ms; `MixingAudio` and `Muxing` are sent with a message.
 - Cancellation: `notifications/cancelled` for the request calls
   `ExportCancellation::cancel()`. The exporter stops and cleans up as it
-  does for the editor; the tool returns the `cancelled` error.
+  does for the editor. As MCP requires, no response is sent for a
+  cancelled request (`rmcp` drops it); the next rendering tool runs as
+  soon as the export has stopped.
 - Output: the report (outputs, whether the video has audio, warnings,
   elapsed time, render fps).
 
@@ -182,8 +185,9 @@ Creates a React project like `Celesta --init`.
 
 - Input: `folder`, `template` (optional; `blank` when omitted).
 - Implementation: `initialize_project(cli_script, folder, template)`.
-- Output: the files created and the template used. An unknown template
-  lists the available ones in the error.
+- Output: the project folder, the template used (name, title,
+  description), and its `edit` note saying what to change next. An
+  unknown template lists the available ones in the error.
 
 ### `read_docs`
 
@@ -228,14 +232,23 @@ The MCP server returns the same report and error codes as
   `crates/exporter/src/report.rs` into a public library module,
   `celesta_exporter::report`. The CLI keeps printing through it; its output
   does not change (the existing `--json` tests check this).
-- The library module builds a report from a `ReportBuilder` that consumes
+- The library's `report::build` runs an export closure, collects its
   `ExportProgress` events (`Composition`, `Warning`, `Wrote`,
-  `Rendering`) and the final `Result<(), ExportError>`, plus the source,
-  props file, and elapsed time. The CLI-specific parts (printing,
-  clap usage errors, `progress::State`) stay in the binary.
+  `Rendering`) and its result, and times the export itself, as the CLI's
+  `build` does today. Printing and clap usage errors stay in the binary.
 - Move `react_runtime()` from `main.rs` into the library as
   `ReactRuntimeOptions::for_entry(entry, props_file, props)`, which both
   binaries call.
+- Move the CLI's `export()` dispatch (JSON project or React entry, PNG or
+  MP4, companion project) into the library as `ExportJob::run`, so both
+  binaries render through one code path. MP4 jobs take an
+  `ExportCancellation`; the CLI passes a default one.
+- Add `FrameSelection::FromEnd(Vec<i64>)`: frames where negative numbers
+  count from the end, resolved once the composition's length is known.
+  The CLI keeps using `Frames`.
+- `celesta_react_bridge::runtime_paths()` also treats an executable
+  named `Celesta-mcp` as packaged, so the Windows package finds its
+  `runtime` folder as `Celesta-export` does.
 
 ## Server internals
 
@@ -275,7 +288,7 @@ every stdout line of a full session is a JSON-RPC message.
   (`pass --overwrite …`), so `error_report()` takes the hint wording as a
   parameter: the CLI keeps its text and the server names its own
   arguments (`set overwrite …`). Codes are identical.
-- Cancellation returns the `cancelled` error.
+- A cancelled export sends no response (see `export_video`).
 - A missing React runtime (the server is not inside a package and the
   repository runtime is not built) is reported by the first tool that needs
   it with the bridge's existing message, not at startup, so `read_docs`
@@ -303,8 +316,8 @@ lavapipe):
   fixture returns image content whose bytes start with the PNG signature.
 - `contact_sheet` returns one image and the tile frames.
 - `export_video` of a short fixture writes an MP4 and sends progress
-  notifications; a cancelled export returns `cancelled` and leaves no
-  output file.
+  notifications; after a cancelled export no output file exists and a
+  following `render_frames` call succeeds.
 - Errors carry the expected `code`.
 - Every stdout line in the session is a JSON-RPC message.
 
