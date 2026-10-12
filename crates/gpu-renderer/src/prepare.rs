@@ -4,7 +4,7 @@ use crate::draw::{LAYER_INSTANCE_SIZE, RectShape, clip_bind_group, clip_buffer, 
 use crate::effect::EffectSpec;
 use crate::error::GpuRenderError;
 use crate::instances::{InstanceColumns, PreparedInstanceShape, PreparedInstances};
-use crate::layer::{PreparedContent, PreparedItem, PreparedLayer};
+use crate::layer::{InstanceBytes, PreparedContent, PreparedItem, PreparedLayer};
 use crate::mask::MaskSpec;
 use crate::path::{PathEntries, PendingPath, path_entry_limit};
 use crate::plan::{CompositePlan, GpuDraw, GpuStep, GroupPlan, PreparedDraws, plan_groups};
@@ -109,7 +109,23 @@ impl GpuRenderer {
         }
         let root = CanvasRegion::scene(scene.width, scene.height);
         let mut groups = plan_groups(&items, root).into_iter();
-        let mut instances = Vec::with_capacity(size as usize);
+        if size > self.instances.size() {
+            // In-flight frames keep the old buffer alive until they finish.
+            self.instances = instance_buffer(&self.device, size.next_power_of_two());
+        }
+        // Safe while earlier frames that read this buffer are still in
+        // flight: queued writes land after previously submitted work.
+        let mut staging = std::num::NonZeroU64::new(size).map(|size| {
+            self.queue
+                .write_buffer_with(&self.instances, 0, size)
+                .expect("the instance buffer holds the frame's instances")
+        });
+        let mut instances = InstanceBytes::new(
+            staging
+                .as_mut()
+                .map(|staging| staging.slice(..))
+                .unwrap_or_default(),
+        );
         let mut steps: Vec<GpuStep> = Vec::new();
         let mut index = 0_u32;
         // The canvas each open group draws onto, the root canvas first.
@@ -127,14 +143,9 @@ impl GpuRenderer {
                     particles.write_instances(target, &mut instances);
                     push_draw(
                         &mut steps,
-                        GpuDraw {
-                            texture: particles
-                                .texture()
-                                .unwrap_or(&self.placeholder_texture)
-                                .clone(),
-                            vertices: 0..6,
-                            instances: index..index + particles.count(),
-                        },
+                        particles.texture().unwrap_or(&self.placeholder_texture),
+                        0..6,
+                        index..index + particles.count(),
                     );
                     index += particles.count();
                     continue;
@@ -225,26 +236,23 @@ impl GpuRenderer {
                 PreparedContent::Path(path) => 0..path.tiles * 6,
                 _ => 0..6,
             };
-            let texture = match layer.content {
+            let texture = match &layer.content {
                 PreparedContent::Texture(texture) => texture,
-                PreparedContent::Rect(_) | PreparedContent::Path(_) => {
-                    self.placeholder_texture.clone()
-                }
+                PreparedContent::Rect(_) | PreparedContent::Path(_) => &self.placeholder_texture,
                 PreparedContent::Canvas { .. } => unreachable!("only a group's end draws a canvas"),
-            };
-            let draw = GpuDraw {
-                texture,
-                vertices,
-                instances: index..index + 1,
             };
             if !blend_mode.is_normal() {
                 steps.push(GpuStep::Blend {
-                    draw,
+                    draw: GpuDraw {
+                        texture: texture.clone(),
+                        vertices,
+                        instances: index..index + 1,
+                    },
                     blend_mode,
                     area,
                 });
             } else {
-                push_draw(&mut steps, draw);
+                push_draw(&mut steps, texture, vertices, index..index + 1);
             }
             index += 1;
         }
@@ -256,15 +264,12 @@ impl GpuRenderer {
                     blit_instance: index,
                 }
             });
-        if size > self.instances.size() {
-            // In-flight frames keep the old buffer alive until they finish.
-            self.instances = instance_buffer(&self.device, size.next_power_of_two());
-        }
-        if !instances.is_empty() {
-            // Safe while earlier frames that read this buffer are still in
-            // flight: queued writes land after previously submitted work.
-            self.queue.write_buffer(&self.instances, 0, &instances);
-        }
+        debug_assert_eq!(
+            instances.len() as u64,
+            size,
+            "every counted instance is written"
+        );
+        drop(staging);
 
         // The clips and paints the layers above point into, uploaded like
         // the instances.
@@ -1040,17 +1045,27 @@ fn largest_stretch(m: Affine) -> f64 {
 /// Appends a source-over `draw`, joining it to the previous draw when both
 /// sample the same texture with one quad per instance: a dense scene has
 /// thousands of layers, and consecutive rects all share the placeholder.
-fn push_draw(steps: &mut Vec<GpuStep>, draw: GpuDraw) {
+/// The texture is cloned only for a new draw.
+fn push_draw(
+    steps: &mut Vec<GpuStep>,
+    texture: &LayerTexture,
+    vertices: std::ops::Range<u32>,
+    instances: std::ops::Range<u32>,
+) {
     match steps.last_mut() {
         Some(GpuStep::Draw(last))
-            if last.texture.bind_group == draw.texture.bind_group
+            if last.texture.same(texture)
                 && last.vertices == (0..6)
-                && draw.vertices == (0..6)
-                && last.instances.end == draw.instances.start =>
+                && vertices == (0..6)
+                && last.instances.end == instances.start =>
         {
-            last.instances.end = draw.instances.end;
+            last.instances.end = instances.end;
         }
-        _ => steps.push(GpuStep::Draw(draw)),
+        _ => steps.push(GpuStep::Draw(GpuDraw {
+            texture: texture.clone(),
+            vertices,
+            instances,
+        })),
     }
 }
 

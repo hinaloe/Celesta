@@ -96,7 +96,7 @@ impl PreparedLayer {
         &self,
         target: CanvasRegion,
         canvas: CanvasRegion,
-        output: &mut Vec<u8>,
+        output: &mut InstanceBytes,
     ) {
         let (texel_width, texel_height, kind) = match &self.content {
             PreparedContent::Texture(texture) => (texture.width, texture.height, 0.0),
@@ -161,7 +161,7 @@ impl PreparedLayer {
             level_of_detail,
             raster_scale: self.raster_scale,
         });
-        output.extend_from_slice(bytemuck::cast_slice(&instance));
+        output.push(&instance);
     }
 
     /// Scene pixels the layer's quad can touch: the corners of the quad
@@ -281,6 +281,33 @@ pub(crate) fn pixel_aligned_translation(
 
 /// Floats in one `LayerInstance` of `layer.wgsl`: nine `vec4<f32>`s.
 pub(crate) const LAYER_INSTANCE_FLOATS: usize = 36;
+
+/// A frame's `LayerInstance`s, written in order straight into the memory
+/// the queue uploads them from, so a frame of 100,000 layers is not first
+/// gathered into a buffer of its own and then copied.
+pub(crate) struct InstanceBytes<'a> {
+    bytes: wgpu::WriteOnly<'a, [u8]>,
+    len: usize,
+}
+
+impl<'a> InstanceBytes<'a> {
+    pub(crate) const fn new(bytes: wgpu::WriteOnly<'a, [u8]>) -> Self {
+        Self { bytes, len: 0 }
+    }
+
+    pub(crate) fn push(&mut self, instance: &[f32; LAYER_INSTANCE_FLOATS]) {
+        let end = self.len + LAYER_INSTANCE_FLOATS * 4;
+        self.bytes
+            .slice(self.len..end)
+            .copy_from_slice(bytemuck::bytes_of(instance));
+        self.len = end;
+    }
+
+    /// Bytes written so far.
+    pub(crate) const fn len(&self) -> usize {
+        self.len
+    }
+}
 
 /// Everything one `LayerInstance` holds, before it is laid out.
 pub(crate) struct InstanceFields {

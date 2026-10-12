@@ -296,6 +296,13 @@ impl DecodedImage {
 #[derive(Clone)]
 pub(crate) struct LayerTexture(Arc<TextureData>);
 
+impl LayerTexture {
+    /// Whether draws with `self` and `other` sample the same texture.
+    pub(crate) fn same(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0) || self.bind_group == other.bind_group
+    }
+}
+
 impl std::ops::Deref for LayerTexture {
     type Target = TextureData;
 
