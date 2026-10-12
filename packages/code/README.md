@@ -14,6 +14,7 @@ pnpm install
 pnpm --dir packages/code run test
 pnpm --dir packages/code run check:examples
 cargo run -p celesta-editor --release -- packages/code/examples/highlight.tsx
+cargo run -p celesta-editor --release -- packages/code/examples/lines.tsx
 ```
 
 Like `@celesta/react`, this package is currently private and has not been
@@ -162,6 +163,67 @@ lines accept column 1; invalid positions throw as they do in `useCodePoint()`.
 `tokenizeCode(source, language?)` also exposes the original token text, type,
 and UTF-16 `[start, end)` offsets for custom rendering or analysis. It preserves
 all source text, including whitespace, and requires neither HTML nor a DOM.
+
+## Drawing lines yourself
+
+`highlightCode(source, { language?, theme?, tabSize? })` returns the lines and
+color runs that `Code` draws, so you can stage them differently, for example
+typing one line per beat or adding an accent beside a line. It uses `Code`'s
+rules and defaults (`'text'`, `codeThemes.dark`, and a tab size of 2): LF, CRLF,
+and CR end lines, tabs expand to tab stops, and token types missing from the
+theme use `foreground`. `Code` itself colors its lines with the same function.
+
+Each `HighlightedCodeLine` has:
+
+- `text`: the line with tabs expanded, without its line break. Empty lines are
+  returned as `''` and keep their row.
+- `start`: the original source code points before the line, counted like
+  `visibleCharacters`.
+- `columns`: the expanded column at each original code-point boundary of the
+  line. `columns[0]` is 0 and the last entry is the length of `text` in code
+  points. It converts a source count into `Text`'s `visibleCharacters`, which
+  counts the expanded text.
+- `runs`: `HighlightedCodeRun`s with `start`, `end`, `color`, and `type`, in
+  expanded code-point columns. They cover the whole `text` in order and can be
+  passed as `style.colorRuns` as they are. Adjacent tokens of the same color
+  share one run, which keeps the first token's `type`.
+
+Draw each non-empty line as one `Text` with `Code`'s style, its baseline at the
+ascent of `'M'` below the line's top, to match `Code` exactly:
+
+```tsx
+import { Group, Text, useTextMetrics } from '@celesta/react';
+import { codeThemes, highlightCode } from '@celesta/code';
+
+const style = { fontFamily: 'IBM Plex Mono', fontSize: 24, lineHeight: 36 };
+const theme = codeThemes.dark;
+const lines = highlightCode(source, { language: 'ts', theme });
+
+function OwnCode({ visible = Infinity }: { visible?: number }) {
+  const { ascent } = useTextMetrics('M', style);
+  return <Group x={64} y={64}>
+    {lines.map((line, i) => {
+      if (!line.text || visible <= line.start) return null;
+      const shown = Math.min(visible - line.start, line.columns.length - 1);
+      return <Text key={i} y={i * style.lineHeight + ascent} anchorY="baseline" style={{
+        ...style, fill: { type: 'solid', color: theme.foreground },
+        colorRuns: line.runs, visibleCharacters: line.columns[shown],
+      }}>{line.text}</Text>;
+    })}
+  </Group>;
+}
+```
+
+`<Span style={{ fill: run.color }}>` around each run's code points works in
+place of `colorRuns`. See `examples/lines.tsx` for lines typed on separate
+beats. `highlightCode` does not assume glyph widths; measure positions with
+`useCodePoint()`, or `useTextMetrics()` and `textCaret()`.
+
+`codeLines(tokens, tabSize?)` is the step before coloring. It splits
+`tokenizeCode()` output into the same lines, with an uncolored `CodeRun` for
+each stretch of adjacent same-type tokens (`type`, tab-expanded `text`, and the
+expanded start `column`), for work that needs token types rather than merged
+colors.
 
 ## Current limits
 

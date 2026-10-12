@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { DocCode } from './DocCode';
 import { Api, Note } from './docs-shared';
 import voicevoxScene from './examples/voicevox.tsx?raw';
+import codeLinesScene from './examples/code-lines.tsx?raw';
 
 // Chapters for the packages that ship beside the core Celesta packages.
 
@@ -430,13 +431,27 @@ export const packageContents: Record<string, ReactNode> = {
       "const comments = tokenizeCode(source, 'ts').filter((token) => token.type === 'comment');",
     )} />
 
+    <h3>{text('docs.chapters.code-typing.drawing-the-lines-yourself')}</h3>
+    <p>{text('docs.chapters.code-typing.returns-the-lines-and-color-runs-that', [<code>highlightCode(source, {'{ language, theme, tabSize }'})</code>, <code>Code</code>, <code>Code</code>, <code>'text'</code>, <code>codeThemes.dark</code>, <code>2</code>, <code>foreground</code>])}</p>
+    <Api caption={t('docs.chapters.code-typing.each-line')} rows={[
+      [<code>text</code>, <>{text('docs.chapters.code-typing.api.the-line-with-tabs-expanded')}</>],
+      [<code>start</code>, <>{text('docs.chapters.code-typing.api.original-source-characters-before-the-line', [<code>visibleCharacters</code>])}</>],
+      [<code>columns</code>, <>{text('docs.chapters.code-typing.api.the-expanded-column-after-each-original', [<code>columns[0]</code>, <code>0</code>, <code>text</code>, <code>Text</code>, <code>visibleCharacters</code>])}</>],
+      [<code>runs</code>, <>{text('docs.chapters.code-typing.api.color-runs-over-the-expanded-text', [<code>start</code>, <code>end</code>, <code>color</code>, <code>type</code>, <code>style.colorRuns</code>, <code>type</code>])}</>],
+    ]} />
+    <p>{text('docs.chapters.code-typing.draw-each-non-empty-line-as-one', [<code>Text</code>, <code>Code</code>, <code>Code</code>, <code>'M'</code>, <code>useTextMetrics</code>, <code>Code</code>])}</p>
+    <DocCode label={t('docs.chapters.code-typing.type-one-line-per-beat')} language="tsx" code={codeLinesScene.trim()} />
+    <p>{text('docs.chapters.code-typing.to-color-with-span-instead', [<code>{'<Span style={{ fill: run.color }}>'}</code>, <code>Array.from(line.text)</code>, <code>colorRuns</code>])}</p>
+    <p>{text('docs.chapters.code-typing.does-not-know-glyph-widths', [<code>highlightCode</code>, <code>useCodePoint()</code>, <code>useTextMetrics()</code>, <code>textCaret()</code>])}</p>
+    <p>{text('docs.chapters.code-typing.is-the-step-before-coloring', [<code>codeLines(tokens, tabSize?)</code>, <code>tokenizeCode()</code>, <code>type</code>, <code>text</code>, <code>column</code>])}</p>
+
     <h3>{text('docs.chapters.code-typing.limits')}</h3>
     <ul>
-      <li>{text('docs.chapters.code-typing.each-color-run-is-its-own-layer', [<code>Text</code>])}</li>
-      <li>{text('docs.chapters.code-typing.shaping-does-not-carry-across-color-boundaries')}</li>
+      <li>{text('docs.chapters.code-typing.each-line-is-one-layer', [<code>Text</code>])}</li>
+      <li>{text('docs.chapters.code-typing.shaping-carries-across-color-boundaries')}</li>
       <li>{text('docs.chapters.code-typing.proportional-fonts-are-not-a-supported-layout')}</li>
-      <li>{text('docs.chapters.code-typing.blank-runs-get-no-layer-but-keep', [<code>Text</code>])}</li>
+      <li>{text('docs.chapters.code-typing.empty-lines-get-no-layer', [<code>Text</code>])}</li>
     </ul>
-    <p>{text('docs.chapters.code-typing.sharing-styled-text-shaping-in-the-core', [<a href="https://github.com/mika-f/Celesta/issues/99" />, <a href="https://github.com/mika-f/Celesta/issues/100" />])}</p>
+    <p>{text('docs.chapters.code-typing.browser-support-is-tracked-in', [<a href="https://github.com/mika-f/Celesta/issues/100" />])}</p>
   </>,
 };

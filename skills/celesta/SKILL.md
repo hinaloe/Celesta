@@ -184,7 +184,7 @@ layers sit; it does not prove the rendered pixels.
 | `@celesta/project` | `ProjectProvider`, `ProjectTimeline`, `ProjectTrack`, `useProject`, `useProjectProperty`, `useProjectTrack`, `loadProject`, and the project file types |
 | `@celesta/debug` | `DebugOverlay`, `DebugBounds` |
 | `@celesta/math` | `random`, `noise`, `loopNoise`, and math helpers |
-| `@celesta/code` | `Code` and syntax highlighting |
+| `@celesta/code` | `Code`, `highlightCode`, and syntax highlighting |
 | `@celesta/voicevox` | `lipSyncFromVoicevox` |
 
 An import from the wrong package fails with `@celesta/react does not export
@@ -205,7 +205,7 @@ Load only the one you need; each is self-contained.
 | Entry file and `prepare()`, layer props, `Rect`/gradients, `Path`/`Line`/`Polyline`, `Circle`/`Ellipse`/`Arrow`, `Group` clip, `Image`, `Video`, `Audio`, `Font`/`Assets`, layout helpers (`Center`, `SafeArea`, `Stack`, `Grid`, `Fit`), `preloadMedia`, audio keyframes and `frameKeyframes`, debug guides | [react-core.md](references/react-core.md) |
 | Frame hooks, `interpolate`, `interpolateColor`, `Easings`, `spring`, `progress`, `Sequence`, `Series`, `TransitionSeries`, `Stagger`, `Transition`, `useBeat`, `useCue`, `Camera`, timecodes | [animation.md](references/animation.md) |
 | `Text`, `TextStyle`, fonts and fallback, font stacks (和欧混植), text language (`lang`), emoji, line breaking, `TextReveal`, `useTypewriter`, `useCountUp`, `useTextMetrics`/`measureText`, `TextBox`/`useFitText`/`fitText` | [text.md](references/text.md) |
-| Syntax-highlighted code, typing code, highlighted lines, carets (`@celesta/code`) | [code.md](references/code.md) |
+| Syntax-highlighted code, typing code, highlighted lines, carets, drawing code lines yourself (`@celesta/code`) | [code.md](references/code.md) |
 | Seeded random, noise, clamp/lerp/remap, waves, angles, points (`@celesta/math`) | [math.md](references/math.md) |
 | A seamless loop (Shorts, TikTok): loop length from beats and bars, periodic motion, looping noise, folding the music's tail back, `inspect.mjs --loop` | [loops.md](references/loops.md) |
 | Custom WGSL filters: ripples, RGB splits, color grades (`@celesta/shader`, the `shader` prop) | [shader.md](references/shader.md) |

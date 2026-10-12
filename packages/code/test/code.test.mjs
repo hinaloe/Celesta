@@ -7,9 +7,9 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import React from 'react';
-import { Composition, Font, Rect, useCurrentFrame } from '@celesta/react';
+import { Composition, Font, Group, Rect, Span, Text, useCurrentFrame, useTextMetrics } from '@celesta/react';
 import { mount, setTextMeasurer } from '@celesta/react/internal';
-import { Code, codeCharacterCount, codeThemes, tokenizeCode, useCodePoint } from '../dist/index.js';
+import { Code, codeCharacterCount, codeLines, codeThemes, highlightCode, tokenizeCode, useCodePoint } from '../dist/index.js';
 
 function metrics(request) {
   const lines = request.text.split('\n');
@@ -284,11 +284,17 @@ for (const packaged of [false, true]) test(`${packaged ? 'packaged' : 'source'} 
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const entry = join(directory, 'entry.tsx');
   writeFileSync(entry, `
-    import { Composition } from '@celesta/react';
+    import { Composition, type TextColorRun } from '@celesta/react';
     import { useTypewriter } from '@celesta/text';
-    import { Code, codeCharacterCount } from '@celesta/code';
+    import { Code, codeCharacterCount, codeLines, highlightCode, tokenizeCode } from '@celesta/code';
+    import type { CodeLine, CodeRun, HighlightCodeOptions, HighlightedCodeLine, HighlightedCodeRun } from '@celesta/code';
     const source = 'const value = "😀";';
     const maximum: number = codeCharacterCount(source, { line: 1, column: Array.from(source).length + 1 });
+    const options: HighlightCodeOptions = { language: 'ts', tabSize: 4 };
+    const lines: HighlightedCodeLine[] = highlightCode(source, options);
+    const runs: HighlightedCodeRun[] = lines[0].runs;
+    export const colorRuns: TextColorRun[] = runs;
+    export const tokenRuns: CodeRun[] = codeLines(tokenizeCode(source, 'ts')).flatMap((line: CodeLine) => line.runs);
     function Demo() {
       const { length } = useTypewriter(source, { framesPerChar: 0.5 });
       return <Code language="ts" visibleCharacters={Math.min(length, maximum)} highlightLines={[1]} highlightWidth={800}>{source}</Code>;
@@ -383,4 +389,147 @@ test('useCodePoint explicitly rejects browser glyph metrics', () => {
   const Label = () => { useCodePoint('abc', { line: 1, column: 2 }); return null; };
   const Root = () => React.createElement(Composition, { width: 100, height: 100, fps: 30, durationInFrames: 1 }, React.createElement(Label));
   assert.throws(() => frameAt(mount(Root), 0), /useCodePoint\(\).*unsupported in browser renders/);
+});
+
+// Each Code line is a Group holding an optional band and an optional Text.
+function codeLineTexts(scene) {
+  return scene.layers[0].content.layers.map(line => line.content.layers.find(layer => layer.content.type === 'text') ?? null);
+}
+
+// What a caller drawing one Text per line passes, given `visible` original code points.
+function lineText(line, visible) {
+  if (!line.text || visible <= line.start) return null;
+  const shown = visible - line.start;
+  return {
+    text: line.text,
+    colorRuns: line.runs.map(({ start, end, color }) => ({ start, end, color })),
+    visibleCharacters: shown < line.columns.length - 1 ? line.columns[shown] : undefined,
+  };
+}
+
+const highlightCases = [
+  ['tsx', '<Text label="😀あ">{value}</Text>\r\n', 2],
+  ['ts', 'const value: string = "日本語";\n/* first\n second */\n', 2],
+  ['json', '{\n\t"value": "😀あ",\t"count": 42\n}\n', 4],
+  ['bash', '# comment\n\techo "👩‍💻 🇯🇵 👍🏽"\n', 2],
+  ['text', '  😀あ\t é\r\n\n', 2],
+  ['ts', 'a\tb\t\tc\r\n\r\n\tx = 1;\rlet y\t= "\t";\n\n', 4],
+  ['tsx', 'const 名前 = "👨‍👩‍👧‍👦";\r// 絵文字 🇯🇵\n', 3],
+  ['bash', '\r\n\r\recho ok', 2],
+  ['text', '', 2],
+  ['text', '\n', 2],
+];
+
+test('highlightCode matches the text, colorRuns and visibleCharacters Code gives each line', () => {
+  setTextMeasurer(async request => metrics(request), metrics);
+  for (const [language, source, tabSize] of highlightCases) {
+    for (const theme of [codeThemes.dark, codeThemes.light]) {
+      const lines = highlightCode(source, { language, theme, tabSize });
+      const total = Array.from(source).length;
+      const counts = [...Array(total + 2).keys(), Infinity];
+      function Root() {
+        const frame = useCurrentFrame();
+        return React.createElement(Composition, { width: 800, height: 300, fps: 30, durationInFrames: counts.length },
+          React.createElement(Code, { language, theme, tabSize, visibleCharacters: counts[frame], children: source }));
+      }
+      const mounted = mount(Root);
+      counts.forEach((visible, frame) => {
+        const drawn = codeLineTexts(frameAt(mounted, frame));
+        assert.equal(drawn.length, lines.length, `${language} ${JSON.stringify(source)}`);
+        drawn.forEach((layer, index) => {
+          const label = `${language} ${JSON.stringify(source)} line ${index + 1} visible ${visible}`;
+          const expected = lineText(lines[index], visible);
+          if (!expected) return assert.equal(layer, null, label);
+          assert.deepEqual({
+            text: layer.content.text, colorRuns: layer.content.style.colorRuns,
+            visibleCharacters: layer.content.style.visibleCharacters,
+          }, expected, label);
+        });
+      });
+    }
+  }
+});
+
+test('highlightCode lines record expanded text, source starts, columns and merged runs', () => {
+  const theme = { foreground: '#111111', highlightLine: '#000000', tokens: { keyword: '#ff0000', builtin: '#ff0000', string: '#00ff00' } };
+  assert.deepEqual(highlightCode('a\tbc\r\n\t😀あ\rx\n\n', { tabSize: 4, theme }), [
+    { text: 'a   bc', start: 0, columns: [0, 1, 4, 5, 6], runs: [{ start: 0, end: 6, color: '#111111', type: 'plain' }] },
+    { text: '    😀あ', start: 6, columns: [0, 4, 5, 6], runs: [{ start: 0, end: 6, color: '#111111', type: 'plain' }] },
+    { text: 'x', start: 10, columns: [0, 1], runs: [{ start: 0, end: 1, color: '#111111', type: 'plain' }] },
+    { text: '', start: 12, columns: [0], runs: [] },
+    { text: '', start: 13, columns: [0], runs: [] },
+  ]);
+  const [line] = highlightCode('const s = "👩‍💻";', { language: 'ts', theme });
+  assert.equal(line.text, 'const s = "👩‍💻";');
+  assert.deepEqual(line.runs.map(run => [Array.from(line.text).slice(run.start, run.end).join(''), run.color, run.type]), [
+    ['const', '#ff0000', 'keyword'], [' s = ', '#111111', 'plain'], ['"👩‍💻"', '#00ff00', 'string'], [';', '#111111', 'punctuation'],
+  ]);
+  // Same-colored neighbours merge and keep the first token's type; codeLines keeps every token.
+  const merged = highlightCode('const x = 1;', { language: 'ts', theme: { ...theme, foreground: '#ff0000' } })[0].runs;
+  assert.deepEqual(merged, [{ start: 0, end: 12, color: '#ff0000', type: 'keyword' }]);
+  const tokens = codeLines(tokenizeCode('const x = 1;', 'ts'))[0].runs;
+  assert.deepEqual(tokens.map(run => run.type), ['keyword', 'plain', 'constant', 'plain', 'operator', 'plain', 'number', 'punctuation']);
+  assert.deepEqual(codeLines(tokenizeCode('\tx'), 4)[0], { text: '    x', start: 0, columns: [0, 4, 5], runs: [{ type: 'plain', text: '    x', column: 0 }] });
+});
+
+test('highlightCode uses Code defaults and rejects the inputs Code rejects', () => {
+  const source = 'const tab =\t"x";\n';
+  assert.deepEqual(highlightCode(source), highlightCode(source, { language: 'text', theme: codeThemes.dark, tabSize: 2 }));
+  assert.deepEqual(highlightCode(source, { language: 'ts' }), highlightCode(source, { language: 'ts', theme: codeThemes.dark, tabSize: 2 }));
+  assert.deepEqual(codeLines(tokenizeCode(source)), codeLines(tokenizeCode(source), 2));
+  assert.throws(() => highlightCode(null), /source must be a string/);
+  assert.throws(() => highlightCode('x', { language: 'ruby' }), /Unsupported code language/);
+  for (const tabSize of [0, -1, 1.5, Infinity, NaN]) {
+    assert.throws(() => highlightCode('x', { tabSize }), /tabSize/);
+    assert.throws(() => codeLines([], tabSize), /tabSize/);
+  }
+});
+
+test('one Text per line drawn from highlightCode matches Code, with colorRuns or <Span> fills', () => {
+  setTextMeasurer(async request => metrics(request), metrics);
+  const source = 'import { Text } from "@celesta/react";\r\n\n\tconst 名前 = "👩‍💻";\r\texport default 名前;\n';
+  const style = { fontFamily: 'IBM Plex Mono', fontSize: 24, lineHeight: 36 };
+  const theme = codeThemes.light;
+  const counts = [0, 10, 41, 50, Infinity];
+  function SelfDrawn({ visible, spans }) {
+    const lines = highlightCode(source, { language: 'tsx', theme, tabSize: 4 });
+    const { ascent } = useTextMetrics('M', style);
+    return React.createElement(Group, { x: 40, y: 20 }, lines.map((line, index) => {
+      const props = lineText(line, visible);
+      if (!props) return null;
+      const characters = Array.from(line.text);
+      return React.createElement(Text, {
+        key: index, y: index * style.lineHeight + ascent, anchorY: 'baseline',
+        style: {
+          ...style, align: 'left', fill: { type: 'solid', color: theme.foreground },
+          visibleCharacters: props.visibleCharacters, ...(spans ? {} : { colorRuns: line.runs }),
+        },
+        children: spans
+          ? line.runs.map((run, key) => React.createElement(Span, { key, style: { fill: run.color } }, characters.slice(run.start, run.end).join('')))
+          : line.text,
+      });
+    }));
+  }
+  const summary = scene => layers(scene).filter(layer => layer.content.type === 'text').map(({ x, y, content }) => ({
+    x, y, text: content.text, baselineAnchor: content.baselineAnchor, fill: content.style.fill,
+    fontFamily: content.style.fontFamily, fontSize: content.style.fontSize, lineHeight: content.style.lineHeight,
+    colorRuns: content.style.colorRuns.map(({ start, end, color }) => ({ start, end, color })),
+    visibleCharacters: content.style.visibleCharacters,
+  }));
+  for (const spans of [false, true]) {
+    function Root() {
+      const visible = counts[useCurrentFrame()];
+      return React.createElement(Composition, { width: 800, height: 300, fps: 30, durationInFrames: counts.length },
+        React.createElement(Code, { x: 40, y: 20, language: 'tsx', style, theme, tabSize: 4, visibleCharacters: visible, children: source }),
+        React.createElement(Group, { x: 1000 }, React.createElement(SelfDrawn, { visible, spans })));
+    }
+    const mounted = mount(Root);
+    counts.forEach((visible, frame) => {
+      const drawn = summary(frameAt(mounted, frame));
+      const code = drawn.filter(layer => layer.x < 1000);
+      const own = drawn.filter(layer => layer.x >= 1000).map(layer => ({ ...layer, x: layer.x - 1000 }));
+      assert.ok(code.length > 0 || visible === 0);
+      assert.deepEqual(own, code, `${spans ? 'Span' : 'colorRuns'} visible ${visible}`);
+    });
+  }
 });
