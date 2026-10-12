@@ -1438,3 +1438,68 @@ fn executable_works(path: &Path) -> bool {
         .output()
         .is_ok_and(|output| output.status.success())
 }
+
+/// The layers a scene draws, in painter's order, without the groups that
+/// hold them or their ids: a `<Static>` adds a group level and a path
+/// segment, and nothing else may differ from the same scene written out.
+fn drawn_layers(layers: &[Layer]) -> Vec<Layer> {
+    layers
+        .iter()
+        .flat_map(|layer| match &layer.content {
+            LayerContent::Group { layers, .. } => drawn_layers(layers),
+            _ => vec![Layer {
+                id: String::new(),
+                ..layer.clone()
+            }],
+        })
+        .collect()
+}
+
+#[test]
+fn static_subtrees_expand_to_the_inline_scene_when_node_is_available() {
+    let Some((node, cli_script, package_root)) = live_react_runtime() else {
+        return;
+    };
+    let examples = package_root.join("examples");
+    let mut cached =
+        ReactBridge::spawn(&node, &cli_script, examples.join("with-static.tsx")).unwrap();
+    let mut inline =
+        ReactBridge::spawn(&node, &cli_script, examples.join("with-static-inline.tsx")).unwrap();
+    // Into and out of the sequence's window, across the chapter that
+    // changes `deps`, and back again.
+    for frame in [0, 10, 25, 45, 25, 40, 10, 40] {
+        let time = Time::new(frame, 30);
+        let with_static = cached.scene_at(time).unwrap();
+        let written_out = inline.scene_at(time).unwrap();
+        assert_eq!(
+            drawn_layers(&with_static.layers),
+            drawn_layers(&written_out.layers),
+            "frame {frame}"
+        );
+    }
+}
+
+#[test]
+fn pipelined_static_frames_match_serial_ones_when_node_is_available() {
+    let Some((node, cli_script, package_root)) = live_react_runtime() else {
+        return;
+    };
+    let entry = package_root.join("examples/with-static.tsx");
+    let mut serial = ReactBridge::spawn(&node, &cli_script, &entry).unwrap();
+    let mut pipelined = ReactBridge::spawn(&node, &cli_script, &entry).unwrap();
+    pipelined.submit_frame(Time::new(0, 30), None).unwrap();
+    for frame in 0..60 {
+        let pending = pipelined.receive_frame().unwrap();
+        if frame + 1 < 60 {
+            pipelined
+                .submit_frame(Time::new(frame + 1, 30), None)
+                .unwrap();
+        }
+        let decoded = pipelined.decode_frame(pending).unwrap().scene;
+        assert_eq!(
+            decoded,
+            serial.scene_at(Time::new(frame, 30)).unwrap(),
+            "frame {frame}"
+        );
+    }
+}
