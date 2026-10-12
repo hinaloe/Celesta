@@ -79,6 +79,23 @@ impl YuvConverter {
         }
     }
 
+    /// What `encode` converts `frame`, a frame composited in
+    /// `canvas_format`, through.
+    pub(crate) fn frame_bind_group(
+        &self,
+        device: &wgpu::Device,
+        frame: &wgpu::TextureView,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Celesta yuv420p bind group"),
+            layout: &self.bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(frame),
+            }],
+        })
+    }
+
     /// The plane textures and bind group converting one `width`x`height`
     /// slot whose frame, composited in `canvas_format`, is `frame`.
     pub(crate) fn readback(
@@ -88,14 +105,7 @@ impl YuvConverter {
         width: u32,
         height: u32,
     ) -> Result<YuvReadback, GpuRenderError> {
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Celesta yuv420p bind group"),
-            layout: &self.bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(frame),
-            }],
-        });
+        let bind_group = self.frame_bind_group(device, frame);
         let mut offset = 0;
         let mut plane = |label, width: u32, height: u32| -> Result<YuvPlane, GpuRenderError> {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -135,8 +145,14 @@ impl YuvConverter {
         Ok(YuvReadback { bind_group, planes })
     }
 
-    /// Renders the slot's frame into its Y, U, and V planes.
-    pub(crate) fn encode(&self, encoder: &mut wgpu::CommandEncoder, yuv: &YuvReadback) {
+    /// Renders the frame `frame` binds (`frame_bind_group`; the slot's own
+    /// is `yuv.bind_group`) into the slot's Y, U, and V planes.
+    pub(crate) fn encode(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        yuv: &YuvReadback,
+        frame: &wgpu::BindGroup,
+    ) {
         fn attachment(plane: &YuvPlane) -> Option<wgpu::RenderPassColorAttachment<'_>> {
             Some(wgpu::RenderPassColorAttachment {
                 view: &plane.view,
@@ -170,7 +186,7 @@ impl YuvConverter {
                 multiview_mask: None,
             });
             pass.set_pipeline(pipeline);
-            pass.set_bind_group(0, &yuv.bind_group, &[]);
+            pass.set_bind_group(0, frame, &[]);
             pass.draw(0..3, 0..1);
         }
     }

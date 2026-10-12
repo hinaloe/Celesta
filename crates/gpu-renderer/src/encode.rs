@@ -4,14 +4,15 @@ use crate::error::GpuRenderError;
 use crate::pipeline::{PipelineKind, create_pipeline};
 use crate::plan::{GpuStep, PreparedDraws};
 use crate::renderer::GpuRenderer;
-use crate::texture::canvas_texture;
+use crate::texture::{CanvasTexture, canvas_texture};
 use crate::types::{GpuRenderTarget, PreviewViewport};
 use celesta_composition::Scene;
 
 impl GpuRenderer {
     /// Draws `scene` onto `target` as `encode_draws` does, but onto a canvas
     /// of `canvas_format` first, which `quantizer` then rounds onto `target`
-    /// with its dither, as `submit` does for an export.
+    /// with its dither, as `submit` does for an export. A target the size of
+    /// the scene is rounded from the canvas `encode_scene` finishes on.
     pub(crate) fn encode_frame(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
@@ -38,21 +39,56 @@ impl GpuRenderer {
             ));
         }
         let canvas = self.target_canvas.clone().expect("created above");
+        let frame = if (target.width, target.height) == (scene.width, scene.height) {
+            self.encode_scene(encoder, scene, draws, &canvas)?
+        } else {
+            self.encode_draws(
+                encoder,
+                scene,
+                GpuRenderTarget {
+                    view: &canvas.view,
+                    format: self.canvas_format,
+                    width: target.width,
+                    height: target.height,
+                },
+                draws,
+            )?;
+            canvas
+        };
+        self.quantizer.ensure_pipeline(&self.device, target.format);
+        self.quantizer
+            .encode(encoder, &frame, target.view, target.format);
+        Ok(())
+    }
+
+    /// Draws `scene` at its own size and returns the canvas the frame
+    /// finishes on, for a pass that reads it texel for texel (quantizing or
+    /// converting it to YUV): the root canvas for a composited frame, which
+    /// spares copying it onto `canvas` first, else `canvas` itself, a
+    /// scene-sized canvas of `canvas_format` the layers draw onto.
+    pub(crate) fn encode_scene(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        scene: &Scene,
+        draws: &PreparedDraws,
+        canvas: &CanvasTexture,
+    ) -> Result<CanvasTexture, GpuRenderError> {
+        if draws.composite.is_some() {
+            self.encode_composited(encoder, scene, draws);
+            return Ok(self.canvas.clone().expect("encode_composited creates it"));
+        }
         self.encode_draws(
             encoder,
             scene,
             GpuRenderTarget {
                 view: &canvas.view,
                 format: self.canvas_format,
-                width: target.width,
-                height: target.height,
+                width: scene.width,
+                height: scene.height,
             },
             draws,
         )?;
-        self.quantizer.ensure_pipeline(&self.device, target.format);
-        self.quantizer
-            .encode(encoder, &canvas, target.view, target.format);
-        Ok(())
+        Ok(canvas.clone())
     }
 
     pub(crate) fn encode_draws(
