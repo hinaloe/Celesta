@@ -142,6 +142,34 @@ six alternating runs each (noisy: 5.2–7.1 s and 4.6–10.5 s). The MP4 grew
 from 1.78 MB to 2.31 MB (+30%) at the same CRF 18: x264 spends bits keeping
 the dither.
 
+### Reading composited frames from the root canvas
+
+Later on 2026-10-12, a composited frame (blend modes, isolated groups,
+effects, masks, shaders) stopped being copied from the root canvas onto the
+slot's (or `target_canvas`) before the quantize or YUV passes: `encode_scene`
+returns the canvas the frame finishes on, and those passes read the root
+canvas directly when the target is the scene's size. The copy was a full
+half-float frame written and read again. The YUV passes clamp to 0-1, as
+the copy's `fs_main` did. Frames without compositing still draw onto the
+slot's canvas. The output is unchanged: the benchmark's last frames are
+byte-identical PNGs, and NEBULA's and SPECTRA's first 4 s decode to the same
+frames in 8- and 10-bit MP4. `reads_composited_frames_back_like_directly_drawn_ones`
+covers every readback format. Against `dce6f87`, same machine and settings,
+15 rounds, seed 873468689 (another build ran alongside, so ranges are wide):
+
+| Workload | Base (ms/frame) | Head (ms/frame) | Change |
+| --- | ---: | ---: | ---: |
+| nebula | 5.181 | 4.953 | -4.39% [-9.6, +7.4] |
+| spectra | 3.566 | 3.374 | -5.39% [-8.6, +2.3] |
+| blur | 5.735 | 5.323 | -7.18% [-8.6, -2.4] |
+| shapes | 1.341 | 1.133 | -15.52% [-18.8, -9.9] |
+| shaders | 2.386 | 2.075 | -13.03% [-16.8, -9.8] |
+
+About 0.13-0.3 ms per 1080p frame. `rings`, `ribbons`, `text` and `images`
+did not change measurably (10 rounds, seed 863745588). Whole MP4
+exports of NEBULA and SPECTRA (8 s, five alternating runs) did not change
+measurably: React evaluation and x264 dominate them.
+
 ## Tests
 
 - `dithers_gentle_gradients_and_keeps_solid_fills`: an 8-code gradient over
