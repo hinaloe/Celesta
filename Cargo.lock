@@ -1002,7 +1002,7 @@ dependencies = [
 
 [[package]]
 name = "celesta-bench"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "celesta-composition",
  "celesta-gpu-renderer",
@@ -1014,14 +1014,14 @@ dependencies = [
 
 [[package]]
 name = "celesta-budoux"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "celesta-composition"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -1031,7 +1031,7 @@ dependencies = [
 
 [[package]]
 name = "celesta-editor"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "celesta-composition",
  "celesta-editor-core",
@@ -1053,7 +1053,7 @@ dependencies = [
 
 [[package]]
 name = "celesta-editor-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "celesta-composition",
  "celesta-evaluator",
@@ -1064,7 +1064,7 @@ dependencies = [
 
 [[package]]
 name = "celesta-editor-theme"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "celesta-project",
  "gpui-kit",
@@ -1072,7 +1072,7 @@ dependencies = [
 
 [[package]]
 name = "celesta-evaluator"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "celesta-composition",
  "celesta-project",
@@ -1080,7 +1080,7 @@ dependencies = [
 
 [[package]]
 name = "celesta-exporter"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "celesta-composition",
  "celesta-evaluator",
@@ -1099,7 +1099,7 @@ dependencies = [
 
 [[package]]
 name = "celesta-gpu-renderer"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "bytemuck",
  "celesta-composition",
@@ -1123,7 +1123,7 @@ dependencies = [
 
 [[package]]
 name = "celesta-media"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "celesta-composition",
  "celesta-remote",
@@ -1132,7 +1132,7 @@ dependencies = [
 
 [[package]]
 name = "celesta-project"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "celesta-composition",
  "serde",
@@ -1142,7 +1142,7 @@ dependencies = [
 
 [[package]]
 name = "celesta-react-bridge"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "celesta-composition",
  "celesta-media",
@@ -1154,7 +1154,7 @@ dependencies = [
 
 [[package]]
 name = "celesta-remote"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "celesta-composition",
  "tempfile",
@@ -1163,7 +1163,7 @@ dependencies = [
 
 [[package]]
 name = "celesta-renderer"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "celesta-budoux",
  "celesta-composition",
