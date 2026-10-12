@@ -61,6 +61,11 @@ runs:
     - name: Install FFmpeg (Homebrew)
       if: runner.os == 'macOS'
       shell: bash
+      env:
+        # Otherwise upgrading a dependency (ca-certificates) also upgrades the
+        # image's unrelated tools that depend on it, and every install cleans up.
+        HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: '1'
+        HOMEBREW_NO_INSTALL_CLEANUP: '1'
       run: |
         # The runner image's formula index can predate ffmpeg@8.
         brew update
