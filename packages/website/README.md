@@ -149,7 +149,10 @@ assets and runs `pnpm run deploy`. It needs the `CLOUDFLARE_API_TOKEN` and
   shared UI; `src/features/playground/` the editor and preview;
   `src/pages/<page>/` each page's entry, component, and content;
   `src/styles/` the style sheets. `plugins/` holds the Vite plugins.
-- `src/pages/home/HomePage.tsx`: product copy, navigation, documentation and repository links.
+- `src/components/SiteHeader.tsx` and `src/components/SiteFooter.tsx`: the
+  header and footer on every page. Navigation labels are in
+  `common.navigation` and `common.footer` in each catalog.
+- `src/pages/home/HomePage.tsx`: product copy, documentation and repository links.
 - `src/site/links.ts`, `src/components/download-links.ts`, and
   `src/components/Download.tsx`: repository and download links, and the
   platform-aware download buttons.
