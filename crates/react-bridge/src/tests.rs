@@ -796,6 +796,7 @@ fn open_end_frame_requests_ask_for_and_read_back_the_echo() {
         components: None,
         compact_transforms: true,
         open_end,
+        statics: None,
     };
     let past = serde_json::to_value(request(true)).unwrap();
     assert_eq!(past["openEnd"], true);
@@ -820,4 +821,194 @@ fn open_end_frame_requests_ask_for_and_read_back_the_echo() {
         panic!("expected an Ok response");
     };
     assert!(!open_end);
+}
+
+mod statics {
+    use crate::error::ReactBridgeError;
+    use crate::protocol::{Request, StaticsRequest};
+    use crate::statics::StaticCache;
+    use celesta_composition::{
+        EvaluatedTransform, GroupMask, Layer, LayerContent, MaskMode, Rational, Scene, Time,
+    };
+    use std::collections::HashMap;
+
+    fn layer(id: &str, content: LayerContent) -> Layer {
+        Layer {
+            id: id.to_owned(),
+            transform: EvaluatedTransform::default(),
+            opacity: 1.0,
+            blend_mode: Default::default(),
+            effects: Default::default(),
+            content,
+        }
+    }
+
+    fn rect(id: &str) -> Layer {
+        layer(
+            id,
+            LayerContent::Rect {
+                width: 1.0,
+                height: 2.0,
+                fill: None,
+                stroke: None,
+                corner_radius: 0.0,
+            },
+        )
+    }
+
+    fn group(id: &str, layers: Vec<Layer>, mask: Option<GroupMask>) -> Layer {
+        layer(
+            id,
+            LayerContent::Group {
+                layers,
+                clip: None,
+                mask,
+            },
+        )
+    }
+
+    fn reference(id: &str, key: u32) -> Layer {
+        layer(id, LayerContent::StaticRef { key })
+    }
+
+    fn scene(layers: Vec<Layer>) -> Scene {
+        Scene {
+            width: 4,
+            height: 4,
+            frame_rate: Rational::new(30, 1),
+            time: Time::ZERO,
+            fonts: Vec::new(),
+            shaders: Vec::new(),
+            layers,
+        }
+    }
+
+    fn expanded(id: &str, layers: Vec<Layer>) -> Layer {
+        group(id, layers, None)
+    }
+
+    #[test]
+    fn expands_static_refs_at_every_depth() {
+        let mut cache = StaticCache::default();
+        let mut frame = scene(vec![
+            reference("top", 1),
+            group("outer", vec![reference("inner", 1)], None),
+            group(
+                "masked",
+                Vec::new(),
+                Some(GroupMask {
+                    layers: vec![reference("matte", 1)],
+                    mode: MaskMode::Alpha,
+                    invert: false,
+                }),
+            ),
+        ]);
+        cache
+            .apply(
+                Some(4),
+                HashMap::from([(1, vec![rect("r")])]),
+                Vec::new(),
+                &mut frame,
+            )
+            .unwrap();
+        assert_eq!(frame.layers[0], expanded("top", vec![rect("r")]));
+        let LayerContent::Group { layers, .. } = &frame.layers[1].content else {
+            panic!("not a group");
+        };
+        assert_eq!(layers[0], expanded("inner", vec![rect("r")]));
+        let LayerContent::Group {
+            mask: Some(mask), ..
+        } = &frame.layers[2].content
+        else {
+            panic!("no mask");
+        };
+        assert_eq!(mask.layers[0], expanded("matte", vec![rect("r")]));
+        assert_eq!(cache.decoded(), 4);
+    }
+
+    #[test]
+    fn keeps_definitions_between_frames() {
+        let mut cache = StaticCache::default();
+        let mut first = scene(vec![reference("s", 1)]);
+        cache
+            .apply(
+                Some(1),
+                HashMap::from([(1, vec![rect("r")])]),
+                Vec::new(),
+                &mut first,
+            )
+            .unwrap();
+        let mut second = scene(vec![reference("s", 1)]);
+        cache
+            .apply(Some(2), HashMap::new(), Vec::new(), &mut second)
+            .unwrap();
+        assert_eq!(second.layers[0], expanded("s", vec![rect("r")]));
+        assert_eq!(cache.decoded(), 2);
+    }
+
+    #[test]
+    fn drops_keys_after_expanding() {
+        let mut cache = StaticCache::default();
+        let mut first = scene(vec![reference("s", 1)]);
+        cache
+            .apply(
+                Some(1),
+                HashMap::from([(1, vec![rect("r")])]),
+                vec![1],
+                &mut first,
+            )
+            .unwrap();
+        assert_eq!(first.layers[0], expanded("s", vec![rect("r")]));
+        let mut second = scene(vec![reference("s", 1)]);
+        let error = cache
+            .apply(Some(2), HashMap::new(), Vec::new(), &mut second)
+            .unwrap_err();
+        assert!(
+            matches!(error, ReactBridgeError::MissingStatic(1)),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_missing_key_resets_the_cache() {
+        let mut cache = StaticCache::default();
+        let mut first = scene(vec![reference("s", 1)]);
+        cache
+            .apply(
+                Some(5),
+                HashMap::from([(1, vec![rect("r")])]),
+                Vec::new(),
+                &mut first,
+            )
+            .unwrap();
+        let mut broken = scene(vec![reference("t", 2)]);
+        assert!(
+            cache
+                .apply(Some(6), HashMap::new(), Vec::new(), &mut broken)
+                .is_err()
+        );
+        assert_eq!(cache.decoded(), 0);
+        let mut again = scene(vec![reference("s", 1)]);
+        assert!(matches!(
+            cache.apply(Some(7), HashMap::new(), Vec::new(), &mut again),
+            Err(ReactBridgeError::MissingStatic(1))
+        ));
+    }
+
+    #[test]
+    fn frame_requests_report_what_was_decoded() {
+        let request = |statics| Request {
+            time: Some(Time::ZERO),
+            project: None,
+            runtime: None,
+            components: None,
+            compact_transforms: true,
+            open_end: false,
+            statics,
+        };
+        let json = serde_json::to_string(&request(Some(StaticsRequest { decoded: 3 }))).unwrap();
+        assert!(json.contains(r#""statics":{"decoded":3}"#), "{json}");
+        let json = serde_json::to_string(&request(None)).unwrap();
+        assert!(!json.contains("statics"), "{json}");
+    }
 }

@@ -13,6 +13,7 @@ mod measure;
 mod probe;
 mod properties;
 mod protocol;
+mod statics;
 #[cfg(test)]
 mod tests;
 mod types;
