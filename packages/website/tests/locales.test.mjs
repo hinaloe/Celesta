@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { localeCodes, preferredLocale, localizedPath } from '../src/locales.ts';
-import { getDocGroups } from '../src/docs-nav.ts';
-import { translate } from '../src/catalog.ts';
-import { richText } from '../src/i18n.ts';
+import { localeCodes, preferredLocale, localizedPath } from '../src/site/locales.ts';
+import { getDocGroups } from '../src/site/docs-nav.ts';
+import { translate } from '../src/site/catalog.ts';
+import { richText } from '../src/site/i18n.ts';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import worker from '../worker.ts';

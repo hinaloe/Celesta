@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Brand } from './Brand';
-import { Playground } from './Playground';
-import { repository } from './links';
-import { showcase, showcasePath } from './showcase-catalog';
-import { loadShowcase, posters } from './showcase-sources';
-import { currentLocale, homePath, t } from './i18n';
-import { docPath } from './docs-nav';
-import { LanguageSwitcher } from './LanguageSwitcher';
+import { Brand } from '../../components/Brand';
+import { Playground } from '../../features/playground/Playground';
+import { repository } from '../../site/links';
+import { showcase, showcasePath } from '../../site/showcase-catalog';
+import { loadShowcase, posterURL } from './sources';
+import { currentLocale, homePath, t } from '../../site/i18n';
+import { docPath } from '../../site/docs-nav';
+import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 
-export function Showcase() {
+export function ShowcasePage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const slug = window.location.pathname.replace(/^\/(?:[a-z]+\/)?showcase\/?/, '').replace(/\/+$/, '');
   const path = (slug = '') => showcasePath(slug, currentLocale);
@@ -41,7 +41,7 @@ export function Showcase() {
         : <section className="shell showcase-gallery" aria-label={t('showcase.compositions')}>
           <p className="showcase-note">{t('showcase.note')}</p>
           <div className="showcase-grid">{showcase.map((item, index) => {
-            const poster = posters[`../../../examples/${item.slug}/poster.jpg`];
+            const poster = posterURL(item.slug);
             return <a className="showcase-card" key={item.slug} href={path(item.slug)}>
               <div className="showcase-poster">{poster ? <img src={poster} alt="" loading="lazy" width="1920" height="1080" /> : <span aria-hidden="true">{item.title.toUpperCase()}</span>}</div>
               <div className="showcase-card-meta"><span>{String(index + 1).padStart(2, '0')} · {item.duration}</span><span>{'desktop' in item ? t('showcase.desktop') : t('showcase.run')}</span></div>

@@ -1,10 +1,10 @@
-import { docPath } from './docs-nav';
-import { t, text, homePath } from './i18n';
+import { docPath } from '../../../site/docs-nav';
+import { t, text, homePath } from '../../../site/i18n';
 import type { ReactNode } from 'react';
-import { DocCode } from './DocCode';
-import { Api, Note } from './docs-shared';
-import voicevoxScene from './examples/voicevox.tsx?raw';
-import codeLinesScene from './examples/code-lines.tsx?raw';
+import { DocCode } from '../DocCode';
+import { Api, Note } from './shared';
+import voicevoxScene from '../examples/voicevox.tsx?raw';
+import codeLinesScene from '../examples/code-lines.tsx?raw';
 
 // Chapters for the packages that ship beside the core Celesta packages.
 

@@ -1,11 +1,12 @@
-import { showcasePath } from './showcase-catalog';
-import { LanguageSwitcher } from './LanguageSwitcher';
-import { currentLocale, t, text, homePath } from './i18n';
+import { showcasePath } from '../../site/showcase-catalog';
+import { LanguageSwitcher } from '../../components/LanguageSwitcher';
+import { currentLocale, t, text, homePath } from '../../site/i18n';
 import { useEffect, useState } from 'react';
-import { Brand } from './Brand';
-import { contents, repository } from './docs-content';
-import { docGroups, docPages, docPath } from './docs-nav';
-import { packageContents } from './docs-packages';
+import { Brand } from '../../components/Brand';
+import { contents } from './content/guides';
+import { docGroups, docPages, docPath } from '../../site/docs-nav';
+import { packageContents } from './content/packages';
+import { repository } from '../../site/links';
 
 const pageContents = { ...contents, ...packageContents };
 
@@ -17,7 +18,7 @@ function currentSlug(): string {
   return docPages.some(page => page.slug === slug) ? slug : 'overview';
 }
 
-export function Docs() {
+export function DocsPage() {
   const [query, setQuery] = useState('');
   const [contentsOpen, setContentsOpen] = useState(false);
   const slug = currentSlug();

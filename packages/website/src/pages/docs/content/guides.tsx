@@ -1,23 +1,22 @@
-import { docPath } from './docs-nav';
-import { currentLocale, t, text, homePath } from './i18n';
-import { showcasePath } from './showcase-catalog';
+import { docPath } from '../../../site/docs-nav';
+import { currentLocale, t, text, homePath } from '../../../site/i18n';
+import { showcasePath } from '../../../site/showcase-catalog';
 import { useState, type ReactNode } from 'react';
-import { DocCode } from './DocCode';
-import { Api, Note } from './docs-shared';
-import { allDownloads, downloads, repository } from './links';
-import firstScene from './examples/first-scene.tsx?raw';
-import dialogueScene from './examples/dialogue.tsx?raw';
-import dialogueProject from './examples/dialogue.celesta.json?raw';
-import dialogueSeriesScene from './examples/dialogue-series.tsx?raw';
-import transitionSeriesScene from './examples/transition-series.tsx?raw';
-import fittedTextScene from './examples/fitted-text.tsx?raw';
-import dataScene from './examples/data.tsx?raw';
-import lipSyncScene from './examples/lip-sync.tsx?raw';
-import mediaScene from './examples/media.tsx?raw';
-import timelineExample from '../../../examples/editor-demo.celesta.json?raw';
-import withProject from '../../cli/examples/with-project.tsx?raw';
-
-export { repository };
+import { DocCode } from '../DocCode';
+import { Api, Note } from './shared';
+import { allDownloads, downloads } from '../../../components/download-links';
+import { repository } from '../../../site/links';
+import firstScene from '../examples/first-scene.tsx?raw';
+import dialogueScene from '../examples/dialogue.tsx?raw';
+import dialogueProject from '../examples/dialogue.celesta.json?raw';
+import dialogueSeriesScene from '../examples/dialogue-series.tsx?raw';
+import transitionSeriesScene from '../examples/transition-series.tsx?raw';
+import fittedTextScene from '../examples/fitted-text.tsx?raw';
+import dataScene from '../examples/data.tsx?raw';
+import lipSyncScene from '../examples/lip-sync.tsx?raw';
+import mediaScene from '../examples/media.tsx?raw';
+import timelineExample from '../../../../../../examples/editor-demo.celesta.json?raw';
+import withProject from '../../../../../cli/examples/with-project.tsx?raw';
 
 function SourceBuild() {
   const [platform, setPlatform] = useState('macOS');

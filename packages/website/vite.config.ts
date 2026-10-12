@@ -6,11 +6,11 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { getDocGroups } from './src/docs-nav.ts';
-import { richText } from './src/i18n.ts';
-import { translate } from './src/catalog.ts';
-import { languageRedirect, localeCodes, localeFromPath, type Locale } from './src/locales.ts';
-import { showcase } from './src/showcase-catalog.ts';
+import { getDocGroups } from './src/site/docs-nav.ts';
+import { richText } from './src/site/i18n.ts';
+import { translate } from './src/site/catalog.ts';
+import { languageRedirect, localeCodes, localeFromPath, type Locale } from './src/site/locales.ts';
+import { showcase } from './src/site/showcase-catalog.ts';
 
 const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const site = 'https://celesta.natsuneko.cat';

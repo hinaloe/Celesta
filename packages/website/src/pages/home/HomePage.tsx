@@ -1,12 +1,13 @@
-import { LanguageSwitcher } from './LanguageSwitcher';
-import { docPath } from './docs-nav';
-import { currentLocale, t, text } from './i18n';
-import { showcasePath } from './showcase-catalog';
+import { LanguageSwitcher } from '../../components/LanguageSwitcher';
+import { docPath } from '../../site/docs-nav';
+import { currentLocale, t, text } from '../../site/i18n';
+import { showcasePath } from '../../site/showcase-catalog';
 import { useEffect, useRef, useState } from 'react';
-import { Playground } from './Playground';
-import { Brand } from './Brand';
-import { DownloadAlternatives, DownloadButton } from './Download';
-import { allDownloads, repository } from './links';
+import { Playground } from '../../features/playground/Playground';
+import { Brand } from '../../components/Brand';
+import { DownloadAlternatives, DownloadButton } from '../../components/Download';
+import { allDownloads } from '../../components/download-links';
+import { repository } from '../../site/links';
 
 const documentation = docPath('overview');
 
@@ -32,7 +33,7 @@ function Timecode() {
   return <span ref={output}>{formatTimecode(0)}</span>;
 }
 
-export function App() {
+export function HomePage() {
   const [menuOpen, setMenuOpen] = useState(false);
   return <>
     <a href="#main" className="skip-link">{text('home.skip-to-content')}</a>

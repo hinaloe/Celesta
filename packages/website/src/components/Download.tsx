@@ -1,6 +1,6 @@
-import { docPath } from './docs-nav';
-import { t, text } from './i18n';
-import { allDownloads, downloads, visitorPlatform, type Platform } from './links';
+import { docPath } from '../site/docs-nav';
+import { t, text } from '../site/i18n';
+import { allDownloads, downloads, visitorPlatform, type Platform } from './download-links';
 
 /** The primary download call to action, matched to the visitor's platform. */
 export function DownloadButton({ className = '' }: { className?: string }) {
