@@ -95,6 +95,7 @@ jobs:
           pnpm --dir templates test
           pnpm --dir templates typecheck
           pnpm --dir packages/code run check:examples
+          pnpm run typecheck:examples
 
       - name: Test @celesta/website
         run: pnpm --dir packages/website test

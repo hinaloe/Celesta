@@ -140,6 +140,13 @@ needs installing. Celesta refreshes `.celesta/` when a newer version opens
 the project. Without a tsconfig, rely on `scripts/inspect.mjs` and PNG
 frames ([verify.md](verify.md)).
 
+Inside the Celesta repository, give a new `examples/<name>/` a
+`tsconfig.json` that extends `./.celesta/tsconfig.json`, but do not run
+`--init` there: it adds starter files the example does not need. Instead,
+after `pnpm run build:runtime`, run `pnpm run typecheck:examples <name>` from
+the repository root. It writes only `.celesta/` and type-checks the example;
+CI checks every example with a `tsconfig.json` the same way.
+
 ## Preview in the app
 
 The app previews and exports. It never edits your source; the only file it
