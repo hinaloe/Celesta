@@ -3,8 +3,9 @@ import { Playground } from '../../features/playground/Playground';
 import { repository } from '../../site/links';
 import { showcase } from '../../site/showcase-catalog';
 import { loadShowcase, posterURL } from './sources';
-import { currentLocale, homePath, t } from '../../site/i18n';
+import { currentLocale, t } from '../../site/i18n';
 import { docPath, parseRoute, showcasePath } from '../../site/routes';
+import { SiteFooter } from '../../components/SiteFooter';
 import { SiteHeader } from '../../components/SiteHeader';
 
 export function ShowcasePage() {
@@ -50,6 +51,6 @@ export function ShowcasePage() {
         </section>}
       {sample && !('desktop' in sample) && <p className="shell showcase-note">{t('showcase.edition-note')} <a href={`${repository}/tree/main/examples/${sample.slug}`}>{t('showcase.original')}</a></p>}
     </main>
-    <footer className="footer shell"><div className="footer-bottom flex flex-wrap justify-between gap-3"><a href={path()}>{t('showcase.explore')}</a><a href={homePath}>Celesta</a><span>MIT / Apache-2.0</span></div></footer>
+    <SiteFooter />
   </>;
 }

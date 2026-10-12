@@ -1,6 +1,7 @@
 import { docPath, parseRoute, showcasePath } from '../../site/routes';
 import { currentLocale, t, text, homePath } from '../../site/i18n';
 import { useEffect, useState } from 'react';
+import { SiteFooter } from '../../components/SiteFooter';
 import { SiteHeader } from '../../components/SiteHeader';
 import { contents } from './content/guides';
 import { docGroups, docPages } from '../../site/docs-nav';
@@ -83,9 +84,9 @@ export function DocsPage() {
           </nav>
         </article> : <Overview />}
         <div className="docs-end"><h2>{text('docs.ui.try-it-without-installing', [<em />])}</h2><p>{text('docs.ui.the-playground-runs-celesta-in-your-browser')}</p><a className="button button-primary" href={`${homePath}#playground`}>{text('docs.ui.open-the-playground', [<span aria-hidden="true" />])}</a></div>
-        <footer className="docs-footer">{text('docs.ui.mit-apache-2-0-source-documentation', [<span />, <a href={`${repository}#readme`} />])}</footer>
       </main>
     </div>
+    <SiteFooter />
   </div>;
 }
 

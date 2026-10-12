@@ -52,10 +52,6 @@
     "open-preview-export": "確認して、MP4 に書き出す。",
     "open-the-file-in-celesta-it-reloads": "Celesta でファイルを開くとプレビューできます。コードを保存するたびに表示が更新され、完成した動画は MP4 に書き出せます。",
     "browse-the-examples": "サンプルを見る <slot0>→</slot0>",
-    "code-first-video-open-source": "コードで動画を作る、オープンソースのツール。",
-    "documentation-github-releases-issues": "<slot0>ドキュメント</slot0><slot1>GitHub</slot1><slot2>リリース</slot2><slot3>Issues</slot3>",
-    "footer": "フッター",
-    "built-with-rust-and-typescript-mit-apache": "<slot0>Rust と TypeScript で開発しています。</slot0><slot1>MIT / Apache-2.0</slot1>",
     "ideas": {
       "title": "タイトル・オープニング",
       "dialogue": "口パク付きの会話シーン",
@@ -136,7 +132,6 @@
       "try-it-without-installing": "<slot0>インストールせずに、</slot0>試してみよう。",
       "the-playground-runs-celesta-in-your-browser": "ブラウザで Celesta を動かせます。書き出しもできます。",
       "open-the-playground": "プレイグラウンドを開く <slot0>→</slot0>",
-      "mit-apache-2-0-source-documentation": "<slot0>MIT / Apache-2.0</slot0><slot1>ソースのドキュメント ↗</slot1>",
       "celesta-docs-in-development": "Celesta <slot0>/</slot0> ドキュメント <slot1>開発進行中</slot1>",
       "celesta-documentation": "Celesta<slot0/><slot1>ドキュメント。</slot1>",
       "install-the-app-write-a-composition-export": "アプリを入れ、コンポジションを書き、MP4 に書き出す。<slot0/>順番に読むことも、知りたいトピックに進むこともできます。",
@@ -1031,6 +1026,15 @@
       "copied": "コピーしました！",
       "copy-failed": "コピーできません。コードを選択して手動でコピーしてください。",
       "copy-label": "{{label}} をコピー"
+    },
+    "footer": {
+      "label": "フッター",
+      "tagline": "コードで動画を作る、オープンソースのツール。",
+      "documentation": "ドキュメント",
+      "releases": "リリース",
+      "issues": "Issues",
+      "built-with": "Rust と TypeScript で開発しています。",
+      "license": "MIT / Apache-2.0"
     }
   },
   "not-found": {

@@ -118,8 +118,6 @@ kbd { display: inline-block; border: 1px solid var(--line-strong); padding: 0 6p
 .docs-end h2 { font-size: clamp(32px, 3.6vw, 48px); }
 .docs-end p { font-size: 16px; color: var(--muted); margin: 16px 0 28px; }
 .docs-article .docs-end a.button-primary, .docs-article .doc-download { color: var(--ink); text-decoration: none; }
-.docs-footer { border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding-block: 16px 32px; margin-top: 96px; color: var(--dim); font-family: var(--font-mono); font-size: 12px; }
-.docs-footer a:hover { color: var(--text); }
 .doc-downloads { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 20px; }
 .docs-article .doc-downloads .button-secondary { color: var(--text); text-decoration: none; }
 .docs-article .doc-small { font-size: 13px; color: var(--muted); margin-top: 10px; }

@@ -2,12 +2,10 @@ import { docPath } from '../../site/routes';
 import { t, text } from '../../site/i18n';
 import { useEffect, useRef } from 'react';
 import { Playground } from '../../features/playground/Playground';
-import { Brand } from '../../components/Brand';
 import { DownloadAlternatives, DownloadButton } from '../../components/Download';
+import { SiteFooter } from '../../components/SiteFooter';
 import { SiteHeader } from '../../components/SiteHeader';
 import { repository } from '../../site/links';
-
-const documentation = docPath('overview');
 
 function formatTimecode(frame: number, fps = 30) {
   const seconds = Math.floor(frame / fps);
@@ -73,9 +71,6 @@ export function HomePage() {
         </div>
       </section>
     </main>
-    <footer className="footer shell">
-      <div className="footer-top"><div><Brand /><p>{text('home.code-first-video-open-source')}</p></div><nav aria-label={t('home.footer')}>{text('home.documentation-github-releases-issues', [<a href={documentation} />, <a href={repository} />, <a href={`${repository}/releases`} />, <a href={`${repository}/issues`} />])}</nav></div>
-      <div className="footer-bottom flex flex-wrap justify-between gap-3">{text('home.built-with-rust-and-typescript-mit-apache', [<span />, <span />])}</div>
-    </footer>
+    <SiteFooter />
   </>;
 }

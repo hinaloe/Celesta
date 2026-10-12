@@ -52,10 +52,6 @@
     "open-preview-export": "Open, preview, export.",
     "open-the-file-in-celesta-it-reloads": "Open the file in Celesta. It reloads on save, and exports to MP4 when you are ready.",
     "browse-the-examples": "Browse the examples <slot0>→</slot0>",
-    "code-first-video-open-source": "Code-first video. Open source.",
-    "documentation-github-releases-issues": "<slot0>Documentation</slot0><slot1>GitHub</slot1><slot2>Releases</slot2><slot3>Issues</slot3>",
-    "footer": "Footer",
-    "built-with-rust-and-typescript-mit-apache": "<slot0>Built with Rust and TypeScript.</slot0><slot1>MIT / Apache-2.0</slot1>",
     "ideas": {
       "title": "Title sequences",
       "dialogue": "Dialogue with lip sync",
@@ -136,7 +132,6 @@
       "try-it-without-installing": "Try it <slot0>without installing.</slot0>",
       "the-playground-runs-celesta-in-your-browser": "The playground runs Celesta in your browser, export included.",
       "open-the-playground": "Open the playground <slot0>→</slot0>",
-      "mit-apache-2-0-source-documentation": "<slot0>MIT / Apache-2.0</slot0><slot1>Source documentation ↗</slot1>",
       "celesta-docs-in-development": "Celesta <slot0>/</slot0> Docs <slot1>In development</slot1>",
       "celesta-documentation": "Celesta<slot0/><slot1>documentation.</slot1>",
       "install-the-app-write-a-composition-export": "Install the app, write a composition, export an MP4.<slot0/>Read in order, or jump to a topic.",
@@ -1031,6 +1026,15 @@
       "copied": "Copied!",
       "copy-failed": "Copy unavailable. Select the code to copy it manually.",
       "copy-label": "Copy {{label}}"
+    },
+    "footer": {
+      "label": "Footer",
+      "tagline": "Code-first video. Open source.",
+      "documentation": "Documentation",
+      "releases": "Releases",
+      "issues": "Issues",
+      "built-with": "Built with Rust and TypeScript.",
+      "license": "MIT / Apache-2.0"
     }
   },
   "not-found": {
