@@ -861,7 +861,7 @@
         }
       },
       "code": {
-        "draws-syntax-highlighted-source-code-in-a": "<slot0/> draws syntax-highlighted source code in a composition. It tokenizes with <slot1>twinkleplop</slot1> and draws each colored run with Celesta’s own <slot2/> and <slot3/>, so code scales, fades, blurs, and exports like any other layer. It is optional: <slot4/> does not depend on it.",
+        "draws-syntax-highlighted-source-code-in-a": "<slot0/> draws syntax-highlighted source code in a composition. It tokenizes with <slot1>twinkleplop</slot1> and draws each line as one of Celesta’s own <slot2/> layers with color runs, and line highlights as <slot3/>s, so code scales, fades, blurs, and exports like any other layer. It is optional: <slot4/> does not depend on it.",
         "the-desktop-app-and-cli-include-and": "The desktop app and CLI include <slot0/>, and <slot1>File → Set Up TypeScript</slot1> adds its declarations alongside <slot2/> and <slot3/>. You do not install anything from npm; the package is not published there. The <slot4>web editor</slot4> does not support it yet, so use the desktop app or CLI for compositions that import it.",
         "availability": "Availability",
         "your-first-code-block": "Your first code block",

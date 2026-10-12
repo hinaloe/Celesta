@@ -861,7 +861,7 @@
         }
       },
       "code": {
-        "draws-syntax-highlighted-source-code-in-a": "<slot0/> はコンポジション内に構文色付きのソースコードを描きます。<slot1>twinkleplop</slot1> でトークン化し、Celesta の <slot2/> と <slot3/> で色ごとの区間を描くので、ほかのレイヤーと同じく拡縮・フェード・ぼかし・書き出しができます。任意のパッケージで、<slot4/> は依存しません。",
+        "draws-syntax-highlighted-source-code-in-a": "<slot0/> はコンポジション内に構文色付きのソースコードを描きます。<slot1>twinkleplop</slot1> でトークン化し、各行を色の区間を持つ Celesta の <slot2/> 1 つで、行の強調を <slot3/> で描くので、ほかのレイヤーと同じく拡縮・フェード・ぼかし・書き出しができます。任意のパッケージで、<slot4/> は依存しません。",
         "the-desktop-app-and-cli-include-and": "アプリと CLI は <slot0/> を同梱し、<slot1>File → Set Up TypeScript</slot1> で <slot2/> と <slot3/> と一緒に型宣言を追加できます。npm に公開されていないのでインストール不要です。<slot4>ウェブエディタ</slot4>はまだ対応しないため、インポートする場合はアプリか CLI を使ってください。",
         "availability": "利用できる環境",
         "your-first-code-block": "最初のコードブロック",
