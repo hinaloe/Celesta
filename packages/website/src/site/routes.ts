@@ -28,4 +28,6 @@ export function docPath(slug: string, locale: Locale = windowLocale()): string {
 }
 
 /** The path of a showcase entry, or of the gallery when `slug` is empty. */
-export const showcasePath = (slug = '', locale = 'en') => `/${locale}/showcase/${slug ? `${slug}/` : ''}`;
+export function showcasePath(slug = '', locale: Locale = windowLocale()): string {
+  return `/${locale}/showcase/${slug ? `${slug}/` : ''}`;
+}
