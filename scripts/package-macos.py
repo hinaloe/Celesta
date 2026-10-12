@@ -271,13 +271,6 @@ def main():
     run("codesign", *signing, app)
     run("codesign", "--verify", "--deep", "--strict", "--verbose=2", app)
     run(helpers / "node", ROOT / "scripts/test-package.mjs", app)
-    if args.notary_profile:
-        submission = stage / "notarization.zip"
-        run("ditto", "-c", "-k", "--keepParent", app, submission)
-        notarize(submission, args.notary_profile)
-        run("xcrun", "stapler", "staple", app)
-        run("xcrun", "stapler", "validate", app)
-        run("spctl", "--assess", "--type", "execute", "--verbose=2", app)
 
     (image / "Applications").symlink_to("/Applications", target_is_directory=True)
     # Only the app and Applications shortcut go on the mounted volume.
@@ -286,9 +279,12 @@ def main():
     if args.sign_identity:
         run("codesign", "--sign", identity, "--timestamp", staged_dmg)
     if args.notary_profile:
+        # One submission notarizes the DMG and all the code in it, the app
+        # included. Only the outermost container needs the stapled ticket.
         notarize(staged_dmg, args.notary_profile)
         run("xcrun", "stapler", "staple", staged_dmg)
         run("xcrun", "stapler", "validate", staged_dmg)
+        run("spctl", "--assess", "--type", "execute", "--verbose=2", app)
     # Exclusive publication never replaces a previous DMG, even after a race.
     os.link(staged_dmg, dmg)
     print(f"DMG: {dmg}\nApp: {app}\nMinimum macOS: {'.'.join(map(str, minimum))}")

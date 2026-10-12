@@ -106,10 +106,11 @@ python3 scripts/package-macos.py --version 0.1.0 \
 All nested Mach-O files are signed before the app, using the hardened runtime
 and secure timestamps. Only Node receives the JIT/executable-memory entitlements;
 debugging and library-validation exceptions are not enabled. The script verifies
-signatures, submits the app, checks acceptance, staples its ticket, then creates,
-signs, notarizes, and staples the DMG. This gives both the disk image and the app
-copied into Applications their tickets. `--sign-identity` alone signs but does
-not notarize; `--notary-profile` explicitly enables uploading to Apple.
+signatures, then creates and signs the DMG and submits it once: Apple notarizes
+the disk image together with the app and all other code inside it. The script
+staples the ticket to the DMG, the outermost container, and checks that
+Gatekeeper accepts the app. `--sign-identity` alone signs but does not notarize;
+`--notary-profile` explicitly enables uploading to Apple.
 
 ## Verification
 
