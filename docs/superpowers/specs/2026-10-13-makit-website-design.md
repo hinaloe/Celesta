@@ -83,12 +83,12 @@ Conversions:
 | Today | Markdown |
 | --- | --- |
 | `<h3>`, `<p>`, lists, `<code>`, `<kbd>`, `<strong>`, links via `docPath()` | Markdown equivalents; links are root-absolute per locale (`/ja/docs/export/`) |
-| OS picker (`macOS` / `Windows` / `Linux` buttons) | `####` subsections per platform, in order |
+| OS picker (`macOS` / `Windows` / `Linux` buttons) | Subsections one level below the chapter's section heading, per platform, in order; where a picker only swaps a command (Create a project, Export), a `**macOS:**` / `**Windows:**` list and paired fences titled `<label> (macOS)` / `<label> (Windows)` |
 | `DocCode` with a label | Fenced code block with the label as the file name (```` ```sh "macOS dependencies" ````) |
 | `DocCode` with a raw-imported example | ```` ```tsx file=examples/first-scene.tsx ```` (see below) |
 | `Note` | GitHub alert `> [!NOTE]` followed by `> **Title**`; the theme hides Makit's generic alert label |
 | `Api` table | GFM table |
-| Download buttons in Installation | Plain links to the download URLs |
+| Download buttons in Installation | Links to `celesta:download/macos`, `celesta:download/windows`, `celesta:download/all`, rewritten at build time to the download variables by a remark plugin |
 
 `plugins/remark-include.ts` is a remark plugin registered in `markdown.remarkPlugins`. A code
 fence whose meta contains `file=<path>` and whose body is empty is replaced by the file's
