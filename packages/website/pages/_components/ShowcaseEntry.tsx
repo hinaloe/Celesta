@@ -11,7 +11,7 @@ type Sample = { description: string; limitation?: string };
 export function ShowcaseEntry({ slug, locale }: { slug: string; locale: Locale }) {
   const work = showcase.find(item => item.slug === slug);
   if (!work) throw new Error(`Unknown showcase work: ${slug}`);
-  const c = copy(locale).showcase;
+  const { showcase: c, common } = copy(locale);
   const sample: Sample = c.samples[work.slug];
   const source = `${repository}/tree/main/examples/${work.slug}`;
 
@@ -32,7 +32,7 @@ export function ShowcaseEntry({ slug, locale }: { slug: string; locale: Locale }
         </div>
       </section>
       : <>
-        <section className="sc-playground tg-shell" aria-labelledby="playground-heading">
+        <section className="sc-playground tg-shell" aria-label={common.navigation.playground}>
           <PlaygroundMount options={{ kind: 'showcase', slug: work.slug, locale }} fallback={<p className="sc-fallback">{c.metadataNoscript(children => <a href={source}>{children}</a>)}</p>} />
         </section>
         <div className="sc-edition tg-shell"><p className="sc-note">{c.editionNote} <a href={source}>{c.original}</a></p></div>

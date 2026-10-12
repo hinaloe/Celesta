@@ -137,8 +137,6 @@ export const en = {
     editionNote: 'This browser edition omits the generated soundtrack. Edit any source file; changes are recompiled automatically. Download each edited file to keep your changes.',
     original: 'Original desktop composition ↗',
     explore: 'Explore the showcase',
-    metadataTitle: 'Showcase — Celesta',
-    metadataSampleTitle: (v: { title: string }) => `${v.title} — Celesta showcase`,
     metadataDescription: 'Explore Celesta compositions. Play, scrub, and edit React motion graphics in your browser.',
     metadataNoscript: (s0: Slot) => h(Fragment, null, 'Enable JavaScript to run compositions, or ', s0('browse their source on GitHub'), '.'),
     samples: {

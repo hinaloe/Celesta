@@ -1,20 +1,9 @@
-/** Register a language here, then add its complete catalog in catalog.ts. */
-export const locales = { en: 'English', ja: '日本語' } as const;
-export type Locale = keyof typeof locales;
-export const localeCodes = Object.keys(locales) as Locale[];
-export const defaultLocale: Locale = 'en';
+import type { Locale } from './copy/index.ts';
 
-export function localeFromPath(path: string): Locale {
-  const candidate = path.split('/')[1];
-  return localeCodes.find(locale => locale === candidate) ?? defaultLocale;
-}
-
-/** Replace the leading language segment, including URLs without a trailing slash. */
-export function localizedPath(path: string, locale: Locale): string {
-  const segments = path.split('/').slice(1);
-  if (localeCodes.includes(segments[0] as Locale)) segments.shift();
-  return `/${locale}/${segments.join('/')}`;
-}
+/** The site's languages and their native names; Makit's `i18n.locales` in makit.config.ts must match. */
+export const locales = { en: 'English', ja: '日本語' } as const satisfies Record<Locale, string>;
+const localeCodes = Object.keys(locales) as Locale[];
+const defaultLocale: Locale = 'en';
 
 /** Respect browser preference order and quality values, including regional tags. */
 export function preferredLocale(acceptLanguage: string | null): Locale {

@@ -28,6 +28,8 @@ function islandOutput(): Plugin {
       const entry = Object.values(manifest).find(chunk => chunk.isEntry);
       if (!entry) throw new Error('The playground manifest has no entry.');
       writeFileSync(join(outDir, 'manifest.json'), JSON.stringify({ entry: base + entry.file, css: (entry.css ?? []).map(name => base + name) }, null, 2) + '\n');
+      // Vite's own manifest is only read here; keep it out of the deployed site.
+      rmSync(join(outDir, '.vite'), { recursive: true, force: true });
 
       const assets = join(publicDir, 'showcase-assets');
       rmSync(assets, { recursive: true, force: true });
@@ -56,7 +58,8 @@ export default defineConfig({
     rolldownOptions: {
       input: fileURLToPath(new URL('main.ts', import.meta.url)),
       preserveEntrySignatures: 'exports-only',
-      output: { entryFileNames: 'playground-[hash].js' },
+      // Every hashed file under assets/, so one immutable rule in public/_headers covers them and spares manifest.json.
+      output: { entryFileNames: 'assets/playground-[hash].js' },
     },
     outDir,
     emptyOutDir: true,

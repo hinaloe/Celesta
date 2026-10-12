@@ -136,8 +136,6 @@ export const ja: Copy = {
     editionNote: 'ブラウザ版には生成音源を含みません。どのソースファイルも編集でき、変更は自動で再コンパイルされます。変更を残すには、編集したファイルをそれぞれダウンロードしてください。',
     original: 'アプリ用のオリジナル作品 ↗',
     explore: 'ショーケースを見る',
-    metadataTitle: 'ショーケース — Celesta',
-    metadataSampleTitle: (v: { title: string }) => `${v.title} — Celesta ショーケース`,
     metadataDescription: 'Celesta の作品をブラウザで再生、フレーム単位で確認、React ソースを編集できます。',
     metadataNoscript: (s0: Slot) => h(Fragment, null, '作品を実行するには JavaScript を有効にしてください。', s0('GitHub でソースを見る'), 'こともできます。'),
     samples: {

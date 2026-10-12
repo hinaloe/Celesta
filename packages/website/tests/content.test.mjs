@@ -59,12 +59,13 @@ test('sub-pages follow their package page', () => {
   }
 });
 
-test('internal links point at existing chapters', () => {
+test('internal links stay in their locale and point at existing chapters', () => {
   let links = 0;
   for (const locale of locales) {
     for (const file of markdownFiles(locale)) {
       const markdown = readFileSync(file, 'utf8');
       for (const [, target] of markdown.matchAll(/\]\((\/[^)\s]*)\)/g)) {
+        assert.ok(target.startsWith(`/${locale}/`), `${file}: ${target} stays in /${locale}/`);
         if (!/^\/[a-z]+\/docs\//.test(target)) continue;
         links++;
         const match = /^\/([a-z]+)\/docs\/(?:([a-z0-9-]+)\/)?(?:#\S+)?$/.exec(target);

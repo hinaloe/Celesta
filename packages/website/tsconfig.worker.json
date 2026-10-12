@@ -1,0 +1,15 @@
+{
+  "//": "The Worker runs on workerd, whose runtime types (worker-configuration.d.ts, from `wrangler types`) redefine DOM globals such as Element, so it is checked apart from the browser and Node code in tsconfig.json.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": [
+      "ES2022"
+    ],
+    "types": []
+  },
+  "include": [
+    "worker.ts",
+    "worker-configuration.d.ts"
+  ],
+  "exclude": []
+}

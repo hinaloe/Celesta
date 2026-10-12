@@ -1,11 +1,15 @@
 # Celesta website
 
-An English and Japanese product website built with Vite, React, TypeScript, and Tailwind CSS 4.
-It is an independent pnpm package, like `packages/logos` and `packages/react`.
+The English and Japanese product website and user guide, built with
+[Makit](https://github.com/mika-f/makit) (Markdown documentation and static pages on Next.js)
+and a Vite-built browser playground. It is an independent pnpm package, like `packages/logos`
+and `packages/react`, deployed to Cloudflare Workers.
 
 ## Develop
 
 Use Node.js 22.12+ (Node.js 24 LTS recommended) and the pnpm version declared in the root `package.json`.
+`@celesta/web` imports generated types from `@celesta/react`, so run
+`pnpm --dir packages/react run codegen` once in a fresh checkout.
 
 ```sh
 cd packages/website
@@ -13,31 +17,189 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Vite prints the local URL. `pnpm build` type-checks the site and writes static
-files to `dist/`. `pnpm preview` serves that production build.
+`pnpm dev` builds `@celesta/web` and the playground island, then runs the island's Vite watch
+build next to `makit dev`, which prints the local URL. The pages load the island from
+`public/_playground/`, so it must be built before `makit dev` starts; if you run `makit dev`
+by itself, run `pnpm playground:build` first.
+
+`makit dev` may not notice edits to files included into the documentation (`file=` fences, see
+below). Re-save the Markdown file that includes them, or restart `pnpm dev`.
+
+| Command | What it does |
+| --- | --- |
+| `pnpm dev` | Island watch build + `makit dev` |
+| `pnpm build` | Type-check, build the island, `makit build`, then the post-build step; writes `dist/` |
+| `pnpm check` | `makit check`: configuration, metadata, and links without building |
+| `pnpm test` | Unit tests in `tests/` |
+| `pnpm check:examples` | Type-check the playground scene and `examples/` against the real packages |
+| `pnpm preview` | `makit preview`: serve `dist/` |
+| `pnpm preview:cloudflare` | Build, then serve `dist/` through the Worker with local Wrangler |
+| `pnpm deploy:check` / `pnpm run deploy` | Build, then validate (`--dry-run`) or publish |
+
+## Structure
+
+```text
+packages/website/
+├── makit.config.ts        # site, locales, theme, Markdown plugins, llms.txt
+├── content/<locale>/docs/ # the user guide: one Markdown file + .meta.ts per chapter
+├── pages/                 # Makit static pages: landing (index.tsx), showcase/
+│   └── _components/       # shared parts: download button, playground mount, showcase entry
+├── theme/                 # Tungsten, the Makit theme (theme.extends: "./theme")
+├── site/                  # shared code: copy/, links, downloads, locales, showcase catalog
+├── playground/            # the playground island, built by Vite into public/_playground/
+├── examples/              # documentation example sources, included into chapters
+├── plugins/               # remark plugins: remark-include, remark-download-links
+├── scripts/postbuild.mjs  # fixes up dist/ after makit build (see below)
+├── public/                # favicon, _headers; build output: _playground/, showcase/, showcase-assets/
+├── worker.ts, wrangler.jsonc
+└── tests/
+```
+
+- **`content/`** is Makit's `sourceDir`. Groups are Route Group directories such as
+  `02-(guides)/` with a `category.makit.ts` holding the localized group title, so the sidebar
+  groups chapters while URLs stay `/<locale>/docs/<slug>/`. Package sub-pages (`math-noise`,
+  `math-shaping`, `code-typing`) sit in a nested group after their package page.
+- **`pages/`**: `index.tsx` is `/en/` and `/ja/`; `showcase/index.tsx` the gallery; each
+  `showcase/<slug>.tsx` renders the shared `ShowcaseEntry` for one work in
+  `site/showcase-catalog.ts`. Each page has a `.meta.ts` with its localized title and description.
+- **`theme/`**: `index.tsx` exports the slots (root layout, header, footer, docs page, sidebar, page
+  header, pager, table of contents, 404, static page); `tungsten.css` holds the light and dark tokens and maps them onto
+  Makit's; `docs.css` styles the documentation.
+- **`playground/`**: the editor (`Playground.tsx`, Monaco in `SourceEditor.tsx`), the editable
+  demo scene (`demo/title-scene.tsx`), the showcase source loader (`showcase-sources.ts`, which
+  reads the repository's `examples/`), and the island's own strings (`copy.ts`).
+  `playground/vite.config.ts` writes hashed files to `public/_playground/assets/` and a
+  `manifest.json` naming the entry; `pages/_components/PlaygroundMount.tsx` reads the manifest
+  and calls `mountPlayground` in the browser. The build also copies showcase posters to
+  `public/showcase/` and the showcase's fonts, licenses, and portraits to `public/showcase-assets/`.
+- **`examples/`**: complete documentation examples. They are excluded from the site's
+  type-check and checked by `pnpm check:examples` against the real `@celesta/react` and the
+  separately staged `@celesta/voicevox` instead.
+
+## Adding a chapter
+
+Add the chapter to **both** locales, in the same group directory and position:
+
+1. `content/en/docs/<NN>-(<group>)/<NN>-<slug>.md` and the same path under `content/ja/`.
+   The numeric prefix orders the sidebar and is not part of the URL.
+2. A `.meta.ts` next to each file with the same `id` (the slug):
+
+   ```ts
+   import { definePageMetadata } from '@natsuneko-laboratory/makit/metadata';
+
+   export default definePageMetadata({
+     id: 'export',
+     title: 'Export a video',
+     description: 'Take your composition from the preview to an MP4.',
+   });
+   ```
+
+   Add `navigation: { title: '…' }` for a shorter sidebar label.
+3. Add the slug to the list in `tests/content.test.mjs`, which pins every chapter, its order,
+   and its group in both locales.
+
+Link between chapters with root-absolute URLs in the same locale, such as
+`[Export](/en/docs/export/)` in English and `/ja/docs/export/` in Japanese; `pnpm test` checks
+that every `/` link stays in its locale and names an existing chapter. Notes use GitHub alert
+syntax (`> [!NOTE]`). Run `pnpm check` and `pnpm test` after editing.
+
+### Including example files
+
+An empty code fence with `file=` is filled from that file at build time
+(`plugins/remark-include.ts`):
+
+````md
+```tsx file=examples/media.tsx title="media.tsx"
+```
+````
+
+Paths resolve against `packages/website`, not the chapter, so `examples/…` is this package's
+examples and `../../examples/…` the repository's. Without `title=`, the file name becomes the
+title. A missing file fails the build.
+
+## Copy
+
+Text outside the documentation lives in `site/copy/en.ts` and `site/copy/ja.ts`, shared by
+`pages/` and `theme/`. `ja` must have the type of `en`, and `pnpm test` checks that it has every
+key. Sentences that contain links or code are functions that receive a wrapper for each slot,
+for example `noscript: (s0: Slot) => h(Fragment, null, 'Enable JavaScript, or ', s0('read the docs'), '.')`.
+The playground island's strings are in `playground/copy.ts`.
+
+## Languages
+
+- `/` redirects with HTTP 302 based on `Accept-Language` preferences and `q` weights
+  (`worker.ts`, `site/locales.ts`). Regional tags such as `ja-JP` select Japanese; missing or
+  unsupported languages fall back to English. The response uses `Vary: Accept-Language` and
+  `Cache-Control: no-store`. Only `/` and `/index.html` run the Worker; everything else is a
+  static asset.
+- `/en/…` and `/ja/…` always show the requested language. Unprefixed addresses such as
+  `/docs/export/` go through Makit's locale gateway, which picks the browser's language.
+- Makit 0.8's root layout writes `<html lang="en">` on every page, so the post-build step
+  sets `lang` per locale and rebuilds the Pagefind index, giving each language its own search
+  index.
+
+To add a language, add it to `i18n.locales` in `makit.config.ts`, to `Locale` and the catalogs
+in `site/copy/`, to `site/locales.ts`, to `playground/copy.ts`, and translate `content/<locale>/`.
+
+## Download links
+
+The header, landing page, and installation guide link to the Celesta download. By default every
+link opens the latest GitHub release. Set these variables at build time to point elsewhere:
+
+| Variable | Used for | Default |
+| --- | --- | --- |
+| `CELESTA_DOWNLOAD_URL` | "All releases" links and visitors on other platforms | `…/releases/latest` |
+| `CELESTA_DOWNLOAD_URL_MACOS` | "Download for macOS" | `CELESTA_DOWNLOAD_URL` |
+| `CELESTA_DOWNLOAD_URL_WINDOWS` | "Download for Windows" | `CELESTA_DOWNLOAD_URL` |
+
+Each value may be a release page or a direct file URL; an empty value counts as unset. Makit
+does not read `.env` files: export the variables in your shell (see `.env.example`) or add them
+as build variables in Cloudflare Workers Builds. `site/downloads.ts` reads them while pages
+prerender, and in Markdown `celesta:download/macos`, `celesta:download/windows`, and
+`celesta:download/all` link URLs are rewritten to them (`plugins/remark-download-links.ts`).
+The landing page's button picks macOS or Windows from the visitor's user agent. Values are baked
+into the build, so rebuild after changing them.
+
+The release workflow (`.github/workflows/package.yml`) sets them automatically: once the GitHub
+release is created, its `deploy-website` job points them at the release's macOS (arm64) `.dmg`
+and Windows (x64) `-setup.exe` assets and runs `pnpm run deploy`. It needs the
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` repository secrets.
+
+## Build
+
+`pnpm build` runs, in order: the `@celesta/web` build, `wrangler types`, `tsc` for the site
+(`tsconfig.json`) and for the Worker (`tsconfig.worker.json`, kept apart because workerd's
+runtime types redefine DOM globals), the island build, `makit build` (after deleting `.makit/`,
+whose cached Next.js output can ship stale styles), and `scripts/postbuild.mjs`.
+
+The post-build step works around two Makit 0.8 gaps:
+
+1. It sets `lang` on `dist/<locale>/**/*.html` and rebuilds `dist/pagefind/`.
+2. Makit writes each chapter's Markdown endpoint (`/en/docs/export.md`) and `llms-full.txt`
+   from the source files without the configured remark plugins. The step applies
+   `remark-include` and `remark-download-links` to them, editing only the fences and link URLs
+   those plugins change.
 
 ## Deploy to Cloudflare Workers
 
 The site uses [Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/).
-A small `worker.ts` redirects `/` using the browser’s `Accept-Language` header.
-Only `/` and `/index.html` run the Worker first; explicit language URLs and
-other files are served as static assets through the `ASSETS` binding. No database
-or runtime secrets are required. `wrangler.jsonc` names the Worker
-`celesta-website` and serves `dist/`.
-Change the name there if your account already uses it for another project.
+`wrangler.jsonc` names the Worker `celesta-website`, serves `dist/`, and uses Makit's themed
+`404.html` for unknown addresses (`not_found_handling: "404-page"`). Change the name there if
+your account already uses it for another project. `public/_headers` sets security headers and
+caches hashed files (`/_next/static/*`, `/_playground/assets/*`) as immutable; the island's
+`manifest.json` is revalidated on every request.
 
 From `packages/website`:
 
 ```sh
 pnpm exec wrangler login
 pnpm deploy:check
-pnpm deploy
+pnpm run deploy
 ```
 
-`deploy:check` builds the website and validates deployment with
-`wrangler deploy --dry-run`; it does not publish. `deploy` rebuilds and publishes
-to your Cloudflare account. Wrangler prints the deployed URL. Add a custom domain
-in that Worker's Settings → Domains & Routes after deployment.
+`deploy:check` builds and validates with `wrangler deploy --dry-run`; it does not publish.
+`deploy` rebuilds and publishes. (`pnpm deploy` is a built-in pnpm command, so use `run`.) Add a
+custom domain in the Worker's Settings → Domains & Routes after deployment.
 
 For Git integration in **Cloudflare Workers Builds**:
 
@@ -46,238 +208,48 @@ For Git integration in **Cloudflare Workers Builds**:
 - Deploy command: `pnpm exec wrangler deploy`
 - Node.js version: `24`
 
-For a CI runner outside Cloudflare, authenticate Wrangler with the
-`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets. Keep tokens out of Git.
+For a CI runner outside Cloudflare, authenticate Wrangler with the `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` secrets. Keep tokens out of Git.
 
-Run `pnpm preview:cloudflare` to build and serve the site through local Wrangler.
-Vite builds shared website and documentation entries, then the
-`plugins/site-pages.ts` Vite plugin generates a real HTML file for every supported language and chapter. Direct
-visits to `/en/`, `/ja/`, `/en/docs/export/`, and `/ja/docs/export/` work without
-an SPA fallback. Each page has localized `lang`, title, description, canonical,
-and `hreflang` metadata. The Vite dev server and preview also support language
-routing. Existing `/docs/` and `/docs/<slug>/` URLs keep the English guide;
-legacy `/docs/#<chapter>` links still open the matching chapter.
-The included `404.html` handles unknown routes; `public/_headers` defines response
-headers and immutable caching for Vite's hashed assets.
+## Playground and showcase
 
-## Languages
+The landing page's editor accepts one self-contained TSX file; showcase entries load their full
+source projects from the repository's `examples/`. Runtime imports are limited to
+`@celesta/react`, `@celesta/math`, `@celesta/code`, and `react`. esbuild WASM compiles the
+visitor's code in a Worker, Celesta's React reconciler produces each `Scene`, and `@celesta/web`
+draws it on a canvas for preview and MP4 export (WebCodecs H.264/AAC via Mediabunny). The
+preview is silent; constant-rate, constant-volume audio clips are mixed into the export. Media
+added with **Add media** is referred to by file name. Browser text, video seeking, and fonts can
+differ from the native renderer; use the desktop exporter for pixel-exact output.
 
-- `/` redirects with HTTP 302 based on `Accept-Language` preferences and `q`
-  weights. Regional tags such as `ja-JP` select Japanese. Missing or unsupported
-  languages fall back to English. `User-Agent` identifies the browser and OS,
-  so it is not used as a language signal. The response uses
-  `Vary: Accept-Language` and `Cache-Control: no-store`.
-- `/en/` and `/ja/` always display the requested language, including playground,
-  downloads, documentation navigation, search, and every chapter’s prose/API
-  tables. Code examples and API identifiers remain unchanged.
-- Header language links preserve the current chapter, query string, and anchor.
-- `src/site/locales.ts` is the language registry. `src/locales/en.json` is the source
-  catalog; `src/locales/ja.json` contains Japanese translations. `src/site/catalog.ts`
-  initializes i18next with these resources and checks their nested key structure
-  in TypeScript. React copy uses react-i18next’s `Trans`.
-
-To add a language:
-
-1. Copy `src/locales/en.json` to `<language>.json` and translate the values.
-   Preserve `{{name}}` interpolation variables and named React slots.
-   `<slot0/>` inserts a code example or dynamic value; `<slot0>…</slot0>`
-   preserves an element such as a link or emphasis while allowing its text
-   and position to change. `text(key, [component0, …])` supplies these slots
-   to `Trans`; missing wrappers preserve their translated children. These
-   slots are React elements, not arbitrary HTML.
-2. Register a lowercase URL code (such as `ja` or `pt-br`) and native name in `src/site/locales.ts`, import its catalog in
-   `src/site/catalog.ts`, and add it to `catalogs`.
-3. Run `pnpm test` and `pnpm build`. Routing, language links, HTML generation,
-   and alternate-language metadata all use the registry automatically.
-
-Edit prose in the catalogs; layout and API examples stay in the TSX files.
-Use nested objects for pages, features, and documentation chapters, for example:
-
-```json
-{
-  "docs": {
-    "chapters": {
-      "voicevox": {
-        "metadata": { "title": "@celesta/voicevox" },
-        "intro": "<slot0/> converts a VOICEVOX AudioQuery to a lip-sync track."
-      }
-    },
-    "search": {
-      "matches_one": "{{count}} matching topic",
-      "matches_other": "{{count}} matching topics"
-    }
-  }
-}
-```
-
-Read a leaf with `t('docs.chapters.voicevox.metadata.title')`. For counts, call
-`t('docs.search.matches', { count })`; i18next selects the plural form. Keep
-source keys in every catalog and add the plural suffixes required by a new
-language (`_one`, `_few`, `_many`, `_other`, and so on). Keys are checked against
-the English resource type. Tests recursively check completeness, interpolation
-variables, and Trans slot nesting. There is no flattened lookup catalog or
-custom interpolation/markup parser.
-
-## Download links
-
-The header, hero, start section, and installation guide link to the Celesta
-download. By default every button opens the latest GitHub release. Set these
-variables at build time to point elsewhere (see `.env.example`):
-
-| Variable | Used for | Default |
-| --- | --- | --- |
-| `VITE_DOWNLOAD_URL` | "All releases" links and visitors on other platforms | `…/releases/latest` |
-| `VITE_DOWNLOAD_URL_MACOS` | "Download for macOS" | `VITE_DOWNLOAD_URL` |
-| `VITE_DOWNLOAD_URL_WINDOWS` | "Download for Windows" | `VITE_DOWNLOAD_URL` |
-
-Each value may be a release page or a direct file URL. Locally, put them in
-`.env.local`. In Cloudflare Workers Builds, add them as build variables. The
-hero picks macOS or Windows from the visitor's user agent and shows a generic
-button on phones, tablets, and other systems. Values are baked into the build,
-so rebuild after changing them.
-
-The release workflow (`.github/workflows/package.yml`) does this automatically:
-once the GitHub release is created, its `deploy-website` job sets the three
-variables to the release's macOS (arm64) `.dmg` and Windows (x64) `-setup.exe`
-assets and runs `pnpm run deploy`. It needs the `CLOUDFLARE_API_TOKEN` and
-`CLOUDFLARE_ACCOUNT_ID` repository secrets.
-
-## Content and behavior
-
-- Source layout: `src/site/` holds code that also runs in Node (languages,
-  catalogs, routes, the documentation and showcase lists); `src/components/`
-  shared UI; `src/features/playground/` the editor and preview;
-  `src/pages/<page>/` each page's entry, component, and content;
-  `src/styles/` the style sheets. `plugins/` holds the Vite plugins.
-- `src/components/SiteHeader.tsx` and `src/components/SiteFooter.tsx`: the
-  header and footer on every page. Navigation labels are in
-  `common.navigation` and `common.footer` in each catalog.
-- `src/pages/home/HomePage.tsx`: product copy, documentation and repository links.
-- `src/site/links.ts`, `src/components/download-links.ts`, and
-  `src/components/Download.tsx`: repository and download links, and the
-  platform-aware download buttons.
-- `/docs/`: the on-site bilingual user guide, one page per chapter at
-  `/<language>/docs/<slug>/`, all built from `docs/index.html`. `src/site/docs-nav.ts` is the
-  single list of groups and pages (slug, title, description, search keywords);
-  a package's sub-page names its `parent`, follows it, and has a short
-  `metadata.nav-title` for the indented sidebar entry. Add a page there, then add its content under the same slug in
-  `src/pages/docs/content/guides.tsx` (app, React, and guides) or `src/pages/docs/content/packages.tsx`
-  (`@celesta/math`, `@celesta/code`, `@celesta/voicevox`, and `@celesta/aivis-speech`). `src/pages/docs/DocsPage.tsx` renders the grouped
-  sidebar, topic search, previous/next links, and the overview. Old
-  `/docs/#<chapter>` links redirect to the matching page. Link between pages
-  with `docPath(slug)` from `src/site/routes.ts`; `src/pages/docs/content/shared.tsx` has the `Note` and `Api` helpers.
-  `src/pages/docs/DocCode.tsx` supplies accessible copy controls for code examples.
-  `src/pages/docs/syntax.ts` highlights code with [twinkleplop](https://twinkleplop.pngwn.at)
-  (TSX, JSON, and shell) in documentation.
-- `examples/`: complete documentation examples (including title, media, dialogue, dialogue sequencing,
-  fitted text, reusable data, VOICEVOX, and AivisSpeech entries). The
-  docs import them as raw text. They are excluded from the site's own
-  type-check and checked against the real `@celesta/react` and the separately staged `@celesta/voicevox` and `@celesta/aivis-speech` instead.
-  The JSON chapter imports `../../examples/editor-demo.celesta.json` from the
-  repository so its example stays in sync. Build with the repository present.
-- `src/features/playground/demo/title-scene.tsx`: editable starting composition.
-- `src/features/playground/SourceEditor.tsx`: lazy-loaded Monaco editor via `@monaco-editor/react`.
-  Editor and language workers are bundled by Vite and served from the site.
-  File switching preserves undo history and scroll; resetting the sample or
-  opening a file starts a fresh editor session. Syntax diagnostics are enabled;
-  project errors come from the existing compilation worker.
-- `src/features/playground/Playground.tsx`: TSX editor and file/media import. `@celesta/web` provides
-  frame preview and MP4 export. esbuild WASM compiles the visitor's code in a
-  dedicated Worker, and Celesta's real React reconciler/evaluator produces
-  each `Scene`. The browser canvas renderer draws that Scene for both preview
-  and export. Mediabunny uses WebCodecs for H.264/AAC and MP4 muxing.
-- `src/styles/style.css`: design tokens, responsive layouts, and reduced-motion styles.
-- `src/components/Brand.tsx` and `public/favicon.svg`: the website's crescent mark (a "C"
-  with one star). It is separate from the app logos in `packages/logos`.
-
-The home-page editor accepts one self-contained TSX file; showcase entries
-provide their full virtual source projects. Runtime imports are limited to
-`@celesta/react`, `@celesta/math`, `@celesta/code`, and `react`. Browser-compatible
-`prepare()` and font loading work; filesystem preparation, companion JSON
-projects, PSD portraits, and other npm imports require the desktop/CLI workflow. Add
-local image, video, or audio files with **Add media** and refer to them by file
-name in `src`. Remote media needs CORS access. The web preview is silent;
-constant-rate/constant-volume audio clips are mixed into the exported MP4.
-Animated audio rate/volume reports an error instead of exporting incorrect
-sound. Encoding requires the browser's H.264 WebCodecs support, and AAC support
-for compositions with audio. Browser canvas text, video seeking, and fonts can
-differ from the native renderer, so use the desktop exporter for pixel-exact
-native output. Export currently buffers the MP4 in memory.
-
-The website uses packaged macOS and Windows downloads as the primary onboarding
-flow. The source-build workflow is a separate developer chapter. Keep
-installation copy aligned with the packaging scripts and published release
-assets. Showcase compositions may load Google Fonts; the website UI uses
-system fonts. There are no analytics requests. Public
-links use the repository's configured GitHub origin.
+Reel, Apex, Afterimage, Signal, Spectra, and 36 Days run in the browser. Prism and Feature Tour
+need native PSD and voice preparation, and Versus needs generated benchmark videos; their pages
+link to the source and setup instructions instead. Add a work to `site/showcase-catalog.ts`, add
+its description to both copy files, and add `pages/showcase/<slug>.tsx` and `.meta.ts`
+(`tests/content.test.mjs` checks that every work has both). Keep `showcaseAssetDirectories` in
+sync when an example needs new fonts or images.
 
 ## Verification
 
 ```sh
 pnpm test
 pnpm build
+pnpm check
 pnpm check:examples
 pnpm deploy:check
 ```
 
-`check:examples` type-checks the playground scene and every file in
-`examples/` against the declarations staged by `packages/cli`'s build
-(`dist/project-types/`). Run `pnpm run build:runtime` from the repository root
-first.
+`check:examples` uses the declarations staged by `packages/cli`'s build
+(`dist/project-types/`); run `pnpm run build:runtime` from the repository root first.
 
-Check the page at desktop and mobile widths: navigation, TSX changes,
-playback/pause/scrubbing, source opening/copying/downloading, media import,
-canceling, and MP4 download. After changing the scene, export it and inspect
-the MP4 codecs, frame count, and an actual decoded frame. Test
-`pnpm preview:cloudflare` for static asset serving and missing-page responses.
+Then run `pnpm preview:cloudflare` and check, at desktop and mobile widths in light and dark:
+`/` redirects by `Accept-Language`; `/docs/export/` reaches `/en/docs/export/` in an English
+browser; an unknown address such as `/en/nope/` shows the themed 404 with status 404; the
+landing page's playground edits, plays, scrubs, and exports an MP4; a browser-ready and a
+desktop-only showcase entry; documentation navigation, search with and without hits in both
+languages, and the language switch on documentation and static pages.
 
-For documentation changes, verify topic search (including no results), OS
-selection, code copying, mobile contents navigation, and direct visits to
-`/docs/export/` and the legacy `/docs/#export` using both Vite and local Wrangler. Keep guide instructions in
-sync with the root README and the React API, and run `pnpm check:examples`
-after changing any example.
-
-The user guide follows the React workflow in the root README. The JSON timeline
-chapter is for compatibility with existing files; new project, preview, and
-export instructions use React entries. Keep CLI flags aligned with
-`crates/exporter/src/main.rs` and `crates/editor/src/cli.rs`, and package import
-examples aligned with each package's public `src/index.ts`. In particular,
-VOICEVOX and AivisSpeech adapters are imported from `@celesta/voicevox` and
-`@celesta/aivis-speech`, not `@celesta/react`.
-
-Catalogs currently ship together in the shared JavaScript bundle. This is a
-simple tradeoff for two languages; switch to loading a catalog per language if
-additional locales make its transfer size significant. Search aliases live in
-the catalogs too, so add terms readers use in each language. Locale-specific
-404 pages and no-JavaScript fallback links are generated with the other HTML.
-
-## Showcase
-
-`/en/showcase/` and `/ja/showcase/` list the compositions in `examples/`.
-Each has its own static HTML address, such as `/ja/showcase/apex/`, with
-localized metadata and language links. The header links to the showcase.
-Unprefixed `/showcase/` addresses preserve the English entry.
-
-Reel, Apex, Afterimage, Signal, Spectra, and 36 Days run in the browser.
-The editor loads their original TSX/TS sources on demand; choose a source
-file to edit it, and the full project recompiles. Playback, frame scrubbing,
-reset, source downloads, and MP4 export use the same `Playground` as the home
-page. Opening a source file merges it into the sample while preserving its
-entry composition; the home-page editor replaces its single file. Browser editions explicitly omit generated soundtracks. Prism and
-Feature Tour need native PSD/voice preparation; Versus needs three generated
-benchmark videos. Their detail pages link to the original source and setup
-instructions and clearly identify the desktop requirement.
-
-`src/site/showcase-catalog.ts` defines the works and initial preview frames.
-Add descriptions and other UI text to both locale catalogs. The source glob
-in `src/pages/showcase/sources.ts` reads TSX/TS sources from all example directories;
-`loadShowcase()` excludes entries with the catalog's `desktop` flag and loads
-only the selected browser edition.
-Vite reads these as editor text, bypassing desktop-only TypeScript configs.
-The build copies the shared OpenType fonts, license files, and portrait PNGs
-to `dist/showcase-assets/`; development serves the same paths. Keep these
-asset paths in sync when adding an example with new media.
-
-Verify all browser-ready entries, a dependent-file edit, reset, playback,
-scrubbing, MP4 export, localized direct visits, and the mobile menu. The web
-package's `pnpm test` checks virtual module resolution and unavailable imports.
+The user guide follows the React workflow in the root README. Keep CLI flags aligned with
+`crates/exporter/src/main.rs` and `crates/editor/src/cli.rs`, package import examples aligned
+with each package's public `src/index.ts`, and run `pnpm check:examples` after changing any
+example.

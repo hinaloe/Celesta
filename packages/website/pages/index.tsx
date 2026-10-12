@@ -17,7 +17,7 @@ const hidden = (children?: ReactNode) => <span aria-hidden="true">{children}</sp
 /** The landing page: hero, playground, features, ideas, and getting started. */
 export default function Landing({ locale: urlLocale }: StaticPageComponentProps) {
   const locale = isLocale(urlLocale) ? urlLocale : 'en';
-  const { home, download } = copy(locale);
+  const { home, download, common } = copy(locale);
   const docs = (slug: string) => `/${locale}/docs/${slug}/`;
   const docsLink = (slug: string, label: ReactNode) => <RouteLink className="lp-more" href={docs(slug)}>{label}</RouteLink>;
 
@@ -66,7 +66,7 @@ export default function Landing({ locale: urlLocale }: StaticPageComponentProps)
       </dl>
     </section>
 
-    <section id="playground" className="lp-playground tg-shell" aria-labelledby="playground-heading">
+    <section id="playground" className="lp-playground tg-shell" aria-label={common.navigation.playground}>
       <PlaygroundMount options={{ kind: 'home', locale }} fallback={<p className="lp-fallback">{home.metadata.noscript(children => <a href={`${repository}#readme`}>{children}</a>)}</p>} />
     </section>
 
