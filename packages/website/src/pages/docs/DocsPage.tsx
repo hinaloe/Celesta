@@ -1,8 +1,7 @@
 import { docPath, parseRoute, showcasePath } from '../../site/routes';
-import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { currentLocale, t, text, homePath } from '../../site/i18n';
 import { useEffect, useState } from 'react';
-import { Brand } from '../../components/Brand';
+import { SiteHeader } from '../../components/SiteHeader';
 import { contents } from './content/guides';
 import { docGroups, docPages } from '../../site/docs-nav';
 import { packageContents } from './content/packages';
@@ -49,12 +48,7 @@ export function DocsPage() {
 
   return <div className="docs-page">
     <a className="skip-link" href="#docs-main">{text('docs.ui.skip-to-documentation')}</a>
-    <header className="header docs-header">
-      <div className="shell header-inner flex items-center justify-between">
-        <div className="flex items-center gap-5">{text('docs.ui.documentation', [<Brand />, <a className="docs-header-label" href={docPath('overview')} />])}</div>
-        <a className="docs-showcase-link" href={showcasePath('', currentLocale)}>{t('showcase.label')}</a><LanguageSwitcher /><nav className="docs-top-nav flex items-center gap-6" aria-label={t('docs.ui.main-navigation')}>{text('docs.ui.website-github', [<a href={homePath} />, <a href={repository} />, <span aria-hidden="true" />])}</nav>
-      </div>
-    </header>
+    <SiteHeader current="docs" />
     <div className="docs-layout shell">
       <aside className="docs-sidebar">
         <button className="docs-contents-toggle" aria-expanded={contentsOpen} aria-controls="docs-contents" onClick={() => setContentsOpen(!contentsOpen)}>{page ? page.title : t('docs.ui.documentation-topics')} <span aria-hidden="true">{contentsOpen ? '−' : '+'}</span></button>

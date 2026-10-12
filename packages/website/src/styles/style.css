@@ -53,6 +53,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, pre:focus-visible { 
 .nav a span { margin-left: 2px; }
 .nav-download { color: var(--text); border-bottom: 1px solid var(--text); padding-bottom: 1px; }
 .nav .nav-download:hover { color: var(--accent); border-color: var(--accent); }
+.nav a[aria-current] { color: var(--text); }
 .menu-toggle { display: none; color: var(--text); font-size: 14px; }
 
 /* Shared type */

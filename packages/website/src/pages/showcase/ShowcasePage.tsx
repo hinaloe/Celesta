@@ -1,15 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Brand } from '../../components/Brand';
 import { Playground } from '../../features/playground/Playground';
 import { repository } from '../../site/links';
 import { showcase } from '../../site/showcase-catalog';
 import { loadShowcase, posterURL } from './sources';
 import { currentLocale, homePath, t } from '../../site/i18n';
 import { docPath, parseRoute, showcasePath } from '../../site/routes';
-import { LanguageSwitcher } from '../../components/LanguageSwitcher';
+import { SiteHeader } from '../../components/SiteHeader';
 
 export function ShowcasePage() {
-  const [menuOpen, setMenuOpen] = useState(false);
   const route = parseRoute(window.location.pathname);
   const slug = route.page === 'showcase' && route.slug !== 'overview' ? route.slug : '';
   const path = (slug = '') => showcasePath(slug, currentLocale);
@@ -28,7 +26,7 @@ export function ShowcasePage() {
 
   return <>
     <a href="#main" className="skip-link">{t('home.skip-to-content')}</a>
-    <header className="header"><div className="shell header-inner flex items-center justify-between"><Brand /><button className="menu-toggle" aria-expanded={menuOpen} aria-controls="showcase-navigation" onClick={() => setMenuOpen(!menuOpen)}>{t(menuOpen ? 'common.navigation.close' : 'common.navigation.menu')}</button><nav id="showcase-navigation" className={`nav flex items-center ${menuOpen ? 'is-open' : ''}`} aria-label={t('home.main-navigation')} onClick={() => setMenuOpen(false)}><a href={path()} aria-current={!sample ? 'page' : undefined}>{t('showcase.label')}</a><a href={docPath('overview')}>{t('showcase.docs')}</a><LanguageSwitcher /></nav></div></header>
+    <SiteHeader current="showcase" />
     <main id="main">
       <section className="showcase-intro shell" aria-labelledby="showcase-title">
         <p className="eyebrow">{sample ? <a href={path()}>{t('showcase.all')}</a> : t('showcase.made-with')}</p>

@@ -1,11 +1,10 @@
-import { LanguageSwitcher } from '../../components/LanguageSwitcher';
-import { docPath, showcasePath } from '../../site/routes';
-import { currentLocale, t, text } from '../../site/i18n';
-import { useEffect, useRef, useState } from 'react';
+import { docPath } from '../../site/routes';
+import { t, text } from '../../site/i18n';
+import { useEffect, useRef } from 'react';
 import { Playground } from '../../features/playground/Playground';
 import { Brand } from '../../components/Brand';
 import { DownloadAlternatives, DownloadButton } from '../../components/Download';
-import { allDownloads } from '../../components/download-links';
+import { SiteHeader } from '../../components/SiteHeader';
 import { repository } from '../../site/links';
 
 const documentation = docPath('overview');
@@ -33,16 +32,9 @@ function Timecode() {
 }
 
 export function HomePage() {
-  const [menuOpen, setMenuOpen] = useState(false);
   return <>
     <a href="#main" className="skip-link">{text('home.skip-to-content')}</a>
-    <header id="top" className="header">
-      <div className="shell header-inner flex items-center justify-between">
-        <Brand />
-        <button className="menu-toggle" aria-expanded={menuOpen} aria-controls="navigation" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? t('common.navigation.close') : t('common.navigation.menu')}</button>
-        <nav id="navigation" aria-label={t('home.main-navigation')} className={`nav flex items-center ${menuOpen ? 'is-open' : ''}`} onClick={() => setMenuOpen(false)}>{text('home.why-celesta-playground-docs-github-download', [<a href="#features" />, <a href="#playground" />, <a href={documentation} />, <a href={repository} />, <span aria-hidden="true" />, <a className="nav-download" href={allDownloads} />, <a href={showcasePath('', currentLocale)} />])}<LanguageSwitcher /></nav>
-      </div>
-    </header>
+    <SiteHeader />
     <main id="main">
       <section className="hero shell" aria-labelledby="hero-title">
         <div className="hero-meta flex items-center justify-between gap-6">{text('home.open-source-in-active-development-tc', [<a className="development-badge" href={`${repository}/commits`} />, <span aria-hidden="true" />, <span className="hero-timecode" aria-hidden="true" />, <Timecode />])}</div>

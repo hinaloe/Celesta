@@ -1,8 +1,6 @@
 {
   "home": {
     "skip-to-content": "Skip to content",
-    "why-celesta-playground-docs-github-download": "<slot0>Why Celesta</slot0><slot1>Playground</slot1><slot2>Docs</slot2><slot3>GitHub <slot4>↗</slot4></slot3><slot5>Download</slot5><slot6>Showcase</slot6>",
-    "main-navigation": "Main navigation",
     "open-source-in-active-development-tc": "<slot0>Open source · In active development <slot1>↗</slot1></slot0><slot2>TC <slot3/></slot2>",
     "motion-written-down": "Motion,<slot0/><slot1>written down.</slot1>",
     "celesta-renders-react-components-to-video-scrub": "Celesta renders React components to video. Scrub to any frame in the browser or the desktop app, then export an MP4.",
@@ -124,9 +122,6 @@
   "docs": {
     "ui": {
       "skip-to-documentation": "Skip to documentation",
-      "documentation": "<slot0/><slot1>Documentation</slot1>",
-      "website-github": "<slot0>Website</slot0><slot1>GitHub <slot2>↗</slot2></slot1>",
-      "main-navigation": "Main navigation",
       "find-a-topic": "Find a topic",
       "setup-math-export": "Setup, math, export…",
       "clear-topic-search": "Clear topic search",
@@ -1024,7 +1019,13 @@
       "menu": "Menu",
       "close": "Close",
       "language": "Language",
-      "label": "Celesta home"
+      "label": "Celesta home",
+      "main": "Main navigation",
+      "docs": "Docs",
+      "showcase": "Showcase",
+      "playground": "Playground",
+      "github": "GitHub",
+      "download": "Download"
     },
     "clipboard": {
       "copied": "Copied!",
@@ -1096,7 +1097,6 @@
         "description": "One scene, three engines: a comparison using recorded benchmark results.",
         "limitation": "This composition needs the three generated benchmark videos. Run the benchmarks, then open the original in the desktop app."
       }
-    },
-    "docs": "Docs"
+    }
   }
 }
