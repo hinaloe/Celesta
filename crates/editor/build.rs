@@ -3,9 +3,24 @@ fn main() {
         println!("cargo:rustc-link-lib=strmiids");
         println!("cargo:rustc-link-lib=mfuuid");
         println!("cargo:rustc-link-lib=mfplat");
+        reserve_main_thread_stack();
     }
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         embed_info_plist();
+    }
+}
+
+/// GPUI builds and lays out the whole element tree on the main thread. In a
+/// debug build its builder chains take hundreds of kilobytes of stack (the
+/// transport bar alone takes about 600 KiB), which overflows the 1 MiB that
+/// Windows reserves for the main thread by default. Reserve the 8 MiB that
+/// macOS and Linux give it.
+fn reserve_main_thread_stack() {
+    const STACK_SIZE: u32 = 8 * 1024 * 1024;
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        println!("cargo:rustc-link-arg-bins=/STACK:{STACK_SIZE}");
+    } else {
+        println!("cargo:rustc-link-arg-bins=-Wl,--stack,{STACK_SIZE}");
     }
 }
 

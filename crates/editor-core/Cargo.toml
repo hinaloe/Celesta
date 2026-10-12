@@ -10,6 +10,7 @@ rust-version.workspace = true
 celesta-composition = { path = "../composition" }
 celesta-evaluator = { path = "../evaluator" }
 celesta-project = { path = "../project" }
+dunce = "1.0.5"
 serde_json.workspace = true
 
 [dev-dependencies]

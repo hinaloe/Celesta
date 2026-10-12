@@ -65,6 +65,10 @@ impl EditorView {
         TitleBar::new().child(leading).child(
             div()
                 .id("title-bar-actions")
+                // The title bar is a window drag area. On Windows a click
+                // there is the caption's (`HTCAPTION`) unless something on
+                // top blocks the mouse, as `AppMenuBar`'s items do.
+                .occlude()
                 .flex()
                 .items_center()
                 .gap_2()
