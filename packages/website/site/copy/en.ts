@@ -178,6 +178,10 @@ export const en = {
       navigation: 'Documentation',
       chapters: 'Chapters',
       breadcrumb: 'Breadcrumb',
+      onThisPage: 'On this page',
+      pager: 'Previous and next page',
+      previous: 'Previous',
+      next: 'Next',
     },
     search: {
       noMatches: 'No matching topics. Try “React”, “FFmpeg”, or “export”.',

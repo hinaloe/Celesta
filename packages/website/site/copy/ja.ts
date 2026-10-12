@@ -177,6 +177,10 @@ export const ja: Copy = {
       navigation: 'ドキュメント',
       chapters: '目次',
       breadcrumb: 'パンくずリスト',
+      onThisPage: 'このページの内容',
+      pager: '前後のページ',
+      previous: '前へ',
+      next: '次へ',
     },
     search: {
       noMatches: '該当するトピックがありません。「React」「FFmpeg」「書き出し」などを試してください。',

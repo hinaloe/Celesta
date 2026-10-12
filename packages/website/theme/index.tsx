@@ -10,3 +10,5 @@ export { Footer } from './Footer.tsx';
 export { DocsPage } from './DocsPage.tsx';
 export { Sidebar } from './Sidebar.tsx';
 export { PageHeader } from './PageHeader.tsx';
+export { PrevNextLinks } from './PrevNextLinks.tsx';
+export { TableOfContents } from './TableOfContents.tsx';

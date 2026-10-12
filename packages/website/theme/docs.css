@@ -559,14 +559,14 @@
   margin-bottom: 2px;
 }
 
-/* Pager (Makit's PrevNextLinks) */
+/* Pager */
 
-.tg-pager nav {
+.tg-pager {
+  display: grid;
   max-width: 760px;
-  margin-top: 64px;
-  padding-top: 0;
-  border-top: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  margin-top: 64px;
 }
 
 .tg-pager a {
@@ -581,25 +581,25 @@
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
-.tg-pager a:last-child:not(:first-child) {
-  align-items: flex-end;
-}
-
 .tg-pager a:hover {
   border-color: var(--tg-line-strong);
   background: var(--tg-panel);
 }
 
-.tg-pager a > span:first-child {
-  margin: 0;
+.tg-pager-next {
+  grid-column: 2;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.tg-pager-label {
   color: var(--tg-muted);
-  font-family: var(--tg-font-mono);
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
-.tg-pager a > span:last-child {
+.tg-pager-title {
   font-size: 15px;
   font-weight: 600;
 }
@@ -653,70 +653,74 @@
   }
 }
 
-/* Table of contents (Makit's default), with its page actions below. */
+/* Table of contents, with the page actions (Makit's default) below. */
 
-.tg-docs-toc > aside {
+.tg-toc {
   position: sticky;
   top: var(--tg-header-height);
-  display: block;
   height: calc(100vh - var(--tg-header-height));
   height: calc(100dvh - var(--tg-header-height));
+  overflow-y: auto;
   padding: 48px 0 40px;
   font-size: 13px;
   overscroll-behavior: contain;
 }
 
-.tg-docs-toc h2 {
+.tg-toc-title {
   margin: 0 0 14px;
   color: var(--tg-muted);
-  font-family: var(--tg-font-mono);
   font-size: 11px;
-  font-weight: 500;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
-.tg-docs-toc nav[aria-label="Table of contents"] ul {
-  border-left-color: var(--tg-line);
-}
-
-.tg-docs-toc nav[aria-label="Table of contents"] li {
+.tg-toc-list {
   margin: 0;
+  padding: 0;
+  border-left: 1px solid var(--tg-line);
+  list-style: none;
 }
 
-.tg-docs-toc nav[aria-label="Table of contents"] a {
-  padding: 3px 0 3px 12px;
+.tg-toc-list li + li {
+  margin-top: 4px;
+}
+
+.tg-toc-list a {
+  display: block;
+  margin-left: -1px;
+  padding: 3px 0 3px calc(12px + var(--tg-toc-level, 0) * 12px);
   border-left: 2px solid transparent;
   color: var(--tg-muted);
-  font-weight: 400;
   line-height: 1.45;
+  text-decoration: none;
+  transition: color 0.15s ease, border-color 0.15s ease;
 }
 
-.tg-docs-toc nav[aria-label="Table of contents"] a:hover {
+.tg-toc-list a:hover {
   color: var(--tg-fg);
 }
 
-.tg-docs-toc nav[aria-label="Table of contents"] a[aria-current] {
+.tg-toc-list a[aria-current] {
   border-left-color: var(--tg-accent-text);
   color: var(--tg-fg);
 }
 
-.tg-docs-toc nav[aria-label="Page actions"] {
+.tg-toc-actions nav[aria-label="Page actions"] {
   gap: 10px;
   border-top-color: var(--tg-line);
   color: var(--tg-muted);
   font-size: 12.5px;
 }
 
-.tg-docs-toc nav[aria-label="Page actions"] :is(a, button, summary) {
+.tg-toc-actions nav[aria-label="Page actions"] :is(a, button, summary) {
   font-weight: 400;
 }
 
-.tg-docs-toc nav[aria-label="Page actions"] :is(a, button, summary):hover {
+.tg-toc-actions nav[aria-label="Page actions"] :is(a, button, summary):hover {
   color: var(--tg-fg);
 }
 
-.tg-docs-toc nav[aria-label="Page actions"] details > div {
+.tg-toc-actions nav[aria-label="Page actions"] details > div {
   border-color: var(--tg-line);
   border-radius: 4px;
   background: var(--tg-bg);

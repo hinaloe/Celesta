@@ -173,9 +173,14 @@ Builds run in order from `pnpm build`: `@celesta/web` → island (Vite) → `mak
 | `PageHeader` | Chapter title and description |
 | `StaticPage` | Header + full-width `<main>` + Footer; `data-pagefind-body` only when `page.search` |
 | `NotFoundPage` | Localized 404 in the theme |
+| `PrevNextLinks` | Pager with localized "Previous" / "Next" labels |
+| `TableOfContents` | Client table of contents with a localized heading and active-section marker |
 
-`SearchDialog`, `TableOfContents`, `ThemeToggle`, `LocaleSwitcher`, `PrevNextLinks`, and
-`PageContent` keep the default implementations and are restyled in CSS.
+The header's search, locale switch, and theme toggle are one shared `HeaderActions` part used by
+docs and static pages; the docs locale switch targets the same page id in the other locale.
+`SearchDialog`, `ThemeToggle`, `PageActions`, and `PageContent` keep the default implementations
+and are restyled in CSS. Their built-in labels stay English (Makit's messages cover only
+`fallbackNotice` and `home`); this is a known Makit gap.
 
 `theme/tungsten.css` (listed in the theme manifest `styles`) defines the palette as tokens for
 light and dark and maps them onto `--makit-color-*` so Makit's prose and default parts follow:

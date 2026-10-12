@@ -2,7 +2,8 @@
 
 import { RouteLink } from '@natsuneko-laboratory/makit-runtime';
 import { usePathname } from 'next/navigation';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useId } from 'react';
+import { useDisclosure } from './useDisclosure.ts';
 
 export interface NavLink {
   href: string;
@@ -28,41 +29,18 @@ const currentOf = (pathname: string, href: string) => {
 
 /**
  * The header navigation. From 860 px it sits inline; below, it folds behind a disclosure button
- * and closes on Escape, on a link, on a click outside, and on navigation.
+ * (closing rules in `useDisclosure`).
  */
 export function HeaderMenu({ links, download, labels }: HeaderMenuProps) {
   const id = useId();
   const pathname = usePathname();
-  const [open, setOpen] = useState(false);
-  const button = useRef<HTMLButtonElement>(null);
-  const panel = useRef<HTMLDivElement>(null);
-
-  useEffect(() => setOpen(false), [pathname]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      setOpen(false);
-      button.current?.focus();
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!panel.current?.contains(target) && !button.current?.contains(target)) setOpen(false);
-    };
-    document.addEventListener('keydown', onKeyDown);
-    document.addEventListener('pointerdown', onPointerDown);
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      document.removeEventListener('pointerdown', onPointerDown);
-    };
-  }, [open]);
+  const { open, toggle, button, panel, closeOnLink } = useDisclosure();
 
   return <>
-    <button ref={button} type="button" className="tg-menu-button" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
+    <button ref={button} type="button" className="tg-menu-button" aria-expanded={open} aria-controls={id} onClick={toggle}>
       <span className="tg-menu-icon" aria-hidden="true" /><span className="tg-menu-label">{open ? labels.close : labels.menu}</span>
     </button>
-    <div ref={panel} id={id} className="tg-nav-panel" data-open={open ? '' : undefined} onClick={(event) => (event.target as Element).closest('a') && setOpen(false)}>
+    <div ref={panel} id={id} className="tg-nav-panel" data-open={open ? '' : undefined} onClick={closeOnLink}>
       <nav className="tg-nav" aria-label={labels.main}>
         {links.map((link) => link.external
           ? <a key={link.href} href={link.href}>{link.label} <span aria-hidden="true">↗</span></a>

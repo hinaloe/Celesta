@@ -34,7 +34,8 @@ function PlaygroundCta({ locale }: { locale: Locale }) {
 
 /**
  * Sidebar · article · table of contents from 1100 px, sidebar · article from 860 px, one column
- * with the sidebar as a drawer below. `LocaleProvider` tells the Footer which locale to render.
+ * with the sidebar as a drawer below. `LocaleProvider` tells the Footer which locale to render and gives the
+ * table of contents its labels.
  */
 export async function DocsPage({ page, site, i18n, navigation, components: C }: DocsPageProps) {
   const locale = isLocale(page.locale) ? page.locale : 'en';
@@ -44,7 +45,7 @@ export async function DocsPage({ page, site, i18n, navigation, components: C }: 
   const sidebar = page.sidebar && navigation.length > 0;
   const toc = page.tableOfContents && page.headings.some((heading) => heading.id && heading.depth >= minDepth && heading.depth <= maxDepth);
 
-  return <LocaleProvider locale={locale}>
+  return <LocaleProvider locale={locale} docs={copy(locale).theme.docs}>
     <div className="tg-page">
       <C.Header header={site.header} siteTitle={site.title} homeHref={homeHref} actions={<HeaderActions page={page} site={site} i18n={i18n} components={C} />} />
       <div className="tg-shell tg-docs" data-sidebar={sidebar ? '' : undefined} data-toc={toc ? '' : undefined}>
@@ -56,9 +57,7 @@ export async function DocsPage({ page, site, i18n, navigation, components: C }: 
             <C.PageHeader page={page} />
             <C.PageContent html={page.html} copyButton={site.markdown.code.copyButton} />
           </article>
-          <div className="tg-pager">
-            <C.PrevNextLinks prev={page.navigationPosition?.prev} next={page.navigationPosition?.next} />
-          </div>
+          <C.PrevNextLinks prev={page.navigationPosition?.prev} next={page.navigationPosition?.next} />
           <PlaygroundCta locale={locale} />
         </main>
         {toc && <div className="tg-docs-toc">
