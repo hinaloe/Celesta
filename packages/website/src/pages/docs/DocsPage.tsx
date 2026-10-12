@@ -1,10 +1,10 @@
-import { showcasePath } from '../../site/showcase-catalog';
+import { docPath, parseRoute, showcasePath } from '../../site/routes';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { currentLocale, t, text, homePath } from '../../site/i18n';
 import { useEffect, useState } from 'react';
 import { Brand } from '../../components/Brand';
 import { contents } from './content/guides';
-import { docGroups, docPages, docPath } from '../../site/docs-nav';
+import { docGroups, docPages } from '../../site/docs-nav';
 import { packageContents } from './content/packages';
 import { repository } from '../../site/links';
 
@@ -14,8 +14,8 @@ const overviewTopic = { slug: 'overview', title: t('docs.ui.overview'), descript
 
 /** The page for the current address: `/docs/` is the overview, `/docs/<slug>/` a chapter. */
 function currentSlug(): string {
-  const slug = window.location.pathname.replace(/^\/(?:[^/]+\/)?docs\/?/, '').replace(/\/+$/, '');
-  return docPages.some(page => page.slug === slug) ? slug : 'overview';
+  const route = parseRoute(window.location.pathname);
+  return route.page === 'docs' && docPages.some(page => page.slug === route.slug) ? route.slug : 'overview';
 }
 
 export function DocsPage() {

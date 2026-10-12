@@ -6,7 +6,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { getDocGroups } from '../src/site/docs-nav.ts';
 import { richText } from '../src/site/i18n.ts';
 import { translate } from '../src/site/catalog.ts';
-import { languageRedirect, localeCodes, localeFromPath, type Locale } from '../src/site/locales.ts';
+import { languageRedirect, localeCodes, type Locale } from '../src/site/locales.ts';
+import { parseRoute } from '../src/site/routes.ts';
 import { showcase } from '../src/site/showcase-catalog.ts';
 
 const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
@@ -38,14 +39,6 @@ function localizedHtml(html: string, locale: Locale, slug?: string, showcaseSlug
 export function sitePages(root: string): Plugin {
   let outDir = 'dist';
   const slugs = getDocGroups('en').flatMap(group => group.pages).map(page => page.slug);
-  const route = (path: string) => {
-    const locale = localeFromPath(path);
-    const prefix = `/${locale}/`;
-    const localPath = path.startsWith(prefix) ? path.slice(prefix.length - 1) : path;
-    const match = /^\/docs\/(?:([a-z0-9-]+)\/?)?$/.exec(localPath);
-    const showcaseMatch = /^\/showcase\/(?:([a-z0-9-]+)\/?)?$/.exec(localPath);
-    return { locale, slug: localPath === '/docs/index.html' ? 'overview' : match ? match[1] ?? 'overview' : undefined, showcaseSlug: localPath === '/showcase/index.html' ? 'overview' : showcaseMatch ? showcaseMatch[1] ?? 'overview' : undefined, home: localPath === '/' || localPath === '/index.html' };
-  };
   return {
     name: 'celesta-site-pages',
     configResolved(config) { outDir = config.build.outDir; },
@@ -58,10 +51,10 @@ export function sitePages(root: string): Plugin {
           response.end();
           return;
         }
-        const { slug, home, showcaseSlug } = route(url.pathname);
-        if (home) request.url = '/index.html' + url.search;
-        else if (slug && (slug === 'overview' || slugs.includes(slug))) request.url = '/docs/index.html' + url.search;
-        else if (showcaseSlug && (showcaseSlug === 'overview' || showcase.some(item => item.slug === showcaseSlug))) request.url = '/showcase/index.html' + url.search;
+        const route = parseRoute(url.pathname);
+        if (route.page === 'home') request.url = '/index.html' + url.search;
+        else if (route.page === 'docs' && (route.slug === 'overview' || slugs.includes(route.slug))) request.url = '/docs/index.html' + url.search;
+        else if (route.page === 'showcase' && (route.slug === 'overview' || showcase.some(item => item.slug === route.slug))) request.url = '/showcase/index.html' + url.search;
         else if (/^\/showcase-assets\/examples\/(?:afterimage\/assets\/fonts|versus\/bench\/assets\/(?:fonts|licenses)|assets\/dialogue-demo\/portraits)\/[^/]+$/.test(url.pathname)) request.url = '/@fs/' + normalizePath(join(root, decodeURIComponent(url.pathname.slice('/showcase-assets/'.length))));
         next();
       });
@@ -76,8 +69,8 @@ export function sitePages(root: string): Plugin {
       });
     },
     transformIndexHtml(html, context) {
-      const { locale, slug, showcaseSlug } = route((context.originalUrl ?? context.path).split(/[?#]/)[0]);
-      return localizedHtml(html, locale, slug, showcaseSlug);
+      const route = parseRoute((context.originalUrl ?? context.path).split(/[?#]/)[0]);
+      return localizedHtml(html, route.locale, route.page === 'docs' ? route.slug : undefined, route.page === 'showcase' ? route.slug : undefined);
     },
     writeBundle() {
       const home = readFileSync(join(outDir, 'index.html'), 'utf8');

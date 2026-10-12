@@ -69,8 +69,3 @@ export function getDocGroups(locale: Locale): DocGroup[] {
 
 export const docGroups = getDocGroups(localeFromPath(typeof window === 'undefined' ? '/en/' : window.location.pathname));
 export const docPages: DocPage[] = docGroups.flatMap(group => group.pages);
-
-/** The path of a documentation page. The overview is `/<locale>/docs/`. */
-export function docPath(slug: string, locale = localeFromPath(typeof window === 'undefined' ? '/en/' : window.location.pathname)): string {
-  return slug === 'overview' ? `/${locale}/docs/` : `/${locale}/docs/${slug}/`;
-}

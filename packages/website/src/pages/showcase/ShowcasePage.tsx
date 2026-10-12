@@ -2,15 +2,16 @@ import { useEffect, useState } from 'react';
 import { Brand } from '../../components/Brand';
 import { Playground } from '../../features/playground/Playground';
 import { repository } from '../../site/links';
-import { showcase, showcasePath } from '../../site/showcase-catalog';
+import { showcase } from '../../site/showcase-catalog';
 import { loadShowcase, posterURL } from './sources';
 import { currentLocale, homePath, t } from '../../site/i18n';
-import { docPath } from '../../site/docs-nav';
+import { docPath, parseRoute, showcasePath } from '../../site/routes';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 
 export function ShowcasePage() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const slug = window.location.pathname.replace(/^\/(?:[a-z]+\/)?showcase\/?/, '').replace(/\/+$/, '');
+  const route = parseRoute(window.location.pathname);
+  const slug = route.page === 'showcase' && route.slug !== 'overview' ? route.slug : '';
   const path = (slug = '') => showcasePath(slug, currentLocale);
   const sample = showcase.find(item => item.slug === slug);
   const [files, setFiles] = useState<Record<string, string> | null>(null);

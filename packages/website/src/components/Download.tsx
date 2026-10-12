@@ -1,4 +1,4 @@
-import { docPath } from '../site/docs-nav';
+import { docPath } from '../site/routes';
 import { t, text } from '../site/i18n';
 import { allDownloads, downloads, visitorPlatform, type Platform } from './download-links';
 

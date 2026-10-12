@@ -1,6 +1,5 @@
-import { docPath } from '../../../site/docs-nav';
+import { docPath, showcasePath } from '../../../site/routes';
 import { currentLocale, t, text, homePath } from '../../../site/i18n';
-import { showcasePath } from '../../../site/showcase-catalog';
 import { useState, type ReactNode } from 'react';
 import { DocCode } from '../DocCode';
 import { Api, Note } from './shared';

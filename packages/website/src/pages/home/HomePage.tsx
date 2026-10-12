@@ -1,7 +1,6 @@
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
-import { docPath } from '../../site/docs-nav';
+import { docPath, showcasePath } from '../../site/routes';
 import { currentLocale, t, text } from '../../site/i18n';
-import { showcasePath } from '../../site/showcase-catalog';
 import { useEffect, useRef, useState } from 'react';
 import { Playground } from '../../features/playground/Playground';
 import { Brand } from '../../components/Brand';

@@ -1,4 +1,4 @@
-import { docPath } from '../../../site/docs-nav';
+import { docPath } from '../../../site/routes';
 import { t, text, homePath } from '../../../site/i18n';
 import type { ReactNode } from 'react';
 import { DocCode } from '../DocCode';
