@@ -1,8 +1,6 @@
 {
   "home": {
     "skip-to-content": "本文へ移動",
-    "why-celesta-playground-docs-github-download": "<slot0>Celesta の特長</slot0><slot1>プレイグラウンド</slot1><slot2>ドキュメント</slot2><slot3>GitHub <slot4>↗</slot4></slot3><slot5>ダウンロード</slot5><slot6>ショーケース</slot6>",
-    "main-navigation": "メインナビゲーション",
     "open-source-in-active-development-tc": "<slot0>オープンソース · 開発中 <slot1>↗</slot1></slot0><slot2>TC <slot3/></slot2>",
     "motion-written-down": "コードで、<slot0/><slot1>動画を作る。</slot1>",
     "celesta-renders-react-components-to-video-scrub": "Celesta は、React のコンポーネントで動画を作るツールです。ブラウザやデスクトップアプリで見たいフレームを確認し、MP4 に書き出せます。",
@@ -54,10 +52,6 @@
     "open-preview-export": "確認して、MP4 に書き出す。",
     "open-the-file-in-celesta-it-reloads": "Celesta でファイルを開くとプレビューできます。コードを保存するたびに表示が更新され、完成した動画は MP4 に書き出せます。",
     "browse-the-examples": "サンプルを見る <slot0>→</slot0>",
-    "code-first-video-open-source": "コードで動画を作る、オープンソースのツール。",
-    "documentation-github-releases-issues": "<slot0>ドキュメント</slot0><slot1>GitHub</slot1><slot2>リリース</slot2><slot3>Issues</slot3>",
-    "footer": "フッター",
-    "built-with-rust-and-typescript-mit-apache": "<slot0>Rust と TypeScript で開発しています。</slot0><slot1>MIT / Apache-2.0</slot1>",
     "ideas": {
       "title": "タイトル・オープニング",
       "dialogue": "口パク付きの会話シーン",
@@ -124,9 +118,6 @@
   "docs": {
     "ui": {
       "skip-to-documentation": "ドキュメント本文へスキップ",
-      "documentation": "<slot0/><slot1>ドキュメント</slot1>",
-      "website-github": "<slot0>ウェブサイト</slot0><slot1>GitHub <slot2>↗</slot2></slot1>",
-      "main-navigation": "メインナビゲーション",
       "find-a-topic": "トピックを検索",
       "setup-math-export": "セットアップ、数学、書き出し…",
       "clear-topic-search": "トピックの検索をクリア",
@@ -141,7 +132,6 @@
       "try-it-without-installing": "<slot0>インストールせずに、</slot0>試してみよう。",
       "the-playground-runs-celesta-in-your-browser": "ブラウザで Celesta を動かせます。書き出しもできます。",
       "open-the-playground": "プレイグラウンドを開く <slot0>→</slot0>",
-      "mit-apache-2-0-source-documentation": "<slot0>MIT / Apache-2.0</slot0><slot1>ソースのドキュメント ↗</slot1>",
       "celesta-docs-in-development": "Celesta <slot0>/</slot0> ドキュメント <slot1>開発進行中</slot1>",
       "celesta-documentation": "Celesta<slot0/><slot1>ドキュメント。</slot1>",
       "install-the-app-write-a-composition-export": "アプリを入れ、コンポジションを書き、MP4 に書き出す。<slot0/>順番に読むことも、知りたいトピックに進むこともできます。",
@@ -1024,12 +1014,27 @@
       "menu": "メニュー",
       "close": "閉じる",
       "language": "言語",
-      "label": "Celesta のホーム"
+      "label": "Celesta のホーム",
+      "main": "メインナビゲーション",
+      "docs": "ドキュメント",
+      "showcase": "ショーケース",
+      "playground": "プレイグラウンド",
+      "github": "GitHub",
+      "download": "ダウンロード"
     },
     "clipboard": {
       "copied": "コピーしました！",
       "copy-failed": "コピーできません。コードを選択して手動でコピーしてください。",
       "copy-label": "{{label}} をコピー"
+    },
+    "footer": {
+      "label": "フッター",
+      "tagline": "コードで動画を作る、オープンソースのツール。",
+      "documentation": "ドキュメント",
+      "releases": "リリース",
+      "issues": "Issues",
+      "built-with": "Rust と TypeScript で開発しています。",
+      "license": "MIT / Apache-2.0"
     }
   },
   "not-found": {
@@ -1096,7 +1101,6 @@
         "description": "1つのシーンを3つのエンジンで描画し、記録済みのベンチマーク結果を比較。",
         "limitation": "生成済みのベンチマーク動画3本が必要です。ベンチマークを実行してから、オリジナルの作品をアプリで開いてください。"
       }
-    },
-    "docs": "ドキュメント"
+    }
   }
 }

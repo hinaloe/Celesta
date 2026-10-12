@@ -9,6 +9,3 @@ export const showcase = [
   { slug: 'feature-tour', title: 'Feature Tour', duration: '52 sec · 30 FPS', desktop: true },
   { slug: 'versus', title: 'Versus', duration: '82 sec · 30 FPS', desktop: true },
 ] as const;
-
-// Keep these paths pure so Vite can use the same catalog for static pages.
-export const showcasePath = (slug = '', locale = 'en') => `/${locale}/showcase/${slug ? `${slug}/` : ''}`;

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { currentLocale, t } from './i18n';
-import { localeCodes, locales, localizedPath } from './locales';
+import { currentLocale, t } from '../site/i18n';
+import { localeCodes, locales, localizedPath } from '../site/locales';
 
 export function LanguageSwitcher() {
   const [hash, setHash] = useState(window.location.hash);

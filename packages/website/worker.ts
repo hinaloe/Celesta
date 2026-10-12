@@ -1,4 +1,4 @@
-import { languageRedirect } from './src/locales.ts';
+import { languageRedirect } from './src/site/locales.ts';
 
 export default {
   async fetch(request, env) {

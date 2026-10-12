@@ -1,4 +1,4 @@
-import { t, text } from './i18n';
+import { t, text } from '../../site/i18n';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import initialSource from './demo/title-scene.tsx?raw';
 import { Engine, SceneCanvas, exportMp4, type CompositionConfig } from '@celesta/web';

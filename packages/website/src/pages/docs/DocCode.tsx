@@ -1,4 +1,4 @@
-import { t, text } from './i18n';
+import { t, text } from '../../site/i18n';
 import { useEffect, useMemo, useState } from 'react';
 import { highlight } from './syntax';
 

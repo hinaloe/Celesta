@@ -1,4 +1,4 @@
-import { t, text } from './i18n';
+import { t, text } from '../../../site/i18n';
 import type { ReactNode } from 'react';
 
 export function Note({ title, children }: { title: string; children: ReactNode }) {

@@ -1,6 +1,6 @@
 import { createInstance, type ParseKeys } from 'i18next';
-import en from './locales/en.json' with { type: 'json' };
-import ja from './locales/ja.json' with { type: 'json' };
+import en from '../locales/en.json' with { type: 'json' };
+import ja from '../locales/ja.json' with { type: 'json' };
 import { defaultLocale, localeCodes, type Locale } from './locales.ts';
 
 export const catalogs = { en, ja } satisfies Record<Locale, typeof en>;

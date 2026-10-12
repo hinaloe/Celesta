@@ -1,8 +1,6 @@
 {
   "home": {
     "skip-to-content": "Skip to content",
-    "why-celesta-playground-docs-github-download": "<slot0>Why Celesta</slot0><slot1>Playground</slot1><slot2>Docs</slot2><slot3>GitHub <slot4>↗</slot4></slot3><slot5>Download</slot5><slot6>Showcase</slot6>",
-    "main-navigation": "Main navigation",
     "open-source-in-active-development-tc": "<slot0>Open source · In active development <slot1>↗</slot1></slot0><slot2>TC <slot3/></slot2>",
     "motion-written-down": "Motion,<slot0/><slot1>written down.</slot1>",
     "celesta-renders-react-components-to-video-scrub": "Celesta renders React components to video. Scrub to any frame in the browser or the desktop app, then export an MP4.",
@@ -54,10 +52,6 @@
     "open-preview-export": "Open, preview, export.",
     "open-the-file-in-celesta-it-reloads": "Open the file in Celesta. It reloads on save, and exports to MP4 when you are ready.",
     "browse-the-examples": "Browse the examples <slot0>→</slot0>",
-    "code-first-video-open-source": "Code-first video. Open source.",
-    "documentation-github-releases-issues": "<slot0>Documentation</slot0><slot1>GitHub</slot1><slot2>Releases</slot2><slot3>Issues</slot3>",
-    "footer": "Footer",
-    "built-with-rust-and-typescript-mit-apache": "<slot0>Built with Rust and TypeScript.</slot0><slot1>MIT / Apache-2.0</slot1>",
     "ideas": {
       "title": "Title sequences",
       "dialogue": "Dialogue with lip sync",
@@ -124,9 +118,6 @@
   "docs": {
     "ui": {
       "skip-to-documentation": "Skip to documentation",
-      "documentation": "<slot0/><slot1>Documentation</slot1>",
-      "website-github": "<slot0>Website</slot0><slot1>GitHub <slot2>↗</slot2></slot1>",
-      "main-navigation": "Main navigation",
       "find-a-topic": "Find a topic",
       "setup-math-export": "Setup, math, export…",
       "clear-topic-search": "Clear topic search",
@@ -141,7 +132,6 @@
       "try-it-without-installing": "Try it <slot0>without installing.</slot0>",
       "the-playground-runs-celesta-in-your-browser": "The playground runs Celesta in your browser, export included.",
       "open-the-playground": "Open the playground <slot0>→</slot0>",
-      "mit-apache-2-0-source-documentation": "<slot0>MIT / Apache-2.0</slot0><slot1>Source documentation ↗</slot1>",
       "celesta-docs-in-development": "Celesta <slot0>/</slot0> Docs <slot1>In development</slot1>",
       "celesta-documentation": "Celesta<slot0/><slot1>documentation.</slot1>",
       "install-the-app-write-a-composition-export": "Install the app, write a composition, export an MP4.<slot0/>Read in order, or jump to a topic.",
@@ -1024,12 +1014,27 @@
       "menu": "Menu",
       "close": "Close",
       "language": "Language",
-      "label": "Celesta home"
+      "label": "Celesta home",
+      "main": "Main navigation",
+      "docs": "Docs",
+      "showcase": "Showcase",
+      "playground": "Playground",
+      "github": "GitHub",
+      "download": "Download"
     },
     "clipboard": {
       "copied": "Copied!",
       "copy-failed": "Copy unavailable. Select the code to copy it manually.",
       "copy-label": "Copy {{label}}"
+    },
+    "footer": {
+      "label": "Footer",
+      "tagline": "Code-first video. Open source.",
+      "documentation": "Documentation",
+      "releases": "Releases",
+      "issues": "Issues",
+      "built-with": "Built with Rust and TypeScript.",
+      "license": "MIT / Apache-2.0"
     }
   },
   "not-found": {
@@ -1096,7 +1101,6 @@
         "description": "One scene, three engines: a comparison using recorded benchmark results.",
         "limitation": "This composition needs the three generated benchmark videos. Run the benchmarks, then open the original in the desktop app."
       }
-    },
-    "docs": "Docs"
+    }
   }
 }

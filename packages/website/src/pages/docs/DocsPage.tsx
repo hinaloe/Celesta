@@ -1,11 +1,12 @@
-import { showcasePath } from './showcase-catalog';
-import { LanguageSwitcher } from './LanguageSwitcher';
-import { currentLocale, t, text, homePath } from './i18n';
+import { docPath, parseRoute, showcasePath } from '../../site/routes';
+import { currentLocale, t, text, homePath } from '../../site/i18n';
 import { useEffect, useState } from 'react';
-import { Brand } from './Brand';
-import { contents, repository } from './docs-content';
-import { docGroups, docPages, docPath } from './docs-nav';
-import { packageContents } from './docs-packages';
+import { SiteFooter } from '../../components/SiteFooter';
+import { SiteHeader } from '../../components/SiteHeader';
+import { contents } from './content/guides';
+import { docGroups, docPages } from '../../site/docs-nav';
+import { packageContents } from './content/packages';
+import { repository } from '../../site/links';
 
 const pageContents = { ...contents, ...packageContents };
 
@@ -13,11 +14,11 @@ const overviewTopic = { slug: 'overview', title: t('docs.ui.overview'), descript
 
 /** The page for the current address: `/docs/` is the overview, `/docs/<slug>/` a chapter. */
 function currentSlug(): string {
-  const slug = window.location.pathname.replace(/^\/(?:[^/]+\/)?docs\/?/, '').replace(/\/+$/, '');
-  return docPages.some(page => page.slug === slug) ? slug : 'overview';
+  const route = parseRoute(window.location.pathname);
+  return route.page === 'docs' && docPages.some(page => page.slug === route.slug) ? route.slug : 'overview';
 }
 
-export function Docs() {
+export function DocsPage() {
   const [query, setQuery] = useState('');
   const [contentsOpen, setContentsOpen] = useState(false);
   const slug = currentSlug();
@@ -48,12 +49,7 @@ export function Docs() {
 
   return <div className="docs-page">
     <a className="skip-link" href="#docs-main">{text('docs.ui.skip-to-documentation')}</a>
-    <header className="header docs-header">
-      <div className="shell header-inner flex items-center justify-between">
-        <div className="flex items-center gap-5">{text('docs.ui.documentation', [<Brand />, <a className="docs-header-label" href={docPath('overview')} />])}</div>
-        <a className="docs-showcase-link" href={showcasePath('', currentLocale)}>{t('showcase.label')}</a><LanguageSwitcher /><nav className="docs-top-nav flex items-center gap-6" aria-label={t('docs.ui.main-navigation')}>{text('docs.ui.website-github', [<a href={homePath} />, <a href={repository} />, <span aria-hidden="true" />])}</nav>
-      </div>
-    </header>
+    <SiteHeader current="docs" />
     <div className="docs-layout shell">
       <aside className="docs-sidebar">
         <button className="docs-contents-toggle" aria-expanded={contentsOpen} aria-controls="docs-contents" onClick={() => setContentsOpen(!contentsOpen)}>{page ? page.title : t('docs.ui.documentation-topics')} <span aria-hidden="true">{contentsOpen ? '−' : '+'}</span></button>
@@ -88,9 +84,9 @@ export function Docs() {
           </nav>
         </article> : <Overview />}
         <div className="docs-end"><h2>{text('docs.ui.try-it-without-installing', [<em />])}</h2><p>{text('docs.ui.the-playground-runs-celesta-in-your-browser')}</p><a className="button button-primary" href={`${homePath}#playground`}>{text('docs.ui.open-the-playground', [<span aria-hidden="true" />])}</a></div>
-        <footer className="docs-footer">{text('docs.ui.mit-apache-2-0-source-documentation', [<span />, <a href={`${repository}#readme`} />])}</footer>
       </main>
     </div>
+    <SiteFooter />
   </div>;
 }
 

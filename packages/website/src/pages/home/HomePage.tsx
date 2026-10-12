@@ -1,14 +1,11 @@
-import { LanguageSwitcher } from './LanguageSwitcher';
-import { docPath } from './docs-nav';
-import { currentLocale, t, text } from './i18n';
-import { showcasePath } from './showcase-catalog';
-import { useEffect, useRef, useState } from 'react';
-import { Playground } from './Playground';
-import { Brand } from './Brand';
-import { DownloadAlternatives, DownloadButton } from './Download';
-import { allDownloads, repository } from './links';
-
-const documentation = docPath('overview');
+import { docPath } from '../../site/routes';
+import { t, text } from '../../site/i18n';
+import { useEffect, useRef } from 'react';
+import { Playground } from '../../features/playground/Playground';
+import { DownloadAlternatives, DownloadButton } from '../../components/Download';
+import { SiteFooter } from '../../components/SiteFooter';
+import { SiteHeader } from '../../components/SiteHeader';
+import { repository } from '../../site/links';
 
 function formatTimecode(frame: number, fps = 30) {
   const seconds = Math.floor(frame / fps);
@@ -32,17 +29,10 @@ function Timecode() {
   return <span ref={output}>{formatTimecode(0)}</span>;
 }
 
-export function App() {
-  const [menuOpen, setMenuOpen] = useState(false);
+export function HomePage() {
   return <>
     <a href="#main" className="skip-link">{text('home.skip-to-content')}</a>
-    <header id="top" className="header">
-      <div className="shell header-inner flex items-center justify-between">
-        <Brand />
-        <button className="menu-toggle" aria-expanded={menuOpen} aria-controls="navigation" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? t('common.navigation.close') : t('common.navigation.menu')}</button>
-        <nav id="navigation" aria-label={t('home.main-navigation')} className={`nav flex items-center ${menuOpen ? 'is-open' : ''}`} onClick={() => setMenuOpen(false)}>{text('home.why-celesta-playground-docs-github-download', [<a href="#features" />, <a href="#playground" />, <a href={documentation} />, <a href={repository} />, <span aria-hidden="true" />, <a className="nav-download" href={allDownloads} />, <a href={showcasePath('', currentLocale)} />])}<LanguageSwitcher /></nav>
-      </div>
-    </header>
+    <SiteHeader />
     <main id="main">
       <section className="hero shell" aria-labelledby="hero-title">
         <div className="hero-meta flex items-center justify-between gap-6">{text('home.open-source-in-active-development-tc', [<a className="development-badge" href={`${repository}/commits`} />, <span aria-hidden="true" />, <span className="hero-timecode" aria-hidden="true" />, <Timecode />])}</div>
@@ -81,9 +71,6 @@ export function App() {
         </div>
       </section>
     </main>
-    <footer className="footer shell">
-      <div className="footer-top"><div><Brand /><p>{text('home.code-first-video-open-source')}</p></div><nav aria-label={t('home.footer')}>{text('home.documentation-github-releases-issues', [<a href={documentation} />, <a href={repository} />, <a href={`${repository}/releases`} />, <a href={`${repository}/issues`} />])}</nav></div>
-      <div className="footer-bottom flex flex-wrap justify-between gap-3">{text('home.built-with-rust-and-typescript-mit-apache', [<span />, <span />])}</div>
-    </footer>
+    <SiteFooter />
   </>;
 }
