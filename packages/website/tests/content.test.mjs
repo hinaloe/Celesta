@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { showcase } from '../site/showcase-catalog.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const locales = ['en', 'ja'];
@@ -88,4 +89,18 @@ test('every include exists', () => {
     }
   }
   assert.ok(includes > 0, 'the documentation includes example files');
+});
+
+test('every showcase work has a page and metadata', () => {
+  const dir = join(root, 'pages', 'showcase');
+  const expected = ['index.tsx', 'index.meta.ts', ...showcase.flatMap(({ slug }) => [`${slug}.tsx`, `${slug}.meta.ts`])];
+  assert.deepEqual(readdirSync(dir).sort(), expected.sort(), 'pages/showcase holds exactly the gallery and one page per work');
+  for (const { slug } of showcase) {
+    assert.match(readFileSync(join(dir, `${slug}.tsx`), 'utf8'), new RegExp(`<ShowcaseEntry slug="${slug}" locale={locale} />`), `${slug} renders its own entry`);
+    assert.match(readFileSync(join(dir, `${slug}.meta.ts`), 'utf8'), new RegExp(`showcaseMetadata\\('${slug}'\\)`), `${slug} describes itself`);
+  }
+});
+
+test('catalog posters match the poster files in examples', () => {
+  for (const work of showcase) assert.equal('poster' in work, existsSync(join(root, '..', '..', 'examples', work.slug, 'poster.jpg')), `${work.slug} poster flag`);
 });

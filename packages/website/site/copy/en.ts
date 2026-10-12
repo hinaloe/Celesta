@@ -98,7 +98,7 @@ export const en = {
       loops: 'Generative loops',
     },
     metadata: {
-      title: 'Celesta — Motion, written down.',
+      title: 'Motion, written down.',
       description: 'Celesta renders React components to video. Scrub to any frame in the browser or the desktop app, then export an MP4. Free and open source.',
       ogDescription: 'An open-source video tool: React compositions, frame-accurate preview, and H.264 MP4 export.',
       noscript: (s0: Slot) => h(Fragment, null, 'Celesta is an open-source, code-first video tool. Enable JavaScript to use the playground, or ', s0('read the documentation on GitHub'), '.'),

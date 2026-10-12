@@ -97,7 +97,7 @@ export const ja: Copy = {
       loops: 'コードで生成するループ映像',
     },
     metadata: {
-      title: 'Celesta — コードで、動画を作る。',
+      title: 'コードで、動画を作る。',
       description: 'Celesta は、React のコンポーネントで動画を作るオープンソースのツールです。ブラウザやデスクトップアプリで見たいフレームを確認し、MP4 に書き出せます。',
       ogDescription: 'React で動画を作り、1 フレームずつ確認して、MP4 に書き出す。ブラウザとデスクトップで使えるオープンソースの動画制作ツールです。',
       noscript: (s0: Slot) => h(Fragment, null, 'Celesta は、コードで動画を作るオープンソースのツールです。ブラウザで試すには JavaScript を有効にしてください。使い方は ', s0('GitHub のドキュメント'), 'でも確認できます。'),
