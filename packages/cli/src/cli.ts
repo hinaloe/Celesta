@@ -8,9 +8,7 @@ import { listProjectProperties } from '@celesta/react';
 import type {
   ComponentPropertySchema,
   CompositionConfig,
-  EvaluatedTransform,
   Layer,
-  LayerContent,
   ProjectPropertyField,
   Scene,
   TextMetrics,
@@ -52,8 +50,16 @@ globalThis.console = new Console({ stdout: process.stderr, stderr: process.stder
 interface FrameRequest {
   time: Time;
   project?: ProjectFrame;
-  /** Sent by bridges that fill omitted transform fields with their defaults. */
+  /**
+   * Sent by bridges that fill omitted fields with their defaults: transform
+   * fields, an opacity of 1, and a rect's corner radius of 0.
+   */
   compactTransforms?: boolean;
+  /**
+   * Sent by bridges that keep `<Static>` subtrees: refer to them by key.
+   * `decoded` is the `seq` of the last frame the bridge decoded.
+   */
+  statics?: { decoded: number };
   /**
    * Evaluate a frame past the end as if the video went on (inspect.mjs
    * --loop). The response echoes `openEnd: true`, so a caller can tell an
@@ -61,14 +67,6 @@ interface FrameRequest {
    */
   openEnd?: boolean;
 }
-
-/** A layer whose transform leaves out fields equal to the Rust defaults. */
-type CompactLayer = Omit<Layer, 'transform' | 'content'> & {
-  transform: Partial<EvaluatedTransform>;
-  content:
-    | Exclude<LayerContent, { type: 'group' }>
-    | (Omit<Extract<LayerContent, { type: 'group' }>, 'layers'> & { layers: CompactLayer[] });
-};
 
 interface ResolveRequest {
   components: ComponentResolutionRequest[];
@@ -226,11 +224,23 @@ async function main(): Promise<void> {
         writeLine(resolver.resolve(request.components, request.runtime, mounted.fonts));
       } else {
         const openEnd = request.openEnd === true;
-        const { scene, audio } = mounted.renderAt(request.time, request.project ?? null, { openEnd });
+        // Compact frames leave out what Rust reads back by default, which
+        // shrinks a NEBULA frame (1,500 particles) from 554 KiB to 458 KiB.
+        const { scene, audio, statics } = mounted.renderAt(request.time, request.project ?? null, {
+          openEnd,
+          compact: request.compactTransforms === true,
+          statics: request.statics,
+        });
         writeLine({
-          ...(request.compactTransforms
-            ? { scene: { ...scene, layers: compactLayers(scene.layers) }, audio }
-            : { scene, audio }),
+          scene,
+          audio,
+          ...(statics
+            ? {
+              seq: statics.seq,
+              ...(statics.defined.length > 0 ? { statics: statics.defined } : {}),
+              ...(statics.dropped.length > 0 ? { droppedStatics: statics.dropped } : {}),
+            }
+            : {}),
           ...(openEnd ? { openEnd } : {}),
         });
       }
@@ -340,8 +350,13 @@ function writeLine(
         componentSchemas: Record<string, ComponentPropertySchema>;
         propertySchema: Record<string, ProjectPropertyField> | null;
       }
-    | { scene: Scene; audio: AudioClipDescriptor[] }
-    | { scene: Omit<Scene, 'layers'> & { layers: CompactLayer[] }; audio: AudioClipDescriptor[] }
+    | {
+        scene: Scene;
+        audio: AudioClipDescriptor[];
+        seq?: number;
+        statics?: { key: number; layers: Layer[] }[];
+        droppedStatics?: number[];
+      }
     | { collectedAudio: AudioClipDescriptor[] }
     | ComponentResolutions
     | { probeMedia: { path: string } }
@@ -368,26 +383,6 @@ function writeLine(
   }
   let offset = 0;
   while (offset < bytes.length) offset += fs.writeSync(1, bytes, offset, bytes.length - offset);
-}
-
-// Matches `EvaluatedTransform::default()` in crates/composition. Most layers
-// keep identity scale and rotation; dropping them shrinks a NEBULA frame
-// (1,500 particles) from 554 KiB to 458 KiB.
-function compactLayers(layers: Layer[]): CompactLayer[] {
-  return layers.map((layer) => {
-    const { position, scale, rotation, anchor } = layer.transform;
-    const transform: Partial<EvaluatedTransform> = {};
-    if (position.x !== 0 || position.y !== 0) transform.position = position;
-    if (scale.x !== 1 || scale.y !== 1) transform.scale = scale;
-    if (rotation !== 0) transform.rotation = rotation;
-    if (anchor.x !== 0.5 || anchor.y !== 0.5) transform.anchor = anchor;
-    const { content } = layer;
-    return {
-      ...layer,
-      transform,
-      content: content.type === 'group' ? { ...content, layers: compactLayers(content.layers) } : content,
-    };
-  });
 }
 
 function describeError(error: unknown): string {

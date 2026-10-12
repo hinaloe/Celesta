@@ -30,11 +30,11 @@ fn source(id: &str, wgsl: &str, params: &[(&str, ShaderParamType)]) -> ShaderSou
 }
 
 fn shaded(mut layer: Layer, id: &str, params: Vec<f64>, padding: f64) -> Layer {
-    layer.effects.shader = Some(LayerShader {
+    layer.effects.shader = Some(Box::new(LayerShader {
         id: id.to_owned(),
         params,
         padding,
-    });
+    }));
     layer
 }
 
@@ -324,12 +324,12 @@ fn other_effects_filter_the_shaded_result() {
         Vec::new(),
         12.0,
     );
-    layer.effects.shadow = Some(LayerShadow {
+    layer.effects.shadow = Some(Box::new(LayerShadow {
         color: "#ff0000".to_owned(),
         blur: 0.0,
         offset_x: 0.0,
         offset_y: 20.0,
-    });
+    }));
     let frame = renderer.render(&scene(vec![shift], vec![layer])).unwrap();
     assert_eq!(pixel_at(&frame, 24, 12), [255, 255, 255, 255], "shifted");
     // The shadow lies under the shifted rect, not under the original one.

@@ -27,11 +27,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             effects: Default::default(),
             content: LayerContent::Text {
                 text: "Celesta へようこそ".to_owned(),
-                style: TextStyle {
+                style: Box::new(TextStyle {
                     font_size: Some(72.0),
                     align: Some(TextAlign::Center),
                     ..TextStyle::default()
-                },
+                }),
                 max_width: None,
                 baseline_anchor: false,
             },

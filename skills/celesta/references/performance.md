@@ -22,6 +22,11 @@ do. Thousands of flat `Rect`s are cheap; a few dozen effects are not.
 
 ## Same picture, less work
 
+- **Wrap content that does not change in `<Static>`.** Backgrounds, grids,
+  labels, and other content that stays the same from frame to frame is
+  rebuilt every frame otherwise. Inside `<Static>`, 100,000 still layers
+  cost about 7 ms a frame instead of 85 ms or more; see
+  [react-core.md](react-core.md#static-still-subtrees).
 - **Draw thousands of similar elements with `<Instances>`.** Every layer
   costs time in React, in sending the frame to the renderer, and in the
   renderer itself: 100,000 `<Rect>`s take about 180 ms a frame, the same

@@ -15,6 +15,7 @@ import { flattenTextContent, withTextRuns } from './rich-text';
 import { ProjectLayersContext, ProjectTrackLayersContext } from './hooks';
 import { type HostWalk, hasHostElementPreparation, hostElement } from './host-elements';
 import { instancesContent } from './instances';
+import { type StaticsFrame, StaticSubtrees } from './static';
 import { resolveComponent } from './registry';
 import { type HostNode, type RootContainer, HostReconciler, createRoot } from './reconciler';
 import type {
@@ -48,6 +49,7 @@ const HOST_TYPES = new Set([
   'group',
   'image',
   'instances',
+  'static',
   'rect',
   'path',
   'text',
@@ -134,7 +136,24 @@ interface WalkContext {
   idPrefix: string;
   /** Shared by host elements for one frame; see `HostVisit.frameState`. */
   frameState: Map<unknown, unknown>;
+  /** Leave out what Rust reads back by default; see `renderAt`'s `compact`. */
+  compact: boolean;
+  /** Where `<Static>` layers are cached; `null` where nothing is reused. */
+  statics: StaticWalk | null;
+  /** Walking a `<Static>`'s children, which cannot depend on the time. */
+  insideStatic: boolean;
 }
+
+interface StaticWalk {
+  cache: StaticSubtrees;
+  /** Emit a `<Static>` as a reference by key instead of its layers. */
+  refer: boolean;
+  /** The keys this frame refers to. */
+  referenced: Set<number>;
+}
+
+/** Host types whose layers depend on the time, which `<Static>` cannot hold. */
+const TIME_DEPENDENT_TYPES = new Set(['video', 'audio', 'sequence', 'freeze-frame', 'rawLayers']);
 
 export interface MountedComposition {
   /** Unmounts the persistent React root and runs effect cleanup. */
@@ -152,8 +171,22 @@ export interface MountedComposition {
   renderAt(
     time: Time,
     project: ProjectFrame | null,
-    options?: { openEnd?: boolean },
-  ): { scene: Scene; audio: AudioClipDescriptor[] };
+    options?: {
+      openEnd?: boolean;
+      /**
+       * Leave out what Rust reads back by default: transform fields equal
+       * to `EvaluatedTransform`'s defaults, an opacity of 1, and a rect's
+       * corner radius of 0. Such a scene is only for Rust to read.
+       */
+      compact?: boolean;
+      /**
+       * Sent by the Rust bridge: emit each `<Static>` as a reference by key
+       * and return the layers the bridge still needs. `decoded` is the
+       * `seq` of the last frame it decoded.
+       */
+      statics?: { decoded: number };
+    },
+  ): { scene: Scene; audio: AudioClipDescriptor[]; statics?: StaticsFrame };
   /** Sweeps every frame without constructing visual layers; hooks and font measurements still run. */
   collectAudio(): AudioClipDescriptor[];
 }
@@ -192,7 +225,15 @@ function readCompositionConfig(instance: HostNode): CompositionConfig {
   };
 }
 
-function rootWalkContext(fps: number, durationInFrames: number, time: Time, lang?: string, openEnd = false): WalkContext {
+function rootWalkContext(
+  fps: number,
+  durationInFrames: number,
+  time: Time,
+  lang?: string,
+  openEnd = false,
+  compact = false,
+  statics: StaticWalk | null = null,
+): WalkContext {
   const endSec = durationInFrames / fps;
   return {
     lang,
@@ -207,6 +248,9 @@ function rootWalkContext(fps: number, durationInFrames: number, time: Time, lang
     frozen: false,
     idPrefix: '',
     frameState: new Map(),
+    compact,
+    statics,
+    insideStatic: false,
   };
 }
 
@@ -247,6 +291,22 @@ function extractTransform(props: Record<string, unknown>): EvaluatedTransform {
     // — `x`/`y` then address that centre instead.
     anchor: { x: numberOr(props.anchorX, 0), y: numberOr(props.anchorY, 0) },
   };
+}
+
+/**
+ * `transform` without the fields equal to Rust's `EvaluatedTransform`
+ * defaults (position 0, scale 1, rotation 0, anchor 0.5), which Rust fills
+ * back in. React's own default anchor is the top-left corner, so it is
+ * kept.
+ */
+function compactTransform(transform: EvaluatedTransform): EvaluatedTransform {
+  const { position, scale, rotation, anchor } = transform;
+  const compact: Partial<EvaluatedTransform> = {};
+  if (position.x !== 0 || position.y !== 0) compact.position = position;
+  if (scale.x !== 1 || scale.y !== 1) compact.scale = scale;
+  if (rotation !== 0) compact.rotation = rotation;
+  if (anchor.x !== 0.5 || anchor.y !== 0.5) compact.anchor = anchor;
+  return compact as EvaluatedTransform;
 }
 
 /** A `<Group clip>` prop as the scene's `Clip`; `undefined` when not set. */
@@ -367,11 +427,12 @@ function buildLayer(
   const { props } = node;
   const id = typeof props.id === 'string' && props.id.length > 0 ? flatString(`${context.idPrefix}${props.id}`) : path;
   // An `<Instances>`'s x, y, and rotation are its particles', not its own.
-  const transform = extractTransform(
+  const fullTransform = extractTransform(
     node.type === 'instances'
       ? { ...props, x: undefined, y: undefined, rotation: undefined, anchorX: undefined, anchorY: undefined }
       : props,
   );
+  const transform = context.compact ? compactTransform(fullTransform) : fullTransform;
   const opacity = typeof props.rawOpacity === 'number' ? props.rawOpacity : numberOr(props.opacity, 1);
   const blendMode = extractBlendMode(props.blendMode);
   const effects = extractEffects(props, context);
@@ -428,14 +489,16 @@ function buildLayer(
     const strokeWidth = numberOr(props.strokeWidth, 0);
     const stroke: Stroke | undefined =
       strokePaint && strokeWidth > 0 ? { paint: strokePaint, width: strokeWidth } : undefined;
+    const cornerRadius = numberOr(props.cornerRadius, 0);
     content = {
       type: 'rect',
       width: numberOr(props.width, 0),
       height: numberOr(props.height, 0),
       ...(fill ? { fill } : {}),
       ...(stroke ? { stroke } : {}),
-      cornerRadius: numberOr(props.cornerRadius, 0),
-    };
+      // Rust reads a missing corner radius as 0.
+      ...(cornerRadius !== 0 || !context.compact ? { cornerRadius } : {}),
+    } as LayerContent;
   } else if (node.type === 'path') {
     const fill = toPaint(props.fill);
     const strokePaint = toPaint(props.stroke);
@@ -476,8 +539,10 @@ function buildLayer(
     throw new Error(`unreachable: unknown host node type "${node.type}"`);
   }
 
-  return { id, transform, opacity, ...(blendMode !== 'normal' ? { blendMode } : {}),
-    ...(effects ? { effects } : {}), content };
+  // Rust reads a missing opacity as 1.
+  return { id, transform, ...(opacity !== 1 || !context.compact ? { opacity } : {}),
+    ...(blendMode !== 'normal' ? { blendMode } : {}),
+    ...(effects ? { effects } : {}), content } as Layer;
 }
 
 function toPaint(value: unknown): Paint | undefined {
@@ -546,9 +611,14 @@ function extractShader(value: unknown, context: WalkContext): NonNullable<Layer[
   if (!(value instanceof ShaderEffect)) {
     throw new Error("shader must be a value returned by a shader from @celesta/shader's defineShader()");
   }
+  useShaderSource(ShaderEffect.source(value).source, context);
+  return ShaderEffect.serialize(value);
+}
+
+/** Lists `source` among the frame's shaders. */
+function useShaderSource(source: ShaderSource, context: WalkContext): void {
   const sources = usedShaders(context);
   context.frameState.set(SHADER_SOURCES, sources);
-  const { source } = ShaderEffect.source(value);
   // A frame uses a few shaders. Keying a Map by the id would internalize
   // it into a thin string, which `flat-strings.test.mjs` rejects.
   const used = sources.find((other) => other.id === source.id);
@@ -559,7 +629,6 @@ function extractShader(value: unknown, context: WalkContext): NonNullable<Layer[
     // cannot both reach the renderer.
     throw new Error(`two different shaders share the id ${source.id}; change either one's source`);
   }
-  return ShaderEffect.serialize(value);
 }
 
 function extractEffects(props: Record<string, unknown>, context: WalkContext): Layer['effects'] | undefined {
@@ -660,6 +729,9 @@ function childSequenceContext(node: HostNode, context: WalkContext): WalkContext
     frozen: context.frozen,
     idPrefix: context.idPrefix,
     frameState: context.frameState,
+    compact: context.compact,
+    statics: context.statics,
+    insideStatic: context.insideStatic,
   };
 }
 
@@ -683,6 +755,9 @@ function childFreezeContext(node: HostNode, context: WalkContext, layerId: strin
     frozen: true,
     idPrefix: `${layerId}/`,
     frameState: context.frameState,
+    compact: context.compact,
+    statics: context.statics,
+    insideStatic: context.insideStatic,
   };
 }
 
@@ -739,6 +814,12 @@ function walkNode(
   audioOnly = false,
 ): Layer[] {
   const element = hostElement(node.type);
+  if (context.insideStatic && (element || TIME_DEPENDENT_TYPES.has(node.type))) {
+    throw new Error(`<Static> cannot contain <${node.type}>`);
+  }
+  if (node.type === 'static') {
+    return audioOnly ? [] : [staticLayer(node, path, context, audio)];
+  }
   if (element) {
     element.audio?.(node, hostWalk(path, context, audio));
     return audioOnly || !element.content ? [] : [buildLayer(node, path, context, audio)];
@@ -806,6 +887,53 @@ function collectFonts(node: HostNode, fonts: ResolvedAsset[]): void {
 
 function sameLocation(left: ResolvedAsset, right: ResolvedAsset): boolean {
   return JSON.stringify(left.location) === JSON.stringify(right.location);
+}
+
+/**
+ * A `<Static>`: a group layer whose children are walked only when something
+ * they depend on changed, and which a frame asked for with `statics` sends
+ * as a reference to layers the bridge already has.
+ */
+function staticLayer(node: HostNode, path: string, context: WalkContext, audio: AudioClipDescriptor[]): Layer {
+  const { statics } = context;
+  const key = { path, lang: context.lang, idPrefix: context.idPrefix, compact: context.compact };
+  // The children are walked with a frame state of their own, so the custom
+  // shaders they use are known and can be listed again on frames that reuse
+  // their layers. No host element, the other user of frame state, can be
+  // inside.
+  const walk = () => {
+    const childContext: WalkContext = {
+      ...context,
+      insideStatic: true,
+      // A definition holds its nested `<Static>`s' layers, never references.
+      statics: statics && { ...statics, refer: false },
+      frameState: new Map(),
+    };
+    const layers = walkChildren(node, path, childContext, audio);
+    return { layers, shaders: usedShaders(childContext) };
+  };
+  const entry = statics ? (statics.cache.lookup(node, key) ?? statics.cache.store(node, walk(), key)) : null;
+  const walked = entry ? undefined : walk();
+  for (const shader of entry ? entry.shaders : walked!.shaders) useShaderSource(shader, context);
+  let content: LayerContent;
+  if (entry && statics?.refer) {
+    statics.referenced.add(entry.key);
+    content = { type: 'staticRef', key: entry.key };
+  } else {
+    content = { type: 'group', layers: entry ? entry.layers : walked!.layers };
+  }
+  const identity: EvaluatedTransform = {
+    position: { x: 0, y: 0 },
+    scale: { x: 1, y: 1 },
+    rotation: 0,
+    anchor: { x: 0, y: 0 },
+  };
+  return {
+    id: path,
+    transform: context.compact ? compactTransform(identity) : identity,
+    ...(context.compact ? {} : { opacity: 1 }),
+    content,
+  } as Layer;
 }
 
 function walkChildren(
@@ -908,8 +1036,16 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
   const initialFonts: ResolvedAsset[] = [];
   collectFonts(compositionInstance, initialFonts);
   fonts = initialFonts;
+  const staticSubtrees = new StaticSubtrees();
 
-  const renderFrame = (time: Time, project: ProjectFrame | null, audioOnly = false, openEnd = false) => {
+  const renderFrame = (
+    time: Time,
+    project: ProjectFrame | null,
+    audioOnly = false,
+    openEnd = false,
+    compact = false,
+    statics?: { decoded: number },
+  ) => {
     rerenderRequested = false;
     renderTree(time, project, config, openEnd);
     let instance = findCompositionInstance(container);
@@ -933,6 +1069,8 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
       time,
       resolveTextLanguage(instance.props.lang),
       openEnd,
+      compact,
+      audioOnly ? null : { cache: staticSubtrees, refer: statics !== undefined, referenced: new Set() },
     );
     if (!audioOnly && hasHostElementPreparation()) {
       for (const child of instance.children) {
@@ -947,7 +1085,12 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
       audioOnly,
     );
     const shaders = usedShaders(context);
+    if (!audioOnly) staticSubtrees.sweep(container.children);
+    const staticsFrame = statics && context.statics
+      ? staticSubtrees.frame(context.statics.referenced, statics.decoded)
+      : undefined;
     return {
+      ...(staticsFrame ? { statics: staticsFrame } : {}),
       scene: {
         width: config.width,
         height: config.height,
@@ -965,7 +1108,8 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
     dispose() { HostReconciler.flushSync(() => { HostReconciler.updateContainer(null, root, null, null); }); },
     config,
     get fonts() { return fonts; },
-    renderAt: (time, project, options) => renderFrame(time, project, false, options?.openEnd === true),
+    renderAt: (time, project, options) =>
+      renderFrame(time, project, false, options?.openEnd === true, options?.compact === true, options?.statics),
     collectAudio() {
       const audio: AudioClipDescriptor[] = [];
       for (let frame = 0; frame < config.durationInFrames; frame++) {

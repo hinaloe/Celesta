@@ -12,6 +12,44 @@ export interface HostNode {
   type: string;
   props: Record<string, unknown>;
   children: HostNode[];
+  /** `null` for a child of the container or a node that is not attached. */
+  parent: HostNode | null;
+  /** The `hostRevision()` of the last change to this node or below it. */
+  changedAt: number;
+}
+
+// Counts changes React makes to any host tree. Each change stamps the node it
+// touches and that node's ancestors, so render.ts can tell whether anything
+// below a `<Static>` changed since it last walked it.
+let revision = 0;
+
+/** The number of the last change React made to a host tree. */
+export function hostRevision(): number {
+  return revision;
+}
+
+function touch(node: HostNode | null): void {
+  revision += 1;
+  for (let current = node; current && current.changedAt !== revision; current = current.parent) {
+    current.changedAt = revision;
+  }
+}
+
+/**
+ * Whether two props objects hold the same values, by `Object.is`. A host
+ * node's element children are its child nodes, not props, so `children`
+ * only counts for text, which keeps its content in props.
+ */
+function sameProps(type: string, a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) =>
+    (key === 'children' && type !== 'text') || (Object.prototype.hasOwnProperty.call(b, key) && Object.is(a[key], b[key])));
+}
+
+function attach(parent: HostNode | null, child: HostNode): void {
+  child.parent = parent;
+  touch(parent);
 }
 
 export interface RootContainer {
@@ -79,10 +117,11 @@ const hostConfig: Reconciler.HostConfig<
   },
 
   createInstance(type, props) {
-    return { type, props, children: [] };
+    return { type, props, children: [], parent: null, changedAt: 0 };
   },
   appendInitialChild(parent, child) {
     parent.children.push(child);
+    attach(parent, child);
   },
   finalizeInitialChildren: () => false,
 
@@ -93,29 +132,42 @@ const hostConfig: Reconciler.HostConfig<
   // without bound and its layers are drawn several times over.
   appendChildToContainer(container, child) {
     appendChild(container.children, child);
+    attach(null, child);
   },
   appendChild(parent, child) {
     appendChild(parent.children, child);
+    attach(parent, child);
   },
   insertBefore(parent, child, beforeChild) {
     insertBefore(parent.children, child, beforeChild);
+    attach(parent, child);
   },
   insertInContainerBefore(container, child, beforeChild) {
     insertBefore(container.children, child, beforeChild);
+    attach(null, child);
   },
   removeChild(parent, child) {
     removeChild(parent.children, child);
+    child.parent = null;
+    touch(parent);
   },
   removeChildFromContainer(container, child) {
     removeChild(container.children, child);
+    child.parent = null;
+    touch(null);
   },
   clearContainer(container) {
     container.children = [];
   },
 
-  prepareUpdate: () => ({}),
+  // React renders a component again whenever a context it reads changes,
+  // and the frame's runtime context changes every frame; most of the host
+  // props it then produces are the same. Leaving those uncommitted keeps a
+  // `<Static>` with groups inside from looking changed on every frame.
+  prepareUpdate: (_instance, type, oldProps, newProps) => (sameProps(type, oldProps, newProps) ? null : {}),
   commitUpdate(instance, _updatePayload, _type, _oldProps, newProps) {
     instance.props = newProps;
+    touch(instance);
   },
 
   getPublicInstance: (instance) => instance,

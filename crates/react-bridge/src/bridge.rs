@@ -5,8 +5,9 @@ use crate::probe::{MediaProbeResponse, media_probe_payload};
 use crate::properties::PropertyInputs;
 use crate::protocol::{
     ComponentRequest, ProjectPayload, PropertyInputsMessage, ReadyMessage, Request,
-    ResolutionRuntime, Response, ready_property_order,
+    ResolutionRuntime, Response, StaticsRequest, ready_property_order,
 };
+use crate::statics::StaticCache;
 use crate::types::{
     ComponentResolutionRequest, ComponentResolutions, FrameEvaluation, ProjectFrame,
     ReactCompositionMetadata,
@@ -29,6 +30,8 @@ pub struct ReactBridge {
     pub(crate) message: Vec<u8>,
     pub(crate) metadata: ReactCompositionMetadata,
     pub(crate) text_measurer: Option<TextRasterizer>,
+    /// The `<Static>` subtrees the runtime has sent.
+    pub(crate) statics: StaticCache,
 }
 
 impl Drop for ReactBridge {
@@ -191,6 +194,7 @@ impl ReactBridge {
             message,
             metadata,
             text_measurer,
+            statics: StaticCache::default(),
         })
     }
 
@@ -243,6 +247,9 @@ impl ReactBridge {
             components: None,
             compact_transforms: true,
             open_end: true,
+            statics: Some(StaticsRequest {
+                decoded: self.statics.decoded(),
+            }),
         })?;
         let frame = self.receive_frame()?;
         match self.decode_response(frame)? {
@@ -250,6 +257,7 @@ impl ReactBridge {
                 scene,
                 audio,
                 open_end: true,
+                ..
             } => Ok(FrameEvaluation { scene, audio }),
             Response::Ok { .. } => Err(ReactBridgeError::OpenEndUnsupported),
             response => Err(Self::unexpected_frame_response(response)),
@@ -279,6 +287,9 @@ impl ReactBridge {
             components: None,
             compact_transforms: true,
             open_end: false,
+            statics: Some(StaticsRequest {
+                decoded: self.statics.decoded(),
+            }),
         })
     }
 
@@ -306,7 +317,25 @@ impl ReactBridge {
         if frame.0.capacity() > self.message.capacity() {
             self.message = frame.0;
         }
-        response
+        let mut response = response?;
+        // A frame's `<Static>` references become the layers they stand for
+        // before anything else sees the scene.
+        if let Response::Ok {
+            scene,
+            seq,
+            statics,
+            dropped_statics,
+            ..
+        } = &mut response
+        {
+            self.statics.apply(
+                *seq,
+                std::mem::take(statics),
+                std::mem::take(dropped_statics),
+                scene,
+            )?;
+        }
+        Ok(response)
     }
 
     /// The error for a frame request answered with anything but a scene.
@@ -356,6 +385,7 @@ impl ReactBridge {
             ),
             compact_transforms: false,
             open_end: false,
+            statics: None,
         };
         match self.request_response(request)? {
             Response::Components {

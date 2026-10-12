@@ -22,6 +22,9 @@ pub enum ReactBridgeError {
     /// The runtime ignored a request for a frame past the end: it is older
     /// than this bridge.
     OpenEndUnsupported,
+    /// A frame referred to a `<Static>` subtree this bridge was never sent
+    /// or has dropped.
+    MissingStatic(u32),
 }
 
 impl fmt::Display for ReactBridgeError {
@@ -63,6 +66,10 @@ impl fmt::Display for ReactBridgeError {
             Self::OpenEndUnsupported => formatter.write_str(
                 "the Node.js React runtime cannot evaluate frames past the end; it is older than this exporter",
             ),
+            Self::MissingStatic(key) => write!(
+                formatter,
+                "the React runtime referred to static subtree {key}, which this bridge does not have"
+            ),
         }
     }
 }
@@ -78,7 +85,8 @@ impl Error for ReactBridgeError {
             | Self::EntryFailed(_)
             | Self::InvalidProperties(_)
             | Self::Render(_)
-            | Self::OpenEndUnsupported => None,
+            | Self::OpenEndUnsupported
+            | Self::MissingStatic(_) => None,
             Self::Time(error) => Some(error),
         }
     }

@@ -33,6 +33,8 @@ pub struct Scene {
 pub struct Layer {
     pub id: String,
     pub transform: EvaluatedTransform,
+    /// 1 when left out, as the React bridge leaves it out of compact frames.
+    #[serde(default = "full_opacity")]
     pub opacity: f64,
     /// How the layer's pixels combine with what is already drawn beneath
     /// it. A `Group` with a mode other than `Normal` is isolated: its
@@ -55,12 +57,12 @@ pub struct LayerEffects {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub blur: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shadow: Option<LayerShadow>,
+    pub shadow: Option<Box<LayerShadow>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub glow: Option<LayerGlow>,
+    pub glow: Option<Box<LayerGlow>>,
     /// A custom WGSL filter, applied before `blur`, `shadow`, and `glow`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shader: Option<LayerShader>,
+    pub shader: Option<Box<LayerShader>>,
 }
 
 impl LayerEffects {
@@ -136,6 +138,10 @@ impl ShaderParamType {
             Self::Vec4 => 4,
         }
     }
+}
+
+const fn full_opacity() -> f64 {
+    1.0
 }
 
 fn is_zero(value: &f64) -> bool {
@@ -256,7 +262,7 @@ pub enum LayerContent {
     },
     Text {
         text: String,
-        style: TextStyle,
+        style: Box<TextStyle>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_width: Option<f64>,
         /// Anchors the layer vertically on its first line's baseline instead
@@ -327,7 +333,7 @@ pub enum LayerContent {
     /// ignored.
     Instances {
         count: u32,
-        shape: InstanceShape,
+        shape: Box<InstanceShape>,
         /// Every particle's width when `widths` is absent.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         width: Option<f64>,
@@ -355,6 +361,11 @@ pub enum LayerContent {
         #[cfg_attr(feature = "codegen", ts(type = "string"))]
         colors: Option<U8Column>,
     },
+    /// A `<Static>` subtree the React bridge already sent under `key`. It
+    /// only travels inside the bridge, which replaces it with a `Group` of
+    /// that subtree's layers before handing the scene on; renderers refuse
+    /// it.
+    StaticRef { key: u32 },
     MissingComponent {
         component: String,
         props: BTreeMap<String, Value>,
@@ -399,7 +410,11 @@ impl LayerContent {
         let lengths = floats
             .into_iter()
             .filter_map(|(name, column)| column.map(|column| (name, column.len(), count)))
-            .chain(colors.as_ref().map(|colors| ("colors", colors.len(), 4 * count)));
+            .chain(
+                colors
+                    .as_ref()
+                    .map(|colors| ("colors", colors.len(), 4 * count)),
+            );
         for (name, len, expected) in lengths {
             if len != expected {
                 return Some(format!(
@@ -443,7 +458,7 @@ enum LayerContentDef {
     },
     Text {
         text: String,
-        style: TextStyle,
+        style: Box<TextStyle>,
         #[serde(default)]
         max_width: Option<f64>,
         #[serde(default)]
@@ -481,7 +496,7 @@ enum LayerContentDef {
     },
     Instances {
         count: u32,
-        shape: InstanceShape,
+        shape: Box<InstanceShape>,
         #[serde(default)]
         width: Option<f64>,
         #[serde(default)]
@@ -498,6 +513,9 @@ enum LayerContentDef {
         rotation: Option<F32Column>,
         #[serde(default)]
         colors: Option<U8Column>,
+    },
+    StaticRef {
+        key: u32,
     },
     MissingComponent {
         component: String,

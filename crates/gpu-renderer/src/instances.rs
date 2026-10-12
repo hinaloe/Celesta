@@ -3,8 +3,7 @@
 
 use crate::bounds::{CanvasRegion, PixelBounds};
 use crate::layer::{
-    InstanceFields, LAYER_INSTANCE_FLOATS, layer_instance, level_of_detail,
-    pixel_aligned_translation,
+    InstanceBytes, InstanceFields, layer_instance, level_of_detail, pixel_aligned_translation,
 };
 use crate::texture::LayerTexture;
 use crate::transform::{Affine, LayerState};
@@ -185,8 +184,7 @@ impl PreparedInstances {
     /// covering `target`. A particle with a value that is not finite is
     /// written transparent and without area, so instance indices stay
     /// those of the particles.
-    pub(crate) fn write_instances(&self, target: CanvasRegion, output: &mut Vec<u8>) {
-        output.reserve(self.count as usize * LAYER_INSTANCE_FLOATS * 4);
+    pub(crate) fn write_instances(&self, target: CanvasRegion, output: &mut InstanceBytes) {
         for i in 0..self.count as usize {
             let fields = match (self.particle(i), &self.shape) {
                 (Some(particle), PreparedInstanceShape::Image(texture)) => {
@@ -206,7 +204,7 @@ impl PreparedInstances {
                     )
                 },
             };
-            output.extend_from_slice(bytemuck::cast_slice(&layer_instance(&fields)));
+            output.push(&layer_instance(&fields));
         }
     }
 

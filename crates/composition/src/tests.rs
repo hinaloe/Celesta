@@ -368,7 +368,7 @@ fn every_tagged_variant_round_trips() {
             },
             LayerContent::Text {
                 text: "hi".to_owned(),
-                style: TextStyle::default(),
+                style: Box::new(TextStyle::default()),
                 max_width: set.then_some(100.0),
                 baseline_anchor: set,
             },
@@ -398,6 +398,7 @@ fn every_tagged_variant_round_trips() {
                     invert: true,
                 }),
             },
+            LayerContent::StaticRef { key: 7 },
             LayerContent::Rect {
                 width: 10.0,
                 height: 20.0,
@@ -446,7 +447,7 @@ fn every_tagged_variant_round_trips() {
             round_trip(shape.clone());
             contents.push(LayerContent::Instances {
                 count: 2,
-                shape,
+                shape: Box::new(shape),
                 width: set.then_some(4.0),
                 height: set.then_some(5.0),
                 color: set.then(|| "#ff0000".to_owned()),
@@ -474,7 +475,10 @@ fn instance_columns_round_trip_as_base64() {
     );
     let bytes = U8Column::from(vec![255, 0, 128, 64]);
     assert_eq!(serde_json::to_string(&bytes).unwrap(), r#""/wCAQA==""#);
-    assert_eq!(serde_json::from_str::<U8Column>(r#""/wCAQA==""#).unwrap(), bytes);
+    assert_eq!(
+        serde_json::from_str::<U8Column>(r#""/wCAQA==""#).unwrap(),
+        bytes
+    );
     let empty = F32Column::from(Vec::new());
     assert_eq!(serde_json::to_string(&empty).unwrap(), r#""""#);
     assert_eq!(serde_json::from_str::<F32Column>(r#""""#).unwrap(), empty);
@@ -485,7 +489,7 @@ fn instance_columns_round_trip_as_base64() {
 fn instances(count: u32) -> LayerContent {
     LayerContent::Instances {
         count,
-        shape: InstanceShape::Circle,
+        shape: Box::new(InstanceShape::Circle),
         width: Some(4.0),
         height: None,
         color: None,
@@ -509,9 +513,15 @@ fn instances_round_trip_with_every_column() {
     for key in [r#""widths":"#, r#""height":"#, r#""color":"#] {
         assert!(!json.contains(key), "{key} in {json}");
     }
-    assert_eq!(serde_json::from_str::<LayerContent>(&json).unwrap(), content);
+    assert_eq!(
+        serde_json::from_str::<LayerContent>(&json).unwrap(),
+        content
+    );
     let value = serde_json::to_value(&content).unwrap();
-    assert_eq!(serde_json::from_value::<LayerContent>(value).unwrap(), content);
+    assert_eq!(
+        serde_json::from_value::<LayerContent>(value).unwrap(),
+        content
+    );
 }
 
 #[test]
@@ -533,7 +543,10 @@ fn instances_reject_columns_of_the_wrong_length() {
     let error = serde_json::from_value::<LayerContent>(wrong)
         .unwrap_err()
         .to_string();
-    assert!(error.contains("`colors`") && error.contains("count 2"), "{error}");
+    assert!(
+        error.contains("`colors`") && error.contains("count 2"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -669,11 +682,11 @@ fn custom_shaders_round_trip_and_omit_their_defaults() {
     assert_eq!(serde_json::to_value(&parsed).unwrap(), without);
 
     let effects = LayerEffects {
-        shader: Some(LayerShader {
+        shader: Some(Box::new(LayerShader {
             id: "9f3c".to_owned(),
             params: vec![1.25, 1.0, 0.5, 0.0, 1.0],
             padding: 8.0,
-        }),
+        })),
         ..LayerEffects::default()
     };
     assert!(!effects.is_empty());
@@ -685,11 +698,11 @@ fn custom_shaders_round_trip_and_omit_their_defaults() {
     let parsed = serde_json::from_value::<LayerEffects>(bare.clone()).unwrap();
     assert_eq!(
         parsed.shader,
-        Some(LayerShader {
+        Some(Box::new(LayerShader {
             id: "9f3c".to_owned(),
             params: Vec::new(),
             padding: 0.0,
-        })
+        }))
     );
     assert_eq!(serde_json::to_value(&parsed).unwrap(), bare);
     assert!(LayerEffects::default().is_empty());
@@ -719,4 +732,39 @@ fn letter_spacing_is_px_or_em() {
     assert!(
         serde_json::from_value::<TextStyle>(serde_json::json!({ "letterSpacing": "1em" })).is_err()
     );
+}
+
+#[test]
+fn a_layer_without_opacity_is_opaque() {
+    let layer: Layer = serde_json::from_str(
+        r#"{"id":"a","transform":{},"content":{"type":"rect","width":1,"height":1}}"#,
+    )
+    .unwrap();
+    assert_eq!(layer.opacity, 1.0);
+    // Written out, opacity is still explicit.
+    assert!(
+        serde_json::to_string(&layer)
+            .unwrap()
+            .contains(r#""opacity":1.0"#)
+    );
+}
+
+/// A frame of 100,000 layers is moved and copied layer by layer while it is
+/// parsed and rendered; the rarely used text style and effects live behind
+/// boxes so every layer stays small.
+#[test]
+fn layers_stay_small() {
+    assert!(
+        std::mem::size_of::<Layer>() <= 320,
+        "Layer is {} bytes",
+        std::mem::size_of::<Layer>()
+    );
+}
+
+#[test]
+fn static_ref_round_trips() {
+    let json = r#"{"type":"staticRef","key":7}"#;
+    let content: LayerContent = serde_json::from_str(json).unwrap();
+    assert_eq!(content, LayerContent::StaticRef { key: 7 });
+    assert_eq!(serde_json::to_string(&content).unwrap(), json);
 }

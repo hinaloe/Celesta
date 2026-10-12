@@ -216,13 +216,13 @@ fn rasterizes_a_frames_new_text_in_parallel_like_one_at_a_time() {
         effects: Default::default(),
         content: LayerContent::Text {
             text: text.to_owned(),
-            style: TextStyle {
+            style: Box::new(TextStyle {
                 font_size: Some(16.0),
                 fill: Some(Paint::Solid {
                     color: "#ffffff".to_owned(),
                 }),
                 ..TextStyle::default()
-            },
+            }),
             max_width: None,
             baseline_anchor: false,
         },
@@ -1064,16 +1064,16 @@ fn blurred_group_with_shadow_and_glow_matches_cpu() {
         blend_mode: BlendMode::Screen,
         effects: LayerEffects {
             blur: 1.5,
-            shadow: Some(LayerShadow {
+            shadow: Some(Box::new(LayerShadow {
                 color: "#0000ffb0".to_owned(),
                 blur: 2.0,
                 offset_x: 5.5,
                 offset_y: 3.25,
-            }),
-            glow: Some(LayerGlow {
+            })),
+            glow: Some(Box::new(LayerGlow {
                 color: "#ff000080".to_owned(),
                 blur: 3.0,
-            }),
+            })),
             shader: None,
         },
         content: LayerContent::Group {
@@ -1130,10 +1130,10 @@ fn effects_on_small_layers_match_cpu() {
         },
     };
     let glow = |color: &str, blur: f64| LayerEffects {
-        glow: Some(LayerGlow {
+        glow: Some(Box::new(LayerGlow {
             color: color.to_owned(),
             blur,
-        }),
+        })),
         ..LayerEffects::default()
     };
     let mut hidden = corner_rect("hidden", 40.0, 40.0, 8.0, 8.0, "#ffffff");
@@ -1156,12 +1156,12 @@ fn effects_on_small_layers_match_cpu() {
             "edge",
             LayerEffects {
                 blur: 1.0,
-                shadow: Some(LayerShadow {
+                shadow: Some(Box::new(LayerShadow {
                     color: "#000000a0".to_owned(),
                     blur: 3.0,
                     offset_x: 7.5,
                     offset_y: -4.25,
-                }),
+                })),
                 glow: None,
                 shader: None,
             },
@@ -1224,16 +1224,16 @@ fn large_blurs_match_cpu() {
             "edge",
             LayerEffects {
                 blur: 13.5,
-                shadow: Some(LayerShadow {
+                shadow: Some(Box::new(LayerShadow {
                     color: "#40c0ffd0".to_owned(),
                     blur: 17.0,
                     offset_x: -9.5,
                     offset_y: 6.75,
-                }),
-                glow: Some(LayerGlow {
+                })),
+                glow: Some(Box::new(LayerGlow {
                     color: "#ffe060ff".to_owned(),
                     blur: 64.0,
-                }),
+                })),
                 shader: None,
             },
             vec![corner_rect("edge", 120.0, 70.0, 40.0, 42.0, "#a0ff60")],
@@ -3487,10 +3487,10 @@ fn keeps_native_preview_backings_alive_across_dialogue_frame_churn() {
                 effects: Default::default(),
                 content: LayerContent::Text {
                     text: format!("Dialogue preview frame {index}"),
-                    style: TextStyle {
+                    style: Box::new(TextStyle {
                         font_size: Some(48.0),
                         ..TextStyle::default()
-                    },
+                    }),
                     max_width: Some(1000.0),
                     baseline_anchor: false,
                 },
@@ -3941,7 +3941,7 @@ fn rasterizes_and_rotates_styled_text_on_the_gpu() {
         effects: Default::default(),
         content: LayerContent::Text {
             text: "Celesta".to_owned(),
-            style: TextStyle {
+            style: Box::new(TextStyle {
                 font_size: Some(32.0),
                 fill: Some(Paint::Solid {
                     color: "#ff8000".to_owned(),
@@ -3953,7 +3953,7 @@ fn rasterizes_and_rotates_styled_text_on_the_gpu() {
                     width: 1.0,
                 }),
                 ..TextStyle::default()
-            },
+            }),
             max_width: None,
             baseline_anchor: false,
         },
@@ -4089,14 +4089,14 @@ fn centers_visible_single_line_text_on_its_transform() {
         effects: Default::default(),
         content: LayerContent::Text {
             text: "Celesta".to_owned(),
-            style: TextStyle {
+            style: Box::new(TextStyle {
                 font_size: Some(96.0),
                 fill: Some(Paint::Solid {
                     color: "#FFA13BFF".to_owned(),
                 }),
                 align: Some(celesta_composition::TextAlign::Center),
                 ..TextStyle::default()
-            },
+            }),
             max_width: None,
             baseline_anchor: false,
         },
@@ -4152,14 +4152,14 @@ fn places_layers_on_half_pixel_positions_like_the_cpu_renderer() {
         effects: Default::default(),
         content: LayerContent::Text {
             text: "0 Hello, 15,000".to_owned(),
-            style: TextStyle {
+            style: Box::new(TextStyle {
                 font_size: Some(size),
                 font_weight: Some(900),
                 fill: Some(Paint::Solid {
                     color: "#ffffff".to_owned(),
                 }),
                 ..TextStyle::default()
-            },
+            }),
             max_width: None,
             baseline_anchor: false,
         },
@@ -4203,13 +4203,13 @@ fn text_layer(id: &str, position: Point, scale: f64, font_size: f64) -> Layer {
         effects: Default::default(),
         content: LayerContent::Text {
             text: "Celesta 15,000".to_owned(),
-            style: TextStyle {
+            style: Box::new(TextStyle {
                 font_size: Some(font_size),
                 fill: Some(Paint::Solid {
                     color: "#ffffff".to_owned(),
                 }),
                 ..TextStyle::default()
-            },
+            }),
             max_width: None,
             baseline_anchor: false,
         },
@@ -4458,14 +4458,14 @@ fn a_stroked_text_layer_keeps_its_place_and_its_whole_stroke() {
             effects: Default::default(),
             content: LayerContent::Text {
                 text: "MW".to_owned(),
-                style: TextStyle {
+                style: Box::new(TextStyle {
                     font_size: Some(96.0),
                     fill: Some(Paint::Solid {
                         color: "#FFFFFFFF".to_owned(),
                     }),
                     stroke,
                     ..TextStyle::default()
-                },
+                }),
                 max_width: None,
                 baseline_anchor: false,
             },
@@ -4533,10 +4533,10 @@ fn baseline_anchored_text_layers_share_a_baseline() {
             effects: Default::default(),
             content: LayerContent::Text {
                 text: text.to_owned(),
-                style: TextStyle {
+                style: Box::new(TextStyle {
                     font_size: Some(font_size),
                     ..TextStyle::default()
-                },
+                }),
                 max_width: None,
                 baseline_anchor: true,
             },
@@ -4572,12 +4572,12 @@ fn reduced_resolution_blurs_match_cpu() {
         return;
     };
     let shadow = |blur: f64, offset_x: f64, offset_y: f64| LayerEffects {
-        shadow: Some(LayerShadow {
+        shadow: Some(Box::new(LayerShadow {
             color: "#40c0ffd0".to_owned(),
             blur,
             offset_x,
             offset_y,
-        }),
+        })),
         ..LayerEffects::default()
     };
     let cases = [
@@ -4608,10 +4608,10 @@ fn reduced_resolution_blurs_match_cpu() {
         (shadow(17.0, 21.5, -6.25), [0.0, 70.0, 40.0, 42.0]),
         (
             LayerEffects {
-                glow: Some(LayerGlow {
+                glow: Some(Box::new(LayerGlow {
                     color: "#ffe060ff".to_owned(),
                     blur: 64.0,
-                }),
+                })),
                 ..LayerEffects::default()
             },
             [250.0, 150.0, 70.0, 74.0],
@@ -4674,7 +4674,7 @@ fn colored_text_and_reveals_match_cpu_through_cached_gpu_textures() {
             text: text.into(),
             baseline_anchor: true,
             max_width: None,
-            style: TextStyle {
+            style: Box::new(TextStyle {
                 font_size: Some(32.0),
                 line_height: Some(44.0),
                 color_runs: (0..text.chars().count())
@@ -4685,7 +4685,7 @@ fn colored_text_and_reveals_match_cpu_through_cached_gpu_textures() {
                     })
                     .collect(),
                 ..Default::default()
-            },
+            }),
         },
     });
     for visible in [None, Some(1), Some(8), Some(0), None] {
@@ -4755,7 +4755,7 @@ fn font_run_text_matches_cpu() {
             text: "CELESTA plex\nRICH text".into(),
             baseline_anchor: true,
             max_width: None,
-            style: TextStyle {
+            style: Box::new(TextStyle {
                 font_family: Some("Bebas Neue".into()),
                 font_size: Some(40.0),
                 line_height: Some(48.0),
@@ -4771,7 +4771,7 @@ fn font_run_text_matches_cpu() {
                     color: "#ff0000".into(),
                 }],
                 ..Default::default()
-            },
+            }),
         },
     });
     let reference = cpu.render(&scene).unwrap();
@@ -5122,12 +5122,12 @@ fn a_shadow_follows_a_masked_shape_like_the_cpu_renderer() {
         alpha_mask(vec![disc("matte", 24.0, 24.0, 12.0, "#FFFFFFFF")]),
         vec![corner_rect("red", 0.0, 0.0, 64.0, 48.0, "#FF0000FF")],
     );
-    group.effects.shadow = Some(LayerShadow {
+    group.effects.shadow = Some(Box::new(LayerShadow {
         color: "#000000C0".to_owned(),
         blur: 2.0,
         offset_x: 12.0,
         offset_y: 4.0,
-    });
+    }));
     let mut scene = empty_scene(64, 48);
     scene.layers = vec![group];
     let gpu = renderer.render(&scene).unwrap();
@@ -5167,10 +5167,10 @@ fn masks_on_cropped_canvases_like_the_cpu_renderer() {
             "cropped inside a glowing, translated group",
             vec![Layer {
                 effects: celesta_composition::LayerEffects {
-                    glow: Some(celesta_composition::LayerGlow {
+                    glow: Some(Box::new(celesta_composition::LayerGlow {
                         color: "#00FF00C0".to_owned(),
                         blur: 6.0,
-                    }),
+                    })),
                     ..Default::default()
                 },
                 ..group(
@@ -5255,10 +5255,10 @@ fn text_masks_a_group() {
         effects: Default::default(),
         content: LayerContent::Text {
             text: "MASK".to_owned(),
-            style: TextStyle {
+            style: Box::new(TextStyle {
                 font_size: Some(36.0),
                 ..TextStyle::default()
-            },
+            }),
             max_width: None,
             baseline_anchor: false,
         },

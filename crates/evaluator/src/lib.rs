@@ -209,7 +209,7 @@ impl<'project> Evaluator<'project> {
             },
             TimelineContent::Text { text, style } => LayerContent::Text {
                 text: text.clone(),
-                style: style.clone().unwrap_or_default(),
+                style: Box::new(style.clone().unwrap_or_default()),
                 max_width: None,
                 baseline_anchor: false,
             },
@@ -316,7 +316,7 @@ impl<'project> Evaluator<'project> {
                 effects: LayerEffects::default(),
                 content: LayerContent::Text {
                     text: text.to_owned(),
-                    style: subtitle.style.clone().unwrap_or_default(),
+                    style: Box::new(subtitle.style.clone().unwrap_or_default()),
                     max_width: subtitle.max_width,
                     baseline_anchor: false,
                 },
@@ -330,7 +330,7 @@ impl<'project> Evaluator<'project> {
                 effects: LayerEffects::default(),
                 content: LayerContent::Text {
                     text: text.to_owned(),
-                    style: TextStyle::default(),
+                    style: Box::new(TextStyle::default()),
                     max_width: None,
                     baseline_anchor: false,
                 },

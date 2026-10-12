@@ -2,6 +2,7 @@ use crate::measure::MeasureTextRequest;
 use crate::probe::MediaProbeRequest;
 use crate::properties::{PropertyIssue, PropertyLayer};
 use crate::props_edit::OrderedObject;
+use crate::statics::StaticDefinition;
 use crate::types::{
     ComponentPropertyField, ComponentPropertySchema, ReactAudioClipDescriptor,
     ReactCompositionConfig,
@@ -41,6 +42,17 @@ pub(crate) struct Request<'a> {
     /// video went on (see [`crate::ReactBridge::evaluate_past_end`]).
     #[serde(rename = "openEnd", skip_serializing_if = "std::ops::Not::not")]
     pub(crate) open_end: bool,
+    /// Sent with frame requests: the runtime may then refer to `<Static>`
+    /// subtrees by key (see [`crate::statics`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) statics: Option<StaticsRequest>,
+}
+
+/// Which frames' `<Static>` definitions this side has taken in.
+#[derive(Serialize)]
+pub(crate) struct StaticsRequest {
+    /// The `seq` of the last frame decoded; 0 before any.
+    pub(crate) decoded: u64,
 }
 
 /// The runtime context sent alongside component-resolution requests; the
@@ -88,6 +100,13 @@ pub(crate) enum Response {
         /// ignores the request and leaves it out.
         #[serde(default, rename = "openEnd")]
         open_end: bool,
+        /// The frame's number among those answered with `<Static>`
+        /// references; absent otherwise.
+        seq: Option<u64>,
+        /// `<Static>` subtrees this frame defines.
+        statics: Vec<StaticDefinition>,
+        /// Keys no later frame refers to.
+        dropped_statics: Vec<u32>,
     },
     Components {
         components: Vec<Option<Vec<Layer>>>,
@@ -116,6 +135,11 @@ pub(crate) struct RawResponse {
     pub(crate) error: Option<String>,
     #[serde(default)]
     pub(crate) open_end: bool,
+    pub(crate) seq: Option<u64>,
+    #[serde(default)]
+    pub(crate) statics: Vec<StaticDefinition>,
+    #[serde(default)]
+    pub(crate) dropped_statics: Vec<u32>,
 }
 
 impl TryFrom<RawResponse> for Response {
@@ -132,6 +156,9 @@ impl TryFrom<RawResponse> for Response {
                 scene,
                 audio: raw.audio,
                 open_end: raw.open_end,
+                seq: raw.seq,
+                statics: raw.statics,
+                dropped_statics: raw.dropped_statics,
             })
         } else if let Some(components) = raw.components {
             Ok(Self::Components {

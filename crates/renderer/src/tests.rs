@@ -97,7 +97,7 @@ fn wrapped_text_anchored_at_its_top_draws_where_its_measured_baseline_does() {
                 effects: Default::default(),
                 content: LayerContent::Text {
                     text: text.to_owned(),
-                    style: style.clone(),
+                    style: Box::new(style.clone()),
                     max_width: Some(max_width),
                     baseline_anchor,
                 },
@@ -183,10 +183,10 @@ fn renders_text_to_a_png() {
             effects: Default::default(),
             content: LayerContent::Text {
                 text: "Hello, Celesta!".to_owned(),
-                style: TextStyle {
+                style: Box::new(TextStyle {
                     font_size: Some(24.0),
                     ..TextStyle::default()
-                },
+                }),
                 max_width: None,
                 baseline_anchor: false,
             },
@@ -467,13 +467,13 @@ fn clips_text_to_the_rectangle() {
         effects: Default::default(),
         content: LayerContent::Text {
             text: "MMMM".to_owned(),
-            style: TextStyle {
+            style: Box::new(TextStyle {
                 font_size: Some(30.0),
                 fill: Some(Paint::Solid {
                     color: "#FFFFFFFF".to_owned(),
                 }),
                 ..TextStyle::default()
-            },
+            }),
             max_width: None,
             baseline_anchor: false,
         },
@@ -601,14 +601,14 @@ fn centers_visible_single_line_text_on_its_transform() {
             effects: Default::default(),
             content: LayerContent::Text {
                 text: "Celesta".to_owned(),
-                style: TextStyle {
+                style: Box::new(TextStyle {
                     font_size: Some(96.0),
                     fill: Some(Paint::Solid {
                         color: "#FFA13BFF".to_owned(),
                     }),
                     align: Some(celesta_composition::TextAlign::Center),
                     ..TextStyle::default()
-                },
+                }),
                 max_width: None,
                 baseline_anchor: false,
             },
@@ -754,14 +754,14 @@ fn a_text_stroke_does_not_move_the_text() {
                 effects: Default::default(),
                 content: LayerContent::Text {
                     text: "Celesta".to_owned(),
-                    style: TextStyle {
+                    style: Box::new(TextStyle {
                         font_size: Some(72.0),
                         fill: Some(Paint::Solid {
                             color: "#FFFFFFFF".to_owned(),
                         }),
                         stroke,
                         ..TextStyle::default()
-                    },
+                    }),
                     max_width: None,
                     baseline_anchor: false,
                 },
@@ -1266,10 +1266,10 @@ fn baseline_anchored_text_layers_share_a_baseline() {
         effects: Default::default(),
         content: LayerContent::Text {
             text: text.to_owned(),
-            style: TextStyle {
+            style: Box::new(TextStyle {
                 font_size: Some(font_size),
                 ..TextStyle::default()
-            },
+            }),
             max_width: None,
             baseline_anchor: true,
         },
@@ -2322,11 +2322,11 @@ fn refuses_custom_shaders() {
             corner_radius: 0.0,
         },
     };
-    layer.effects.shader = Some(LayerShader {
+    layer.effects.shader = Some(Box::new(LayerShader {
         id: "identity".to_owned(),
         params: Vec::new(),
         padding: 0.0,
-    });
+    }));
     let scene = Scene {
         width: 16,
         height: 16,
@@ -2370,7 +2370,7 @@ fn instance_layer(id: &str, content: LayerContent) -> Layer {
 fn three_particles(shape: InstanceShape) -> LayerContent {
     LayerContent::Instances {
         count: 3,
-        shape,
+        shape: Box::new(shape),
         width: Some(10.0),
         height: None,
         color: None,
@@ -2438,7 +2438,7 @@ fn instances_draw_like_centred_rects() {
 fn instances_with_no_particles_draw_nothing() {
     let empty = LayerContent::Instances {
         count: 0,
-        shape: InstanceShape::Circle,
+        shape: Box::new(InstanceShape::Circle),
         width: Some(4.0),
         height: Some(4.0),
         color: None,
@@ -2485,14 +2485,14 @@ fn checker_particle(color: [u8; 4]) -> Scene {
             "checker",
             LayerContent::Instances {
                 count: 1,
-                shape: InstanceShape::Image {
+                shape: Box::new(InstanceShape::Image {
                     asset: ResolvedAsset {
                         id: "checker".to_owned(),
                         location: AssetLocation::File {
                             path: "tests/assets/checker.ppm".to_owned(),
                         },
                     },
-                },
+                }),
                 width: None,
                 height: None,
                 color: None,
@@ -2587,14 +2587,14 @@ fn one_instance_image_dimension_keeps_its_aspect_ratio() {
             "wide",
             LayerContent::Instances {
                 count: 1,
-                shape: InstanceShape::Image {
+                shape: Box::new(InstanceShape::Image {
                     asset: ResolvedAsset {
                         id: "wide".to_owned(),
                         location: AssetLocation::File {
                             path: "wide.png".to_owned(),
                         },
                     },
-                },
+                }),
                 width: Some(8.0),
                 height: None,
                 color: None,
@@ -2614,4 +2614,18 @@ fn one_instance_image_dimension_keeps_its_aspect_ratio() {
     assert_eq!(pixel(&frame, 8, 9), [255, 255, 255, 255]);
     assert_eq!(pixel(&frame, 8, 5), [0, 0, 0, 255]);
     assert_eq!(pixel(&frame, 8, 10), [0, 0, 0, 255]);
+}
+
+#[test]
+fn cpu_refuses_a_static_ref() {
+    let error = CpuRenderer::default()
+        .render(&clip_scene(vec![instance_layer(
+            "s",
+            LayerContent::StaticRef { key: 3 },
+        )]))
+        .unwrap_err();
+    assert!(
+        matches!(&error, RenderError::UnresolvedStatic { layer } if layer == "s"),
+        "{error}"
+    );
 }

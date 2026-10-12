@@ -150,6 +150,35 @@ export interface RectProps extends CommonProps {
   cornerRadius?: number;
 }
 
+export interface StaticProps {
+  /**
+   * The subtree stays the same until one of these changes (compared with
+   * `Object.is`, element by element). Without `deps` it stays the same for
+   * as long as it is mounted.
+   */
+  deps?: readonly unknown[];
+  children?: ReactNode;
+}
+
+function sameDeps(previous: StaticProps, next: StaticProps): boolean {
+  const [a, b] = [previous.deps, next.deps];
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((value, index) => Object.is(value, b[index]));
+}
+
+/**
+ * A subtree that is the same from frame to frame: React renders it only when
+ * `deps` change, and its layers are walked, sent to Rust, and parsed once
+ * and reused. A component inside that reads the frame still works, but is
+ * walked and sent again on every frame it changes. It cannot contain
+ * anything whose layers depend on the time: `<Video>`, `<Audio>`,
+ * `<Sequence>`, `<FreezeFrame>`, or registered host elements.
+ */
+export const Static = React.memo(function Static({ children }: StaticProps) {
+  return React.createElement('static', null, children);
+}, sameDeps);
+
 /** One value per particle: a `Float32Array` (fastest) or an array of numbers. */
 export type InstanceColumn = Float32Array | ArrayLike<number>;
 

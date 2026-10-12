@@ -21,7 +21,7 @@ fn particles(shape: InstanceShape, count: usize, size: f32) -> LayerContent {
     let step = |i: usize| i as f32 / count as f32;
     LayerContent::Instances {
         count: count as u32,
-        shape,
+        shape: Box::new(shape),
         width: None,
         height: Some(7.0),
         color: None,
@@ -105,7 +105,7 @@ fn centred_rects(content: &LayerContent) -> Vec<Layer> {
                     height,
                     fill: Some(Paint::Solid { color }),
                     stroke: None,
-                    corner_radius: match shape {
+                    corner_radius: match shape.as_ref() {
                         InstanceShape::Rect { corner_radius } => *corner_radius,
                         _ => width.min(height) / 2.0,
                     },
@@ -253,7 +253,7 @@ fn empty_and_non_finite_instances_draw_nothing() {
     };
     let empty = LayerContent::Instances {
         count: 0,
-        shape: InstanceShape::Circle,
+        shape: Box::new(InstanceShape::Circle),
         width: Some(4.0),
         height: Some(4.0),
         color: None,
@@ -270,7 +270,7 @@ fn empty_and_non_finite_instances_draw_nothing() {
 
     let three = |middle_x: f32| LayerContent::Instances {
         count: 3,
-        shape: InstanceShape::Rect { corner_radius: 0.0 },
+        shape: Box::new(InstanceShape::Rect { corner_radius: 0.0 }),
         width: Some(4.0),
         height: Some(4.0),
         color: Some("#ffffff".to_owned()),
@@ -300,14 +300,14 @@ fn image_particles(
     let count = x.len();
     LayerContent::Instances {
         count: count as u32,
-        shape: InstanceShape::Image {
+        shape: Box::new(InstanceShape::Image {
             asset: ResolvedAsset {
                 id: path.to_owned(),
                 location: AssetLocation::File {
                     path: path.to_owned(),
                 },
             },
-        },
+        }),
         width: size.map(f64::from),
         height: size.map(f64::from),
         color: None,
@@ -577,4 +577,26 @@ fn one_sprite_dimension_keeps_the_images_aspect_ratio() {
         )
     }];
     assert_eq!(frame.pixels(), renderer.render(&image).unwrap().pixels());
+}
+
+/// A frame pushes one `PreparedItem` per layer and copies it at least once
+/// more; 100,000 layers make its size show in a frame's time.
+#[test]
+fn prepared_items_stay_small() {
+    let size = std::mem::size_of::<PreparedItem>();
+    assert!(size <= 160, "PreparedItem is {size} bytes");
+}
+
+#[test]
+fn gpu_refuses_a_static_ref() {
+    let Some(mut renderer) = black_renderer() else {
+        return;
+    };
+    let mut scene = empty_scene(4, 4);
+    scene.layers = vec![instances_layer("s", LayerContent::StaticRef { key: 3 })];
+    let error = renderer.prepare_draws(&scene).err().unwrap();
+    assert!(
+        matches!(&error, GpuRenderError::UnsupportedContent { layer, content: "static reference" } if layer == "s"),
+        "{error}"
+    );
 }
