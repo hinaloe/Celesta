@@ -6,7 +6,8 @@ struct LayerInstance {
     // anchor.xy, opacity, and the content kind: 0 samples `source_texture`,
     // 1 shades the rect described by `rect`/`fill`/`stroke`, 2 shades the
     // path whose first entry in `paths` is `rect.x`, painted with
-    // `fill`/`stroke`.
+    // `fill`/`stroke`, 3 samples `source_texture` multiplied by `fill`
+    // (straight RGBA in 0-255).
     @location(2) anchor_opacity_kind: vec4<f32>,
     // canvas width, height; the blend mode index (see `blend`), and 1 when
     // `source_texture` holds premultiplied alpha (an isolated group's canvas)
@@ -563,7 +564,7 @@ fn layer_color(input: VertexOutput) -> vec4<f32> {
     }
     // Trilinear: blend the two mip levels around the level of detail.
     var levels = 1;
-    if input.size_opacity_kind.w == 0.0 {
+    if input.size_opacity_kind.w == 0.0 || input.size_opacity_kind.w == 3.0 {
         levels = i32(textureNumLevels(source_texture));
     }
     let level = clamp(input.sampling.y, 0.0, f32(levels - 1));
@@ -581,7 +582,11 @@ fn layer_color(input: VertexOutput) -> vec4<f32> {
 
 // The layer's non-premultiplied color, with its opacity applied to alpha.
 fn source_color(input: VertexOutput) -> vec4<f32> {
-    let color = layer_color(input);
+    var color = layer_color(input);
+    if input.size_opacity_kind.w == 3.0 {
+        // An image particle: its texels times the particle's colour.
+        color *= input.fill / 255.0;
+    }
     let coverage = clip_coverage(input.world, input.clip);
     return vec4<f32>(color.rgb, color.a * input.size_opacity_kind.z * coverage);
 }

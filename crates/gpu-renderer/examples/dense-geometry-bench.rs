@@ -21,8 +21,8 @@ use std::f64::consts::PI;
 use std::time::{Duration, Instant};
 
 use celesta_composition::{
-    BlendMode, EvaluatedTransform, Layer, LayerContent, LineCap, LineJoin, Paint, PathCommand,
-    Point, Rational, Scene, Stroke, Time,
+    BlendMode, EvaluatedTransform, F32Column, InstanceShape, Layer, LayerContent, LineCap,
+    LineJoin, Paint, PathCommand, Point, Rational, Scene, Stroke, Time, U8Column,
 };
 use celesta_gpu_renderer::{GpuRenderOptions, GpuRenderer};
 
@@ -52,6 +52,7 @@ fn main() {
     for (name, geometry) in [
         ("rects", Geometry::Rects),
         ("paths", Geometry::Paths { bands }),
+        ("instances", Geometry::Instances),
     ] {
         let started = Instant::now();
         let mut building = Duration::ZERO;
@@ -84,6 +85,8 @@ enum Geometry {
     Rects,
     /// One path per run of a strand inside one of `bands` depth bands.
     Paths { bands: usize },
+    /// The rects of `Rects`, as one `Instances` layer per ribbon.
+    Instances,
 }
 
 fn count_layers(layers: &[Layer]) -> usize {
@@ -98,6 +101,8 @@ fn count_layers(layers: &[Layer]) -> usize {
                 1 + count_layers(layers)
                     + mask.as_ref().map_or(0, |mask| count_layers(&mask.layers))
             }
+            // Counted as the rects it stands for.
+            LayerContent::Instances { count, .. } => *count as usize,
             _ => 1,
         })
         .sum()
@@ -189,6 +194,9 @@ fn ribbon(time: f64, x: f64, y: f64, size: f64, strands: usize, geometry: Geomet
         }
     }
     segments.sort_by(|left, right| left.2.total_cmp(&right.2));
+    if let Geometry::Instances = geometry {
+        return vec![ribbon_instances(&segments)];
+    }
     segments
         .into_iter()
         .enumerate()
@@ -207,6 +215,52 @@ fn ribbon(time: f64, x: f64, y: f64, size: f64, strands: usize, geometry: Geomet
             line
         })
         .collect()
+}
+
+/// The same segments as one `Instances` layer: each rect centred halfway
+/// along it, its opacity in its colour's alpha.
+fn ribbon_instances(segments: &[((f64, f64, f64), (f64, f64, f64), f64)]) -> Layer {
+    let mut columns: [Vec<f32>; 5] = Default::default();
+    let mut colors = Vec::with_capacity(segments.len() * 4);
+    for &(a, b, depth) in segments {
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        let length = dx.hypot(dy);
+        let width = length + 0.7;
+        let (cos, sin) = if length > 0.0 {
+            (dx / length, dy / length)
+        } else {
+            (1.0, 0.0)
+        };
+        let [x, y, widths, heights, rotation] = &mut columns;
+        x.push((a.0 + cos * width / 2.0) as f32);
+        y.push((a.1 + sin * width / 2.0) as f32);
+        widths.push(width as f32);
+        heights.push((1.5 + ((depth + 1.0) / 2.0).clamp(0.0, 1.0) * 0.8) as f32);
+        rotation.push(dy.atan2(dx).to_degrees() as f32);
+        let opacity = 0.25 + ((depth + 1.4) / 2.8).clamp(0.0, 1.0) * 0.75;
+        colors.extend([0xEF, 0x40, 0x2B, (opacity * 255.0).round() as u8]);
+    }
+    let [x, y, widths, heights, rotation] = columns;
+    Layer {
+        id: "segments".to_owned(),
+        transform: EvaluatedTransform::default(),
+        opacity: 1.0,
+        blend_mode: BlendMode::Normal,
+        effects: Default::default(),
+        content: LayerContent::Instances {
+            count: segments.len() as u32,
+            shape: InstanceShape::Rect { corner_radius: 0.0 },
+            width: None,
+            height: None,
+            color: None,
+            x: F32Column::from(x),
+            y: F32Column::from(y),
+            widths: Some(F32Column::from(widths)),
+            heights: Some(F32Column::from(heights)),
+            rotation: Some(F32Column::from(rotation)),
+            colors: Some(U8Column::from(colors)),
+        },
+    }
 }
 
 fn strand_v(strand: usize, strands: usize) -> f64 {

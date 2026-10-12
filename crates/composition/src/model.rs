@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
+use crate::instances::{F32Column, InstanceShape, U8Column};
 use crate::tagged::TypeTagged;
 use crate::{Animatable, Paint, Rational, Stroke, TextStyle, Time, TimeRange};
 
@@ -316,6 +317,44 @@ pub enum LayerContent {
         )]
         miter_limit: f64,
     },
+    /// `count` particles of one shape, drawn in order: particle `i` is the
+    /// shape at `widths[i]` x `heights[i]` (or the shared size), centred on
+    /// `(x[i], y[i])` in the layer's own coordinates, rotated `rotation[i]`
+    /// degrees about its centre, and coloured `colors[i]` (straight RGBA).
+    /// A rect or circle is filled with that colour; an image's texels are
+    /// multiplied by it. Every column holds `count` values, `colors`
+    /// `4 * count`. Like `Group`, the layer has no box, so the anchor is
+    /// ignored.
+    Instances {
+        count: u32,
+        shape: InstanceShape,
+        /// Every particle's width when `widths` is absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        width: Option<f64>,
+        /// Every particle's height when `heights` is absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        height: Option<f64>,
+        /// Every particle's colour (hex) when `colors` is absent; white when
+        /// both are.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        color: Option<String>,
+        #[cfg_attr(feature = "codegen", ts(type = "string"))]
+        x: F32Column,
+        #[cfg_attr(feature = "codegen", ts(type = "string"))]
+        y: F32Column,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "codegen", ts(type = "string"))]
+        widths: Option<F32Column>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "codegen", ts(type = "string"))]
+        heights: Option<F32Column>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "codegen", ts(type = "string"))]
+        rotation: Option<F32Column>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "codegen", ts(type = "string"))]
+        colors: Option<U8Column>,
+    },
     MissingComponent {
         component: String,
         props: BTreeMap<String, Value>,
@@ -324,7 +363,51 @@ pub enum LayerContent {
 
 impl<'de> Deserialize<'de> for LayerContent {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        LayerContentDef::deserialize(TypeTagged(deserializer))
+        let content = LayerContentDef::deserialize(TypeTagged(deserializer))?;
+        if let Some(error) = content.instance_column_error() {
+            return Err(serde::de::Error::custom(error));
+        }
+        Ok(content)
+    }
+}
+
+impl LayerContent {
+    /// Why an `Instances` layer's columns do not fit its `count`, so the
+    /// renderers can index every column by particle without checks.
+    fn instance_column_error(&self) -> Option<String> {
+        let LayerContent::Instances {
+            count,
+            x,
+            y,
+            widths,
+            heights,
+            rotation,
+            colors,
+            ..
+        } = self
+        else {
+            return None;
+        };
+        let count = *count as usize;
+        let floats = [
+            ("x", Some(x)),
+            ("y", Some(y)),
+            ("widths", widths.as_ref()),
+            ("heights", heights.as_ref()),
+            ("rotation", rotation.as_ref()),
+        ];
+        let lengths = floats
+            .into_iter()
+            .filter_map(|(name, column)| column.map(|column| (name, column.len(), count)))
+            .chain(colors.as_ref().map(|colors| ("colors", colors.len(), 4 * count)));
+        for (name, len, expected) in lengths {
+            if len != expected {
+                return Some(format!(
+                    "instances column `{name}` has {len} values; count {count} needs {expected}"
+                ));
+            }
+        }
+        None
     }
 }
 
@@ -395,6 +478,26 @@ enum LayerContentDef {
         line_join: LineJoin,
         #[serde(default = "default_miter_limit")]
         miter_limit: f64,
+    },
+    Instances {
+        count: u32,
+        shape: InstanceShape,
+        #[serde(default)]
+        width: Option<f64>,
+        #[serde(default)]
+        height: Option<f64>,
+        #[serde(default)]
+        color: Option<String>,
+        x: F32Column,
+        y: F32Column,
+        #[serde(default)]
+        widths: Option<F32Column>,
+        #[serde(default)]
+        heights: Option<F32Column>,
+        #[serde(default)]
+        rotation: Option<F32Column>,
+        #[serde(default)]
+        colors: Option<U8Column>,
     },
     MissingComponent {
         component: String,

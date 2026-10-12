@@ -31,6 +31,7 @@ use celesta_composition::{
 };
 use celesta_media::{MediaError, VideoFrame, VideoFrameDecoder};
 
+mod instances;
 mod shader;
 
 fn empty_scene(width: u32, height: u32) -> Scene {

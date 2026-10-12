@@ -12,8 +12,8 @@ use celesta_composition::{LetterSpacing, LineBreak, Point};
 use std::path::Path;
 
 use celesta_composition::{
-    AssetLocation, BlendMode, Clip, EvaluatedTransform, Layer, LayerContent, MediaTiming, Paint,
-    Rational, ResolvedAsset, Scene, TextStyle, Time,
+    AssetLocation, BlendMode, Clip, EvaluatedTransform, F32Column, InstanceShape, Layer,
+    LayerContent, MediaTiming, Paint, Rational, ResolvedAsset, Scene, TextStyle, Time, U8Column,
 };
 use celesta_media::{MediaError, VideoFrame, VideoFrameDecoder};
 
@@ -2350,4 +2350,268 @@ fn refuses_custom_shaders() {
         matches!(error, RenderError::UnsupportedShader { .. }),
         "{error}"
     );
+}
+
+fn instance_layer(id: &str, content: LayerContent) -> Layer {
+    Layer {
+        id: id.to_owned(),
+        transform: EvaluatedTransform {
+            anchor: Point { x: 0.0, y: 0.0 },
+            ..EvaluatedTransform::default()
+        },
+        opacity: 1.0,
+        blend_mode: BlendMode::Normal,
+        effects: Default::default(),
+        content,
+    }
+}
+
+/// Three particles: a shared width, per-particle heights and colours.
+fn three_particles(shape: InstanceShape) -> LayerContent {
+    LayerContent::Instances {
+        count: 3,
+        shape,
+        width: Some(10.0),
+        height: None,
+        color: None,
+        x: F32Column::from(vec![8.0, 20.5, 30.0]),
+        y: F32Column::from(vec![10.0, 21.0, 28.25]),
+        widths: None,
+        heights: Some(F32Column::from(vec![6.0, 8.0, 10.0])),
+        rotation: None,
+        colors: Some(U8Column::from(vec![
+            255, 0, 0, 200, 0, 255, 0, 200, 0, 0, 255, 200,
+        ])),
+    }
+}
+
+/// The `Rect` layers `three_particles` stands for.
+fn three_rects(corner_radius: impl Fn(f64, f64) -> f64) -> Vec<Layer> {
+    [
+        (8.0, 10.0, 6.0, "#FF0000C8"),
+        (20.5, 21.0, 8.0, "#00FF00C8"),
+        (30.0, 28.25, 10.0, "#0000FFC8"),
+    ]
+    .into_iter()
+    .map(|(x, y, height, color)| Layer {
+        id: color.to_owned(),
+        transform: EvaluatedTransform {
+            position: Point { x, y },
+            anchor: Point { x: 0.5, y: 0.5 },
+            ..EvaluatedTransform::default()
+        },
+        opacity: 1.0,
+        blend_mode: BlendMode::Normal,
+        effects: Default::default(),
+        content: LayerContent::Rect {
+            width: 10.0,
+            height,
+            fill: Some(Paint::Solid {
+                color: color.to_owned(),
+            }),
+            stroke: None,
+            corner_radius: corner_radius(10.0, height),
+        },
+    })
+    .collect()
+}
+
+#[test]
+fn instances_draw_like_centred_rects() {
+    let render = |layers| CpuRenderer::default().render(&clip_scene(layers)).unwrap();
+    let rects = render(vec![instance_layer(
+        "rects",
+        three_particles(InstanceShape::Rect { corner_radius: 2.0 }),
+    )]);
+    assert_eq!(rects.pixels(), render(three_rects(|_, _| 2.0)).pixels());
+    let circles = render(vec![instance_layer(
+        "circles",
+        three_particles(InstanceShape::Circle),
+    )]);
+    assert_eq!(
+        circles.pixels(),
+        render(three_rects(|width: f64, height| width.min(height) / 2.0)).pixels()
+    );
+}
+
+#[test]
+fn instances_with_no_particles_draw_nothing() {
+    let empty = LayerContent::Instances {
+        count: 0,
+        shape: InstanceShape::Circle,
+        width: Some(4.0),
+        height: Some(4.0),
+        color: None,
+        x: F32Column::from(Vec::new()),
+        y: F32Column::from(Vec::new()),
+        widths: None,
+        heights: None,
+        rotation: None,
+        colors: None,
+    };
+    let frame = CpuRenderer::default()
+        .render(&clip_scene(vec![instance_layer("empty", empty)]))
+        .unwrap();
+    let blank = CpuRenderer::default()
+        .render(&clip_scene(Vec::new()))
+        .unwrap();
+    assert_eq!(frame.pixels(), blank.pixels());
+}
+
+#[test]
+fn instances_reject_rotated_particles() {
+    let mut content = three_particles(InstanceShape::Circle);
+    if let LayerContent::Instances { rotation, .. } = &mut content {
+        *rotation = Some(F32Column::from(vec![0.0, 15.0, 0.0]));
+    }
+    let error = CpuRenderer::default()
+        .render(&clip_scene(vec![instance_layer("spun", content)]))
+        .unwrap_err();
+    assert!(
+        matches!(&error, RenderError::UnsupportedRotation { layer, degrees } if layer == "spun" && *degrees == 15.0),
+        "{error}"
+    );
+}
+
+/// The 2x2 checker (red, green, blue, white) drawn as one particle.
+fn checker_particle(color: [u8; 4]) -> Scene {
+    Scene {
+        width: 2,
+        height: 2,
+        frame_rate: Rational::new(60, 1),
+        time: Time::ZERO,
+        fonts: Vec::new(),
+        layers: vec![instance_layer(
+            "checker",
+            LayerContent::Instances {
+                count: 1,
+                shape: InstanceShape::Image {
+                    asset: ResolvedAsset {
+                        id: "checker".to_owned(),
+                        location: AssetLocation::File {
+                            path: "tests/assets/checker.ppm".to_owned(),
+                        },
+                    },
+                },
+                width: None,
+                height: None,
+                color: None,
+                x: F32Column::from(vec![1.0]),
+                y: F32Column::from(vec![1.0]),
+                widths: None,
+                heights: None,
+                rotation: None,
+                colors: Some(U8Column::from(color.to_vec())),
+            },
+        )],
+        shaders: Vec::new(),
+    }
+}
+
+#[test]
+fn instance_images_multiply_their_colour() {
+    let render = |scene: &Scene| {
+        CpuRenderer::default()
+            .with_asset_root(env!("CARGO_MANIFEST_DIR"))
+            .render(scene)
+            .unwrap()
+    };
+    assert_eq!(
+        render(&checker_particle([255, 255, 255, 255])).pixels(),
+        &[
+            255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+        ]
+    );
+    assert_eq!(
+        render(&checker_particle([255, 0, 0, 255])).pixels(),
+        &[255, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 0, 0, 255]
+    );
+    // Half the colour's alpha draws like the image at half opacity.
+    let mut faded = checker_particle([255, 255, 255, 255]);
+    faded.layers[0].opacity = 128.0 / 255.0;
+    assert_eq!(
+        render(&checker_particle([255, 255, 255, 128])).pixels(),
+        render(&faded).pixels()
+    );
+}
+
+#[test]
+fn blended_instances_match_a_blended_group() {
+    let backdrop = || Layer {
+        content: LayerContent::Rect {
+            width: 40.0,
+            height: 40.0,
+            fill: Some(Paint::Solid {
+                color: "#336699FF".to_owned(),
+            }),
+            stroke: None,
+            corner_radius: 0.0,
+        },
+        ..red_square()
+    };
+    let instances = Layer {
+        blend_mode: BlendMode::Screen,
+        ..instance_layer("screen", three_particles(InstanceShape::Circle))
+    };
+    let group = Layer {
+        blend_mode: BlendMode::Screen,
+        ..instance_layer(
+            "group",
+            LayerContent::Group {
+                layers: three_rects(|width: f64, height| width.min(height) / 2.0),
+                clip: None,
+                mask: None,
+            },
+        )
+    };
+    let render = |layers| CpuRenderer::default().render(&clip_scene(layers)).unwrap();
+    assert_eq!(
+        render(vec![backdrop(), instances]).pixels(),
+        render(vec![backdrop(), group]).pixels()
+    );
+}
+
+#[test]
+fn one_instance_image_dimension_keeps_its_aspect_ratio() {
+    let mut renderer = CpuRenderer::new(RenderOptions {
+        background: Color::rgba(0, 0, 0, 255),
+    });
+    renderer.image_sources.insert_raster(
+        "wide",
+        image::RgbaImage::from_raw(4, 2, [255; 4].repeat(8)).unwrap(),
+    );
+    let scene = Scene {
+        width: 16,
+        height: 16,
+        layers: vec![instance_layer(
+            "wide",
+            LayerContent::Instances {
+                count: 1,
+                shape: InstanceShape::Image {
+                    asset: ResolvedAsset {
+                        id: "wide".to_owned(),
+                        location: AssetLocation::File {
+                            path: "wide.png".to_owned(),
+                        },
+                    },
+                },
+                width: Some(8.0),
+                height: None,
+                color: None,
+                x: F32Column::from(vec![8.0]),
+                y: F32Column::from(vec![8.0]),
+                widths: None,
+                heights: None,
+                rotation: None,
+                colors: None,
+            },
+        )],
+        ..clip_scene(Vec::new())
+    };
+    let frame = renderer.render(&scene).unwrap();
+    // 8 wide, so 4 tall: rows 6 to 9.
+    assert_eq!(pixel(&frame, 8, 6), [255, 255, 255, 255]);
+    assert_eq!(pixel(&frame, 8, 9), [255, 255, 255, 255]);
+    assert_eq!(pixel(&frame, 8, 5), [0, 0, 0, 255]);
+    assert_eq!(pixel(&frame, 8, 10), [0, 0, 0, 255]);
 }

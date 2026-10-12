@@ -14,6 +14,7 @@ import { TextMetricsFontsContext, withTextLanguage } from './text-measure';
 import { flattenTextContent, withTextRuns } from './rich-text';
 import { ProjectLayersContext, ProjectTrackLayersContext } from './hooks';
 import { type HostWalk, hasHostElementPreparation, hostElement } from './host-elements';
+import { instancesContent } from './instances';
 import { resolveComponent } from './registry';
 import { type HostNode, type RootContainer, HostReconciler, createRoot } from './reconciler';
 import type {
@@ -46,6 +47,7 @@ const HOST_TYPES = new Set([
   'asset-font',
   'group',
   'image',
+  'instances',
   'rect',
   'path',
   'text',
@@ -364,7 +366,12 @@ function buildLayer(
 ): Layer {
   const { props } = node;
   const id = typeof props.id === 'string' && props.id.length > 0 ? flatString(`${context.idPrefix}${props.id}`) : path;
-  const transform = extractTransform(props);
+  // An `<Instances>`'s x, y, and rotation are its particles', not its own.
+  const transform = extractTransform(
+    node.type === 'instances'
+      ? { ...props, x: undefined, y: undefined, rotation: undefined, anchorX: undefined, anchorY: undefined }
+      : props,
+  );
   const opacity = typeof props.rawOpacity === 'number' ? props.rawOpacity : numberOr(props.opacity, 1);
   const blendMode = extractBlendMode(props.blendMode);
   const effects = extractEffects(props, context);
@@ -413,6 +420,8 @@ function buildLayer(
       ...(typeof maxWidth === 'number' ? { maxWidth } : {}),
       ...(props.anchorY === 'baseline' ? { baselineAnchor: true } : {}),
     };
+  } else if (node.type === 'instances') {
+    content = instancesContent(props, resolveAsset);
   } else if (node.type === 'rect') {
     const fill = toPaint(props.fill);
     const strokePaint = toPaint(props.stroke);

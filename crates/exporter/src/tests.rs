@@ -9,8 +9,8 @@ use crate::range::{ExportRange, resolve_window, shifted_audio_graph};
 use crate::render::{frame_count, open_video_writer, validate_dimensions, validate_output};
 use crate::timecode::{TimecodeError, parse_timecode};
 use celesta_composition::{
-    AssetLocation, EvaluatedTransform, GroupMask, Layer, LayerContent, MaskMode, Rational,
-    ResolvedAsset, Time,
+    AssetLocation, EvaluatedTransform, F32Column, GroupMask, InstanceShape, Layer, LayerContent,
+    MaskMode, Rational, ResolvedAsset, Time,
 };
 use celesta_evaluator::Evaluator;
 use celesta_gpu_renderer::ReadbackFormat;
@@ -385,4 +385,50 @@ fn absolutizes_assets_inside_a_groups_mask() {
             }
         );
     }
+}
+
+#[test]
+fn absolutizes_an_instance_image() {
+    let mut layers = vec![Layer {
+        id: "sparks".to_owned(),
+        transform: EvaluatedTransform::default(),
+        opacity: 1.0,
+        blend_mode: Default::default(),
+        effects: Default::default(),
+        content: LayerContent::Instances {
+            count: 0,
+            shape: InstanceShape::Image {
+                asset: ResolvedAsset {
+                    id: "spark.png".to_owned(),
+                    location: AssetLocation::File {
+                        path: "spark.png".to_owned(),
+                    },
+                },
+            },
+            width: None,
+            height: None,
+            color: None,
+            x: F32Column::from(Vec::new()),
+            y: F32Column::from(Vec::new()),
+            widths: None,
+            heights: None,
+            rotation: None,
+            colors: None,
+        },
+    }];
+    let root = Path::new("/project");
+    absolutize_layers(&mut layers, root);
+    let LayerContent::Instances {
+        shape: InstanceShape::Image { asset },
+        ..
+    } = &layers[0].content
+    else {
+        panic!("not an image instance layer");
+    };
+    assert_eq!(
+        asset.location,
+        AssetLocation::File {
+            path: root.join("spark.png").to_string_lossy().into_owned()
+        }
+    );
 }

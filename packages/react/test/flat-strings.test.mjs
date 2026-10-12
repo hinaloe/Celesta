@@ -8,7 +8,7 @@ import v8 from 'node:v8';
 import { test } from 'vitest';
 import * as React from 'react';
 
-import { Composition, Group, Image, Rect, Text } from '../dist/index.js';
+import { Composition, Group, Image, Instances, Rect, Text } from '../dist/index.js';
 import { createResolver, mount } from '../dist/render.js';
 import { shaderEffect, shaderSource } from '../dist/internal.js';
 import { registerComponent } from '../dist/registry.js';
@@ -58,6 +58,17 @@ test('a frame has no cons or sliced strings in ids, text, colors, asset paths, o
           h(Rect, { id: `authored-${frame}-rect`, width: 1, height: 1, fill: `rgba(${frame}, 0, 0, 0.5)` }),
           h(Image, { src: `images/frame-${frame}.png`.slice(0, 20) }),
           h(Rect, { width: 1, height: 1, shader: shaderEffect(shader, [1], 0) }),
+          // Columns over 1 MiB, which Node's Buffer#toString returns as
+          // external strings.
+          h(Instances, {
+            count: 300_000,
+            x: new Float32Array(300_000).fill(Number(frame)),
+            y: new Float32Array(300_000),
+            rotation: new Float32Array(300_000),
+            color: new Uint8Array(1_200_000),
+            width: 1,
+            height: 1,
+          }),
         ),
       ),
     );

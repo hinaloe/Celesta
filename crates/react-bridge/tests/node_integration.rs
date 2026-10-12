@@ -338,6 +338,34 @@ fn text_boxes_fit_their_captions_with_the_renderer_shaping_when_node_is_availabl
 }
 
 #[test]
+fn instances_reach_rust_as_columns_when_node_is_available() {
+    let Some((node, cli_script, package_root)) = live_react_runtime() else {
+        return;
+    };
+
+    let entry = package_root.join("examples/with-instances.tsx");
+    let mut bridge = ReactBridge::spawn(&node, &cli_script, &entry).unwrap();
+    let scene = bridge.scene_at(Time::new(5, 30)).unwrap();
+    let [layer] = scene.layers.as_slice() else {
+        panic!("one layer: {:?}", scene.layers);
+    };
+    let LayerContent::Instances {
+        count,
+        x,
+        y,
+        colors,
+        ..
+    } = &layer.content
+    else {
+        panic!("not an Instances layer: {:?}", layer.content);
+    };
+    assert_eq!(*count, 3);
+    assert_eq!(&**x, &[110.0, 160.0, 210.0]);
+    assert_eq!(&**y, &[100.0, 200.0, 300.0]);
+    assert_eq!(&colors.as_ref().unwrap()[..4], &[255, 80, 80, 255]);
+}
+
+#[test]
 fn prepare_can_preload_media_metadata_when_node_is_available() {
     let Some((node, cli_script, package_root)) = live_react_runtime() else {
         return;

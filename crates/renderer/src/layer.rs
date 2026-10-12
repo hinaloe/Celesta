@@ -85,31 +85,18 @@ impl CpuRenderer {
                     return self.render_masked_group(frame, layers, mask, &state, child_state);
                 }
                 if !layer.blend_mode.is_normal() {
-                    // Isolated: the children composite onto a transparent layer
-                    // of their own, which then blends with the backdrop as one.
                     // The children carry the clip; the layer itself does not.
-                    let mut isolated = RgbaFrame {
-                        width: frame.width,
-                        height: frame.height,
-                        pixels: vec![0; frame.pixels.len()],
-                    };
-                    let inner = ParentState {
-                        opacity: 1.0,
-                        blend_mode: BlendMode::Normal,
-                        ..child_state
-                    };
-                    for child in layers {
-                        self.render_layer(&mut isolated, child, inner.clone())?;
-                    }
-                    for (destination, source) in frame
-                        .pixels
-                        .chunks_exact_mut(4)
-                        .zip(isolated.pixels.chunks_exact(4))
-                    {
-                        let source = Color::rgba(source[0], source[1], source[2], source[3]);
-                        blend_with_mode(destination, source, state.opacity, state.blend_mode);
-                    }
-                    return Ok(());
+                    return self.render_isolated(
+                        frame,
+                        &state,
+                        child_state,
+                        |renderer, isolated, inner| {
+                            for child in layers {
+                                renderer.render_layer(isolated, child, inner.clone())?;
+                            }
+                            Ok(())
+                        },
+                    );
                 }
                 // Not isolated: each child composites straight onto the
                 // backdrop, through its own blend mode.
@@ -245,6 +232,18 @@ impl CpuRenderer {
                     render_output_pixels(frame, &path, &state);
                 }
             }
+            LayerContent::Instances { .. } => {
+                if layer.blend_mode.is_normal() {
+                    self.render_instances(frame, layer, &state)?;
+                } else {
+                    // Isolated like a group: the particles composite with
+                    // each other normally, then blend as one layer.
+                    let inner = state.clone();
+                    self.render_isolated(frame, &state, inner, |renderer, isolated, inner| {
+                        renderer.render_instances(isolated, layer, &inner)
+                    })?;
+                }
+            }
             LayerContent::MissingComponent { .. } => render_placeholder(
                 frame,
                 layer.transform.anchor,
@@ -253,6 +252,38 @@ impl CpuRenderer {
                 240.0,
                 120.0,
             ),
+        }
+        Ok(())
+    }
+
+    /// Draws with `draw` onto a transparent layer of its own, which then
+    /// blends with the backdrop as one through `state`'s opacity and blend
+    /// mode. `draw` gets `inner` at full opacity and normal blending.
+    fn render_isolated(
+        &mut self,
+        frame: &mut RgbaFrame,
+        state: &ParentState,
+        inner: ParentState,
+        draw: impl FnOnce(&mut Self, &mut RgbaFrame, ParentState) -> Result<(), RenderError>,
+    ) -> Result<(), RenderError> {
+        let mut isolated = RgbaFrame {
+            width: frame.width,
+            height: frame.height,
+            pixels: vec![0; frame.pixels.len()],
+        };
+        let inner = ParentState {
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            ..inner
+        };
+        draw(self, &mut isolated, inner)?;
+        for (destination, source) in frame
+            .pixels
+            .chunks_exact_mut(4)
+            .zip(isolated.pixels.chunks_exact(4))
+        {
+            let source = Color::rgba(source[0], source[1], source[2], source[3]);
+            blend_with_mode(destination, source, state.opacity, state.blend_mode);
         }
         Ok(())
     }
@@ -454,7 +485,11 @@ impl CpuRenderer {
 
 /// Draws an image already in output pixels (a rasterized rect or path)
 /// unscaled at its corner.
-fn render_output_pixels(frame: &mut RgbaFrame, image: &RasterizedPath, state: &ParentState) {
+pub(crate) fn render_output_pixels(
+    frame: &mut RgbaFrame,
+    image: &RasterizedPath,
+    state: &ParentState,
+) {
     let state = ParentState {
         position: Point {
             x: f64::from(image.left),

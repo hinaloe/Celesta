@@ -13,6 +13,7 @@ export type { Clip } from './generated/Clip';
 export type { Easing } from './generated/Easing';
 export type { EvaluatedTransform } from './generated/EvaluatedTransform';
 export type { FontFamily } from './generated/FontFamily';
+export type { InstanceShape } from './generated/InstanceShape';
 export type { Keyframe } from './generated/Keyframe';
 export type { KeyframeAnimation } from './generated/KeyframeAnimation';
 export type { Layer } from './generated/Layer';

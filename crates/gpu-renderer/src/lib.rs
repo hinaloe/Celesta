@@ -10,6 +10,7 @@ mod draw;
 mod effect;
 mod encode;
 mod error;
+mod instances;
 mod layer;
 mod mask;
 mod path;
