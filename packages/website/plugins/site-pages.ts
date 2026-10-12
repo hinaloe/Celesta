@@ -13,6 +13,25 @@ import { showcase } from '../src/site/showcase-catalog.ts';
 const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const site = 'https://celesta.natsuneko.cat';
 
+/** Repository directories the showcase reads at `/showcase-assets/<directory>/<file>`. */
+const showcaseAssetDirectories = ['examples/afterimage/assets/fonts', 'examples/versus/bench/assets/fonts', 'examples/versus/bench/assets/licenses', 'examples/assets/dialogue-demo/portraits'];
+
+/** The repository file a `/showcase-assets/` request names, or undefined unless it is a file directly inside one of those directories. */
+export function showcaseAsset(root: string, pathname: string): string | undefined {
+  const prefix = '/showcase-assets/';
+  if (!pathname.startsWith(prefix)) return;
+  let path: string;
+  try {
+    path = decodeURIComponent(pathname.slice(prefix.length));
+  } catch {
+    return;
+  }
+  const directory = showcaseAssetDirectories.find(directory => path.startsWith(`${directory}/`));
+  const name = directory && path.slice(directory.length + 1);
+  if (!directory || !name || /[/\\]/.test(name) || name === '.' || name === '..') return;
+  return join(root, directory, name);
+}
+
 function localizedHtml(html: string, locale: Locale, slug?: string, showcaseSlug?: string): string {
   const isShowcase = showcaseSlug !== undefined;
   const sample = showcase.find(item => item.slug === showcaseSlug);
@@ -55,7 +74,10 @@ export function sitePages(root: string): Plugin {
         if (route.page === 'home') request.url = '/index.html' + url.search;
         else if (route.page === 'docs' && (route.slug === 'overview' || slugs.includes(route.slug))) request.url = '/docs/index.html' + url.search;
         else if (route.page === 'showcase' && (route.slug === 'overview' || showcase.some(item => item.slug === route.slug))) request.url = '/showcase/index.html' + url.search;
-        else if (/^\/showcase-assets\/examples\/(?:afterimage\/assets\/fonts|versus\/bench\/assets\/(?:fonts|licenses)|assets\/dialogue-demo\/portraits)\/[^/]+$/.test(url.pathname)) request.url = '/@fs/' + normalizePath(join(root, decodeURIComponent(url.pathname.slice('/showcase-assets/'.length))));
+        else {
+          const asset = showcaseAsset(root, url.pathname);
+          if (asset) request.url = '/@fs/' + normalizePath(asset);
+        }
         next();
       });
     },
@@ -100,7 +122,7 @@ export function sitePages(root: string): Plugin {
       // Preserve existing English documentation URLs and hash links.
       for (const slug of slugs) write(`docs/${slug}`, localizedHtml(docs, 'en', slug));
       for (const sample of showcase) write(`showcase/${sample.slug}`, localizedHtml(gallery, 'en', undefined, sample.slug));
-      for (const path of ['examples/afterimage/assets/fonts', 'examples/versus/bench/assets/fonts', 'examples/versus/bench/assets/licenses', 'examples/assets/dialogue-demo/portraits']) {
+      for (const path of showcaseAssetDirectories) {
         cpSync(join(root, path), join(outDir, 'showcase-assets', path), { recursive: true });
       }
     },
