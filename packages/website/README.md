@@ -50,8 +50,8 @@ For a CI runner outside Cloudflare, authenticate Wrangler with the
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets. Keep tokens out of Git.
 
 Run `pnpm preview:cloudflare` to build and serve the site through local Wrangler.
-Vite builds shared website and documentation entries, then `vite.config.ts`
-generates a real HTML file for every supported language and chapter. Direct
+Vite builds shared website and documentation entries, then the
+`plugins/site-pages.ts` Vite plugin generates a real HTML file for every supported language and chapter. Direct
 visits to `/en/`, `/ja/`, `/en/docs/export/`, and `/ja/docs/export/` work without
 an SPA fallback. Each page has localized `lang`, title, description, canonical,
 and `hreflang` metadata. The Vite dev server and preview also support language
@@ -71,8 +71,8 @@ headers and immutable caching for Vite's hashed assets.
   downloads, documentation navigation, search, and every chapter’s prose/API
   tables. Code examples and API identifiers remain unchanged.
 - Header language links preserve the current chapter, query string, and anchor.
-- `src/locales.ts` is the language registry. `src/locales/en.json` is the source
-  catalog; `src/locales/ja.json` contains Japanese translations. `catalog.ts`
+- `src/site/locales.ts` is the language registry. `src/locales/en.json` is the source
+  catalog; `src/locales/ja.json` contains Japanese translations. `src/site/catalog.ts`
   initializes i18next with these resources and checks their nested key structure
   in TypeScript. React copy uses react-i18next’s `Trans`.
 
@@ -85,8 +85,8 @@ To add a language:
    and position to change. `text(key, [component0, …])` supplies these slots
    to `Trans`; missing wrappers preserve their translated children. These
    slots are React elements, not arbitrary HTML.
-2. Register a lowercase URL code (such as `ja` or `pt-br`) and native name in `src/locales.ts`, import its catalog in
-   `src/catalog.ts`, and add it to `catalogs`.
+2. Register a lowercase URL code (such as `ja` or `pt-br`) and native name in `src/site/locales.ts`, import its catalog in
+   `src/site/catalog.ts`, and add it to `catalogs`.
 3. Run `pnpm test` and `pnpm build`. Routing, language links, HTML generation,
    and alternate-language metadata all use the registry automatically.
 
@@ -144,40 +144,46 @@ assets and runs `pnpm run deploy`. It needs the `CLOUDFLARE_API_TOKEN` and
 
 ## Content and behavior
 
-- `src/App.tsx`: product copy, navigation, documentation and repository links.
-- `src/links.ts` and `src/Download.tsx`: repository and download links, and the
+- Source layout: `src/site/` holds code that also runs in Node (languages,
+  catalogs, routes, the documentation and showcase lists); `src/components/`
+  shared UI; `src/features/playground/` the editor and preview;
+  `src/pages/<page>/` each page's entry, component, and content;
+  `src/styles/` the style sheets. `plugins/` holds the Vite plugins.
+- `src/pages/home/HomePage.tsx`: product copy, navigation, documentation and repository links.
+- `src/site/links.ts`, `src/components/download-links.ts`, and
+  `src/components/Download.tsx`: repository and download links, and the
   platform-aware download buttons.
 - `/docs/`: the on-site bilingual user guide, one page per chapter at
-  `/<language>/docs/<slug>/`, all built from `docs/index.html`. `src/docs-nav.ts` is the
+  `/<language>/docs/<slug>/`, all built from `docs/index.html`. `src/site/docs-nav.ts` is the
   single list of groups and pages (slug, title, description, search keywords);
   add a page there, then add its content under the same slug in
-  `src/docs-content.tsx` (app, React, and guides) or `src/docs-packages.tsx`
-  (`@celesta/math`, `@celesta/code`, and `@celesta/voicevox`). `src/Docs.tsx` renders the grouped
+  `src/pages/docs/content/guides.tsx` (app, React, and guides) or `src/pages/docs/content/packages.tsx`
+  (`@celesta/math`, `@celesta/code`, and `@celesta/voicevox`). `src/pages/docs/DocsPage.tsx` renders the grouped
   sidebar, topic search, previous/next links, and the overview. Old
   `/docs/#<chapter>` links redirect to the matching page. Link between pages
-  with `docPath(slug)`; `src/docs-shared.tsx` has the `Note` and `Api` helpers.
-  `src/DocCode.tsx` supplies accessible copy controls for code examples.
-  `src/syntax.ts` highlights code with [twinkleplop](https://twinkleplop.pngwn.at)
+  with `docPath(slug)` from `src/site/routes.ts`; `src/pages/docs/content/shared.tsx` has the `Note` and `Api` helpers.
+  `src/pages/docs/DocCode.tsx` supplies accessible copy controls for code examples.
+  `src/pages/docs/syntax.ts` highlights code with [twinkleplop](https://twinkleplop.pngwn.at)
   (TSX, JSON, and shell) in documentation.
-- `src/examples/`: complete documentation examples (including title, media, dialogue, dialogue sequencing,
+- `src/pages/docs/examples/`: complete documentation examples (including title, media, dialogue, dialogue sequencing,
   fitted text, reusable data, and VOICEVOX entries). The
   docs import them as raw text. They are excluded from the site's own
   type-check and checked against the real `@celesta/react` and the separately staged `@celesta/voicevox` instead.
   The JSON chapter imports `../../examples/editor-demo.celesta.json` from the
   repository so its example stays in sync. Build with the repository present.
-- `src/demo/title-scene.tsx`: editable starting composition.
-- `src/SourceEditor.tsx`: lazy-loaded Monaco editor via `@monaco-editor/react`.
+- `src/features/playground/demo/title-scene.tsx`: editable starting composition.
+- `src/features/playground/SourceEditor.tsx`: lazy-loaded Monaco editor via `@monaco-editor/react`.
   Editor and language workers are bundled by Vite and served from the site.
   File switching preserves undo history and scroll; resetting the sample or
   opening a file starts a fresh editor session. Syntax diagnostics are enabled;
   project errors come from the existing compilation worker.
-- `src/Playground.tsx`: TSX editor and file/media import. `@celesta/web` provides
+- `src/features/playground/Playground.tsx`: TSX editor and file/media import. `@celesta/web` provides
   frame preview and MP4 export. esbuild WASM compiles the visitor's code in a
   dedicated Worker, and Celesta's real React reconciler/evaluator produces
   each `Scene`. The browser canvas renderer draws that Scene for both preview
   and export. Mediabunny uses WebCodecs for H.264/AAC and MP4 muxing.
-- `src/style.css`: design tokens, responsive layouts, and reduced-motion styles.
-- `src/Brand.tsx` and `public/favicon.svg`: the website's crescent mark (a "C"
+- `src/styles/style.css`: design tokens, responsive layouts, and reduced-motion styles.
+- `src/components/Brand.tsx` and `public/favicon.svg`: the website's crescent mark (a "C"
   with one star). It is separate from the app logos in `packages/logos`.
 
 The home-page editor accepts one self-contained TSX file; showcase entries
@@ -211,7 +217,7 @@ pnpm deploy:check
 ```
 
 `check:examples` type-checks the playground scene and every file in
-`src/examples/` against the declarations staged by `packages/cli`'s build
+`src/pages/docs/examples/` against the declarations staged by `packages/cli`'s build
 (`dist/project-types/`). Run `pnpm run build:runtime` from the repository root
 first.
 
@@ -257,9 +263,9 @@ Feature Tour need native PSD/voice preparation; Versus needs three generated
 benchmark videos. Their detail pages link to the original source and setup
 instructions and clearly identify the desktop requirement.
 
-`src/showcase-catalog.ts` defines the works and initial preview frames.
+`src/site/showcase-catalog.ts` defines the works and initial preview frames.
 Add descriptions and other UI text to both locale catalogs. The source glob
-in `src/showcase-sources.ts` reads TSX/TS sources from all example directories;
+in `src/pages/showcase/sources.ts` reads TSX/TS sources from all example directories;
 `loadShowcase()` excludes entries with the catalog's `desktop` flag and loads
 only the selected browser edition.
 Vite reads these as editor text, bypassing desktop-only TypeScript configs.
