@@ -1,0 +1,663 @@
+/*
+ * Tungsten — an amber tally lamp on warm graphite.
+ *
+ * Tokens (`--tg-*`) are the theme's vocabulary; later sections and pages use them directly.
+ * `--makit-color-*` are mapped onto them so Makit's prose and default parts follow.
+ */
+
+:root {
+  --tg-bg: #f4f2ed;
+  --tg-panel: #eae7e0;
+  --tg-line: #d8d3c8;
+  --tg-line-strong: #c3bcae;
+  --tg-fg: #1a1916;
+  --tg-muted: #6b655b;
+  /* Fills (buttons, the tally lamp, the playhead). */
+  --tg-accent: #ffb020;
+  /* Accent used as text or a thin line on the background. */
+  --tg-accent-text: #b86e00;
+  /* Text on an accent fill. */
+  --tg-on-accent: #111110;
+  --tg-radius: 3px;
+  --tg-font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
+  --tg-font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --tg-header-height: 56px;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --tg-bg: #111110;
+  --tg-panel: #1a1917;
+  --tg-line: #2c2a26;
+  --tg-line-strong: #3d3a34;
+  --tg-fg: #efe9df;
+  --tg-muted: #958e82;
+  --tg-accent-text: #ffb020;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --tg-bg: #111110;
+    --tg-panel: #1a1917;
+    --tg-line: #2c2a26;
+    --tg-line-strong: #3d3a34;
+    --tg-fg: #efe9df;
+    --tg-muted: #958e82;
+    --tg-accent-text: #ffb020;
+    color-scheme: dark;
+  }
+}
+
+/*
+ * Makit's `ThemeVariables` writes its palette in a <style> after this sheet, as `:root`,
+ * `:root[data-theme="dark"]`, and `:root:not([data-theme="light"]):not([data-theme="dark"])`.
+ * Each selector here outranks its counterpart by one type selector.
+ */
+html:root,
+html:root[data-theme],
+html:root:not([data-theme="light"]):not([data-theme="dark"]) {
+  --makit-color-accent: var(--tg-accent-text);
+  --makit-color-background: var(--tg-bg);
+  --makit-color-surface: var(--tg-panel);
+  --makit-color-foreground: var(--tg-fg);
+  --makit-color-subtle: var(--tg-muted);
+  --makit-color-muted: var(--tg-panel);
+  --makit-color-border: var(--tg-line);
+  --makit-color-border-strong: var(--tg-line-strong);
+  --makit-radius: var(--tg-radius);
+}
+
+/* Base */
+
+html {
+  scroll-padding-top: calc(var(--tg-header-height) + 24px);
+}
+
+body {
+  background: var(--tg-bg);
+  color: var(--tg-fg);
+  font-family: var(--tg-font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--tg-accent) 32%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--tg-accent-text);
+  outline-offset: 2px;
+}
+
+.tg-mono {
+  font-family: var(--tg-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.tg-shell {
+  width: min(100% - 32px, 1200px);
+  margin-inline: auto;
+}
+
+@media (min-width: 640px) {
+  .tg-shell {
+    width: min(100% - 48px, 1200px);
+  }
+}
+
+.tg-page {
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+  flex-direction: column;
+}
+
+.tg-main {
+  flex: 1;
+}
+
+.tg-main:focus {
+  outline: none;
+}
+
+/* Content rendered once per locale (the 404, the skip link); `data-tg-locale` picks one. */
+div[data-tg-variant] {
+  display: contents;
+}
+
+:root:not([data-tg-locale="ja"]) [data-tg-variant="ja"],
+:root[data-tg-locale="ja"] [data-tg-variant="en"] {
+  display: none;
+}
+
+/* Buttons */
+
+.tg-button,
+.tg-button-secondary {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  padding: 0 14px;
+  border: 1px solid var(--tg-accent);
+  border-radius: var(--tg-radius);
+  background: var(--tg-accent);
+  color: var(--tg-on-accent);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+
+.tg-button:hover {
+  background: color-mix(in srgb, var(--tg-accent) 86%, #fff);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tg-accent) 22%, transparent);
+}
+
+.tg-button-secondary {
+  border-color: var(--tg-line-strong);
+  background: transparent;
+  color: var(--tg-fg);
+  font-weight: 500;
+}
+
+.tg-button-secondary:hover {
+  border-color: var(--tg-muted);
+  background: var(--tg-panel);
+}
+
+/* Skip link */
+
+.tg-skip {
+  position: fixed;
+  top: 8px;
+  left: 16px;
+  z-index: 100;
+  padding: 8px 14px;
+  border-radius: var(--tg-radius);
+  background: var(--tg-accent);
+  color: var(--tg-on-accent);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(calc(-100% - 16px));
+}
+
+.tg-skip:focus-visible {
+  outline-color: var(--tg-fg);
+  transform: none;
+}
+
+/* Brand: the crescent with its tally lamp, and the wordmark */
+
+.tg-brand {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  color: var(--tg-fg);
+  text-decoration: none;
+}
+
+.tg-mark {
+  position: relative;
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+
+.tg-mark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.tg-tally {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--tg-accent);
+  box-shadow: 0 0 6px 1px color-mix(in srgb, var(--tg-accent) 70%, transparent);
+  animation: tg-tally 3.2s ease-in-out infinite;
+}
+
+/* The lamp sits where the star was, in the crescent's opening. */
+.tg-mark .tg-tally {
+  position: absolute;
+  top: 50%;
+  left: 76.5%;
+  translate: -50% -50%;
+}
+
+@keyframes tg-tally {
+  50% {
+    box-shadow: 0 0 10px 2px color-mix(in srgb, var(--tg-accent) 85%, transparent);
+  }
+}
+
+.tg-wordmark {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+/* Header */
+
+.tg-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  border-bottom: 1px solid var(--tg-line);
+  background: color-mix(in srgb, var(--tg-bg) 90%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
+}
+
+.tg-header-inner {
+  display: flex;
+  height: var(--tg-header-height);
+  align-items: center;
+  gap: 16px;
+}
+
+.tg-nav-panel {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.tg-nav {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding-left: 20px;
+  border-left: 1px solid var(--tg-line);
+}
+
+.tg-nav a {
+  position: relative;
+  color: var(--tg-muted);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.tg-nav a:hover,
+.tg-nav a[aria-current] {
+  color: var(--tg-fg);
+}
+
+/* The current section gets a short amber rule on the header's bottom line. */
+.tg-nav a[aria-current]::after {
+  position: absolute;
+  right: 0;
+  bottom: calc((var(--tg-header-height) - 1lh) / -2);
+  left: 0;
+  height: 2px;
+  background: var(--tg-accent);
+  content: "";
+}
+
+.tg-nav-download {
+  margin-left: auto;
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.tg-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tg-menu-button {
+  display: none;
+}
+
+/* Makit's default search button and theme toggle, squared off to match. */
+.tg-header-actions button {
+  border-radius: var(--tg-radius);
+  box-shadow: none;
+}
+
+.tg-header-actions button[aria-label="Search documentation"] {
+  height: 32px;
+  border-color: var(--tg-line);
+  background: transparent;
+}
+
+@media (min-width: 640px) {
+  .tg-header-actions button[aria-label="Search documentation"] {
+    width: 12rem;
+  }
+}
+
+@media (max-width: 1099px) {
+  .tg-header-actions button[aria-label="Search documentation"] {
+    width: 32px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .tg-header-actions button[aria-label="Search documentation"] > :not(svg) {
+    display: none;
+  }
+}
+
+.tg-header-actions button[aria-label="Toggle color theme"] {
+  width: 32px;
+  height: 32px;
+}
+
+/* EN / JA */
+
+.tg-locale {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  white-space: nowrap;
+  padding: 0 6px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.tg-locale a {
+  display: inline-flex;
+  min-width: 24px;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  color: var(--tg-muted);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.tg-locale a:hover {
+  color: var(--tg-fg);
+}
+
+.tg-locale a[aria-current] {
+  color: var(--tg-accent-text);
+}
+
+.tg-locale-sep {
+  padding: 0 2px;
+  color: var(--tg-line-strong);
+}
+
+/* Just above the fold, Japanese labels need the room. */
+@media (min-width: 860px) and (max-width: 1023px) {
+  .tg-header-inner {
+    gap: 12px;
+  }
+
+  .tg-nav {
+    gap: 14px;
+    padding-left: 14px;
+  }
+}
+
+/* Below 860 px the navigation folds behind the menu button. */
+@media (max-width: 859px) {
+  .tg-header-inner {
+    gap: 8px;
+  }
+
+  .tg-header-actions {
+    margin-left: auto;
+  }
+
+  .tg-menu-button {
+    display: inline-flex;
+    order: 1;
+    height: 32px;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px;
+    border: 1px solid var(--tg-line);
+    border-radius: var(--tg-radius);
+    background: transparent;
+    color: var(--tg-fg);
+    font-family: var(--tg-font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .tg-menu-button[aria-expanded="true"] {
+    border-color: var(--tg-line-strong);
+    background: var(--tg-panel);
+  }
+
+  /* Two rules that close into one. */
+  .tg-menu-icon {
+    position: relative;
+    width: 12px;
+    height: 7px;
+    border-block: 1px solid currentColor;
+    transition: height 0.15s ease;
+  }
+
+  .tg-menu-button[aria-expanded="true"] .tg-menu-icon {
+    height: 1px;
+    border-bottom: 0;
+  }
+
+  .tg-nav-panel {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: 0;
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 8px 16px 20px;
+    border-bottom: 1px solid var(--tg-line);
+    background: var(--tg-bg);
+    box-shadow: 0 16px 32px -24px rgb(0 0 0 / 0.5);
+  }
+
+  .tg-nav-panel[data-open] {
+    display: flex;
+    animation: tg-drop 0.16s ease-out;
+  }
+
+  .tg-nav {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .tg-nav a {
+    display: flex;
+    min-height: 48px;
+    align-items: center;
+    gap: 0.3em;
+    border-bottom: 1px solid var(--tg-line);
+    font-size: 16px;
+  }
+
+  .tg-nav a[aria-current] {
+    padding-left: 12px;
+  }
+
+  .tg-nav a[aria-current]::after {
+    top: 14px;
+    right: auto;
+    bottom: 14px;
+    width: 2px;
+    height: auto;
+  }
+
+  .tg-nav-download {
+    min-height: 44px;
+    margin: 16px 0 0;
+    font-size: 15px;
+  }
+}
+
+/* Phones: the menu button keeps its icon; the label stays for screen readers. */
+@media (max-width: 419px) {
+  .tg-menu-button {
+    width: 32px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .tg-menu-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+@keyframes tg-drop {
+  from {
+    opacity: 0;
+    translate: 0 -6px;
+  }
+}
+
+/* Footer */
+
+.tg-footer {
+  margin-top: auto;
+  border-top: 1px solid var(--tg-line);
+  color: var(--tg-muted);
+  font-size: 14px;
+}
+
+.tg-footer-top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 32px;
+  padding: 40px 0 32px;
+}
+
+.tg-footer-brand p {
+  margin: 12px 0 0;
+}
+
+.tg-footer-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 8px 24px;
+}
+
+.tg-footer-nav a {
+  color: var(--tg-muted);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.tg-footer-nav a:hover {
+  color: var(--tg-fg);
+}
+
+.tg-footer-bottom {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 24px;
+  padding: 16px 0 24px;
+  border-top: 1px solid var(--tg-line);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+/* Studio motifs: a timecode label and a ruler with a playhead */
+
+.tg-timecode {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--tg-accent-text);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.tg-ruler {
+  position: relative;
+  height: 28px;
+  border-top: 1px solid var(--tg-line);
+  background: repeating-linear-gradient(90deg, var(--tg-line) 0 1px, transparent 1px 12px);
+  --tg-playhead: 0%;
+}
+
+.tg-ruler::after {
+  position: absolute;
+  top: -6px;
+  bottom: 0;
+  left: var(--tg-playhead);
+  width: 2px;
+  background: var(--tg-accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--tg-accent) 60%, transparent);
+  content: "";
+}
+
+/* 404 */
+
+.tg-not-found {
+  display: flex;
+  align-items: center;
+  padding: 72px 0 96px;
+}
+
+.tg-not-found h1 {
+  max-width: 18ch;
+  margin: 20px 0 12px;
+  font-size: clamp(32px, 6vw, 56px);
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.08;
+}
+
+.tg-not-found-description {
+  max-width: 48ch;
+  margin: 0 0 28px;
+  color: var(--tg-muted);
+  font-size: 17px;
+}
+
+.tg-not-found .tg-ruler {
+  margin-top: 56px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
+}

@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@natsuneko-laboratory/makit';
 import { remarkInclude } from './plugins/remark-include.ts';
+import { repository } from './site/links.ts';
 
 export default defineConfig({
   title: 'Celesta',
@@ -17,6 +18,10 @@ export default defineConfig({
     ],
     root: { behavior: 'detect' },
   },
+  header: {
+    links: [{ label: 'GitHub', href: repository, external: true }],
+  },
+  theme: { extends: './theme', colorScheme: 'system', accentColor: '#ffb020', radius: 'small' },
   navigation: {
     auto: { numericPrefixes: true },
     pagination: { enabled: true, crossSection: true },
