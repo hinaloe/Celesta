@@ -11,6 +11,9 @@ mod effects;
 mod error;
 #[cfg(test)]
 mod font_run_tests;
+mod font_stack;
+#[cfg(test)]
+mod font_stack_tests;
 #[cfg(test)]
 mod font_tests;
 mod fonts;

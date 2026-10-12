@@ -1,9 +1,10 @@
 use crate::assets::{is_sfnt_or_woff, local_asset_path, read_asset};
 use crate::error::RenderError;
+use crate::font_stack::FaceRun;
 use crate::linebreak::{is_emoji_cluster, is_visible_character};
 use crate::shaping::{source_offsets, usable_font_runs};
 use crate::text::{FontFallback, MissingGlyphs};
-use celesta_composition::{ResolvedAsset, TextStyle};
+use celesta_composition::{FontFamily, ResolvedAsset, TextStyle};
 use cosmic_text::{Family, FontSystem, SwashCache, Weight, fontdb};
 use std::collections::{HashMap, HashSet};
 #[cfg(target_os = "windows")]
@@ -27,6 +28,12 @@ pub struct TextRasterizer {
     /// `matched_weight` results by family and requested weight, cleared
     /// whenever a font is loaded.
     pub(crate) matched_weights: HashMap<(String, u16), Option<u16>>,
+    /// `matched_face`'s face by family and matched weight, cleared whenever
+    /// a font is loaded. Every locale's system shares the database's ids.
+    pub(crate) matched_faces: HashMap<(String, u16), Option<fontdb::ID>>,
+    /// `face_runs` results for text with a font stack, by text and the
+    /// style fields they depend on, cleared whenever a font is loaded.
+    pub(crate) stacked_runs: HashMap<String, Arc<[FaceRun]>>,
     /// `color_emoji_family`'s result once looked up, cleared whenever a
     /// font is loaded.
     pub(crate) color_emoji_family: Option<Option<String>>,
@@ -35,22 +42,23 @@ pub struct TextRasterizer {
     pub(crate) missing_characters: HashMap<(String, String, String), MissingByFace>,
 }
 
-/// Characters each requested family and weight has no glyph for.
-pub(crate) type MissingByFace = Vec<(String, u16, Vec<char>)>;
+/// Characters each requested family (or font stack) and weight has no
+/// glyph for.
+pub(crate) type MissingByFace = Vec<(Vec<String>, u16, Vec<char>)>;
 
-/// The family and weight pairs `style` asks for, the text's own first, then
-/// each font run's (its family, or the text's), once each.
-fn requested_faces(style: &TextStyle) -> Vec<(&str, u16)> {
+/// The family (or font stack) and weight pairs `style` asks for, the text's
+/// own first, then each font run's (its family, or the text's), once each.
+fn requested_faces(style: &TextStyle) -> Vec<(&FontFamily, u16)> {
     let weight = style.font_weight.unwrap_or(400);
-    let mut faces: Vec<(&str, u16)> = style
+    let mut faces: Vec<(&FontFamily, u16)> = style
         .font_family
-        .as_deref()
+        .as_ref()
         .map(|family| (family, weight))
         .into_iter()
         .collect();
     // An empty run covers nothing and shaping drops it, so it asks for no face.
     for run in style.font_runs.iter().filter(|run| run.start < run.end) {
-        if let Some(family) = run.font_family.as_deref().or(style.font_family.as_deref()) {
+        if let Some(family) = run.font_family.as_ref().or(style.font_family.as_ref()) {
             let face = (family, run.font_weight.or(style.font_weight).unwrap_or(400));
             if !faces.contains(&face) {
                 faces.push(face);
@@ -94,6 +102,8 @@ impl TextRasterizer {
             swash_cache: SwashCache::new(),
             loaded_fonts: HashSet::new(),
             matched_weights: HashMap::new(),
+            matched_faces: HashMap::new(),
+            stacked_runs: HashMap::new(),
             color_emoji_family: None,
             missing_characters: HashMap::new(),
             shaped_buffers: HashMap::new(),
@@ -115,6 +125,8 @@ impl TextRasterizer {
             swash_cache: SwashCache::new(),
             loaded_fonts: self.loaded_fonts.clone(),
             matched_weights: HashMap::new(),
+            matched_faces: HashMap::new(),
+            stacked_runs: HashMap::new(),
             color_emoji_family: None,
             missing_characters: HashMap::new(),
             shaped_buffers: HashMap::new(),
@@ -229,6 +241,8 @@ impl TextRasterizer {
         }
         self.locale_systems.clear();
         self.matched_weights.clear();
+        self.matched_faces.clear();
+        self.stacked_runs.clear();
         self.color_emoji_family = None;
         self.missing_characters.clear();
         self.shaped_buffers.clear();
@@ -269,17 +283,25 @@ impl TextRasterizer {
             })
     }
 
-    /// The fallbacks `style` is drawn with on `layer`: one per family and
-    /// weight it asks for (its own `fontFamily` or a font run's) that has no
-    /// loaded or installed face. Empty when every family has a face or none
-    /// is named.
+    /// Whether some family of `family` has a loaded or installed face.
+    fn has_face(&mut self, family: &FontFamily, weight: u16) -> bool {
+        family
+            .names()
+            .iter()
+            .any(|name| self.matched_weight(name, weight).is_some())
+    }
+
+    /// The fallbacks `style` is drawn with on `layer`: one per family (or
+    /// font stack) and weight it asks for (its own `fontFamily` or a font
+    /// run's) of which no family has a loaded or installed face. Empty when
+    /// each has a face or none is named.
     pub fn font_fallback(&mut self, layer: &str, style: &TextStyle) -> Vec<FontFallback> {
         let mut fallbacks = Vec::new();
         for (family, weight) in requested_faces(style) {
-            if self.matched_weight(family, weight).is_none() {
+            if !self.has_face(family, weight) {
                 fallbacks.push(FontFallback {
                     layer: layer.to_owned(),
-                    family: family.to_owned(),
+                    families: family.names().to_vec(),
                     weight,
                 });
             }
@@ -306,11 +328,12 @@ impl TextRasterizer {
 
     /// The characters of `text` that the family each asks for (`style`'s
     /// `fontFamily`, or its font run's) has no glyph for, drawn on `layer`
-    /// with another font instead: one entry per family and weight. Empty
+    /// with another font instead: one entry per family and weight. For a
+    /// font stack, the characters no family of it has, in one entry. Empty
     /// when every family draws its characters or none is named. A family
-    /// with no face at all is left out ([`Self::font_fallback`] reports
-    /// it). Emoji that another font draws are left out, since they are
-    /// meant to come from a color emoji font, and so are whitespace and
+    /// (or stack) with no face at all is left out ([`Self::font_fallback`]
+    /// reports it). Emoji that another font draws are left out, since they
+    /// are meant to come from a color emoji font, and so are whitespace and
     /// invisible characters. Characters no font has, emoji included, are
     /// drawn as a missing-glyph box and always reported.
     pub fn missing_glyphs(
@@ -319,10 +342,10 @@ impl TextRasterizer {
         text: &str,
         style: &TextStyle,
     ) -> Vec<MissingGlyphs> {
-        let present: Vec<(String, u16)> = requested_faces(style)
+        let present: Vec<(FontFamily, u16)> = requested_faces(style)
             .into_iter()
-            .filter(|&(family, weight)| self.matched_weight(family, weight).is_some())
-            .map(|(family, weight)| (family.to_owned(), weight))
+            .filter(|&(family, weight)| self.has_face(family, weight))
+            .map(|(family, weight)| (family.clone(), weight))
             .collect();
         if present.is_empty() {
             return Vec::new();
@@ -351,22 +374,22 @@ impl TextRasterizer {
         };
         groups
             .into_iter()
-            .map(|(family, weight, characters)| MissingGlyphs {
+            .map(|(families, weight, characters)| MissingGlyphs {
                 layer: layer.to_owned(),
-                family,
+                families,
                 weight,
                 characters,
             })
             .collect()
     }
 
-    /// The characters each family and weight in `present` has no glyph for,
-    /// judging each glyph by the family it asks for.
+    /// The characters each family (or font stack) and weight in `present`
+    /// has no glyph for, judging each glyph by the family it asks for.
     pub(crate) fn missing_characters(
         &mut self,
         text: &str,
         style: &TextStyle,
-        present: &[(String, u16)],
+        present: &[(FontFamily, u16)],
     ) -> MissingByFace {
         // The font each character is drawn with does not depend on the
         // wrap width or the size, so shape on one unwrapped line at scale 1.
@@ -377,16 +400,17 @@ impl TextRasterizer {
             usable_font_runs(style, text.chars().count())
         };
         let offsets = (!runs.is_empty()).then(|| source_offsets(&buffer, text, style));
-        // The family and weight a glyph asks for: its font run's, or the text's.
-        let face_at = |line_i: usize, start: usize| -> Option<(&str, u16)> {
+        // The family (or stack) and weight a glyph asks for: its font
+        // run's, or the text's.
+        let face_at = |line_i: usize, start: usize| -> Option<(&FontFamily, u16)> {
             let run = offsets.as_ref().and_then(|offsets| {
                 let point = offsets[line_i][start];
                 let index = runs.partition_point(|run| run.end <= point);
                 runs.get(index).filter(|run| run.start <= point)
             });
             let family = run
-                .and_then(|run| run.font_family.as_deref())
-                .or(style.font_family.as_deref())?;
+                .and_then(|run| run.font_family.as_ref())
+                .or(style.font_family.as_ref())?;
             let weight = run
                 .and_then(|run| run.font_weight)
                 .or(style.font_weight)
@@ -403,17 +427,18 @@ impl TextRasterizer {
                 // A family with no face gets the fallback warning instead.
                 if !present
                     .iter()
-                    .any(|(name, asked)| name == family && *asked == weight)
+                    .any(|(asked_family, asked)| asked_family == family && *asked == weight)
                 {
                     continue;
                 }
+                let family = family.names();
                 // Glyph 0 is `.notdef`: no font had the character, and the
                 // missing-glyph box is drawn.
                 let drawn = glyph.glyph_id != 0;
                 let from_family = drawn
-                    && database
-                        .face(glyph.font_id)
-                        .is_some_and(|face| face.families.iter().any(|(name, _)| name == family));
+                    && database.face(glyph.font_id).is_some_and(|face| {
+                        face.families.iter().any(|(name, _)| family.contains(name))
+                    });
                 let Some(cluster) = run.text.get(glyph.start..glyph.end) else {
                     continue;
                 };
@@ -428,7 +453,7 @@ impl TextRasterizer {
                 {
                     Some(index) => index,
                     None => {
-                        groups.push((family.to_owned(), weight, Vec::new()));
+                        groups.push((family.to_vec(), weight, Vec::new()));
                         groups.len() - 1
                     }
                 };

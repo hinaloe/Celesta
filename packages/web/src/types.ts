@@ -20,10 +20,12 @@ export type PathCommand =
   | { type: 'quadTo'; x1: number; y1: number; x: number; y: number }
   | { type: 'cubicTo'; x1: number; y1: number; x2: number; y2: number; x: number; y: number }
   | { type: 'close' };
-export type FontRun = { start: number; end: number; fontWeight?: number | null; fontFamily?: string | null };
+/** A family name, or a font stack tried in order. */
+export type FontFamily = string | readonly string[];
+export type FontRun = { start: number; end: number; fontWeight?: number | null; fontFamily?: FontFamily | null };
 export type TextStyle = {
   lang?: string | null;
-  fontFamily?: string | null;
+  fontFamily?: FontFamily | null;
   fontSize?: number | null;
   fontWeight?: number | null;
   fill?: Paint | null;

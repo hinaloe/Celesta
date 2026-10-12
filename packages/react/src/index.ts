@@ -37,6 +37,7 @@ export type {
   Clip,
   CompositionConfig,
   EvaluatedTransform,
+  FontFamily,
   GradientStop,
   Layer,
   LayerContent,

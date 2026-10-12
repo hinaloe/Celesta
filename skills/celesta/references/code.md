@@ -56,6 +56,13 @@ Use a monospaced font, load it with `<Font>` (or rely on it being
 installed on every machine that renders), and draw any panel background
 yourself with a `Rect` behind `Code`; themes do not draw one.
 
+For Japanese comments and strings, which monospaced Latin fonts lack, give
+a [font stack](text.md#font-stacks-和欧混植) with the monospaced font first:
+`style={{ fontFamily: ['JetBrains Mono', 'Noto Sans JP'] }}`, with both
+loaded by `<Font>` and `lang="ja-JP"` on the composition. Without one, the
+Japanese is drawn with a system font even when Noto Sans JP is loaded. The
+line widths and the highlight band follow the stack.
+
 ## Typing animation
 
 `visibleCharacters` uses the same counting as `useTypewriter().length`:

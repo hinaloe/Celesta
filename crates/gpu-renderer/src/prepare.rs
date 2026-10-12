@@ -651,7 +651,7 @@ impl GpuRenderer {
             } => {
                 for fallback in self.text_rasterizer.font_fallback(&layer.id, style) {
                     if !self.font_fallbacks.iter().any(|reported| {
-                        reported.family == fallback.family && reported.weight == fallback.weight
+                        reported.families == fallback.families && reported.weight == fallback.weight
                     }) {
                         self.font_fallbacks.push(fallback);
                     }
@@ -659,7 +659,7 @@ impl GpuRenderer {
                 // A family with no face is left out here: it is a fallback.
                 for missing in self.text_rasterizer.missing_glyphs(&layer.id, text, style) {
                     if !self.missing_glyphs.iter().any(|reported| {
-                        reported.family == missing.family
+                        reported.families == missing.families
                             && reported.weight == missing.weight
                             && reported.characters == missing.characters
                     }) {

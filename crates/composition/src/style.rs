@@ -81,8 +81,9 @@ pub struct TextStyle {
     /// When omitted, uses the system locale. Does not select a BudouX model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lang: Option<String>,
+    /// A family name, or a font stack tried per grapheme cluster.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub font_family: Option<String>,
+    pub font_family: Option<FontFamily>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_size: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -210,5 +211,73 @@ pub struct TextFontRun {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_weight: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub font_family: Option<String>,
+    pub font_family: Option<FontFamily>,
+}
+
+/// A font family name, or a font stack: names tried in order for each
+/// grapheme cluster, which takes the first family with a glyph for it.
+/// Clusters no family in the stack has fall back to the system's fonts.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(untagged)]
+pub enum FontFamily {
+    Name(String),
+    /// Deserializing rejects an empty list. Read-only in TypeScript, so a
+    /// stack declared `as const` fits too.
+    Stack(#[cfg_attr(feature = "codegen", ts(type = "ReadonlyArray<string>"))] Vec<String>),
+}
+
+impl FontFamily {
+    /// The family names, in the order they are tried; never empty. An empty
+    /// stack, which deserializing rejects but Rust code can build, reads as
+    /// one empty name: a family with no face, as `Name("")` is.
+    pub fn names(&self) -> &[String] {
+        static NO_NAME: String = String::new();
+        match self {
+            Self::Name(name) => std::slice::from_ref(name),
+            Self::Stack(names) if names.is_empty() => std::slice::from_ref(&NO_NAME),
+            Self::Stack(names) => names,
+        }
+    }
+
+    /// The first family name.
+    pub fn first(&self) -> &str {
+        &self.names()[0]
+    }
+
+    /// Whether the stack names more than one family.
+    pub fn is_stack(&self) -> bool {
+        self.names().len() > 1
+    }
+}
+
+impl From<&str> for FontFamily {
+    fn from(name: &str) -> Self {
+        Self::Name(name.to_owned())
+    }
+}
+
+impl From<String> for FontFamily {
+    fn from(name: String) -> Self {
+        Self::Name(name)
+    }
+}
+
+impl<'de> Deserialize<'de> for FontFamily {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged, expecting = "a font family name or a list of names")]
+        enum Def {
+            Name(String),
+            Stack(Vec<String>),
+        }
+        match Def::deserialize(deserializer)? {
+            Def::Name(name) => Ok(Self::Name(name)),
+            Def::Stack(names) if names.is_empty() => Err(serde::de::Error::custom(
+                "a font family list must name at least one family",
+            )),
+            Def::Stack(names) => Ok(Self::Stack(names)),
+        }
+    }
 }

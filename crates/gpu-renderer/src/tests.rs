@@ -3710,7 +3710,7 @@ fn lists_text_layers_whose_family_has_no_face() {
     let missing = |id: &str, weight| {
         let mut layer = text_layer(id, Point { x: 0.0, y: 0.0 }, 1.0, 24.0);
         if let LayerContent::Text { style, .. } = &mut layer.content {
-            style.font_family = Some("Celesta Missing Family".to_owned());
+            style.font_family = Some("Celesta Missing Family".into());
             style.font_weight = weight;
         }
         layer
@@ -3750,7 +3750,7 @@ fn lists_text_layers_with_characters_their_family_has_no_glyph_for() {
         let mut layer = text_layer(id, Point { x: 0.0, y: 0.0 }, 1.0, 24.0);
         if let LayerContent::Text { text, style, .. } = &mut layer.content {
             *text = value.to_owned();
-            style.font_family = Some(family.to_owned());
+            style.font_family = Some(family.into());
         }
         layer
     };

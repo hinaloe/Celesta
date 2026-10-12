@@ -122,6 +122,27 @@ test('typing, seeking and line highlights reuse full-source measurements and kee
   assert.equal(requests.length, measurements, 'unchanged geometry must not make per-frame measurement RPCs');
 });
 
+test('a font stack reaches every line and the measurement the highlight band uses', () => {
+  const fontFamily = ['JetBrains Mono', 'Noto Sans JP'];
+  const requests = [];
+  setTextMeasurer(async request => metrics(request), request => {
+    requests.push(request);
+    // The stack's second family draws the Japanese twice as wide.
+    const measured = metrics(request);
+    const widths = request.text.split('\n').map(line => Array.from(line).reduce((width, character) => width + (/[぀-鿿]/u.test(character) ? 20 : 10), 0));
+    return { ...measured, width: Math.max(...widths) };
+  });
+  const source = 'const a = 1;\n// 動画をコードで書ける\n';
+  const Root = () => React.createElement(Composition, { width: 800, height: 300, fps: 30, durationInFrames: 1 },
+    React.createElement(Code, { language: 'ts', style: { fontFamily, fontSize: 24, lineHeight: 36 }, highlightLines: [2], children: source }));
+  const scene = layers(frameAt(mount(Root), 0));
+  const texts = scene.filter(layer => layer.content.type === 'text');
+  assert.equal(texts.length, 2);
+  for (const text of texts) assert.deepEqual(text.content.style.fontFamily, fontFamily);
+  assert.ok(requests.length > 0 && requests.every(request => JSON.stringify(request.style.fontFamily) === JSON.stringify(fontFamily)));
+  assert.equal(scene.find(layer => layer.content.type === 'rect').content.width, 3 * 10 + 10 * 20);
+});
+
 test('code-point positions use original columns, tab stops and CRLF lines', () => {
   setTextMeasurer(async request => metrics(request), metrics);
   const source = '😀\tX\r\n\tあ\n';

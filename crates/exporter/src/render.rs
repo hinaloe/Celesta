@@ -408,10 +408,10 @@ pub(crate) fn open_video_writer(
 /// on every frame is reported once.
 #[derive(Default)]
 pub(crate) struct ReportedFontWarnings {
-    /// Families and weights with no face.
-    pub(crate) fallbacks: HashSet<(String, u16)>,
-    /// Characters that a family and weight has no glyph for.
-    pub(crate) missing_glyphs: HashSet<(String, u16, char)>,
+    /// Families (or font stacks) and weights with no face.
+    pub(crate) fallbacks: HashSet<(Vec<String>, u16)>,
+    /// Characters that a family (or font stack) and weight has no glyph for.
+    pub(crate) missing_glyphs: HashSet<(Vec<String>, u16, char)>,
 }
 
 /// Reports each font family and weight the frame `renderer` last submitted
@@ -426,7 +426,7 @@ pub(crate) fn report_font_fallbacks(
     for fallback in renderer.font_fallbacks() {
         if reported
             .fallbacks
-            .insert((fallback.family.clone(), fallback.weight))
+            .insert((fallback.families.clone(), fallback.weight))
         {
             progress(ExportProgress::Warning(fallback.to_string()));
         }
@@ -439,9 +439,11 @@ pub(crate) fn report_font_fallbacks(
             .iter()
             .copied()
             .filter(|&character| {
-                reported
-                    .missing_glyphs
-                    .insert((missing.family.clone(), missing.weight, character))
+                reported.missing_glyphs.insert((
+                    missing.families.clone(),
+                    missing.weight,
+                    character,
+                ))
             })
             .collect::<Vec<_>>();
         if !characters.is_empty() {

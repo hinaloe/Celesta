@@ -120,6 +120,11 @@ test('letter spacing in em follows the font size', () => {
   assert.equal(ctx.letterSpacing, '5px');
 });
 
+test('cssFont turns a font stack into a CSS family list', () => {
+  assert.equal(cssFont({ fontSize: 20, fontFamily: ['Inter', 'Noto Sans JP'] }), '400 20px "Inter", "Noto Sans JP", system-ui, sans-serif');
+  assert.equal(cssFont({ fontSize: 20, fontFamily: 'Serif A' }, { start: 0, end: 1, fontFamily: ['Mono B', 'Noto Sans JP'] }), '400 20px "Mono B", "Noto Sans JP", system-ui, sans-serif');
+});
+
 test('the browser measurer wraps and measures with font runs', t => {
   const ctx = {
     font: '',

@@ -471,7 +471,8 @@ function printLayers(layers, depth, checkFile, warnings) {
     switch (content.type) {
       case 'text': {
         const style = content.style ?? {};
-        const font = [style.fontFamily ?? 'default font', style.fontSize && `${style.fontSize}px`, style.fontWeight].filter(Boolean).join(' ');
+        const family = Array.isArray(style.fontFamily) ? style.fontFamily.join(', ') : style.fontFamily;
+        const font = [family ?? 'default font', style.fontSize && `${style.fontSize}px`, style.fontWeight].filter(Boolean).join(' ');
         const color = style.fill ? ` ${describePaint(style.fill)}` : '';
         const extras = [
           content.maxWidth && `maxWidth ${fmt(content.maxWidth)}`,

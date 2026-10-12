@@ -202,7 +202,7 @@ fn regular_only_rasterizer() -> TextRasterizer {
 fn matches_the_nearest_weight_within_a_loaded_family() {
     let mut rasterizer = regular_only_rasterizer();
     let style = |weight| TextStyle {
-        font_family: Some("Bebas Neue".to_owned()),
+        font_family: Some("Bebas Neue".into()),
         font_size: Some(48.0),
         font_weight: weight,
         ..TextStyle::default()
@@ -230,7 +230,7 @@ fn matches_the_nearest_weight_within_a_loaded_family() {
 fn reports_a_family_with_no_face() {
     let mut rasterizer = regular_only_rasterizer();
     let style = TextStyle {
-        font_family: Some("Celesta Missing Family".to_owned()),
+        font_family: Some("Celesta Missing Family".into()),
         font_weight: Some(700),
         ..TextStyle::default()
     };
@@ -242,7 +242,7 @@ fn reports_a_family_with_no_face() {
         fallback,
         FontFallback {
             layer: "title".to_owned(),
-            family: "Celesta Missing Family".to_owned(),
+            families: vec!["Celesta Missing Family".to_owned()],
             weight: 700,
         }
     );
@@ -262,7 +262,7 @@ fn reports_a_family_with_no_face() {
 
 fn bebas_style() -> TextStyle {
     TextStyle {
-        font_family: Some("Bebas Neue".to_owned()),
+        font_family: Some("Bebas Neue".into()),
         font_size: Some(48.0),
         ..TextStyle::default()
     }
@@ -351,7 +351,7 @@ fn loading_fonts_updates_every_language_and_preserves_the_default_in_forks() {
         for lang in [Some("ja"), Some("zh-CN"), Some("zh-Hant"), None, Some("")] {
             let style = TextStyle {
                 lang: lang.map(str::to_owned),
-                font_family: Some(FAMILY.to_owned()),
+                font_family: Some(FAMILY.into()),
                 ..TextStyle::default()
             };
             assert!(
@@ -392,7 +392,7 @@ fn selects_japanese_and_chinese_kanji_per_layer_on_macos() {
                 let expected_available = has_family(&rasterizer, expected);
                 let style = TextStyle {
                     lang: lang.map(str::to_owned),
-                    font_family: family.map(str::to_owned),
+                    font_family: family.map(Into::into),
                     line_break: Some(line_break),
                     ..TextStyle::default()
                 };
@@ -440,7 +440,7 @@ fn reports_characters_the_family_has_no_glyph_for() {
         missing,
         MissingGlyphs {
             layer: "title".to_owned(),
-            family: "Bebas Neue".to_owned(),
+            families: vec!["Bebas Neue".to_owned()],
             weight: 400,
             characters: "ずんだも".chars().collect(),
         }
@@ -553,7 +553,7 @@ fn missing_glyph_cache_survives_language_switches_and_clears_when_fonts_load() {
 fn leaves_a_family_with_no_face_to_the_font_fallback() {
     let mut rasterizer = regular_only_rasterizer();
     let style = TextStyle {
-        font_family: Some("Celesta Missing Family".to_owned()),
+        font_family: Some("Celesta Missing Family".into()),
         ..TextStyle::default()
     };
     assert_eq!(rasterizer.font_fallback("title", &style).len(), 1);
@@ -618,7 +618,7 @@ fn draws_emoji_presentation_with_the_color_emoji_font() {
     };
     for weight in [None, Some(700)] {
         let style = TextStyle {
-            font_family: Some("Bebas Neue".to_owned()),
+            font_family: Some("Bebas Neue".into()),
             font_size: Some(48.0),
             font_weight: weight,
             ..TextStyle::default()
@@ -652,7 +652,7 @@ fn keeps_the_line_structure_of_text_with_emoji() {
         return;
     }
     let style = TextStyle {
-        font_family: Some("Bebas Neue".to_owned()),
+        font_family: Some("Bebas Neue".into()),
         font_size: Some(48.0),
         line_height: Some(60.0),
         ..TextStyle::default()

@@ -1,5 +1,6 @@
 use crate::composite::blend;
 use crate::error::RenderError;
+use crate::font_stack::FaceRun;
 use crate::fonts::{COLOR_EMOJI_FAMILIES, TextRasterizer};
 use crate::linebreak::{
     PhraseSegment, WORD_JOINER, emoji_presentation_spans, insert_joiners, phrase_segments,
@@ -8,7 +9,7 @@ use crate::paint::{ResolvedPaint, resolve_paint};
 use crate::rect::dilate_mask;
 use crate::text::{AnchorBox, GlyphMetrics, RasterizedText, TextMetrics};
 use crate::types::{Color, RgbaFrame};
-use celesta_composition::{LineBreak, TextAlign, TextFontRun, TextStyle};
+use celesta_composition::{FontFamily, LineBreak, TextAlign, TextFontRun, TextStyle};
 use cosmic_text::{
     Align, Attrs, AttrsList, Buffer, BufferLine, Color as CosmicColor, Family, FontSystem,
     LayoutGlyph, LineEnding, LineIter, Metrics, PhysicalGlyph, Renderer, Shaping, SwashCache,
@@ -48,13 +49,17 @@ impl TextRasterizer {
             return Arc::clone(buffer);
         }
         let requested_weight = style.font_weight.unwrap_or(400);
+        // A font stack draws with its first family that has a face, except
+        // where a later family is chosen for a cluster (`face_runs` below).
+        let family = style
+            .font_family
+            .as_ref()
+            .map(|family| self.primary_family(family, requested_weight));
         // cosmic-text only picks the requested family's face when its weight
         // is exactly the requested one, and otherwise falls back to another
         // family. Ask for the weight CSS matching picks within the family
         // instead, so a family loaded only in Bold still draws a 400 request.
-        let weight = style
-            .font_family
-            .as_deref()
+        let weight = family
             .and_then(|family| self.matched_weight(family, requested_weight))
             .unwrap_or(requested_weight);
         let font_size = style.font_size.unwrap_or(32.0) as f32 * scale;
@@ -67,7 +72,7 @@ impl TextRasterizer {
         buffer.set_wrap(&mut self.font_system, Wrap::Word);
 
         let mut attrs = Attrs::new().weight(Weight(weight));
-        if let Some(family) = style.font_family.as_deref() {
+        if let Some(family) = family {
             attrs = attrs.family(Family::Name(family));
         }
         if let Some(letter_spacing) = style.letter_spacing
@@ -81,16 +86,13 @@ impl TextRasterizer {
             TextAlign::Center => Align::Center,
             TextAlign::Right => Align::Right,
         });
-        // Font runs become per-range attributes: the run's family (or the
-        // text's) at the weight CSS matching picks within that family.
-        let font_runs = if style.font_runs.is_empty() {
-            Vec::new()
-        } else {
-            usable_font_runs(style, source.chars().count())
-        };
+        // Font runs, and the clusters a font stack draws with another of
+        // its families, become per-range attributes: the run's family (or
+        // the text's) at the weight CSS matching picks within that family.
+        let font_runs = self.face_runs(source, style);
         let mut run_attrs: Vec<(Attrs, u16)> = Vec::with_capacity(font_runs.len());
-        for run in &font_runs {
-            let family = run.font_family.as_deref().or(style.font_family.as_deref());
+        for run in font_runs.iter() {
+            let family = run.font_family.as_deref().or(family);
             let requested = run.font_weight.or(style.font_weight).unwrap_or(400);
             let weight = family
                 .and_then(|family| self.matched_weight(family, requested))
@@ -322,22 +324,36 @@ impl TextRasterizer {
         buffer
     }
 
-    /// Each layout run's baseline when `style` has font runs, which do not
-    /// move baselines: placed as cosmic-text places them, but from the
-    /// largest ascent and descent of the glyphs outside font runs on the
-    /// line, or in the whole text for a line whose glyphs are all in runs.
-    /// A line with no glyphs keeps cosmic-text's. `None` without font runs,
-    /// or when every glyph is in a run, so cosmic-text's baselines stand.
+    /// Each layout run's baseline when `style` has font runs or a font
+    /// stack, which do not move baselines: placed as cosmic-text places
+    /// them, but from the largest ascent and descent of the glyphs outside
+    /// font runs on the line, or in the whole text for a line whose glyphs
+    /// are all in runs. With a stack, only glyphs from its primary family
+    /// count: neither its later families nor the fonts the system falls
+    /// back to for characters no family has move a line. When no glyph
+    /// counts, the primary faces of the text's and its runs' stacks place
+    /// them. A line with no glyphs keeps cosmic-text's. `None` when every
+    /// glyph counts, or when none does and there is no stack, so
+    /// cosmic-text's baselines stand.
     pub(crate) fn run_baselines(
         &mut self,
         buffer: &Buffer,
         text: &str,
         style: &TextStyle,
     ) -> Option<Vec<f32>> {
-        if style.font_runs.is_empty() {
+        let stack = style
+            .font_family
+            .as_ref()
+            .filter(|family| family.is_stack());
+        // Most text has neither, and is drawn every frame it changes scale.
+        if style.font_runs.is_empty() && stack.is_none() {
             return None;
         }
-        let runs = usable_font_runs(style, text.chars().count());
+        let runs = self.face_runs(text, style);
+        let primary = stack.map(|family| {
+            self.primary_family(family, style.font_weight.unwrap_or(400))
+                .to_owned()
+        });
         let offsets = source_offsets(buffer, text, style);
         let in_run = |point: usize| {
             let index = runs.partition_point(|run| run.end <= point);
@@ -350,10 +366,22 @@ impl TextRasterizer {
         };
         let mut lines = Vec::new();
         let mut overall = None;
+        let mut skipped = false;
         for layout in buffer.layout_runs() {
             let mut extent = None;
             for glyph in layout.glyphs {
-                if in_run(offsets[layout.line_i][glyph.start]) {
+                let from_primary = || {
+                    primary.as_deref().is_none_or(|primary| {
+                        self.font_system
+                            .db()
+                            .face(glyph.font_id)
+                            .is_some_and(|face| {
+                                face.families.iter().any(|(name, _)| name == primary)
+                            })
+                    })
+                };
+                if in_run(offsets[layout.line_i][glyph.start]) || !from_primary() {
+                    skipped = true;
                     continue;
                 }
                 if let Some(glyph_extent) = self.glyph_extent(glyph) {
@@ -372,7 +400,14 @@ impl TextRasterizer {
                 extent,
             ));
         }
-        let overall = overall?;
+        // Every glyph counts: these are cosmic-text's own baselines.
+        if !skipped {
+            return None;
+        }
+        let overall = match overall {
+            Some(overall) => overall,
+            None => self.stack_extent(text, style, buffer.metrics().font_size)?,
+        };
         Some(
             lines
                 .into_iter()
@@ -399,6 +434,45 @@ impl TextRasterizer {
             glyph.font_size * (metrics.ascent / units),
             glyph.font_size * (-metrics.descent / units),
         ))
+    }
+
+    /// The largest ascent and descent in pixels at `font_size` of the faces
+    /// the font stacks of `style` (its own and its font runs') draw with by
+    /// default, so every line sits alike whichever families its clusters
+    /// take. `None` without a stack, or when no family of one has a face.
+    fn stack_extent(
+        &mut self,
+        text: &str,
+        style: &TextStyle,
+        font_size: f32,
+    ) -> Option<(f32, f32)> {
+        let weight = style.font_weight.unwrap_or(400);
+        let runs = usable_font_runs(style, text.chars().count());
+        let stacks = style
+            .font_family
+            .iter()
+            .map(|family| (family, weight))
+            .chain(runs.iter().filter_map(|run| {
+                let family = run.font_family.as_ref()?;
+                Some((family, run.font_weight.unwrap_or(weight)))
+            }))
+            .filter(|(family, _)| family.is_stack());
+        let mut extent: Option<(f32, f32)> = None;
+        for (family, weight) in stacks {
+            let primary = self.primary_family(family, weight);
+            let Some(font) = self.matched_face(primary, weight) else {
+                continue;
+            };
+            let metrics = font.metrics();
+            let units = f32::from(metrics.units_per_em);
+            let (ascent, descent) = (
+                font_size * (metrics.ascent / units),
+                font_size * (-metrics.descent / units),
+            );
+            extent =
+                Some(extent.map_or((ascent, descent), |(a, d)| (a.max(ascent), d.max(descent))));
+        }
+        extent
     }
 
     /// Measures `text` in composition units (scale 1) without drawing it,
@@ -890,7 +964,7 @@ fn font_run_spans(
     shaped: &str,
     original: &str,
     base: usize,
-    runs: &[&TextFontRun],
+    runs: &[FaceRun],
 ) -> Vec<(std::ops::Range<usize>, usize)> {
     if runs.is_empty() {
         return Vec::new();
