@@ -1,6 +1,5 @@
 import { Group, Rect, interpolate, spring, useCurrentFrame, useVideoConfig } from '@celesta/react';
-import { CodeCard, SYNTAX } from '../components/CodeCard';
-import type { CodeLine } from '../components/CodeCard';
+import { CodeCard, highlightTsx } from '../components/CodeCard';
 import { Label } from '../components/Label';
 import { ScaleAbout } from '../components/Panel';
 import { C, SAFE, SAFE_CX, SAFE_W } from '../constants';
@@ -10,10 +9,7 @@ export const TEXT = ['この動画、', 'ぜんぶ', 'コード。', '編集ソ�
 
 const STICKER = { x: SAFE.right - 170, y: SAFE.top + 610 } as const;
 
-const CODE: CodeLine[] = [
-  [['export default function ', SYNTAX.tag], ['Short', SYNTAX.fn], ['() {', SYNTAX.plain]],
-  [['  return ', SYNTAX.tag], ['<Composition', SYNTAX.tag], [' height', SYNTAX.attr], ['={1920}', SYNTAX.value], ['>', SYNTAX.tag]],
-];
+const CODE = highlightTsx('export default function Short() {\n  return <Composition height={1920}>');
 
 // The first second: the claim is on screen from frame 0, each word slamming
 // in on its own beat. Then the "no editor" sticker for the reply.

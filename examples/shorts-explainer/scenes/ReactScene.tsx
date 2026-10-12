@@ -1,6 +1,5 @@
 import { Easings, Group, Rect, interpolate, spring, useCurrentFrame, useVideoConfig } from '@celesta/react';
-import { CodeCard, SYNTAX, codeCardHeight } from '../components/CodeCard';
-import type { CodeLine } from '../components/CodeCard';
+import { CodeCard, codeCardHeight, highlightTsx, lineEnd } from '../components/CodeCard';
 import { Label } from '../components/Label';
 import { BODY, Panel } from '../components/Panel';
 import { C } from '../constants';
@@ -10,13 +9,13 @@ const TITLE = 'React で書く';
 const NOTE = '部品を組み合わせて画面に';
 export const TEXT = [TITLE, NOTE, '四角', '文字'];
 
-const CODE: CodeLine[] = [
-  [['<Composition', SYNTAX.tag], [' width', SYNTAX.attr], ['={1080}', SYNTAX.value], [' height', SYNTAX.attr], ['={1920}', SYNTAX.value], ['>', SYNTAX.tag]],
-  [['  <Rect', SYNTAX.tag], [' fill', SYNTAX.attr], ['="#FFC93C"', SYNTAX.value], [' />', SYNTAX.tag]],
-  [['  <Text', SYNTAX.tag], ['>', SYNTAX.tag], ['Hello!', SYNTAX.plain], ['</Text>', SYNTAX.tag]],
-  [['</Composition>', SYNTAX.tag]],
-];
-const CHARS = CODE.flat().reduce((n, [text]) => n + [...text].length, 0);
+const CODE = highlightTsx([
+  '<Composition width={1080} height={1920}>',
+  '  <Rect fill="#FFC93C" />',
+  '  <Text>Hello!</Text>',
+  '</Composition>',
+].join('\n'));
+const CHARS = lineEnd(CODE, CODE.length - 1);
 
 // "Celesta writes video in React": the code types itself, and the picture
 // it describes builds up beside it. On "parts", the two parts light up.
@@ -25,7 +24,7 @@ export function ReactScene() {
   const { fps } = useVideoConfig();
   const parts = lineFrom('react', 'react-3');
   const typed = Math.round(interpolate(frame, [4, 64], [0, CHARS], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }));
-  const done = (line: number) => typed >= CODE.slice(0, line + 1).flat().reduce((n, [t]) => n + [...t].length, 0);
+  const done = (line: number) => typed >= lineEnd(CODE, line);
   const rectIn = spring({ frame: frame - 34, fps, config: { damping: 12 } });
   const textIn = spring({ frame: frame - 50, fps, config: { damping: 12 } });
   const lit = frame >= parts;

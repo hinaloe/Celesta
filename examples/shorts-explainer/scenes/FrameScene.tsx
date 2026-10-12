@@ -1,7 +1,6 @@
 import { Easings, Group, Rect, interpolate, useCurrentFrame } from '@celesta/react';
 import { Circle } from '@celesta/shapes';
-import { CodeCard, SYNTAX } from '../components/CodeCard';
-import type { CodeLine } from '../components/CodeCard';
+import { CodeCard, highlightTsx } from '../components/CodeCard';
 import { Label } from '../components/Label';
 import { BODY, Panel } from '../components/Panel';
 import { C } from '../constants';
@@ -9,9 +8,7 @@ import { lineFrom, plan } from '../voice';
 
 export const TEXT = ['フレームは関数', '→ 絵'];
 
-const CODE: CodeLine[] = [
-  [['const ', SYNTAX.tag], ['x', SYNTAX.plain], [' = ', SYNTAX.plain], ['interpolate', SYNTAX.fn], ['(', SYNTAX.plain], ['frame', SYNTAX.attr], [', [0, 30], [0, 600])', SYNTAX.value]],
-];
+const CODE = highlightTsx('const x = interpolate(frame, [0, 30], [0, 600])');
 
 // "There is no timeline": the frame number goes in, a picture comes out.
 // The ball's place is computed from the frame, so the earlier frames can be
