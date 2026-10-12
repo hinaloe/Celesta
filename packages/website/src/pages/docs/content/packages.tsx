@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { DocCode } from '../DocCode';
 import { Api, Note } from './shared';
 import voicevoxScene from '../examples/voicevox.tsx?raw';
+import aivisSpeechScene from '../examples/aivis-speech.tsx?raw';
 import codeLinesScene from '../examples/code-lines.tsx?raw';
 
 // Chapters for the packages that ship beside the core Celesta packages.
@@ -20,6 +21,8 @@ export const packageContents: Record<string, ReactNode> = {
     <DocCode label="voicevox.tsx" language="tsx" code={voicevoxScene.trim()} />
     <Api caption="@celesta/voicevox" rows={[
       [<code>lipSyncFromVoicevox(query, options?)</code>, text('docs.chapters.voicevox.api.voicevox-convert')],
+      [<code>lipSyncFromVoicevox(timing)</code>, text('docs.chapters.voicevox.api.voicevox-convert-timing')],
+      [<code>timingFromVoicevox(query, options?)</code>, text('docs.chapters.voicevox.api.voicevox-timing')],
       [<code>voicevoxVowelShape(vowel)</code>, text('docs.chapters.voicevox.api.voicevox-vowel')],
     ]} />
     <Api caption={t('docs.chapters.voicevox.options')} rows={[
@@ -27,6 +30,23 @@ export const packageContents: Record<string, ReactNode> = {
       [<code>interrogativeUpspeak</code>, text('docs.chapters.voicevox.api.voicevox-upspeak')],
     ]} />
     <p>{text('docs.chapters.voicevox.types')}</p>
+  </>,
+  'aivis-speech': <>
+    <p>{text('docs.chapters.aivis-speech.intro', [<code>@celesta/aivis-speech</code>, <code>@celesta/character</code>, <a href={docPath('voicevox')} />])}</p>
+    <p>{text('docs.chapters.aivis-speech.estimate')}</p>
+    <p>{text('docs.chapters.aivis-speech.runtime')}</p>
+    <h3>{text('docs.chapters.aivis-speech.example')}</h3>
+    <p>{text('docs.chapters.aivis-speech.query')}</p>
+    <DocCode label="aivis-speech.tsx" language="tsx" code={aivisSpeechScene.trim()} />
+    <Api caption="@celesta/aivis-speech" rows={[
+      [<code>lipSyncFromAivisSpeech(query, wav)</code>, text('docs.chapters.aivis-speech.api.convert')],
+      [<code>lipSyncFromAivisSpeech(timing)</code>, text('docs.chapters.aivis-speech.api.convert-timing')],
+      [<code>timingFromAivisSpeech(query, wav)</code>, text('docs.chapters.aivis-speech.api.timing')],
+    ]} />
+    <p>{text('docs.chapters.aivis-speech.punctuation')}</p>
+    <p>{text('docs.chapters.aivis-speech.shared', [<code>SpeechTiming</code>, <code>@celesta/character</code>, <code>lipSyncFromSpeechTiming</code>])}</p>
+    <p>{text('docs.chapters.aivis-speech.accuracy')}</p>
+    <p>{text('docs.chapters.aivis-speech.types')}</p>
   </>,
   'math': <>
     <p>{text('docs.chapters.math.is-a-small-dependency-free-toolkit-for', [<code>@celesta/math</code>])}</p>

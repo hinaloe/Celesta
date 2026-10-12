@@ -22,7 +22,11 @@ function exportsOf(pkgs) {
 }
 
 // Names the packages export that @celesta/react never did, so need no move.
-const NEVER_IN_REACT = new Set(['CharacterReference', 'SafeAreaPreset', 'SafeAreaValue', 'safeAreaInsets']);
+const NEVER_IN_REACT = new Set([
+  'CharacterReference', 'SafeAreaPreset', 'SafeAreaValue', 'safeAreaInsets',
+  'lipSyncFromSpeechTiming', 'speechVowelShape',
+  'SpeechAccentPhrase', 'SpeechMora', 'SpeechPause', 'SpeechPhoneme', 'SpeechSpan', 'SpeechTiming',
+]);
 
 // Type-checking the declarations takes a few seconds on CI runners.
 test('the moved names match what the packages export', { timeout: 60_000 }, () => {
