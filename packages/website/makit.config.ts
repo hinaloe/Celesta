@@ -1,4 +1,6 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@natsuneko-laboratory/makit';
+import { remarkInclude } from './plugins/remark-include.ts';
 
 export default defineConfig({
   title: 'Celesta',
@@ -21,6 +23,7 @@ export default defineConfig({
   },
   markdown: {
     code: { copyButton: true },
+    remarkPlugins: [[remarkInclude, { root: fileURLToPath(new URL('.', import.meta.url)) }]],
     shiki: { themes: { light: 'vitesse-light', dark: 'vitesse-dark' } },
   },
   llms: { enabled: true },
