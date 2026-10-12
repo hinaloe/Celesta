@@ -170,7 +170,7 @@ impl GpuRenderer {
                     steps.push(GpuStep::EndMask {
                         instance: index,
                         blend_mode: layer.blend_mode,
-                        mask,
+                        mask: *mask,
                         area: group
                             .drawn
                             .then(|| target.local_area(group.canvas.bounds()))
@@ -204,7 +204,7 @@ impl GpuRenderer {
                         inner_instance: index,
                         final_instance: index + 1,
                         blend_mode: layer.blend_mode,
-                        effects,
+                        effects: *effects,
                         content: group
                             .content
                             .filter(|_| group.drawn)
@@ -424,7 +424,7 @@ impl GpuRenderer {
                     blend_mode,
                     true,
                 ),
-                effects,
+                Box::new(effects),
             ));
             return Ok(());
         }
@@ -469,7 +469,7 @@ impl GpuRenderer {
                             blend_mode,
                             true,
                         ),
-                        MaskSpec::new(mask),
+                        Box::new(MaskSpec::new(mask)),
                     ));
                     return Ok(());
                 }

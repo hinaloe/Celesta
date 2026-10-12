@@ -155,7 +155,7 @@ pub(crate) fn upload_texture(
             resource: wgpu::BindingResource::TextureView(&view),
         }],
     });
-    LayerTexture {
+    LayerTexture(Arc::new(TextureData {
         _texture: texture,
         bind_group,
         width: image.width,
@@ -164,7 +164,7 @@ pub(crate) fn upload_texture(
         anchor_origin: image.anchor_origin,
         anchor_span: image.anchor_span,
         raster_scale: image.raster_scale,
-    }
+    }))
 }
 
 /// The next mip level of straight-alpha RGBA pixels: each texel averages the
@@ -290,10 +290,21 @@ impl DecodedImage {
     }
 }
 
-/// An uploaded layer texture. Cloning it clones the `wgpu` handles, not the
-/// pixels, so a cached texture can back draws in several in-flight frames.
+/// An uploaded layer texture. Cloning it shares the `wgpu` handles, not the
+/// pixels, so a cached texture can back draws in several in-flight frames;
+/// it is one pointer, so a prepared layer that holds it stays small.
 #[derive(Clone)]
-pub(crate) struct LayerTexture {
+pub(crate) struct LayerTexture(Arc<TextureData>);
+
+impl std::ops::Deref for LayerTexture {
+    type Target = TextureData;
+
+    fn deref(&self) -> &TextureData {
+        &self.0
+    }
+}
+
+pub(crate) struct TextureData {
     pub(crate) _texture: wgpu::Texture,
     /// The texture, bound as group 0.
     pub(crate) bind_group: wgpu::BindGroup,
