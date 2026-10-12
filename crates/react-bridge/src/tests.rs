@@ -5,7 +5,9 @@ use crate::properties::{
     ENTRY_PROPS_FILE, EffectiveValue, PropertyInputError, PropertyInputs, PropertySource,
     ValueSource, effective_values, resolve_props_file,
 };
-use crate::protocol::{PropertyInputsMessage, ReadyMessage, Response, ready_property_order};
+use crate::protocol::{
+    PropertyInputsMessage, ReadyMessage, Request, Response, ready_property_order,
+};
 use crate::types::{ComponentPropertyField, ReactAudioClipDescriptor};
 use celesta_composition::{
     Animatable, AssetLocation, ShaderParam, ShaderParamType, ShaderSource, Time,
@@ -783,4 +785,39 @@ fn default_json_matches_each_field_type() {
     assert_eq!(schema["c"].default_json(), serde_json::json!("#fff"));
     assert_eq!(schema["o"].default_json(), serde_json::json!("x"));
     assert_eq!(schema["p"].default_json(), serde_json::json!("./a.png"));
+}
+
+#[test]
+fn open_end_frame_requests_ask_for_and_read_back_the_echo() {
+    let request = |open_end| Request {
+        time: Some(Time::new(4, 30)),
+        project: None,
+        runtime: None,
+        components: None,
+        compact_transforms: true,
+        open_end,
+    };
+    let past = serde_json::to_value(request(true)).unwrap();
+    assert_eq!(past["openEnd"], true);
+    let plain = serde_json::to_value(request(false)).unwrap();
+    assert!(plain.get("openEnd").is_none(), "{plain}");
+
+    let scene = serde_json::json!({
+        "width": 64,
+        "height": 64,
+        "frameRate": {"numerator": 30, "denominator": 1},
+        "time": {"value": 4, "timescale": 30},
+        "layers": []
+    });
+    let echoed = serde_json::json!({ "scene": scene, "openEnd": true }).to_string();
+    let Response::Ok { open_end, .. } = serde_json::from_str(&echoed).unwrap() else {
+        panic!("expected an Ok response");
+    };
+    assert!(open_end);
+    // An older runtime ignores the request and sends no echo.
+    let ignored = serde_json::json!({ "scene": scene }).to_string();
+    let Response::Ok { open_end, .. } = serde_json::from_str(&ignored).unwrap() else {
+        panic!("expected an Ok response");
+    };
+    assert!(!open_end);
 }

@@ -46,6 +46,7 @@ For randomness and noise, use [`@celesta/math`](math.md).
 | Items entering one after another | `Stagger` (or `progress(frame, i * each, …)`) |
 | Fade/slide/scale of one element at a scene's start or end | `Transition` |
 | Motion on the music's beat | `useBeat` |
+| A video whose last frame runs into its first (Shorts, TikTok) | periodic motion and `loopNoise` ([loops.md](loops.md)) |
 | Something that changes at given frames (captions, camera stops, chart callouts) | `useCue` |
 | A push-in, pan, or shake over a whole scene | `Camera` |
 | A line being drawn | `Polyline progress` ([react-core.md](react-core.md#path-line-polyline)) |
@@ -323,7 +324,9 @@ Nest transitions to combine an entrance and an exit.
 
 `useBeat({ bpm, beatsPerBar?, offset?, decay? })` (or
 `beatAt(frame, fps, options)` outside a component) returns
-`{ framesPerBeat, beat, bar, beatInBar, progress, barProgress, pulse }`.
+`{ framesPerBeat, beat, bar, beatInBar, progress, barProgress, pulse }`
+(`beat` and `bar` count up; the others repeat every beat or bar, which keeps
+a [loop](loops.md) seamless).
 `pulse` is 1 on each beat and decays exponentially (`decay` frames to 1/e,
 default a quarter beat). Inside a `Sequence` the grid starts with the
 sequence; use `offset` (frames) to align with music that started elsewhere.

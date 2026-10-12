@@ -12,7 +12,7 @@ export {
   shuffle,
 } from './random';
 
-export { fbm, fbm2D, fbm3D, noise, noise2D, noise3D } from './noise';
+export { fbm, fbm2D, fbm3D, loopFbm, loopNoise, noise, noise2D, noise3D } from './noise';
 export type { FbmOptions } from './noise';
 
 export {

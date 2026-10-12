@@ -25,6 +25,35 @@ export function noise(seed: Seed, t: number): number {
   return (a + (b - a) * s) * 2 - 1;
 }
 
+/**
+ * `noise` that repeats every `period` (in the same units as `t`), for a
+ * video whose last frame runs into its first: pass
+ * `loopNoise(seed, frame / 20, durationInFrames / 20)` where you would pass
+ * `noise(seed, frame / 20)`. The period is split into a whole number of
+ * steps, about one per unit (at least two), so the motion is as busy as
+ * `noise`; with a whole-number period it matches `noise` until the last
+ * unit, which bends back to the start.
+ */
+export function loopNoise(seed: Seed, t: number, period: number): number {
+  requireFinite('loopNoise', { t });
+  if (!Number.isFinite(period) || period <= 0) {
+    throw new Error('loopNoise() requires a positive, finite period');
+  }
+  const base = seedToInt(seed, 'loopNoise');
+  const steps = Math.max(2, Math.round(period));
+  const position = (t / period) * steps;
+  const i = Math.floor(position);
+  const u = position - i;
+  const s = u * u * (3 - 2 * u);
+  const a = streamValue(base, wrapStep(i, steps));
+  const b = streamValue(base, wrapStep(i + 1, steps));
+  return (a + (b - a) * s) * 2 - 1;
+}
+
+function wrapStep(i: number, steps: number): number {
+  return ((i % steps) + steps) % steps;
+}
+
 /** The random unit gradient at lattice point (`ix`, `iy`), dotted with the offset to it. */
 function gradient2(base: number, ix: number, iy: number, dx: number, dy: number): number {
   const angle = streamValue(base, ix ^ mix32(iy)) * 2 * Math.PI;
@@ -140,6 +169,15 @@ function octaveSeed(seed: Seed, octave: number): Seed {
  */
 export function fbm(seed: Seed, t: number, options: FbmOptions = {}): number {
   return fractal('fbm', options, (octave, frequency) => noise(octaveSeed(seed, octave), t * frequency));
+}
+
+/**
+ * `fbm` that repeats every `period`: layered `loopNoise`, each layer
+ * repeating on the same period, for a seamless loop.
+ */
+export function loopFbm(seed: Seed, t: number, period: number, options: FbmOptions = {}): number {
+  return fractal('loopFbm', options, (octave, frequency) =>
+    loopNoise(octaveSeed(seed, octave), t * frequency, period * frequency));
 }
 
 /** Fractal 2D noise in `[-1, 1]`: layered `noise2D` for clouds, smoke, and terrain. */

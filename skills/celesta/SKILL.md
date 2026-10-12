@@ -1,6 +1,6 @@
 ---
 name: celesta
-description: Write, edit, check, and export Celesta videos. Covers React compositions (.tsx/.jsx files that import @celesta/react or another @celesta/* package), .celesta.json project timelines, starting a project (--init), animation, shapes and diagrams, text and fonts (measuring, fitting, language, Japanese line breaking), syntax-highlighted code, images/video/audio, character dialogue with subtitles, lip sync, and blinking (image or PSD portraits, custom subtitle bands), project properties, registered components, PNG frame and contact-sheet checks, and MP4 export with the Celesta command-line exporter. Use whenever a file imports @celesta/*, a *.celesta.json file is involved, or the user asks to make, change, preview, debug, or render a video with Celesta, even if they only say "the video" or "the scene".
+description: Write, edit, check, and export Celesta videos. Covers React compositions (.tsx/.jsx files that import @celesta/react or another @celesta/* package), .celesta.json project timelines, starting a project (--init), animation, shapes and diagrams, text and fonts (measuring, fitting, language, Japanese line breaking), syntax-highlighted code, images/video/audio, character dialogue with subtitles, lip sync, and blinking (image or PSD portraits, custom subtitle bands), project properties, registered components, seamless loops for Shorts and TikTok, PNG frame and contact-sheet checks, and MP4 export with the Celesta command-line exporter. Use whenever a file imports @celesta/*, a *.celesta.json file is involved, or the user asks to make, change, preview, debug, or render a video with Celesta, even if they only say "the video" or "the scene".
 ---
 
 # Celesta
@@ -183,7 +183,7 @@ layers sit; it does not prove the rendered pixels.
 | `@celesta/media-utils` | `preloadMedia`, `mediaDurationInFrames` |
 | `@celesta/project` | `ProjectProvider`, `ProjectTimeline`, `ProjectTrack`, `useProject`, `useProjectProperty`, `useProjectTrack`, `loadProject`, and the project file types |
 | `@celesta/debug` | `DebugOverlay`, `DebugBounds` |
-| `@celesta/math` | `random`, `noise`, and math helpers |
+| `@celesta/math` | `random`, `noise`, `loopNoise`, and math helpers |
 | `@celesta/code` | `Code` and syntax highlighting |
 | `@celesta/voicevox` | `lipSyncFromVoicevox` |
 
@@ -207,6 +207,7 @@ Load only the one you need; each is self-contained.
 | `Text`, `TextStyle`, fonts and fallback, font stacks (和欧混植), text language (`lang`), emoji, line breaking, `TextReveal`, `useTypewriter`, `useCountUp`, `useTextMetrics`/`measureText`, `TextBox`/`useFitText`/`fitText` | [text.md](references/text.md) |
 | Syntax-highlighted code, typing code, highlighted lines, carets (`@celesta/code`) | [code.md](references/code.md) |
 | Seeded random, noise, clamp/lerp/remap, waves, angles, points (`@celesta/math`) | [math.md](references/math.md) |
+| A seamless loop (Shorts, TikTok): loop length from beats and bars, periodic motion, looping noise, folding the music's tail back, `inspect.mjs --loop` | [loops.md](references/loops.md) |
 | Custom WGSL filters: ripples, RGB splits, color grades (`@celesta/shader`, the `shader` prop) | [shader.md](references/shader.md) |
 | Characters, portraits, subtitles (incl. custom `subtitle.render` bands and name plates), voices, `planDialogue`/`DialogueSeries`, lip sync (WAV or VOICEVOX), PSD portraits, blinking, in React and JSON | [dialogue.md](references/dialogue.md) |
 | `.celesta.json` schema, time values, tracks, item types, transforms, keyframes, easing names, validation rules, full example | [project-json.md](references/project-json.md) |

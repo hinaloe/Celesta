@@ -35,7 +35,7 @@ import type {
 } from './scene';
 import { ShaderEffect } from './shader';
 import type { JsonValue } from './generated/serde_json/JsonValue';
-import { SECONDS_TIMESCALE, secondsFromTime, secondsToTime } from './time';
+import { SECONDS_TIMESCALE, endsWithComposition, secondsFromTime, secondsToTime } from './time';
 
 const HOST_TYPES = new Set([
   'composition',
@@ -112,7 +112,11 @@ export interface AudioClipDescriptor {
  * bound when the current subtree can be visible or audible, in composition
  * seconds. `compositionEndSec` is the root's `rangeEndSec`, which a
  * `<FreezeFrame>` restores for its children; `frozen` is true inside one, and
- * `idPrefix` is prepended to authored layer ids there.
+ * `idPrefix` is prepended to authored layer ids there. `openEnd` is true when
+ * a frame past the composition's end is evaluated as if the video went on
+ * and this window ends with the composition; `rangeEndSec` then runs past
+ * the frame. `windowEndSec` is where the window itself ends, unclipped and
+ * unextended, as `<Sequence>` sees it.
  */
 interface WalkContext {
   lang?: string;
@@ -122,6 +126,8 @@ interface WalkContext {
   rangeStartSec: number;
   rangeEndSec: number;
   compositionEndSec: number;
+  openEnd: boolean;
+  windowEndSec: number;
   frozen: boolean;
   idPrefix: string;
   /** Shared by host elements for one frame; see `HostVisit.frameState`. */
@@ -137,9 +143,15 @@ export interface MountedComposition {
    * Renders one exact frame against the persistent root. Audio declarations
    * are gathered from this same tree walk — an `<Audio>` behind a
    * conditional or inside out-of-window sequences contributes on exactly the
-   * frames where it actually renders.
+   * frames where it actually renders. With `openEnd`, a frame past the end
+   * is evaluated as if the video went on: windows that reach the end stay
+   * open, while `useVideoConfig()` keeps reporting the real durations.
    */
-  renderAt(time: Time, project: ProjectFrame | null): { scene: Scene; audio: AudioClipDescriptor[] };
+  renderAt(
+    time: Time,
+    project: ProjectFrame | null,
+    options?: { openEnd?: boolean },
+  ): { scene: Scene; audio: AudioClipDescriptor[] };
   /** Sweeps every frame without constructing visual layers; hooks and font measurements still run. */
   collectAudio(): AudioClipDescriptor[];
 }
@@ -178,15 +190,18 @@ function readCompositionConfig(instance: HostNode): CompositionConfig {
   };
 }
 
-function rootWalkContext(fps: number, durationInFrames: number, time: Time, lang?: string): WalkContext {
+function rootWalkContext(fps: number, durationInFrames: number, time: Time, lang?: string, openEnd = false): WalkContext {
+  const endSec = durationInFrames / fps;
   return {
     lang,
     time,
     fps,
     originSec: 0,
     rangeStartSec: 0,
-    rangeEndSec: durationInFrames / fps,
-    compositionEndSec: durationInFrames / fps,
+    rangeEndSec: openEnd ? Math.max(endSec, secondsFromTime(time) + 1 / fps) : endSec,
+    compositionEndSec: endSec,
+    openEnd,
+    windowEndSec: endSec,
     frozen: false,
     idPrefix: '',
     frameState: new Map(),
@@ -603,17 +618,23 @@ function childSequenceContext(node: HostNode, context: WalkContext): WalkContext
   const fps = context.fps;
   const fromFrames = numberOr(props.from, 0);
   const startLocalSec = fromFrames / fps;
-  const endLocalSec =
-    typeof props.durationInFrames === 'number' && Number.isFinite(props.durationInFrames)
-      ? (fromFrames + Math.max(0, props.durationInFrames)) / fps
-      : context.rangeEndSec - context.originSec;
+  const hasDuration = typeof props.durationInFrames === 'number' && Number.isFinite(props.durationInFrames);
+  const endLocalSec = hasDuration
+    ? (fromFrames + Math.max(0, props.durationInFrames as number)) / fps
+    : context.rangeEndSec - context.originSec;
+  const windowEndSec = hasDuration ? context.originSec + endLocalSec : context.windowEndSec;
+  // Past the composition's end, a window that ends with the composition
+  // stays open; one that ends later keeps its own end. <Sequence> in
+  // components.ts decides the same way.
+  const openEnd = context.openEnd && endsWithComposition(windowEndSec, context.compositionEndSec, fps);
+  const windowEndLocalSec = openEnd ? context.rangeEndSec - context.originSec : endLocalSec;
   const localSec = secondsFromTime(context.time);
-  if (localSec < startLocalSec || localSec >= endLocalSec) {
+  if (localSec < startLocalSec || localSec >= windowEndLocalSec) {
     return null;
   }
   const originSec = context.originSec + startLocalSec;
   const rangeStartSec = Math.max(context.rangeStartSec, originSec);
-  const rangeEndSec = Math.min(context.rangeEndSec, context.originSec + endLocalSec);
+  const rangeEndSec = Math.min(context.rangeEndSec, context.originSec + windowEndLocalSec);
   if (rangeEndSec <= rangeStartSec) {
     return null;
   }
@@ -625,6 +646,8 @@ function childSequenceContext(node: HostNode, context: WalkContext): WalkContext
     rangeStartSec,
     rangeEndSec,
     compositionEndSec: context.compositionEndSec,
+    openEnd,
+    windowEndSec,
     frozen: context.frozen,
     idPrefix: context.idPrefix,
     frameState: context.frameState,
@@ -646,6 +669,8 @@ function childFreezeContext(node: HostNode, context: WalkContext, layerId: strin
     rangeStartSec: 0,
     rangeEndSec: context.compositionEndSec,
     compositionEndSec: context.compositionEndSec,
+    openEnd: false,
+    windowEndSec: context.compositionEndSec,
     frozen: true,
     idPrefix: `${layerId}/`,
     frameState: context.frameState,
@@ -819,6 +844,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
     time: Time,
     project: ProjectFrame | null,
     config: CompositionConfig | PlaceholderConfig,
+    openEnd = false,
   ) => {
     const runtimeValue = {
       time,
@@ -828,6 +854,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
       durationInFrames: config.durationInFrames,
       preview: false,
       lang: config.lang,
+      openEnd,
     };
     const element = React.createElement(
       ProjectLayersContext.Provider,
@@ -873,9 +900,9 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
   collectFonts(compositionInstance, initialFonts);
   fonts = initialFonts;
 
-  const renderFrame = (time: Time, project: ProjectFrame | null, audioOnly = false) => {
+  const renderFrame = (time: Time, project: ProjectFrame | null, audioOnly = false, openEnd = false) => {
     rerenderRequested = false;
-    renderTree(time, project, config);
+    renderTree(time, project, config, openEnd);
     let instance = findCompositionInstance(container);
     const nextFonts: ResolvedAsset[] = [];
     collectFonts(instance, nextFonts);
@@ -887,7 +914,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
       // Reconcile again with the complete font list and refs before
       // emitting layers.
       rerenderRequested = false;
-      renderTree(time, project, config);
+      renderTree(time, project, config, openEnd);
       instance = findCompositionInstance(container);
     }
     const audio: AudioClipDescriptor[] = [];
@@ -896,6 +923,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
       config.durationInFrames,
       time,
       resolveTextLanguage(instance.props.lang),
+      openEnd,
     );
     if (!audioOnly && hasHostElementPreparation()) {
       for (const child of instance.children) {
@@ -928,7 +956,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
     dispose() { HostReconciler.flushSync(() => { HostReconciler.updateContainer(null, root, null, null); }); },
     config,
     get fonts() { return fonts; },
-    renderAt: renderFrame,
+    renderAt: (time, project, options) => renderFrame(time, project, false, options?.openEnd === true),
     collectAudio() {
       const audio: AudioClipDescriptor[] = [];
       for (let frame = 0; frame < config.durationInFrames; frame++) {

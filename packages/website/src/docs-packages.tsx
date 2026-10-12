@@ -175,10 +175,24 @@ export const packageContents: Record<string, ReactNode> = {
     )} />
     <p>{text('docs.chapters.math-noise.invalid-options-throw-an-error-that-names', [<code>fbm2D() requires a whole number of octaves of at least 1</code>])}</p>
 
+    <h3>{text('docs.chapters.math-noise.noise-that-loops')}</h3>
+    <p>{text('docs.chapters.math-noise.noise-and-fbm-never-repeat', [<code>noise</code>, <code>fbm</code>, <code>loopNoise(seed, t, period)</code>, <code>period</code>, <code>t</code>, <code>loopFbm</code>])}</p>
+    <DocCode label={t('docs.chapters.math-noise.a-sway-that-loops')} language="tsx" code={lines(
+      "import { loopNoise } from '@celesta/math';",
+      '',
+      'const LOOP = 384; // the composition\'s durationInFrames',
+      '',
+      'function Sway({ children }: { children: React.ReactNode }) {',
+      '  const frame = useCurrentFrame();',
+      "  return <Group x={loopNoise('sway', frame / 20, LOOP / 20) * 24}>{children}</Group>;",
+      '}',
+    )} />
+
     <h3>{text('docs.chapters.math-noise.which-one-do-i-use')}</h3>
     <div className="doc-table-wrap" tabIndex={0} aria-label={t('docs.chapters.math-noise.choosing-a-noise-function')}><table><caption>{text('docs.chapters.math-noise.choosing-a-noise-function-label')}</caption><thead><tr><th>{text('docs.chapters.math-noise.you-want')}</th><th>{text('docs.chapters.math-noise.use')}</th></tr></thead><tbody>
       <tr><td>{text('docs.chapters.math-noise.one-value-that-drifts-over-time')}</td><td><code>noise(seed, frame / n)</code></td></tr>
       <tr><td>{text('docs.chapters.math-noise.a-value-that-wanders-on-several-scales')}</td><td><code>fbm(seed, frame / n)</code></td></tr>
+      <tr><td>{text('docs.chapters.math-noise.a-value-that-drifts-in-a-looping-video')}</td><td><code>loopNoise(seed, frame / n, durationInFrames / n)</code></td></tr>
       <tr><td>{text('docs.chapters.math-noise.a-pattern-across-the-screen')}</td><td>{text('docs.chapters.math-noise.or-sampled-at-scaled-positions', [<code>noise2D</code>, <code>fbm2D</code>])}</td></tr>
       <tr><td>{text('docs.chapters.math-noise.a-pattern-across-the-screen-that-moves')}</td><td>{text('docs.chapters.math-noise.or-with-time-as-the-third-coordinate', [<code>noise3D</code>, <code>fbm3D</code>])}</td></tr>
       <tr><td>{text('docs.chapters.math-noise.a-new-unrelated-value-each-frame-or')}</td><td>{text('docs.chapters.math-noise.with-the-frame-in-the-seed', [<a href={docPath('math')} />, <code>random</code>])}</td></tr>

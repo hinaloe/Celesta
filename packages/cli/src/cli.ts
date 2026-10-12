@@ -54,6 +54,12 @@ interface FrameRequest {
   project?: ProjectFrame;
   /** Sent by bridges that fill omitted transform fields with their defaults. */
   compactTransforms?: boolean;
+  /**
+   * Evaluate a frame past the end as if the video went on (inspect.mjs
+   * --loop). The response echoes `openEnd: true`, so a caller can tell an
+   * older runtime that ignored it.
+   */
+  openEnd?: boolean;
 }
 
 /** A layer whose transform leaves out fields equal to the Rust defaults. */
@@ -219,12 +225,14 @@ async function main(): Promise<void> {
         resolver ??= createResolver(mounted.config.lang);
         writeLine(resolver.resolve(request.components, request.runtime, mounted.fonts));
       } else {
-        const { scene, audio } = mounted.renderAt(request.time, request.project ?? null);
-        writeLine(
-          request.compactTransforms
+        const openEnd = request.openEnd === true;
+        const { scene, audio } = mounted.renderAt(request.time, request.project ?? null, { openEnd });
+        writeLine({
+          ...(request.compactTransforms
             ? { scene: { ...scene, layers: compactLayers(scene.layers) }, audio }
-            : { scene, audio },
-        );
+            : { scene, audio }),
+          ...(openEnd ? { openEnd } : {}),
+        });
       }
     } catch (error) {
       writeLine({ error: describeError(error) });

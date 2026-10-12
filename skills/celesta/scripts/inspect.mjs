@@ -7,8 +7,13 @@
 //
 //   node inspect.mjs <entry.tsx> [--frames 0,45,-1] [--every N] [--json]
 //                    [--props-file variant.json] [--props '{"title":"..."}']
+//   node inspect.mjs <entry.tsx> --loop [--json]
 //   node inspect.mjs --psd-layers <file.psd>
 //
+// --loop checks a seamless loop: it evaluates frame N (one past the last) as
+// if the video went on, and compares its Scene with frame 0's (and N + 1
+// with 1). A <Sequence> that lasts until the end stays open at N, and
+// useVideoConfig() still reports the real duration.
 // --props/--props-file pass project property values exactly as
 // Celesta-export does (--props wins; relative paths in the file resolve from
 // the file's directory).
@@ -33,6 +38,7 @@ import * as readline from 'node:readline';
 
 const USAGE = `usage: node inspect.mjs <entry.tsx> [--frames 0,45,-1] [--every N] [--json]
                          [--props-file <file.json>] [--props <json>]
+       node inspect.mjs <entry.tsx> --loop [--json]
        node inspect.mjs --psd-layers <file.psd>
 options: --native <Celesta-export>  --no-native  --runtime <cli.js>  --node <node>  --timeout <seconds>`;
 
@@ -45,7 +51,7 @@ const TEXT_UNSUPPORTED =
 
 function parseArgs(argv) {
   const options = {
-    frames: null, every: null, json: false, psd: null, native: null, runtime: null, node: null, timeout: 180, entry: null,
+    frames: null, every: null, loop: false, json: false, psd: null, native: null, runtime: null, node: null, timeout: 180, entry: null,
     props: null, propsFile: null,
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -56,6 +62,7 @@ function parseArgs(argv) {
     };
     if (arg === '--frames') options.frames = value().split(',').map((part) => parseInt(part.trim(), 10));
     else if (arg === '--every') options.every = parseInt(value(), 10);
+    else if (arg === '--loop') options.loop = true;
     else if (arg === '--json') options.json = true;
     else if (arg === '--psd-layers') options.psd = value();
     else if (arg === '--runtime') options.runtime = value();
@@ -71,6 +78,7 @@ function parseArgs(argv) {
   }
   if (options.frames?.some(Number.isNaN)) fail('--frames takes comma-separated integers (negative counts from the end)');
   if (options.every !== null && !(options.every > 0)) fail('--every takes a positive integer');
+  if (options.loop && (options.frames || options.every !== null)) fail('--loop picks its own frames; leave out --frames and --every');
   if (!options.entry && !options.psd) fail(USAGE);
   return options;
 }
@@ -130,7 +138,7 @@ function findNode(options, cli) {
 // --------------------------------------------------------------- exporter
 
 /** The first exporter that supports --inspect: a source build, then an install. */
-function findExporter(startDirs) {
+function findExporter(startDirs, loop) {
   const exe = process.platform === 'win32' ? '.exe' : '';
   const candidates = [];
   for (const start of startDirs) {
@@ -153,10 +161,11 @@ function findExporter(startDirs) {
   if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
     candidates.push(path.join(process.env.LOCALAPPDATA, 'Programs/Celesta/Celesta-export.exe'));
   }
-  // Exporters from before --inspect are skipped.
+  // Exporters from before --inspect are skipped, and for --loop those from
+  // before openEnd, which Node-only inspection handles.
   const supportsInspect = (exporter) => {
     const help = spawnSync(exporter, ['--help'], { encoding: 'utf8', timeout: 10000 });
-    return help.status === 0 && help.stdout.includes('--inspect');
+    return help.status === 0 && help.stdout.includes('--inspect') && (!loop || help.stdout.includes('openEnd'));
   };
   return candidates.find((candidate) => existsSync(candidate) && supportsInspect(candidate)) ?? false;
 }
@@ -240,7 +249,7 @@ async function inspectEntry(options) {
   if (!existsSync(entry)) fail(`entry not found: ${entry}`);
   const entryDir = path.dirname(entry);
   const found = options.native === null;
-  if (found) options.native = findExporter([entryDir, process.cwd()]);
+  if (found) options.native = findExporter([entryDir, process.cwd()], options.loop);
   let child;
   if (options.native) {
     // The exporter finds its own runtime and reads the props itself.
@@ -353,6 +362,7 @@ async function inspectEntry(options) {
   }
 
   const { config } = ready;
+  if (options.loop) await finish(await checkLoop(config, send, receive, options, ready));
   const fps = config.frameRate.numerator / config.frameRate.denominator;
   const total = config.durationInFrames;
   let frames;
@@ -435,6 +445,148 @@ async function inspectEntry(options) {
   }
 
   await finish(problems ? 1 : unsupported ? 2 : 0);
+}
+
+// ------------------------------------------------------------ loop check
+
+/** At most this many differences are printed per compared pair. */
+const LOOP_DIFFERENCE_LIMIT = 20;
+
+/**
+ * Compares frame N (one past the last, evaluated as if the video went on)
+ * with frame 0, and N + 1 with 1, so both the picture and its motion carry
+ * across the seam. Returns the exit code: 1 when anything differs or fails,
+ * 2 when only text measurement stopped it.
+ */
+async function checkLoop(config, send, receive, options, ready) {
+  const fps = config.frameRate.numerator / config.frameRate.denominator;
+  const total = config.durationInFrames;
+  const timeOf = (frame) => ({ value: frame * config.frameRate.denominator, timescale: config.frameRate.numerator });
+  const pairs = [];
+  let problems = 0;
+  let unsupported = 0;
+  for (const start of total > 1 ? [0, 1] : [0]) {
+    send({ time: timeOf(start) });
+    const first = await receive();
+    send({ time: timeOf(total + start), openEnd: true });
+    const past = await receive();
+    if (!first.error && !past.error && past.openEnd !== true) {
+      fail(
+        options.native
+          ? `${options.native} cannot evaluate frames past the end. Update Celesta, or pass a newer build to --native.`
+          : 'This Celesta runtime cannot evaluate frames past the end. Update Celesta, or pass --runtime <cli.js> from a newer build.',
+      );
+    }
+    const pair = { frame: total + start, against: start };
+    if (first.error || past.error) {
+      const failed = first.error ? first : past;
+      pair.error = failed.error;
+      if (failed.status === 'unsupported') {
+        pair.status = 'unsupported';
+        unsupported += 1;
+      } else {
+        problems += 1;
+      }
+    } else {
+      // The clock is the one thing that must differ.
+      const { time: _firstTime, ...firstScene } = first.scene;
+      const { time: _pastTime, ...pastScene } = past.scene;
+      pair.differences = [];
+      diffScenes(pastScene, firstScene, '', pair.differences);
+      problems += pair.differences.length;
+    }
+    pairs.push(pair);
+  }
+
+  const code = problems ? 1 : unsupported ? 2 : 0;
+  if (options.json) {
+    console.log(JSON.stringify({ ready, loop: pairs }, null, 2));
+    return code;
+  }
+  console.log(`composition: ${config.width}×${config.height} @ ${fmt(fps)} fps, ${total} frames (${fmt(total / fps)} s)`);
+  console.log(`loop check: frames ${total} and up are evaluated as if the video went on, then compared with the start\n`);
+  for (const pair of pairs) {
+    const label = `frame ${pair.frame} vs frame ${pair.against}`;
+    if (pair.error) {
+      console.log(`${label}: ${pair.status === 'unsupported' ? 'UNSUPPORTED inspection' : 'ERROR'}: ${pair.error}`);
+    } else if (pair.differences.length === 0) {
+      console.log(`${label}: same Scene`);
+    } else {
+      console.log(`${label}: ${pair.differences.length} difference(s)`);
+      for (const { path: where, end, start } of pair.differences.slice(0, LOOP_DIFFERENCE_LIMIT)) {
+        console.log(`  ${where || '(scene)'}: ${formatValue(end)} at frame ${pair.frame}, ${formatValue(start)} at frame ${pair.against}`);
+      }
+      if (pair.differences.length > LOOP_DIFFERENCE_LIMIT) {
+        console.log(`  … and ${pair.differences.length - LOOP_DIFFERENCE_LIMIT} more (--json lists them all)`);
+      }
+    }
+  }
+  console.log('');
+  if (pairs.some((pair) => pair.error && pair.status !== 'unsupported')) console.log(`${problems} problem(s) found`);
+  else if (problems) console.log('The loop has a seam: the frames above should match. Sound is not compared; see loops.md.');
+  else if (unsupported) console.log('These frames measure text, so the loop could not be checked; compare the seam in a contact sheet instead (loops.md)');
+  else console.log('OK: the last frame runs into the first (picture only; sound is not compared)');
+  return code;
+}
+
+const HEX_COLOR = /^#(?:[0-9a-f]{6}|[0-9a-f]{8})$/i;
+
+/**
+ * Collects where two Scene values differ. Numbers may differ by rounding
+ * (one part in a million, at least 1e-6) and hex colors by one step per
+ * channel, as periodic math and color interpolation round a little
+ * differently a whole period later. Layer ids are not compared: they name
+ * the place in the tree (the second of two <Series> scenes, say) and do not
+ * change the picture. Lists of different lengths are reported once, as the
+ * layer types on each side.
+ */
+function diffScenes(end, start, where, out) {
+  if (typeof end === 'number' && typeof start === 'number') {
+    if (Math.abs(end - start) > 1e-6 * Math.max(1, Math.abs(end), Math.abs(start))) out.push({ path: where, end, start });
+    return;
+  }
+  if (typeof end === 'string' && typeof start === 'string' && HEX_COLOR.test(end) && HEX_COLOR.test(start) && end.length === start.length) {
+    for (let i = 1; i < end.length; i += 2) {
+      if (Math.abs(parseInt(end.slice(i, i + 2), 16) - parseInt(start.slice(i, i + 2), 16)) > 1) {
+        out.push({ path: where, end, start });
+        return;
+      }
+    }
+    return;
+  }
+  if (Array.isArray(end) && Array.isArray(start)) {
+    if (end.length !== start.length) {
+      out.push({ path: where, end: describeList(end), start: describeList(start) });
+      return;
+    }
+    for (let i = 0; i < end.length; i += 1) {
+      const id = typeof end[i]?.id === 'string' ? `(${end[i].id})` : '';
+      diffScenes(end[i], start[i], `${where}[${i}]${id}`, out);
+    }
+    return;
+  }
+  if (end && start && typeof end === 'object' && typeof start === 'object' && !Array.isArray(end) && !Array.isArray(start)) {
+    for (const key of new Set([...Object.keys(end), ...Object.keys(start)])) {
+      if (key === 'id') continue;
+      diffScenes(end[key], start[key], where ? `${where}.${key}` : key, out);
+    }
+    return;
+  }
+  if (end !== start) out.push({ path: where, end, start });
+}
+
+function describeList(list) {
+  if (list.length === 0) return 'no layers';
+  if (!list.every((item) => typeof item?.content?.type === 'string')) return `${list.length} items`;
+  const types = list.slice(0, 6).map((item) => item.content.type);
+  return `${list.length} layers: ${types.join(', ')}${list.length > types.length ? ', …' : ''}`;
+}
+
+function formatValue(value) {
+  if (value === undefined) return '(absent)';
+  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(6)));
+  const text = JSON.stringify(value);
+  return text.length > 60 ? `${text.slice(0, 57)}…` : text;
 }
 
 function fmt(value) {

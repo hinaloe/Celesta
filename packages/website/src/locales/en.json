@@ -776,6 +776,9 @@
         "fbm-options": "fbm options",
         "a-rough-horizon-line": "A rough horizon line",
         "invalid-options-throw-an-error-that-names": "Invalid options throw an error that names the function, such as <slot0/>.",
+        "noise-that-loops": "Noise that loops",
+        "noise-and-fbm-never-repeat": "<slot0/> and <slot1/> never repeat, so in a video that plays on repeat (Shorts, TikTok), a wobble driven by them jumps where the last frame meets the first. <slot2/> is the same smooth noise, but it repeats every <slot3/>, counted in the units of <slot4/>: pass the length of the loop scaled the same way as the frame. <slot5/> does the same for layered noise.",
+        "a-sway-that-loops": "A sway that loops",
         "which-one-do-i-use": "Which one do I use?",
         "choosing-a-noise-function": "Choosing a noise function",
         "choosing-a-noise-function-label": "Choosing a noise function",
@@ -783,6 +786,7 @@
         "use": "Use",
         "one-value-that-drifts-over-time": "One value that drifts over time",
         "a-value-that-wanders-on-several-scales": "A value that wanders on several scales",
+        "a-value-that-drifts-in-a-looping-video": "A value that drifts in a looping video",
         "a-pattern-across-the-screen": "A pattern across the screen",
         "or-sampled-at-scaled-positions": "<slot0/> or <slot1/> sampled at scaled positions",
         "a-pattern-across-the-screen-that-moves": "A pattern across the screen that moves",
@@ -792,7 +796,7 @@
         "metadata": {
           "title": "math: noise & fbm",
           "description": "Smooth, repeatable drift, wobble, and organic fields.",
-          "keywords": "noise noise2D noise3D fbm fbm2D fbm3D octaves lacunarity gain perlin wobble drift shake clouds smoke terrain"
+          "keywords": "noise noise2D noise3D fbm fbm2D fbm3D loopNoise loopFbm octaves lacunarity gain perlin wobble drift shake clouds smoke terrain"
         },
         "api": {
           "how-many-layers-to-add-a-whole": "How many layers to add. A whole number of at least 1; the default is <slot0/>. More layers add finer detail and cost a little more per call.",

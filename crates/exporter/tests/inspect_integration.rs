@@ -344,3 +344,48 @@ export default function Root() {
     assert_eq!(node_only.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&node_only.stderr).contains("UNSUPPORTED inspection"));
 }
+
+#[test]
+fn native_inspection_evaluates_past_the_end_for_loop_checks() {
+    let Some(_cli) = runtime() else { return };
+    let scene = |x: &str| {
+        format!(
+            r##"
+import {{ Composition, Rect, Sequence, useCurrentFrame }} from '@celesta/react';
+function Mover() {{
+  const frame = useCurrentFrame();
+  return <Rect x={{{x}}} width={{4}} height={{4}} fill="#ffffff" />;
+}}
+export default function Film() {{
+  return <Composition width={{64}} height={{64}} fps={{30}} durationInFrames={{4}}>
+    <Sequence from={{0}}><Mover /></Sequence>
+  </Composition>;
+}}
+"##
+        )
+    };
+    // Frame 4 is one past the last: the sequence that runs to the end stays open.
+    let (_dir, looping) = entry(&scene("(frame % 4) * 10"));
+    let requests = "{\"time\":{\"value\":4,\"timescale\":30},\"openEnd\":true}\n";
+    let (code, lines) = inspect_exporter(&looping, &[], requests);
+    assert_eq!(code, Some(0));
+    assert_eq!(lines[1]["openEnd"], true, "{}", lines[1]);
+    assert_eq!(lines[1]["scene"]["layers"].as_array().unwrap().len(), 1);
+
+    let seamless = inspect_mjs(&looping, &["--loop"]);
+    let stdout = String::from_utf8_lossy(&seamless.stdout);
+    assert_eq!(seamless.status.code(), Some(0), "{stdout}");
+    assert!(
+        stdout.contains("frame 4 vs frame 0: same Scene"),
+        "{stdout}"
+    );
+
+    let (_drifting_dir, drifting) = entry(&scene("frame * 10"));
+    let seam = inspect_mjs(&drifting, &["--loop"]);
+    let stdout = String::from_utf8_lossy(&seam.stdout);
+    assert_eq!(seam.status.code(), Some(1), "{stdout}");
+    assert!(
+        stdout.contains("transform.position.x: 40 at frame 4, 0 at frame 0"),
+        "{stdout}"
+    );
+}

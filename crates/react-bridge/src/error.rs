@@ -19,6 +19,9 @@ pub enum ReactBridgeError {
     InvalidProperties(Vec<PropertyIssue>),
     Render(String),
     Time(celesta_composition::TimeError),
+    /// The runtime ignored a request for a frame past the end: it is older
+    /// than this bridge.
+    OpenEndUnsupported,
 }
 
 impl fmt::Display for ReactBridgeError {
@@ -57,6 +60,9 @@ impl fmt::Display for ReactBridgeError {
             }
             Self::Render(error) => write!(formatter, "could not render the composition: {error}"),
             Self::Time(error) => write!(formatter, "invalid composition time: {error}"),
+            Self::OpenEndUnsupported => formatter.write_str(
+                "the Node.js React runtime cannot evaluate frames past the end; it is older than this exporter",
+            ),
         }
     }
 }
@@ -71,7 +77,8 @@ impl Error for ReactBridgeError {
             | Self::UnexpectedResponse
             | Self::EntryFailed(_)
             | Self::InvalidProperties(_)
-            | Self::Render(_) => None,
+            | Self::Render(_)
+            | Self::OpenEndUnsupported => None,
             Self::Time(error) => Some(error),
         }
     }

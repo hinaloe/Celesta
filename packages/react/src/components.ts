@@ -9,7 +9,7 @@ import {
 } from './hooks';
 import type { Animatable, BlendMode, Paint, TextStyle, LayerShadow, LayerGlow } from './scene';
 import type { ShaderEffect } from './shader';
-import { secondsFromTime, secondsToTime } from './time';
+import { endsWithComposition, secondsFromTime, secondsToTime } from './time';
 
 // Unlike the pre-reconciler tree walker, these are real function components:
 // each returns a host element (a lowercase intrinsic type the reconciler in
@@ -317,6 +317,7 @@ export function Sequence(props: SequenceProps): ReturnType<typeof React.createEl
   // as render.ts's walker. The walker still clips layers and audio against
   // the enclosing windows.
   const context = React.useContext(CompositionRuntimeContext);
+  const root = React.useContext(RootRuntimeContext);
   if (!context) {
     throw new Error('<Sequence> must be called from within a Celesta <Composition>');
   }
@@ -331,7 +332,14 @@ export function Sequence(props: SequenceProps): ReturnType<typeof React.createEl
       ? Math.max(0, durationInFrames)
       : Math.max(0, context.durationInFrames - from);
   const endSeconds = hasDuration ? (from + duration) / fps : context.durationInFrames / fps;
-  if (localSeconds < from / fps || localSeconds >= endSeconds) {
+  // Past the composition's end (see `openEnd`), a window that ends with the
+  // composition stays open; one that ends later keeps its own end.
+  // render.ts's walker decides the same way.
+  const openEnd =
+    context.openEnd === true &&
+    root !== null &&
+    endsWithComposition(secondsFromTime(root.time) - localSeconds + endSeconds, root.durationInFrames / fps, fps);
+  if (localSeconds < from / fps || (!openEnd && localSeconds >= endSeconds)) {
     return React.createElement('sequence', props, null);
   }
   const shiftedTime = secondsToTime(localSeconds - from / fps);
@@ -343,6 +351,7 @@ export function Sequence(props: SequenceProps): ReturnType<typeof React.createEl
         lang,
         time: shiftedTime,
         durationInFrames: duration,
+        openEnd,
       },
     },
     React.createElement('sequence', props),
@@ -383,7 +392,7 @@ export function FreezeFrame(props: FreezeFrameProps): ReturnType<typeof React.cr
   }
   return React.createElement(
     CompositionRuntimeContext.Provider,
-    { value: { ...root, lang: context.lang, time: secondsToTime(props.frame / root.fps) } },
+    { value: { ...root, lang: context.lang, time: secondsToTime(props.frame / root.fps), openEnd: false } },
     React.createElement(FreezeFrameContext.Provider, { value: scope }, React.createElement('freeze-frame', props)),
   );
 }

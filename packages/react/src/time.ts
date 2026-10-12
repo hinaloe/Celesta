@@ -15,6 +15,15 @@ export function secondsFromTime(time: Time): number {
   return time.value / time.timescale;
 }
 
+/**
+ * Whether a window ending at `endSec` (composition seconds) ends together
+ * with the composition. Half a frame of slack absorbs rounding in summed
+ * sequence offsets.
+ */
+export function endsWithComposition(endSec: number, compositionEndSec: number, fps: number): boolean {
+  return Math.abs(endSec - compositionEndSec) < 0.5 / fps;
+}
+
 /** Converts a `HH:MM:SS(.mmm)`, `MM:SS(.mmm)`, or `SS(.mmm)` timecode to a frame. */
 export function timecodeToFrame(timecode: string, fps: number): number {
   const trimmed = timecode.trim();
