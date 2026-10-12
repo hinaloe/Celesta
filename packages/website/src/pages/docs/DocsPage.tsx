@@ -64,7 +64,7 @@ export function DocsPage() {
                 <a href={docPath('overview')} aria-current={slug === 'overview' ? 'page' : undefined}>{text('docs.ui.overview')}</a>
                 {docGroups.map(section => <div key={section.title} className="docs-nav-group">
                   <p className="docs-nav-label">{section.title}</p>
-                  {section.pages.map(topicLink)}
+                  {section.pages.map(topic => <a key={topic.slug} className={topic.parent ? 'docs-nav-child' : undefined} href={docPath(topic.slug)} aria-current={slug === topic.slug ? 'page' : undefined}>{topic.navTitle}</a>)}
                 </div>)}
               </>}
           </nav>
@@ -105,7 +105,7 @@ function Overview() {
     <div className="docs-index">
       {docGroups.map(section => <div key={section.title}>
         <h2>{section.title}</h2>
-        <ul>{section.pages.map(topic => <li key={topic.slug}><a href={docPath(topic.slug)}><strong>{topic.title}</strong><span>{topic.description}</span></a></li>)}</ul>
+        <ul>{section.pages.map(topic => <li key={topic.slug} className={topic.parent ? 'docs-index-child' : undefined}><a href={docPath(topic.slug)}><strong>{topic.navTitle}</strong><span>{topic.description}</span></a></li>)}</ul>
       </div>)}
     </div>
   </section>;

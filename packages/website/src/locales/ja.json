@@ -785,6 +785,7 @@
         "with-the-frame-in-the-seed": "シードにフレームを入れた <slot0><slot1/></slot0>",
         "metadata": {
           "title": "math：ノイズと fbm",
+          "nav-title": "ノイズと fbm",
           "description": "滑らかで再現可能な漂い・揺れ・有機的な場。",
           "keywords": "数学 ノイズ ゆらぎ 揺れ 地形 noise noise2D noise3D fbm fbm2D fbm3D loopNoise loopFbm octaves lacunarity gain perlin wobble drift shake clouds smoke terrain"
         },
@@ -816,6 +817,7 @@
         "both-and-use-the-same-control-points": "<slot0/> と <slot1/> は <slot2/> の <slot3/> / <slot4/> と同じ制御点を使うので、マーカーが描いた曲線上に留まります。<slot6/> は<slot5>テキスト効果・カメラ・線</slot5>をご覧ください。",
         "metadata": {
           "title": "math：整形・波・幾何",
+          "nav-title": "整形・波・幾何",
           "description": "数値の整形、波、角度、2D の点。",
           "keywords": "数学 数値 波 角度 幾何 点 座標 clamp lerp inverseLerp remap smoothstep smootherstep wrap mod pingPong snap roundTo fract sineWave triangleWave squareWave sawtoothWave degToRad lerpAngle rotatePoint polarToCartesian bezier distance Vec2 TAU"
         },
@@ -924,6 +926,7 @@
         "browser-support-is-tracked-in": "ブラウザ対応は <slot0>Issue 100</slot0> で追跡しています。",
         "metadata": {
           "title": "code：入力・カーソル・トークン",
+          "nav-title": "入力・カーソル・トークン",
           "description": "入力風にコードを表示し、カーソルを配置し、トークンを取得し、行を自分で描きます。",
           "keywords": "コード 入力 カーソル トークン タイピング 行ごと 自分で描く visibleCharacters useTypewriter useCodePoint codeCharacterCount tokenizeCode highlightCode codeLines colorRuns line by line caret annotation typing reveal limits performance ligatures"
         },
@@ -985,7 +988,8 @@
       "groups": {
         "getting-started": "はじめに",
         "guides": "ガイド",
-        "packages": "パッケージ",
+        "reference": "リファレンス",
+        "packages": "追加パッケージ",
         "more": "その他"
       }
     },

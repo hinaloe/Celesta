@@ -3,7 +3,11 @@ import { localeFromPath, type Locale } from './locales.ts';
 
 export interface DocPage {
   slug: string;
+  /** The package page this page belongs to. Sub-pages follow their parent, one level deep. */
+  parent?: string;
   title: string;
+  /** The label in the navigation: a sub-page's title without its package prefix, otherwise the title. */
+  navTitle: string;
   description: string;
   keywords: string;
 }
@@ -13,7 +17,9 @@ export interface DocGroup {
   pages: DocPage[];
 }
 
-const groupMessages = [
+type PageMessages = { slug: string; parent?: string; title: Message; navTitle?: Message; description: Message; keywords: Message };
+
+const groupMessages: { title: Message; pages: PageMessages[] }[] = [
   {
     title: 'docs.navigation.groups.getting-started',
     pages: [
@@ -38,15 +44,20 @@ const groupMessages = [
     ],
   },
   {
-    title: 'docs.navigation.groups.packages',
+    title: 'docs.navigation.groups.reference',
     pages: [
       { slug: 'reference', title: 'docs.chapters.reference.metadata.title', description: 'docs.chapters.reference.metadata.description', keywords: 'docs.chapters.reference.metadata.keywords' },
-      { slug: 'voicevox', title: 'docs.chapters.voicevox.metadata.title', description: 'docs.chapters.voicevox.metadata.description', keywords: 'docs.chapters.voicevox.metadata.keywords' },
+    ],
+  },
+  {
+    title: 'docs.navigation.groups.packages',
+    pages: [
       { slug: 'math', title: 'docs.chapters.math.metadata.title', description: 'docs.chapters.math.metadata.description', keywords: 'docs.chapters.math.metadata.keywords' },
-      { slug: 'math-noise', title: 'docs.chapters.math-noise.metadata.title', description: 'docs.chapters.math-noise.metadata.description', keywords: 'docs.chapters.math-noise.metadata.keywords' },
-      { slug: 'math-shaping', title: 'docs.chapters.math-shaping.metadata.title', description: 'docs.chapters.math-shaping.metadata.description', keywords: 'docs.chapters.math-shaping.metadata.keywords' },
+      { slug: 'math-noise', parent: 'math', title: 'docs.chapters.math-noise.metadata.title', navTitle: 'docs.chapters.math-noise.metadata.nav-title', description: 'docs.chapters.math-noise.metadata.description', keywords: 'docs.chapters.math-noise.metadata.keywords' },
+      { slug: 'math-shaping', parent: 'math', title: 'docs.chapters.math-shaping.metadata.title', navTitle: 'docs.chapters.math-shaping.metadata.nav-title', description: 'docs.chapters.math-shaping.metadata.description', keywords: 'docs.chapters.math-shaping.metadata.keywords' },
       { slug: 'code', title: 'docs.chapters.code.metadata.title', description: 'docs.chapters.code.metadata.description', keywords: 'docs.chapters.code.metadata.keywords' },
-      { slug: 'code-typing', title: 'docs.chapters.code-typing.metadata.title', description: 'docs.chapters.code-typing.metadata.description', keywords: 'docs.chapters.code-typing.metadata.keywords' },
+      { slug: 'code-typing', parent: 'code', title: 'docs.chapters.code-typing.metadata.title', navTitle: 'docs.chapters.code-typing.metadata.nav-title', description: 'docs.chapters.code-typing.metadata.description', keywords: 'docs.chapters.code-typing.metadata.keywords' },
+      { slug: 'voicevox', title: 'docs.chapters.voicevox.metadata.title', description: 'docs.chapters.voicevox.metadata.description', keywords: 'docs.chapters.voicevox.metadata.keywords' },
     ],
   },
   {
@@ -58,12 +69,12 @@ const groupMessages = [
       { slug: 'troubleshooting', title: 'docs.chapters.troubleshooting.metadata.title', description: 'docs.chapters.troubleshooting.metadata.description', keywords: 'docs.chapters.troubleshooting.metadata.keywords' },
     ],
   },
-] satisfies { title: Message; pages: (Omit<DocPage, 'title' | 'description' | 'keywords'> & { title: Message; description: Message; keywords: Message })[] }[];
+];
 
 export function getDocGroups(locale: Locale): DocGroup[] {
   return groupMessages.map(group => ({
     title: translate(locale, group.title),
-    pages: group.pages.map(page => ({ ...page, title: translate(locale, page.title), description: translate(locale, page.description), keywords: translate(locale, page.keywords) })),
+    pages: group.pages.map(page => ({ ...page, title: translate(locale, page.title), navTitle: translate(locale, page.navTitle ?? page.title), description: translate(locale, page.description), keywords: translate(locale, page.keywords) })),
   }));
 }
 

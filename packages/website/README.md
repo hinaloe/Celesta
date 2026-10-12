@@ -159,7 +159,8 @@ assets and runs `pnpm run deploy`. It needs the `CLOUDFLARE_API_TOKEN` and
 - `/docs/`: the on-site bilingual user guide, one page per chapter at
   `/<language>/docs/<slug>/`, all built from `docs/index.html`. `src/site/docs-nav.ts` is the
   single list of groups and pages (slug, title, description, search keywords);
-  add a page there, then add its content under the same slug in
+  a package's sub-page names its `parent`, follows it, and has a short
+  `metadata.nav-title` for the indented sidebar entry. Add a page there, then add its content under the same slug in
   `src/pages/docs/content/guides.tsx` (app, React, and guides) or `src/pages/docs/content/packages.tsx`
   (`@celesta/math`, `@celesta/code`, and `@celesta/voicevox`). `src/pages/docs/DocsPage.tsx` renders the grouped
   sidebar, topic search, previous/next links, and the overview. Old

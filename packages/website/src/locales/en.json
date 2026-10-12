@@ -785,6 +785,7 @@
         "with-the-frame-in-the-seed": "<slot0><slot1/></slot0> with the frame in the seed",
         "metadata": {
           "title": "math: noise & fbm",
+          "nav-title": "Noise & fbm",
           "description": "Smooth, repeatable drift, wobble, and organic fields.",
           "keywords": "noise noise2D noise3D fbm fbm2D fbm3D loopNoise loopFbm octaves lacunarity gain perlin wobble drift shake clouds smoke terrain"
         },
@@ -816,6 +817,7 @@
         "both-and-use-the-same-control-points": "Both <slot0/> and <slot1/> use the same control points as a <slot2/>’s <slot3/> and <slot4/> commands, so the marker stays on the drawn curve. See <slot5>Text effects, camera & lines</slot5> for <slot6/>.",
         "metadata": {
           "title": "math: shaping, waves & geometry",
+          "nav-title": "Shaping, waves & geometry",
           "description": "Number shaping, waves, angles, and 2D points.",
           "keywords": "clamp lerp inverseLerp remap smoothstep smootherstep wrap mod pingPong snap roundTo fract sineWave triangleWave squareWave sawtoothWave degToRad lerpAngle rotatePoint polarToCartesian bezier distance Vec2 TAU"
         },
@@ -924,6 +926,7 @@
         "browser-support-is-tracked-in": "Browser support is tracked in <slot0>issue 100</slot0>.",
         "metadata": {
           "title": "code: typing, carets & tokens",
+          "nav-title": "Typing, carets & tokens",
           "description": "Reveal code as it is typed, place carets, read tokens, and draw the lines yourself.",
           "keywords": "visibleCharacters useTypewriter useCodePoint codeCharacterCount tokenizeCode highlightCode codeLines colorRuns line by line caret annotation typing reveal limits performance ligatures"
         },
@@ -985,7 +988,8 @@
       "groups": {
         "getting-started": "Getting started",
         "guides": "Guides",
-        "packages": "Packages",
+        "reference": "Reference",
+        "packages": "Add-on packages",
         "more": "More"
       }
     },
