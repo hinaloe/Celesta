@@ -4,7 +4,7 @@
 // that carried them is known to be decoded on the Rust side.
 
 import { type HostNode, hostRevision } from './reconciler';
-import type { Layer } from './scene';
+import type { Layer, ShaderSource } from './scene';
 
 /** What a `<Static>`'s cached layers depend on besides its subtree. */
 export interface StaticContext {
@@ -17,6 +17,8 @@ export interface StaticContext {
 interface Entry extends StaticContext {
   key: number;
   layers: Layer[];
+  /** The custom shaders the layers use, listed again on every frame. */
+  shaders: ShaderSource[];
   /** The `hostRevision()` when the layers were walked. */
   walkedAt: number;
 }
@@ -60,10 +62,14 @@ export class StaticSubtrees {
   }
 
   /** Caches `layers` for `node` under a new key, dropping its old one. */
-  store(node: HostNode, layers: Layer[], context: StaticContext): Entry {
+  store(
+    node: HostNode,
+    walked: { layers: Layer[]; shaders: ShaderSource[] },
+    context: StaticContext,
+  ): Entry {
     const previous = this.entries.get(node);
     if (previous) this.forget(previous);
-    const entry: Entry = { ...context, key: this.nextKey++, layers, walkedAt: hostRevision() };
+    const entry: Entry = { ...context, key: this.nextKey++, ...walked, walkedAt: hostRevision() };
     this.entries.set(node, entry);
     this.byKey.set(entry.key, entry);
     return entry;

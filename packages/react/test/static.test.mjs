@@ -17,7 +17,7 @@ import {
   useCurrentFrame,
 } from '../dist/index.js';
 import { createResolver, mount } from '../dist/render.js';
-import { registerHostElement } from '../dist/internal.js';
+import { registerHostElement, shaderEffect, shaderSource } from '../dist/internal.js';
 import { registerComponent } from '../dist/registry.js';
 
 const h = React.createElement;
@@ -193,4 +193,30 @@ test('definitions are a list of keys and layers', () => {
   const { scene, statics } = mounted.renderAt(at(0), null, { statics: { decoded: 0 } });
   assert.ok(Array.isArray(statics.defined));
   assert.deepEqual(statics.defined.map((definition) => definition.key), [scene.layers[0].content.key]);
+});
+
+test('custom shaders inside a reused static stay listed in the scene', () => {
+  const tint = shaderSource({
+    name: 'static-tint',
+    wgsl: 'fn effect(input: EffectInput) -> vec4f { return source_at(input.position); }',
+    params: [],
+  });
+  const mounted = mount(film(() => h(Static, null, h(Rect, { width: 1, height: 1, shader: shaderEffect(tint, [], 0) }))));
+  for (const frame of [0, 1, 2]) {
+    const { scene } = mounted.renderAt(at(frame), null, { statics: { decoded: frame } });
+    assert.deepEqual(scene.shaders?.map((shader) => shader.id), [tint.id], `frame ${frame}`);
+  }
+  const inline = mount(film(() => h(Static, null, h(Rect, { width: 1, height: 1, shader: shaderEffect(tint, [], 0) }))));
+  for (const frame of [0, 1]) {
+    assert.equal(inline.renderAt(at(frame), null).scene.shaders?.length, 1, `inline frame ${frame}`);
+  }
+});
+
+test('groups inside a static do not make it rebuild every frame', () => {
+  // <Group> reads the frame's runtime context, so React renders it again on
+  // every frame even inside the memoized <Static>; its props stay the same.
+  const mounted = mount(film(() => h(Static, null, h(Group, { x: 1 }, rect(2)))));
+  const keys = [0, 1, 2].map((frame) =>
+    mounted.renderAt(at(frame), null, { statics: { decoded: frame } }).scene.layers[0].content.key);
+  assert.deepEqual(keys, [keys[0], keys[0], keys[0]]);
 });

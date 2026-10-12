@@ -35,6 +35,18 @@ function touch(node: HostNode | null): void {
   }
 }
 
+/**
+ * Whether two props objects hold the same values, by `Object.is`. A host
+ * node's element children are its child nodes, not props, so `children`
+ * only counts for text, which keeps its content in props.
+ */
+function sameProps(type: string, a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) =>
+    (key === 'children' && type !== 'text') || (Object.prototype.hasOwnProperty.call(b, key) && Object.is(a[key], b[key])));
+}
+
 function attach(parent: HostNode | null, child: HostNode): void {
   child.parent = parent;
   touch(parent);
@@ -148,7 +160,11 @@ const hostConfig: Reconciler.HostConfig<
     container.children = [];
   },
 
-  prepareUpdate: () => ({}),
+  // React renders a component again whenever a context it reads changes,
+  // and the frame's runtime context changes every frame; most of the host
+  // props it then produces are the same. Leaving those uncommitted keeps a
+  // `<Static>` with groups inside from looking changed on every frame.
+  prepareUpdate: (_instance, type, oldProps, newProps) => (sameProps(type, oldProps, newProps) ? null : {}),
   commitUpdate(instance, _updatePayload, _type, _oldProps, newProps) {
     instance.props = newProps;
     touch(instance);

@@ -611,9 +611,14 @@ function extractShader(value: unknown, context: WalkContext): NonNullable<Layer[
   if (!(value instanceof ShaderEffect)) {
     throw new Error("shader must be a value returned by a shader from @celesta/shader's defineShader()");
   }
+  useShaderSource(ShaderEffect.source(value).source, context);
+  return ShaderEffect.serialize(value);
+}
+
+/** Lists `source` among the frame's shaders. */
+function useShaderSource(source: ShaderSource, context: WalkContext): void {
   const sources = usedShaders(context);
   context.frameState.set(SHADER_SOURCES, sources);
-  const { source } = ShaderEffect.source(value);
   // A frame uses a few shaders. Keying a Map by the id would internalize
   // it into a thin string, which `flat-strings.test.mjs` rejects.
   const used = sources.find((other) => other.id === source.id);
@@ -624,7 +629,6 @@ function extractShader(value: unknown, context: WalkContext): NonNullable<Layer[
     // cannot both reach the renderer.
     throw new Error(`two different shaders share the id ${source.id}; change either one's source`);
   }
-  return ShaderEffect.serialize(value);
 }
 
 function extractEffects(props: Record<string, unknown>, context: WalkContext): Layer['effects'] | undefined {
@@ -893,20 +897,30 @@ function sameLocation(left: ResolvedAsset, right: ResolvedAsset): boolean {
 function staticLayer(node: HostNode, path: string, context: WalkContext, audio: AudioClipDescriptor[]): Layer {
   const { statics } = context;
   const key = { path, lang: context.lang, idPrefix: context.idPrefix, compact: context.compact };
-  const walk = () =>
-    walkChildren(node, path, {
+  // The children are walked with a frame state of their own, so the custom
+  // shaders they use are known and can be listed again on frames that reuse
+  // their layers. No host element, the other user of frame state, can be
+  // inside.
+  const walk = () => {
+    const childContext: WalkContext = {
       ...context,
       insideStatic: true,
       // A definition holds its nested `<Static>`s' layers, never references.
       statics: statics && { ...statics, refer: false },
-    }, audio);
+      frameState: new Map(),
+    };
+    const layers = walkChildren(node, path, childContext, audio);
+    return { layers, shaders: usedShaders(childContext) };
+  };
   const entry = statics ? (statics.cache.lookup(node, key) ?? statics.cache.store(node, walk(), key)) : null;
+  const walked = entry ? undefined : walk();
+  for (const shader of entry ? entry.shaders : walked!.shaders) useShaderSource(shader, context);
   let content: LayerContent;
   if (entry && statics?.refer) {
     statics.referenced.add(entry.key);
     content = { type: 'staticRef', key: entry.key };
   } else {
-    content = { type: 'group', layers: entry ? entry.layers : walk() };
+    content = { type: 'group', layers: entry ? entry.layers : walked!.layers };
   }
   const identity: EvaluatedTransform = {
     position: { x: 0, y: 0 },
