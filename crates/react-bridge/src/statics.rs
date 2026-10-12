@@ -4,8 +4,16 @@
 use std::collections::HashMap;
 
 use celesta_composition::{Layer, LayerContent, Scene};
+use serde::Deserialize;
 
 use crate::error::ReactBridgeError;
+
+/// A `<Static>` subtree's layers under its key, as a frame sends them.
+#[derive(Debug, Deserialize)]
+pub(crate) struct StaticDefinition {
+    pub(crate) key: u32,
+    pub(crate) layers: Vec<Layer>,
+}
 
 #[derive(Default)]
 pub(crate) struct StaticCache {
@@ -27,11 +35,15 @@ impl StaticCache {
     pub(crate) fn apply(
         &mut self,
         seq: Option<u64>,
-        defined: HashMap<u32, Vec<Layer>>,
+        defined: Vec<StaticDefinition>,
         dropped: Vec<u32>,
         scene: &mut Scene,
     ) -> Result<(), ReactBridgeError> {
-        self.layers.extend(defined);
+        self.layers.extend(
+            defined
+                .into_iter()
+                .map(|definition| (definition.key, definition.layers)),
+        );
         if let Err(error) = expand(&self.layers, &mut scene.layers) {
             self.layers.clear();
             self.decoded = 0;

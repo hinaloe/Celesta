@@ -2,13 +2,14 @@ use crate::measure::MeasureTextRequest;
 use crate::probe::MediaProbeRequest;
 use crate::properties::{PropertyIssue, PropertyLayer};
 use crate::props_edit::OrderedObject;
+use crate::statics::StaticDefinition;
 use crate::types::{
     ComponentPropertyField, ComponentPropertySchema, ReactAudioClipDescriptor,
     ReactCompositionConfig,
 };
 use celesta_composition::{Layer, Scene, ShaderSource, Time};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 /// The first stdin line when the CLI runs with `--properties-stdin`.
 #[derive(Serialize)]
@@ -102,8 +103,8 @@ pub(crate) enum Response {
         /// The frame's number among those answered with `<Static>`
         /// references; absent otherwise.
         seq: Option<u64>,
-        /// `<Static>` subtrees this frame defines, by key.
-        statics: HashMap<u32, Vec<Layer>>,
+        /// `<Static>` subtrees this frame defines.
+        statics: Vec<StaticDefinition>,
         /// Keys no later frame refers to.
         dropped_statics: Vec<u32>,
     },
@@ -136,7 +137,7 @@ pub(crate) struct RawResponse {
     pub(crate) open_end: bool,
     pub(crate) seq: Option<u64>,
     #[serde(default)]
-    pub(crate) statics: HashMap<u32, Vec<Layer>>,
+    pub(crate) statics: Vec<StaticDefinition>,
     #[serde(default)]
     pub(crate) dropped_statics: Vec<u32>,
 }

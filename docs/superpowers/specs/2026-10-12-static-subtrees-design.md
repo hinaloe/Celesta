@@ -98,8 +98,8 @@ that already has it. `appendInitialChild`, `appendChild`, and
   the same scene as before.
 - `renderAt(time, project, options)` gains
   `options.statics?: { decoded: number }` and returns, besides `scene` and
-  `audio`, `statics?: { seq: number; defined: Record<number, Layer[]>;
-  dropped: number[] }`.
+  `audio`, `statics?: { seq: number; defined: { key: number; layers:
+  Layer[] }[]; dropped: number[] }`.
 
 ### Which definitions a frame carries (`packages/cli/src/cli.ts`)
 
@@ -111,9 +111,12 @@ that already has it. `appendInitialChild`, `appendChild`, and
 - `decoded` is the last `seq` Rust has finished decoding, sent with each
   frame request. Frames that Rust received but never decoded therefore only
   cause a definition to be sent again.
-- The frame message adds `"seq": n`, `"statics": { "<key>": [layers] }`
-  (left out when empty), and `"droppedStatics": [keys]` (left out when
-  empty).
+- The frame message adds `"seq": n`, `"statics": [{ "key": k, "layers":
+  [layers] }]` (left out when empty), and `"droppedStatics": [keys]` (left
+  out when empty). Definitions are a list, not an object keyed by number:
+  V8 holds numeric keys as indexed elements, and one such object sends the
+  whole frame's `JSON.stringify` down its slow path (measured: twice the
+  stringify time of a 100,000-layer first frame).
 
 ## Wire and scene model
 

@@ -39,7 +39,7 @@ test('frames asked for with statics number themselves and define what Rust lacks
   ]);
   const { key } = first.scene.layers[0].content;
   assert.equal(first.seq, 1);
-  assert.ok(first.statics[key]);
+  assert.deepEqual(first.statics.map((definition) => definition.key), [key]);
   assert.equal('droppedStatics' in first, false);
   assert.equal(second.seq, 2);
   assert.equal('statics' in second, false);

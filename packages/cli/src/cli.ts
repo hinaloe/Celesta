@@ -237,7 +237,7 @@ async function main(): Promise<void> {
           ...(statics
             ? {
               seq: statics.seq,
-              ...(Object.keys(statics.defined).length > 0 ? { statics: statics.defined } : {}),
+              ...(statics.defined.length > 0 ? { statics: statics.defined } : {}),
               ...(statics.dropped.length > 0 ? { droppedStatics: statics.dropped } : {}),
             }
             : {}),
@@ -354,7 +354,7 @@ function writeLine(
         scene: Scene;
         audio: AudioClipDescriptor[];
         seq?: number;
-        statics?: Record<number, Layer[]>;
+        statics?: { key: number; layers: Layer[] }[];
         droppedStatics?: number[];
       }
     | { collectedAudio: AudioClipDescriptor[] }

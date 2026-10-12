@@ -826,11 +826,13 @@ fn open_end_frame_requests_ask_for_and_read_back_the_echo() {
 mod statics {
     use crate::error::ReactBridgeError;
     use crate::protocol::{Request, StaticsRequest};
-    use crate::statics::StaticCache;
+    use crate::statics::{StaticCache, StaticDefinition};
     use celesta_composition::{
         EvaluatedTransform, GroupMask, Layer, LayerContent, MaskMode, Rational, Scene, Time,
     };
-    use std::collections::HashMap;
+    fn definition(key: u32, layers: Vec<Layer>) -> StaticDefinition {
+        StaticDefinition { key, layers }
+    }
 
     fn layer(id: &str, content: LayerContent) -> Layer {
         Layer {
@@ -906,7 +908,7 @@ mod statics {
         cache
             .apply(
                 Some(4),
-                HashMap::from([(1, vec![rect("r")])]),
+                vec![definition(1, vec![rect("r")])],
                 Vec::new(),
                 &mut frame,
             )
@@ -933,14 +935,14 @@ mod statics {
         cache
             .apply(
                 Some(1),
-                HashMap::from([(1, vec![rect("r")])]),
+                vec![definition(1, vec![rect("r")])],
                 Vec::new(),
                 &mut first,
             )
             .unwrap();
         let mut second = scene(vec![reference("s", 1)]);
         cache
-            .apply(Some(2), HashMap::new(), Vec::new(), &mut second)
+            .apply(Some(2), Vec::new(), Vec::new(), &mut second)
             .unwrap();
         assert_eq!(second.layers[0], expanded("s", vec![rect("r")]));
         assert_eq!(cache.decoded(), 2);
@@ -953,7 +955,7 @@ mod statics {
         cache
             .apply(
                 Some(1),
-                HashMap::from([(1, vec![rect("r")])]),
+                vec![definition(1, vec![rect("r")])],
                 vec![1],
                 &mut first,
             )
@@ -961,7 +963,7 @@ mod statics {
         assert_eq!(first.layers[0], expanded("s", vec![rect("r")]));
         let mut second = scene(vec![reference("s", 1)]);
         let error = cache
-            .apply(Some(2), HashMap::new(), Vec::new(), &mut second)
+            .apply(Some(2), Vec::new(), Vec::new(), &mut second)
             .unwrap_err();
         assert!(
             matches!(error, ReactBridgeError::MissingStatic(1)),
@@ -976,7 +978,7 @@ mod statics {
         cache
             .apply(
                 Some(5),
-                HashMap::from([(1, vec![rect("r")])]),
+                vec![definition(1, vec![rect("r")])],
                 Vec::new(),
                 &mut first,
             )
@@ -984,13 +986,13 @@ mod statics {
         let mut broken = scene(vec![reference("t", 2)]);
         assert!(
             cache
-                .apply(Some(6), HashMap::new(), Vec::new(), &mut broken)
+                .apply(Some(6), Vec::new(), Vec::new(), &mut broken)
                 .is_err()
         );
         assert_eq!(cache.decoded(), 0);
         let mut again = scene(vec![reference("s", 1)]);
         assert!(matches!(
-            cache.apply(Some(7), HashMap::new(), Vec::new(), &mut again),
+            cache.apply(Some(7), Vec::new(), Vec::new(), &mut again),
             Err(ReactBridgeError::MissingStatic(1))
         ));
     }

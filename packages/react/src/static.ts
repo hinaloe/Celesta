@@ -24,7 +24,12 @@ interface Entry extends StaticContext {
 /** What a frame asked for with `statics` tells the bridge. */
 export interface StaticsFrame {
   seq: number;
-  defined: Record<number, Layer[]>;
+  /**
+   * A list rather than an object keyed by number: V8 holds such keys as
+   * indexed elements, which send the whole frame's JSON.stringify down its
+   * slow path.
+   */
+  defined: { key: number; layers: Layer[] }[];
   dropped: number[];
 }
 
@@ -83,11 +88,11 @@ export class StaticSubtrees {
    */
   frame(referenced: ReadonlySet<number>, decoded: number): StaticsFrame {
     const seq = ++this.seq;
-    const defined: Record<number, Layer[]> = {};
+    const defined: StaticsFrame['defined'] = [];
     for (const key of referenced) {
       const first = this.firstSent.get(key);
       if (first === undefined || first > decoded) {
-        defined[key] = this.byKey.get(key)!.layers;
+        defined.push({ key, layers: this.byKey.get(key)!.layers });
         if (first === undefined) this.firstSent.set(key, seq);
       }
     }
