@@ -46,6 +46,10 @@ pub(crate) struct Request<'a> {
     /// frame (see [`crate::ReactBridge::set_debug_guides`]).
     #[serde(rename = "debugGuides", skip_serializing_if = "std::ops::Not::not")]
     pub(crate) debug_guides: bool,
+    /// Asks the runtime to evaluate this frame as the editor preview, where
+    /// `useIsPreview()` is true (see [`crate::ReactBridge::set_preview`]).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) preview: bool,
     /// Sent with frame requests: the runtime may then refer to `<Static>`
     /// subtrees by key (see [`crate::statics`]).
     #[serde(skip_serializing_if = "Option::is_none")]

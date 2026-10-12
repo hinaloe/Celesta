@@ -34,6 +34,8 @@ pub struct ReactBridge {
     pub(crate) statics: StaticCache,
     /// Whether frame requests ask for debug guides.
     pub(crate) debug_guides: bool,
+    /// Whether frame requests are evaluated as the editor preview.
+    pub(crate) preview: bool,
 }
 
 impl Drop for ReactBridge {
@@ -198,6 +200,7 @@ impl ReactBridge {
             text_measurer,
             statics: StaticCache::default(),
             debug_guides: false,
+            preview: false,
         })
     }
 
@@ -212,6 +215,14 @@ impl ReactBridge {
     /// ignores it.
     pub const fn set_debug_guides(&mut self, debug_guides: bool) {
         self.debug_guides = debug_guides;
+    }
+
+    /// Makes later frame requests evaluate the composition as the editor
+    /// preview: `useIsPreview()` is true, and so `useDebugGuides()` too.
+    /// Only the editor's preview sets this; exports and inspection never do.
+    /// A runtime too old to know the request ignores it.
+    pub const fn set_preview(&mut self, preview: bool) {
+        self.preview = preview;
     }
 
     /// Requests the evaluated `Scene` at an exact composition time.
@@ -260,6 +271,7 @@ impl ReactBridge {
             compact_transforms: true,
             open_end: true,
             debug_guides: self.debug_guides,
+            preview: self.preview,
             statics: Some(StaticsRequest {
                 decoded: self.statics.decoded(),
             }),
@@ -301,6 +313,7 @@ impl ReactBridge {
             compact_transforms: true,
             open_end: false,
             debug_guides: self.debug_guides,
+            preview: self.preview,
             statics: Some(StaticsRequest {
                 decoded: self.statics.decoded(),
             }),
@@ -400,6 +413,7 @@ impl ReactBridge {
             compact_transforms: false,
             open_end: false,
             debug_guides: false,
+            preview: false,
             statics: None,
         };
         match self.request_response(request)? {

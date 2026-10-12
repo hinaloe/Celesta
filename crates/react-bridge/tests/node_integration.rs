@@ -402,6 +402,17 @@ fn debug_guides_render_in_component_preview_or_when_asked_when_node_is_available
     bridge.set_debug_guides(false);
     assert!(bridge.scene_at(Time::new(5, 30)).unwrap().layers.is_empty());
 
+    // The editor's .tsx preview asks for whole frames as the preview, where
+    // `useIsPreview()` and so `useDebugGuides()` are true.
+    bridge.set_preview(true);
+    let preview = bridge.scene_at(Time::new(5, 30)).unwrap();
+    assert!(all_layers(&preview.layers).iter().any(|layer| matches!(
+        &layer.content,
+        LayerContent::Text { text, .. } if text == "frame 5 · 640×360"
+    )));
+    bridge.set_preview(false);
+    assert!(bridge.scene_at(Time::new(5, 30)).unwrap().layers.is_empty());
+
     let props = BTreeMap::new();
     let resolved = bridge
         .resolve_components(

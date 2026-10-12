@@ -34,9 +34,13 @@ exports (issue #222).
   `export_react_png_with` turns the flag on, so video exports cannot draw
   guides. JSON projects have no guides to draw.
 - The editor's whole-`.tsx` preview evaluates frames like an export
-  (`preview: false`), so guides never appeared there; its preview bridge now
-  sets `set_debug_guides(true)` (`crates/editor/src/preview.rs`).
-  `useIsPreview()` is still false in that preview.
+  (`preview: false`), so guides never appeared there and `useIsPreview()`
+  was false. Frame requests now carry `preview: true` too
+  (`ReactBridge::set_preview`, `renderAt(..., { preview })`), and only the
+  editor's preview bridge sets it (`crates/editor/src/preview.rs`), which
+  turns on `useIsPreview()` and so the guides. Exporter and inspect paths
+  never set it. A `<Static>` that reads `useIsPreview()` is walked again when
+  it changes, since its host nodes change (`packages/cli/test/preview.test.mjs`).
 - `examples/shorts-type` and `examples/shorts-type-en` take `SAFE` from
   `safeAreaInsets('vertical-social', W, H)` and end with
   `<DebugOverlay safeArea={SAFE} />`, replacing their own `SafeGuide`

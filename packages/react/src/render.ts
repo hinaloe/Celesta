@@ -187,6 +187,8 @@ export interface MountedComposition {
       statics?: { decoded: number };
       /** Draw debug guides (`useDebugGuides()`), as PNG exports with `--debug-guides` ask. */
       debugGuides?: boolean;
+      /** Evaluate as the editor preview, where `useIsPreview()` is true. Exports never set it. */
+      preview?: boolean;
     },
   ): { scene: Scene; audio: AudioClipDescriptor[]; statics?: StaticsFrame };
   /** Sweeps every frame without constructing visual layers; hooks and font measurements still run. */
@@ -995,6 +997,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
     config: CompositionConfig | PlaceholderConfig,
     openEnd = false,
     debugGuides = false,
+    preview = false,
   ) => {
     const runtimeValue = {
       time,
@@ -1002,7 +1005,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
       height: config.height,
       fps: config.frameRate.numerator,
       durationInFrames: config.durationInFrames,
-      preview: false,
+      preview,
       ...(debugGuides ? { debugGuides } : {}),
       lang: config.lang,
       openEnd,
@@ -1060,9 +1063,10 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
     compact = false,
     statics?: { decoded: number },
     debugGuides = false,
+    preview = false,
   ) => {
     rerenderRequested = false;
-    renderTree(time, project, config, openEnd, debugGuides);
+    renderTree(time, project, config, openEnd, debugGuides, preview);
     let instance = findCompositionInstance(container);
     const nextFonts: ResolvedAsset[] = [];
     collectFonts(instance, nextFonts);
@@ -1074,7 +1078,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
       // Reconcile again with the complete font list and refs before
       // emitting layers.
       rerenderRequested = false;
-      renderTree(time, project, config, openEnd, debugGuides);
+      renderTree(time, project, config, openEnd, debugGuides, preview);
       instance = findCompositionInstance(container);
     }
     const audio: AudioClipDescriptor[] = [];
@@ -1132,6 +1136,7 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
         options?.compact === true,
         options?.statics,
         options?.debugGuides === true,
+        options?.preview === true,
       ),
     collectAudio() {
       const audio: AudioClipDescriptor[] = [];
