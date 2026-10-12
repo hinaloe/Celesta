@@ -1059,6 +1059,7 @@ dependencies = [
  "celesta-evaluator",
  "celesta-gpu-renderer",
  "celesta-project",
+ "dunce",
  "serde_json",
 ]
 

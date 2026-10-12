@@ -9,7 +9,6 @@ use celesta_project::{
     Asset, AssetSource, Project, ProjectSettings, ProjectVersion, TimelineContent,
 };
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// A loaded project plus the viewer-only context that is never serialized.
@@ -31,8 +30,9 @@ impl EditorDocument {
         // (`serialized_asset_path`) resolve back to exactly the same
         // absolute paths — on macOS, `/var` is a symlink to `/private/var`,
         // and mixing canonicalized input paths with a non-canonicalized
-        // root would break that round trip.
-        let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        // root would break that round trip. `dunce` keeps Windows paths out
+        // of the `\\?\` verbatim form, which file dialogs never return.
+        let path = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let asset_root = path
             .parent()
             .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
@@ -63,7 +63,7 @@ impl EditorDocument {
         sample_rate: u32,
         duration_in_frames: u64,
     ) -> Result<Self, EditorDocumentError> {
-        let entry = fs::canonicalize(entry).unwrap_or_else(|_| entry.to_path_buf());
+        let entry = dunce::canonicalize(entry).unwrap_or_else(|_| entry.to_path_buf());
         let asset_root = entry
             .parent()
             .map_or_else(|| PathBuf::from("."), Path::to_path_buf);

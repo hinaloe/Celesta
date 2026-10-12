@@ -122,7 +122,7 @@ fn react_preview_builds_a_synthetic_document_from_composition_facts() {
     assert_eq!(document.react_entry(), Some("title.tsx"));
     assert_eq!(
         document.react_entry_absolute_path().unwrap(),
-        fs::canonicalize(&entry_path).unwrap()
+        dunce::canonicalize(&entry_path).unwrap()
     );
     // 150 frames at 30fps is exactly five seconds.
     assert_eq!(document.duration().as_seconds().unwrap(), 5.0);
@@ -159,7 +159,32 @@ fn react_entry_resolves_relative_to_the_project_file() {
     assert_eq!(document.react_entry(), Some("./react/entry.tsx"));
     assert_eq!(
         document.react_entry_absolute_path().unwrap(),
-        fs::canonicalize(&root).unwrap().join("./react/entry.tsx")
+        dunce::canonicalize(&root).unwrap().join("./react/entry.tsx")
     );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// On Windows, `fs::canonicalize` returns a `\\?\C:\…` verbatim path. The
+/// editor shows the entry path and hands it to Node.js, so it must stay an
+/// ordinary absolute path like the ones file dialogs return.
+#[test]
+fn react_entry_path_is_not_a_windows_verbatim_path() {
+    let root =
+        std::env::temp_dir().join(format!("celesta-editor-react-verbatim-{}", std::process::id()));
+    fs::create_dir_all(&root).unwrap();
+    let entry_path = root.join("film.tsx");
+    fs::write(&entry_path, b"export default function Root() { return null; }").unwrap();
+
+    let document =
+        EditorDocument::react_preview(&entry_path, 1920, 1080, Rational::new(30, 1), 48_000, 150)
+            .unwrap();
+
+    let entry = document.react_entry_absolute_path().unwrap();
+    assert!(
+        !entry.to_string_lossy().starts_with(r"\\?\"),
+        "verbatim entry path: {}",
+        entry.display()
+    );
+    assert!(entry.is_absolute());
     fs::remove_dir_all(root).unwrap();
 }
