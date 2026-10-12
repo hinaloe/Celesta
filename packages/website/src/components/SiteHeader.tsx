@@ -6,7 +6,7 @@ import { currentLocale, homePath, t } from '../site/i18n';
 import { repository } from '../site/links';
 import { docPath, showcasePath } from '../site/routes';
 
-/** The header on every page. Below 780 px the navigation folds behind a menu button. */
+/** The header on every page. Below 860 px the navigation folds behind a menu button. */
 export function SiteHeader({ current }: { current?: 'docs' | 'showcase' }) {
   const [menuOpen, setMenuOpen] = useState(false);
   return <header id="top" className="header">
@@ -18,7 +18,7 @@ export function SiteHeader({ current }: { current?: 'docs' | 'showcase' }) {
         <a href={showcasePath('', currentLocale)} aria-current={current === 'showcase' ? 'true' : undefined}>{t('common.navigation.showcase')}</a>
         <a href={`${homePath}#playground`}>{t('common.navigation.playground')}</a>
         <a href={repository}>{t('common.navigation.github')} <span aria-hidden="true">↗</span></a>
-        <a className="nav-download" href={allDownloads}>{t('common.navigation.download')}</a>
+        <a className="nav-download" href={allDownloads}>{t('common.navigation.download')} <span aria-hidden="true">↓</span></a>
         <LanguageSwitcher />
       </nav>
     </div>
