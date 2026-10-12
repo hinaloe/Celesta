@@ -49,17 +49,18 @@ Celesta のデスクトップアプリとエクスポーターで動きます。
 ## セーフエリア
 
 Shorts や TikTok は、画面の下約 20%（キャプション、プログレスバー）と右端（いいね・コメントなどのボタン）に UI を重ねます。
-読ませる文字（見出し・本文・コード）は、すべて `constants.ts` の `SAFE`（上 192・右 200・下 384・左 72 px）の内側に置いています。
+読ませる文字（見出し・本文・コード）は、すべて `constants.ts` の `SAFE` の内側に置いています。`<SafeArea>` のプリセット `'vertical-social'`（上 192・右 200・下 384・左 72 px）です。
 背景、網点、テープ、集中線のような装飾は、画面全体に描いています。
 
 各シーンは `components/Stage.tsx` で、背景・網点・テープを全面に描き、読ませる文字だけを `<SafeArea>` の中の `<Camera>` に入れています。
 カメラはセーフエリアの中心を基準に寄るので、ズームしても文字は UI 側へ寄りません。
 文字の列（`COL`、幅 760 px）は、数 % のズームの余裕を見て、セーフエリアより少し狭くしてあります。
 
-UI が重なる範囲は、`guides` プロジェクトプロパティで重ねて確認できます。
+`film.tsx` の最後にある `<DebugOverlay safeArea={SAFE} />` が、セーフエリアの枠と、UI が重なる範囲の網掛けを描きます。
+プレビューと、`--debug-guides` を付けて書き出した PNG フレームやコンタクトシートに描かれ、動画には描かれません。
 
 ```sh
-Celesta-export --react examples/shorts-type/film.tsx --props '{"guides":true}' --every 30 --contact-sheet sheet.png
+Celesta-export --react examples/shorts-type/film.tsx --debug-guides --every 30 --contact-sheet sheet.png
 ```
 
 ## 計測と inspect.mjs

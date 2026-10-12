@@ -1,8 +1,8 @@
-import { Assets, Audio, Composition, Font, Series, defineProjectProperties, getProjectProperty } from '@celesta/react';
+import { Assets, Audio, Composition, Font, Series } from '@celesta/react';
+import { DebugOverlay } from '@celesta/debug';
 import { Fx } from './components/Fx';
 import { Hud } from './components/Hud';
-import { SafeGuide } from './components/SafeGuide';
-import { FONT_SRC, FPS, H, W } from './constants';
+import { FONT_SRC, FPS, H, SAFE, W } from './constants';
 import { measureAll } from './measure';
 import { SCENES, TIMING } from './timeline';
 
@@ -21,18 +21,10 @@ import { SCENES, TIMING } from './timeline';
 //   tapes.ts       the copy on each scene's two tapes
 //   halftone.ts    background shader      fx.ts         finishing shader (RGB split, glitch, flash)
 //   components/    Copy/Tag (text), Stage (background, tapes, safe area, camera),
-//                  Fx (drives fx.ts), Tape, Burst (speed lines), Hud (scene and beat),
-//                  SafeGuide (platform UI overlay)
+//                  Fx (drives fx.ts), Tape, Burst (speed lines), Hud (scene and beat)
 //   constants.ts   canvas, timing, safe area, palette, fonts
 
-defineProjectProperties({
-  guides: { type: 'boolean', label: 'Safe-area guides', defaultValue: false },
-});
-
-let guides = false;
-
 export async function prepare() {
-  guides = getProjectProperty<boolean>('guides');
   await measureAll();
 }
 
@@ -50,7 +42,9 @@ export default function Film() {
         </Series>
         <Hud />
       </Fx>
-      {guides && <SafeGuide />}
+      {/* The platform UI's area, in the preview and in PNGs exported with
+          --debug-guides; never in the video. */}
+      <DebugOverlay safeArea={SAFE} />
       <Audio src="./score.wav" />
     </Composition>
   );

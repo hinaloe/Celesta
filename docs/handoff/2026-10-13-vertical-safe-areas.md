@@ -37,6 +37,10 @@ exports (issue #222).
   (`preview: false`), so guides never appeared there; its preview bridge now
   sets `set_debug_guides(true)` (`crates/editor/src/preview.rs`).
   `useIsPreview()` is still false in that preview.
+- `examples/shorts-type` and `examples/shorts-type-en` take `SAFE` from
+  `safeAreaInsets('vertical-social', W, H)` and end with
+  `<DebugOverlay safeArea={SAFE} />`, replacing their own `SafeGuide`
+  component and `guides` project property.
 - Docs: `skills/celesta/references/react-core.md` (vertical video, debug
   guides), `verify.md` (checking a vertical video's safe area),
   `animation.md`, `export.md`, `SKILL.md`, and the website's preview, layout,

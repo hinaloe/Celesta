@@ -46,17 +46,20 @@ and the line is drawn with exactly the tracking it was measured with. English ha
 
 Shorts and TikTok draw their caption and progress bar over the bottom ~20% of
 the frame and their buttons along the right edge. Copy meant to be read
-(headlines, body, code) stays inside `SAFE` in `constants.ts` (top 192,
-right 200, bottom 384, left 72 px). Backgrounds, the halftone, the tapes and
-the speed lines fill the whole frame.
+(headlines, body, code) stays inside `SAFE` in `constants.ts`, the
+`'vertical-social'` preset of `<SafeArea>` (top 192, right 200, bottom 384,
+left 72 px). Backgrounds, the halftone, the tapes and the speed lines fill the
+whole frame.
 
 `components/Stage.tsx` draws those full-frame layers, then the copy inside a
 `<SafeArea>` and a `<Camera>` centred on it, so a push-in grows towards every
-edge of the safe area alike. To see the covered areas, turn on the `guides`
-project property:
+edge of the safe area alike. `film.tsx` ends with
+`<DebugOverlay safeArea={SAFE} />`, which outlines the safe area and shades the
+area the UI covers, in the preview and in PNGs exported with
+`--debug-guides`, never in the video:
 
 ```sh
-Celesta-export --react examples/shorts-type-en/film.tsx --props '{"guides":true}' --every 30 --contact-sheet sheet.png
+Celesta-export --react examples/shorts-type-en/film.tsx --debug-guides --every 30 --contact-sheet sheet.png
 ```
 
 ## Effects

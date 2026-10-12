@@ -402,6 +402,9 @@ importers:
 
   examples/shorts-type:
     dependencies:
+      '@celesta/debug':
+        specifier: workspace:*
+        version: link:../../packages/debug
       '@celesta/layout':
         specifier: workspace:*
         version: link:../../packages/layout
@@ -433,6 +436,9 @@ importers:
 
   examples/shorts-type-en:
     dependencies:
+      '@celesta/debug':
+        specifier: workspace:*
+        version: link:../../packages/debug
       '@celesta/layout':
         specifier: workspace:*
         version: link:../../packages/layout
