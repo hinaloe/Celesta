@@ -375,6 +375,31 @@ importers:
         specifier: ^31.0.2
         version: 31.0.2
 
+  examples/shorts-tips:
+    dependencies:
+      '@celesta/code':
+        specifier: workspace:*
+        version: link:../../packages/code
+      '@celesta/project':
+        specifier: workspace:*
+        version: link:../../packages/project
+      '@celesta/react':
+        specifier: workspace:*
+        version: link:../../packages/react
+      '@celesta/shapes':
+        specifier: workspace:*
+        version: link:../../packages/shapes
+      '@celesta/transitions':
+        specifier: workspace:*
+        version: link:../../packages/transitions
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.31
+        version: 18.3.31
+
   examples/shorts-type:
     dependencies:
       '@celesta/layout':
