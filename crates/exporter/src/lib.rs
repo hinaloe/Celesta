@@ -17,8 +17,8 @@ pub use control::{CompositionInfo, ExportCancellation, ExportProgress, ExportedF
 pub use error::ExportError;
 pub use exporter::Exporter;
 pub use options::{
-    ColorConversion, EncoderPreset, ExportOptions, UnknownColorConversion, UnknownEncoderPreset,
-    VideoEncoding,
+    BitDepth, ColorConversion, EncoderPreset, ExportOptions, UnknownBitDepth,
+    UnknownColorConversion, UnknownEncoderPreset, VideoEncoding,
 };
 pub use range::ExportRange;
 pub use react::{CompanionProject, ReactRuntimeOptions};

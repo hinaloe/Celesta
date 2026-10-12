@@ -2845,6 +2845,131 @@ fn refuses_clips_nested_deeper_than_the_shader_walks() {
     ));
 }
 
+/// A 256x10 scene on black: a linear gradient from black to `#080808`
+/// across the top eight rows, eight codes over 256 pixels, and an opaque
+/// `#102030` rect across the bottom two.
+fn gentle_gradient_scene() -> Scene {
+    let mut scene = empty_scene(256, 10);
+    let mut gradient = solid_rect("gradient", 128.0, 256.0, 8.0, "#000000");
+    gradient.content = LayerContent::Rect {
+        width: 256.0,
+        height: 8.0,
+        fill: Some(Paint::Linear {
+            start: Point { x: 0.0, y: 0.0 },
+            end: Point { x: 256.0, y: 0.0 },
+            stops: vec![
+                celesta_composition::GradientStop {
+                    offset: 0.0,
+                    color: "#000000".to_owned(),
+                },
+                celesta_composition::GradientStop {
+                    offset: 1.0,
+                    color: "#080808".to_owned(),
+                },
+            ],
+        }),
+        stroke: None,
+        corner_radius: 0.0,
+    };
+    let mut solid = solid_rect("solid", 128.0, 256.0, 2.0, "#102030");
+    solid.transform.position.y = 9.0;
+    scene.layers = vec![gradient, solid];
+    scene
+}
+
+/// The longest run of equal values in `values`.
+fn longest_run(values: &[u8]) -> usize {
+    values
+        .chunk_by(|first, second| first == second)
+        .map(<[u8]>::len)
+        .max()
+        .unwrap_or(0)
+}
+
+/// Whether the renderer composites in half floats, which a dither needs to
+/// have anything finer than 8-bit code values to spread.
+fn composites_in_half_floats(renderer: &GpuRenderer) -> bool {
+    let half_floats = renderer.canvas_format == wgpu::TextureFormat::Rgba16Float;
+    if !half_floats {
+        eprintln!("skipping dither test: the GPU cannot composite in half floats");
+    }
+    half_floats
+}
+
+#[test]
+fn dithers_gentle_gradients_and_keeps_solid_fills() {
+    let Some(mut renderer) = renderer(GpuRenderOptions {
+        background: Color::rgba(0, 0, 0, 255),
+        ..GpuRenderOptions::default()
+    }) else {
+        return;
+    };
+    if !composites_in_half_floats(&renderer) {
+        return;
+    }
+    let scene = gentle_gradient_scene();
+    let frame = renderer.render(&scene).unwrap();
+    let (gradient, solid) = frame.pixels().split_at(256 * 8 * 4);
+    let red: Vec<u8> = gradient.iter().step_by(4).copied().collect();
+    // Rounded alone, each code would be a flat band 32 pixels wide. Along
+    // one row the pattern still leaves runs over half a code, as only every
+    // eighth pixel has its lowest threshold, and values within 1/8 of a code
+    // of a whole one are not dithered.
+    for row in red.chunks_exact(256) {
+        assert!(longest_run(row) <= 24, "{row:?}");
+    }
+    // The dither keeps the gradient's average: over the eight rows its
+    // pattern repeats in, each band's mean stays near the values it rounds.
+    for band in 0..8 {
+        let sum: u32 = red
+            .chunks_exact(256)
+            .flat_map(|row| &row[band * 32..band * 32 + 32])
+            .map(|&value| u32::from(value))
+            .sum();
+        let mean = f64::from(sum) / 256.0;
+        let ideal = band as f64 + 0.5;
+        assert!(
+            (mean - ideal).abs() < 0.15,
+            "band {band}: {mean} for {ideal}"
+        );
+    }
+    assert_eq!(solid, [0x10, 0x20, 0x30, 255].repeat(256 * 2));
+    // The pattern depends on the pixel only: the same frame dithers alike.
+    assert_eq!(renderer.render(&scene).unwrap().pixels(), frame.pixels());
+}
+
+#[test]
+fn dithers_gentle_gradients_converted_to_yuv420p() {
+    let Some(mut renderer) = renderer(GpuRenderOptions {
+        background: Color::rgba(0, 0, 0, 255),
+        ..GpuRenderOptions::default()
+    }) else {
+        return;
+    };
+    if !composites_in_half_floats(&renderer) {
+        return;
+    }
+    if !renderer.supports_yuv420p_readback() {
+        eprintln!("skipping yuv420p test: the GPU cannot convert to yuv420p");
+        return;
+    }
+    renderer
+        .set_readback_format(ReadbackFormat::Yuv420p)
+        .unwrap();
+    assert!(renderer.submit(&gentle_gradient_scene()).unwrap().is_none());
+    let frame = renderer.drain().unwrap().remove(0);
+    // Luma rises 219/255 of a code per code of gray, so rounded alone it
+    // would step about every 37 pixels.
+    let luma = &frame.pixels()[..256 * 10];
+    for row in luma[..256 * 8].chunks_exact(256) {
+        assert!(longest_run(row) <= 28, "{row:?}");
+        assert_eq!(row[0], 16);
+    }
+    // #102030, whose luma is 40.9 before rounding: within the dither's code
+    // of 41.
+    assert!(luma[256 * 8..].iter().all(|&value| value.abs_diff(41) <= 1));
+}
+
 #[test]
 fn renders_a_gradient_filled_rect() {
     let Some(mut renderer) = renderer(GpuRenderOptions {
@@ -2904,8 +3029,25 @@ fn solid_rect(id: &str, x: f64, width: f64, height: f64, color: &str) -> Layer {
     }
 }
 
+/// Asserts that every value of `plane` is within the dither's one code of
+/// `expected`, the value libswscale rounds to, and is `expected` itself
+/// where the unrounded value is a whole code (`exact`).
+fn assert_dithered_plane(plane: &[u8], expected: &[u8], exact: &[bool]) {
+    for (row, values) in plane.chunks_exact(expected.len()).enumerate() {
+        for (column, ((value, expected), exact)) in
+            values.iter().zip(expected).zip(exact).enumerate()
+        {
+            let allowed = if *exact { 0 } else { 1 };
+            assert!(
+                value.abs_diff(*expected) <= allowed,
+                "({column}, {row}): {value}, expected {expected}"
+            );
+        }
+    }
+}
+
 #[test]
-fn converts_frames_to_the_same_yuv420p_values_as_libswscale() {
+fn converts_frames_to_within_a_dithered_code_of_libswscale() {
     let Some(mut renderer) = renderer(GpuRenderOptions {
         background: Color::rgba(0, 0, 0, 255),
         ..GpuRenderOptions::default()
@@ -2938,16 +3080,15 @@ fn converts_frames_to_the_same_yuv420p_values_as_libswscale() {
     let (luma, chroma) = frame.pixels().split_at(32);
     let (u, v) = chroma.split_at(8);
     // `ffmpeg -f rawvideo -pix_fmt rgba -i … -pix_fmt yuv420p` output
-    // for the same pixels.
-    for row in luma.chunks_exact(8) {
-        assert_eq!(row, [81, 81, 41, 41, 235, 235, 16, 16]);
-    }
-    for row in u.chunks_exact(4) {
-        assert_eq!(row, [90, 240, 128, 128]);
-    }
-    for row in v.chunks_exact(4) {
-        assert_eq!(row, [240, 110, 128, 128]);
-    }
+    // for the same pixels. White, black, and the chroma of the neutral
+    // columns are whole codes before rounding, so the dither keeps them.
+    assert_dithered_plane(
+        luma,
+        &[81, 81, 41, 41, 235, 235, 16, 16],
+        &[false, false, false, false, true, true, true, true],
+    );
+    assert_dithered_plane(u, &[90, 240, 128, 128], &[false, false, true, true]);
+    assert_dithered_plane(v, &[240, 110, 128, 128], &[false, false, true, true]);
 }
 
 #[test]
@@ -2964,26 +3105,31 @@ fn pipelines_yuv420p_frames_with_padded_plane_rows() {
         .unwrap();
     // 6x2 packs into 18 bytes: 12 of luma and a 3x1 U and V plane each,
     // every plane row padded to the copy alignment on the GPU.
+    // Each color's Y, U, and V, and whether its luma is a whole code before
+    // rounding, which the dither keeps.
     let colors = [
-        (Color::rgba(255, 0, 0, 255), [81, 90, 240]),
-        (Color::rgba(0, 0, 255, 255), [41, 240, 110]),
-        (Color::rgba(255, 255, 255, 255), [235, 128, 128]),
-        (Color::rgba(0, 0, 0, 255), [16, 128, 128]),
-        (Color::rgba(128, 128, 128, 255), [126, 128, 128]),
+        (Color::rgba(255, 0, 0, 255), [81, 90, 240], false),
+        (Color::rgba(0, 0, 255, 255), [41, 240, 110], false),
+        (Color::rgba(255, 255, 255, 255), [235, 128, 128], true),
+        (Color::rgba(0, 0, 0, 255), [16, 128, 128], true),
+        (Color::rgba(128, 128, 128, 255), [126, 128, 128], false),
     ];
     let mut frames = Vec::new();
-    for (color, _) in colors {
+    for (color, _, _) in colors {
         renderer.options.background = color;
         frames.extend(renderer.submit(&empty_scene(6, 2)).unwrap());
     }
     frames.extend(renderer.drain().unwrap());
 
     assert_eq!(frames.len(), colors.len());
-    for (frame, (_, [y, u, v])) in frames.iter().zip(colors) {
-        let mut expected = vec![y; 12];
-        expected.extend([u; 3]);
-        expected.extend([v; 3]);
-        assert_eq!(frame.pixels(), expected);
+    for (frame, (_, [y, u, v], neutral)) in frames.iter().zip(colors) {
+        let (luma, chroma) = frame.pixels().split_at(12);
+        let (u_plane, v_plane) = chroma.split_at(3);
+        assert_dithered_plane(luma, &[y; 6], &[neutral; 6]);
+        // Gray's chroma is a whole code too.
+        let exact = [neutral || u == 128; 3];
+        assert_dithered_plane(u_plane, &[u; 3], &exact);
+        assert_dithered_plane(v_plane, &[v; 3], &exact);
     }
 
     assert!(matches!(
@@ -3001,6 +3147,122 @@ fn pipelines_yuv420p_frames_with_padded_plane_rows() {
     let frame = renderer.drain().unwrap().remove(0);
     assert_eq!(frame.format(), ReadbackFormat::Rgba8);
     assert_eq!(frame.pixels(), [1, 2, 3, 255].repeat(12));
+}
+
+/// The little-endian 16-bit samples of `bytes`.
+fn samples16(bytes: &[u8]) -> Vec<u16> {
+    bytes
+        .chunks_exact(2)
+        .map(|sample| u16::from_le_bytes([sample[0], sample[1]]))
+        .collect()
+}
+
+#[test]
+fn converts_frames_to_ten_bit_yuv420p() {
+    let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+        return;
+    };
+    if !renderer.supports_yuv420p_readback() {
+        eprintln!("skipping yuv420p10 test: the GPU cannot convert to yuv420p");
+        return;
+    }
+    renderer
+        .set_readback_format(ReadbackFormat::Yuv420p10)
+        .unwrap();
+    // Each color's Y, U, and V: the 8-bit codes times 4. Only red's Y and U
+    // fall between codes (325.9 and 360.8), which the dither rounds either
+    // way.
+    let colors = [
+        (
+            Color::rgba(255, 0, 0, 255),
+            [326, 361, 960],
+            [false, false, true],
+        ),
+        (Color::rgba(255, 255, 255, 255), [940, 512, 512], [true; 3]),
+        (Color::rgba(0, 0, 0, 255), [64, 512, 512], [true; 3]),
+    ];
+    let mut frames = Vec::new();
+    for (color, _, _) in colors {
+        renderer.options.background = color;
+        frames.extend(renderer.submit(&empty_scene(6, 2)).unwrap());
+    }
+    frames.extend(renderer.drain().unwrap());
+    for (frame, (_, expected, exact)) in frames.iter().zip(colors) {
+        assert_eq!(frame.format(), ReadbackFormat::Yuv420p10);
+        // 12 luma and 3 + 3 chroma samples of 2 bytes each.
+        assert_eq!(frame.pixels().len(), 36);
+        let samples = samples16(frame.pixels());
+        let planes = [&samples[..12], &samples[12..15], &samples[15..]];
+        for ((plane, expected), exact) in planes.into_iter().zip(expected).zip(exact) {
+            let allowed = if exact { 0 } else { 1 };
+            assert!(
+                plane
+                    .iter()
+                    .all(|value| value.abs_diff(expected) <= allowed),
+                "{plane:?}, expected {expected}"
+            );
+        }
+    }
+
+    // Ten bits step four times finer than eight: the 8-code gradient spans
+    // about 28 luma codes instead of 7.
+    renderer.options.background = Color::rgba(0, 0, 0, 255);
+    if !composites_in_half_floats(&renderer) {
+        return;
+    }
+    assert!(renderer.submit(&gentle_gradient_scene()).unwrap().is_none());
+    let frame = renderer.drain().unwrap().remove(0);
+    let luma = samples16(&frame.pixels()[..256 * 10 * 2]);
+    for row in luma[..256 * 8].chunks_exact(256) {
+        // 64.05 and 91.4 before rounding.
+        assert!(row[0].abs_diff(64) <= 1, "{}", row[0]);
+        assert!(row[255].abs_diff(91) <= 1, "{}", row[255]);
+        assert!(longest_run16(row) <= 8, "{row:?}");
+    }
+}
+
+/// The longest run of equal values in `values`.
+fn longest_run16(values: &[u16]) -> usize {
+    values
+        .chunk_by(|first, second| first == second)
+        .map(<[u16]>::len)
+        .max()
+        .unwrap_or(0)
+}
+
+#[test]
+fn reads_frames_back_in_sixteen_bits() {
+    let Some(mut renderer) = renderer(GpuRenderOptions {
+        background: Color::rgba(0, 0, 0, 255),
+        ..GpuRenderOptions::default()
+    }) else {
+        return;
+    };
+    if !composites_in_half_floats(&renderer) {
+        return;
+    }
+    renderer
+        .set_readback_format(ReadbackFormat::Rgba16)
+        .unwrap();
+    assert!(renderer.submit(&gentle_gradient_scene()).unwrap().is_none());
+    let frame = renderer.drain().unwrap().remove(0);
+    assert_eq!(frame.format(), ReadbackFormat::Rgba16);
+    assert_eq!(frame.pixels().len(), 256 * 10 * 8);
+    let samples = samples16(frame.pixels());
+    let (gradient, solid) = samples.split_at(256 * 8 * 4);
+    // Not rounded to 8 bits: the red channel rises smoothly, sample by
+    // sample, from black to 8 of 255.
+    let red: Vec<u16> = gradient[..256 * 4].iter().step_by(4).copied().collect();
+    assert!(red.is_sorted(), "{red:?}");
+    assert!(red.chunk_by(|first, second| first == second).count() > 200);
+    let last = f64::from(red[255]) / 257.0;
+    assert!((last - 7.98).abs() < 0.05, "{last}");
+    // #102030 within the half float's precision of 257 times each code.
+    for pixel in solid.chunks_exact(4) {
+        for (value, code) in pixel.iter().zip([0x10_u16, 0x20, 0x30, 255]) {
+            assert!(value.abs_diff(code * 257) <= 8, "{pixel:?}");
+        }
+    }
 }
 
 #[test]
@@ -3338,11 +3600,19 @@ fn decodes_and_rotates_a_nested_image_on_the_gpu() {
     });
 
     let frame = renderer.render(&scene).unwrap();
-    assert_eq!(
-        frame.pixels(),
-        &[
-            255, 255, 255, 255, 0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255,
-        ]
+    // Filtering through the rotation leaves the edge texels a hair off whole
+    // codes, which the readback's dither can round either way.
+    let expected = [
+        255, 255, 255, 255, 0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255,
+    ];
+    assert!(
+        frame
+            .pixels()
+            .iter()
+            .zip(expected)
+            .all(|(pixel, expected)| pixel.abs_diff(expected) <= 1),
+        "{:?}",
+        frame.pixels()
     );
 }
 

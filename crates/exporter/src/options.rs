@@ -32,6 +32,8 @@ pub struct VideoEncoding {
     pub crf: u8,
     /// Where the rendered RGBA frames become the encoder's yuv420p.
     pub color_conversion: ColorConversion,
+    /// Bits per sample of the encoded video.
+    pub bit_depth: BitDepth,
 }
 
 impl VideoEncoding {
@@ -45,9 +47,76 @@ impl Default for VideoEncoding {
             preset: EncoderPreset::Medium,
             crf: 18,
             color_conversion: ColorConversion::Auto,
+            bit_depth: BitDepth::Eight,
         }
     }
 }
+
+/// Bits per sample of the exported H.264 stream.
+///
+/// Ten bits encode `yuv420p10le` with libx264's High 10 profile: each step
+/// is a quarter of an 8-bit one, so dark, gentle gradients hold together
+/// even after compression. Fewer players decode High 10 in hardware (many
+/// phones, browsers and editing tools play only 8-bit H.264), so 8 bits stay
+/// the default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BitDepth {
+    #[default]
+    Eight,
+    Ten,
+}
+
+impl BitDepth {
+    pub const ALL: [Self; 2] = [Self::Eight, Self::Ten];
+
+    /// The name `--bit-depth` takes.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Eight => "8",
+            Self::Ten => "10",
+        }
+    }
+
+    /// The pixel format libx264 encodes.
+    pub(crate) const fn pixel_format(self) -> &'static str {
+        match self {
+            Self::Eight => "yuv420p",
+            Self::Ten => "yuv420p10le",
+        }
+    }
+}
+
+impl fmt::Display for BitDepth {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for BitDepth {
+    type Err = UnknownBitDepth;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|depth| depth.as_str() == name)
+            .ok_or_else(|| UnknownBitDepth(name.to_owned()))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnknownBitDepth(pub String);
+
+impl fmt::Display for UnknownBitDepth {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "unknown bit depth '{}' (expected 8 or 10)",
+            self.0
+        )
+    }
+}
+
+impl Error for UnknownBitDepth {}
 
 /// libx264's `-preset` values, fastest first.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -129,13 +198,17 @@ impl fmt::Display for UnknownEncoderPreset {
 
 impl Error for UnknownEncoderPreset {}
 
-/// Where rendered RGBA frames are converted to yuv420p for the encoder.
+/// Where rendered RGBA frames are converted to yuv420p (or yuv420p10le) for
+/// the encoder.
 ///
 /// On the GPU, only 1.5 instead of 4 bytes per pixel are read back and the
 /// encoder skips its own conversion. Both use the BT.601 limited-range
 /// matrix; the GPU averages each 2x2 block for chroma where libswscale
 /// filters bicubically, a difference of a few code values at hard color
-/// edges.
+/// edges. The GPU rounds each plane from the frame's own precision with a
+/// dither; for 8-bit output the encoder converts the dithered 8-bit RGBA
+/// frame, so a dark gradient bands somewhat more there, and for 10-bit
+/// output a 16-bit RGBA one (8 bytes per pixel read back).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ColorConversion {
     /// On the GPU when it is a hardware GPU that supports it, otherwise in

@@ -4,10 +4,57 @@ use crate::error::GpuRenderError;
 use crate::pipeline::{PipelineKind, create_pipeline};
 use crate::plan::{GpuStep, PreparedDraws};
 use crate::renderer::GpuRenderer;
+use crate::texture::canvas_texture;
 use crate::types::{GpuRenderTarget, PreviewViewport};
 use celesta_composition::Scene;
 
 impl GpuRenderer {
+    /// Draws `scene` onto `target` as `encode_draws` does, but onto a canvas
+    /// of `canvas_format` first, which `quantizer` then rounds onto `target`
+    /// with its dither, as `submit` does for an export.
+    pub(crate) fn encode_frame(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        scene: &Scene,
+        target: GpuRenderTarget<'_>,
+        draws: &PreparedDraws,
+    ) -> Result<(), GpuRenderError> {
+        let size = wgpu::Extent3d {
+            width: target.width,
+            height: target.height,
+            depth_or_array_layers: 1,
+        };
+        if self
+            .target_canvas
+            .as_ref()
+            .is_none_or(|canvas| canvas.texture.size() != size)
+        {
+            self.target_canvas = Some(canvas_texture(
+                &self.device,
+                &self.texture_bind_group_layout,
+                self.canvas_format,
+                target.width,
+                target.height,
+            ));
+        }
+        let canvas = self.target_canvas.clone().expect("created above");
+        self.encode_draws(
+            encoder,
+            scene,
+            GpuRenderTarget {
+                view: &canvas.view,
+                format: self.canvas_format,
+                width: target.width,
+                height: target.height,
+            },
+            draws,
+        )?;
+        self.quantizer.ensure_pipeline(&self.device, target.format);
+        self.quantizer
+            .encode(encoder, &canvas, target.view, target.format);
+        Ok(())
+    }
+
     pub(crate) fn encode_draws(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
@@ -67,10 +114,10 @@ impl GpuRenderer {
         scene: &Scene,
         draws: &PreparedDraws,
     ) {
-        const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+        let format = self.canvas_format;
         self.prepare_canvases(scene.width, scene.height);
-        self.ensure_pipeline(FORMAT, PipelineKind::Layer);
-        self.ensure_pipeline(FORMAT, PipelineKind::Blend);
+        self.ensure_pipeline(format, PipelineKind::Layer);
+        self.ensure_pipeline(format, PipelineKind::Blend);
         // Each effect filters its shadow, glow and blur through at most
         // `PASSES_PER_FILTER` passes each.
         let effects = draws
@@ -85,8 +132,8 @@ impl GpuRenderer {
         let mut compositor = Compositor {
             device: &self.device,
             texture_layout: &self.texture_bind_group_layout,
-            layer_pipeline: &self.pipelines[&(FORMAT, PipelineKind::Layer)],
-            blend_pipeline: &self.pipelines[&(FORMAT, PipelineKind::Blend)],
+            layer_pipeline: &self.pipelines[&(format, PipelineKind::Layer)],
+            blend_pipeline: &self.pipelines[&(format, PipelineKind::Blend)],
             backdrop: self.backdrop.as_ref().expect("prepare_canvases creates it"),
             draws,
             effects: &mut self.effects,

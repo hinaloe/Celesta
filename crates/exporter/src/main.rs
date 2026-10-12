@@ -12,8 +12,8 @@ mod report;
 
 use celesta_composition::Time;
 use celesta_exporter::{
-    ColorConversion, CompanionProject, ContactSheet, EncoderPreset, ExportError, ExportOptions,
-    ExportProgress, ExportRange, Exporter, FrameSelection, GpuDriver, PngExport,
+    BitDepth, ColorConversion, CompanionProject, ContactSheet, EncoderPreset, ExportError,
+    ExportOptions, ExportProgress, ExportRange, Exporter, FrameSelection, GpuDriver, PngExport,
     ReactRuntimeOptions, RenderQuality, VideoEncoding, parse_timecode,
 };
 use celesta_project::Project;
@@ -66,7 +66,8 @@ struct Cli {
         conflicts_with_all = [
             "output", "project", "overwrite", "from", "to", "frames", "every",
             "contact_sheet", "columns", "tile_width", "output_format", "preset",
-            "crf", "color_conversion", "render_quality", "driver", "no_ui", "json",
+            "crf", "color_conversion", "bit_depth", "render_quality", "driver", "no_ui",
+            "json",
         ]
     )]
     inspect: bool,
@@ -154,6 +155,15 @@ struct Cli {
         value_parser = names(&ColorConversion::ALL, ColorConversion::as_str)
     )]
     color_conversion: ColorConversion,
+    /// Bits per sample of the MP4: 10 encodes yuv420p10le (H.264 High 10),
+    /// which keeps dark gradients smooth but plays on fewer devices.
+    #[arg(
+        long,
+        value_name = "BITS",
+        default_value_t = BitDepth::default(),
+        value_parser = names(&BitDepth::ALL, BitDepth::as_str)
+    )]
+    bit_depth: BitDepth,
     /// How carefully scaled and rotated layers are drawn; draft skips
     /// re-rasterizing scaled text and is meant for quick timing checks.
     #[arg(
@@ -190,6 +200,7 @@ impl Cli {
             preset: self.preset,
             crf: self.crf,
             color_conversion: self.color_conversion,
+            bit_depth: self.bit_depth,
         }
     }
 }
@@ -334,6 +345,9 @@ fn png_output(cli: &Cli) -> Result<bool, &'static str> {
     let png = selected || cli.contact_sheet || cli.output_format == Some(OutputFormat::Png);
     if png && !selected {
         return Err("PNG output requires --frame, --frames or --every");
+    }
+    if png && cli.bit_depth != BitDepth::Eight {
+        return Err("--bit-depth applies to MP4 output; PNG stills are 8-bit");
     }
     Ok(png)
 }

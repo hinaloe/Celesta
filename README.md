@@ -415,6 +415,16 @@ encoder has less work to do. `--color-conversion encoder` does the conversion
 in the encoder instead, which is how software renderers are always handled.
 `--color-conversion gpu` forces the GPU conversion.
 
+Frames are rounded to 8 bits with a fine dither, so dark, gentle gradients do
+not band. To keep them smoother still, `--bit-depth 10` encodes 10-bit video
+(H.264 High 10, `yuv420p10le`). It exports somewhat slower, and fewer devices
+play it: many phones, browsers, and editing tools decode only 8-bit H.264, so
+8 bits stay the default:
+
+```sh
+cargo run -p celesta-exporter --release -- --react --bit-depth 10 packages/cli/examples/title.tsx smooth.mp4
+```
+
 To check frames as PNG instead of encoding a video, select zero-based frames
 with `--frame`/`--frames`, or every *n*th frame (plus the last one) with
 `--every`, which can be narrowed with `--from`/`--to`. Add `--contact-sheet`

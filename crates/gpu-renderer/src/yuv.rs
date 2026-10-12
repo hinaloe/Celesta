@@ -1,17 +1,24 @@
 use crate::error::GpuRenderError;
 use crate::readback::{ReadbackLayout, YuvPlane, YuvReadback};
 
-/// The render pipelines behind [`ReadbackFormat::Yuv420p`] (`yuv420p.wgsl`).
+/// The render pipelines behind [`ReadbackFormat::Yuv420p`] and
+/// [`ReadbackFormat::Yuv420p10`] (`yuv420p.wgsl`), one converter each.
 pub(crate) struct YuvConverter {
     pub(crate) luma: wgpu::RenderPipeline,
     pub(crate) chroma: wgpu::RenderPipeline,
     pub(crate) bind_group_layout: wgpu::BindGroupLayout,
+    /// `R8Unorm` planes for 8-bit codes, `R16Uint` for 10-bit ones.
+    plane_format: wgpu::TextureFormat,
 }
 
 impl YuvConverter {
-    pub(crate) const PLANE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
-
-    pub(crate) fn new(device: &wgpu::Device) -> Self {
+    /// A converter to 10-bit codes when `ten_bit` is set, else to 8-bit.
+    pub(crate) fn new(device: &wgpu::Device, ten_bit: bool) -> Self {
+        let (plane_format, luma, chroma) = if ten_bit {
+            (wgpu::TextureFormat::R16Uint, "luma10", "chroma10")
+        } else {
+            (wgpu::TextureFormat::R8Unorm, "luma", "chroma")
+        };
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Celesta yuv420p bind group layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -30,9 +37,14 @@ impl YuvConverter {
             bind_group_layouts: &[Some(&bind_group_layout)],
             immediate_size: 0,
         });
-        let shader = device.create_shader_module(wgpu::include_wgsl!("yuv420p.wgsl"));
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Celesta yuv420p shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                concat!(include_str!("dither.wgsl"), include_str!("yuv420p.wgsl")).into(),
+            ),
+        });
         let target = Some(wgpu::ColorTargetState {
-            format: Self::PLANE_FORMAT,
+            format: plane_format,
             blend: None,
             write_mask: wgpu::ColorWrites::ALL,
         });
@@ -60,22 +72,15 @@ impl YuvConverter {
             })
         };
         Self {
-            luma: pipeline(
-                "Celesta yuv420p luma",
-                "luma",
-                std::slice::from_ref(&target),
-            ),
-            chroma: pipeline(
-                "Celesta yuv420p chroma",
-                "chroma",
-                &[target.clone(), target],
-            ),
+            luma: pipeline("Celesta yuv420p luma", luma, std::slice::from_ref(&target)),
+            chroma: pipeline("Celesta yuv420p chroma", chroma, &[target.clone(), target]),
             bind_group_layout,
+            plane_format,
         }
     }
 
     /// The plane textures and bind group converting one `width`x`height`
-    /// slot whose RGBA texture is `frame`.
+    /// slot whose frame, composited in `canvas_format`, is `frame`.
     pub(crate) fn readback(
         &self,
         device: &wgpu::Device,
@@ -103,12 +108,13 @@ impl YuvConverter {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: Self::PLANE_FORMAT,
+                format: self.plane_format,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
                 view_formats: &[],
             });
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            let layout = ReadbackLayout::with_bytes_per_pixel(width, height, 1)?;
+            let bytes_per_sample = self.plane_format.block_copy_size(None).unwrap_or(1);
+            let layout = ReadbackLayout::with_bytes_per_pixel(width, height, bytes_per_sample)?;
             // Each plane's size is a whole number of aligned rows, so every
             // plane starts at an offset the copy accepts.
             let plane_offset = offset;
@@ -129,7 +135,7 @@ impl YuvConverter {
         Ok(YuvReadback { bind_group, planes })
     }
 
-    /// Renders the slot's RGBA texture into its Y, U, and V planes.
+    /// Renders the slot's frame into its Y, U, and V planes.
     pub(crate) fn encode(&self, encoder: &mut wgpu::CommandEncoder, yuv: &YuvReadback) {
         fn attachment(plane: &YuvPlane) -> Option<wgpu::RenderPassColorAttachment<'_>> {
             Some(wgpu::RenderPassColorAttachment {

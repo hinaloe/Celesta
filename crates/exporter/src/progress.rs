@@ -463,7 +463,10 @@ fn render(frame: &mut Frame, settings: &Settings<'_>, state: &State) {
         Line::from(if settings.png {
             " Alpha    preserved".into()
         } else {
-            format!(" Color    {}", settings.video.color_conversion)
+            format!(
+                " Color    {}, {}-bit",
+                settings.video.color_conversion, settings.video.bit_depth
+            )
         }),
     ];
     if let Some(props) = &settings.props {
@@ -630,8 +633,11 @@ fn render_compact(frame: &mut Frame, settings: &Settings<'_>, state: &State) {
         "PNG stills".to_owned()
     } else {
         format!(
-            "H.264 / AAC  •  {}  •  CRF {}  •  color {}",
-            settings.video.preset, settings.video.crf, settings.video.color_conversion
+            "H.264 / AAC  •  {}  •  CRF {}  •  color {}  •  {}-bit",
+            settings.video.preset,
+            settings.video.crf,
+            settings.video.color_conversion,
+            settings.video.bit_depth
         )
     };
     frame.render_widget(

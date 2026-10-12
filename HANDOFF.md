@@ -220,10 +220,19 @@ covered by the dated handoff notes.
 - `--from`/`--to` export a clamped, frame-snapped composition span. Output starts
   at its own zero time, with the audio graph shifted by the window start.
 - `--preset` and `--crf` control libx264 encoding (defaults: `medium`, 18).
+  `--bit-depth 10` encodes yuv420p10le (High 10): the GPU converts to 10-bit
+  planes (`ReadbackFormat::Yuv420p10`), or reads back 16-bit RGBA
+  (`ReadbackFormat::Rgba16`, rgba64le) for the encoder to convert.
   `--color-conversion auto|gpu|encoder` chooses yuv420p conversion; auto uses
   GPU conversion unless the renderer is software. GPU readback returns I420
   at 1.5 bytes/pixel and uses BT.601 limited range. Its 2x2 chroma averaging
   can differ from the encoder's filtering at hard color edges.
+- GPU canvases are `Rgba16Float` where the adapter can render and blend it
+  (`canvas_format`), and every readback (RGBA, I420, and preview targets) is
+  rounded to 8 bits once, with an ordered dither, so gentle gradients do not
+  band. GPU gradients are not rounded to whole codes as the CPU renderer's
+  are. See
+  [`docs/handoff/2026-10-12-gradient-dither.md`](docs/handoff/2026-10-12-gradient-dither.md).
 - Remote HTTP/HTTPS assets are downloaded once into the per-user cache and
   are not revalidated. Font loading supports stylesheet `@font-face` sources
   and WOFF/WOFF2 unpacking.

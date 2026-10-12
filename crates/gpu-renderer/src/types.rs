@@ -131,16 +131,42 @@ impl fmt::Display for UnknownGpuDriver {
 impl Error for UnknownGpuDriver {}
 
 /// The pixel layout `GpuRenderer::submit`/`drain` read frames back in.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+///
+/// Either way the frame is composited finer than 8 bits where the GPU can
+/// (half floats) and rounded to 8-bit code values once, with an 8x8 ordered
+/// dither that depends on the pixel's position only, so a gentle gradient
+/// does not band and the same frame always reads back the same. A value on a
+/// whole code, such as a solid fill's RGBA, is kept exactly.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ReadbackFormat {
     /// Tightly packed RGBA8 rows, 4 bytes per pixel.
     #[default]
     Rgba8,
+    /// Tightly packed RGBA rows of 16-bit little-endian codes (FFmpeg's
+    /// `rgba64le`), 8 bytes per pixel: the composited frame without
+    /// rounding it to 8 bits, for an encoder that converts it to more than
+    /// 8 bits itself. Not dithered; 16 bits are finer than the half floats
+    /// it is composited in.
+    Rgba16,
     /// Planar I420 converted on the GPU: the full-size Y plane followed by
     /// the quarter-size U and V planes, 1.5 bytes per pixel. BT.601 limited
     /// range with 2x2-averaged chroma, the same matrix libswscale applies to
-    /// untagged RGB input. Both dimensions must be even.
+    /// untagged RGB input. Both dimensions must be even. A solid color whose
+    /// Y, U or V falls between two codes alternates between them, within a
+    /// code of libswscale's value.
     Yuv420p,
+    /// [`Yuv420p`](Self::Yuv420p) in 10-bit codes, each a little-endian
+    /// 16-bit sample (FFmpeg's `yuv420p10le`), 3 bytes per pixel: the 8-bit
+    /// matrix scaled by 4, so Y spans 64-940.
+    Yuv420p10,
+}
+
+impl ReadbackFormat {
+    /// Whether frames come back as Y, U, and V planes, which needs even
+    /// dimensions.
+    pub const fn is_yuv(self) -> bool {
+        matches!(self, Self::Yuv420p | Self::Yuv420p10)
+    }
 }
 
 /// How much work the renderer spends on layers that are scaled or rotated.

@@ -1,6 +1,8 @@
 use crate::DEFAULT_REACT_AUDIO_SAMPLE_RATE;
 use crate::error::ExportError;
-use crate::options::{ColorConversion, EncoderPreset, UnknownEncoderPreset, VideoEncoding};
+use crate::options::{
+    BitDepth, ColorConversion, EncoderPreset, UnknownBitDepth, UnknownEncoderPreset, VideoEncoding,
+};
 use crate::project::absolutize_layers;
 use crate::project::{build_audio_graph, merge_react_audio_clips, visual_only_project};
 use crate::range::{ExportRange, resolve_window, shifted_audio_graph};
@@ -147,6 +149,15 @@ fn encoder_presets_and_color_conversions_round_trip_through_their_names() {
     assert_eq!(
         "Medium".parse::<EncoderPreset>(),
         Err(UnknownEncoderPreset("Medium".to_owned()))
+    );
+    for depth in BitDepth::ALL {
+        assert_eq!(depth.as_str().parse::<BitDepth>(), Ok(depth));
+    }
+    assert_eq!(VideoEncoding::default().bit_depth, BitDepth::Eight);
+    assert_eq!(BitDepth::Ten.pixel_format(), "yuv420p10le");
+    assert_eq!(
+        "12".parse::<BitDepth>(),
+        Err(UnknownBitDepth("12".to_owned()))
     );
 }
 

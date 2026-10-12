@@ -2,7 +2,7 @@ use crate::RenderQuality;
 use crate::control::{ExportCancellation, ExportProgress};
 use crate::error::ExportError;
 use crate::exporter::Exporter;
-use crate::options::{ColorConversion, VideoEncoding};
+use crate::options::{BitDepth, ColorConversion, VideoEncoding};
 use crate::project::{absolutize_fonts, absolutize_layers, visual_only_project};
 use crate::range::ExportWindow;
 use crate::react::ReactVideoRequest;
@@ -40,6 +40,7 @@ impl Exporter {
             asset_root,
             frame_rate,
             self.options.video.color_conversion,
+            self.options.video.bit_depth,
             self.options.render_quality,
             self.options.driver,
         )?;
@@ -131,6 +132,7 @@ impl Exporter {
             asset_root,
             metadata.frame_rate,
             self.options.video.color_conversion,
+            self.options.video.bit_depth,
             self.options.render_quality,
             self.options.driver,
         )?;
@@ -336,11 +338,13 @@ pub(crate) fn path_to_url(path: &Path) -> String {
 }
 
 /// The renderer an export draws its frames with, reading them back as
-/// yuv420p when `color_conversion` puts that conversion on the GPU.
+/// yuv420p (or yuv420p10le for `bit_depth` 10) when `color_conversion` puts
+/// that conversion on the GPU, else as RGBA of enough bits for `bit_depth`.
 pub(crate) fn export_renderer(
     asset_root: &Path,
     frame_rate: Rational,
     color_conversion: ColorConversion,
+    bit_depth: BitDepth,
     render_quality: RenderQuality,
     driver: GpuDriver,
 ) -> Result<GpuRenderer, ExportError> {
@@ -357,19 +361,24 @@ pub(crate) fn export_renderer(
         ColorConversion::Gpu => true,
         ColorConversion::Encoder => false,
     };
-    if on_gpu {
-        renderer
-            .set_readback_format(ReadbackFormat::Yuv420p)
-            .map_err(ExportError::Render)?;
-    }
+    let readback = match (on_gpu, bit_depth) {
+        (true, BitDepth::Eight) => ReadbackFormat::Yuv420p,
+        (true, BitDepth::Ten) => ReadbackFormat::Yuv420p10,
+        (false, BitDepth::Eight) => ReadbackFormat::Rgba8,
+        (false, BitDepth::Ten) => ReadbackFormat::Rgba16,
+    };
+    renderer
+        .set_readback_format(readback)
+        .map_err(ExportError::Render)?;
     Ok(renderer)
 }
 
 /// Opens a constant-frame-rate H.264 `VideoWriter` for pushed frames in
 /// `input` layout — the library-linked equivalent of piping `rawvideo` into
 /// `ffmpeg -c:v libx264 -preset <preset> -crf <crf> -pix_fmt yuv420p -movflags +faststart`
-/// (`-preset medium -crf 18` by default). yuv420p input reaches the encoder
-/// without a conversion.
+/// (`-preset medium -crf 18` by default), with `-pix_fmt yuv420p10le` (High
+/// 10) for 10-bit output. Input already in the output's pixel format reaches
+/// the encoder without a conversion.
 pub(crate) fn open_video_writer(
     width: u32,
     height: u32,
@@ -387,7 +396,9 @@ pub(crate) fn open_video_writer(
     VideoWriter::builder(width, height)
         .pixel_format(match input {
             ReadbackFormat::Rgba8 => "rgba",
+            ReadbackFormat::Rgba16 => "rgba64le",
             ReadbackFormat::Yuv420p => "yuv420p",
+            ReadbackFormat::Yuv420p10 => "yuv420p10le",
         })
         .fps(fps_num, fps_den)
         .open(
@@ -395,7 +406,7 @@ pub(crate) fn open_video_writer(
                 .set_video_codec("libx264")
                 .set_video_codec_opt("preset", encoding.preset.as_str())
                 .set_video_codec_opt("crf", encoding.crf.to_string())
-                .set_pix_fmt("yuv420p")
+                .set_pix_fmt(encoding.bit_depth.pixel_format())
                 .set_format_opt("movflags", "+faststart"),
         )
         .map_err(|source| ExportError::Ffmpeg {

@@ -56,6 +56,7 @@ Celesta-export --json --react scene.tsx out.mp4
 | `--preset <p>` | libx264 preset, `ultrafast` … `veryslow` (default `medium`). Encoding speed against file size only; it does not change what is rendered. |
 | `--crf <n>` | 0–51, lower is better quality (default 18). |
 | `--color-conversion <w>` | `auto` (default), `gpu`, or `encoder`: where RGB becomes YUV. |
+| `--bit-depth <n>` | `8` (default) or `10`. `10` encodes H.264 High 10 (`yuv420p10le`): smoother dark gradients, but fewer players decode it; keep `8` for files meant for phones, browsers, or social media. MP4 only. |
 | `--render-quality <q>` | `final` (default) or `draft`. `draft` draws scaled text from a scale-1 texture, so it is softer; use it only to check timing. |
 | `--json` | No progress output; one line of JSON on stdout when the export ends. See [JSON results](#json-results). |
 | `--no-ui` | Plain text progress instead of the terminal dashboard (automatic when stderr is not a terminal). |
