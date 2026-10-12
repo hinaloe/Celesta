@@ -2615,3 +2615,17 @@ fn one_instance_image_dimension_keeps_its_aspect_ratio() {
     assert_eq!(pixel(&frame, 8, 5), [0, 0, 0, 255]);
     assert_eq!(pixel(&frame, 8, 10), [0, 0, 0, 255]);
 }
+
+#[test]
+fn cpu_refuses_a_static_ref() {
+    let error = CpuRenderer::default()
+        .render(&clip_scene(vec![instance_layer(
+            "s",
+            LayerContent::StaticRef { key: 3 },
+        )]))
+        .unwrap_err();
+    assert!(
+        matches!(&error, RenderError::UnresolvedStatic { layer } if layer == "s"),
+        "{error}"
+    );
+}

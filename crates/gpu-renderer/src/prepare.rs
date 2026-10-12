@@ -737,6 +737,13 @@ impl GpuRenderer {
                     content: "missing component",
                 });
             }
+            // The React bridge expands every one before handing a scene on.
+            LayerContent::StaticRef { .. } => {
+                return Err(GpuRenderError::UnsupportedContent {
+                    layer: layer.id.clone(),
+                    content: "static reference",
+                });
+            }
             LayerContent::Instances {
                 count,
                 shape,

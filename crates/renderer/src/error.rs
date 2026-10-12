@@ -33,6 +33,11 @@ pub enum RenderError {
     UnsupportedShader {
         layer: String,
     },
+    /// A `LayerContent::StaticRef` reached the renderer; the React bridge
+    /// expands every one before it hands a scene on.
+    UnresolvedStatic {
+        layer: String,
+    },
     RemoteAsset {
         asset: String,
         source: RemoteAssetError,
@@ -99,6 +104,10 @@ impl fmt::Display for RenderError {
             Self::UnsupportedShader { layer } => write!(
                 formatter,
                 "CPU reference renderer does not support the custom shader on layer `{layer}`"
+            ),
+            Self::UnresolvedStatic { layer } => write!(
+                formatter,
+                "layer `{layer}` refers to a static subtree that was never expanded"
             ),
             Self::RemoteAsset { asset, source } => {
                 write!(formatter, "could not load remote asset `{asset}`: {source}")

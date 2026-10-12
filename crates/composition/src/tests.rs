@@ -398,6 +398,7 @@ fn every_tagged_variant_round_trips() {
                     invert: true,
                 }),
             },
+            LayerContent::StaticRef { key: 7 },
             LayerContent::Rect {
                 width: 10.0,
                 height: 20.0,
@@ -758,4 +759,12 @@ fn layers_stay_small() {
         "Layer is {} bytes",
         std::mem::size_of::<Layer>()
     );
+}
+
+#[test]
+fn static_ref_round_trips() {
+    let json = r#"{"type":"staticRef","key":7}"#;
+    let content: LayerContent = serde_json::from_str(json).unwrap();
+    assert_eq!(content, LayerContent::StaticRef { key: 7 });
+    assert_eq!(serde_json::to_string(&content).unwrap(), json);
 }
