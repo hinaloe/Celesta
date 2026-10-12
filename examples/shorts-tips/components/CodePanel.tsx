@@ -1,4 +1,4 @@
-import { Group, Rect, Span, Text, progress } from '@celesta/react';
+import { Group, Rect, Text, progress } from '@celesta/react';
 import { Circle } from '@celesta/shapes';
 import { withAlpha } from '../color';
 import { BAR, BEAT, C, CODE, CODE_FONTS, FONT, SAFE, TYPE_FRAMES, W } from '../constants';
@@ -11,8 +11,8 @@ import { THEME, getPlan } from '../plan';
 //
 // It is drawn here rather than with @celesta/code's <Code>, to control the
 // look: a band on the newest line, a caret that blinks on the beat, and a
-// band that runs to the frame's edges. The colours come from tokenizeCode()
-// (plan.ts). Positions come from JetBrains Mono's fixed advance instead of
+// band that runs to the frame's edges. The lines and colour runs come from
+// highlightCode() (plan.ts), so they split and colour exactly like <Code>. Positions come from JetBrains Mono's fixed advance instead of
 // measuring, so scripts/inspect.mjs can evaluate every frame even without
 // an exporter to shape text (--no-native).
 export function CodePanel({ frame, accent }: { frame?: number; accent: string }) {
@@ -49,9 +49,9 @@ export function CodePanel({ frame, accent }: { frame?: number; accent: string })
           <Text key={i} x={CODE.textX} y={top + i * lineHeight + lineHeight * 0.72} anchorY="baseline"
             style={{
               fontFamily: CODE_FONTS, fontSize, fill: { type: 'solid', color: THEME.foreground },
-              visibleCharacters: typed < line.length ? typed : undefined,
+              colorRuns: line.runs, visibleCharacters: typed < line.length ? line.columns[typed] : undefined,
             }}>
-            {line.runs.map((run, j) => <Span key={j} style={{ fill: run.color }}>{run.text}</Span>)}
+            {line.text}
           </Text>
         );
       })}
@@ -64,11 +64,11 @@ export function CodePanel({ frame, accent }: { frame?: number; accent: string })
 // A block caret after the typed text of the newest line; it blinks on the beat once the line is done.
 function Caret({ frame, line }: { frame: number; line: number }) {
   const { lines, fontSize, lineHeight, revealAt } = getPlan();
-  const { length, advances } = lines[line];
+  const { length, columns, advances } = lines[line];
   const typed = Math.floor(length * progress(frame, revealAt[line], TYPE_FRAMES));
   const done = typed >= length;
   if (done && (frame - revealAt[line]) % BEAT >= BEAT / 2) return null;
-  const x = CODE.textX + advances.slice(0, typed).reduce((a, b) => a + b, 0) * fontSize;
+  const x = CODE.textX + advances.slice(0, columns[typed]).reduce((a, b) => a + b, 0) * fontSize;
   const y = CODE.bar + CODE.padY + line * lineHeight + (lineHeight - fontSize * 1.15) / 2;
   return <Rect x={x + 2} y={y} width={Math.round(fontSize * 0.5)} height={Math.round(fontSize * 1.15)} fill="#FFFFFFCC" />;
 }

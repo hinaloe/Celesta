@@ -85,7 +85,8 @@ Shorts・TikTok・Reels は、下の約 20%（y ≥ 1536）にキャプション
 
 ## コードの描画について
 
-コードのハイライトは `@celesta/code` の `tokenizeCode()` で行い、1 行を 1 つの `<Text>` として色を `<Span>` で付けています。
+コードは `@celesta/code` の `highlightCode()` で行と色の区切りに分けています。分け方は `<Code>` と同じ規則です。
+それを 1 行 1 つの `<Text>` にして、色の区切りを `style.colorRuns` に渡しています。
 `<Code>` コンポーネントを使わずに描いているのは、見せ方を自由にするためです。最新の行の帯と左端の色、拍に合わせて点滅するカーソル、画面の端まで伸びる帯がそれにあたります。
 
 コードの書体は、書体の並び `['JetBrains Mono', 'Noto Sans JP']`（`constants.ts` の `CODE_FONTS`）です。

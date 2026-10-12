@@ -1,5 +1,5 @@
 import { getProjectProperty, measureText } from '@celesta/react';
-import { tokenizeCode, type CodeTheme } from '@celesta/code';
+import { highlightCode, type CodeTheme, type HighlightedCodeLine } from '@celesta/code';
 import {
   BEAT, CODE, CODE_MAX_LINES, CODE_SIZE, FONT_URLS, MONO_ADVANCE, REVEAL_AT, REVEAL_BEATS, SAFE, TYPE_FRAMES,
 } from './constants';
@@ -19,13 +19,11 @@ export const THEME: CodeTheme = {
   },
 };
 
-export type CodeRun = { text: string; color: string };
-export type CodeLine = {
-  text: string;
-  runs: CodeRun[];
-  /** Code points, for `visibleCharacters`. */
+// A line as highlightCode() returns it, with what typing and the caret need.
+export type CodeLine = HighlightedCodeLine & {
+  /** Code points of the original source line: how many there are to type. */
   length: number;
-  /** Advance of each code point in em, for the caret. */
+  /** Advance of each code point of `text` (tabs expanded) in em. */
   advances: number[];
 };
 
@@ -43,31 +41,18 @@ export type Plan = {
 // (CODE_FONTS) draws those in Noto Sans JP, which advances them by 1 em.
 const WIDE = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/u;
 
-// Splits the tokenized snippet into lines of coloured runs.
+// The snippet's lines and colour runs, split exactly as <Code> splits them
+// (tabs expanded, CRLF and lone CR ending a line).
 function codeLines(source: string): CodeLine[] {
-  const lines: CodeLine[] = [{ text: '', runs: [], length: 0, advances: [] }];
-  for (const token of tokenizeCode(source, 'tsx')) {
-    const color = THEME.tokens[token.type] ?? THEME.foreground;
-    token.text.split('\n').forEach((part, i) => {
-      if (i > 0) lines.push({ text: '', runs: [], length: 0, advances: [] });
-      if (!part) return;
-      const line = lines[lines.length - 1];
-      const last = line.runs[line.runs.length - 1];
-      if (last?.color === color) last.text += part;
-      else line.runs.push({ text: part, color });
-      line.text += part;
-      for (const ch of part) {
-        line.length += 1;
-        line.advances.push(WIDE.test(ch) ? 1 : MONO_ADVANCE);
-      }
-    });
-  }
-  return lines;
+  return highlightCode(source, { language: 'tsx', theme: THEME }).map((line) => ({
+    ...line,
+    length: line.columns.length - 1,
+    advances: Array.from(line.text, (ch) => (WIDE.test(ch) ? 1 : MONO_ADVANCE)),
+  }));
 }
 
 export function makePlan(code: string, stages: string, tip: TipId): Plan {
-  // CRLF and lone CR end a line too (as in @celesta/code), so none is left inside a line.
-  const source = code.replace(/\r\n?/g, '\n').replace(/\t/g, '  ').replace(/\s+$/, '');
+  const source = code.replace(/\s+$/, '');
   const lines = codeLines(source);
   if (!source || lines.length > CODE_MAX_LINES) {
     throw new Error(`code: write 1 to ${CODE_MAX_LINES} lines (got ${source ? lines.length : 0})`);
