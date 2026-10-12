@@ -837,13 +837,21 @@ fn shifts_media_inside_sequences_when_node_is_available() {
         .expect("the sequenced video renders from its sequence's window on");
     assert_eq!(video.source_time_seconds, 2.0);
 
-    // The audio inside that sequence is audible from the sequence's start to
-    // the end of the composition, starting at its own local zero.
-    assert_eq!(mid.audio.len(), 1);
-    assert_eq!(mid.audio[0].src, "./voice.wav");
+    // The video's own soundtrack and the audio inside that sequence are both
+    // audible from the sequence's start to the end of the composition. The
+    // video's sound starts where its picture does, `startFrom` seconds in and
+    // at its playback rate; the audio starts at its own local zero.
+    assert_eq!(mid.audio.len(), 2);
+    assert_eq!(mid.audio[0].src, "./clip.mp4");
     assert_eq!(mid.audio[0].start, 1.0);
     assert_eq!(mid.audio[0].duration, 2.0);
-    assert_eq!(mid.audio[0].source_start, 0.0);
+    assert_eq!(mid.audio[0].source_start, 1.0);
+    assert_eq!(mid.audio[0].playback_rate, Animatable::Static(2.0));
+    assert!(!mid.audio[0].muted);
+    assert_eq!(mid.audio[1].src, "./voice.wav");
+    assert_eq!(mid.audio[1].start, 1.0);
+    assert_eq!(mid.audio[1].duration, 2.0);
+    assert_eq!(mid.audio[1].source_start, 0.0);
 
     // Before the sequence starts: neither the video nor the audio exists,
     // and neither does the second sequence's text (frames 60-89 only).

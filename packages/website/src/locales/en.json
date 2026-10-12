@@ -475,7 +475,7 @@
         "and-read-files-through-relative-paths-start": "<slot0/>, <slot1/>, and <slot2/> read files through <slot3/>. Relative paths start from the composition file, so keep media beside it in your project folder.",
         "can-also-be-an-or-url-celesta": "<slot0/> can also be an <slot1/> or <slot2/> URL. Native preview, export, and <slot3/> download it into a local cache on first use. Later runs reuse the cached file without revalidation; use a new URL or clear the cache when its content changes.",
         "an-or-is-drawn-at-its-own": "An <slot0/> or <slot1/> is drawn at its own pixel size. Position it with <slot2/>/<slot3/> and anchors, and resize it with <slot4/> or a <slot5/>. Images can be PNG, JPEG, WebP, or PNM.",
-        "and-accept-seconds-into-the-file-and": "<slot0/> and <slot1/> accept <slot2/> (seconds into the file) and <slot3/>. <slot4/> also takes <slot5/> and <slot6/>.",
+        "and-accept-seconds-into-the-file-and": "<slot0/> and <slot1/> accept <slot2/> (seconds into the file), <slot3/>, <slot4/>, and <slot5/>. A <slot6/> plays its own soundtrack, so do not add an <slot7/> with the same file to hear it; set <slot8/> to keep only the picture.",
         "media-placed-inside-a-starts-when-the": "Media placed inside a <slot0/> starts when the sequence does and stops when it ends.",
         "and-an-audio-can-be-a-number": "<slot0/> and an audio <slot1/> can be a number or keyframes. Keyframe times are seconds from the start of the enclosing sequence, written as <slot2/>.",
         "size-a-scene-to-its-media": "Size a scene to its media",

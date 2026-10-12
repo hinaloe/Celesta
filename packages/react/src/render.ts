@@ -849,6 +849,16 @@ function walkNode(
     collectAudioClip(node.props, context, audio);
     return [];
   }
+  if (node.type === 'video') {
+    // A <Video> plays its soundtrack exactly as an <Audio> with the same
+    // `src`, `startFrom`, `playbackRate`, `volume` and `muted` would, so
+    // sound and picture share one clock. A file without an audio stream
+    // mixes as silence.
+    collectAudioClip(node.props, context, audio);
+    if (audioOnly) {
+      return [];
+    }
+  }
   if (node.type === 'sequence') {
     const childContext = childSequenceContext(node, context);
     if (!childContext) {

@@ -378,10 +378,17 @@ import { Static } from '@celesta/react';
 | `src` | Path or URL. Drawn at natural pixel size. |
 | `startFrom` | Seconds into the file at the enclosing sequence's frame 0. Default `0`. |
 | `playbackRate` | Static number only. Default `1`. |
+| `volume` | Linear gain of the soundtrack, number or [keyframes](#keyframe-values). Default `1`. |
+| `muted` | Silences the soundtrack. Default `false`. |
 
-**A React `<Video>` is picture only; it makes no sound.** To hear the clip's
-soundtrack, add an `<Audio>` with the same `src`, `startFrom`, and
-`playbackRate` next to it, inside the same `<Sequence>`.
+A `<Video>` plays its soundtrack with its picture, on the same clock:
+`startFrom`, `playbackRate`, and the enclosing sequences apply to both, and
+the sound follows the same rules as an [`<Audio>`](#audio). A file without
+an audio stream is silent. Set `muted` to keep only the picture.
+
+**Do not add an `<Audio>` with the same `src` to hear a `<Video>`**; the
+sound would play twice. Compositions written for earlier versions, where a
+`<Video>` was silent, did this: remove that `<Audio>`, or mute the `<Video>`.
 
 To show a 1280×720 clip full-screen in a 1920×1080 composition, wrap it in
 `<Fit sourceWidth={1280} sourceHeight={720}>` (see

@@ -238,9 +238,17 @@ export interface VideoProps extends CommonProps {
    * clock (2 plays twice as fast, 0.5 half as fast). Defaults to 1. A React
    * `<Video>` has no per-frame automation the way a project timeline clip's
    * `Animatable<f64>` playback rate does — it is a single static value for
-   * the whole clip.
+   * the whole clip. It applies to the soundtrack too.
    */
   playbackRate?: number;
+  /**
+   * Linear volume multiplier for the video's soundtrack, 0 silent, 1
+   * unchanged. Defaults to 1. Either a plain number or a generated
+   * `KeyframeAnimation` over seconds-into-the-sequence times, as on `<Audio>`.
+   */
+  volume?: AnimatedNumber;
+  /** Silences the video's soundtrack. Defaults to false. */
+  muted?: boolean;
 }
 
 export interface AssetReference {

@@ -111,9 +111,10 @@ produces a video that differs between preview and export.
     seconds (`startFrom`). JSON and keyframes use `{ "value": n, "timescale": d }`,
     meaning `n / d` seconds. In React, build `<Audio>` volume keyframes from
     frames with `frameKeyframes()` instead of converting by hand.
-12. **A React `<Video>` is silent.** Add an `<Audio>` with the same `src`,
-    `startFrom`, and `playbackRate` to hear it. (JSON `video` items play
-    their sound.)
+12. **A React `<Video>` plays its sound.** Do not add an `<Audio>` with the
+    same `src` to hear it; the sound would play twice. Set `muted` for
+    picture only, and `volume` (a number or keyframes) to change its level.
+    Older compositions paired the two because a `<Video>` used to be silent.
 
 ## Workflow
 

@@ -106,7 +106,8 @@ equal if the motion crosses one.
 
 - **Video clips** keep playing forward: `<Video>` at frame `LOOP` shows a
   different source frame from frame 0. Use only clips that themselves loop
-  and last exactly `LOOP` frames.
+  and last exactly `LOOP` frames. A `<Video>` also plays its soundtrack, which
+  must loop the same way as the music below; mute it if it does not.
 
 ## Noise that loops
 
