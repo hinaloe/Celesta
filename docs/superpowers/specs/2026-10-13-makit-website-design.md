@@ -82,7 +82,7 @@ Conversions:
 
 | Today | Markdown |
 | --- | --- |
-| `<h3>`, `<p>`, lists, `<code>`, `<kbd>`, `<strong>`, links via `docPath()` | Markdown equivalents; links are relative (`../export/`) |
+| `<h3>`, `<p>`, lists, `<code>`, `<kbd>`, `<strong>`, links via `docPath()` | Markdown equivalents; links are root-absolute per locale (`/ja/docs/export/`) |
 | OS picker (`macOS` / `Windows` / `Linux` buttons) | `####` subsections per platform, in order |
 | `DocCode` with a label | Fenced code block with the label as the file name (```` ```sh "macOS dependencies" ````) |
 | `DocCode` with a raw-imported example | ```` ```tsx file=examples/first-scene.tsx ```` (see below) |
