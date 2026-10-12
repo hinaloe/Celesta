@@ -7,3 +7,6 @@ export { StaticPage } from './StaticPage.tsx';
 export { NotFoundPage } from './NotFoundPage.tsx';
 export { Header } from './Header.tsx';
 export { Footer } from './Footer.tsx';
+export { DocsPage } from './DocsPage.tsx';
+export { Sidebar } from './Sidebar.tsx';
+export { PageHeader } from './PageHeader.tsx';

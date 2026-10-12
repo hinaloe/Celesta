@@ -173,6 +173,11 @@ export const ja: Copy = {
   theme: {
     menu: 'メニュー',
     close: '閉じる',
+    docs: {
+      navigation: 'ドキュメント',
+      chapters: '目次',
+      breadcrumb: 'パンくずリスト',
+    },
     search: {
       noMatches: '該当するトピックがありません。「React」「FFmpeg」「書き出し」などを試してください。',
       matches: (count: number) => `${count} 件のトピック`,

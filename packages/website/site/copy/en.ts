@@ -174,6 +174,11 @@ export const en = {
   theme: {
     menu: 'Menu',
     close: 'Close',
+    docs: {
+      navigation: 'Documentation',
+      chapters: 'Chapters',
+      breadcrumb: 'Breadcrumb',
+    },
     search: {
       noMatches: 'No matching topics. Try “React”, “FFmpeg”, or “export”.',
       matches: (count: number) => (count === 1 ? `${count} matching topic` : `${count} matching topics`),

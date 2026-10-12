@@ -1,8 +1,8 @@
-import { getHomeRoute, getSearchIndex } from '@natsuneko-laboratory/makit-runtime';
+import { getHomeRoute } from '@natsuneko-laboratory/makit-runtime';
 import type { StaticPageProps } from '@natsuneko-laboratory/makit-runtime';
-import { copy, isLocale } from '../site/copy/index.ts';
+import { isLocale } from '../site/copy/index.ts';
+import { HeaderActions } from './HeaderActions.tsx';
 import { LocaleProvider } from './LocaleContext.tsx';
-import { LocaleLinks, type LocaleLink } from './LocaleLinks.tsx';
 
 /**
  * Header, a full-width `<main>`, and Footer (Makit STATIC-PAGES §10). The body is unpadded so
@@ -13,34 +13,10 @@ export async function StaticPage({ page, site, i18n, locale: urlLocale, componen
   const body = page.search ? <div data-pagefind-body>{children}</div> : children;
   if (page.layout === 'bare') return <LocaleProvider locale={locale}>{body}</LocaleProvider>;
 
-  const [homeHref, searchEntries] = await Promise.all([
-    getHomeRoute(urlLocale).then((href) => href ?? `${site.basePath}/`),
-    getSearchIndex(urlLocale),
-  ]);
-  // The same page in each locale where it exists, otherwise that locale's home.
-  const localeLinks: LocaleLink[] = [];
-  if (i18n.enabled) {
-    for (const candidate of i18n.locales) {
-      const current = candidate.urlLocale === page.locale;
-      const href = current
-        ? page.route
-        : page.metadata.alternates.find((alternate) => alternate.urlLocale === candidate.urlLocale)?.href ?? await getHomeRoute(candidate.urlLocale);
-      if (href) localeLinks.push({ locale: candidate.urlLocale, label: candidate.label, href, current });
-    }
-  }
-
+  const homeHref = (await getHomeRoute(urlLocale)) ?? `${site.basePath}/`;
   return <LocaleProvider locale={locale}>
     <div className="tg-page">
-      <C.Header
-        header={site.header}
-        siteTitle={site.title}
-        homeHref={homeHref}
-        actions={<>
-          <C.SearchDialog entries={searchEntries} pagefindEnabled={process.env.NODE_ENV === 'production'} pagefindBundlePath={`${site.basePath}/pagefind/`} />
-          <LocaleLinks links={localeLinks} label={copy(locale).common.navigation.language} />
-          {site.theme.colorScheme === 'system' && <C.ThemeToggle />}
-        </>}
-      />
+      <C.Header header={site.header} siteTitle={site.title} homeHref={homeHref} actions={<HeaderActions page={page} site={site} i18n={i18n} components={C} />} />
       <main id="main" className="tg-main" tabIndex={-1}>{body}</main>
       <C.Footer footer={site.footer} />
     </div>
