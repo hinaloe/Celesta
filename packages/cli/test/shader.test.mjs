@@ -60,7 +60,7 @@ test('a composition imports a .wgsl file as the shader source', () => {
     const [, frame] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
     assert.equal(frame.scene.shaders.length, 1);
     assert.equal(frame.scene.shaders[0].wgsl, RIPPLE);
-    assert.equal(frame.scene.layers[0].effects.shader.id, frame.scene.shaders[0].id);
+    assert.equal(frame.scene.layers[0].effects.shaders[0].id, frame.scene.shaders[0].id);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -84,7 +84,7 @@ registerComponent('Rippled', () => <Rect width={8} height={8} shader={ripple({ t
     assert.equal(response.components[1], null);
     assert.equal(response.shaders.length, 1);
     assert.equal(response.shaders[0].wgsl, RIPPLE);
-    assert.equal(response.components[0][0].effects.shader.id, response.shaders[0].id);
+    assert.equal(response.components[0][0].effects.shaders[0].id, response.shaders[0].id);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

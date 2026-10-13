@@ -2322,11 +2322,11 @@ fn refuses_custom_shaders() {
             corner_radius: 0.0,
         },
     };
-    layer.effects.shader = Some(Box::new(LayerShader {
+    layer.effects.shaders.push(LayerShader {
         id: "identity".to_owned(),
         params: Vec::new(),
         padding: 0.0,
-    }));
+    });
     let scene = Scene {
         width: 16,
         height: 16,

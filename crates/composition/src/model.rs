@@ -60,14 +60,15 @@ pub struct LayerEffects {
     pub shadow: Option<Box<LayerShadow>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub glow: Option<Box<LayerGlow>>,
-    /// A custom WGSL filter, applied before `blur`, `shadow`, and `glow`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shader: Option<Box<LayerShader>>,
+    /// Custom WGSL filters, applied in order before `blur`, `shadow`, and
+    /// `glow`: each filters the result of the one before it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shaders: Vec<LayerShader>,
 }
 
 impl LayerEffects {
     pub fn is_empty(&self) -> bool {
-        self.blur <= 0.0 && self.shadow.is_none() && self.glow.is_none() && self.shader.is_none()
+        self.blur <= 0.0 && self.shadow.is_none() && self.glow.is_none() && self.shaders.is_empty()
     }
 }
 

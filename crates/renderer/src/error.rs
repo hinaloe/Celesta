@@ -103,7 +103,7 @@ impl fmt::Display for RenderError {
             ),
             Self::UnsupportedShader { layer } => write!(
                 formatter,
-                "CPU reference renderer does not support the custom shader on layer `{layer}`"
+                "CPU reference renderer does not support custom shaders on layer `{layer}`"
             ),
             Self::UnresolvedStatic { layer } => write!(
                 formatter,

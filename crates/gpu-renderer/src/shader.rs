@@ -31,13 +31,24 @@ const ENTRY: &str = include_str!("shader_entry.wgsl");
 /// The signature `shader_entry.wgsl` calls, named in errors that arise there.
 const EFFECT_SIGNATURE: &str = "fn effect(input: EffectInput) -> vec4f";
 
-/// One layer's use of a custom shader in the frame being prepared.
+/// One layer's custom shaders in the frame being prepared, run in order.
 #[derive(Clone, Copy)]
-pub(crate) struct ShaderSpec {
-    /// Its index in the frame's uses.
-    pub(crate) index: usize,
-    /// Output pixels it may write beyond the content box.
+pub(crate) struct ShaderChain {
+    /// The first of its uses in the frame's uses; the rest follow it.
+    first: usize,
+    /// How many shaders it runs.
+    count: usize,
+    /// Output pixels the shaders together may write beyond the content
+    /// box: the sum of their paddings, since each can write that far past
+    /// what the one before it wrote.
     pub(crate) padding: f32,
+}
+
+impl ShaderChain {
+    /// Its uses' indices in the frame's uses, in the order they run.
+    pub(crate) fn uses(self) -> Range<usize> {
+        self.first..self.first + self.count
+    }
 }
 
 struct CachedShader {
@@ -53,6 +64,8 @@ struct ShaderUse {
     id: String,
     /// The values, one parameter per slot as `Params` lays them out.
     params: [[f32; 4]; MAX_SHADER_PARAMS],
+    /// Output pixels it may write beyond what it reads.
+    padding: f32,
 }
 
 /// Compiles the scene's custom shaders and runs the layers' uses of them.
@@ -216,12 +229,27 @@ impl ShaderProcessor {
         Ok(())
     }
 
-    /// Records `layer`'s use of `shader` in the frame being prepared.
-    pub(crate) fn use_shader(
+    /// Records `layer`'s uses of `shaders`, in order, in the frame being
+    /// prepared; `None` when it uses none.
+    pub(crate) fn use_shaders(
         &mut self,
         layer: &str,
-        shader: &LayerShader,
-    ) -> Result<ShaderSpec, GpuRenderError> {
+        shaders: &[LayerShader],
+    ) -> Result<Option<ShaderChain>, GpuRenderError> {
+        let first = self.uses.len();
+        let mut padding = 0.0;
+        for shader in shaders {
+            padding += self.use_shader(layer, shader)?;
+        }
+        Ok((!shaders.is_empty()).then_some(ShaderChain {
+            first,
+            count: shaders.len(),
+            padding,
+        }))
+    }
+
+    /// Records `layer`'s use of `shader`, returning its padding.
+    fn use_shader(&mut self, layer: &str, shader: &LayerShader) -> Result<f32, GpuRenderError> {
         let error = |message: String| GpuRenderError::Shader {
             shader: shader.id.clone(),
             message,
@@ -273,14 +301,18 @@ impl ShaderProcessor {
                 *component = *values.next().expect("the count was checked") as f32;
             }
         }
+        let padding = (shader.padding as f32).clamp(0.0, MAX_PADDING);
         self.uses.push(ShaderUse {
             id: shader.id.clone(),
             params,
+            padding,
         });
-        Ok(ShaderSpec {
-            index: self.uses.len() - 1,
-            padding: (shader.padding as f32).clamp(0.0, MAX_PADDING),
-        })
+        Ok(padding)
+    }
+
+    /// Output pixels the use at `index` may write beyond what it reads.
+    pub(crate) fn padding(&self, index: usize) -> f32 {
+        self.uses[index].padding
     }
 
     /// How many compiled shaders (or their errors) are kept.
@@ -310,9 +342,9 @@ impl ShaderProcessor {
         }
     }
 
-    /// Runs `spec` on `source`, a canvas whose top-left texel covers scene
-    /// pixel `origin`, into `target`, writing only `region` (in canvas
-    /// pixels). `content` is the content box, in scene pixels.
+    /// Runs the use at `index` on `source`, a canvas whose top-left texel
+    /// covers scene pixel `origin`, into `target`, writing only `region` (in
+    /// canvas pixels). `content` is the content box, in scene pixels.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn pass(
         &mut self,
@@ -322,9 +354,9 @@ impl ShaderProcessor {
         origin: [u32; 2],
         content: PixelBounds,
         region: PixelBounds,
-        spec: ShaderSpec,
+        index: usize,
     ) {
-        let shader = &self.uses[spec.index];
+        let shader = &self.uses[index];
         let pipeline = self.shaders[&shader.id]
             .pipeline
             .as_ref()

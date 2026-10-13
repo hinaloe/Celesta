@@ -681,29 +681,29 @@ fn custom_shaders_round_trip_and_omit_their_defaults() {
     assert!(parsed.shaders.is_empty());
     assert_eq!(serde_json::to_value(&parsed).unwrap(), without);
 
+    let shader = |id: &str, params: Vec<f64>, padding| LayerShader {
+        id: id.to_owned(),
+        params,
+        padding,
+    };
     let effects = LayerEffects {
-        shader: Some(Box::new(LayerShader {
-            id: "9f3c".to_owned(),
-            params: vec![1.25, 1.0, 0.5, 0.0, 1.0],
-            padding: 8.0,
-        })),
+        shaders: vec![
+            shader("9f3c", vec![1.25, 1.0, 0.5, 0.0, 1.0], 8.0),
+            shader("a1b2", Vec::new(), 0.0),
+        ],
         ..LayerEffects::default()
     };
     assert!(!effects.is_empty());
     assert_eq!(
         serde_json::to_value(&effects).unwrap(),
-        serde_json::json!({ "shader": { "id": "9f3c", "params": [1.25, 1.0, 0.5, 0.0, 1.0], "padding": 8.0 } })
+        serde_json::json!({ "shaders": [
+            { "id": "9f3c", "params": [1.25, 1.0, 0.5, 0.0, 1.0], "padding": 8.0 },
+            { "id": "a1b2" },
+        ] })
     );
-    let bare = serde_json::json!({ "shader": { "id": "9f3c" } });
+    let bare = serde_json::json!({ "shaders": [{ "id": "9f3c" }] });
     let parsed = serde_json::from_value::<LayerEffects>(bare.clone()).unwrap();
-    assert_eq!(
-        parsed.shader,
-        Some(Box::new(LayerShader {
-            id: "9f3c".to_owned(),
-            params: Vec::new(),
-            padding: 0.0,
-        }))
-    );
+    assert_eq!(parsed.shaders, vec![shader("9f3c", Vec::new(), 0.0)]);
     assert_eq!(serde_json::to_value(&parsed).unwrap(), bare);
     assert!(LayerEffects::default().is_empty());
 }

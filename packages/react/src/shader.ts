@@ -1,6 +1,6 @@
 // Custom shader effects as the scene walker accepts them. `@celesta/shader`
 // builds them through `@celesta/react/internal`; the walker serializes them
-// into `effects.shader` and the scene's `shaders`.
+// into `effects.shaders` and the scene's `shaders`.
 
 import type { ShaderSource } from './generated/ShaderSource';
 import type { ShaderParamType } from './generated/ShaderParamType';

@@ -1,7 +1,7 @@
 use crate::effect::EffectProcessor;
 use crate::mask::MaskPipelines;
 use crate::plan::{GpuStep, PreparedDraws};
-use crate::shader::ShaderProcessor;
+use crate::shader::{ShaderChain, ShaderProcessor};
 use crate::texture::CanvasTexture;
 use celesta_composition::BlendMode;
 
@@ -247,25 +247,29 @@ impl Compositor<'_> {
             self.effects.recycle(canvas);
             return None;
         };
-        // The shader first; the other effects filter its result.
-        if let Some(shader) = effects.shader {
+        // The shaders first, each filtering the one before it, through two
+        // canvases in turn; the other effects filter their result.
+        for index in effects.shaders.map_or(0..0, ShaderChain::uses) {
             let shaded = self.effects.take_canvas(
                 self.device,
                 self.texture_layout,
                 region.width,
                 region.height,
             );
-            let written = effects.shaded_bounds(content);
+            let padding = self.shaders.padding(index);
+            let written = content.expand(padding, padding);
             self.shaders.pass(
                 encoder,
                 &canvas,
                 &shaded,
                 [region.x, region.y],
-                // A mask's shapes can miss each other where their pixels
-                // still meet; the pixels' box stands in then.
+                // Every shader sees the layers' shapes as the content box,
+                // as it would if each filtered a group around the one
+                // before it. A mask's shapes can miss each other where
+                // their pixels still meet; the pixels' box stands in then.
                 shape.unwrap_or_else(|| content.offset([region.x as f32, region.y as f32])),
                 written,
-                shader,
+                index,
             );
             self.effects.recycle(std::mem::replace(&mut canvas, shaded));
             content = written;

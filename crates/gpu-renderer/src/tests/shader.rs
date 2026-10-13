@@ -30,11 +30,11 @@ fn source(id: &str, wgsl: &str, params: &[(&str, ShaderParamType)]) -> ShaderSou
 }
 
 fn shaded(mut layer: Layer, id: &str, params: Vec<f64>, padding: f64) -> Layer {
-    layer.effects.shader = Some(Box::new(LayerShader {
+    layer.effects.shaders.push(LayerShader {
         id: id.to_owned(),
         params,
         padding,
-    }));
+    });
     layer
 }
 
@@ -306,6 +306,90 @@ fn passes_parameters_of_every_type_in_order() {
         let [r, g, b] = expected.map(|value: f32| (value * 255.0).round() as u8);
         assert_near(pixel_at(&frame, 20, 20), [r, g, b, 255], 1, channels);
     }
+}
+
+#[test]
+fn runs_a_layers_shaders_in_order() {
+    let Some(mut renderer) = renderer(black_background()) else {
+        return;
+    };
+    let sources = || {
+        vec![
+            source(
+                "red",
+                "fn effect(input: EffectInput) -> vec4f {\n    let alpha = source_at(input.position).a;\n    return vec4f(alpha, 0.0, 0.0, alpha);\n}\n",
+                &[],
+            ),
+            source(
+                "swap",
+                "fn effect(input: EffectInput) -> vec4f {\n    return source_at(input.position).bgra;\n}\n",
+                &[],
+            ),
+        ]
+    };
+    let render = |renderer: &mut GpuRenderer, first: &str, second: &str| {
+        let rect = corner_rect("rect", 8.0, 8.0, 32.0, 32.0, "#00ff00");
+        let layer = shaded(
+            shaded(rect, first, Vec::new(), 0.0),
+            second,
+            Vec::new(),
+            0.0,
+        );
+        let frame = renderer.render(&scene(sources(), vec![layer])).unwrap();
+        pixel_at(&frame, 20, 20)
+    };
+    assert_eq!(render(&mut renderer, "red", "swap"), [0, 0, 255, 255]);
+    assert_eq!(render(&mut renderer, "swap", "red"), [255, 0, 0, 255]);
+}
+
+#[test]
+fn a_chain_draws_as_groups_nested_around_each_shader_do() {
+    let Some(mut renderer) = renderer(black_background()) else {
+        return;
+    };
+    let sources = || {
+        vec![
+            source(
+                "shift",
+                "fn effect(input: EffectInput) -> vec4f {\n    return source_at(input.position - vec2f(params.distance, 0.0));\n}\n",
+                &[("distance", ShaderParamType::F32)],
+            ),
+            source(
+                "uv",
+                "fn effect(input: EffectInput) -> vec4f {\n    let alpha = source_at(input.position).a;\n    return vec4f(input.uv * alpha, 0.0, alpha);\n}\n",
+                &[],
+            ),
+        ]
+    };
+    let shift = |layer| shaded(layer, "shift", vec![8.0], 8.0);
+    let rect = || corner_rect("rect", 6.0, 8.0, 20.0, 40.0, "#ffffff");
+    let wrap = |layer| group(EvaluatedTransform::default(), vec![layer]);
+    let chained = renderer
+        .render(&scene(
+            sources(),
+            vec![shaded(shift(shift(rect())), "uv", Vec::new(), 0.0)],
+        ))
+        .unwrap();
+    let nested = renderer
+        .render(&scene(
+            sources(),
+            vec![shaded(shift(wrap(shift(rect()))), "uv", Vec::new(), 0.0)],
+        ))
+        .unwrap();
+    // Each shader's padding adds to the ones before it: the rect moved
+    // 16px, beyond either padding alone.
+    assert_eq!(pixel_at(&chained, 38, 20)[3], 255);
+    assert_eq!(pixel_at(&chained, 44, 20), [0, 0, 0, 255]);
+    // Every shader sees the rect's own box as the content box.
+    assert_near(pixel_at(&chained, 23, 9), [223, 10, 0, 255], 2, "uv");
+    let difference = chained
+        .pixels()
+        .iter()
+        .zip(nested.pixels())
+        .map(|(chained, nested)| chained.abs_diff(*nested))
+        .max()
+        .unwrap();
+    assert!(difference <= 1, "channels differ by up to {difference}");
 }
 
 #[test]

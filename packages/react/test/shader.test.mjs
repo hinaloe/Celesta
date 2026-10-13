@@ -28,9 +28,9 @@ test('a layer serializes its shader and the scene lists each source once', () =>
     h(Group, { key: 'b', id: 'b', shader: shaderEffect(tint, [1, 0], 0) },
       h(Rect, { width: 4, height: 4, fill: '#ffffff', shader: shaderEffect(tint, [0, 0], 0) })),
   ]);
-  assert.deepEqual(scene.layers[0].effects, { blur: 0, shader: { id: tint.id, params: [0.5, 1], padding: 6 } });
-  assert.deepEqual(scene.layers[1].effects, { blur: 0, shader: { id: tint.id, params: [1, 0] } });
-  assert.deepEqual(scene.layers[1].content.layers[0].effects.shader, { id: tint.id, params: [0, 0] });
+  assert.deepEqual(scene.layers[0].effects, { blur: 0, shaders: [{ id: tint.id, params: [0.5, 1], padding: 6 }] });
+  assert.deepEqual(scene.layers[1].effects, { blur: 0, shaders: [{ id: tint.id, params: [1, 0] }] });
+  assert.deepEqual(scene.layers[1].content.layers[0].effects.shaders, [{ id: tint.id, params: [0, 0] }]);
   assert.deepEqual(scene.shaders, [{
     id: tint.id,
     name: 'tint',
@@ -42,14 +42,14 @@ test('a layer serializes its shader and the scene lists each source once', () =>
 test('a shader without parameters or padding serializes only its id', () => {
   const plain = shaderSource({ wgsl: WGSL, params: [] });
   const scene = frame(h(Rect, { width: 4, height: 4, shader: shaderEffect(plain, [], 0) }));
-  assert.deepEqual(scene.layers[0].effects.shader, { id: plain.id });
+  assert.deepEqual(scene.layers[0].effects.shaders, [{ id: plain.id }]);
   assert.deepEqual(scene.shaders, [{ id: plain.id, wgsl: WGSL }]);
 });
 
 test('a frame without shaders has no shaders field', () => {
   const scene = frame(h(Rect, { width: 4, height: 4, blur: 2 }));
   assert.equal('shaders' in scene, false);
-  assert.equal('shader' in scene.layers[0].effects, false);
+  assert.equal('shaders' in scene.layers[0].effects, false);
 });
 
 test('the id follows the source and the parameters, and nothing else', () => {
@@ -66,13 +66,37 @@ test('the id follows the source and the parameters, and nothing else', () => {
   assert.equal(id({ wgsl: 'x', params: [] }), '1b0a62b2133ed451');
 });
 
-test('the shader prop only takes a ShaderEffect', () => {
+test('an array of shaders serializes them in order, listing each source once', () => {
+  const tint = shaderSource({ name: 'tint', wgsl: WGSL, params: [{ name: 'amount', type: 'f32' }] });
+  const plain = shaderSource({ wgsl: WGSL, params: [] });
+  const scene = frame(h(Rect, {
+    width: 4,
+    height: 4,
+    shader: [shaderEffect(plain, [], 0), shaderEffect(tint, [0.5], 4), shaderEffect(plain, [], 2)],
+  }));
+  assert.deepEqual(scene.layers[0].effects.shaders, [
+    { id: plain.id },
+    { id: tint.id, params: [0.5], padding: 4 },
+    { id: plain.id, padding: 2 },
+  ]);
+  assert.deepEqual(scene.shaders.map((source) => source.id), [plain.id, tint.id]);
+});
+
+test('an empty array of shaders adds no effect', () => {
+  const scene = frame(h(Rect, { width: 4, height: 4, shader: [] }));
+  assert.equal('effects' in scene.layers[0], false);
+  assert.equal('shaders' in scene, false);
+});
+
+test('the shader prop only takes a ShaderEffect or an array of them', () => {
   const plain = shaderSource({ wgsl: WGSL, params: [] });
   const lookalike = { id: plain.id };
-  for (const shader of [lookalike, 'ripple', null]) {
+  const effect = shaderEffect(plain, [], 0);
+  // eslint-disable-next-line no-sparse-arrays -- the hole is the point.
+  for (const shader of [lookalike, 'ripple', null, [effect, lookalike], [effect, null], [, effect]]) {
     assert.throws(
       () => frame(h(Rect, { width: 4, height: 4, shader })),
-      /shader must be a value returned by a shader from @celesta\/shader's defineShader\(\)/,
+      /shader must be a value returned by a shader from @celesta\/shader's defineShader\(\), or an array of them/,
     );
   }
 });
@@ -107,9 +131,9 @@ test('component resolutions list the shaders their layers use, each once', () =>
     { component: 'TintedForTimeline', props: { amount: 1 } },
   ]);
   assert.equal(components[1], null);
-  assert.deepEqual(components[0][0].effects.shader, { id: tint.id, params: [0.5] });
-  assert.deepEqual(components[2][0].effects.shader, { id: plain.id });
-  assert.deepEqual(components[3][0].effects.shader, { id: tint.id, params: [1] });
+  assert.deepEqual(components[0][0].effects.shaders, [{ id: tint.id, params: [0.5] }]);
+  assert.deepEqual(components[2][0].effects.shaders, [{ id: plain.id }]);
+  assert.deepEqual(components[3][0].effects.shaders, [{ id: tint.id, params: [1] }]);
   assert.deepEqual(shaders, [
     { id: tint.id, name: 'tint', wgsl: WGSL, params: [{ name: 'amount', type: 'f32' }] },
     { id: plain.id, wgsl: WGSL },

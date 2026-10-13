@@ -424,7 +424,7 @@ async function inspectEntry(options) {
         console.log(`font ${font.id}: ${font.location.path ?? font.location.url}${checkFile(font.location.path)}`);
       }
       if (scene.layers.length === 0) console.log('(no layers: the frame is black)');
-      printLayers(scene.layers, 0, checkFile, warnings);
+      printLayers(scene.layers, 0, checkFile, warnings, scene.shaders ?? []);
       for (const clip of audio) {
         console.log(
           `audio ${clip.src} from ${fmt(clip.start)} s for ${fmt(clip.duration)} s` +
@@ -593,7 +593,7 @@ function fmt(value) {
   return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
 }
 
-function describeTransform(layer) {
+function describeTransform(layer, sources) {
   const { position, scale, rotation, anchor } = layer.transform;
   const parts = [`at (${fmt(position.x)}, ${fmt(position.y)})`];
   if (anchor.x !== 0 || anchor.y !== 0) parts.push(`anchor (${fmt(anchor.x)}, ${fmt(anchor.y)})`);
@@ -605,7 +605,25 @@ function describeTransform(layer) {
   if (effects.blur) parts.push(`blur ${fmt(effects.blur)}`);
   if (effects.shadow) parts.push(`shadow ${effects.shadow.color}/${fmt(effects.shadow.blur)} (${fmt(effects.shadow.offsetX)}, ${fmt(effects.shadow.offsetY)})`);
   if (effects.glow) parts.push(`glow ${effects.glow.color}/${fmt(effects.glow.blur)}`);
+  // Older runtimes send a single `shader`.
+  const shaders = effects.shaders ?? (effects.shader ? [effects.shader] : []);
+  if (shaders.length > 0) parts.push(`shader ${shaders.map((shader) => describeShader(shader, sources)).join(' → ')}`);
   return parts.join(' ');
+}
+
+/** `name(param=value, …) pad N`, naming the parameters the scene declares. */
+function describeShader(shader, sources) {
+  const source = sources.find((candidate) => candidate.id === shader.id);
+  const values = shader.params ?? [];
+  const components = { f32: 1, vec2: 2, vec3: 3, vec4: 4 };
+  let at = 0;
+  const params = source
+    ? (source.params ?? []).map((param) => {
+      const value = values.slice(at, (at += components[param.type] ?? 1)).map(fmt);
+      return `${param.name}=${value.length === 1 ? value[0] : `(${value.join(', ')})`}`;
+    })
+    : values.map(fmt);
+  return `${source?.name ?? shader.id}(${params.join(', ')})${shader.padding ? ` pad ${fmt(shader.padding)}` : ''}`;
 }
 
 function describePaint(paint) {
@@ -615,11 +633,11 @@ function describePaint(paint) {
   return `${paint.type}(${stops})`;
 }
 
-function printLayers(layers, depth, checkFile, warnings) {
+function printLayers(layers, depth, checkFile, warnings, sources) {
   const indent = '  '.repeat(depth);
   for (const layer of layers) {
     const content = layer.content;
-    const where = describeTransform(layer);
+    const where = describeTransform(layer, sources);
     switch (content.type) {
       case 'text': {
         const style = content.style ?? {};
@@ -660,7 +678,7 @@ function printLayers(layers, depth, checkFile, warnings) {
         const clip = content.clip;
         const clipText = clip ? ` clip ${fmt(clip.width)}×${fmt(clip.height)} at (${fmt(clip.x)}, ${fmt(clip.y)})${clip.cornerRadius ? ` radius ${fmt(clip.cornerRadius)}` : ''}` : '';
         console.log(`${indent}group ${where}${clipText}`);
-        printLayers(content.layers, depth + 1, checkFile, warnings);
+        printLayers(content.layers, depth + 1, checkFile, warnings, sources);
         break;
       }
       case 'missingComponent':
