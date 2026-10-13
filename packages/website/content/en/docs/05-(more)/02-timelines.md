@@ -13,10 +13,12 @@ Time is represented as `{ value, timescale }`: divide the value by the timescale
 
 Copy the project below into `project.celesta.json` in your project folder, then open it with **File → Open…**.
 
-View the complete built-in title project
+:::toggle[View the complete built-in title project]
 
 ```json file=../../examples/editor-demo.celesta.json title="examples/editor-demo.celesta.json"
 ```
+
+:::
 
 `examples/minimal.celesta.json` is an empty starting point. For a visible result, begin with the title project above, then change the text and save. Use **File → Reload** to update the preview.
 
@@ -44,10 +46,12 @@ Easing names match the React `Easings` in kebab case, such as `ease-in-out-cubic
 
 A JSON project declares characters in `characters` and lines as items on a `dialogue` track. The portrait and subtitle transforms position their centers:
 
-View the complete JSON dialogue project
+:::toggle[View the complete JSON dialogue project]
 
 ```json file=examples/dialogue.celesta.json title="dialogue.celesta.json"
 ```
+
+:::
 
 JSON lines can lip-sync as well: add mouth-image asset ids under the portrait’s `lipSync`, and list timed shapes on the line, such as `"lipSync": [{ "time": { "value": 0, "timescale": 30 }, "shape": "a" }]`. Cue times are relative to the line’s start. For automatic timing from the recording, use React’s `loadLipSync()`.
 
@@ -59,9 +63,11 @@ A React composition can include `<ProjectTimeline />`. Pass its companion JSON p
 celesta-exporter --react with-project.tsx --project project.celesta.json output.mp4
 ```
 
-View the companion React composition
+:::toggle[View the companion React composition]
 
 ```tsx file=../cli/examples/with-project.tsx title="with-project.tsx"
 ```
+
+:::
 
 Save this as `with-project.tsx` beside your JSON file. The command above assumes celesta-exporter is on PATH; see [Export a video](/en/docs/export/) for the installed executable paths. To draw one track, use `<ProjectTrack id="…" />`.

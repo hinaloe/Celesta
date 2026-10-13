@@ -2,7 +2,7 @@
 
 ## Goal
 
-Rebuild `packages/website` on [Makit](https://github.com/mika-f/makit) 0.8, using its static
+Rebuild `packages/website` on [Makit](https://github.com/mika-f/makit) 0.9, using its static
 pages for the landing page and showcase, with a custom theme named **Noir**. The site keeps
 its English and Japanese content, its URLs, its Cloudflare Workers deployment, and the browser
 playground.
@@ -83,7 +83,8 @@ Conversions:
 | Today | Markdown |
 | --- | --- |
 | `<h3>`, `<p>`, lists, `<code>`, `<kbd>`, `<strong>`, links via `docPath()` | Markdown equivalents; links are root-absolute per locale (`/ja/docs/export/`) |
-| OS picker (`macOS` / `Windows` / `Linux` buttons) | Subsections one level below the chapter's section heading, per platform, in order; where a picker only swaps a command (Create a project, Export), a `**macOS:**` / `**Windows:**` list and paired fences titled `<label> (macOS)` / `<label> (Windows)` |
+| OS picker (`macOS` / `Windows` / `Linux` buttons) | Makit tabs: `::::tabs[<the picker's aria-label>]{default="macOS"}` with one `:::tab[<button label>]` per platform, exactly as the old buttons read (`macOS`, `Windows`, `Linux`; the per-platform subheadings such as Installation's "Windows x64" are dropped, and the tab body keeps the `x64` filenames). Each tab holds exactly what that platform showed, with the `DocCode` labels as fence titles; text shared by every platform stays outside. Where a picker only swaps a command (Create a project, Export), each tab holds its own paragraph and fence; Export's commands run across three sections, so it has one tab group per command run (five groups) |
+| `<details>` / `<summary>` | Makit toggles: Troubleshooting's nine questions are `::::accordion[Troubleshooting]{multiple}` (ja `トラブルシューティング`, the chapter title) with one `:::toggle[<summary>]` each, the first `{open}` as before; Timelines' three "View the complete …" blocks are `:::toggle[<summary>]` around their fence, closed |
 | `DocCode` with a label | Fenced code block with the label as the file name (```` ```sh "macOS dependencies" ````) |
 | `DocCode` with a raw-imported example | ```` ```tsx file=examples/first-scene.tsx ```` (see below) |
 | `Note` | GitHub alert `> [!NOTE]` followed by `> **Title**`; the theme hides Makit's generic alert label |
@@ -259,7 +260,7 @@ Component vocabulary:
   parts that hard-code Tailwind `rounded-*` classes (search dialog, its field, results, and Esc;
   page actions and their menu; copy button; theme toggle; fallback notice) are squared in
   `theme/noir.css` and `theme/docs.css`. The playground's status dot is the only circle.
-- **Icons**: `lucide-react`, pinned in `package.json` to the version Makit 0.8.0 depends on
+- **Icons**: `lucide-react`, pinned in `package.json` to the version Makit 0.9.0 depends on
   (0.468.0), so the theme, the static pages (resolved through Makit's module alias), and the Vite
   island share one copy. 14 px beside small labels and 16 px (stroke 1.75) in buttons,
   `aria-hidden`, `currentColor`: `ArrowUpRight` for external links, `ArrowRight` for forward links
@@ -278,6 +279,15 @@ Component vocabulary:
   as 1em lucide outlines with `mask-image` over `currentColor`, and drops Makit's automatic
   external-link icon from a link that already ends in one. The `.md` endpoints and
   `llms-full.txt` keep the plain arrows.
+- **Tabs and toggles** (Makit's Markdown tabs and native `details` toggles): a hairline frame on
+  the page background, so code blocks inside keep their own panel and header. Tabs are sans
+  13.5 px in natural case, inactive `muted`, active `fg` over a 2 px `accent` underline that covers
+  the tab row's hairline; panels pad 18 × 20 px. A toggle's summary is `fg` 600 behind a 16 px
+  lucide `ChevronRight` (masked like `.nr-icon`, `muted`) that turns 90° when open, without the
+  transition under `prefers-reduced-motion`; the native marker is hidden. An accordion's toggles
+  share its frame, split by hairlines. Focus is the 2 px `accent-text` ring inset by 2 px. Without
+  JavaScript and in print, Makit shows every panel under its label, set like a tab, and opens
+  every toggle.
 - **Favicon**: the crescent and its star in white (`#ffffff`) on the existing near-black tile, so
   it reads on light and dark tab strips alike and needs no `prefers-color-scheme` style.
 
@@ -304,7 +314,9 @@ and adds `/_playground/*`.
 - `tests/locales.test.mjs`: keep the Accept-Language and worker tests.
 - `tests/copy.test.mjs`: `ja` copy has every `en` key.
 - `tests/content.test.mjs`: every chapter slug exists in both locales under the same Route
-  Group, with the 24 slugs pinned as today; sub-pages follow their package page.
+  Group, with the 24 slugs pinned as today; sub-pages follow their package page; both locales
+  have the same tabs and toggles per chapter, at the pinned counts, with no flattened platform
+  lists or `(macOS)` fence suffixes left.
 - `tests/remark-include.test.mjs`: file include, relative resolution, missing-file failure.
 - `makit check`, `pnpm build`, `pnpm check:examples`, `pnpm deploy:check` pass.
 - Manual, desktop and mobile widths, light and dark: landing, playground edit/play/scrub/MP4

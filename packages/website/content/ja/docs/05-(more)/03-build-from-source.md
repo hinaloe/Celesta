@@ -6,7 +6,8 @@
 
 ## 1. OS の準備
 
-### macOS
+::::tabs[ソースをビルドする OS]{default="macOS"}
+:::tab[macOS]
 
 Xcode Command Line Tools と Homebrew をインストールします。続いてライブラリを入れ、Celesta をビルドするシェルで `pkg-config` に keg-only の FFmpeg パッケージを指定します。
 
@@ -16,7 +17,8 @@ brew install ffmpeg@8 pkg-config
 export PKG_CONFIG_PATH="$(brew --prefix ffmpeg@8)/lib/pkgconfig"
 ```
 
-### Windows
+:::
+:::tab[Windows]
 
 MSVC の C++ ビルドツールと vcpkg をインストールします。`VCPKG_ROOT` に vcpkg のチェックアウト先を設定し、以下の FFmpeg パッケージをインストールします。MSVC ツールチェーンを設定したシェルで Cargo を実行してください。
 
@@ -26,7 +28,8 @@ vcpkg install ffmpeg[x264]:x64-windows-static-md
 
 vcpkg は、FFmpeg 8.1.x を提供するリリース（例：2026.07.29）を使ってください。新しいポートでは、未対応の FFmpeg 9 が提供される場合があります。
 
-### Linux
+:::
+:::tab[Linux]
 
 Ubuntu 24.04 LTS を含む多くのディストリビューションでは FFmpeg 8.1.x が提供されないため、手順 2 でソースを取得した後、リポジトリの `scripts/build-ffmpeg-linux.sh` でビルドします。`libx264` を含む静的ライブラリを `/opt/ffmpeg8` に構築し、4 コアで約 5 分かかります。Cargo は `libclang-dev` で FFmpeg のバインディングを生成します。Debian と Ubuntu では、リポジトリのルートで以下を実行します。
 
@@ -38,6 +41,9 @@ export PKG_CONFIG_PATH=/opt/ffmpeg8/lib/pkgconfig
 ```
 
 Cargo を実行する各シェルで `PKG_CONFIG_PATH` を設定します。FFmpeg は Celesta の実行ファイルにリンクされるので `LD_LIBRARY_PATH` は不要です。ディストリビューションが FFmpeg 8.1.x を提供する場合は、スクリプトの代わりに `pkg-config` と `libavcodec`、`libavformat`、`libavfilter`、`libavdevice`、`libavutil`、`libswscale`、`libswresample` の開発パッケージをインストールしてください。GPU なしでの書き出しは、[動画の書き出し](/ja/docs/export/)をご覧ください。
+
+:::
+::::
 
 ## 2. ソースを取得
 

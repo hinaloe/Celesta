@@ -2,17 +2,17 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rebuild `packages/website` on Makit 0.8 with a custom "Tungsten" theme, Markdown documentation, static pages for the landing page and showcase, and the playground kept as a Vite-built island.
+**Goal:** Rebuild `packages/website` on Makit 0.9 with a custom "Tungsten" theme, Markdown documentation, static pages for the landing page and showcase, and the playground kept as a Vite-built island.
 
 **Architecture:** `packages/website` becomes a Makit project (`content/` Markdown, `pages/` static pages, `theme/` local theme). The playground keeps its Vite toolchain in `playground/` and builds an ES module into `public/_playground/` that a client component mounts. The old Vite site keeps working until the cutover task removes it.
 
-**Tech Stack:** Makit 0.8 (`@natsuneko-laboratory/makit`, Next.js 16 under the hood), React 19, Vite 8 (island only), unified/remark, Node test runner, Cloudflare Workers Static Assets.
+**Tech Stack:** Makit 0.9 (`@natsuneko-laboratory/makit`, Next.js 16 under the hood), React 19, Vite 8 (island only), unified/remark, Node test runner, Cloudflare Workers Static Assets.
 
 **Spec:** `docs/superpowers/specs/2026-10-13-makit-website-design.md`
 
 ## Global Constraints
 
-- Makit `^0.8.0`; do not modify Makit. Gaps become workarounds in this package plus a note in the final report.
+- Makit `0.9.0`; do not modify Makit. Gaps become workarounds in this package plus a note in the final report.
 - Locales are `en` (default) and `ja`; URLs stay `/<locale>/`, `/<locale>/docs/<slug>/`, `/<locale>/showcase/<slug>/`.
 - `siteUrl: "https://celesta.natsuneko.cat"`, `github.repository: "mika-f/Celesta"`.
 - The 24 chapter slugs: `installation`, `create-project`, `preview`, `react-compositions` (Getting started); `animation`, `motion-toolkit`, `text-camera-lines`, `layout`, `text-fonts`, `media`, `dialogue`, `data`, `export` (Guides); `reference` (Reference); `math`, `math-noise`, `math-shaping`, `code`, `code-typing`, `voicevox` (Packages); `examples`, `timelines`, `build-from-source`, `troubleshooting` (More). Order as listed.

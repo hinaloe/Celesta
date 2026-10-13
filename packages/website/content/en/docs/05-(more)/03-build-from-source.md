@@ -6,7 +6,8 @@ To build Celesta, install **Rust 1.89 or later**, your platform’s native build
 
 ## 1. Prepare your platform
 
-### macOS
+::::tabs[Source build platform]{default="macOS"}
+:::tab[macOS]
 
 Install the Xcode Command Line Tools and Homebrew. Then install the libraries and point `pkg-config` at the keg-only FFmpeg package in the shell where you build Celesta.
 
@@ -16,7 +17,8 @@ brew install ffmpeg@8 pkg-config
 export PKG_CONFIG_PATH="$(brew --prefix ffmpeg@8)/lib/pkgconfig"
 ```
 
-### Windows
+:::
+:::tab[Windows]
 
 Install the MSVC C++ build tools and vcpkg. Set `VCPKG_ROOT` to your vcpkg checkout, then install the FFmpeg package below. Run Cargo from a shell configured for the MSVC toolchain.
 
@@ -26,7 +28,8 @@ vcpkg install ffmpeg[x264]:x64-windows-static-md
 
 Use a vcpkg release with FFmpeg 8.1.x, such as 2026.07.29. Newer ports may provide unsupported FFmpeg 9.
 
-### Linux
+:::
+:::tab[Linux]
 
 Most distributions, including Ubuntu 24.04 LTS, do not package FFmpeg 8.1.x, so build it from source with the repository’s `scripts/build-ffmpeg-linux.sh` after you get the source in step 2. It builds static libraries with `libx264` into `/opt/ffmpeg8`, which takes about 5 minutes on 4 cores. Cargo uses `libclang-dev` to generate the FFmpeg bindings. On Debian and Ubuntu, run these from the repository root:
 
@@ -38,6 +41,9 @@ export PKG_CONFIG_PATH=/opt/ffmpeg8/lib/pkgconfig
 ```
 
 Set `PKG_CONFIG_PATH` in every shell where you run Cargo. FFmpeg is linked into Celesta’s executables, so `LD_LIBRARY_PATH` is not needed. If your distribution does provide FFmpeg 8.1.x, install `pkg-config` and its `libavcodec`, `libavformat`, `libavfilter`, `libavdevice`, `libavutil`, `libswscale`, and `libswresample` development packages instead of running the script. To export without a GPU, see [Export a video](/en/docs/export/).
+
+:::
+::::
 
 ## 2. Get the source
 

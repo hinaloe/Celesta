@@ -92,6 +92,72 @@ test('every include exists', () => {
   assert.ok(includes > 0, 'the documentation includes example files');
 });
 
+/** Tab groups, tabs, accordions, and toggles in a chapter, as Makit 0.9 container directives. */
+const containers = markdown => Object.fromEntries(['tabs', 'tab', 'accordion', 'toggle'].map(name => [name, markdown.match(new RegExp(`^:{3,}${name}\\[`, 'gm'))?.length ?? 0]));
+
+test('both locales have the same tabs and toggles in every chapter', () => {
+  const [en, ja] = locales.map(locale => new Map(chapters(docsDir(locale)).map(chapter => [chapter.slug, containers(readFileSync(chapter.path, 'utf8'))])));
+  for (const slug of slugs) assert.deepEqual(ja.get(slug), en.get(slug), `${slug}: ja matches en`);
+  // The old site's OS pickers and details blocks (Task 14).
+  const expected = {
+    'installation': { tabs: 1, tab: 3, accordion: 0, toggle: 0 },
+    'build-from-source': { tabs: 1, tab: 3, accordion: 0, toggle: 0 },
+    'create-project': { tabs: 1, tab: 2, accordion: 0, toggle: 0 },
+    'export': { tabs: 5, tab: 10, accordion: 0, toggle: 0 },
+    'timelines': { tabs: 0, tab: 0, accordion: 0, toggle: 3 },
+    'troubleshooting': { tabs: 0, tab: 0, accordion: 1, toggle: 9 },
+  };
+  for (const slug of slugs) assert.deepEqual(en.get(slug), expected[slug] ?? { tabs: 0, tab: 0, accordion: 0, toggle: 0 }, slug);
+});
+
+test('platform tabs replace the flattened pickers', () => {
+  // The Examples chapter's own macOS/Windows list was never a picker, so only the picker chapters are checked for one.
+  const pickers = ['installation', 'build-from-source', 'create-project', 'export'];
+  for (const locale of locales) {
+    for (const chapter of chapters(docsDir(locale)).filter(chapter => pickers.includes(chapter.slug))) {
+      assert.doesNotMatch(readFileSync(chapter.path, 'utf8'), /^- \*\*(?:macOS|Windows)[:：]\*\*/m, `${locale}:${chapter.slug}: no platform list`);
+    }
+    for (const file of markdownFiles(locale)) {
+      const markdown = readFileSync(file, 'utf8');
+      assert.doesNotMatch(markdown, /title="[^"]*(?: \((?:macOS|Windows)\)|（(?:macOS|Windows)）)"/, `${file}: no platform suffix in fence titles`);
+      for (const [, attributes] of markdown.matchAll(/^::::tabs\[[^\]]+\](.*)$/gm)) assert.equal(attributes, '{default="macOS"}', `${file}: tab groups start on macOS`);
+    }
+  }
+});
+
+/** Each `::::tabs` group in a chapter: its `default` and its tab labels in order. */
+function tabGroups(markdown) {
+  const groups = [];
+  let group;
+  for (const line of markdown.split('\n')) {
+    const start = /^(:{4,})tabs\[[^\]]*\](?:\{default="([^"]*)"\})?$/.exec(line);
+    if (start) { group = { fence: start[1], default: start[2], labels: [] }; groups.push(group); continue; }
+    if (!group) continue;
+    if (line === group.fence) { group = undefined; continue; }
+    // A direct child tab uses a shorter fence than its group.
+    const tab = /^(:{3,})tab\[([^\]]*)\]$/.exec(line);
+    if (tab && tab[1].length < group.fence.length) group.labels.push(tab[2]);
+  }
+  return groups;
+}
+
+test('tab labels are the old picker buttons, the same in both locales, and each default names a tab', () => {
+  const [en, ja] = locales.map(locale => new Map(chapters(docsDir(locale)).map(chapter => [chapter.slug, tabGroups(readFileSync(chapter.path, 'utf8'))])));
+  let groups = 0;
+  for (const slug of slugs) {
+    assert.deepEqual(ja.get(slug).map(group => group.labels), en.get(slug).map(group => group.labels), `${slug}: ja tab labels match en`);
+    for (const [locale, chapter] of [['en', en], ['ja', ja]]) {
+      for (const group of chapter.get(slug)) {
+        groups++;
+        // The old pickers' buttons read exactly macOS / Windows / Linux, in that order (ruling R30).
+        assert.deepEqual(group.labels, ['macOS', 'Windows', 'Linux'].slice(0, group.labels.length), `${locale}:${slug}: tab labels are the old button labels`);
+        assert.ok(group.labels.includes(group.default), `${locale}:${slug}: default "${group.default}" names a tab`);
+      }
+    }
+  }
+  assert.equal(groups, 16, 'eight tab groups per locale');
+});
+
 test('every showcase work has a page and metadata', () => {
   const dir = join(root, 'pages', 'showcase');
   const expected = ['index.tsx', 'index.meta.ts', ...showcase.flatMap(({ slug }) => [`${slug}.tsx`, `${slug}.meta.ts`])];

@@ -1,38 +1,50 @@
-## The app cannot find its bundled runtime
+::::accordion[Troubleshooting]{multiple}
+:::toggle[The app cannot find its bundled runtime]{open}
 
 On macOS, copy the complete app into Applications before launching it. For a portable Windows build, extract the entire archive and keep `runtime` and the DLLs beside `Celesta.exe`. If files are missing, extract or install the package again.
 
-## A source build cannot find FFmpeg
+:::
+:::toggle[A source build cannot find FFmpeg]
 
 Confirm that the 8.1.x development libraries are installed, not just the executable. On macOS, set `PKG_CONFIG_PATH` in the same shell where you run Cargo. On Windows, check `VCPKG_ROOT` and the MSVC build tools. On Linux, point `PKG_CONFIG_PATH` at the FFmpeg you built, such as `/opt/ffmpeg8/lib/pkgconfig`. See [source-build setup](/en/docs/build-from-source/).
 
-## My media is missing
+:::
+:::toggle[My media is missing]
 
 Check local paths relative to the composition entry and keep the referenced media when sharing the project. HTTP(S) media needs network access on first use; native rendering caches files by URL without checking for updates. For changed remote content, use a new URL or clear its cache. Browser media additionally requires CORS access.
 
-## The preview did not change after saving
+:::
+:::toggle[The preview did not change after saving]
 
 React compositions reload automatically. Use **File → Reload** to retry, and check that you saved the file actually open in Celesta. The app does not edit source files.
 
-## My text uses the wrong font
+:::
+:::toggle[My text uses the wrong font]
 
 `fontFamily` must match the family name of a font installed on the computer that renders the video, or of a font file loaded with `<Font>`. When it does not, Celesta falls back to another font and warns: the app lists the family with the preview’s warnings, and `celesta-exporter` prints a warning that names the family, weight, and text layer. Check the exact family name in your system’s font manager. To avoid installing the font on every machine that exports the project, keep the font file next to the entry and load it with `<Font>`.
 
-## The mouth does not move
+:::
+:::toggle[The mouth does not move]
 
 Lip sync needs an uncompressed WAV voice and a transcript with readable vowels (kana or romaji). Check that `loadLipSync()` runs in `prepare()`, that the track is passed as `lipSync`, and that each mouth path matches a layer in the PSD exactly. For a PSD that shows nothing, set `layers` from a PSDTool preset.
 
-## My editor cannot resolve @celesta/react or another Celesta package
+:::
+:::toggle[My editor cannot resolve @celesta/react or another Celesta package]
 
 Open the composition in Celesta and choose **File → Set Up TypeScript**. Check that your `tsconfig.json` extends `./.celesta/tsconfig.json`. When building from source, also complete the runtime’s install, codegen, and build steps.
 
-## MP4 export will not start
+:::
+:::toggle[MP4 export will not start]
 
 Use non-zero, even-numbered dimensions and confirm that all local media is available. If the destination file already exists, choose another path or explicitly add `--overwrite` to the CLI command.
 
-## The selected graphics API is unavailable
+:::
+:::toggle[The selected graphics API is unavailable]
 
 Try --driver auto, or choose an API supported by your platform and GPU. DX12 is Windows-only and Metal is macOS-only. For headless Linux, install Mesa lavapipe and use --driver vulkan. Check the error for a missing build backend or an unavailable adapter.
+
+:::
+::::
 
 ## Still stuck?
 

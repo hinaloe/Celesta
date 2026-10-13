@@ -520,7 +520,7 @@
 /*
  * On the panels (#f0f0f2 / #0d0d0f) every token color of github-light-high-contrast and
  * github-dark-high-contrast reaches 4.5:1 except the light comment grey #66707b (4.43:1), which is
- * darkened to #5a626c (5.43:1). Makit 0.8 only takes bundled Shiki theme names, so this is CSS.
+ * darkened to #5a626c (5.43:1). Makit 0.9 only takes bundled Shiki theme names, so this is CSS.
  */
 :root:not([data-theme="dark"]) pre.shiki span[style*="color:#66707B" i] {
   color: #5a626c !important;
@@ -597,6 +597,141 @@
 
 .makit-prose .makit-alert :not(pre) > code {
   background: var(--nr-bg);
+}
+
+/*
+ * Tabs (Makit's `::::tabs`, the OS pickers): a hairline frame on the page background, so code blocks
+ * inside keep their own panel. The tab row is underlined by an inset hairline that the active tab's
+ * 2 px blue rule covers; inactive tabs are muted. Without JavaScript and in print, Makit shows every
+ * panel under its label (`.makit-tab-fallback-label`), set like a tab.
+ */
+.makit-prose .makit-tabs {
+  margin: 1.6em 0;
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  background: transparent;
+}
+
+.makit-prose .makit-tab-list {
+  gap: 0;
+  padding-inline: 0;
+  border-bottom: 0;
+  box-shadow: inset 0 -1px var(--nr-line);
+}
+
+.makit-prose .makit-tab {
+  padding: 10px 16px;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--nr-muted);
+  font-family: var(--nr-font-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: normal;
+  line-height: 1.4;
+  text-transform: none;
+}
+
+.makit-prose .makit-tab:hover {
+  color: var(--nr-fg);
+}
+
+.makit-prose .makit-tab[aria-selected="true"] {
+  border-bottom-color: var(--nr-accent);
+  color: var(--nr-fg);
+}
+
+.makit-prose .makit-tab-panel {
+  padding: 18px 20px;
+}
+
+.makit-prose :is(.makit-tab, .makit-tab-panel):focus-visible {
+  outline: 2px solid var(--nr-accent-text);
+  outline-offset: -2px;
+}
+
+.makit-prose .makit-tab-fallback-label {
+  margin: 0 0 0.8em;
+  color: var(--nr-fg);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+/*
+ * Toggles and accordions (`:::toggle`, `::::accordion`; native details/summary): the same hairline
+ * frame, the summary in the text color behind a lucide chevron (masked like `.nr-icon`) that turns
+ * 90° when open. An accordion's toggles share its frame, split by hairlines.
+ */
+.makit-prose :is(.makit-toggle, .makit-accordion) {
+  margin: 1.6em 0;
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  background: transparent;
+}
+
+.makit-prose .makit-toggle-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 16px;
+  color: var(--nr-fg);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+  list-style: none;
+}
+
+.makit-prose .makit-toggle-summary::-webkit-details-marker {
+  display: none;
+}
+
+.makit-prose .makit-toggle-summary::before {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  align-self: center;
+  background-color: var(--nr-muted);
+  content: "";
+  -webkit-mask: var(--nr-icon-chevron-right) center / contain no-repeat;
+  mask: var(--nr-icon-chevron-right) center / contain no-repeat;
+  transition: transform 0.15s ease;
+}
+
+.makit-prose .makit-toggle[open] > .makit-toggle-summary::before {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .makit-prose .makit-toggle-summary::before {
+    transition: none;
+  }
+}
+
+.makit-prose .makit-toggle-summary:hover {
+  background: var(--nr-fill);
+}
+
+.makit-prose .makit-toggle-summary:focus-visible {
+  border-radius: 0;
+  outline: 2px solid var(--nr-accent-text);
+  outline-offset: -2px;
+}
+
+.makit-prose .makit-toggle[open] > .makit-toggle-summary {
+  border-bottom: 1px solid var(--nr-line);
+}
+
+.makit-prose .makit-toggle-body {
+  padding: 16px 18px 18px;
+}
+
+.makit-prose .makit-accordion > .makit-toggle {
+  margin: 0;
+  border: 0;
+}
+
+.makit-prose .makit-accordion > .makit-toggle + .makit-toggle {
+  border-top: 1px solid var(--nr-line);
 }
 
 /* Pager */
@@ -859,6 +994,8 @@ nav[aria-label="Page actions"] :is(a, button, summary, details > div),
   --nr-icon-arrow-up-right: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 7h10v10'/%3E%3Cpath d='M7 17 17 7'/%3E%3C/svg%3E");
   --nr-icon-arrow-down: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14'/%3E%3Cpath d='m19 12-7 7-7-7'/%3E%3C/svg%3E");
   --nr-icon-arrow-up: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12 7-7 7 7'/%3E%3Cpath d='M12 19V5'/%3E%3C/svg%3E");
+  /* The toggle summaries' chevron (lucide ChevronRight). */
+  --nr-icon-chevron-right: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
 }
 
 .nr-icon {

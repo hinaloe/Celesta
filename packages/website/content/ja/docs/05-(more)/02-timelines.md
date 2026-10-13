@@ -13,10 +13,12 @@
 
 以下をプロジェクト内の `project.celesta.json` にコピーし、**File → Open…** で開きます。
 
-内蔵のタイトルプロジェクト全体を見る
+:::toggle[内蔵のタイトルプロジェクト全体を見る]
 
 ```json file=../../examples/editor-demo.celesta.json title="examples/editor-demo.celesta.json"
 ```
+
+:::
 
 `examples/minimal.celesta.json` は空のひな形です。表示を確認するには上のタイトルプロジェクトからはじめ、テキストを変えて保存します。**File → Reload** でプレビューを更新します。
 
@@ -44,10 +46,12 @@ JSON の変換では `position` が項目の中心を配置します。変換の
 
 JSON は `characters` にキャラクターを、`dialogue` トラックの項目に台詞を宣言します。立ち絵と字幕の変換は中心を配置します。
 
-JSON の台詞プロジェクト全体を見る
+:::toggle[JSON の台詞プロジェクト全体を見る]
 
 ```json file=examples/dialogue.celesta.json title="dialogue.celesta.json"
 ```
+
+:::
 
 JSON の台詞にも口パクを付けられます。立ち絵の `lipSync` に口画像の素材 ID を追加し、台詞に `"lipSync": [{ "time": { "value": 0, "timescale": 30 }, "shape": "a" }]` のような時間付きの形を並べます。時刻は台詞の開始が基準です。音声から自動で時間を生成するには React の `loadLipSync()` を使います。
 
@@ -59,9 +63,11 @@ React コンポジションには `<ProjectTimeline />` を含められます。
 celesta-exporter --react with-project.tsx --project project.celesta.json output.mp4
 ```
 
-対応する React コンポジション全体を見る
+:::toggle[対応する React コンポジション全体を見る]
 
 ```tsx file=../cli/examples/with-project.tsx title="with-project.tsx"
 ```
+
+:::
 
 このコードを JSON と同じフォルダに `with-project.tsx` として保存してください。上のコマンドは celesta-exporter に PATH が通っている場合の例です。インストール先の実行ファイルのパスは[動画を書き出す](/ja/docs/export/)を参照してください。ひとつのトラックだけを描く場合は `<ProjectTrack id="…" />` を使います。

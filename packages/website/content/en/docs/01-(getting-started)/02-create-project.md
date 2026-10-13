@@ -21,16 +21,26 @@ celesta-editor --init
 
 Desktop packages name the executables `Celesta` and `Celesta-export` (`.exe` on Windows). Use their installed paths in place of `celesta-editor` and `celesta-exporter`, including in generated scripts when needed:
 
-- **macOS:** This command assumes the app is installed in `/Applications`. Adjust the path if needed.
-- **Windows:** Use PowerShell and replace `C:\path\to\Celesta` with your installed or extracted app folder. The installer does not add Celesta to PATH.
+::::tabs[Project initialization platform]{default="macOS"}
+:::tab[macOS]
 
-```sh title="Initialize with the installed app (macOS)"
+This command assumes the app is installed in `/Applications`. Adjust the path if needed.
+
+```sh title="Initialize with the installed app"
 "/Applications/Celesta.app/Contents/MacOS/Celesta" --init my-video
 ```
 
-```sh title="Initialize with the installed app (Windows)"
+:::
+:::tab[Windows]
+
+Use PowerShell and replace `C:\path\to\Celesta` with your installed or extracted app folder. The installer does not add Celesta to PATH.
+
+```sh title="Initialize with the installed app"
 & "C:\path\to\Celesta\Celesta.exe" --init my-video
 ```
+
+:::
+::::
 
 For a [source build](/en/docs/build-from-source/), build the React runtime first, then run `cargo run -p celesta-editor --release -- --init my-video` from the repository root.
 

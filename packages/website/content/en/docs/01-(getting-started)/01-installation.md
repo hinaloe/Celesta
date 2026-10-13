@@ -11,21 +11,27 @@ Looking for another version or architecture? [Browse all releases](celesta:downl
 
 ## 1. Install the app
 
-### macOS
+::::tabs[Installation platform]{default="macOS"}
+:::tab[macOS]
 
 1. Choose the `macos-arm64.dmg` package for Apple Silicon, or `macos-x64.dmg` for an Intel Mac. The full filename includes the release version.
 2. Open the disk image and drag **Celesta** into **Applications**.
 3. Eject the disk image, then open Celesta from Applications.
 
-### Windows x64
+:::
+:::tab[Windows]
 
 Download the `windows-x64-setup.exe` installer, run it, and open Celesta from the Start menu. The full filename includes the release version.
 
 Prefer a portable app? Download the `windows-x64.zip` package, extract the entire archive, and launch `Celesta.exe`. Keep the runtime directory and DLLs beside the executable.
 
-### Linux
+:::
+:::tab[Linux]
 
 Use the [source-build instructions](/en/docs/build-from-source/) for Linux. Check the release assets for any additional platform packages provided with a release.
+
+:::
+::::
 
 ## 2. Create your project
 

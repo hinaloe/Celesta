@@ -108,6 +108,33 @@ Link between chapters with root-absolute URLs in the same locale, such as
 that every `/` link stays in its locale and names an existing chapter. Notes use GitHub alert
 syntax (`> [!NOTE]`). Run `pnpm check` and `pnpm test` after editing.
 
+Per-platform steps use Makit's Markdown tabs, starting on macOS; the group label names the tab
+list for screen readers. Collapsible content uses toggles, and a set of questions an accordion
+(`{multiple}` lets several stay open; `{open}` opens one initially). The outer fence needs more
+colons than the inner ones:
+
+````md
+::::tabs[Installation platform]{default="macOS"}
+:::tab[macOS]
+
+```sh title="macOS dependencies"
+brew install ffmpeg@8 pkg-config
+```
+
+:::
+:::tab[Windows]
+…
+:::
+::::
+
+:::toggle[View the companion React composition]
+…
+:::
+````
+
+Keep the same tabs and toggles in both locales; `pnpm test` compares their counts per chapter.
+`pnpm check` warns about an invalid group, a missing label, or a `default` that names no tab.
+
 ### Including example files
 
 An empty code fence with `file=` is filled from that file at build time
@@ -139,7 +166,7 @@ The playground island's strings are in `playground/copy.ts`.
   static asset.
 - `/en/…` and `/ja/…` always show the requested language. Unprefixed addresses such as
   `/docs/export/` go through Makit's locale gateway, which picks the browser's language.
-- Makit 0.8's root layout writes `<html lang="en">` on every page, so the post-build step
+- Makit 0.9's root layout writes `<html lang="en">` on every page, so the post-build step
   sets `lang` per locale and rebuilds the Pagefind index, giving each language its own search
   index.
 
@@ -177,7 +204,7 @@ and Windows (x64) `-setup.exe` assets and runs `pnpm run deploy`. It needs the
 runtime types redefine DOM globals), the island build, `makit build` (after deleting `.makit/`,
 whose cached Next.js output can ship stale styles), and `scripts/postbuild.mjs`.
 
-The post-build step works around two Makit 0.8 gaps:
+The post-build step works around two Makit 0.9 gaps:
 
 1. It sets `lang` on `dist/<locale>/**/*.html` and rebuilds `dist/pagefind/`.
 2. Makit writes each chapter's Markdown endpoint (`/en/docs/export.md`) and `llms-full.txt`
@@ -188,13 +215,13 @@ The post-build step works around two Makit 0.8 gaps:
 ## Makit
 
 `@natsuneko-laboratory/makit`, `@natsuneko-laboratory/makit-runtime`, and `next` are pinned to
-exact versions. `lucide-react` is pinned to the version Makit depends on (0.468.0 for Makit 0.8.0):
+exact versions. `lucide-react` is pinned to the version Makit depends on (0.468.0 for Makit 0.9.0):
 Makit aliases `lucide-react` for the theme and pages, and the type-check and the Vite island
 resolve this package's own copy, so the two must match. Bump them together, then re-check the theme CSS that targets Makit's DOM and
 `aria-label`s (`theme/noir.css`, `theme/docs.css`: search dialog, page actions, copy button,
-code blocks) and the gaps below.
+code blocks, tabs and toggles) and the gaps below.
 
-Makit 0.8 gaps this package works around or lives with, besides the two post-build fixes above:
+Makit 0.9 gaps this package works around or lives with, besides the two post-build fixes above:
 
 - **"Edit on GitHub"** URLs are built relative to the site root (`…/edit/main/content/…`), and
   `github` has no directory option. `theme/DocsPage.tsx` inserts `packages/website/` with

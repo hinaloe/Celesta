@@ -91,6 +91,38 @@ test('fills the Markdown endpoints and llms-full.txt in dist', async () => {
   assert.equal(read('llms.txt'), '- [Installation](celesta:download/macos)\n', 'only *.md and llms-full.txt are filled');
 });
 
+test('fills fences and links inside tabs and toggles, keeping the directive syntax', async () => {
+  process.env.CELESTA_DOWNLOAD_URL_WINDOWS = 'https://example.com/w.exe';
+  const { root } = fixture({});
+  const markdown = [
+    '::::tabs[Platform]{default="macOS"}',
+    ':::tab[macOS]',
+    '',
+    '```tsx file=examples/a.tsx',
+    '```',
+    '',
+    ':::',
+    ':::tab[Windows]',
+    '',
+    '[Download](celesta:download/windows)',
+    '',
+    ':::',
+    '::::',
+    '',
+    ':::toggle[View the example]',
+    '',
+    '```tsx file=examples/a.tsx title="a.tsx"',
+    '```',
+    '',
+    ':::',
+    '',
+  ].join('\n');
+  assert.equal(await fillMarkdown(markdown, root), markdown
+    .replace('```tsx file=examples/a.tsx\n```', '```tsx title="a.tsx"\nexport const a = 1;\n```')
+    .replace('```tsx file=examples/a.tsx title="a.tsx"\n```', '```tsx title="a.tsx"\nexport const a = 1;\n```')
+    .replace('celesta:download/windows', 'https://example.com/w.exe'));
+});
+
 test('an unreadable include fails the build', async () => {
   const { root } = fixture({});
   await assert.rejects(fillMarkdown('```tsx file=examples/missing.tsx\n```\n', root), /cannot read "examples\/missing\.tsx"/);

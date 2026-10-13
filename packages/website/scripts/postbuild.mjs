@@ -1,4 +1,4 @@
-// Fixes up Makit's output in dist/ after `makit build` (run by `pnpm build`). Two Makit 0.8 gaps:
+// Fixes up Makit's output in dist/ after `makit build` (run by `pnpm build`). Two Makit 0.9 gaps:
 //
 // 1. Every page has <html lang="en">: the shared root layout only knows `site.lang`. Pagefind
 //    splits its index by that attribute, so each locale's pages get their own `lang`, then

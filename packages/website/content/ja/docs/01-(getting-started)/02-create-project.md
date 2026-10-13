@@ -21,16 +21,26 @@ celesta-editor --init
 
 デスクトップ版の実行ファイル名は `Celesta` と `Celesta-export` です（Windows では `.exe` 付き）。`celesta-editor` と `celesta-exporter` の代わりにインストール先のパスを使ってください。必要に応じて生成されたスクリプト内も変更します。
 
-- **macOS：** このコマンドは `/Applications` にアプリをインストールした場合の例です。必要に応じてパスを変更してください。
-- **Windows：** PowerShell を使い、`C:\path\to\Celesta` をアプリのインストール先または展開先に置き換えてください。インストーラーは Celesta を PATH に追加しません。
+::::tabs[プロジェクトを初期化する OS]{default="macOS"}
+:::tab[macOS]
 
-```sh title="インストールしたアプリで初期化（macOS）"
+このコマンドは `/Applications` にアプリをインストールした場合の例です。必要に応じてパスを変更してください。
+
+```sh title="インストールしたアプリで初期化"
 "/Applications/Celesta.app/Contents/MacOS/Celesta" --init my-video
 ```
 
-```sh title="インストールしたアプリで初期化（Windows）"
+:::
+:::tab[Windows]
+
+PowerShell を使い、`C:\path\to\Celesta` をアプリのインストール先または展開先に置き換えてください。インストーラーは Celesta を PATH に追加しません。
+
+```sh title="インストールしたアプリで初期化"
 & "C:\path\to\Celesta\Celesta.exe" --init my-video
 ```
+
+:::
+::::
 
 [ソースビルド](/ja/docs/build-from-source/)の場合は、先に React ランタイムをビルドし、リポジトリのルートから `cargo run -p celesta-editor --release -- --init my-video` を実行します。
 

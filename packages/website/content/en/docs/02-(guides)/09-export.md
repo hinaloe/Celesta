@@ -10,70 +10,116 @@ Choose **Export…** and select an MP4 destination. For a section of the composi
 
 The app includes a command-line exporter. Open a terminal in the project folder containing `first-scene.tsx`. Select your platform:
 
-- **macOS:** These commands assume Celesta is installed in `/Applications`. Adjust the app path if you installed it elsewhere.
-- **Windows:** Use PowerShell. Replace `C:\path\to\Celesta` with your installed or extracted Celesta folder. The installer does not add Celesta to PATH.
+::::tabs[Exporter platform]{default="macOS"}
+:::tab[macOS]
 
-```sh title="Export a React composition (macOS)"
+These commands assume Celesta is installed in `/Applications`. Adjust the app path if you installed it elsewhere.
+
+```sh title="Export a React composition"
 "/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react first-scene.tsx output.mp4
 ```
 
-```sh title="Export a React composition (Windows)"
+:::
+:::tab[Windows]
+
+Use PowerShell. Replace `C:\path\to\Celesta` with your installed or extracted Celesta folder. The installer does not add Celesta to PATH.
+
+```sh title="Export a React composition"
 & "C:\path\to\Celesta\Celesta-export.exe" --react first-scene.tsx output.mp4
 ```
 
+:::
+::::
+
 Add `--overwrite` to replace an existing output file. Use `--from` and `--to` to select a time range:
 
-```sh title="Export the first second (macOS)"
+::::tabs[Exporter platform]{default="macOS"}
+:::tab[macOS]
+
+```sh title="Export the first second"
 "/Applications/Celesta.app/Contents/MacOS/Celesta-export" --from 0 --to 1 --react first-scene.tsx section.mp4
 ```
 
-```sh title="Export the first second (Windows)"
+:::
+:::tab[Windows]
+
+```sh title="Export the first second"
 & "C:\path\to\Celesta\Celesta-export.exe" --from 0 --to 1 --react first-scene.tsx section.mp4
 ```
+
+:::
+::::
 
 ## Encoding quality and speed
 
 MP4 uses libx264 with --preset medium and --crf 18 by default. Faster presets such as veryfast reduce encoding time but usually increase file size at similar quality. CRF accepts 0–51; lower values give higher quality and larger files. --color-conversion accepts auto, gpu, or encoder. --render-quality draft speeds up timing checks by skipping scaled-text re-rasterization; use final (the default) to judge the finished image. --bit-depth 10 encodes 10-bit H.264 (High 10), which keeps dark gradients smoother but plays on fewer devices; the default is 8.
 
-```sh title="Export with a faster encoder preset (macOS)"
+::::tabs[Exporter platform]{default="macOS"}
+:::tab[macOS]
+
+```sh title="Export with a faster encoder preset"
 "/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react --preset veryfast --crf 18 first-scene.tsx draft.mp4
 ```
 
-```sh title="Export with a faster encoder preset (Windows)"
+:::
+:::tab[Windows]
+
+```sh title="Export with a faster encoder preset"
 & "C:\path\to\Celesta\Celesta-export.exe" --react --preset veryfast --crf 18 first-scene.tsx draft.mp4
 ```
+
+:::
+::::
 
 ## PNG frames and contact sheets
 
 --frame / --frames selects zero-based frame numbers. Multiple frames create names such as check-000090.png. --every N selects every Nth frame of the --from/--to range (or the whole composition) and its last frame. Add --contact-sheet to place them in one labelled grid; --columns and --tile-width control its layout. Explicit frame numbers cannot be combined with --every, --from, or --to.
 
-```sh title="Export selected frames (macOS)"
+::::tabs[Exporter platform]{default="macOS"}
+:::tab[macOS]
+
+```sh title="Export selected frames"
 "/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react --frames 0,90 first-scene.tsx check.png
 ```
 
-```sh title="Export selected frames (Windows)"
-& "C:\path\to\Celesta\Celesta-export.exe" --react --frames 0,90 first-scene.tsx check.png
-```
-
-```sh title="Export a contact sheet (macOS)"
+```sh title="Export a contact sheet"
 "/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react --every 30 --contact-sheet --columns 4 --tile-width 320 first-scene.tsx sheet.png
 ```
 
-```sh title="Export a contact sheet (Windows)"
+:::
+:::tab[Windows]
+
+```sh title="Export selected frames"
+& "C:\path\to\Celesta\Celesta-export.exe" --react --frames 0,90 first-scene.tsx check.png
+```
+
+```sh title="Export a contact sheet"
 & "C:\path\to\Celesta\Celesta-export.exe" --react --every 30 --contact-sheet --columns 4 --tile-width 320 first-scene.tsx sheet.png
 ```
+
+:::
+::::
 
 ## Select the graphics API
 
 Both the editor and exporter accept --driver auto (default), vulkan, dx12 (Windows), metal (macOS), or gl. Auto chooses an available adapter in wgpu’s backend order: Vulkan, Metal, DX12, then OpenGL. A specific driver must be available in the build and supported by the machine. This chooses the rendering API; MP4 encoding still uses libx264.
 
-```sh title="Choose a rendering API (macOS)"
+::::tabs[Exporter platform]{default="macOS"}
+:::tab[macOS]
+
+```sh title="Choose a rendering API"
 "/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react --driver auto first-scene.tsx output.mp4
 ```
 
-```sh title="Choose a rendering API (Windows)"
+:::
+:::tab[Windows]
+
+```sh title="Choose a rendering API"
 & "C:\path\to\Celesta\Celesta-export.exe" --react --driver auto first-scene.tsx output.mp4
 ```
+
+:::
+::::
 
 For scripts and AI agents, add `--json`. The exporter then prints no progress, only one line of JSON when it finishes: the status, every file it wrote, warnings, the composition's size, fps and frame count once the exporter has loaded it, and on failure an error code and message. When the arguments are rejected, the JSON has only the status and the error.
 

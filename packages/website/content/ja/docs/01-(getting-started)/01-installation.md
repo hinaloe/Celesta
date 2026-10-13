@@ -11,21 +11,27 @@
 
 ## 1. アプリをインストール
 
-### macOS
+::::tabs[インストール先の OS]{default="macOS"}
+:::tab[macOS]
 
 1. Apple Silicon では `macos-arm64.dmg`、Intel Mac では `macos-x64.dmg` を選びます。完全なファイル名にはリリースのバージョンが含まれます。
 2. ディスクイメージを開き、**Celesta** を **Applications** にドラッグします。
 3. ディスクイメージを取り出し、Applications から Celesta を開きます。
 
-### Windows x64
+:::
+:::tab[Windows]
 
 `windows-x64-setup.exe` インストーラーをダウンロードして実行し、スタートメニューから Celesta を開きます。完全なファイル名にはリリースのバージョンが含まれます。
 
 ポータブル版を使う場合は `windows-x64.zip` をダウンロードし、アーカイブ全体を展開して `Celesta.exe` を起動します。ランタイムのディレクトリと DLL は実行ファイルの隣に置いてください。
 
-### Linux
+:::
+:::tab[Linux]
 
 Linux では[ソースからのビルド手順](/ja/docs/build-from-source/)を使います。リリースに追加のプラットフォーム向けパッケージがあるか、添付ファイルも確認してください。
+
+:::
+::::
 
 ## 2. プロジェクトを作成
 

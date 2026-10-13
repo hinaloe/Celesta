@@ -10,70 +10,116 @@
 
 アプリにはコマンドライン用の書き出しツールも含まれています。`first-scene.tsx` があるプロジェクトフォルダでターミナルを開き、OS に合ったコマンドを使ってください。
 
-- **macOS：** 以下は Celesta を `/Applications` にインストールした場合の例です。別の場所ならパスを変更してください。
-- **Windows：** PowerShell を使います。`C:\path\to\Celesta` を Celesta のインストール先または展開先に置き換えてください。インストーラーは Celesta を PATH に追加しません。
+::::tabs[書き出しを行う OS]{default="macOS"}
+:::tab[macOS]
 
-```sh title="React コンポジションを書き出し（macOS）"
+以下は Celesta を `/Applications` にインストールした場合の例です。別の場所ならパスを変更してください。
+
+```sh title="React コンポジションを書き出し"
 "/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react first-scene.tsx output.mp4
 ```
 
-```sh title="React コンポジションを書き出し（Windows）"
+:::
+:::tab[Windows]
+
+PowerShell を使います。`C:\path\to\Celesta` を Celesta のインストール先または展開先に置き換えてください。インストーラーは Celesta を PATH に追加しません。
+
+```sh title="React コンポジションを書き出し"
 & "C:\path\to\Celesta\Celesta-export.exe" --react first-scene.tsx output.mp4
 ```
 
+:::
+::::
+
 既存の出力ファイルを置き換えるには `--overwrite` を追加します。`--from` と `--to` で時間範囲を指定できます。
 
-```sh title="最初の 1 秒を書き出し（macOS）"
+::::tabs[書き出しを行う OS]{default="macOS"}
+:::tab[macOS]
+
+```sh title="最初の 1 秒を書き出し"
 "/Applications/Celesta.app/Contents/MacOS/Celesta-export" --from 0 --to 1 --react first-scene.tsx section.mp4
 ```
 
-```sh title="最初の 1 秒を書き出し（Windows）"
+:::
+:::tab[Windows]
+
+```sh title="最初の 1 秒を書き出し"
 & "C:\path\to\Celesta\Celesta-export.exe" --from 0 --to 1 --react first-scene.tsx section.mp4
 ```
+
+:::
+::::
 
 ## 画質と書き出し速度
 
 MP4 は libx264 を使い、既定では --preset medium、--crf 18 で書き出します。veryfast などの速いプリセットは、画質をほぼ保ちながらエンコード時間を短縮しますが、ファイルは大きくなる傾向があります。CRF は 0〜51 で、小さいほど高画質・大容量になります。--color-conversion は auto、gpu、encoder を指定できます。--render-quality draft は拡大した文字の再描画を省略して動きの確認を速くします。仕上がりの確認には既定の final を使ってください。--bit-depth 10 は 10 bit の H.264（High 10）で書き出し、暗いグラデーションをより滑らかに保てますが、再生できる環境は限られます。既定は 8 です。
 
-```sh title="速いプリセットで書き出す（macOS）"
+::::tabs[書き出しを行う OS]{default="macOS"}
+:::tab[macOS]
+
+```sh title="速いプリセットで書き出す"
 "/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react --preset veryfast --crf 18 first-scene.tsx draft.mp4
 ```
 
-```sh title="速いプリセットで書き出す（Windows）"
+:::
+:::tab[Windows]
+
+```sh title="速いプリセットで書き出す"
 & "C:\path\to\Celesta\Celesta-export.exe" --react --preset veryfast --crf 18 first-scene.tsx draft.mp4
 ```
+
+:::
+::::
 
 ## PNG 画像とコンタクトシート
 
 --frame / --frames で、0 から始まるフレーム番号を指定します。複数指定すると check-000090.png のような名前で保存されます。--every N は --from/--to の範囲（省略時は全体）から N フレームごとと最後のフレームを選びます。--contact-sheet を加えると、番号付きの一覧画像を作れます。列数は --columns、各画像の幅は --tile-width で指定します。フレーム番号の直接指定は --every、--from、--to と併用できません。
 
-```sh title="指定したフレームを書き出す（macOS）"
+::::tabs[書き出しを行う OS]{default="macOS"}
+:::tab[macOS]
+
+```sh title="指定したフレームを書き出す"
 "/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react --frames 0,90 first-scene.tsx check.png
 ```
 
-```sh title="指定したフレームを書き出す（Windows）"
-& "C:\path\to\Celesta\Celesta-export.exe" --react --frames 0,90 first-scene.tsx check.png
-```
-
-```sh title="コンタクトシートを書き出す（macOS）"
+```sh title="コンタクトシートを書き出す"
 "/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react --every 30 --contact-sheet --columns 4 --tile-width 320 first-scene.tsx sheet.png
 ```
 
-```sh title="コンタクトシートを書き出す（Windows）"
+:::
+:::tab[Windows]
+
+```sh title="指定したフレームを書き出す"
+& "C:\path\to\Celesta\Celesta-export.exe" --react --frames 0,90 first-scene.tsx check.png
+```
+
+```sh title="コンタクトシートを書き出す"
 & "C:\path\to\Celesta\Celesta-export.exe" --react --every 30 --contact-sheet --columns 4 --tile-width 320 first-scene.tsx sheet.png
 ```
+
+:::
+::::
 
 ## 描画に使う API を選ぶ
 
 アプリと書き出しツールの両方で、--driver に auto（既定）、vulkan、dx12（Windows）、metal（macOS）、gl を指定できます。auto は wgpu の順序（Vulkan、Metal、DX12、OpenGL）で利用可能な描画アダプタを探します。明示した API は、そのビルドと実行環境の両方で利用できる必要があります。これは描画用 API の選択で、MP4 のエンコードには引き続き libx264 を使います。
 
-```sh title="描画 API を指定する（macOS）"
+::::tabs[書き出しを行う OS]{default="macOS"}
+:::tab[macOS]
+
+```sh title="描画 API を指定する"
 "/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react --driver auto first-scene.tsx output.mp4
 ```
 
-```sh title="描画 API を指定する（Windows）"
+:::
+:::tab[Windows]
+
+```sh title="描画 API を指定する"
 & "C:\path\to\Celesta\Celesta-export.exe" --react --driver auto first-scene.tsx output.mp4
 ```
+
+:::
+::::
 
 スクリプトや AI エージェント向けには `--json` を追加します。進捗は表示されず、完了時に JSON を 1 行だけ出力します。状態、生成ファイル、警告、読み込み後のサイズ・fps・フレーム数、失敗時のエラーコードとメッセージが含まれます。引数が拒否された場合は、状態とエラーのみです。
 

@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import remarkDirective from 'remark-directive';
 import remarkParse from 'remark-parse';
 import remarkStringify from 'remark-stringify';
 import { unified } from 'unified';
@@ -73,4 +74,15 @@ test('ignores fences without file=', async () => {
 test('ignores fences with a body', async () => {
   const markdown = '```tsx file=examples/a.tsx\nconst a = 1;\n```\n';
   assert.equal(await run(markdown), markdown);
+});
+
+test('fills a fence inside a tab, as Makit 0.9 parses tabs (remark-directive)', async () => {
+  const tabs = unified().use(remarkParse).use(remarkDirective).use(remarkInclude, { root });
+  const tree = await tabs.run(tabs.parse('::::tabs[Platform]{default="macOS"}\n:::tab[macOS]\n\n```tsx file=examples/a.tsx title="Scene"\n```\n\n:::\n::::\n'));
+  const [group] = tree.children;
+  assert.equal(group.type, 'containerDirective');
+  const [, tab] = group.children; // the label paragraph, then the tab
+  assert.equal(tab.name, 'tab');
+  const code = tab.children.find(node => node.type === 'code');
+  assert.deepEqual({ meta: code.meta, value: code.value }, { meta: 'title="Scene"', value: 'export {}' });
 });
