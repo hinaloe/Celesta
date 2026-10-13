@@ -1,6 +1,7 @@
 //! The MCP tool router: argument types, validation, and dispatch.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use celesta_exporter::report;
 use celesta_react_bridge::{
@@ -13,21 +14,45 @@ use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use tokio::sync::Mutex;
 
+use crate::args::{ContactSheetArgs, RenderFramesArgs};
 use crate::docs;
+use crate::export::{self, Run};
+use crate::frames::{OutputDirs, image_blocks};
 use crate::inspect::{self, InspectArgs};
 
 #[derive(Clone)]
 pub struct CelestaServer {
     tool_router: ToolRouter<Self>,
+    /// Held by every tool that renders, so they take turns on the GPU.
+    render_lock: Arc<Mutex<()>>,
+    outputs: Arc<OutputDirs>,
 }
 
 impl CelestaServer {
     pub fn new() -> std::io::Result<Self> {
         Ok(Self {
             tool_router: Self::tool_router(),
+            render_lock: Arc::new(Mutex::new(())),
+            outputs: Arc::new(OutputDirs::new()?),
         })
     }
+}
+
+/// A rendering tool's result: the PNGs it wrote as images, then its report.
+fn rendered(run: Run) -> CallToolResult {
+    if !run.ok {
+        return CallToolResult::structured_error(run.report);
+    }
+    let mut content = match image_blocks(&run.files) {
+        Ok(images) => images,
+        Err(error) => return error_result("io", format!("could not read a rendered PNG: {error}")),
+    };
+    content.push(ContentBlock::text(run.report.to_string()));
+    let mut result = CallToolResult::success(content);
+    result.structured_content = Some(run.report);
+    result
 }
 
 /// An error result shaped like an export report's.
@@ -149,14 +174,30 @@ impl CelestaServer {
         blocking(move || inspect::inspect(args)).await
     }
 
-    #[tool(description = "Not implemented yet.")]
-    fn render_frames(&self) -> CallToolResult {
-        usage_error("not implemented")
+    #[tool(
+        description = "Render frames of a React entry or JSON project to PNG and return them as images (the first 6; the report lists every file). Look at them before saying a change looks right. Also validates a whole .celesta.json."
+    )]
+    async fn render_frames(
+        &self,
+        Parameters(args): Parameters<RenderFramesArgs>,
+    ) -> CallToolResult {
+        match args.job(&self.outputs) {
+            Ok(job) => rendered(export::run(job, &self.render_lock).await),
+            Err(message) => usage_error(&message),
+        }
     }
 
-    #[tool(description = "Not implemented yet.")]
-    fn contact_sheet(&self) -> CallToolResult {
-        usage_error("not implemented")
+    #[tool(
+        description = "Render the selected frames as one labelled grid image, to see a whole video at once (for example every 150 frames). Returns the image and the tile frames."
+    )]
+    async fn contact_sheet(
+        &self,
+        Parameters(args): Parameters<ContactSheetArgs>,
+    ) -> CallToolResult {
+        match args.job(&self.outputs) {
+            Ok(job) => rendered(export::run(job, &self.render_lock).await),
+            Err(message) => usage_error(&message),
+        }
     }
 
     #[tool(description = "Not implemented yet.")]

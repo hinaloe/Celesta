@@ -1,7 +1,10 @@
 //! `Celesta-mcp`: an MCP server on stdio that lets coding agents inspect,
 //! render, and export Celesta videos and read the Celesta docs.
 
+mod args;
 mod docs;
+mod export;
+mod frames;
 mod inspect;
 mod server;
 mod summary;
