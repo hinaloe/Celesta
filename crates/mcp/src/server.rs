@@ -15,6 +15,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::docs;
+use crate::inspect::{self, InspectArgs};
 
 #[derive(Clone)]
 pub struct CelestaServer {
@@ -141,9 +142,11 @@ impl CelestaServer {
         }
     }
 
-    #[tool(description = "Not implemented yet.")]
-    fn inspect(&self) -> CallToolResult {
-        usage_error("not implemented")
+    #[tool(
+        description = "Evaluate a React entry's frames without rendering pixels, with real text shaping and media probing, and list every layer (type, position, size, paint, text), audio clip, and missing local file. With `loop`, check that the last frame runs seamlessly into the first. Use it after every edit, before render_frames."
+    )]
+    async fn inspect(&self, Parameters(args): Parameters<InspectArgs>) -> CallToolResult {
+        blocking(move || inspect::inspect(args)).await
     }
 
     #[tool(description = "Not implemented yet.")]
@@ -160,6 +163,13 @@ impl CelestaServer {
     fn export_video(&self) -> CallToolResult {
         usage_error("not implemented")
     }
+}
+
+/// Runs `work` off the async runtime.
+async fn blocking(work: impl FnOnce() -> CallToolResult + Send + 'static) -> CallToolResult {
+    tokio::task::spawn_blocking(work)
+        .await
+        .unwrap_or_else(|error| error_result("internal", format!("the tool failed: {error}")))
 }
 
 fn template_error(error: &TemplateError) -> CallToolResult {

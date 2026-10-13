@@ -2,6 +2,7 @@
 //! render, and export Celesta videos and read the Celesta docs.
 
 mod docs;
+mod inspect;
 mod server;
 mod summary;
 
