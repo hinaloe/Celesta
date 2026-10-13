@@ -2,7 +2,8 @@
 
 Celesta is a code-first video tool. Build animated scenes with React and
 TypeScript, combining video, images, text, shapes, and audio. Preview your work
-in the Celesta desktop app and export it as an MP4 or PNG frames.
+in the Celesta desktop app and export it as a video (MP4, or transparent MOV
+or WebM) or PNG frames.
 
 Celesta is under active development. Packaged desktop apps include the React
 runtime and Node.js; the instructions below also cover running from source.
@@ -38,8 +39,9 @@ for more examples, see the [examples directory](examples) and the [gallery](docs
 - **Create character dialogue:** combine image or PSD portraits, expressions,
   subtitles, voice recordings, lip-sync cues, and blinking. Use
   `<DialogueSeries>` to sequence conversations.
-- **Export MP4:** render H.264 video with AAC audio, either from the app or
-  the command line. Export the whole composition or a selected time range.
+- **Export video:** render H.264 MP4 with AAC audio, or transparent MOV
+  (ProRes 4444) and WebM (VP9), either from the app or the command line.
+  Export the whole composition or a selected time range.
 - **Inspect frames:** export selected frames as PNG files or a labelled
   contact sheet, and request machine-readable export results for scripts.
 
@@ -49,7 +51,7 @@ Download a macOS or Windows package from the
 [GitHub releases](https://github.com/mika-f/celesta/releases/latest).
 Choose **File › Create New Project…**, select a folder, and edit the generated
 `film.tsx` in your text editor. Celesta opens it for preview and reloads it
-when you save. Choose **Export…** to write an MP4.
+when you save. Choose **Export…** to write a video.
 
 Preview and export use the bundled runtime. Install Node.js and a package
 manager separately when you need TypeScript checking or external npm packages;
@@ -150,7 +152,7 @@ cargo run -p celesta-editor --release -- examples/reel/film.tsx
    ' shows safe areas over the viewer. The Master meter beside the timeline
    shows the preview's audio levels. Select an asset, track, or clip to see its
    details in the Inspector.
-4. **Export.** Choose **Export…** and an MP4 destination. To export a section,
+4. **Export.** Choose **Export…** and a video destination (.mp4, .mov or .webm). To export a section,
    press I and O to mark its start and end. Progress appears in the status
    bar; **Cancel export** stops the job.
 
@@ -394,7 +396,7 @@ dashboard with a timed pipeline, rendered-frame progress, a throughput history
 graph, FPS, elapsed time, estimated rendering time remaining, export settings,
 and warnings. Smaller terminals use a compact layout. The dashboard stays
 in your terminal's scrollback after the export finishes. The rendering bar
-can reach 100% while audio mixing and MP4 muxing are still running.
+can reach 100% while audio mixing and muxing are still running.
 
 Use `--no-ui` for text progress. Redirected output, CI without a terminal,
 and `TERM=dumb` automatically use text progress without terminal control codes.
@@ -557,7 +559,7 @@ build it with `cargo build -p celesta-mcp --release`.
 
 - Remote media is cached by URL without revalidation. Use a new URL or clear
   the cache when the remote file changes.
-- MP4 export requires non-zero, even-numbered width and height.
+- Video export requires non-zero, even-numbered width and height.
 - The Celesta app previews and exports compositions; edit their source files
   in a text editor.
 

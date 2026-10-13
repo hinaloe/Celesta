@@ -8,7 +8,7 @@ use celesta_project::Project;
 use std::path::{Path, PathBuf};
 
 /// One export as `Celesta-export` and the MCP server describe it: a JSON
-/// project or a React entry, written as PNG stills or an MP4.
+/// project or a React entry, written as PNG stills or a video (MP4, MOV or WebM).
 #[derive(Clone, Debug)]
 pub struct ExportJob {
     pub source: PathBuf,
@@ -21,13 +21,13 @@ pub struct ExportJob {
     /// Property values as a JSON object, over `props_file`'s.
     pub props: Option<String>,
     pub output: PathBuf,
-    /// `Some` writes PNG stills instead of an MP4.
+    /// `Some` writes PNG stills instead of a video.
     pub png: Option<PngExport>,
     pub options: ExportOptions,
 }
 
 impl ExportJob {
-    /// Runs the export. Only MP4 exports check `cancellation`.
+    /// Runs the export. Only video exports check `cancellation`.
     pub fn run(
         &self,
         cancellation: &ExportCancellation,

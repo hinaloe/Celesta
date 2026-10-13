@@ -645,7 +645,7 @@ fn exports_transparent_vp9_webm() {
         "{metadata:?}"
     );
     assert_eq!(colors, (1, 1, 1));
-    // libopus takes no 8 kHz input here, so the audio is resampled.
+    // `mux_audio` always resamples Opus to 48 kHz.
     assert_eq!(audio_stream(&url), ("opus".to_owned(), 48_000));
     // 4:2:0 chroma blurs the quadrant's color a little more.
     assert_transparent_quadrant(&decode_rgba64(&output, Some("libvpx-vp9")), 6 * 257);

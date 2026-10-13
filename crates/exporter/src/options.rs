@@ -30,7 +30,7 @@ pub struct ExportOptions {
 ///
 /// `.mov` (ProRes 4444) and `.webm` (VP9) keep the composition's alpha
 /// channel; `.mp4` (H.264) has none, so transparent pixels are flattened
-/// onto black.
+/// onto the default opaque background.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VideoFormat {
     #[default]
@@ -42,7 +42,7 @@ pub enum VideoFormat {
 impl VideoFormat {
     pub const ALL: [Self; 3] = [Self::Mp4, Self::Mov, Self::Webm];
 
-    /// The output file extension, which is also the name `--format` takes.
+    /// The output file extension, which is also the name `--output-format` takes.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Mp4 => "mp4",

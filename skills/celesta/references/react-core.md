@@ -129,7 +129,7 @@ take keyframe objects in React. Effects and blend modes cost GPU passes; see
 ## Composition
 
 `width`, `height`, `fps`, `durationInFrames`: all required positive
-integers. Use even `width`/`height` for MP4 export. Exactly one, at the root.
+integers. Use even `width`/`height` for video export. Exactly one, at the root.
 These props are read once when the entry loads, so they must not depend on
 the current frame or `useVideoConfig()`. Optional `lang` (for example
 `"ja-JP"`) sets the default text language, which picks fallback fonts; see

@@ -59,7 +59,7 @@ A **range** is `{ "start": Time, "duration": Time }` on the project timeline.
 
 | Key | Required | Notes |
 | --- | --- | --- |
-| `width`, `height` | yes | Pixels, > 0. Even numbers for MP4 export. |
+| `width`, `height` | yes | Pixels, > 0. Even numbers for video export. |
 | `frameRate` | yes | `{ "numerator": 30, "denominator": 1 }`. 29.97 fps is `30000/1001`. |
 | `sampleRate` | yes | Audio mix rate, usually `48000`. |
 | `duration` | no | Time. When omitted, the project ends at the latest item end. |

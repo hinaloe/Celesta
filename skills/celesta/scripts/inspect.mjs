@@ -376,7 +376,7 @@ async function inspectEntry(options) {
   frames = [...new Set(frames.map((frame) => (frame < 0 ? total + frame : frame)))].filter((frame) => frame >= 0 && frame < total);
 
   const warnings = [];
-  if (config.width % 2 || config.height % 2) warnings.push(`width/height ${config.width}×${config.height} must be even for MP4 export`);
+  if (config.width % 2 || config.height % 2) warnings.push(`width/height ${config.width}×${config.height} must be even for video export`);
 
   if (options.json) {
     const results = [];

@@ -25,3 +25,5 @@ The x264-enabled FFmpeg build includes GPL-2.0-or-later licensed software,
 which makes this package as a whole GPL-licensed in addition to Celesta's own
 MIT/Apache-2.0 source license. See licenses/LICENSE-GPL-2.0 for the license
 text and licenses/GPL-SOURCE-OFFER.md for the corresponding-source offer.
+The build also includes libvpx and libopus (BSD-3-Clause); their notices are in
+licenses/native.

@@ -11,8 +11,10 @@ itself is dual-licensed LGPL/GPL, becoming GPL-licensed as a whole once a
 GPL-only component such as `x264` is enabled. Under GPLv2 Section 3, a work
 that links this build therefore may only be distributed as object/executable
 code together with either the complete corresponding source or a written
-offer for it. The build also links `libvpx` and `libopus` (BSD-3-Clause), the
-encoders behind WebM export. This file is that offer.
+offer for it. This file is that offer.
+
+The build also links `libvpx` and `libopus` (BSD-3-Clause), the encoders behind
+WebM export.
 
 ## The offer
 

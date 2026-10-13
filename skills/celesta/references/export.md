@@ -56,9 +56,9 @@ Celesta-export --json --react scene.tsx out.mp4
 | `--props <json>` | Inline JSON object of project property values (needs `--react`); wins over `--props-file`. |
 | `--from <t>`, `--to <t>` | Export only this span (`--to` exclusive); the output starts at 00:00. Times are seconds, `MM:SS.mmm`, or `HH:MM:SS.mmm`. |
 | `--overwrite` | Replace an existing output file. |
-| `--preset <p>` | libx264 preset, `ultrafast` … `veryslow` (default `medium`). Encoding speed against file size only; it does not change what is rendered. |
-| `--crf <n>` | 0–51, lower is better quality (default 18). |
-| `--color-conversion <w>` | `auto` (default), `gpu`, or `encoder`: where RGB becomes YUV. |
+| `--preset <p>` | libx264 preset, `ultrafast` … `veryslow` (default `medium`). Encoding speed against file size only; it does not change what is rendered. MP4 only. |
+| `--crf <n>` | 0–51, lower is better quality (default 18). MP4 only. |
+| `--color-conversion <w>` | `auto` (default), `gpu`, or `encoder`: where RGB becomes YUV. MP4 only. |
 | `--bit-depth <n>` | `8` (default) or `10`. `10` encodes H.264 High 10 (`yuv420p10le`): smoother dark gradients, but fewer players decode it; keep `8` for files meant for phones, browsers, or social media. MP4 only. |
 | `--render-quality <q>` | `final` (default) or `draft`. `draft` draws scaled text from a scale-1 texture, so it is softer; use it only to check timing. |
 | `--json` | No progress output; one line of JSON on stdout when the export ends. See [JSON results](#json-results). |
@@ -139,8 +139,8 @@ props file, the result also has `propsFile` (its path) and `propsFileAuto`
 | `output_exists` | An output file exists; add `--overwrite` only if you may replace it. |
 | `invalid_selection` | A frame is out of range or repeated, or the selection or contact sheet is too large. |
 | `empty_range` | `--from`/`--to` cover no frames of the composition. |
-| `unsupported_output` | The output must be a `.mp4`, `.mov`, or `.webm` path (or a frame selection for PNG). |
-| `encoder_unavailable` | This FFmpeg build lacks the encoder the format needs (H.264, ProRes, or VP9 and Opus). |
+| `unsupported_output` | The output is not a `.mp4`, `.mov`, or `.webm` path and no frame selection (`--frame`, `--frames`, `--every`) makes it a PNG export. |
+| `encoder_unavailable` | This FFmpeg build lacks an encoder the format needs (video: H.264, ProRes, or VP9; audio: AAC, PCM, or Opus). |
 | `unsupported_dimensions` | Video needs non-zero even width and height. |
 | `project_io`, `project_json` | The project file could not be read or is not valid JSON. |
 | `project_validation` | The project is invalid; `error.issues` lists each `{path, message}`. |
