@@ -2,7 +2,7 @@ use crate::EDITOR_DEMO_PROJECT;
 use crate::audio::{AudioCacheKey, CachedAudioDecoder, take_latest};
 use crate::audio_cache::DiskAudioCache;
 use crate::export_worker::{ExportEvent, ExportRequest, ExportSource, ExportWorker};
-use crate::helpers::{export_range_for, export_suggested_name, loop_range_for};
+use crate::helpers::{export_output, export_range_for, export_suggested_name, loop_range_for};
 use crate::source::is_react_entry;
 use crate::waveform::{
     clip_level_envelope, level_at_time, map_clip_waveform, master_volume_from_drag, waveform_peaks,
@@ -20,7 +20,7 @@ use celesta_composition::{
     Time, TimeRange,
 };
 use celesta_editor_core::ClipSummary;
-use celesta_exporter::ExportCancellation;
+use celesta_exporter::{ExportCancellation, VideoFormat};
 use celesta_media::{AudioBuffer, AudioDecoder};
 use celesta_project::Project;
 use celesta_react_bridge::ComponentResolutions;
@@ -55,6 +55,7 @@ fn export_worker_reports_cancellation_without_creating_output() {
             )),
             asset_root: PathBuf::from("examples"),
             output: output.clone(),
+            format: VideoFormat::Mp4,
             range: None,
             cancellation,
             driver: GpuDriver::default(),
@@ -116,6 +117,16 @@ fn export_name_replaces_project_extensions() {
         "demo.mp4"
     );
     assert_eq!(export_suggested_name(None, "Untitled"), "Untitled.mp4");
+}
+
+#[test]
+fn export_output_keeps_video_extensions() {
+    let case = |path: &str| export_output(PathBuf::from(path));
+    assert_eq!(case("a.mov"), (PathBuf::from("a.mov"), VideoFormat::Mov));
+    assert_eq!(case("a.WebM"), (PathBuf::from("a.WebM"), VideoFormat::Webm));
+    assert_eq!(case("a.mp4"), (PathBuf::from("a.mp4"), VideoFormat::Mp4));
+    assert_eq!(case("a"), (PathBuf::from("a.mp4"), VideoFormat::Mp4));
+    assert_eq!(case("a.gif"), (PathBuf::from("a.mp4"), VideoFormat::Mp4));
 }
 
 #[test]

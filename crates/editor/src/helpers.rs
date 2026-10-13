@@ -1,12 +1,12 @@
 use crate::preview::{CpuPreviewFrame, PreviewPresentation};
 use celesta_composition::{Rational, Time};
 use celesta_editor_core::ClipKind;
-use celesta_exporter::{ExportProgress, ExportRange};
+use celesta_exporter::{ExportProgress, ExportRange, VideoFormat};
 use celesta_gpu_renderer::PreviewFrame as GpuPreviewFrame;
 use gpui_kit::RenderImage;
 use image::{Frame, ImageBuffer, Rgba};
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub(crate) fn prepare_preview_frame(frame: GpuPreviewFrame) -> PreviewPresentation {
@@ -110,4 +110,14 @@ pub(crate) fn export_suggested_name(path: Option<&Path>, project_name: &str) -> 
         .or_else(|| name.strip_suffix(".json"))
         .unwrap_or(name);
     format!("{stem}.mp4")
+}
+
+/// The file to export to and its format: `.mp4`, `.mov` and `.webm` choices
+/// are kept, anything else becomes an `.mp4`.
+pub(crate) fn export_output(mut path: PathBuf) -> (PathBuf, VideoFormat) {
+    let Some(format) = VideoFormat::from_extension(&path) else {
+        path.set_extension("mp4");
+        return (path, VideoFormat::Mp4);
+    };
+    (path, format)
 }
