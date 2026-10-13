@@ -2,7 +2,7 @@ use crate::RenderQuality;
 use crate::control::{ExportCancellation, ExportProgress};
 use crate::error::ExportError;
 use crate::exporter::Exporter;
-use crate::options::{BitDepth, ColorConversion, VideoEncoding};
+use crate::options::{BitDepth, ColorConversion, VideoEncoding, VideoFormat};
 use crate::project::{absolutize_fonts, absolutize_layers, visual_only_project};
 use crate::range::ExportWindow;
 use crate::react::ReactVideoRequest;
@@ -12,9 +12,8 @@ use celesta_gpu_renderer::{GpuDriver, GpuRenderOptions, GpuRenderer, ReadbackFor
 use celesta_media::FfmpegBackend;
 use celesta_project::Project;
 use celesta_react_bridge::{ProjectFrame, ReactBridge};
-use ez_ffmpeg::{FfmpegContext, Input, Output, VideoWriter};
+use ez_ffmpeg::{FfmpegContext, Input, Output, VideoWriter, capabilities};
 use std::collections::{BTreeMap, HashSet};
-use std::ffi::OsStr;
 use std::io::Write;
 use std::path::Path;
 use std::sync::mpsc;
@@ -323,14 +322,34 @@ impl Exporter {
     }
 }
 
-pub(crate) fn validate_output(output: &Path, overwrite: bool) -> Result<(), ExportError> {
-    if output.extension() != Some(OsStr::new("mp4")) {
-        return Err(ExportError::UnsupportedOutput(output.to_owned()));
+pub(crate) fn validate_output(
+    output: &Path,
+    format: VideoFormat,
+    overwrite: bool,
+) -> Result<(), ExportError> {
+    if VideoFormat::from_extension(output) != Some(format) {
+        return Err(ExportError::UnsupportedOutput {
+            path: output.to_owned(),
+            format,
+        });
     }
     if !overwrite && output.exists() {
         return Err(ExportError::OutputExists(output.to_owned()));
     }
     Ok(())
+}
+
+/// Fails when the linked FFmpeg lacks an encoder `format` needs, before any
+/// frame is rendered.
+pub(crate) fn ensure_encoders(format: VideoFormat) -> Result<(), ExportError> {
+    match format
+        .encoders()
+        .into_iter()
+        .find(|encoder| !capabilities::is_encoder_available(encoder))
+    {
+        Some(encoder) => Err(ExportError::EncoderUnavailable { format, encoder }),
+        None => Ok(()),
+    }
 }
 
 pub(crate) fn path_to_url(path: &Path) -> String {

@@ -14,7 +14,7 @@ use celesta_composition::Time;
 use celesta_exporter::{
     BitDepth, ColorConversion, ContactSheet, EncoderPreset, ExportCancellation, ExportError,
     ExportJob, ExportOptions, ExportProgress, ExportRange, FrameSelection, GpuDriver, PngExport,
-    ReactRuntimeOptions, RenderQuality, VideoEncoding, parse_timecode,
+    ReactRuntimeOptions, RenderQuality, VideoEncoding, VideoFormat, parse_timecode,
 };
 use celesta_react_bridge::{PropsFileChoice, resolve_props_file};
 
@@ -390,6 +390,7 @@ fn export(
         options: ExportOptions {
             overwrite: cli.overwrite,
             range,
+            video_format: VideoFormat::default(),
             video: cli.video(),
             render_quality: cli.render_quality,
             driver: cli.driver,

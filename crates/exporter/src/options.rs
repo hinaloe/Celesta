@@ -1,7 +1,9 @@
 use crate::range::ExportRange;
 use crate::{GpuDriver, RenderQuality};
 use std::error::Error;
+use std::ffi::OsStr;
 use std::fmt;
+use std::path::Path;
 use std::str::FromStr;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -12,6 +14,8 @@ pub struct ExportOptions {
     /// shifted so the span's start becomes the file's start). `None` exports
     /// the whole composition, byte-for-byte as before.
     pub range: Option<ExportRange>,
+    /// The container and codecs the video is written with.
+    pub video_format: VideoFormat,
     /// H.264 encoder settings; the default matches the historical output.
     pub video: VideoEncoding,
     /// How carefully scaled and rotated layers are drawn. Exports default to
@@ -21,6 +25,91 @@ pub struct ExportOptions {
     /// The graphics API frames are rendered through.
     pub driver: GpuDriver,
 }
+
+/// The container (and, with it, the codecs) an exported video is written in.
+///
+/// `.mov` (ProRes 4444) and `.webm` (VP9) keep the composition's alpha
+/// channel; `.mp4` (H.264) has none, so transparent pixels are flattened
+/// onto black.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VideoFormat {
+    #[default]
+    Mp4,
+    Mov,
+    Webm,
+}
+
+impl VideoFormat {
+    pub const ALL: [Self; 3] = [Self::Mp4, Self::Mov, Self::Webm];
+
+    /// The output file extension, which is also the name `--format` takes.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Mp4 => "mp4",
+            Self::Mov => "mov",
+            Self::Webm => "webm",
+        }
+    }
+
+    /// The format whose extension `path` has, ignoring case.
+    pub fn from_extension(path: &Path) -> Option<Self> {
+        let extension = path.extension().and_then(OsStr::to_str)?;
+        Self::ALL
+            .into_iter()
+            .find(|format| format.as_str().eq_ignore_ascii_case(extension))
+    }
+
+    /// Whether the encoded video keeps the composition's transparency.
+    pub const fn has_alpha(self) -> bool {
+        !matches!(self, Self::Mp4)
+    }
+
+    /// The video and audio encoders this format needs, which a stripped
+    /// FFmpeg build may lack.
+    pub(crate) const fn encoders(self) -> [&'static str; 2] {
+        match self {
+            Self::Mp4 => ["libx264", "aac"],
+            Self::Mov => ["prores_ks", "pcm_s24le"],
+            Self::Webm => ["libvpx-vp9", "libopus"],
+        }
+    }
+}
+
+impl fmt::Display for VideoFormat {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for VideoFormat {
+    type Err = UnknownVideoFormat;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|format| format.as_str() == name)
+            .ok_or_else(|| UnknownVideoFormat(name.to_owned()))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnknownVideoFormat(pub String);
+
+impl fmt::Display for UnknownVideoFormat {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "unknown video format '{}' (expected one of",
+            self.0
+        )?;
+        for format in VideoFormat::ALL {
+            write!(formatter, " {format}")?;
+        }
+        formatter.write_str(")")
+    }
+}
+
+impl Error for UnknownVideoFormat {}
 
 /// Settings for the exported H.264 video stream.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

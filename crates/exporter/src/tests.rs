@@ -2,11 +2,14 @@ use crate::DEFAULT_REACT_AUDIO_SAMPLE_RATE;
 use crate::error::ExportError;
 use crate::options::{
     BitDepth, ColorConversion, EncoderPreset, UnknownBitDepth, UnknownEncoderPreset, VideoEncoding,
+    VideoFormat,
 };
 use crate::project::absolutize_layers;
 use crate::project::{build_audio_graph, merge_react_audio_clips, visual_only_project};
 use crate::range::{ExportRange, resolve_window, shifted_audio_graph};
-use crate::render::{frame_count, open_video_writer, validate_dimensions, validate_output};
+use crate::render::{
+    ensure_encoders, frame_count, open_video_writer, validate_dimensions, validate_output,
+};
 use crate::timecode::{TimecodeError, parse_timecode};
 use celesta_composition::{
     AssetLocation, EvaluatedTransform, F32Column, GroupMask, InstanceShape, Layer, LayerContent,
@@ -311,17 +314,32 @@ fn visual_only_project_keeps_dialogue_and_component_but_drops_audio() {
 }
 
 #[test]
-fn refuses_non_mp4_and_existing_outputs() {
+fn refuses_unmatched_and_existing_outputs() {
     let directory = tempfile::tempdir().unwrap();
     let existing = directory.path().join("existing.mp4");
     fs::write(&existing, []).unwrap();
     assert!(matches!(
-        validate_output(&existing, false),
+        validate_output(&existing, VideoFormat::Mp4, false),
         Err(ExportError::OutputExists(_))
     ));
+    assert!(validate_output(&existing, VideoFormat::Mp4, true).is_ok());
+    for name in ["video.mov", "VIDEO.MOV"] {
+        assert!(validate_output(&directory.path().join(name), VideoFormat::Mov, false).is_ok());
+    }
     assert!(matches!(
-        validate_output(&directory.path().join("video.mov"), false),
-        Err(ExportError::UnsupportedOutput(_))
+        validate_output(&directory.path().join("video.mov"), VideoFormat::Mp4, false),
+        Err(ExportError::UnsupportedOutput {
+            format: VideoFormat::Mp4,
+            ..
+        })
+    ));
+    assert!(matches!(
+        validate_output(
+            &directory.path().join("video.webm"),
+            VideoFormat::Mov,
+            false
+        ),
+        Err(ExportError::UnsupportedOutput { .. })
     ));
     assert!(matches!(
         validate_dimensions(63, 64),
@@ -430,4 +448,45 @@ fn absolutizes_an_instance_image() {
             path: root.join("spark.png").to_string_lossy().into_owned()
         }
     );
+}
+
+#[test]
+fn video_formats_follow_the_extension() {
+    assert_eq!(
+        VideoFormat::from_extension(Path::new("a.mp4")),
+        Some(VideoFormat::Mp4)
+    );
+    assert_eq!(
+        VideoFormat::from_extension(Path::new("a.MOV")),
+        Some(VideoFormat::Mov)
+    );
+    assert_eq!(
+        VideoFormat::from_extension(Path::new("a.WebM")),
+        Some(VideoFormat::Webm)
+    );
+    assert_eq!(VideoFormat::from_extension(Path::new("a.gif")), None);
+    assert!(
+        !VideoFormat::Mp4.has_alpha()
+            && VideoFormat::Mov.has_alpha()
+            && VideoFormat::Webm.has_alpha()
+    );
+}
+
+#[test]
+fn video_format_names_round_trip() {
+    for format in VideoFormat::ALL {
+        assert_eq!(format.as_str().parse::<VideoFormat>(), Ok(format));
+        assert_eq!(format.to_string(), format.as_str());
+    }
+    assert_eq!(
+        "gif".parse::<VideoFormat>().unwrap_err().to_string(),
+        "unknown video format 'gif' (expected one of mp4 mov webm)"
+    );
+}
+
+#[test]
+fn linked_ffmpeg_has_every_format_encoder() {
+    for format in VideoFormat::ALL {
+        ensure_encoders(format).unwrap_or_else(|error| panic!("{format}: {error}"));
+    }
 }

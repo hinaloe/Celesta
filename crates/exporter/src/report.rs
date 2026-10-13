@@ -101,6 +101,8 @@ enum Output {
         start: f64,
         duration: f64,
         audio: bool,
+        format: &'static str,
+        alpha: bool,
     },
     Frame {
         path: PathBuf,
@@ -280,6 +282,7 @@ fn output(file: ExportedFile, frame_rate: Option<Rational>) -> Output {
             first_frame,
             frames,
             audio,
+            format,
         } => Output::Video {
             path: absolute(&path),
             first_frame,
@@ -287,6 +290,8 @@ fn output(file: ExportedFile, frame_rate: Option<Rational>) -> Output {
             start: seconds(first_frame, rate),
             duration: seconds(frames, rate),
             audio,
+            format: format.as_str(),
+            alpha: format.has_alpha(),
         },
         ExportedFile::Frame { path, frame } => Output::Frame {
             path: absolute(&path),
@@ -352,14 +357,15 @@ fn error_report(error: &ExportError, hints: HintStyle) -> ErrorReport {
             }),
         ),
         ExportError::InvalidSelection(_) => ("invalid_selection", None),
-        ExportError::UnsupportedOutput(_) => (
+        ExportError::UnsupportedOutput { .. } => (
             "unsupported_output",
             Some(if cli {
-                "write video to a .mp4 path, or select frames with --frame or --every for PNG"
+                "write video to a .mp4, .mov or .webm path, or select frames with --frame or --every for PNG"
             } else {
-                "write video to a .mp4 path with export_video, or render PNG frames with render_frames"
+                "write video to a .mp4, .mov or .webm path with export_video, or render PNG frames with render_frames"
             }),
         ),
+        ExportError::EncoderUnavailable { .. } => ("encoder_unavailable", None),
         ExportError::UnsupportedDimensions { .. } => (
             "unsupported_dimensions",
             Some("make the composition width and height even; PNG frame exports accept odd sizes"),
@@ -412,6 +418,7 @@ fn round(value: f64, scale: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::VideoFormat;
 
     fn report(
         export: impl FnOnce(&mut dyn FnMut(ExportProgress)) -> Result<(), ExportError>,
@@ -438,6 +445,7 @@ mod tests {
                 first_frame: 30,
                 frames: 60,
                 audio: false,
+                format: VideoFormat::Mov,
             }));
             Ok(())
         });
@@ -455,7 +463,8 @@ mod tests {
                 { "type": "frame", "path": absolute(Path::new("/tmp/check-000090.png")), "frame": 90, "time": 3.003 },
                 {
                     "type": "video", "path": absolute(Path::new("/tmp/check.mp4")), "firstFrame": 30, "frames": 60,
-                    "start": 1.001, "duration": 2.002, "audio": false
+                    "start": 1.001, "duration": 2.002, "audio": false,
+                    "format": "mov", "alpha": true
                 }
             ])
         );
@@ -582,7 +591,10 @@ mod tests {
         let errors = || {
             [
                 ExportError::OutputExists(PathBuf::from("/tmp/a.mp4")),
-                ExportError::UnsupportedOutput(PathBuf::from("/tmp/a.gif")),
+                ExportError::UnsupportedOutput {
+                    path: PathBuf::from("/tmp/a.gif"),
+                    format: VideoFormat::Mp4,
+                },
                 ExportError::EmptyRange,
             ]
         };
@@ -600,7 +612,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [
                 "set overwrite to replace it, or write to another path",
-                "write video to a .mp4 path with export_video, or render PNG frames with render_frames",
+                "write video to a .mp4, .mov or .webm path with export_video, or render PNG frames with render_frames",
                 "choose start/end inside the composition (composition.duration seconds)",
             ]
         );
@@ -608,5 +620,25 @@ mod tests {
             assert_eq!(mcp_code, cli_code);
             assert!(!mcp_hint.contains("--"), "{mcp_hint}");
         }
+    }
+
+    #[test]
+    fn missing_encoders_are_reported_by_name() {
+        let value = serde_json::to_value(
+            build(Path::new("/tmp/film.tsx"), None, HintStyle::Cli, |_| {
+                Err(ExportError::EncoderUnavailable {
+                    format: VideoFormat::Webm,
+                    encoder: "libvpx-vp9",
+                })
+            })
+            .0,
+        )
+        .unwrap();
+        assert_eq!(value["error"]["code"], "encoder_unavailable");
+        let message = value["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("libvpx-vp9") && message.contains("webm"),
+            "{message}"
+        );
     }
 }

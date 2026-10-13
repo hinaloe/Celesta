@@ -4,7 +4,7 @@ use crate::exporter::Exporter;
 use crate::project::build_audio_graph;
 use crate::range::{resolve_window, shifted_audio_graph};
 use crate::react::{CompanionProject, ReactRuntimeOptions, ReactVideoRequest};
-use crate::render::{ensure_not_cancelled, validate_dimensions, validate_output};
+use crate::render::{ensure_encoders, ensure_not_cancelled, validate_dimensions, validate_output};
 use celesta_composition::Time;
 use celesta_media::{AudioMixError, FfmpegBackend, mix_audio_graph_cancellable};
 use celesta_project::Project;
@@ -129,7 +129,12 @@ impl Exporter {
         let entry = entry.as_ref();
         let output_path = output_path.as_ref();
         ensure_not_cancelled(cancellation)?;
-        validate_output(output_path, self.options.overwrite)?;
+        validate_output(
+            output_path,
+            self.options.video_format,
+            self.options.overwrite,
+        )?;
+        ensure_encoders(self.options.video_format)?;
 
         // Absolutize the asset roots up front: `absolutize_layers` and
         // `build_audio_graph` rewrite relative asset paths into absolute ones
@@ -278,6 +283,7 @@ impl Exporter {
             first_frame: start_frame,
             frames: frame_count,
             audio,
+            format: self.options.video_format,
         }));
         Ok(())
     }

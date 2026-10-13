@@ -1,3 +1,4 @@
+use crate::options::VideoFormat;
 use celesta_composition::Rational;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -34,13 +35,14 @@ pub struct CompositionInfo {
 /// A file an export wrote. Frame numbers are zero-based composition frames.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExportedFile {
-    /// An MP4 of `frames` frames starting at composition frame `first_frame`.
+    /// A video of `frames` frames starting at composition frame `first_frame`.
     Video {
         path: PathBuf,
         first_frame: u64,
         frames: u64,
         /// Whether the file has an audio stream.
         audio: bool,
+        format: VideoFormat,
     },
     /// One PNG of composition frame `frame`.
     Frame { path: PathBuf, frame: u64 },
