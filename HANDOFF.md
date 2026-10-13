@@ -18,12 +18,13 @@ Per-task specifications, implementation details, and validation results live in
 - FFmpeg 8.1.x development libraries must be available for `ez-ffmpeg` /
   `ffmpeg-sys-next` to link against. The `ffmpeg`/`ffprobe` binaries are not
   used at runtime.
-- Windows: `vcpkg install ffmpeg[x264]:x64-windows-static-md`, with
+- Windows: `vcpkg install ffmpeg[x264,vpx,opus]:x64-windows-static-md`, with
   `VCPKG_ROOT` set. Non-macOS builds enable `ez-ffmpeg`'s `static` feature.
 - macOS: `brew install ffmpeg pkg-config`; desktop packaging bundles the
   required dylibs.
 - Linux: `scripts/build-ffmpeg-linux.sh` builds static FFmpeg 8.1.x libraries
-  with libx264. Point `PKG_CONFIG_PATH` at `<prefix>/lib/pkgconfig`; bindgen
+  with libx264, libvpx, and libopus. Point `PKG_CONFIG_PATH` at
+  `<prefix>/lib/pkgconfig`; bindgen
   needs `libclang-dev`. The editor also needs `libasound2-dev`,
   `libxkbcommon-x11-dev`, and `libfontconfig-dev`.
 - Linux CI uses lavapipe (`mesa-vulkan-drivers`) to run GPU tests.

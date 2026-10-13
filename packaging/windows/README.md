@@ -8,7 +8,7 @@ Users do not need Node.js, pnpm, Rust, or FFmpeg installed.
 ## Prerequisites
 
 - The `x86_64-pc-windows-msvc` Rust toolchain and Visual Studio C++ build tools.
-- FFmpeg built with `vcpkg install ffmpeg[x264]:x64-windows-static-md` and
+- FFmpeg built with `vcpkg install ffmpeg[x264,vpx,opus]:x64-windows-static-md` and
   `VCPKG_ROOT` pointing to that installation. Use a vcpkg release whose
   `ffmpeg` port is 8.1.x, such as `2026.07.29`.
 - Node.js and pnpm for building the React package.
@@ -82,3 +82,8 @@ MIT/Apache-2.0 source license; see [`../GPL-SOURCE-OFFER.md`](../GPL-SOURCE-OFFE
 and the root [`README.md`](../../README.md#license) for details. That file's
 written offer, together with `LICENSE-GPL-2.0`, is how this package satisfies
 GPLv2 Section 3 without bundling full FFmpeg/x264 source in every download.
+
+The same FFmpeg build links libvpx and libopus (BSD-3-Clause), the WebM
+encoders. The `vcpkg install` line above builds them, and their copyright files
+ship under `licenses/native` with the other native notices (the packaging script
+copies vcpkg's whole `share` tree).

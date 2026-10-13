@@ -68,7 +68,7 @@ Celesta links to FFmpeg libraries; installing only the `ffmpeg` command-line
 executable is not sufficient.
 
 - **Windows:** install the MSVC C++ build tools and vcpkg, run
-  `vcpkg install ffmpeg[x264]:x64-windows-static-md`, and set `VCPKG_ROOT` to
+  `vcpkg install ffmpeg[x264,vpx,opus]:x64-windows-static-md`, and set `VCPKG_ROOT` to
   your vcpkg directory. Use a vcpkg release whose `ffmpeg` port is 8.1.x, such
   as `2026.07.29`; newer releases provide FFmpeg 9.
 - **macOS:** install the Xcode Command Line Tools, then run
@@ -81,16 +81,17 @@ executable is not sufficient.
   cloning the repository (step 2). On Debian and Ubuntu:
 
   ```sh
-  sudo apt-get install -y build-essential nasm pkg-config curl xz-utils zlib1g-dev libx264-dev libclang-dev
+  sudo apt-get install -y build-essential nasm pkg-config curl xz-utils zlib1g-dev libx264-dev libvpx-dev libopus-dev libclang-dev
   sudo scripts/build-ffmpeg-linux.sh /opt/ffmpeg8
   export PKG_CONFIG_PATH=/opt/ffmpeg8/lib/pkgconfig
   ```
 
   The script downloads the FFmpeg source from ffmpeg.org and builds static
-  libraries with `libx264` into `/opt/ffmpeg8` (about 5 minutes on 4 cores).
+  libraries with `libx264`, `libvpx`, and `libopus` into `/opt/ffmpeg8` (about 5 minutes on 4 cores).
   Celesta links them into its executables, so `LD_LIBRARY_PATH` is not needed;
-  only `libx264` stays a shared library. With `libx264` the FFmpeg build is
-  GPL-licensed (see [License](#license)). `libclang-dev` is for Cargo, which
+  only `libx264`, `libvpx`, and `libopus` stay shared libraries. With `libx264`
+  the FFmpeg build is GPL-licensed; `libvpx` and `libopus` are BSD-licensed
+  (see [License](#license)). `libclang-dev` is for Cargo, which
   generates the FFmpeg bindings with it. Set `PKG_CONFIG_PATH` in every shell
   where you run Cargo. If your distribution does provide FFmpeg 8.1.x, install
   `pkg-config` and its `libavcodec`, `libavformat`, `libavfilter`,
@@ -595,6 +596,7 @@ Distributing that FFmpeg build makes the binary package as a whole subject to
 GPL-2.0-or-later, in addition to Celesta's own MIT/Apache-2.0 source license.
 See [`LICENSE-GPL-2.0`](LICENSE-GPL-2.0) for the license text and
 [`packaging/GPL-SOURCE-OFFER.md`](packaging/GPL-SOURCE-OFFER.md) for the
-corresponding-source offer that accompanies each release. Building Celesta
-yourself from source, or building it with an LGPL-only FFmpeg configuration,
-is not affected.
+corresponding-source offer that accompanies each release. The same FFmpeg
+build also links `libvpx` and `libopus` (BSD-3-Clause), the WebM encoders.
+Building Celesta yourself from source, or building it with an LGPL-only FFmpeg
+configuration, is not affected.

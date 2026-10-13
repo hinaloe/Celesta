@@ -152,6 +152,10 @@ with `LICENSE-GPL-2.0`, is how this package satisfies GPLv2 Section 3 without
 bundling full FFmpeg/x264 source in every download. This is the same release
 concern described in the Windows packaging guide.
 
+The formula also links libvpx and libopus (BSD-3-Clause), the WebM encoders, so
+`ffmpeg@8` already includes them; their notices are collected with the other
+Homebrew license files.
+
 References: [Apple's notarization guide](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution),
 [code signing in depth](https://developer.apple.com/library/archive/technotes/tn2206/),
 [dylibbundler](https://github.com/auriamg/macdylibbundler), and
