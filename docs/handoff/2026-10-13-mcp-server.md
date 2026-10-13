@@ -25,7 +25,9 @@ never edits source. Design: `docs/superpowers/specs/2026-10-13-mcp-server-design
     (`usage_error`, `error_result`, `success`, `rendered`).
   - `args.rs`: rendering tool arguments; `job()` validates them (usage
     errors) and builds an `ExportJob`. A `source` ending in `.json` is a JSON
-    project.
+    project. Arguments no field takes land in a flattened `unknown` map and
+    are a usage error, so CLI names like `from`/`to` are not silently
+    ignored.
   - `export.rs`: runs a job on `spawn_blocking` behind `render_lock`, so
     rendering tools take turns on the GPU; `inspect` and the other tools do
     not take the lock. Progress goes out as MCP progress notifications when
@@ -35,11 +37,17 @@ never edits source. Design: `docs/superpowers/specs/2026-10-13-mcp-server-design
     sends no response to it, and the lock is released once the exporter has
     stopped and removed its temporary file.
   - `frames.rs`: `OutputDirs` gives each call without an output its own
-    folder under a temporary directory removed on exit; `image_blocks`
-    returns the first 6 frames (or the contact sheet) as image content.
+    folder under a temporary directory removed on exit (stdin EOF, SIGTERM,
+    or Ctrl-C; `main.rs` then calls `process::exit`, because the runtime
+    would otherwise wait on the blocking stdin read); `image_blocks`
+    returns the first 6 frames (or the contact sheet) as image content,
+    resampled to at most 1568 px on the long side (the files keep their
+    size).
   - `inspect.rs` + `summary.rs`: a port of `inspect.mjs`. Frames are
     evaluated through `ReactBridge` (native text shaping and media probing);
-    the text matches `inspect.mjs --native` line for line.
+    the text matches `inspect.mjs --native` line for line, except that a
+    requested frame outside the composition is an error instead of being
+    skipped.
   - `docs.rs`: the skill's Markdown via `include_str!`; a unit test fails
     when a new `skills/celesta/references/*.md` is not listed in `TOPICS`.
 - Adding a tool: an args struct deriving `Deserialize` + `JsonSchema`

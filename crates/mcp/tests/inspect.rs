@@ -185,3 +185,29 @@ export default function Root() {
     assert_eq!(structured(&result)["error"]["code"], "invalid_properties");
     assert_eq!(structured(&result)["error"]["issues"][0]["path"], "n");
 }
+
+#[tokio::test]
+async fn inspect_rejects_frames_outside_the_composition() {
+    if !runtime_built() {
+        return;
+    }
+    let (_dir, entry) = entry(RECT);
+    let (client, _) = client().await;
+    let result = call(
+        &client,
+        "inspect",
+        json!({ "entry": entry, "frames": [0, 30] }),
+    )
+    .await;
+    assert!(is_error(&result), "{}", text(&result));
+    assert!(
+        text(&result).contains("frame 30 is out of range"),
+        "{}",
+        text(&result)
+    );
+    assert!(!text(&result).contains("OK:"), "{}", text(&result));
+    let frames = structured(&result)["frames"].as_array().unwrap();
+    assert_eq!(frames[0]["frame"], 0);
+    assert_eq!(frames[1]["frame"], 30);
+    assert!(frames[1]["error"].is_string());
+}

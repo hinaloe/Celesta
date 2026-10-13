@@ -1130,6 +1130,7 @@ dependencies = [
  "celesta-composition",
  "celesta-exporter",
  "celesta-react-bridge",
+ "png 0.18.1",
  "rmcp",
  "schemars",
  "serde",

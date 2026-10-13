@@ -169,3 +169,65 @@ fn stdout_carries_only_json_rpc() {
     drop(stdin);
     let _ = child.wait();
 }
+
+#[cfg(unix)]
+#[test]
+fn sigterm_removes_the_temporary_outputs() {
+    if !runtime_built() {
+        return;
+    }
+    let (_dir, entry) = entry(&scene(10, 160, 90));
+    let mut child = Command::new(env!("CARGO_BIN_EXE_celesta-mcp"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    for request in [
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-06-18", "capabilities": {},
+            "clientInfo": { "name": "test", "version": "0" } } }),
+        json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+            "name": "render_frames", "arguments": { "source": entry, "frames": [0] } } }),
+    ] {
+        writeln!(stdin, "{request}").unwrap();
+    }
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let reply = loop {
+        let message: Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+        if message["id"] == 2 {
+            break message;
+        }
+    };
+    let png = reply["result"]["structuredContent"]["outputs"][0]["path"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // <temporary root>/<call folder>/frame.png
+    let root = std::path::Path::new(&png)
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_owned();
+    assert!(root.exists());
+
+    let killed = Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(killed.success());
+    // The client keeps stdin open, as MCP clients do while they stop a server.
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while child.try_wait().unwrap().is_none() {
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            panic!("the server did not exit after SIGTERM");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(!root.exists(), "{} was left behind", root.display());
+    drop(stdin);
+}

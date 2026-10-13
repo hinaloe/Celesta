@@ -14,6 +14,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
+use crate::args::reject_unknown;
 use crate::server::usage_error;
 use crate::summary::{FileCheck, describe_frame, diff_scenes, fmt, format_value};
 
@@ -38,9 +39,16 @@ pub struct InspectArgs {
     props: Option<Map<String, Value>>,
     /// The props file; default: the entry's `props.json`.
     props_file: Option<PathBuf>,
+    /// Arguments no field above takes; any are a usage error.
+    #[serde(flatten)]
+    #[schemars(skip)]
+    unknown: Map<String, Value>,
 }
 
 pub fn inspect(args: InspectArgs) -> CallToolResult {
+    if let Err(message) = reject_unknown(&args.unknown) {
+        return usage_error(&message);
+    }
     if args.frames.is_some() && args.every.is_some() {
         return usage_error("pass frames or every, not both");
     }
@@ -163,9 +171,10 @@ impl Inspection {
         Time::frames(i64::try_from(frame).ok()?, self.frame_rate).ok()
     }
 
-    /// The frames to evaluate, as `inspect.mjs` picks them: repeats and
-    /// frames outside the composition are dropped.
-    fn select(&self, frames: Option<&[i64]>, every: Option<u64>) -> Vec<u64> {
+    /// The frames to evaluate, as `inspect.mjs` picks them, without
+    /// repeats. A frame outside the composition is `Err` with the number
+    /// asked for, so it is reported instead of silently skipped.
+    fn select(&self, frames: Option<&[i64]>, every: Option<u64>) -> Vec<Result<u64, i64>> {
         let total = self.total;
         let wanted: Vec<i64> = match (frames, every) {
             (_, Some(step)) => {
@@ -182,24 +191,39 @@ impl Inspection {
             (None, None) => vec![0, (total / 2) as i64, total as i64 - 1],
         };
         let mut selected = Vec::new();
-        for frame in wanted {
-            let frame = if frame < 0 {
-                total as i64 + frame
+        for asked in wanted {
+            let frame = if asked < 0 {
+                i128::from(total) + i128::from(asked)
             } else {
-                frame
+                i128::from(asked)
             };
-            if let Ok(frame) = u64::try_from(frame)
-                && frame < total
-                && !selected.contains(&frame)
-            {
+            let frame = u64::try_from(frame)
+                .ok()
+                .filter(|&frame| frame < total)
+                .ok_or(asked);
+            if !selected.contains(&frame) {
                 selected.push(frame);
             }
         }
         selected
     }
 
-    fn evaluate(&mut self, bridge: &mut ReactBridge, frames: &[u64]) {
+    fn evaluate(&mut self, bridge: &mut ReactBridge, frames: &[Result<u64, i64>]) {
         for &frame in frames {
+            let frame = match frame {
+                Ok(frame) => frame,
+                Err(asked) => {
+                    self.problems += 1;
+                    let message = format!(
+                        "frame {asked} is out of range; composition has {} frames (zero-based)",
+                        self.total
+                    );
+                    let _ = write!(self.text, "\n── frame {asked} ──\nERROR: {message}\n");
+                    self.frames
+                        .push(json!({ "frame": asked, "error": message }));
+                    continue;
+                }
+            };
             let _ = write!(
                 self.text,
                 "\n── frame {frame} ({} s) ──\n",

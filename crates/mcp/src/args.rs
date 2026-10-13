@@ -50,6 +50,10 @@ pub struct RenderFramesArgs {
     output_dir: Option<PathBuf>,
     /// Replace PNGs that already exist in `outputDir`.
     overwrite: Option<bool>,
+    /// Arguments no field above takes; any are a usage error.
+    #[serde(flatten)]
+    #[schemars(skip)]
+    unknown: Map<String, Value>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -72,6 +76,10 @@ pub struct ContactSheetArgs {
     output: Option<PathBuf>,
     /// Replace `output` if it exists.
     overwrite: Option<bool>,
+    /// Arguments no field above takes; any are a usage error.
+    #[serde(flatten)]
+    #[schemars(skip)]
+    unknown: Map<String, Value>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -90,6 +98,10 @@ pub struct ExportVideoArgs {
     /// 8 (default, plays everywhere) or 10 (smoother gradients, fewer
     /// hardware decoders).
     bit_depth: Option<u8>,
+    /// Arguments no field above takes; any are a usage error.
+    #[serde(flatten)]
+    #[schemars(skip)]
+    unknown: Map<String, Value>,
 }
 
 /// The checked parts of [`SourceArgs`].
@@ -157,6 +169,18 @@ impl SourceArgs {
     }
 }
 
+/// A usage error naming arguments the tool does not take.
+pub fn reject_unknown(unknown: &Map<String, Value>) -> Result<(), String> {
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    let names: Vec<String> = unknown.keys().map(|name| format!("`{name}`")).collect();
+    Err(format!(
+        "unknown argument {}; see the tool's input schema for the arguments it takes",
+        names.join(", ")
+    ))
+}
+
 /// `frames` or `every`, exactly one.
 fn selection(
     frames: &Option<Vec<i64>>,
@@ -211,6 +235,7 @@ fn job(
 
 impl RenderFramesArgs {
     pub fn job(&self, outputs: &OutputDirs) -> Result<ExportJob, String> {
+        reject_unknown(&self.unknown)?;
         let debug_guides = self.debug_guides.unwrap_or(false);
         let source = self.source.check(debug_guides)?;
         let frames = selection(&self.frames, self.every, source.range.as_ref())?;
@@ -239,6 +264,7 @@ impl RenderFramesArgs {
 
 impl ContactSheetArgs {
     pub fn job(&self, outputs: &OutputDirs) -> Result<ExportJob, String> {
+        reject_unknown(&self.unknown)?;
         let debug_guides = self.debug_guides.unwrap_or(false);
         let source = self.source.check(debug_guides)?;
         let frames = selection(&self.frames, self.every, source.range.as_ref())?;
@@ -276,6 +302,7 @@ impl ContactSheetArgs {
 
 impl ExportVideoArgs {
     pub fn job(&self) -> Result<ExportJob, String> {
+        reject_unknown(&self.unknown)?;
         let source = self.source.check(false)?;
         if !self
             .output

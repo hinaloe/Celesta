@@ -125,3 +125,30 @@ async fn optional_arguments_are_not_required() {
     assert_eq!(required("inspect"), ["entry"]);
     assert_eq!(required("export_video"), ["source", "output"]);
 }
+
+#[tokio::test]
+async fn unknown_arguments_are_usage_errors() {
+    let (client, _) = client().await;
+    for (tool, args) in [
+        (
+            "render_frames",
+            json!({ "source": "a.tsx", "every": 5, "from": "1", "to": "2" }),
+        ),
+        (
+            "contact_sheet",
+            json!({ "source": "a.tsx", "every": 5, "frame": 0 }),
+        ),
+        (
+            "export_video",
+            json!({ "source": "a.tsx", "output": "a.mp4", "from": "1" }),
+        ),
+        ("inspect", json!({ "entry": "a.tsx", "frame": 0 })),
+    ] {
+        let result = call(&client, tool, args).await;
+        assert!(is_error(&result), "{tool}: {}", text(&result));
+        let error = &structured(&result)["error"];
+        assert_eq!(error["code"], "usage", "{tool}");
+        let message = error["message"].as_str().unwrap();
+        assert!(message.contains("unknown argument"), "{tool}: {message}");
+    }
+}

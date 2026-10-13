@@ -248,7 +248,7 @@ def main():
     required = {executables / "Celesta", executables / "Celesta-export", executables / "Celesta-mcp",
                 helpers / "node", helpers / "esbuild"}
     if not required.issubset(native):
-        raise RuntimeError("The app, exporter, Node.js, and esbuild must all be Mach-O executables")
+        raise RuntimeError("The app, exporter, MCP server, Node.js, and esbuild must all be Mach-O executables")
     minimum = (0, 0)
     for binary in native:
         run("lipo", binary, "-verify_arch", platform.machine())
