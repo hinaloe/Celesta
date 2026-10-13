@@ -44,7 +44,7 @@ Call planDialogue(lines, { fps, gap, sceneLeadIn }) in prepare(). It measures ea
 
 holdThroughGap keeps the previous line’s text and expression through its gap. holdSubtitle lets a custom subtitle.render keep its background between lines; its held flag identifies the gap. subtitle.render receives text, character (including displayName), metrics, style, maxWidth, frame, and durationInFrames so you can draw a measured subtitle panel. See the repository’s with-dialogue-series.tsx for a complete example.
 
-For voices generated with VOICEVOX, use the synthesis AudioQuery with [@celesta/voicevox](/en/docs/voicevox/) instead of estimating timing from the WAV.
+For voices generated with VOICEVOX or AivisSpeech, use the synthesis AudioQuery with [@celesta/voicevox](/en/docs/voicevox/) or [@celesta/aivis-speech](/en/docs/aivis-speech/) instead of spreading the transcript’s vowels over the WAV.
 
 ## See it with real artwork
 

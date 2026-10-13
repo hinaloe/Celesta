@@ -6,7 +6,7 @@
 ```
 
 - An `Image` or `Video` is drawn at its own pixel size. Position it with `x`/`y` and anchors, and resize it with `scale` or a `Fit`. Images can be PNG, JPEG, WebP, or PNM.
-- `Video` and `Audio` accept `startFrom` (seconds into the file) and `playbackRate`. `Audio` also takes `volume` and `muted`.
+- `Video` and `Audio` accept `startFrom` (seconds into the file), `playbackRate`, `volume`, and `muted`. A `Video` plays its own soundtrack, so do not add an `Audio` with the same file to hear it; set `muted` to keep only the picture.
 - Media placed inside a `Sequence` starts when the sequence does and stops when it ends.
 - `volume` and an audio `playbackRate` can be a number or keyframes. Keyframe times are seconds from the start of the enclosing sequence, written as `{ value, timescale }`.
 

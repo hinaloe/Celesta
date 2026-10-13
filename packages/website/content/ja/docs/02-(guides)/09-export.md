@@ -100,6 +100,25 @@ MP4 は libx264 を使い、既定では --preset medium、--crf 18 で書き出
 :::
 ::::
 
+`--debug-guides` を加えると、React コンポジションの `<DebugOverlay>` と `<DebugBounds>` を、プレビューと同じように PNG フレームやコンタクトシートに描きます。動画の書き出しには描かれません。
+
+::::tabs[書き出しを行う OS]{default="macOS"}
+:::tab[macOS]
+
+```sh title="コンタクトシートでセーフエリアを確かめる"
+"/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react --every 30 --contact-sheet --debug-guides first-scene.tsx sheet.png
+```
+
+:::
+:::tab[Windows]
+
+```sh title="コンタクトシートでセーフエリアを確かめる"
+& "C:\path\to\Celesta\Celesta-export.exe" --react --every 30 --contact-sheet --debug-guides first-scene.tsx sheet.png
+```
+
+:::
+::::
+
 ## 描画に使う API を選ぶ
 
 アプリと書き出しツールの両方で、--driver に auto（既定）、vulkan、dx12（Windows）、metal（macOS）、gl を指定できます。auto は wgpu の順序（Vulkan、Metal、DX12、OpenGL）で利用可能な描画アダプタを探します。明示した API は、そのビルドと実行環境の両方で利用できる必要があります。これは描画用 API の選択で、MP4 のエンコードには引き続き libx264 を使います。

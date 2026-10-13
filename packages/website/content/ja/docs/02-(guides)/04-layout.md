@@ -73,7 +73,7 @@ const ripple = defineShader({
 | API | 用途 |
 | --- | --- |
 | `Center` | 原点をキャンバスまたは親 `SafeArea` の中心に移動します。 |
-| `SafeArea` | `padding`（数値または `{ top, right, bottom, left }`）で余白を取り、内側のヘルパーが見る領域を縮めます。 |
+| `SafeArea` | `padding`（数値、`{ top, right, bottom, left }`、またはプリセット `'vertical-social'`）で余白を取り、内側のヘルパーが見る領域を縮めます。 |
 | `Stack` | 子を `spacing` ピクセル間隔で並べます。既定は `vertical`、`horizontal` も選べます。 |
 | `Grid` | `columns` 列、`columnWidth` × `rowHeight` のセルに子を配置します。間隔も指定できます。 |
 | `Fit` | `sourceWidth` × `sourceHeight` で設計した内容を、現在の領域に `contain` または `cover` で合わせます。 |
@@ -94,6 +94,27 @@ const ripple = defineShader({
 ```
 
 ヘルパーは子の原点を配置し、描画サイズは計測しません。配置点を中心にするには、子のアンカーを `0.5` にします。
+
+## Shorts・TikTok・Reels 向けの縦型動画
+
+キャンバスは 1080×1920 にします。プレーヤーは動画の上に自分の UI を重ねます。キャプション、チャンネル名、再生バーが下の約 20% を覆い、いいね・コメント・共有のボタンが右端に並びます。見出し、字幕、ロゴ、呼びかけなど読ませるものは `<SafeArea>` の内側に置き、背景、映像、装飾は端まで使います。プリセット `'vertical-social'` は、キャンバスの上 10%、右 18.5%、下 20%、左 1/15 を避けます（1080×1920 では上 192、右 200、下 384、左 72 px）。目安であり、各プラットフォームの仕様ではなく、UI の変更にも追従しません。より正確な値が分かるときは `{ top, right, bottom, left }` で指定します。
+
+```tsx title="文字はプラットフォームのセーフエリア内、背景は端まで"
+<Composition width={1080} height={1920} fps={30} durationInFrames={300}>
+  <Image src="./bg.jpg" width={1080} height={1920} />
+  <SafeArea padding="vertical-social">
+    <Center>
+      <Text anchorX={0.5} anchorY={0.5} maxWidth={760}
+        style={{ fontSize: 96, align: 'center' }}>
+        Readable copy
+      </Text>
+    </Center>
+  </SafeArea>
+  <DebugOverlay safeArea="vertical-social" />
+</Composition>
+```
+
+確かめるには、`<DebugOverlay>` に同じセーフエリアを渡し、`--debug-guides` を付けて PNG フレームかコンタクトシートを書き出します（[書き出し](/ja/docs/export/)を参照）。UI が重なる範囲が網掛けされるので、文字が動いている間も含めて、すべて枠の内側に収まっているかを見ます。
 
 ## グループを切り抜く
 

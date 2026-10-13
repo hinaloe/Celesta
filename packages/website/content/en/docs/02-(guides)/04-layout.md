@@ -73,7 +73,7 @@ Set `blendMode` on any layer to change how it combines with what is beneath it, 
 | API | Use it for |
 | --- | --- |
 | `Center` | Moves the origin to the center of the canvas or the enclosing `SafeArea`. |
-| `SafeArea` | Insets its children by `padding` (a number, or `{ top, right, bottom, left }`) and shrinks the area nested helpers see. |
+| `SafeArea` | Insets its children by `padding` (a number, `{ top, right, bottom, left }`, or the `'vertical-social'` preset) and shrinks the area nested helpers see. |
 | `Stack` | Places each child `spacing` pixels apart, `vertical` by default or `horizontal`. |
 | `Grid` | Places children into `columns` of `columnWidth` × `rowHeight` cells, with optional gaps. |
 | `Fit` | Scales content designed at `sourceWidth` × `sourceHeight` to `contain` or `cover` the current area. |
@@ -94,6 +94,27 @@ Set `blendMode` on any layer to change how it combines with what is beneath it, 
 ```
 
 Helpers position child origins; they do not measure what the children draw. Anchor children at `0.5` when you want them centered on those points.
+
+## Vertical video for Shorts, TikTok, and Reels
+
+Use a 1080×1920 canvas. The players draw their own UI over the video: the caption, channel name, and progress bar cover about the bottom 20%, and the like, comment, and share buttons run down the right edge. Keep everything meant to be read (headlines, subtitles, logos, calls to action) inside `<SafeArea>`, and let backgrounds, footage, and decoration run to the edges. The `'vertical-social'` preset keeps top 10%, right 18.5%, bottom 20%, and left 1/15 of the canvas clear (top 192, right 200, bottom 384, left 72 px at 1080×1920). It is a rough guide, not a platform specification, and does not follow changes to the platforms' UI; pass `{ top, right, bottom, left }` when you know better.
+
+```tsx title="Copy inside the platform safe area, background to the edges"
+<Composition width={1080} height={1920} fps={30} durationInFrames={300}>
+  <Image src="./bg.jpg" width={1080} height={1920} />
+  <SafeArea padding="vertical-social">
+    <Center>
+      <Text anchorX={0.5} anchorY={0.5} maxWidth={760}
+        style={{ fontSize: 96, align: 'center' }}>
+        Readable copy
+      </Text>
+    </Center>
+  </SafeArea>
+  <DebugOverlay safeArea="vertical-social" />
+</Composition>
+```
+
+To check, give `<DebugOverlay>` the same safe area and export PNG frames or a contact sheet with `--debug-guides` (see [Export](/en/docs/export/)). The area the UI covers is shaded; every line of text must stay inside the outline, including while it moves.
 
 ## Clip a group
 

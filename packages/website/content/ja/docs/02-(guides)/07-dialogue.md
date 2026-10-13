@@ -44,7 +44,7 @@ prepare() で planDialogue(lines, { fps, gap, sceneLeadIn }) を呼ぶと、音�
 
 holdThroughGap は、台詞の後の間も字幕と表情を保持します。holdSubtitle は、subtitle.render で描く字幕の背景を台詞の間も表示し、held でその状態を判別できます。subtitle.render には text、character（displayName を含む）、metrics、style、maxWidth、frame、durationInFrames が渡されるので、文字の大きさに合う字幕パネルを作れます。全体の例はリポジトリの with-dialogue-series.tsx を参照してください。
 
-VOICEVOX で生成した音声には、WAV からタイミングを推測する代わりに、合成に使った AudioQuery と [@celesta/voicevox](/ja/docs/voicevox/) を利用できます。
+VOICEVOX や AivisSpeech で生成した音声には、WAV に文字起こしの母音を均等に割り振る代わりに、合成に使った AudioQuery と [@celesta/voicevox](/ja/docs/voicevox/) または [@celesta/aivis-speech](/ja/docs/aivis-speech/) を利用できます。
 
 ## 実際の素材で確認
 

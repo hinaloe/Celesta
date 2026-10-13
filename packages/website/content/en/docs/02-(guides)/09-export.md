@@ -100,6 +100,25 @@ MP4 uses libx264 with --preset medium and --crf 18 by default. Faster presets su
 :::
 ::::
 
+Add `--debug-guides` to draw a React composition's `<DebugOverlay>` and `<DebugBounds>` into the PNG frames or contact sheet, as the preview shows them. A video export never draws them.
+
+::::tabs[Exporter platform]{default="macOS"}
+:::tab[macOS]
+
+```sh title="Check the safe area in a contact sheet"
+"/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react --every 30 --contact-sheet --debug-guides first-scene.tsx sheet.png
+```
+
+:::
+:::tab[Windows]
+
+```sh title="Check the safe area in a contact sheet"
+& "C:\path\to\Celesta\Celesta-export.exe" --react --every 30 --contact-sheet --debug-guides first-scene.tsx sheet.png
+```
+
+:::
+::::
+
 ## Select the graphics API
 
 Both the editor and exporter accept --driver auto (default), vulkan, dx12 (Windows), metal (macOS), or gl. Auto chooses an available adapter in wgpu’s backend order: Vulkan, Metal, DX12, then OpenGL. A specific driver must be available in the build and supported by the machine. This chooses the rendering API; MP4 encoding still uses libx264.

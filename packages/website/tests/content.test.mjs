@@ -11,7 +11,7 @@ const slugs = [
   'installation', 'create-project', 'preview', 'react-compositions',
   'animation', 'motion-toolkit', 'text-camera-lines', 'layout', 'text-fonts', 'media', 'dialogue', 'data', 'export',
   'reference',
-  'math', 'math-noise', 'math-shaping', 'code', 'code-typing', 'voicevox',
+  'math', 'math-noise', 'math-shaping', 'code', 'code-typing', 'voicevox', 'aivis-speech',
   'examples', 'timelines', 'build-from-source', 'troubleshooting',
 ];
 const groups = ['getting-started', 'guides', 'reference', 'packages', 'more'];
@@ -31,7 +31,7 @@ function chapters(dir) {
 const docsDir = locale => join(root, 'content', locale, 'docs');
 const markdownFiles = locale => [join(docsDir(locale), 'index.md'), ...chapters(docsDir(locale)).map(chapter => chapter.path)];
 
-test('both locales have the same 24 chapters in the same groups', () => {
+test('both locales have the same 25 chapters in the same groups', () => {
   for (const locale of locales) {
     const found = chapters(docsDir(locale));
     assert.deepEqual(found.map(chapter => chapter.slug), slugs, `${locale} chapter order`);
@@ -56,6 +56,7 @@ test('sub-pages follow their package page', () => {
       assert.ok(at(child) > at(parent), `${locale}:${child} sorts after ${parent}`);
     }
     assert.notEqual(dirOf('math'), dirOf('code'), `${locale}: each package has its own directory`);
+    assert.equal(dirOf('aivis-speech'), dirOf('voicevox'), `${locale}: aivis-speech is a top-level package page beside voicevox`);
   }
 });
 
@@ -98,12 +99,12 @@ const containers = markdown => Object.fromEntries(['tabs', 'tab', 'accordion', '
 test('both locales have the same tabs and toggles in every chapter', () => {
   const [en, ja] = locales.map(locale => new Map(chapters(docsDir(locale)).map(chapter => [chapter.slug, containers(readFileSync(chapter.path, 'utf8'))])));
   for (const slug of slugs) assert.deepEqual(ja.get(slug), en.get(slug), `${slug}: ja matches en`);
-  // The old site's OS pickers and details blocks (Task 14).
+  // The old site's OS pickers and details blocks (Task 14), plus the debug-guides contact sheet main added to Export.
   const expected = {
     'installation': { tabs: 1, tab: 3, accordion: 0, toggle: 0 },
     'build-from-source': { tabs: 1, tab: 3, accordion: 0, toggle: 0 },
     'create-project': { tabs: 1, tab: 2, accordion: 0, toggle: 0 },
-    'export': { tabs: 5, tab: 10, accordion: 0, toggle: 0 },
+    'export': { tabs: 6, tab: 12, accordion: 0, toggle: 0 },
     'timelines': { tabs: 0, tab: 0, accordion: 0, toggle: 3 },
     'troubleshooting': { tabs: 0, tab: 0, accordion: 1, toggle: 9 },
   };
@@ -155,7 +156,7 @@ test('tab labels are the old picker buttons, the same in both locales, and each 
       }
     }
   }
-  assert.equal(groups, 16, 'eight tab groups per locale');
+  assert.equal(groups, 18, 'nine tab groups per locale');
 });
 
 test('every showcase work has a page and metadata', () => {

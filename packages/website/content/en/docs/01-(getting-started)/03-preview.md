@@ -28,6 +28,6 @@ Compositions reload when you save. You can also choose **File → Reload** to re
 
 Playback synchronizes the picture and audio. Use waveforms and track levels to check timing, mute or solo tracks to isolate a sound, and adjust the preview volume. Drag along the timeline ruler to scrub to a specific moment.
 
-## Preview-only guides
+## Debug guides
 
-`<DebugOverlay />` draws the frame edge, a safe-area inset, and the center point, and `<DebugBounds>` outlines a group of layers. Both appear only in the Celesta preview and add nothing to an export, so you can leave them in while you work. `useIsPreview()` tells your own components the same thing.
+`<DebugOverlay />` outlines a safe area, shades the canvas outside it, and marks the center point, and `<DebugBounds>` outlines a group of layers. They appear in the Celesta preview, and in PNG frames and contact sheets exported with `--debug-guides`, but never in a video, so you can leave them in while you work. `useDebugGuides()` tells your own components when guides are drawn.

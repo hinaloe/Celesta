@@ -55,7 +55,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `TextBox` / `fitText` / `useFitText` / `measureText` / `useTextMetrics` | `@celesta/text` `@celesta/react` | 組版後の文字を測ったり、枠に収まる文字サイズを選んだりします。詳しくは[テキストとフォント](/ja/docs/text-fonts/)を参照してください。 |
 | `Center`, `SafeArea`, `Stack`, `Grid`, `Fit` | `@celesta/layout` | 子のレイヤーを配置します。[レイアウトのヘルパー](/ja/docs/layout/)を参照。 |
 | `preloadMedia` / `mediaDurationInFrames` | `@celesta/media-utils` | `prepare()` 内でメディアの長さとサイズを取得します。 |
-| `DebugOverlay` / `DebugBounds` / `useIsPreview()` | `@celesta/debug` `@celesta/react` | 書き出しに含まれないプレビュー専用のガイド。 |
+| `DebugOverlay` / `DebugBounds` / `useDebugGuides()` / `useIsPreview()` | `@celesta/debug` `@celesta/react` | プレビューと、--debug-guides を付けた PNG 書き出しに描かれるデバッグ用のガイド。動画には含まれません。 |
 
 ## 旧 JSON プロジェクト用 API
 

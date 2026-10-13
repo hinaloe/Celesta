@@ -77,9 +77,10 @@ packages/website/
   `manifest.json` naming the entry; `pages/_components/PlaygroundMount.tsx` reads the manifest
   and calls `mountPlayground` in the browser. The build also copies showcase posters to
   `public/showcase/` and the showcase's fonts, licenses, and portraits to `public/showcase-assets/`.
-- **`examples/`**: complete documentation examples. They are excluded from the site's
-  type-check and checked by `pnpm check:examples` against the real `@celesta/react` and the
-  separately staged `@celesta/voicevox` instead.
+- **`examples/`**: complete documentation examples, including the VOICEVOX and AivisSpeech
+  entries. They are excluded from the site's type-check and checked by `pnpm check:examples`
+  against the real `@celesta/react` and the separately staged `@celesta/voicevox` and
+  `@celesta/aivis-speech` instead.
 
 ## Adding a chapter
 
@@ -320,4 +321,5 @@ languages, and the language switch on documentation and static pages.
 The user guide follows the React workflow in the root README. Keep CLI flags aligned with
 `crates/exporter/src/main.rs` and `crates/editor/src/cli.rs`, package import examples aligned
 with each package's public `src/index.ts`, and run `pnpm check:examples` after changing any
-example.
+example. In particular, VOICEVOX and AivisSpeech adapters are imported from `@celesta/voicevox`
+and `@celesta/aivis-speech`, not `@celesta/react`.

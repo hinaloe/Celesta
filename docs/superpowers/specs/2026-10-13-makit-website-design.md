@@ -44,7 +44,8 @@ packages/website/
 │   │   ├── 04-(packages)/
 │   │   │   ├── 01-(math)/01-math.md, 02-math-noise.md, 03-math-shaping.md
 │   │   │   ├── 02-(code)/01-code.md, 02-code-typing.md
-│   │   │   └── 03-voicevox.md
+│   │   │   ├── 03-voicevox.md
+│   │   │   └── 04-aivis-speech.md
 │   │   └── 05-(more)/…
 │   └── ja/docs/…                  # same tree, Japanese
 ├── pages/                         # Makit static pages
@@ -65,9 +66,10 @@ packages/website/
 `src/`, `index.html`, `docs/index.html`, `showcase/index.html`, `plugins/site-pages.ts`, and the
 i18next catalogs are removed once their content has moved.
 
-The chapter list and grouping are the same as `src/site/docs-nav.ts` today (24 chapters in five
-groups). A group is a Route Group directory with a `category.makit.ts` that holds the localized
-group title, so the sidebar groups chapters while URLs stay `/<locale>/docs/<slug>/`. Package
+The chapter list and grouping are the same as `src/site/docs-nav.ts` today (25 chapters in five
+groups, with `aivis-speech` added after `voicevox` on main). A group is a Route Group
+directory with a `category.makit.ts` that holds the localized group title, so the sidebar
+groups chapters while URLs stay `/<locale>/docs/<slug>/`. Package
 sub-pages (`math-noise`, `math-shaping`, `code-typing`) sit in a nested Route Group under their
 package and keep their flat URLs. Each chapter's `.meta.ts` sets a stable `id` (the slug), the
 title, description, and a short `navTitle` where the current navigation uses one.
@@ -83,7 +85,7 @@ Conversions:
 | Today | Markdown |
 | --- | --- |
 | `<h3>`, `<p>`, lists, `<code>`, `<kbd>`, `<strong>`, links via `docPath()` | Markdown equivalents; links are root-absolute per locale (`/ja/docs/export/`) |
-| OS picker (`macOS` / `Windows` / `Linux` buttons) | Makit tabs: `::::tabs[<the picker's aria-label>]{default="macOS"}` with one `:::tab[<button label>]` per platform, exactly as the old buttons read (`macOS`, `Windows`, `Linux`; the per-platform subheadings such as Installation's "Windows x64" are dropped, and the tab body keeps the `x64` filenames). Each tab holds exactly what that platform showed, with the `DocCode` labels as fence titles; text shared by every platform stays outside. Where a picker only swaps a command (Create a project, Export), each tab holds its own paragraph and fence; Export's commands run across three sections, so it has one tab group per command run (five groups) |
+| OS picker (`macOS` / `Windows` / `Linux` buttons) | Makit tabs: `::::tabs[<the picker's aria-label>]{default="macOS"}` with one `:::tab[<button label>]` per platform, exactly as the old buttons read (`macOS`, `Windows`, `Linux`; the per-platform subheadings such as Installation's "Windows x64" are dropped, and the tab body keeps the `x64` filenames). Each tab holds exactly what that platform showed, with the `DocCode` labels as fence titles; text shared by every platform stays outside. Where a picker only swaps a command (Create a project, Export), each tab holds its own paragraph and fence; Export's commands run across three sections, so it has one tab group per command run (six groups, counting the debug-guides contact sheet) |
 | `<details>` / `<summary>` | Makit toggles: Troubleshooting's nine questions are `::::accordion[Troubleshooting]{multiple}` (ja `トラブルシューティング`, the chapter title) with one `:::toggle[<summary>]` each, the first `{open}` as before; Timelines' three "View the complete …" blocks are `:::toggle[<summary>]` around their fence, closed |
 | `DocCode` with a label | Fenced code block with the label as the file name (```` ```sh "macOS dependencies" ````) |
 | `DocCode` with a raw-imported example | ```` ```tsx file=examples/first-scene.tsx ```` (see below) |
@@ -96,7 +98,7 @@ fence whose meta contains `file=<path>` and whose body is empty is replaced by t
 contents, resolved relative to the package root (Makit does not pass the Markdown file's path to
 remark plugins). A missing file fails the build. This keeps
 examples in real files, so `pnpm check:examples` still type-checks them against
-`@celesta/react` and `@celesta/voicevox`. The JSON timeline example keeps pointing at
+`@celesta/react`, `@celesta/voicevox`, and `@celesta/aivis-speech`. The JSON timeline example keeps pointing at
 `examples/editor-demo.celesta.json` in the repository, and the CLI example at
 `packages/cli/examples/with-project.tsx`.
 
@@ -314,7 +316,7 @@ and adds `/_playground/*`.
 - `tests/locales.test.mjs`: keep the Accept-Language and worker tests.
 - `tests/copy.test.mjs`: `ja` copy has every `en` key.
 - `tests/content.test.mjs`: every chapter slug exists in both locales under the same Route
-  Group, with the 24 slugs pinned as today; sub-pages follow their package page; both locales
+  Group, with the 25 slugs pinned; sub-pages follow their package page; both locales
   have the same tabs and toggles per chapter, at the pinned counts, with no flattened platform
   lists or `(macOS)` fence suffixes left.
 - `tests/remark-include.test.mjs`: file include, relative resolution, missing-file failure.
