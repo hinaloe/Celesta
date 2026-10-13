@@ -126,7 +126,12 @@ fn run(options: &Options) -> Result<(), String> {
     let assets = options
         .workloads
         .iter()
-        .any(|workload| matches!(workload.name, "images" | "shaders"))
+        .any(|workload| {
+            matches!(
+                workload.name,
+                "images" | "shaders" | "shader-chain" | "shader-nest"
+            )
+        })
         .then(AssetDir::new)
         .transpose()
         .map_err(|error| format!("writing the image asset: {error}"))?;

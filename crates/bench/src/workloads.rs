@@ -89,6 +89,16 @@ pub const WORKLOADS: &[Workload] = &[
         description: "a full-screen color grade on an image and a padded ripple on text",
         source: Source::Shaded(shaders, shader_sources),
     },
+    Workload {
+        name: "shader-chain",
+        description: "`shaders` with the grade split into three shaders chained on the image",
+        source: Source::Shaded(shader_chain, shader_sources),
+    },
+    Workload {
+        name: "shader-nest",
+        description: "`shader-chain` with a group nested around each shader instead",
+        source: Source::Shaded(shader_nest, shader_sources),
+    },
 ];
 
 impl Workload {
@@ -706,6 +716,30 @@ fn effect(input: EffectInput) -> vec4f {
 }
 ";
 
+/// `GRADE_WGSL`'s three steps, one shader each.
+const DESATURATE_WGSL: &str = "\
+fn effect(input: EffectInput) -> vec4f {
+    let color = unpremultiply(source_load(vec2i(floor(input.position))));
+    let luma = dot(color.rgb, vec3f(0.2126, 0.7152, 0.0722));
+    return premultiply(vec4f(mix(vec3f(luma), color.rgb, params.saturation), color.a));
+}
+";
+
+const TINT_WGSL: &str = "\
+fn effect(input: EffectInput) -> vec4f {
+    let color = source_load(vec2i(floor(input.position)));
+    return vec4f(color.rgb * params.tint.rgb, color.a);
+}
+";
+
+const VIGNETTE_WGSL: &str = "\
+fn effect(input: EffectInput) -> vec4f {
+    let color = source_load(vec2i(floor(input.position)));
+    let vignette = 1.0 - params.vignette * pow(length(input.uv - vec2f(0.5)) * 1.4, 2.0);
+    return vec4f(color.rgb * vignette, color.a);
+}
+";
+
 const RIPPLE_WGSL: &str = "\
 fn effect(input: EffectInput) -> vec4f {
     let center = mix(celesta.content.xy, celesta.content.zw, vec2f(0.5));
@@ -733,6 +767,24 @@ fn shader_sources() -> Vec<ShaderSource> {
             ],
         },
         ShaderSource {
+            id: "bench-desaturate".to_owned(),
+            name: Some("desaturate".to_owned()),
+            wgsl: DESATURATE_WGSL.to_owned(),
+            params: vec![param("saturation", ShaderParamType::F32)],
+        },
+        ShaderSource {
+            id: "bench-tint".to_owned(),
+            name: Some("tint".to_owned()),
+            wgsl: TINT_WGSL.to_owned(),
+            params: vec![param("tint", ShaderParamType::Vec4)],
+        },
+        ShaderSource {
+            id: "bench-vignette".to_owned(),
+            name: Some("vignette".to_owned()),
+            wgsl: VIGNETTE_WGSL.to_owned(),
+            params: vec![param("vignette", ShaderParamType::F32)],
+        },
+        ShaderSource {
             id: "bench-ripple".to_owned(),
             name: Some("ripple".to_owned()),
             wgsl: RIPPLE_WGSL.to_owned(),
@@ -748,8 +800,46 @@ fn shader_sources() -> Vec<ShaderSource> {
 /// The bench image graded over the whole canvas, and text lines that each
 /// ripple, reaching past their edges into the padding.
 fn shaders(canvas: &Canvas, frame: usize) -> Vec<Layer> {
-    let t = seconds(frame);
-    let mut backdrop = layer(
+    let mut backdrop = backdrop_image(canvas);
+    backdrop.effects.shaders.push(LayerShader {
+        id: "bench-grade".to_owned(),
+        params: grade_params(frame).concat(),
+        padding: 0.0,
+    });
+    rippling_lines(canvas, frame, backdrop)
+}
+
+/// As `shaders`, grading through three shaders in a row.
+fn shader_chain(canvas: &Canvas, frame: usize) -> Vec<Layer> {
+    let mut backdrop = backdrop_image(canvas);
+    backdrop.effects.shaders = grade_steps(frame);
+    rippling_lines(canvas, frame, backdrop)
+}
+
+/// As `shader_chain`, with each shader on a group around the one before,
+/// as layers took several shaders before `shader` took an array.
+fn shader_nest(canvas: &Canvas, frame: usize) -> Vec<Layer> {
+    let mut steps = grade_steps(frame).into_iter();
+    let mut backdrop = backdrop_image(canvas);
+    backdrop.effects.shaders.extend(steps.next());
+    for (index, step) in steps.enumerate() {
+        backdrop = layer(
+            format!("graded-{index}"),
+            EvaluatedTransform::default(),
+            LayerContent::Group {
+                layers: vec![backdrop],
+                clip: None,
+                mask: None,
+            },
+        );
+        backdrop.effects.shaders.push(step);
+    }
+    rippling_lines(canvas, frame, backdrop)
+}
+
+/// The bench image over the whole canvas, which the shader workloads grade.
+fn backdrop_image(canvas: &Canvas) -> Layer {
+    layer(
         "graded".to_owned(),
         at(canvas.at(960.0, 540.0)),
         LayerContent::Image {
@@ -763,12 +853,36 @@ fn shaders(canvas: &Canvas, frame: usize) -> Vec<Layer> {
             height: Some(canvas.len(1080.0)),
             fit: Some(ImageFit::Cover),
         },
-    );
-    backdrop.effects.shader = Some(Box::new(LayerShader {
-        id: "bench-grade".to_owned(),
-        params: vec![0.5 + 0.5 * (t * 0.8).sin(), 1.0, 0.92, 0.85, 1.0, 0.6],
-        padding: 0.0,
-    }));
+    )
+}
+
+/// The grade's saturation, which changes every frame, its tint, and its
+/// vignette.
+fn grade_params(frame: usize) -> [Vec<f64>; 3] {
+    let t = seconds(frame);
+    [
+        vec![0.5 + 0.5 * (t * 0.8).sin()],
+        vec![1.0, 0.92, 0.85, 1.0],
+        vec![0.6],
+    ]
+}
+
+/// The grade as three shaders, one per step.
+fn grade_steps(frame: usize) -> Vec<LayerShader> {
+    ["bench-desaturate", "bench-tint", "bench-vignette"]
+        .into_iter()
+        .zip(grade_params(frame))
+        .map(|(id, params)| LayerShader {
+            id: id.to_owned(),
+            params,
+            padding: 0.0,
+        })
+        .collect()
+}
+
+/// `backdrop`, and six text lines over it that each ripple.
+fn rippling_lines(canvas: &Canvas, frame: usize, backdrop: Layer) -> Vec<Layer> {
+    let t = seconds(frame);
     let amplitude = canvas.len(6.0);
     let mut layers = vec![backdrop];
     layers.extend((0..6).map(|index| {
@@ -786,11 +900,11 @@ fn shaders(canvas: &Canvas, frame: usize) -> Vec<Layer> {
                 baseline_anchor: false,
             },
         );
-        line.effects.shader = Some(Box::new(LayerShader {
+        line.effects.shaders.push(LayerShader {
             id: "bench-ripple".to_owned(),
             params: vec![t + index as f64 * 0.4, amplitude, 0.06 / canvas.k],
             padding: amplitude + 2.0,
-        }));
+        });
         line
     }));
     layers
