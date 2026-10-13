@@ -196,7 +196,7 @@ light and dark and maps them onto `--makit-color-*` so Makit's prose and default
 
 Motifs: monospace timecodes and labels, a ruler with a playhead under the hero, square-ish
 corners (3–4 px), tally-lamp dot. Notes (`.makit-alert`) get an amber left rule.
-Code blocks use Shiki's `vitesse-dark` / `vitesse-light`. Respects `prefers-reduced-motion`.
+Code blocks use Shiki's `github-dark-high-contrast` / `github-light-high-contrast`, chosen so every token color reaches 4.5:1 on the code panels; the light comment grey `#66707b` (4.08:1) is overridden to `#5a626c` in `theme/docs.css`, and the playground's Monaco themes use the same colors. Respects `prefers-reduced-motion`.
 
 ## Routing and deployment
 

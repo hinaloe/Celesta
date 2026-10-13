@@ -2,6 +2,7 @@ import { getHomeRoute, RouteLink } from '@natsuneko-laboratory/makit-runtime';
 import type { DocsPageProps, GeneratedPage } from '@natsuneko-laboratory/makit-runtime';
 import type { ReactNode } from 'react';
 import { copy, isLocale, type Locale } from '../site/copy/index.ts';
+import { withPackagePath } from '../site/edit-url.ts';
 import { HeaderActions } from './HeaderActions.tsx';
 import { LocaleProvider } from './LocaleContext.tsx';
 
@@ -67,7 +68,7 @@ export async function DocsPage({ page, site, i18n, navigation, components: C }: 
             maxDepth={maxDepth}
             actions={<C.PageActions
               route={page.route}
-              editUrl={page.isFallback ? undefined : page.editUrl}
+              editUrl={page.isFallback ? undefined : withPackagePath(page.editUrl)}
               markdownEnabled={site.llms.enabled && !page.isFallback && !page.draft}
               placement="table-of-contents"
             />}

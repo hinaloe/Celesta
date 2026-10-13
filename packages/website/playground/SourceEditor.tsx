@@ -20,14 +20,15 @@ for (const defaults of [monaco.typescript.typescriptDefaults, monaco.typescript.
   defaults.setDiagnosticsOptions({ noSemanticValidation: true });
 }
 
-// Tungsten surfaces with Vitesse syntax colors, matching the documentation's Shiki themes.
+// Tungsten surfaces with the documentation's Shiki colors (GitHub high contrast, light comments
+// darkened as in theme/docs.css); every token color reaches 4.5:1 on the editor and its line highlight.
 monaco.editor.defineTheme('tungsten-dark', {
   base: 'vs-dark', inherit: true,
   rules: [
-    { token: 'comment', foreground: '758575', fontStyle: 'italic' }, { token: 'keyword', foreground: '4d9375' },
-    { token: 'string', foreground: 'c98a7d' }, { token: 'number', foreground: '4c9a91' }, { token: 'regexp', foreground: 'c4704f' },
-    { token: 'type', foreground: '5da994' }, { token: 'type.identifier', foreground: '5da994' }, { token: 'identifier', foreground: 'bd976a' },
-    { token: 'delimiter', foreground: '666666' }, { token: 'tag', foreground: '4d9375' }, { token: 'attribute.name', foreground: 'bd976a' },
+    { token: 'comment', foreground: 'bdc4cc' }, { token: 'keyword', foreground: 'ff9492' },
+    { token: 'string', foreground: 'addcff' }, { token: 'number', foreground: '91cbff' }, { token: 'regexp', foreground: 'addcff' },
+    { token: 'type', foreground: 'ffb757' }, { token: 'type.identifier', foreground: 'ffb757' }, { token: 'identifier', foreground: 'f0f3f6' },
+    { token: 'delimiter', foreground: 'f0f3f6' }, { token: 'tag', foreground: '72f088' }, { token: 'attribute.name', foreground: '91cbff' },
   ],
   colors: {
     'editor.background': '#111110', 'editor.foreground': '#efe9df', 'editor.selectionBackground': '#ffb0203d',
@@ -38,10 +39,10 @@ monaco.editor.defineTheme('tungsten-dark', {
 monaco.editor.defineTheme('tungsten-light', {
   base: 'vs', inherit: true,
   rules: [
-    { token: 'comment', foreground: 'a0ada0', fontStyle: 'italic' }, { token: 'keyword', foreground: '1e754f' },
-    { token: 'string', foreground: 'b56959' }, { token: 'number', foreground: '2f798a' }, { token: 'regexp', foreground: 'ab5e3f' },
-    { token: 'type', foreground: '2e8f82' }, { token: 'type.identifier', foreground: '2e8f82' }, { token: 'identifier', foreground: 'b07d48' },
-    { token: 'delimiter', foreground: '999999' }, { token: 'tag', foreground: '1e754f' }, { token: 'attribute.name', foreground: 'b07d48' },
+    { token: 'comment', foreground: '5a626c' }, { token: 'keyword', foreground: 'a0111f' },
+    { token: 'string', foreground: '032563' }, { token: 'number', foreground: '023b95' }, { token: 'regexp', foreground: '032563' },
+    { token: 'type', foreground: '702c00' }, { token: 'type.identifier', foreground: '702c00' }, { token: 'identifier', foreground: '0e1116' },
+    { token: 'delimiter', foreground: '0e1116' }, { token: 'tag', foreground: '024c1a' }, { token: 'attribute.name', foreground: '023b95' },
   ],
   colors: {
     'editor.background': '#f4f2ed', 'editor.foreground': '#1a1916', 'editor.selectionBackground': '#ffb02052',

@@ -100,7 +100,6 @@ export const en = {
     metadata: {
       title: 'Motion, written down.',
       description: 'Celesta renders React components to video. Scrub to any frame in the browser or the desktop app, then export an MP4. Free and open source.',
-      ogDescription: 'An open-source video tool: React compositions, frame-accurate preview, and H.264 MP4 export.',
       noscript: (s0: Slot) => h(Fragment, null, 'Celesta is an open-source, code-first video tool. Enable JavaScript to use the playground, or ', s0('read the documentation on GitHub'), '.'),
     },
     previewStep: '02 — Preview',
@@ -178,8 +177,6 @@ export const en = {
     openThePlayground: (s0: Slot) => h(Fragment, null, 'Open the playground ', s0('→')),
   },
   theme: {
-    menu: 'Menu',
-    close: 'Close',
     docs: {
       navigation: 'Documentation',
       chapters: 'Chapters',
@@ -188,10 +185,6 @@ export const en = {
       pager: 'Previous and next page',
       previous: 'Previous',
       next: 'Next',
-    },
-    search: {
-      noMatches: 'No matching topics. Try “React”, “FFmpeg”, or “export”.',
-      matches: (count: number) => (count === 1 ? `${count} matching topic` : `${count} matching topics`),
     },
   },
 };

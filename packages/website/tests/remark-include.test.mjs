@@ -9,9 +9,14 @@ import { unified } from 'unified';
 import { VFile } from 'vfile';
 import { remarkInclude } from '../plugins/remark-include.ts';
 
-const root = mkdtempSync(join(tmpdir(), 'remark-include-'));
-mkdirSync(join(root, 'examples'));
+// <tmp>/repo/packages/website, as in the repository; <tmp>/outside.txt lies outside the repository.
+const base = mkdtempSync(join(tmpdir(), 'remark-include-'));
+const root = join(base, 'repo/packages/website');
+mkdirSync(join(root, 'examples'), { recursive: true });
+mkdirSync(join(base, 'repo/examples'));
 writeFileSync(join(root, 'examples/a.tsx'), 'export {}\n');
+writeFileSync(join(base, 'repo/examples/b.json'), '{}\n');
+writeFileSync(join(base, 'outside.txt'), 'secret\n');
 
 const processor = unified().use(remarkParse).use(remarkInclude, { root }).use(remarkStringify);
 const run = (markdown, data = {}) => {
@@ -45,6 +50,19 @@ test('resolves from the root, not the chapter', async () => {
 
 test('fails on a missing file', async () => {
   await assert.rejects(run('```tsx file=examples/missing.tsx\n```\n'), /examples\/missing\.tsx/);
+});
+
+test('reads files elsewhere in the repository', async () => {
+  const out = await run('```json file=../../examples/b.json\n```\n');
+  assert.match(out, /\{\}/);
+});
+
+test('rejects a path outside the repository', async () => {
+  await assert.rejects(run('```txt file=../../../outside.txt\n```\n'), /remark-include: "\.\.\/\.\.\/\.\.\/outside\.txt" resolves outside the repository/);
+});
+
+test('rejects an absolute path outside the repository', async () => {
+  await assert.rejects(run(`\`\`\`txt file=${join(base, 'outside.txt')}\n\`\`\`\n`), /resolves outside the repository/);
 });
 
 test('ignores fences without file=', async () => {

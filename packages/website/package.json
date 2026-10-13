@@ -10,7 +10,7 @@
     "dev": "pnpm --filter @celesta/web build && pnpm playground:build && pnpm run \"/^dev:/\"",
     "dev:playground": "vite build -c playground/vite.config.ts --watch",
     "dev:site": "makit dev",
-    "build": "pnpm --filter @celesta/web build && wrangler types && tsc --noEmit && tsc --noEmit -p tsconfig.worker.json && pnpm playground:build && rm -rf .makit && makit build --clean && node --experimental-strip-types scripts/postbuild.mjs",
+    "build": "pnpm --filter @celesta/web build && wrangler types && tsc --noEmit && tsc --noEmit -p tsconfig.worker.json && pnpm playground:build && node -e \"require('node:fs').rmSync('.makit',{recursive:true,force:true})\" && makit build --clean && node --experimental-strip-types scripts/postbuild.mjs",
     "check": "makit check",
     "check:examples": "tsc -p tsconfig.examples.json",
     "playground:build": "vite build -c playground/vite.config.ts",
@@ -28,7 +28,7 @@
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
-    "@natsuneko-laboratory/makit": "^0.8.0",
+    "@natsuneko-laboratory/makit": "0.8.0",
     "@natsuneko-laboratory/makit-runtime": "0.8.0",
     "@types/mdast": "^4.0.4",
     "@types/node": "^24.19.0",

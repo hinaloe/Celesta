@@ -15,6 +15,10 @@ export function RootLayout({ htmlProps, bodyProps, bodyStart, children }: RootLa
   return <html {...htmlProps}>
     <body {...bodyProps}>
       {bodyStart}
+      {/* Makit has no icon or theme-color option; React hoists these into `<head>`. */}
+      <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+      <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f2ed" />
+      <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#111110" />
       <script dangerouslySetInnerHTML={{ __html: localeScript }} />
       <DocumentLocale locales={locales} />
       <a className="tg-skip" href="#main">

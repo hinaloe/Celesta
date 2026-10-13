@@ -115,7 +115,7 @@ An empty code fence with `file=` is filled from that file at build time
 
 Paths resolve against `packages/website`, not the chapter, so `examples/…` is this package's
 examples and `../../examples/…` the repository's. Without `title=`, the file name becomes the
-title. A missing file fails the build.
+title. A missing file, or a path outside the repository, fails the build.
 
 ## Copy
 
@@ -179,6 +179,36 @@ The post-build step works around two Makit 0.8 gaps:
    from the source files without the configured remark plugins. The step applies
    `remark-include` and `remark-download-links` to them, editing only the fences and link URLs
    those plugins change.
+
+## Makit
+
+`@natsuneko-laboratory/makit`, `@natsuneko-laboratory/makit-runtime`, and `next` are pinned to
+exact versions. Bump them together, then re-check the theme CSS that targets Makit's DOM and
+`aria-label`s (`theme/tungsten.css`, `theme/docs.css`: search dialog, page actions, copy button,
+code blocks) and the gaps below.
+
+Makit 0.8 gaps this package works around or lives with, besides the two post-build fixes above:
+
+- **"Edit on GitHub"** URLs are built relative to the site root (`…/edit/main/content/…`), and
+  `github` has no directory option. `theme/DocsPage.tsx` inserts `packages/website/` with
+  `withPackagePath` (`site/edit-url.ts`).
+- **Search after a language switch.** Makit's search dialog keeps Pagefind on the language it
+  first loaded, and its locale memory (`localStorage["makit-locale"]`) is only written on a full
+  page load, so the `EN / JA` links (`theme/LocaleLinks.tsx`) are plain `<a>` elements that
+  reload the page instead of navigating on the client.
+- **Search excerpts** show escaped entities from code literally (`&lt;Camera …&gt;`); the dialog
+  renders Pagefind's plain excerpt without decoding it.
+- **Built-in labels stay English** on Japanese pages: the search dialog ("Search documentation…",
+  "No results for …") and the page actions ("Edit on GitHub", "Copy as Markdown", …).
+  `MakitMessages` has no keys for them.
+- **Canonical and `hreflang` links are relative**, because the generated root layout sets no
+  `metadataBase`; `sitemap.xml` and `llms.txt` carry absolute URLs.
+- **No icon or theme-color option.** `theme/RootLayout.tsx` adds `<link rel="icon">` and
+  `<meta name="theme-color">` itself.
+- **Code highlighting** accepts only bundled Shiki theme names, and remark/rehype plugins run
+  before highlighting, so token colors cannot be adjusted in a plugin. The GitHub high-contrast
+  themes reach 4.5:1 on the code panels except one light comment color, overridden in
+  `theme/docs.css`.
 
 ## Deploy to Cloudflare Workers
 

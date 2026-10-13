@@ -1,9 +1,9 @@
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Manifest, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import { showcaseAssetDirectories } from '../site/showcase-catalog.ts';
+import { showcase, showcaseAssetDirectories } from '../site/showcase-catalog.ts';
 import { sampleSources } from './sample-sources.ts';
 
 /** The repository root: examples are read from here. */
@@ -37,10 +37,9 @@ function islandOutput(): Plugin {
       const posters = join(publicDir, 'showcase');
       rmSync(posters, { recursive: true, force: true });
       mkdirSync(posters, { recursive: true });
-      const examples = join(repoRoot, 'examples');
-      for (const slug of readdirSync(examples)) {
-        const poster = join(examples, slug, 'poster.jpg');
-        if (existsSync(poster)) copyFileSync(poster, join(posters, `${slug}.jpg`));
+      // Only the catalog's works with `poster: true`; a missing poster fails the build.
+      for (const work of showcase) {
+        if ('poster' in work && work.poster) copyFileSync(join(repoRoot, 'examples', work.slug, 'poster.jpg'), join(posters, `${work.slug}.jpg`));
       }
     },
   };

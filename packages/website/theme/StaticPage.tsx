@@ -13,7 +13,7 @@ export async function StaticPage({ page, site, i18n, locale: urlLocale, componen
   const body = page.search ? <div data-pagefind-body>{children}</div> : children;
   if (page.layout === 'bare') return <LocaleProvider locale={locale}>{body}</LocaleProvider>;
 
-  const homeHref = (await getHomeRoute(urlLocale)) ?? `${site.basePath}/`;
+  const homeHref = (await getHomeRoute(urlLocale)) ?? `${site.basePath}/${locale}/`;
   return <LocaleProvider locale={locale}>
     <div className="tg-page">
       <C.Header header={site.header} siteTitle={site.title} homeHref={homeHref} actions={<HeaderActions page={page} site={site} i18n={i18n} components={C} />} />

@@ -30,7 +30,8 @@ export default defineConfig({
   markdown: {
     code: { copyButton: true },
     remarkPlugins: [[remarkInclude, { root: fileURLToPath(new URL('.', import.meta.url)) }], remarkDownloadLinks],
-    shiki: { themes: { light: 'vitesse-light', dark: 'vitesse-dark' } },
+    // Every token color reaches 4.5:1 on the Tungsten code panel (one light override in theme/docs.css).
+    shiki: { themes: { light: 'github-light-high-contrast', dark: 'github-dark-high-contrast' } },
   },
   llms: { enabled: true },
   github: { repository: 'mika-f/Celesta' },

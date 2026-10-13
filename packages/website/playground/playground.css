@@ -6,7 +6,8 @@
 
 .pg {
   --pg-mono: var(--tg-font-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
-  --pg-error: #d0402f;
+  /* 5.4:1 on the light background, 4.9:1 on the light panel. */
+  --pg-error: #b33526;
   color: var(--tg-fg);
   font-family: var(--tg-font-sans, system-ui, sans-serif);
 }
@@ -303,6 +304,17 @@
   height: 1px;
   overflow: hidden;
   opacity: 0;
+}
+
+/* Text-style controls keep at least a 24 px tall target (WCAG 2.2 target size). */
+.pg-link-button,
+.pg-files button,
+.pg-source-footer button,
+.pg-file-action,
+.pg-export > button:not(.pg-button) {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
 }
 
 /* Preview */

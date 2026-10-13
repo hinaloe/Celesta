@@ -99,7 +99,6 @@ export const ja: Copy = {
     metadata: {
       title: 'コードで、動画を作る。',
       description: 'Celesta は、React のコンポーネントで動画を作るオープンソースのツールです。ブラウザやデスクトップアプリで見たいフレームを確認し、MP4 に書き出せます。',
-      ogDescription: 'React で動画を作り、1 フレームずつ確認して、MP4 に書き出す。ブラウザとデスクトップで使えるオープンソースの動画制作ツールです。',
       noscript: (s0: Slot) => h(Fragment, null, 'Celesta は、コードで動画を作るオープンソースのツールです。ブラウザで試すには JavaScript を有効にしてください。使い方は ', s0('GitHub のドキュメント'), 'でも確認できます。'),
     },
     previewStep: '02 — プレビュー',
@@ -177,8 +176,6 @@ export const ja: Copy = {
     openThePlayground: (s0: Slot) => h(Fragment, null, 'プレイグラウンドを開く ', s0('→')),
   },
   theme: {
-    menu: 'メニュー',
-    close: '閉じる',
     docs: {
       navigation: 'ドキュメント',
       chapters: '目次',
@@ -187,10 +184,6 @@ export const ja: Copy = {
       pager: '前後のページ',
       previous: '前へ',
       next: '次へ',
-    },
-    search: {
-      noMatches: '該当するトピックがありません。「React」「FFmpeg」「書き出し」などを試してください。',
-      matches: (count: number) => `${count} 件のトピック`,
     },
   },
 };

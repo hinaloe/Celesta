@@ -461,7 +461,7 @@
   white-space: nowrap;
 }
 
-/* Code blocks: the panel, a mono label bar, and Shiki's vitesse colors. */
+/* Code blocks: the panel, a mono label bar, and Shiki's GitHub high-contrast colors. */
 .makit-prose pre.shiki {
   margin: 1.6em 0;
   padding: 3.25rem 1.25rem 1.15rem;
@@ -494,6 +494,15 @@
 .makit-prose pre.shiki::after {
   top: 2.5rem;
   background: var(--tg-line);
+}
+
+/*
+ * On the panels (#eae7e0 / #1a1917) every token color of github-light-high-contrast and
+ * github-dark-high-contrast reaches 4.5:1 except the light comment grey #66707b (4.08:1), which is
+ * darkened to #5a626c (5.0:1). Makit 0.8 only takes bundled Shiki theme names, so this is CSS.
+ */
+:root:not([data-theme="dark"]) pre.shiki span[style*="color:#66707B" i] {
+  color: #5a626c !important;
 }
 
 .makit-prose pre.shiki .line.highlighted {
