@@ -229,9 +229,9 @@ Renderer (`gpu-renderer/src/tests.rs`):
   rectangle reads back as straight red with alpha near 32768, undrawn
   pixels as `(0, 0, 0, 0)`.
 - On an antialiased edge, `Rgba16Straight` equals the `Rgba16` readback
-  divided by its alpha, within one code, for pixels whose alpha is at
-  least 1/16 (below that, the premultiplied codes are too coarse to
-  compare).
+  divided by its alpha, within `65535 / a + 1` codes (half a code of
+  premultiplied rounding, scaled up by the division), for pixels whose
+  alpha `a` is at least 1/16.
 
 Integration (`exporter/tests/export_integration.rs`), on a scene with a
 transparent background and a semi-transparent rectangle:
