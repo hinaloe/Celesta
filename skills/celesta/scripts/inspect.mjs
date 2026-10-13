@@ -605,10 +605,21 @@ function describeTransform(layer, sources) {
   if (effects.blur) parts.push(`blur ${fmt(effects.blur)}`);
   if (effects.shadow) parts.push(`shadow ${effects.shadow.color}/${fmt(effects.shadow.blur)} (${fmt(effects.shadow.offsetX)}, ${fmt(effects.shadow.offsetY)})`);
   if (effects.glow) parts.push(`glow ${effects.glow.color}/${fmt(effects.glow.blur)}`);
-  // Older runtimes send a single `shader`.
-  const shaders = effects.shaders ?? (effects.shader ? [effects.shader] : []);
-  if (shaders.length > 0) parts.push(`shader ${shaders.map((shader) => describeShader(shader, sources)).join(' → ')}`);
+  // Older runtimes send `shaders`, or a single `shader`, entries without a `type`.
+  const filters = effects.filters ?? effects.shaders ?? (effects.shader ? [effects.shader] : []);
+  if (filters.length > 0) parts.push(`filters ${filters.map((filter) => describeFilter(filter, sources)).join(' → ')}`);
   return parts.join(' ');
+}
+
+/** A custom shader as `describeShader` gives it, or a color filter as `brightness(1.2)`. */
+function describeFilter(filter, sources) {
+  switch (filter.type ?? 'shader') {
+    case 'shader': return describeShader(filter, sources);
+    case 'hue': return `hue(${fmt(filter.degrees)}°)`;
+    case 'tint': return `tint(${filter.color}, ${fmt(filter.amount)})`;
+    case 'vignette': return `vignette(${fmt(filter.amount)}, radius ${fmt(filter.radius)}, softness ${fmt(filter.softness)})`;
+    default: return `${filter.type}(${fmt(filter.amount)})`;
+  }
 }
 
 /** `name(param=value, …) pad N`, naming the parameters the scene declares. */
