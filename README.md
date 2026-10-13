@@ -439,6 +439,17 @@ play it: many phones, browsers, and editing tools decode only 8-bit H.264, so
 cargo run -p celesta-exporter --release -- --react --bit-depth 10 packages/cli/examples/title.tsx smooth.mp4
 ```
 
+The output extension picks the video format. `.mov` writes ProRes 4444 with
+24-bit PCM audio and `.webm` writes VP9 with Opus audio; both keep
+transparency where nothing is drawn (straight alpha, BT.709), so a full-frame
+background layer makes them opaque. `--preset`, `--crf`, `--bit-depth`, and
+`--color-conversion` apply to MP4 only, and are usage errors with `.mov` or
+`.webm`:
+
+```sh
+cargo run -p celesta-exporter --release -- --react packages/cli/examples/title.tsx overlay.mov
+```
+
 To check frames as PNG instead of encoding a video, select zero-based frames
 with `--frame`/`--frames`, or every *n*th frame (plus the last one) with
 `--every`, which can be narrowed with `--from`/`--to`. Add `--contact-sheet`

@@ -1,7 +1,9 @@
-# Export to MP4
+# Export to MP4, MOV, or WebM
 
 The command-line exporter renders a React composition or a JSON project to
-an H.264 + AAC MP4 (or to PNG frames, see [verify.md](verify.md)). Find it
+an H.264 + AAC MP4, a transparent MOV or WebM (see
+[Transparent video](#transparent-video)), or PNG frames (see
+[verify.md](verify.md)). Find it
 first: [setup.md](setup.md#find-the-celesta-tools). `Celesta-export` below
 stands for its path.
 
@@ -9,6 +11,7 @@ stands for its path.
 
 - [Commands](#commands)
 - [Options](#options)
+- [Transparent video](#transparent-video)
 - [JSON results](#json-results)
 - [Progress output](#progress-output)
 - [Quality notes](#quality-notes)
@@ -60,9 +63,35 @@ Celesta-export --json --react scene.tsx out.mp4
 | `--render-quality <q>` | `final` (default) or `draft`. `draft` draws scaled text from a scale-1 texture, so it is softer; use it only to check timing. |
 | `--json` | No progress output; one line of JSON on stdout when the export ends. See [JSON results](#json-results). |
 | `--no-ui` | Plain text progress instead of the terminal dashboard (automatic when stderr is not a terminal). |
-| `--frame`, `--frames`, `--every`, `--contact-sheet`, `--columns`, `--tile-width`, `--debug-guides`, `--output-format` | PNG output; see [verify.md](verify.md#look-at-real-frames). |
+| `--output-format <f>` | `png`, `mp4`, `mov`, or `webm`. Normally implied (PNG by a frame selection, video by the extension); one that disagrees with the output extension is a usage error. |
+| `--frame`, `--frames`, `--every`, `--contact-sheet`, `--columns`, `--tile-width`, `--debug-guides` | PNG output; see [verify.md](verify.md#look-at-real-frames). |
 
-MP4 export needs non-zero, even `width` and `height`.
+Video export needs non-zero, even `width` and `height`.
+
+## Transparent video
+
+The output extension picks the video format:
+
+| Extension | Video | Audio |
+| --- | --- | --- |
+| `.mp4` | H.264 (`yuv420p`; `yuv420p10le` with `--bit-depth 10`) | AAC |
+| `.mov` | ProRes 4444 with alpha (`yuva444p10le`) | 24-bit PCM |
+| `.webm` | VP9 with alpha (`yuva420p`, CRF 20) | Opus, 48 kHz |
+
+```sh
+Celesta-export --json --react scene.tsx overlay.mov
+```
+
+- Only areas nothing draws on are transparent. A full-frame background
+  layer makes the output opaque.
+- Alpha is straight (unassociated). Color is converted and tagged BT.709
+  (limited range).
+- `--preset`, `--crf`, `--bit-depth`, and `--color-conversion` apply to MP4
+  only; with `.mov` or `.webm` they are usage errors.
+- The MCP `export_video` tool takes the same three extensions in `output`;
+  `preset`, `crf`, and `bitDepth` are rejected with `.mov` and `.webm`.
+- An FFmpeg build without the needed encoder fails with
+  `encoder_unavailable`.
 
 ## JSON results
 
@@ -90,7 +119,9 @@ props file, the result also has `propsFile` (its path) and `propsFileAuto`
   paths. Read these paths; do not work out file names yourself. Each entry
   has a `type`:
   - `video`: `firstFrame`, `frames`, `start`, `duration`, and `audio`
-    (whether the MP4 has an audio stream);
+    (whether the file has an audio stream), `format` (`"mp4"`, `"mov"`, or
+    `"webm"`), and `alpha` (`true` when the format carries transparency:
+    `mov` and `webm`);
   - `frame`: one PNG, with `frame` and `time`;
   - `contactSheet`: one PNG, with `columns` and the tile `frames` in
     reading order.
@@ -108,8 +139,9 @@ props file, the result also has `propsFile` (its path) and `propsFileAuto`
 | `output_exists` | An output file exists; add `--overwrite` only if you may replace it. |
 | `invalid_selection` | A frame is out of range or repeated, or the selection or contact sheet is too large. |
 | `empty_range` | `--from`/`--to` cover no frames of the composition. |
-| `unsupported_output` | An MP4 export needs a `.mp4` path. |
-| `unsupported_dimensions` | MP4 needs even width and height. |
+| `unsupported_output` | The output must be a `.mp4`, `.mov`, or `.webm` path (or a frame selection for PNG). |
+| `encoder_unavailable` | This FFmpeg build lacks the encoder the format needs (H.264, ProRes, or VP9 and Opus). |
+| `unsupported_dimensions` | Video needs non-zero even width and height. |
 | `project_io`, `project_json` | The project file could not be read or is not valid JSON. |
 | `project_validation` | The project is invalid; `error.issues` lists each `{path, message}`. |
 | `react` | The React entry failed to load or render; read `message` and look it up in [errors.md](errors.md). |
@@ -128,7 +160,7 @@ Without `--json`, an interactive terminal gets a full-screen dashboard.
 ```text
 rendering frame 300/1530  58.5 fps  elapsed 00:00:05  eta 00:00:21
 mixing audio
-muxing MP4
+muxing
 ```
 
 Warnings (missing fonts, missing glyphs) are printed as `warning: …` lines.
