@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use celesta_exporter::{
     BitDepth, ContactSheet, EncoderPreset, ExportJob, ExportOptions, ExportRange, FrameSelection,
-    PngExport, VideoEncoding, parse_timecode,
+    PngExport, VideoEncoding, VideoFormat, parse_timecode,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -87,7 +87,8 @@ pub struct ContactSheetArgs {
 pub struct ExportVideoArgs {
     #[serde(flatten)]
     source: SourceArgs,
-    /// The `.mp4` to write.
+    /// The .mp4, .mov (ProRes 4444 with alpha) or .webm (VP9 with alpha) to
+    /// write.
     output: PathBuf,
     /// Replace `output` if it exists.
     overwrite: Option<bool>,
@@ -304,15 +305,21 @@ impl ExportVideoArgs {
     pub fn job(&self) -> Result<ExportJob, String> {
         reject_unknown(&self.unknown)?;
         let source = self.source.check(false)?;
-        if !self
-            .output
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"))
-        {
+        let Some(video_format) = VideoFormat::from_extension(&self.output) else {
             return Err(format!(
-                "output must be a .mp4 file, not {}; use render_frames for PNG",
+                "output must be a .mp4, .mov or .webm file, not {}; use render_frames for PNG",
                 self.output.display()
             ));
+        };
+        if video_format.has_alpha() {
+            let given = [
+                ("preset", self.preset.is_some()),
+                ("crf", self.crf.is_some()),
+                ("bitDepth", self.bit_depth.is_some()),
+            ];
+            if let Some((field, _)) = given.into_iter().find(|(_, given)| *given) {
+                return Err(format!("{field} applies to MP4 output only"));
+            }
         }
         let defaults = VideoEncoding::default();
         let preset = match &self.preset {
@@ -332,6 +339,7 @@ impl ExportVideoArgs {
         let options = ExportOptions {
             overwrite: self.overwrite.unwrap_or(false),
             range: source.range,
+            video_format,
             video: VideoEncoding {
                 preset,
                 crf: self.crf.unwrap_or(defaults.crf),
@@ -453,7 +461,32 @@ mod tests {
         );
         rejects(
             video_job(json!({ "source": "a.tsx", "output": "a.png" })),
-            ".mp4",
+            ".mp4, .mov or .webm",
+        );
+    }
+
+    #[test]
+    fn transparent_formats_follow_the_extension() {
+        let format = |output: &str| {
+            video_job(json!({ "source": "a.tsx", "output": output }))
+                .unwrap()
+                .options
+                .video_format
+        };
+        assert_eq!(format("a.mp4"), VideoFormat::Mp4);
+        assert_eq!(format("a.mov"), VideoFormat::Mov);
+        assert_eq!(format("a.WEBM"), VideoFormat::Webm);
+        rejects(
+            video_job(json!({ "source": "a.tsx", "output": "a.mov", "crf": 20 })),
+            "crf applies to MP4",
+        );
+        rejects(
+            video_job(json!({ "source": "a.tsx", "output": "a.webm", "preset": "fast" })),
+            "preset applies to MP4",
+        );
+        rejects(
+            video_job(json!({ "source": "a.tsx", "output": "a.mov", "bitDepth": 10 })),
+            "bitDepth applies to MP4",
         );
     }
 
