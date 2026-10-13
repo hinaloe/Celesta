@@ -55,10 +55,11 @@ export interface CommonProps {
   /** A centered colored halo behind the composited layer. */
   glow?: LayerGlow;
   /**
-   * A custom WGSL filter from `@celesta/shader`, applied to the composited
-   * layer before `blur`, `shadow`, and `glow`.
+   * Custom WGSL filters from `@celesta/shader`, applied to the composited
+   * layer before `blur`, `shadow`, and `glow`. An array runs them in order,
+   * each filtering the result of the one before it.
    */
-  shader?: ShaderEffect;
+  shader?: ShaderEffect | readonly ShaderEffect[];
 }
 
 export interface CompositionProps {

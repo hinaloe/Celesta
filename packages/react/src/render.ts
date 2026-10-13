@@ -26,6 +26,7 @@ import type {
   KeyframeAnimation,
   Layer,
   LayerContent,
+  LayerShader,
   Paint,
   PathCommand,
   ResolvedAsset,
@@ -610,13 +611,18 @@ function sameShaderSource(a: ShaderSource, b: ShaderSource): boolean {
   return a.wgsl === b.wgsl && JSON.stringify(a.params ?? []) === JSON.stringify(b.params ?? []);
 }
 
-function extractShader(value: unknown, context: WalkContext): NonNullable<Layer['effects']>['shader'] {
-  if (value === undefined) return undefined;
-  if (!(value instanceof ShaderEffect)) {
-    throw new Error("shader must be a value returned by a shader from @celesta/shader's defineShader()");
-  }
-  useShaderSource(ShaderEffect.source(value).source, context);
-  return ShaderEffect.serialize(value);
+/** The `shader` prop as the layer's shaders, in the order they run. */
+function extractShaders(value: unknown, context: WalkContext): LayerShader[] {
+  if (value === undefined) return [];
+  // A dense copy: a hole is refused like any other value that is not a shader.
+  const effects = Array.isArray(value) ? Array.from(value as unknown[]) : [value];
+  return effects.map((effect) => {
+    if (!(effect instanceof ShaderEffect)) {
+      throw new Error("shader must be a value returned by a shader from @celesta/shader's defineShader(), or an array of them");
+    }
+    useShaderSource(ShaderEffect.source(effect).source, context);
+    return ShaderEffect.serialize(effect);
+  });
 }
 
 /** Lists `source` among the frame's shaders. */
@@ -660,11 +666,11 @@ function extractEffects(props: Record<string, unknown>, context: WalkContext): L
   }
   const shadow = props.shadow === undefined ? undefined : props.shadow as Record<string, unknown>;
   const glow = props.glow === undefined ? undefined : props.glow as Record<string, unknown>;
-  const shader = extractShader(props.shader, context);
-  if (blur === 0 && !shadow && !glow && !shader) return undefined;
+  const shaders = extractShaders(props.shader, context);
+  if (blur === 0 && !shadow && !glow && shaders.length === 0) return undefined;
   return {
     blur,
-    ...(shader ? { shader } : {}),
+    ...(shaders.length > 0 ? { shaders } : {}),
     ...(shadow ? { shadow: {
       color: color(shadow.color, 'shadow.color'),
       blur: radius(shadow.blur, 'shadow.blur'),

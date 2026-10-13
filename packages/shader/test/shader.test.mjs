@@ -67,7 +67,7 @@ test('values pack in declared order, with defaults, colors, and padding', () => 
      <Rect width={8} height={8} shader={grade({ amount: 1, offset: [3, 4], tint: '#00ff0080', axis: [0, 1, 0], weights: [1, 1, 1, 1] }, { padding: 0 })} />`,
   );
   assert.equal(frame.error, undefined, frame.error);
-  const [first, second] = frame.scene.layers.map((layer) => layer.effects.shader);
+  const [first, second] = frame.scene.layers.map((layer) => layer.effects.shaders[0]);
   const close = (actual, expected) => {
     assert.equal(actual.length, expected.length);
     actual.forEach((value, index) => assert.ok(Math.abs(value - expected[index]) < 1e-9, `${actual} vs ${expected}`));
@@ -98,7 +98,23 @@ test('a shader without parameters takes no arguments', () => {
     `<Group shader={plain()}><Rect width={8} height={8} /></Group>`,
   );
   assert.equal(frame.error, undefined, frame.error);
-  assert.deepEqual(frame.scene.layers[0].effects.shader, { id: frame.scene.shaders[0].id });
+  assert.deepEqual(frame.scene.layers[0].effects.shaders, [{ id: frame.scene.shaders[0].id }]);
+});
+
+test('a layer takes several shaders, run in the order given', () => {
+  const frame = render(
+    `const plain = defineShader({ name: 'plain', wgsl });
+     const ripple = defineShader({ name: 'ripple', wgsl: wgsl + ' ', params: { time: 'f32' }, padding: 6 });`,
+    `<Rect width={8} height={8} shader={[ripple({ time: 1 }), plain(), ripple({ time: 2 }, { padding: 0 })]} />`,
+  );
+  assert.equal(frame.error, undefined, frame.error);
+  const [ripple, plain] = frame.scene.shaders;
+  assert.deepEqual(frame.scene.shaders.map((source) => source.name), ['ripple', 'plain']);
+  assert.deepEqual(frame.scene.layers[0].effects.shaders, [
+    { id: ripple.id, params: [1], padding: 6 },
+    { id: plain.id },
+    { id: ripple.id, params: [2] },
+  ]);
 });
 
 test('shader.id is the id the scene carries', () => {
@@ -169,5 +185,5 @@ test('a parameter named like an Object method takes its default when omitted', (
     `<Rect width={8} height={8} shader={odd()} />`,
   );
   assert.equal(frame.error, undefined, frame.error);
-  assert.deepEqual(frame.scene.layers[0].effects.shader.params, [3]);
+  assert.deepEqual(frame.scene.layers[0].effects.shaders[0].params, [3]);
 });

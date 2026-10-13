@@ -403,9 +403,9 @@ impl GpuRenderer {
         let blend_mode = layer.blend_mode;
         if !layer.effects.is_empty() {
             let mut effects = EffectSpec::parse(&layer.effects)?;
-            if let Some(shader) = &layer.effects.shader {
-                effects.shader = Some(self.shaders.use_shader(&layer.id, shader)?);
-            }
+            effects.shaders = self
+                .shaders
+                .use_shaders(&layer.id, &layer.effects.shaders)?;
             output.push(PreparedItem::BeginGroup);
             let mut inner = layer.clone();
             inner.opacity = 1.0;

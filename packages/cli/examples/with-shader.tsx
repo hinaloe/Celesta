@@ -4,8 +4,10 @@ import rgbSplitSource from './rgb-split.wgsl';
 import rippleSource from './ripple.wgsl';
 
 // Custom WGSL filters: a ripple on a title, and an RGB split on a video
-// whose amount springs back to zero. The shaders get time and amounts as
-// parameters, so they follow the composition's frames like any other prop.
+// whose amount springs back to zero. The title chains both: an array runs
+// its shaders in order, so the split pulls apart the rippled letters. The
+// shaders get time and amounts as parameters, so they follow the
+// composition's frames like any other prop.
 const ripple = defineShader({
   name: 'ripple',
   wgsl: rippleSource,
@@ -47,7 +49,7 @@ function Title() {
       anchorX={0.5}
       anchorY={0.5}
       style={{ fontFamily: 'sans-serif', fontSize: 120, fontWeight: 900, fill: { type: 'solid', color: '#ffffff' } }}
-      shader={ripple({ time: frame / fps })}
+      shader={[ripple({ time: frame / fps }), rgbSplit({ amount: 4 + 4 * Math.sin(frame / 6) })]}
     >
       CELESTA
     </Text>

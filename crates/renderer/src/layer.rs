@@ -42,7 +42,7 @@ impl CpuRenderer {
         };
         // WGSL runs only on the GPU renderer, so a shader is refused even on
         // a layer that would draw nothing.
-        if layer.effects.shader.is_some() {
+        if !layer.effects.shaders.is_empty() {
             return Err(RenderError::UnsupportedShader {
                 layer: layer.id.clone(),
             });
