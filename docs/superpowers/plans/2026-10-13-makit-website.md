@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rebuild `packages/website` on Makit 0.9 with a custom "Tungsten" theme, Markdown documentation, static pages for the landing page and showcase, and the playground kept as a Vite-built island.
+**Goal:** Rebuild `packages/website` on Makit 0.9 with a custom "Noir" theme, Markdown documentation, static pages for the landing page and showcase, and the playground kept as a Vite-built island.
 
 **Architecture:** `packages/website` becomes a Makit project (`content/` Markdown, `pages/` static pages, `theme/` local theme). The playground keeps its Vite toolchain in `playground/` and builds an ES module into `public/_playground/` that a client component mounts. The old Vite site keeps working until the cutover task removes it.
 

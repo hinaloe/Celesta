@@ -67,7 +67,7 @@ packages/website/
   Makit's; `docs.css` styles the documentation.
 - **Icons** come from `lucide-react` (`import { ArrowRight } from 'lucide-react'`) in `theme/`,
   `pages/`, and `playground/`; pass `aria-hidden="true"`. Don't put arrow or symbol glyphs
-  (`→ ↗ ↓ ×`) in copy or JSX, since some platforms draw them as emoji: render the icon beside the
+  (`→ ↗ ↓`) in copy or JSX, since some platforms draw them as emoji: render the icon beside the
   string instead. In Markdown, write arrows as usual: `plugins/remark-arrow-icons.ts` turns
   `→ ← ↗ ↓ ↑` outside code into icon spans (`.nr-icon-*`, drawn in `theme/docs.css`).
 - **`playground/`**: the editor (`Playground.tsx`, Monaco in `SourceEditor.tsx`), the editable

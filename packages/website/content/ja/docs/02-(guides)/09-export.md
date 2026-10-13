@@ -162,7 +162,7 @@ cargo run -p celesta-exporter --release -- --react --driver vulkan packages/cli/
 
 最小構成のコンテナにはフォントがないことがあり、少なくとも 1 つなければテキストは描けません。`fonts-dejavu-core`（日本語には `fonts-noto-cjk`）などをインストールするか、`<Font>` でファイルを読み込んでください。
 
-ソフトウェア描画で `--color-conversion auto` を使うと RGB→YUV 変換をエンコーダーに任せます。`--render-quality draft` はタイミング確認には速いですが、ピクセル確認には不向きです。自分で Celesta をビルドせずコンテナから書き出すには、ルートで [Linux コンテナイメージ](https://github.com/mika-f/Celesta/tree/main/packaging/linux)を作り、`/work` にマウントするプロジェクトのフォルダから実行します。`--user` で出力の所有者を root ではなく自分にします。
+ソフトウェア描画で `--color-conversion auto` を使うと RGB から YUV への変換をエンコーダーに任せます。`--render-quality draft` はタイミング確認には速いですが、ピクセル確認には不向きです。自分で Celesta をビルドせずコンテナから書き出すには、ルートで [Linux コンテナイメージ](https://github.com/mika-f/Celesta/tree/main/packaging/linux)を作り、`/work` にマウントするプロジェクトのフォルダから実行します。`--user` で出力の所有者を root ではなく自分にします。
 
 ```sh title="コンテナイメージをビルド"
 docker build -f packaging/linux/Dockerfile -t celesta-exporter .

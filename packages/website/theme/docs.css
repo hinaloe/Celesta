@@ -518,12 +518,31 @@
 }
 
 /*
+ * Makit applies the Shiki dark colors (--shiki-dark) only under `:root[data-theme=dark]`. When
+ * `data-theme` is never set (JavaScript off, or site storage blocked) a dark OS still gets the dark
+ * panel from noir.css, so the same dark colors are applied here for that case.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) pre.shiki,
+  :root:not([data-theme]) pre.shiki span {
+    color: var(--shiki-dark) !important;
+  }
+}
+
+/*
  * On the panels (#f0f0f2 / #0d0d0f) every token color of github-light-high-contrast and
  * github-dark-high-contrast reaches 4.5:1 except the light comment grey #66707b (4.43:1), which is
  * darkened to #5a626c (5.43:1). Makit 0.9 only takes bundled Shiki theme names, so this is CSS.
+ * Light only: on the dark panel the dark colors above apply.
  */
-:root:not([data-theme="dark"]) pre.shiki span[style*="color:#66707B" i] {
+:root[data-theme="light"] pre.shiki span[style*="color:#66707B" i] {
   color: #5a626c !important;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) pre.shiki span[style*="color:#66707B" i] {
+    color: #5a626c !important;
+  }
 }
 
 .makit-prose pre.shiki .line.highlighted {

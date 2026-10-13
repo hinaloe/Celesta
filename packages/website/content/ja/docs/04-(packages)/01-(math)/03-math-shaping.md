@@ -69,7 +69,7 @@ const breath = sineWave(frame / (fps * 2)); // one full cycle every two seconds
 | `degToRad(degrees)`, `radToDeg(radians)` | 度とラジアンの相互変換。 |
 | `normalizeAngle(angle)` | 角度を `[-π, π)` に循環させます。 |
 | `angleDifference(from, to)` | 2 つの角度の間の最短の符号付き回転量。 |
-| `lerpAngle(a, b, t)` | 最短方向で補間します。350°→10° は 180° を通って戻らず、0° を通ります。 |
+| `lerpAngle(a, b, t)` | 最短方向で補間します。350° から 10° は 180° を通って戻らず、0° を通ります。 |
 
 ## 点と幾何
 
