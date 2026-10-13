@@ -1,20 +1,27 @@
-//! `--json`: one machine-readable result document on stdout in place of
-//! progress output, for scripts and AI agents. Nothing is written to stderr.
+//! The machine-readable result of one export: `Celesta-export --json`
+//! prints it, and the MCP server returns it from its rendering tools.
 
-use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use celesta_composition::Rational;
-use celesta_exporter::{CompositionInfo, ExportError, ExportProgress, ExportedFile};
 use celesta_project::LoadError;
 use celesta_react_bridge::{PropsFileChoice, ReactBridgeError};
 use serde::Serialize;
 
-use crate::progress::State;
+use crate::{CompositionInfo, ExportError, ExportProgress, ExportedFile};
+
+/// Whose options an error's hint names: `Celesta-export`'s flags or the MCP
+/// server's tool arguments. Error codes are the same either way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HintStyle {
+    Cli,
+    Mcp,
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Report {
+pub struct Report {
     status: Status,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<ErrorReport>,
@@ -117,23 +124,15 @@ struct Stats {
     render_fps: Option<f64>,
 }
 
-/// Runs `export`, then prints its report. Returns whether it succeeded.
-pub fn run(
+/// Runs `export`, collecting what it reports, and returns its report and
+/// whether it succeeded.
+pub fn build(
     source: &Path,
     props_file: Option<PropsFileChoice>,
-    export: impl FnOnce(&mut dyn FnMut(ExportProgress)) -> Result<(), ExportError>,
-) -> bool {
-    let (report, ok) = build(source, props_file, export);
-    print(&report);
-    ok
-}
-
-fn build(
-    source: &Path,
-    props_file: Option<PropsFileChoice>,
+    hints: HintStyle,
     export: impl FnOnce(&mut dyn FnMut(ExportProgress)) -> Result<(), ExportError>,
 ) -> (Report, bool) {
-    let mut state = State::new();
+    let mut timing = Timing::new();
     let mut composition = None;
     let mut files = Vec::new();
     let mut warnings = Vec::new();
@@ -144,9 +143,9 @@ fn build(
             ExportProgress::Warning(warning) => warnings.push(warning.clone()),
             _ => {}
         }
-        state.update(event);
+        timing.update(&event);
     });
-    state.finish(&result.as_ref().map(|_| ()).map_err(ToString::to_string));
+    timing.finish(result.is_ok());
     let frame_rate = composition.map(|info: CompositionInfo| info.frame_rate);
     let report = Report {
         status: if result.is_ok() {
@@ -154,7 +153,10 @@ fn build(
         } else {
             Status::Error
         },
-        error: result.as_ref().err().map(error_report),
+        error: result
+            .as_ref()
+            .err()
+            .map(|error| error_report(error, hints)),
         source: Some(absolute(source)),
         props_file_auto: props_file.as_ref().map(|choice| choice.auto),
         props_file: props_file.map(|choice| choice.path),
@@ -173,16 +175,85 @@ fn build(
         ),
         warnings: Some(warnings),
         stats: Some(Stats {
-            elapsed_seconds: round(state.elapsed().as_secs_f64(), 1_000.0),
-            render_fps: state.metrics().0.map(|fps| round(fps, 10.0)),
+            elapsed_seconds: round(timing.elapsed().as_secs_f64(), 1_000.0),
+            render_fps: timing.render_fps().map(|fps| round(fps, 10.0)),
         }),
     };
     (report, result.is_ok())
 }
 
-/// Prints the report for arguments rejected before anything ran.
-pub fn usage_error(message: &str) {
-    print(&Report {
+/// How long an export took and how fast it rendered, measured the way the
+/// CLI's progress display measures it.
+struct Timing {
+    started: Instant,
+    rendering_started: Option<Instant>,
+    rendering_finished: Option<Instant>,
+    finished: Option<Instant>,
+    frame: u64,
+    total: u64,
+}
+
+impl Timing {
+    fn new() -> Self {
+        Self {
+            started: Instant::now(),
+            rendering_started: None,
+            rendering_finished: None,
+            finished: None,
+            frame: 0,
+            total: 0,
+        }
+    }
+
+    fn update(&mut self, event: &ExportProgress) {
+        match event {
+            ExportProgress::Rendering { frame, total } => {
+                self.rendering_started.get_or_insert_with(Instant::now);
+                self.frame = *frame;
+                self.total = *total;
+            }
+            ExportProgress::MixingAudio | ExportProgress::Muxing => self.end_rendering(),
+            _ => {}
+        }
+    }
+
+    fn end_rendering(&mut self) {
+        if self.rendering_started.is_some() {
+            self.rendering_finished.get_or_insert_with(Instant::now);
+        }
+    }
+
+    fn finish(&mut self, ok: bool) {
+        self.finished = Some(Instant::now());
+        if ok {
+            self.end_rendering();
+        }
+    }
+
+    fn elapsed(&self) -> Duration {
+        self.finished
+            .unwrap_or_else(Instant::now)
+            .duration_since(self.started)
+    }
+
+    /// Frames rendered per second, once any frame has finished.
+    fn render_fps(&self) -> Option<f64> {
+        let started = self.rendering_started?;
+        let end = self.rendering_finished.or(self.finished)?;
+        // Rendering events mark frame starts, including the last frame.
+        let done = if self.rendering_finished.is_some() {
+            self.total
+        } else {
+            self.frame.saturating_sub(1).min(self.total)
+        };
+        let seconds = end.duration_since(started).as_secs_f64();
+        (done > 0 && seconds > 0.0).then(|| done as f64 / seconds)
+    }
+}
+
+/// The report for arguments rejected before anything ran.
+pub fn usage(message: &str) -> Report {
+    Report {
         status: Status::Error,
         error: Some(ErrorReport {
             code: "usage",
@@ -197,14 +268,7 @@ pub fn usage_error(message: &str) {
         outputs: None,
         warnings: None,
         stats: None,
-    });
-}
-
-fn print(report: &Report) {
-    let mut stdout = io::stdout().lock();
-    // A closed stdout leaves nobody to report to.
-    let _ = serde_json::to_writer(&mut stdout, report);
-    let _ = writeln!(stdout);
+    }
 }
 
 fn output(file: ExportedFile, frame_rate: Option<Rational>) -> Output {
@@ -241,7 +305,8 @@ fn output(file: ExportedFile, frame_rate: Option<Rational>) -> Output {
     }
 }
 
-fn error_report(error: &ExportError) -> ErrorReport {
+fn error_report(error: &ExportError, hints: HintStyle) -> ErrorReport {
+    let cli = hints == HintStyle::Cli;
     let mut issues = Vec::new();
     let (code, hint) = match error {
         ExportError::Project(LoadError::Io(_)) => ("project_io", None),
@@ -280,12 +345,20 @@ fn error_report(error: &ExportError) -> ErrorReport {
         ExportError::Ffmpeg { .. } => ("ffmpeg", None),
         ExportError::OutputExists(_) => (
             "output_exists",
-            Some("pass --overwrite to replace it, or write to another path"),
+            Some(if cli {
+                "pass --overwrite to replace it, or write to another path"
+            } else {
+                "set overwrite to replace it, or write to another path"
+            }),
         ),
         ExportError::InvalidSelection(_) => ("invalid_selection", None),
         ExportError::UnsupportedOutput(_) => (
             "unsupported_output",
-            Some("write video to a .mp4 path, or select frames with --frame or --every for PNG"),
+            Some(if cli {
+                "write video to a .mp4 path, or select frames with --frame or --every for PNG"
+            } else {
+                "write video to a .mp4 path with export_video, or render PNG frames with render_frames"
+            }),
         ),
         ExportError::UnsupportedDimensions { .. } => (
             "unsupported_dimensions",
@@ -295,7 +368,11 @@ fn error_report(error: &ExportError) -> ErrorReport {
         ExportError::EmptyTimeline => ("empty_timeline", None),
         ExportError::EmptyRange => (
             "empty_range",
-            Some("choose --from/--to inside the composition (composition.duration seconds)"),
+            Some(if cli {
+                "choose --from/--to inside the composition (composition.duration seconds)"
+            } else {
+                "choose start/end inside the composition (composition.duration seconds)"
+            }),
         ),
         ExportError::Cancelled => ("cancelled", None),
         ExportError::TimelineTooLong => ("timeline_too_long", None),
@@ -339,7 +416,8 @@ mod tests {
     fn report(
         export: impl FnOnce(&mut dyn FnMut(ExportProgress)) -> Result<(), ExportError>,
     ) -> serde_json::Value {
-        serde_json::to_value(build(Path::new("/tmp/film.tsx"), None, export).0).unwrap()
+        serde_json::to_value(build(Path::new("/tmp/film.tsx"), None, HintStyle::Cli, export).0)
+            .unwrap()
     }
 
     #[test]
@@ -389,9 +467,16 @@ mod tests {
             path: PathBuf::from("/tmp/props.json"),
             auto: true,
         };
-        let value =
-            serde_json::to_value(build(Path::new("/tmp/film.tsx"), Some(choice), |_| Ok(())).0)
-                .unwrap();
+        let value = serde_json::to_value(
+            build(
+                Path::new("/tmp/film.tsx"),
+                Some(choice),
+                HintStyle::Cli,
+                |_| Ok(()),
+            )
+            .0,
+        )
+        .unwrap();
         assert_eq!(value["propsFile"], "/tmp/props.json");
         assert_eq!(value["propsFileAuto"], true);
 
@@ -477,5 +562,51 @@ mod tests {
         assert_eq!(value["outputs"][0]["frame"], 0);
         assert_eq!(value["warnings"], serde_json::json!(["font fallback"]));
         assert_eq!(value["composition"]["frames"], 90);
+    }
+
+    fn hint(hints: HintStyle, error: ExportError) -> (String, String) {
+        let value =
+            serde_json::to_value(build(Path::new("/tmp/film.tsx"), None, hints, |_| Err(error)).0)
+                .unwrap();
+        (
+            value["error"]["code"].as_str().unwrap().to_owned(),
+            value["error"]["hint"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+        )
+    }
+
+    #[test]
+    fn mcp_hints_name_tool_arguments() {
+        let errors = || {
+            [
+                ExportError::OutputExists(PathBuf::from("/tmp/a.mp4")),
+                ExportError::UnsupportedOutput(PathBuf::from("/tmp/a.gif")),
+                ExportError::EmptyRange,
+            ]
+        };
+        let mcp: Vec<_> = errors()
+            .into_iter()
+            .map(|e| hint(HintStyle::Mcp, e))
+            .collect();
+        let cli: Vec<_> = errors()
+            .into_iter()
+            .map(|e| hint(HintStyle::Cli, e))
+            .collect();
+        assert_eq!(
+            mcp.iter()
+                .map(|(_, hint)| hint.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "set overwrite to replace it, or write to another path",
+                "write video to a .mp4 path with export_video, or render PNG frames with render_frames",
+                "choose start/end inside the composition (composition.duration seconds)",
+            ]
+        );
+        for ((mcp_code, mcp_hint), (cli_code, _)) in mcp.iter().zip(&cli) {
+            assert_eq!(mcp_code, cli_code);
+            assert!(!mcp_hint.contains("--"), "{mcp_hint}");
+        }
     }
 }

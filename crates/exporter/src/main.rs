@@ -7,8 +7,8 @@ use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser, ValueEnum};
 
 mod inspect;
+mod json;
 mod progress;
-mod report;
 
 use celesta_composition::Time;
 use celesta_exporter::{
@@ -237,7 +237,7 @@ fn main() -> ExitCode {
     let cli = Cli::try_parse().unwrap_or_else(|error| {
         // Help and version requests are not failures.
         if error.use_stderr() && std::env::args_os().any(|arg| arg == "--json") {
-            report::usage_error(&error.to_string());
+            json::usage_error(&error.to_string());
             std::process::exit(error.exit_code());
         }
         error.exit()
@@ -266,7 +266,7 @@ fn main() -> ExitCode {
         .then(|| resolve_props_file(&cli.source, cli.props_file.as_deref()))
         .flatten();
     if cli.json {
-        return if report::run(&cli.source, props_file, export) {
+        return if json::run(&cli.source, props_file, export) {
             ExitCode::SUCCESS
         } else {
             ExitCode::FAILURE
@@ -334,7 +334,7 @@ fn props_label(choice: &PropsFileChoice) -> String {
 fn usage_error(json: bool, kind: ErrorKind, message: &str) -> ! {
     let error = Cli::command().error(kind, message);
     if json {
-        report::usage_error(message);
+        json::usage_error(message);
         std::process::exit(error.exit_code());
     }
     error.exit()

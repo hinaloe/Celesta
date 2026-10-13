@@ -9,6 +9,7 @@ mod range;
 mod react;
 mod react_entry;
 mod render;
+pub mod report;
 #[cfg(test)]
 mod tests;
 mod timecode;
