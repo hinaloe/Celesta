@@ -79,11 +79,15 @@ function step(filter: ColorFilter): Step {
  * Applies the built-in color `filters` in order to straight RGBA `pixels`
  * (`ImageData.data`) `width` pixels wide, as the GPU renderer's
  * `color_filter.wgsl` does: on the straight color, keeping alpha, each
- * clamping its result to 0–1. The content box a vignette follows is the box
- * of the pixels that are not transparent. Returns that box, or `null` when
- * every pixel is transparent.
+ * clamping its result to 0–1. A vignette follows `content` (left, top,
+ * right, bottom in pixels), the box of the layer's shapes; it defaults to
+ * the box of the pixels that are not transparent. Returns that pixel box,
+ * which holds every pixel changed, or `null` when every pixel is
+ * transparent.
  */
-export function applyColorFilters(pixels: Uint8ClampedArray, width: number, filters: readonly ColorFilter[]): [number, number, number, number] | null {
+export function applyColorFilters(
+  pixels: Uint8ClampedArray, width: number, filters: readonly ColorFilter[], content?: readonly [number, number, number, number],
+): [number, number, number, number] | null {
   const height = pixels.length / 4 / width;
   let left = width, top = height, right = 0, bottom = 0;
   for (let y = 0; y < height; y++) {
@@ -96,14 +100,17 @@ export function applyColorFilters(pixels: Uint8ClampedArray, width: number, filt
     }
   }
   if (right <= left) return null;
+  // Only keeps a box of no width or height from dividing by zero, as the GPU does.
+  const [boxLeft, boxTop, boxRight, boxBottom] = content ?? [left, top, right, bottom];
+  const boxWidth = Math.max(boxRight - boxLeft, 1e-4), boxHeight = Math.max(boxBottom - boxTop, 1e-4);
   const steps = filters.map(step);
   const rgb = [0, 0, 0];
   for (let y = top; y < bottom; y++) {
-    const v = (y + 0.5 - top) / (bottom - top);
+    const v = (y + 0.5 - boxTop) / boxHeight;
     for (let x = left; x < right; x++) {
       const at = (y * width + x) * 4;
       if (pixels[at + 3] === 0) continue;
-      const u = (x + 0.5 - left) / (right - left);
+      const u = (x + 0.5 - boxLeft) / boxWidth;
       for (let i = 0; i < 3; i++) rgb[i] = pixels[at + i] / 255;
       for (const apply of steps) {
         apply(rgb, u, v);

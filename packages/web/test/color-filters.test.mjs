@@ -63,3 +63,17 @@ test('a transparent layer has no content box and is left alone', () => {
   assert.equal(applyColorFilters(pixels, 4, [{ type: 'invert', amount: 1 }]), null);
   assert.ok(pixels.every((value) => value === 0));
 });
+
+test('a vignette follows the content box it is given, not the pixels', () => {
+  const vignette = [{ type: 'vignette', amount: 1, radius: 0.5, softness: 0 }];
+  // The rect's pixels are 8..56; its shapes' box reaches to 104, so the
+  // rect lies in the box's left half and its left edge is darkened.
+  const pixels = rect([255, 255, 255, 255]);
+  assert.deepEqual(applyColorFilters(pixels, 64, vignette, [8, 8, 104, 56]), [8, 8, 56, 56]);
+  assert.deepEqual(at(pixels, 9, 32), [0, 0, 0, 255]);
+  assert.deepEqual(at(pixels, 55, 32), [255, 255, 255, 255]);
+  // By the pixels alone, both edges would be darkened alike.
+  const alone = rect([255, 255, 255, 255]);
+  applyColorFilters(alone, 64, vignette);
+  assert.deepEqual(at(alone, 9, 32), at(alone, 54, 32));
+});

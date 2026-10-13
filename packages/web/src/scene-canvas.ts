@@ -7,6 +7,9 @@ import type { RunPiece } from './text-layout';
 type Canvas = HTMLCanvasElement;
 type Context = CanvasRenderingContext2D;
 type WebLayer = Layer;
+type TextContent = Extract<Layer['content'], { type: 'text' }>;
+/** Left, top, right, bottom, in scene pixels. */
+type Box = [number, number, number, number];
 
 const blend: Record<string, GlobalCompositeOperation> = {
   normal: 'source-over', multiply: 'multiply', screen: 'screen',
@@ -385,7 +388,11 @@ export class SceneCanvas {
       if (filters.length) {
         const { width, height } = source.canvas;
         const pixels = source.getImageData(0, 0, width, height);
-        const box = applyColorFilters(pixels.data, width, filters as ColorFilter[]);
+        // Only a vignette reads the content box.
+        const shape = filters.some(filter => filter.type === 'vignette')
+          ? await this.shapeBox(source, { ...layer, effects: undefined }, parent, 1)
+          : null;
+        const box = applyColorFilters(pixels.data, width, filters as ColorFilter[], shape ?? undefined);
         if (box) source.putImageData(pixels, 0, 0, box[0], box[1], box[2] - box[0], box[3] - box[1]);
       }
       const result = this.surface(ctx);
@@ -500,31 +507,7 @@ export class SceneCanvas {
       if (style.visibleCharacters != null && (!Number.isSafeInteger(style.visibleCharacters) || style.visibleCharacters < 0)) {
         throw new Error('Text visibleCharacters must be a non-negative integer');
       }
-      // Canvas language selection is available in newer browsers.
-      const size = style.fontSize ?? 32;
-      const lineHeight = style.lineHeight ?? size * 1.2;
-      textStyle(ctx, style);
-      ctx.textBaseline = 'alphabetic';
-      ctx.textAlign = 'left';
-      const lines = textLineRanges(ctx, content.text, content.maxWidth, style.lang,
-        fontRuns.length ? (text, start) => measureLine(ctx, style, text, start, fontRuns).width : undefined);
-      // Only the runs a line reaches; a line none reaches takes the direct path.
-      const lineRuns = lines.map(line => {
-        const end = line.start + Array.from(line.text).length;
-        return fontRuns.filter(run => run.end > line.start && run.start < end);
-      });
-      const measured = lines.map((line, i) => measureLine(ctx, style, line.text, line.start, lineRuns[i]));
-      const width = content.maxWidth ?? Math.max(0, ...measured.map(m => m.width));
-      const placed = measured.map((m, i) => ({
-        x: style.align === 'center' ? (width - m.width) / 2 : style.align === 'right' ? width - m.width : 0,
-        baseline: i * lineHeight + (lineHeight - m.fontBoundingBoxAscent - m.fontBoundingBoxDescent) / 2 + m.fontBoundingBoxAscent,
-      }));
-      // Lines wrapped at maxWidth count as several lines too.
-      const multiline = /[\r\n]/.test(content.text) || lines.length > 1;
-      const top = multiline ? 0 : Math.min(...placed.map((p, i) => p.baseline - measured[i].actualBoundingBoxAscent));
-      const bottom = multiline ? lines.length * lineHeight : Math.max(...placed.map((p, i) => p.baseline + measured[i].actualBoundingBoxDescent));
-      const height = bottom - top;
-      const y = content.baselineAnchor ? -(placed[0].baseline - top) : -t.anchor.y * height;
+      const { lines, lineRuns, measured, width, placed, top, y } = this.textLayout(ctx, content, t.anchor);
       ctx.setTransform(matrix.translate(-t.anchor.x * width, y));
       for (let i = 0; i < lines.length; i++) {
         const baseline = placed[i].baseline - top;
@@ -628,6 +611,118 @@ export class SceneCanvas {
     const surface = this.strokeCanvas;
     if (surface && surface.canvas.width === ctx.canvas.width && surface.canvas.height === ctx.canvas.height) return surface;
     return this.strokeCanvas = this.surface(ctx);
+  }
+
+  /**
+   * The box of `layer`'s shapes in scene pixels, as the GPU renderer's
+   * `PreparedLayer::shape` and a group's union of them give it: what
+   * `uv` and a vignette span. Clips and effects do not change it. `null`
+   * when the layer draws nothing.
+   */
+  private async shapeBox(ctx: Context, layer: WebLayer, parent: DOMMatrix, opacity: number): Promise<Box | null> {
+    const t = layer.transform;
+    const matrix = parent.translate(t.position.x, t.position.y).rotate(t.rotation).scale(t.scale.x, t.scale.y);
+    if (!(opacity * layer.opacity > 0)) return null;
+    const content = layer.content;
+    if (content.type === 'group') {
+      let union: Box | null = null;
+      for (const child of content.layers) {
+        const box = await this.shapeBox(ctx, child as WebLayer, matrix, opacity * layer.opacity);
+        if (box) union = union ? [Math.min(union[0], box[0]), Math.min(union[1], box[1]), Math.max(union[2], box[2]), Math.max(union[3], box[3])] : box;
+      }
+      return union;
+    }
+    // Corners of a box in the layer's own units, placed by `matrix`.
+    const place = (left: number, top: number, right: number, bottom: number, align = false): Box => {
+      // A texture drawn texel for texel lands on whole pixels on the GPU,
+      // rounded as Rust's `f64::round` does (halves away from zero).
+      if (align && matrix.a === 1 && matrix.b === 0 && matrix.c === 0 && matrix.d === 1) {
+        const round = (value: number) => Math.sign(value) * Math.round(Math.abs(value));
+        const x = round(matrix.e + left), y = round(matrix.f + top);
+        return [x, y, x + right - left, y + bottom - top];
+      }
+      const corners = [[left, top], [right, top], [left, bottom], [right, bottom]]
+        .map(([x, y]) => matrix.transformPoint(new DOMPoint(x, y)));
+      const xs = corners.map(point => point.x), ys = corners.map(point => point.y);
+      return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    };
+    if (content.type === 'rect') {
+      const x = -t.anchor.x * content.width, y = -t.anchor.y * content.height;
+      return place(x, y, x + content.width, y + content.height);
+    }
+    if (content.type === 'text') {
+      // The GPU draws the text's image: the layout box in whole pixels,
+      // grown by the stroke on every side. A single line keeps only its
+      // visible rows, stroke included, padded to an even count.
+      ctx.save();
+      const { width, height, y, multiline } = this.textLayout(ctx, content, t.anchor);
+      ctx.restore();
+      const pad = Math.round(content.style.stroke?.width ?? 0);
+      const rows = multiline ? Math.max(1, Math.ceil(height)) + 2 * pad : Math.ceil(height + 2 * pad);
+      const left = -t.anchor.x * width - pad, top = y - pad;
+      return place(left, top, left + Math.max(1, Math.ceil(width)) + 2 * pad, top + rows + rows % 2, true);
+    }
+    if (content.type === 'image' || content.type === 'video') {
+      const image = content.type === 'image' ? await this.image(content.asset) : await this.video(content.asset);
+      const width = image instanceof HTMLVideoElement ? image.videoWidth : image.naturalWidth;
+      const height = image instanceof HTMLVideoElement ? image.videoHeight : image.naturalHeight;
+      const w = content.type === 'image' ? content.width ?? (content.height === undefined ? width : content.height * width / height) : width;
+      const h = content.type === 'image' ? content.height ?? w * height / width : height;
+      const x = -t.anchor.x * w, y = -t.anchor.y * h;
+      return place(x, y, x + w, y + h, Number.isInteger(w) && Number.isInteger(h));
+    }
+    if (content.type === 'path') {
+      // The outline's whole pixels within the scene. Control points and the
+      // stroke's half width stand in for the outline's own bounds.
+      const points = content.commands.flatMap(command => command.type === 'close' ? []
+        : command.type === 'cubicTo' ? [[command.x1, command.y1], [command.x2, command.y2], [command.x, command.y]]
+        : command.type === 'quadTo' ? [[command.x1, command.y1], [command.x, command.y]]
+        : [[command.x, command.y]]);
+      if (!points.length || !(content.fill || content.stroke?.width)) return null;
+      const reach = content.stroke?.width ? content.stroke.width / 2 : 0;
+      const xs = points.map(([x]) => x), ys = points.map(([, y]) => y);
+      const [left, top, right, bottom] = place(Math.min(...xs) - reach, Math.min(...ys) - reach, Math.max(...xs) + reach, Math.max(...ys) + reach);
+      const box: Box = [Math.max(0, Math.floor(left)), Math.max(0, Math.floor(top)), Math.min(ctx.canvas.width, Math.ceil(right)), Math.min(ctx.canvas.height, Math.ceil(bottom))];
+      return box[2] > box[0] && box[3] > box[1] ? box : null;
+    }
+    return null;
+  }
+
+  /**
+   * Lays out a text layer as `layer` draws it: its lines, their font runs
+   * and measurements, the layout box's `width` and `height`, each line's
+   * place, the box's `top` in line coordinates, and the `y` its anchor
+   * moves it by. Sets `ctx`'s text state.
+   */
+  private textLayout(ctx: Context, content: TextContent, anchor: { x: number; y: number }) {
+    const style = content.style;
+    const fontRuns = style.fontRuns ?? [];
+    // Canvas language selection is available in newer browsers.
+    const size = style.fontSize ?? 32;
+    const lineHeight = style.lineHeight ?? size * 1.2;
+    textStyle(ctx, style);
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    const lines = textLineRanges(ctx, content.text, content.maxWidth, style.lang,
+      fontRuns.length ? (text, start) => measureLine(ctx, style, text, start, fontRuns).width : undefined);
+    // Only the runs a line reaches; a line none reaches takes the direct path.
+    const lineRuns = lines.map(line => {
+      const end = line.start + Array.from(line.text).length;
+      return fontRuns.filter(run => run.end > line.start && run.start < end);
+    });
+    const measured = lines.map((line, i) => measureLine(ctx, style, line.text, line.start, lineRuns[i]));
+    const width = content.maxWidth ?? Math.max(0, ...measured.map(m => m.width));
+    const placed = measured.map((m, i) => ({
+      x: style.align === 'center' ? (width - m.width) / 2 : style.align === 'right' ? width - m.width : 0,
+      baseline: i * lineHeight + (lineHeight - m.fontBoundingBoxAscent - m.fontBoundingBoxDescent) / 2 + m.fontBoundingBoxAscent,
+    }));
+    // Lines wrapped at maxWidth count as several lines too.
+    const multiline = /[\r\n]/.test(content.text) || lines.length > 1;
+    const top = multiline ? 0 : Math.min(...placed.map((p, i) => p.baseline - measured[i].actualBoundingBoxAscent));
+    const bottom = multiline ? lines.length * lineHeight : Math.max(...placed.map((p, i) => p.baseline + measured[i].actualBoundingBoxDescent));
+    const height = bottom - top;
+    const y = content.baselineAnchor ? -(placed[0].baseline - top) : -anchor.y * height;
+    return { lines, lineRuns, measured, width, placed, top, height, y, multiline };
   }
 
   private surface(ctx: Context): Context {

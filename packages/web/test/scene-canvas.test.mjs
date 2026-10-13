@@ -125,6 +125,61 @@ test('color filters change the layer\'s pixels before its other effects', async 
   renderer.dispose();
 });
 
+test('a vignette spans the layer\'s shapes as the GPU renderer places them', async t => {
+  const originals = { document: globalThis.document, DOMMatrix: globalThis.DOMMatrix, DOMPoint: globalThis.DOMPoint };
+  t.after(() => Object.assign(globalThis, originals));
+  // A 2D affine matrix, as DOMMatrix behaves for these calls.
+  globalThis.DOMMatrix = class Matrix {
+    constructor(a = 1, b = 0, c = 0, d = 1, e = 0, f = 0) { Object.assign(this, { a, b, c, d, e, f }); }
+    multiply(m) {
+      return new Matrix(this.a * m.a + this.c * m.b, this.b * m.a + this.d * m.b, this.a * m.c + this.c * m.d,
+        this.b * m.c + this.d * m.d, this.a * m.e + this.c * m.f + this.e, this.b * m.e + this.d * m.f + this.f);
+    }
+    translate(x, y) { return this.multiply(new Matrix(1, 0, 0, 1, x, y)); }
+    scale(x, y) { return this.multiply(new Matrix(x, 0, 0, y, 0, 0)); }
+    rotate(degrees) {
+      const r = degrees * Math.PI / 180;
+      return this.multiply(new Matrix(Math.cos(r), Math.sin(r), -Math.sin(r), Math.cos(r), 0, 0));
+    }
+    transformPoint(p) { return { x: this.a * p.x + this.c * p.y + this.e, y: this.b * p.x + this.d * p.y + this.f }; }
+  };
+  globalThis.DOMPoint = class { constructor(x, y) { this.x = x; this.y = y; } };
+  // Every character advances 10px; ink reaches 8 above the baseline and 2
+  // below, the font box 9 and 3.
+  const ctx = {
+    canvas: { width: 200, height: 200 }, font: '', letterSpacing: '', save() {}, restore() {},
+    measureText: text => ({
+      width: 10 * Array.from(text).length, actualBoundingBoxLeft: 0, actualBoundingBoxRight: 10 * Array.from(text).length,
+      actualBoundingBoxAscent: 8, actualBoundingBoxDescent: 2, fontBoundingBoxAscent: 9, fontBoundingBoxDescent: 3,
+    }),
+  };
+  const renderer = new SceneCanvas(new Map());
+  const at = (x, y, extra = {}) => ({ position: { x, y }, scale: { x: 1, y: 1 }, anchor: { x: 0, y: 0 }, rotation: 0, ...extra });
+  const text = (value, transform, style = {}) => ({ opacity: 1, transform, content: { type: 'text', text: value, style: { fontSize: 10, ...style } } });
+  const box = layer => renderer.shapeBox(ctx, layer, new DOMMatrix(), 1);
+
+  // One line: its visible rows (1 to 11 below the line's top), grown by the
+  // stroke, moved onto whole pixels.
+  assert.deepEqual(await box(text('ABC', at(10.4, 20.3), { stroke: { width: 2, paint: { type: 'solid', color: '#000' } } })), [8, 18, 42, 32]);
+  // Several lines: their line boxes, anchored at the centre.
+  assert.deepEqual(await box(text('A\nBC', at(50, 50, { anchor: { x: 0.5, y: 0.5 } }))), [40, 38, 60, 62]);
+  // A group: the union of its children's shapes; scaled text is not moved
+  // onto whole pixels, and a child drawn at opacity 0 has no shape.
+  const rect = { opacity: 1, transform: at(0, 0), content: { type: 'rect', width: 10, height: 10, cornerRadius: 0 } };
+  const hidden = { ...rect, opacity: 0, transform: at(-50, -50) };
+  const scaled = text('A', at(100.25, 0, { scale: { x: 2, y: 2 } }));
+  assert.deepEqual(await box({ opacity: 1, transform: at(0, 0), content: { type: 'group', layers: [rect, hidden, scaled] } }), [0, 0, 120.25, 20]);
+  // A path: its stroked extent in whole pixels, within the scene.
+  const path = {
+    opacity: 1, transform: at(0.5, 0.5),
+    content: { type: 'path', commands: [{ type: 'moveTo', x: 0, y: 0 }, { type: 'lineTo', x: 10, y: 5 }], stroke: { width: 2, paint: { type: 'solid', color: '#fff' } } },
+  };
+  assert.deepEqual(await box(path), [0, 0, 12, 7]);
+  // A rotated rect: the box around its corners.
+  const turned = await box({ ...rect, transform: at(0, 0, { rotation: 90 }) });
+  assert.deepEqual(turned.map(value => Math.round(value * 1e9) / 1e9), [-10, 0, 0, 10]);
+});
+
 test('text wrapped at maxWidth is anchored by its line boxes, as text broken with newlines', async t => {
   const originals = { document: globalThis.document, DOMMatrix: globalThis.DOMMatrix };
   t.after(() => Object.assign(globalThis, originals));

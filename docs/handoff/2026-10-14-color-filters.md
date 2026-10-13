@@ -34,17 +34,26 @@ and in `@celesta/web`.
   one pass in the chain (`ShaderProcessor::use_filters`, `UsePipeline`), so
   it pings and pongs between the same two canvases, with no padding. Where the
   canvases are `Rgba16Float` (`canvas_format`), a chain does not quantize
-  to 8 bits between filters; each clamps as its own pass would. Non-finite values and bad tint colors
-  fail the frame naming the filter (`invalid brightness color filter: …`).
+  to 8 bits between filters; each clamps as its own pass would.
+  Non-finite values and bad tint colors fail the frame naming the filter
+  (`invalid brightness color filter: …`).
 - `@celesta/web`: `color-filters.ts` repeats the arithmetic on
   `getImageData` pixels of the layer's surface, before `blur`, `shadow`,
-  and `glow`, and writes back only the box it changed. Its vignette box is
-  the box of the layer's non-transparent pixels, which matches the GPU's
-  shape box for opaque layers but not for text (glyph ink instead of the
-  laid-out quad) or images with transparent margins. Its test compares
-  against bytes the GPU renderer drew (within 1 for its dithering). The
-  worker now serves `@celesta/shader`; a frame that draws a custom shader
-  still throws in `SceneCanvas`.
+  and `glow`, and writes back only the box it changed. A vignette reads
+  the box of the layer's shapes, which `SceneCanvas.shapeBox` computes as
+  `PreparedLayer::shape` and the group plan do: a rect's corners; a text
+  layer's image (the layout box in whole pixels, a single line's visible
+  rows padded to an even count, grown by the stroke, moved onto whole
+  pixels when drawn unscaled); an image's or video's display box; a path's
+  whole pixels within the scene; a group's union. A path's box uses its
+  control points and the stroke's half width where the GPU uses the
+  stroked outline, and a text's font-run overflow rows are not counted.
+  With the same font (Bebas Neue loaded by `<Font>`), Chrome's boxes for a
+  stroked single line and a two-line text equalled the GPU's `uv` box to
+  the pixel. Its test compares the filters' arithmetic against bytes the
+  GPU renderer drew (within 1 for its dithering). The worker now serves
+  `@celesta/shader`; a frame that draws a custom shader still throws in
+  `SceneCanvas`.
 - CPU reference renderer: refuses every filter, as it refused shaders
   (`RenderError::UnsupportedShader`, message updated).
 - Not done: project timelines (`.celesta.json`) have no color filters;
