@@ -99,3 +99,29 @@ async fn init_project_creates_a_project() {
     assert!(is_error(&unknown));
     assert!(text(&unknown).contains("blank"), "{}", text(&unknown));
 }
+
+#[tokio::test]
+async fn optional_arguments_are_not_required() {
+    let (client, _) = client().await;
+    let tools = client.list_all_tools().await.unwrap();
+    let required = |name: &str| -> Vec<String> {
+        let tool = tools.iter().find(|tool| tool.name == name).unwrap();
+        tool.input_schema
+            .get("required")
+            .and_then(|required| required.as_array())
+            .map(|names| {
+                names
+                    .iter()
+                    .map(|n| n.as_str().unwrap().to_owned())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    assert!(
+        required("read_docs").is_empty(),
+        "{:?}",
+        required("read_docs")
+    );
+    assert_eq!(required("inspect"), ["entry"]);
+    assert_eq!(required("export_video"), ["source", "output"]);
+}

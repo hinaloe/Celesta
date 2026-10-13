@@ -81,6 +81,7 @@ pub fn success(text: String, value: Value) -> CallToolResult {
 #[derive(Deserialize, JsonSchema)]
 pub struct ReadDocsArgs {
     /// The topic to read; leave it out for the list of topics.
+    #[serde(default)]
     #[schemars(schema_with = "topic_schema")]
     topic: Option<String>,
 }
