@@ -397,6 +397,7 @@ pub(crate) fn open_video_writer(
         .pixel_format(match input {
             ReadbackFormat::Rgba8 => "rgba",
             ReadbackFormat::Rgba16 => "rgba64le",
+            ReadbackFormat::Rgba16Straight => "rgba64le",
             ReadbackFormat::Yuv420p => "yuv420p",
             ReadbackFormat::Yuv420p10 => "yuv420p10le",
         })
