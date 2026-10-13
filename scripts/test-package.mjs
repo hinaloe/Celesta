@@ -9,6 +9,7 @@ const mac = process.platform === 'darwin';
 const runtime = mac ? join(packageDirectory, 'Contents/Resources') : join(packageDirectory, 'runtime');
 const node = mac ? join(packageDirectory, 'Contents/Helpers/node') : join(runtime, 'node.exe');
 const exporter = join(packageDirectory, mac ? 'Contents/MacOS/Celesta-export' : 'Celesta-export.exe');
+const mcp = join(packageDirectory, mac ? 'Contents/MacOS/Celesta-mcp' : 'Celesta-mcp.exe');
 const directory = mkdtempSync(join(tmpdir(), 'Celesta package 日本語 '));
 const entry = join(directory, 'test.tsx');
 const env = { ...process.env, PATH: mac ? '/usr/bin:/bin' : join(process.env.SystemRoot, 'System32') };
@@ -105,7 +106,18 @@ export default function Root() {
   const codeOutput = join(directory, 'code.png');
   run(exporter, ['--react', entry, '--frame', '0', codeOutput]);
   assert.deepEqual([...readFileSync(codeOutput).subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
-  console.log('Package smoke test passed: bundled React hooks, Celesta packages, Code, VOICEVOX, AivisSpeech, TypeScript support, and export, without Node.js on PATH.');
+  const mcpReplies = run(mcp, [], [
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+      protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test-package', version: '0' } } },
+    { jsonrpc: '2.0', method: 'notifications/initialized' },
+    { jsonrpc: '2.0', id: 2, method: 'tools/list' },
+  ].map((message) => JSON.stringify(message)).join('\n') + '\n')
+    .trim().split(/\r?\n/).map((line) => JSON.parse(line));
+  const tools = mcpReplies.find((reply) => reply.id === 2).result.tools.map((tool) => tool.name).sort();
+  assert.deepEqual(tools, [
+    'contact_sheet', 'export_video', 'init_project', 'inspect', 'list_templates', 'read_docs', 'render_frames',
+  ]);
+  console.log('Package smoke test passed: bundled React hooks, Celesta packages, Code, VOICEVOX, AivisSpeech, TypeScript support, export, and the MCP server, without Node.js on PATH.');
 } finally {
   assert.ok(directory.startsWith(join(tmpdir(), 'Celesta package 日本語 ')));
   rmSync(directory, { recursive: true, force: true });

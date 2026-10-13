@@ -45,13 +45,13 @@ RUN npm install -g "$(node -p "require('./package.json').packageManager")"
 RUN pnpm install --frozen-lockfile \
   && pnpm --dir packages/react run codegen --locked \
   && pnpm run build:runtime
-RUN cargo build -p celesta-exporter --release --locked
+RUN cargo build -p celesta-exporter -p celesta-mcp --release --locked
 
 # Lay the exporter out like the Windows package: a `runtime` directory beside
 # the executable holds Node.js and the React runtime, so nothing depends on the
 # source tree at run time.
 RUN mkdir -p /out/runtime \
-  && cp target/release/celesta-exporter /out/ \
+  && cp target/release/celesta-exporter target/release/celesta-mcp /out/ \
   && cp /usr/local/bin/node /out/runtime/node \
   && node scripts/stage-react-runtime.mjs /out/runtime/react
 

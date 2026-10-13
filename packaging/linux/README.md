@@ -42,6 +42,19 @@ font files in the mounted folder and load them with `<Font>`.
 Without a terminal attached, the exporter prints text progress. Add `-t` to
 `docker run` for the interactive dashboard.
 
+## MCP server
+
+The image also contains `celesta-mcp`, the MCP server that lets coding agents
+inspect, render, and export compositions. Run it with stdin attached (`-i`) as
+the agent's MCP command:
+
+```sh
+docker run --rm -i --user "$(id -u):$(id -g)" -v "$PWD:/work" --entrypoint /opt/celesta/celesta-mcp celesta-exporter
+```
+
+Paths the agent passes are resolved inside the container, so use paths under
+`/work`.
+
 Software rendering is much slower than a GPU; see
 [Export without a GPU](../../README.md#export-without-a-gpu-on-linux).
 
