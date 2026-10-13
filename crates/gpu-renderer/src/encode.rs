@@ -3,6 +3,7 @@ use crate::effect::PASSES_PER_FILTER;
 use crate::error::GpuRenderError;
 use crate::pipeline::{PipelineKind, create_pipeline};
 use crate::plan::{GpuStep, PreparedDraws};
+use crate::quantize::QuantizeOutput;
 use crate::renderer::GpuRenderer;
 use crate::texture::{CanvasTexture, canvas_texture};
 use crate::types::{GpuRenderTarget, PreviewViewport};
@@ -55,9 +56,15 @@ impl GpuRenderer {
             )?;
             canvas
         };
-        self.quantizer.ensure_pipeline(&self.device, target.format);
         self.quantizer
-            .encode(encoder, &frame, target.view, target.format);
+            .ensure_pipeline(&self.device, target.format, QuantizeOutput::Premultiplied);
+        self.quantizer.encode(
+            encoder,
+            &frame,
+            target.view,
+            target.format,
+            QuantizeOutput::Premultiplied,
+        );
         Ok(())
     }
 

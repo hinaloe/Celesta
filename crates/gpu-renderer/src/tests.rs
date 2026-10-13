@@ -3268,6 +3268,104 @@ fn reads_frames_back_in_sixteen_bits() {
     }
 }
 
+/// A translucent red rectangle (`rotation` degrees about its center) on a
+/// transparent 64x64 frame.
+fn translucent_red_scene(rotation: f64) -> Scene {
+    let mut scene = empty_scene(64, 64);
+    let mut red = solid_rect("red", 32.0, 32.0, 32.0, "#ff0000");
+    red.transform = EvaluatedTransform {
+        position: Point { x: 32.0, y: 32.0 },
+        rotation,
+        ..EvaluatedTransform::default()
+    };
+    red.opacity = 0.5;
+    scene.layers = vec![red];
+    scene
+}
+
+#[test]
+fn reads_frames_back_with_straight_alpha() {
+    let Some(mut renderer) = renderer(GpuRenderOptions {
+        background: Color::TRANSPARENT,
+        ..GpuRenderOptions::default()
+    }) else {
+        return;
+    };
+    if !composites_in_half_floats(&renderer) {
+        return;
+    }
+    renderer
+        .set_readback_format(ReadbackFormat::Rgba16Straight)
+        .unwrap();
+    assert!(
+        renderer
+            .submit(&translucent_red_scene(0.0))
+            .unwrap()
+            .is_none()
+    );
+    let frame = renderer.drain().unwrap().remove(0);
+    assert_eq!(frame.format(), ReadbackFormat::Rgba16Straight);
+    assert_eq!(frame.pixels().len(), 64 * 64 * 8);
+    let samples = samples16(frame.pixels());
+    let pixel = |x: usize, y: usize| &samples[(y * 64 + x) * 4..][..4];
+    // Inside the rectangle: straight red, half alpha.
+    let inside = pixel(32, 32);
+    assert!(
+        inside[0].abs_diff(65535) <= 64 && inside[1] <= 64 && inside[2] <= 64,
+        "{inside:?}"
+    );
+    assert!(inside[3].abs_diff(32768) <= 64, "{inside:?}");
+    // Outside: nothing drawn.
+    assert_eq!(pixel(2, 2), [0, 0, 0, 0]);
+}
+
+#[test]
+fn straight_alpha_matches_premultiplied_divided_by_alpha() {
+    let Some(mut renderer) = renderer(GpuRenderOptions {
+        background: Color::TRANSPARENT,
+        ..GpuRenderOptions::default()
+    }) else {
+        return;
+    };
+    if !composites_in_half_floats(&renderer) {
+        return;
+    }
+    let scene = translucent_red_scene(20.0);
+    let mut read = |format| {
+        renderer.set_readback_format(format).unwrap();
+        assert!(renderer.submit(&scene).unwrap().is_none());
+        samples16(renderer.drain().unwrap().remove(0).pixels())
+    };
+    let premultiplied = read(ReadbackFormat::Rgba16);
+    let straight = read(ReadbackFormat::Rgba16Straight);
+    assert_eq!(premultiplied.len(), straight.len());
+    let mut checked = 0;
+    let mut partial = 0;
+    for (premultiplied, straight) in premultiplied.chunks_exact(4).zip(straight.chunks_exact(4)) {
+        let alpha = u32::from(premultiplied[3]);
+        if alpha < 4096 {
+            continue;
+        }
+        checked += 1;
+        partial += usize::from(alpha < 32768 - 64);
+        assert!(
+            straight[3].abs_diff(premultiplied[3]) <= 1,
+            "{premultiplied:?} {straight:?}"
+        );
+        // Half a code of premultiplied rounding, scaled up by the division.
+        let allowed = 65535 / alpha + 1;
+        for (premultiplied, straight) in premultiplied[..3].iter().zip(&straight[..3]) {
+            let expected = u32::from(*premultiplied) * 65535 / alpha;
+            assert!(
+                u32::from(*straight).abs_diff(expected) <= allowed,
+                "{premultiplied:?} {straight:?}"
+            );
+        }
+    }
+    assert!(checked > 1000, "{checked}");
+    assert!(partial > 10, "the rotated edge is antialiased: {partial}");
+}
+
 #[test]
 fn fits_a_widescreen_scene_inside_a_square_preview() {
     let viewport = PreviewViewport::fit(1920, 1080, 1000, 1000).unwrap();

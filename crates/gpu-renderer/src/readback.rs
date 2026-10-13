@@ -1,5 +1,6 @@
 use crate::BYTES_PER_PIXEL;
 use crate::error::GpuRenderError;
+use crate::quantize::QuantizeOutput;
 use crate::texture::{CanvasTexture, canvas_texture};
 use crate::types::{GpuFrame, ReadbackFormat};
 use crate::yuv::YuvConverter;
@@ -96,12 +97,15 @@ pub(crate) enum SlotReadback {
 }
 
 /// The texture one RGBA slot quantizes its frame into: `Rgba8Unorm`, or
-/// `Rgba16Uint` for [`ReadbackFormat::Rgba16`].
+/// `Rgba16Uint` for [`ReadbackFormat::Rgba16`] and
+/// [`ReadbackFormat::Rgba16Straight`].
 pub(crate) struct RgbaReadback {
     pub(crate) texture: wgpu::Texture,
     pub(crate) format: wgpu::TextureFormat,
     pub(crate) view: wgpu::TextureView,
     pub(crate) layout: ReadbackLayout,
+    /// Whether the color is premultiplied or divided by alpha.
+    pub(crate) output: QuantizeOutput,
 }
 
 /// The plane textures one yuv420p slot converts into, and where each lands
@@ -146,10 +150,18 @@ impl ReadbackSlot {
         let canvas = canvas_texture(device, texture_layout, canvas_format, width, height);
         let (readback, buffer_size) = match yuv_converter {
             None => {
-                let texture_format = if format == ReadbackFormat::Rgba16 {
-                    wgpu::TextureFormat::Rgba16Uint
-                } else {
-                    wgpu::TextureFormat::Rgba8Unorm
+                let (texture_format, output) = match format {
+                    ReadbackFormat::Rgba16 => (
+                        wgpu::TextureFormat::Rgba16Uint,
+                        QuantizeOutput::Premultiplied,
+                    ),
+                    ReadbackFormat::Rgba16Straight => {
+                        (wgpu::TextureFormat::Rgba16Uint, QuantizeOutput::Straight)
+                    }
+                    _ => (
+                        wgpu::TextureFormat::Rgba8Unorm,
+                        QuantizeOutput::Premultiplied,
+                    ),
                 };
                 let bytes_per_pixel = texture_format
                     .block_copy_size(None)
@@ -163,6 +175,7 @@ impl ReadbackSlot {
                     format: texture_format,
                     view,
                     layout,
+                    output,
                 };
                 (SlotReadback::Rgba(Box::new(rgba)), size)
             }

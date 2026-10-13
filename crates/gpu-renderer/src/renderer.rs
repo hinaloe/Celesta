@@ -7,7 +7,7 @@ use crate::mask::MaskPipelines;
 use crate::native_preview;
 use crate::path::PendingPath;
 use crate::pipeline::{PipelineKind, create_pipeline};
-use crate::quantize::Quantizer;
+use crate::quantize::{QuantizeOutput, Quantizer};
 use crate::readback::{ReadbackLayout, ReadbackSlot, ReadbackWorker, SlotReadback, rgba_texture};
 use crate::shader::ShaderProcessor;
 use crate::text::PendingText;
@@ -411,9 +411,14 @@ impl GpuRenderer {
             let converter = YuvConverter::new(&self.device, format == ReadbackFormat::Yuv420p10);
             self.yuv_converters.insert(format, converter);
         }
-        if format == ReadbackFormat::Rgba16 {
+        let output = match format {
+            ReadbackFormat::Rgba16 => Some(QuantizeOutput::Premultiplied),
+            ReadbackFormat::Rgba16Straight => Some(QuantizeOutput::Straight),
+            _ => None,
+        };
+        if let Some(output) = output {
             self.quantizer
-                .ensure_pipeline(&self.device, wgpu::TextureFormat::Rgba16Uint);
+                .ensure_pipeline(&self.device, wgpu::TextureFormat::Rgba16Uint, output);
         }
         self.readback_format = format;
         Ok(())
@@ -692,7 +697,7 @@ impl GpuRenderer {
         match &slot.readback {
             SlotReadback::Rgba(rgba) => {
                 self.quantizer
-                    .encode(&mut encoder, &frame, &rgba.view, rgba.format);
+                    .encode(&mut encoder, &frame, &rgba.view, rgba.format, rgba.output);
                 encoder.copy_texture_to_buffer(
                     rgba.texture.as_image_copy(),
                     wgpu::TexelCopyBufferInfo {
