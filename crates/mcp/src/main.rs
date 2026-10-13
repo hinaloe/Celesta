@@ -3,6 +3,7 @@
 
 mod docs;
 mod server;
+mod summary;
 
 use std::process::ExitCode;
 
