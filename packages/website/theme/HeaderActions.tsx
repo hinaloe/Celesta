@@ -18,7 +18,7 @@ async function hrefIn(page: GeneratedPage | GeneratedStaticPage, target: LocaleD
 }
 
 /**
- * The header actions of every page shell: Makit's search, the Tungsten `EN / JA` switch, and
+ * The header actions of every page shell: Makit's search, the Noir `EN / JA` switch, and
  * Makit's theme toggle (Makit's own `HeaderActions` and `LocaleLinks` are not exported).
  */
 export async function HeaderActions({ page, site, i18n, components: C }: { page: GeneratedPage | GeneratedStaticPage; site: SiteData; i18n: I18nData; components: ThemeComponents }) {

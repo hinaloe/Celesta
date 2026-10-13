@@ -19,12 +19,12 @@ export function SidebarDrawer({ label, title, children }: SidebarDrawerProps) {
   const id = useId();
   const { open, toggle, button, panel, closeOnLink } = useDisclosure();
   return <>
-    <button ref={button} type="button" className="tg-drawer-button" aria-expanded={open} aria-controls={id} onClick={toggle}>
-      <span className="tg-drawer-label tg-mono">{label}</span>
-      <span className="tg-drawer-title">{title}</span>
-      <span className="tg-drawer-icon" aria-hidden="true" />
+    <button ref={button} type="button" className="nr-drawer-button" aria-expanded={open} aria-controls={id} onClick={toggle}>
+      <span className="nr-drawer-label nr-mono">{label}</span>
+      <span className="nr-drawer-title">{title}</span>
+      <span className="nr-drawer-icon" aria-hidden="true" />
     </button>
-    <div ref={panel} id={id} className="tg-drawer-panel" data-open={open ? '' : undefined} onClick={closeOnLink}>
+    <div ref={panel} id={id} className="nr-drawer-panel" data-open={open ? '' : undefined} onClick={closeOnLink}>
       {children}
     </div>
   </>;

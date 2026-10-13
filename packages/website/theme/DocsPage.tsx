@@ -12,7 +12,7 @@ function Trail({ page, docsRoot, locale }: { page: GeneratedPage; docsRoot: stri
   const label = (title: string, href?: string) => (href === docsRoot ? common.navigation.docs : title);
   const items = page.hierarchy.filter((node) => node.title || node.href).map((node) => ({ title: label(node.title, node.href), href: node.href }));
   if (items.at(-1)?.href !== page.route) items.push({ title: label(page.title, page.route), href: page.route });
-  return <nav className="tg-trail tg-mono" aria-label={theme.docs.breadcrumb}>
+  return <nav className="nr-trail nr-mono" aria-label={theme.docs.breadcrumb}>
     <ol>
       {items.map((item, index) => <li key={index}>
         {index === items.length - 1
@@ -26,10 +26,10 @@ function Trail({ page, docsRoot, locale }: { page: GeneratedPage; docsRoot: stri
 /** "Try it without installing" — sends readers to the playground on the home page. */
 function PlaygroundCta({ locale }: { locale: Locale }) {
   const { docsCta } = copy(locale);
-  return <section className="tg-docs-cta" aria-labelledby="tg-docs-cta">
-    <h2 id="tg-docs-cta">{docsCta.tryItWithoutInstalling((children?: ReactNode) => <em>{children}</em>)}</h2>
+  return <section className="nr-docs-cta" aria-labelledby="nr-docs-cta">
+    <h2 id="nr-docs-cta">{docsCta.tryItWithoutInstalling((children?: ReactNode) => <em>{children}</em>)}</h2>
     <p>{docsCta.thePlaygroundRunsCelestaInYourBrowser}</p>
-    <RouteLink className="tg-button" href={`/${locale}/#playground`}>{docsCta.openThePlayground((children?: ReactNode) => <span aria-hidden="true">{children}</span>)}</RouteLink>
+    <RouteLink className="nr-button" href={`/${locale}/#playground`}>{docsCta.openThePlayground((children?: ReactNode) => <span aria-hidden="true">{children}</span>)}</RouteLink>
   </section>;
 }
 
@@ -47,11 +47,11 @@ export async function DocsPage({ page, site, i18n, navigation, components: C }: 
   const toc = page.tableOfContents && page.headings.some((heading) => heading.id && heading.depth >= minDepth && heading.depth <= maxDepth);
 
   return <LocaleProvider locale={locale} docs={copy(locale).theme.docs}>
-    <div className="tg-page">
+    <div className="nr-page">
       <C.Header header={site.header} siteTitle={site.title} homeHref={homeHref} actions={<HeaderActions page={page} site={site} i18n={i18n} components={C} />} />
-      <div className="tg-shell tg-docs" data-sidebar={sidebar ? '' : undefined} data-toc={toc ? '' : undefined}>
+      <div className="nr-shell nr-docs" data-sidebar={sidebar ? '' : undefined} data-toc={toc ? '' : undefined}>
         {sidebar && <C.Sidebar navigation={navigation} currentRoute={page.route} components={C} />}
-        <main id="main" className="tg-docs-main" tabIndex={-1}>
+        <main id="main" className="nr-docs-main" tabIndex={-1}>
           <C.FallbackNotice page={page} i18n={i18n} />
           <Trail page={page} docsRoot={`${site.basePath}/${page.locale}/docs/`} locale={locale} />
           <article data-pagefind-body>
@@ -61,7 +61,7 @@ export async function DocsPage({ page, site, i18n, navigation, components: C }: 
           <C.PrevNextLinks prev={page.navigationPosition?.prev} next={page.navigationPosition?.next} />
           <PlaygroundCta locale={locale} />
         </main>
-        {toc && <div className="tg-docs-toc">
+        {toc && <div className="nr-docs-toc">
           <C.TableOfContents
             headings={page.headings}
             minDepth={minDepth}

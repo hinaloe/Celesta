@@ -32,7 +32,7 @@ function Family({ items, currentRoute }: { items: readonly ResolvedNavNode[]; cu
   const [first, ...rest] = items;
   return <>
     {first && <Entry node={first} currentRoute={currentRoute} />}
-    {rest.length > 0 && <li><ul className="tg-sidebar-children">{rest.map((node, index) => <Entry key={index} node={node} currentRoute={currentRoute} />)}</ul></li>}
+    {rest.length > 0 && <li><ul className="nr-sidebar-children">{rest.map((node, index) => <Entry key={index} node={node} currentRoute={currentRoute} />)}</ul></li>}
   </>;
 }
 
@@ -41,7 +41,7 @@ function Entry({ node, currentRoute }: { node: ResolvedNavNode; currentRoute: st
   if (node.href) {
     return <>
       <li><Item node={{ title: node.title ?? '', href: node.href }} currentRoute={currentRoute} /></li>
-      <li><ul className="tg-sidebar-children">{node.items.map((child, index) => <Entry key={index} node={child} currentRoute={currentRoute} />)}</ul></li>
+      <li><ul className="nr-sidebar-children">{node.items.map((child, index) => <Entry key={index} node={child} currentRoute={currentRoute} />)}</ul></li>
     </>;
   }
   return <Family items={node.items} currentRoute={currentRoute} />;
@@ -56,7 +56,7 @@ function Groups({ nodes, currentRoute }: { nodes: readonly ResolvedNavNode[]; cu
   const blocks: ReactNode[] = [];
   let loose: ResolvedNavNode[] = [];
   const flush = () => {
-    if (loose.length > 0) blocks.push(<ul key={blocks.length} className="tg-sidebar-list">{loose.map((node, index) => <Entry key={index} node={node} currentRoute={currentRoute} />)}</ul>);
+    if (loose.length > 0) blocks.push(<ul key={blocks.length} className="nr-sidebar-list">{loose.map((node, index) => <Entry key={index} node={node} currentRoute={currentRoute} />)}</ul>);
     loose = [];
   };
   for (const node of nodes) {
@@ -67,9 +67,9 @@ function Groups({ nodes, currentRoute }: { nodes: readonly ResolvedNavNode[]; cu
     flush();
     blocks.push(node.type === 'section'
       ? <Groups key={blocks.length} nodes={node.items} currentRoute={currentRoute} />
-      : <div key={blocks.length} className="tg-sidebar-group">
-        {node.title && <p id={`tg-nav-${node.id ?? blocks.length}`} className="tg-sidebar-caption tg-mono">{node.href ? <Item node={{ title: node.title, href: node.href }} currentRoute={currentRoute} /> : node.title}</p>}
-        <ul className="tg-sidebar-list" aria-labelledby={node.title ? `tg-nav-${node.id ?? blocks.length}` : undefined}>{node.items.map((child, index) => <Entry key={index} node={child} currentRoute={currentRoute} />)}</ul>
+      : <div key={blocks.length} className="nr-sidebar-group">
+        {node.title && <p id={`nr-nav-${node.id ?? blocks.length}`} className="nr-sidebar-caption nr-mono">{node.href ? <Item node={{ title: node.title, href: node.href }} currentRoute={currentRoute} /> : node.title}</p>}
+        <ul className="nr-sidebar-list" aria-labelledby={node.title ? `nr-nav-${node.id ?? blocks.length}` : undefined}>{node.items.map((child, index) => <Entry key={index} node={child} currentRoute={currentRoute} />)}</ul>
       </div>);
   }
   flush();
@@ -80,9 +80,9 @@ function Groups({ nodes, currentRoute }: { nodes: readonly ResolvedNavNode[]; cu
 export function Sidebar({ navigation, currentRoute }: SidebarProps) {
   if (navigation.length === 0) return null;
   const { docs } = copy(localeOf(currentRoute)).theme;
-  return <aside className="tg-sidebar">
+  return <aside className="nr-sidebar">
     <SidebarDrawer label={docs.chapters} title={titleOf(navigation, currentRoute) ?? docs.navigation}>
-      <nav className="tg-sidebar-nav" aria-label={docs.navigation}>
+      <nav className="nr-sidebar-nav" aria-label={docs.navigation}>
         <Groups nodes={navigation} currentRoute={currentRoute} />
       </nav>
     </SidebarDrawer>

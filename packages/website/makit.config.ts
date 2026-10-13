@@ -22,7 +22,7 @@ export default defineConfig({
   header: {
     links: [{ label: 'GitHub', href: repository, external: true }],
   },
-  theme: { extends: './theme', colorScheme: 'system', accentColor: '#ffb020', radius: 'small' },
+  theme: { extends: './theme', colorScheme: 'system', accentColor: '#3d7bff', radius: 'small' },
   navigation: {
     auto: { numericPrefixes: true },
     pagination: { enabled: true, crossSection: true },
@@ -30,7 +30,7 @@ export default defineConfig({
   markdown: {
     code: { copyButton: true },
     remarkPlugins: [[remarkInclude, { root: fileURLToPath(new URL('.', import.meta.url)) }], remarkDownloadLinks],
-    // Every token color reaches 4.5:1 on the Tungsten code panel (one light override in theme/docs.css).
+    // Every token color reaches 4.5:1 on the Noir code panels (one light override in theme/docs.css).
     shiki: { themes: { light: 'github-light-high-contrast', dark: 'github-dark-high-contrast' } },
   },
   llms: { enabled: true },

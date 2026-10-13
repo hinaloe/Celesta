@@ -1,168 +1,172 @@
 /*
- * Tungsten documentation: the docs grid, the sidebar and its drawer, the trail, the chapter
- * header, Markdown prose, and Makit's default parts (table of contents, pager, search dialog).
- * Loaded after `tungsten.css`; uses its `--tg-*` tokens.
+ * Noir documentation: the docs grid, the sidebar and its drawer, the trail, the chapter header,
+ * Markdown prose, and Makit's default parts (table of contents, pager, search dialog).
+ * Loaded after `noir.css`; uses its `--nr-*` tokens.
  */
 
 /* Layout: sidebar · article · contents from 1100 px, sidebar · article from 860 px */
 
-.tg-docs {
+.nr-docs {
   flex: 1;
 }
 
-.tg-docs-main {
+.nr-docs-main {
   min-width: 0;
-  padding: 32px 0 72px;
+  padding: 28px 0 72px;
 }
 
-.tg-docs-main:focus {
+.nr-docs-main:focus {
   outline: none;
 }
 
-.tg-docs-main > article {
+.nr-docs-main > article {
   max-width: 760px;
 }
 
-.tg-docs-toc {
+.nr-docs-toc {
   display: none;
 }
 
 @media (min-width: 860px) {
-  .tg-docs {
+  .nr-docs {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     column-gap: 48px;
   }
 
-  .tg-docs[data-sidebar] {
-    grid-template-columns: 216px minmax(0, 1fr);
+  .nr-docs[data-sidebar] {
+    grid-template-columns: 220px minmax(0, 1fr);
   }
 
-  .tg-docs-main {
-    padding: 48px 0 96px;
+  .nr-docs-main {
+    padding: 44px 0 96px;
   }
 }
 
 @media (min-width: 1100px) {
-  .tg-docs[data-toc] {
+  .nr-docs[data-toc] {
     grid-template-columns: minmax(0, 1fr) 200px;
   }
 
-  .tg-docs[data-sidebar][data-toc] {
-    grid-template-columns: 216px minmax(0, 1fr) 200px;
+  .nr-docs[data-sidebar][data-toc] {
+    grid-template-columns: 220px minmax(0, 1fr) 200px;
   }
 
-  .tg-docs-toc {
+  .nr-docs-toc {
     display: block;
+    border-left: 1px solid var(--nr-line);
   }
 }
 
-/* Sidebar */
+/* Sidebar: mono captions, the active page as a blue rule on a faint blue wash */
 
-.tg-sidebar-nav {
+.nr-sidebar-nav {
   font-size: 14px;
   line-height: 1.45;
 }
 
-.tg-sidebar-nav ul {
+.nr-sidebar-nav ul {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.tg-sidebar-group,
-.tg-sidebar-list + .tg-sidebar-group,
-.tg-sidebar-group + .tg-sidebar-list {
-  margin-top: 28px;
+.nr-sidebar-group,
+.nr-sidebar-list + .nr-sidebar-group,
+.nr-sidebar-group + .nr-sidebar-list {
+  margin-top: 26px;
 }
 
-.tg-sidebar-nav > :first-child {
+.nr-sidebar-nav > :first-child {
   margin-top: 0;
 }
 
-.tg-sidebar-caption {
-  margin: 0 0 8px;
-  padding-left: 14px;
-  color: var(--tg-muted);
-  font-size: 11px;
+.nr-sidebar-caption {
+  margin: 0 0 6px;
+  padding-left: 12px;
+  color: var(--nr-muted);
+  font-size: 10.5px;
   font-weight: 500;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.2em;
   line-height: 1.4;
   text-transform: uppercase;
 }
 
-.tg-sidebar-caption a {
+.nr-sidebar-caption a {
   padding: 0;
   border: 0;
+  background: none;
   font-size: inherit;
 }
 
-.tg-sidebar-nav a {
+.nr-sidebar-nav a {
   display: block;
-  padding: 5px 12px;
+  padding: 5px 10px;
   border-left: 2px solid transparent;
-  color: var(--tg-muted);
+  border-radius: 0 6px 6px 0;
+  color: var(--nr-muted);
   text-decoration: none;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
-.tg-sidebar-nav a:hover {
-  color: var(--tg-fg);
+.nr-sidebar-nav a:hover {
+  color: var(--nr-fg);
 }
 
-.tg-sidebar-nav a[aria-current="page"] {
-  border-left-color: var(--tg-accent-text);
-  color: var(--tg-fg);
+.nr-sidebar-nav a[aria-current="page"] {
+  border-left-color: var(--nr-accent);
+  background: var(--nr-tint);
+  color: var(--nr-fg);
   font-weight: 600;
 }
 
 /* A package's sub-pages, hung from a hairline under the package page. */
-.tg-sidebar-nav .tg-sidebar-children {
-  margin: 2px 0 4px 14px;
-  border-left: 1px solid var(--tg-line);
+.nr-sidebar-nav .nr-sidebar-children {
+  margin: 2px 0 4px 12px;
+  border-left: 1px solid var(--nr-line);
 }
 
-.tg-sidebar-children a {
+.nr-sidebar-children a {
   margin-left: -1px;
   font-size: 13.5px;
 }
 
 @media (min-width: 860px) {
-  .tg-sidebar {
+  .nr-sidebar {
     position: sticky;
-    top: var(--tg-header-height);
+    top: var(--nr-header-height);
     align-self: start;
-    height: calc(100vh - var(--tg-header-height));
-    height: calc(100dvh - var(--tg-header-height));
+    height: calc(100vh - var(--nr-header-height));
+    height: calc(100dvh - var(--nr-header-height));
     overflow-y: auto;
-    padding: 40px 16px 48px 0;
-    border-right: 1px solid var(--tg-line);
+    padding: 36px 16px 48px 0;
+    border-right: 1px solid var(--nr-line);
     overscroll-behavior: contain;
   }
 
-  .tg-drawer-button {
+  .nr-drawer-button {
     display: none;
   }
 }
 
 /* Below 860 px: a sticky bar naming the current page, with the navigation as its drawer. */
 @media (max-width: 859px) {
-  html:has(.tg-sidebar) {
-    scroll-padding-top: calc(var(--tg-header-height) + 44px + 16px);
+  html:has(.nr-sidebar) {
+    scroll-padding-top: calc(var(--nr-header-height) + 44px + 16px);
   }
 
-  .tg-sidebar {
+  .nr-sidebar {
     position: sticky;
-    top: var(--tg-header-height);
+    top: var(--nr-header-height);
     z-index: 30;
     margin-inline: -16px;
-    border-bottom: 1px solid var(--tg-line);
-    background: color-mix(in srgb, var(--tg-bg) 92%, transparent);
-    -webkit-backdrop-filter: blur(14px) saturate(1.2);
-    backdrop-filter: blur(14px) saturate(1.2);
+    border-bottom: 1px solid var(--nr-line);
+    background: color-mix(in srgb, var(--nr-bg) 88%, transparent);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    backdrop-filter: blur(16px) saturate(1.4);
   }
 
-  .tg-drawer-button {
+  .nr-drawer-button {
     display: flex;
     width: 100%;
     min-height: 44px;
@@ -171,26 +175,26 @@
     padding: 0 16px;
     border: 0;
     background: transparent;
-    color: var(--tg-fg);
+    color: var(--nr-fg);
     font: inherit;
     font-size: 14px;
     text-align: left;
     cursor: pointer;
   }
 
-  .tg-drawer-button:focus-visible {
+  .nr-drawer-button:focus-visible {
     outline-offset: -2px;
   }
 
-  .tg-drawer-label {
+  .nr-drawer-label {
     flex-shrink: 0;
-    color: var(--tg-muted);
-    font-size: 11px;
-    letter-spacing: 0.14em;
+    color: var(--nr-accent-text);
+    font-size: 10.5px;
+    letter-spacing: 0.2em;
     text-transform: uppercase;
   }
 
-  .tg-drawer-title {
+  .nr-drawer-title {
     flex: 1;
     min-width: 0;
     overflow: hidden;
@@ -200,7 +204,7 @@
   }
 
   /* A chevron that turns up when the drawer is open. */
-  .tg-drawer-icon {
+  .nr-drawer-icon {
     width: 7px;
     height: 7px;
     flex-shrink: 0;
@@ -211,104 +215,110 @@
     transition: rotate 0.15s ease, margin 0.15s ease;
   }
 
-  .tg-drawer-button[aria-expanded="true"] .tg-drawer-icon {
+  .nr-drawer-button[aria-expanded="true"] .nr-drawer-icon {
     margin-top: 4px;
     rotate: -135deg;
   }
 
-  .tg-drawer-panel {
+  .nr-drawer-panel {
     position: absolute;
     top: 100%;
     right: 0;
     left: 0;
     display: none;
-    max-height: calc(100vh - var(--tg-header-height) - 45px);
-    max-height: calc(100dvh - var(--tg-header-height) - 45px);
+    max-height: calc(100vh - var(--nr-header-height) - 45px);
+    max-height: calc(100dvh - var(--nr-header-height) - 45px);
     overflow-y: auto;
     padding: 16px 16px 28px;
-    border-bottom: 1px solid var(--tg-line);
-    background: var(--tg-bg);
-    box-shadow: 0 16px 32px -24px rgb(0 0 0 / 0.5);
+    border-bottom: 1px solid var(--nr-line);
+    background: var(--nr-bg);
+    box-shadow: 0 24px 32px -24px rgb(0 0 0 / 0.4);
     overscroll-behavior: contain;
   }
 
-  .tg-drawer-panel[data-open] {
+  .nr-drawer-panel[data-open] {
     display: block;
-    animation: tg-drop 0.16s ease-out;
+    animation: nr-drop 0.16s ease-out;
   }
 
-  .tg-drawer-panel .tg-sidebar-nav a {
+  .nr-drawer-panel .nr-sidebar-nav a {
     padding-block: 9px;
     font-size: 15px;
   }
 }
 
 @media (min-width: 640px) and (max-width: 859px) {
-  .tg-sidebar {
+  .nr-sidebar {
     margin-inline: -24px;
   }
 
-  .tg-drawer-button,
-  .tg-drawer-panel {
+  .nr-drawer-button,
+  .nr-drawer-panel {
     padding-inline: 24px;
   }
 }
 
 /* Trail: DOCS / GROUP / PAGE */
 
-.tg-trail ol {
+.nr-trail ol {
   display: flex;
   flex-wrap: wrap;
-  margin: 0 0 20px;
+  margin: 0 0 18px;
   padding: 0;
-  color: var(--tg-muted);
-  font-size: 11.5px;
-  letter-spacing: 0.12em;
+  color: var(--nr-muted);
+  font-size: 11px;
+  letter-spacing: 0.2em;
   line-height: 1.6;
   list-style: none;
   text-transform: uppercase;
 }
 
-.tg-trail li + li::before {
-  margin: 0 10px;
-  color: var(--tg-line-strong);
+.nr-trail li + li::before {
+  margin: 0 0.7em;
+  color: var(--nr-line-strong);
   content: "/" / "";
 }
 
-.tg-trail a {
+.nr-trail a {
   color: inherit;
   text-decoration: none;
   transition: color 0.15s ease;
 }
 
-.tg-trail a:hover {
-  color: var(--tg-fg);
+.nr-trail a:hover {
+  color: var(--nr-fg);
 }
 
-.tg-trail [aria-current] {
-  color: var(--tg-accent-text);
+.nr-trail [aria-current] {
+  color: var(--nr-accent-text);
 }
 
 /* Chapter header */
 
-.tg-page-header {
+.nr-page-header {
   margin-bottom: 36px;
   padding-bottom: 28px;
-  border-bottom: 1px solid var(--tg-line);
+  border-bottom: 1px solid var(--nr-line);
 }
 
-.tg-page-header h1 {
+.nr-page-header h1 {
   margin: 0;
-  font-size: clamp(30px, 4.2vw, 40px);
-  font-weight: 650;
-  letter-spacing: -0.022em;
-  line-height: 1.15;
+  color: var(--nr-fg);
+  font-size: clamp(34px, 4.6vw, 50px);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 1;
 }
 
-.tg-page-header p {
+:lang(ja) .nr-page-header h1 {
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.nr-page-header p {
   max-width: 60ch;
-  margin: 12px 0 0;
-  color: var(--tg-muted);
+  margin: 14px 0 0;
+  color: var(--nr-soft);
   font-size: 17px;
   line-height: 1.6;
 }
@@ -316,43 +326,51 @@
 /* Prose */
 
 .makit-prose {
-  --tw-prose-body: color-mix(in srgb, var(--tg-fg) 88%, var(--tg-bg));
-  --tw-prose-headings: var(--tg-fg);
-  --tw-prose-links: var(--tg-accent-text);
-  --tw-prose-bold: var(--tg-fg);
-  --tw-prose-counters: var(--tg-muted);
-  --tw-prose-bullets: var(--tg-muted);
-  --tw-prose-hr: var(--tg-line);
-  --tw-prose-quotes: var(--tg-fg);
-  --tw-prose-quote-borders: var(--tg-line-strong);
-  --tw-prose-code: var(--tg-fg);
-  --tw-prose-th-borders: var(--tg-line-strong);
-  --tw-prose-td-borders: var(--tg-line);
+  --tw-prose-body: var(--nr-soft);
+  --tw-prose-headings: var(--nr-fg);
+  --tw-prose-links: var(--nr-accent-text);
+  --tw-prose-bold: var(--nr-fg);
+  --tw-prose-counters: var(--nr-muted);
+  --tw-prose-bullets: var(--nr-muted);
+  --tw-prose-hr: var(--nr-line);
+  --tw-prose-quotes: var(--nr-fg);
+  --tw-prose-quote-borders: var(--nr-line-strong);
+  --tw-prose-code: var(--nr-fg);
+  --tw-prose-th-borders: var(--nr-line-strong);
+  --tw-prose-td-borders: var(--nr-line);
   font-size: 16px;
   line-height: 1.75;
 }
 
 .makit-prose :is(h2, h3, h4) {
-  color: var(--tg-fg);
-  font-weight: 650;
-  letter-spacing: -0.015em;
+  color: var(--nr-fg);
+  font-weight: 800;
+  letter-spacing: -0.03em;
 }
 
 .makit-prose h2 {
   margin: 2.4em 0 0.7em;
-  font-size: 24px;
-  line-height: 1.3;
+  font-size: 26px;
+  line-height: 1.2;
 }
 
 .makit-prose h3 {
   margin: 2em 0 0.6em;
-  font-size: 18px;
-  line-height: 1.4;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
 }
 
 .makit-prose h4 {
   margin: 1.8em 0 0.5em;
   font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+:lang(ja) .makit-prose :is(h2, h3, h4) {
+  letter-spacing: -0.01em;
 }
 
 .makit-prose > :first-child {
@@ -360,27 +378,27 @@
 }
 
 .makit-prose a {
-  color: var(--tg-accent-text);
+  color: var(--nr-accent-text);
   font-weight: 500;
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--tg-accent-text) 40%, transparent);
+  text-decoration-color: color-mix(in srgb, var(--nr-accent-text) 40%, transparent);
   text-decoration-thickness: 1px;
   text-underline-offset: 0.22em;
 }
 
 .makit-prose a:hover {
-  color: var(--tg-accent-text);
-  text-decoration-color: var(--tg-accent-text);
+  color: var(--nr-accent-text);
+  text-decoration-color: var(--nr-accent-text);
 }
 
 .makit-prose :not(pre) > code,
 .makit-prose kbd {
-  padding: 0.1em 0.38em;
-  border: 1px solid var(--tg-line);
-  border-radius: var(--tg-radius);
-  background: var(--tg-panel);
-  color: var(--tg-fg);
-  font-family: var(--tg-font-mono);
+  padding: 0.12em 0.4em;
+  border: 1px solid var(--nr-line);
+  border-radius: 5px;
+  background: var(--nr-panel);
+  color: var(--nr-fg);
+  font-family: var(--nr-font-mono);
   font-size: 0.86em;
   font-weight: 500;
 }
@@ -391,17 +409,17 @@
 }
 
 .makit-prose :is(ul, ol) > li::marker {
-  color: var(--tg-muted);
+  color: var(--nr-muted);
 }
 
 .makit-prose ol > li::marker {
-  font-family: var(--tg-font-mono);
+  font-family: var(--nr-font-mono);
   font-size: 0.9em;
 }
 
 .makit-prose blockquote:not(.makit-alert) {
-  border-left: 2px solid var(--tg-line-strong);
-  color: var(--tg-muted);
+  border-left: 2px solid var(--nr-line-strong);
+  color: var(--nr-muted);
   font-style: normal;
   font-weight: 400;
 }
@@ -412,14 +430,14 @@
 }
 
 .makit-prose hr {
-  border-color: var(--tg-line);
+  border-color: var(--nr-line);
 }
 
 /* Tables: mono column heads, hairline rows, scrolling inside a framed box on narrow screens. */
 .makit-prose .makit-table-wrapper {
   margin: 1.6em 0;
-  border: 1px solid var(--tg-line);
-  border-radius: 4px;
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
 }
 
 .makit-prose .makit-table-wrapper > table {
@@ -432,13 +450,13 @@
 
 .makit-prose th {
   padding: 10px 14px;
-  border-bottom: 1px solid var(--tg-line-strong);
-  background: var(--tg-panel);
-  color: var(--tg-muted);
-  font-family: var(--tg-font-mono);
-  font-size: 11px;
+  border-bottom: 1px solid var(--nr-line);
+  background: var(--nr-panel);
+  color: var(--nr-muted);
+  font-family: var(--nr-font-mono);
+  font-size: 10.5px;
   font-weight: 500;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.16em;
   text-align: left;
   text-transform: uppercase;
   white-space: nowrap;
@@ -450,7 +468,7 @@
 }
 
 .makit-prose tbody tr {
-  border-bottom-color: var(--tg-line);
+  border-bottom-color: var(--nr-line);
 }
 
 .makit-prose tbody tr:last-child {
@@ -461,85 +479,97 @@
   white-space: nowrap;
 }
 
-/* Code blocks: the panel, a mono label bar, and Shiki's GitHub high-contrast colors. */
+/*
+ * Code blocks: the panel with a hairline, and a 40 px header row — the file name (or language) on
+ * the left, Makit's Copy button on the right — over Shiki's GitHub high-contrast colors.
+ */
 .makit-prose pre.shiki {
   margin: 1.6em 0;
-  padding: 3.25rem 1.25rem 1.15rem;
-  border: 1px solid var(--tg-line);
-  border-radius: 4px;
-  background: var(--tg-panel) !important;
+  padding: calc(40px + 1rem) 1.25rem 1.1rem;
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  background: var(--nr-panel) !important;
   box-shadow: none;
   font-size: 13.5px;
   line-height: 1.7;
 }
 
 .makit-prose pre.shiki code {
-  font-family: var(--tg-font-mono);
+  font-family: var(--nr-font-mono);
 }
 
 .makit-prose pre.shiki::before {
-  height: 2.5rem;
-  padding: 0 1.25rem;
-  color: var(--tg-muted);
-  font-family: var(--tg-font-mono);
-  font-size: 11px;
+  right: 84px;
+  height: 40px;
+  overflow: hidden;
+  padding: 0 1rem;
+  color: var(--nr-muted);
+  font-family: var(--nr-font-mono);
+  font-size: 10.5px;
   font-weight: 500;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.2em;
+  white-space: nowrap;
 }
 
 .makit-prose pre.shiki[data-filename]::before {
+  font-size: 12px;
   letter-spacing: 0.02em;
 }
 
 .makit-prose pre.shiki::after {
-  top: 2.5rem;
-  background: var(--tg-line);
+  top: 40px;
+  background: var(--nr-line);
 }
 
 /*
- * On the panels (#eae7e0 / #1a1917) every token color of github-light-high-contrast and
- * github-dark-high-contrast reaches 4.5:1 except the light comment grey #66707b (4.08:1), which is
- * darkened to #5a626c (5.0:1). Makit 0.8 only takes bundled Shiki theme names, so this is CSS.
+ * On the panels (#f0f0f2 / #0d0d0f) every token color of github-light-high-contrast and
+ * github-dark-high-contrast reaches 4.5:1 except the light comment grey #66707b (4.43:1), which is
+ * darkened to #5a626c (5.43:1). Makit 0.8 only takes bundled Shiki theme names, so this is CSS.
  */
 :root:not([data-theme="dark"]) pre.shiki span[style*="color:#66707B" i] {
   color: #5a626c !important;
 }
 
 .makit-prose pre.shiki .line.highlighted {
-  background: color-mix(in srgb, var(--tg-accent) 14%, transparent);
+  background: color-mix(in srgb, var(--nr-accent) 14%, transparent);
 }
 
 .makit-prose .makit-copy-button {
-  top: 0.375rem;
-  height: 1.75rem;
-  border: 1px solid var(--tg-line);
-  border-radius: var(--tg-radius);
-  background: var(--tg-bg);
-  color: var(--tg-muted);
-  font-family: var(--tg-font-mono);
+  top: 7px;
+  right: 8px;
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--nr-muted);
+  font-family: var(--nr-font-mono);
   font-size: 11px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
 
 .makit-prose .makit-copy-button:hover {
-  border-color: var(--tg-accent-text);
-  background: var(--tg-bg);
-  color: var(--tg-accent-text);
+  background: var(--nr-fill);
+  color: var(--nr-fg);
+}
+
+.makit-prose .makit-copy-button:focus-visible {
+  outline-color: var(--nr-accent-text);
 }
 
 /*
- * Notes: an amber left rule on the panel. Makit labels every alert with its type ("note"); the
- * notes carry their own bold title, so the label is hidden visually and kept for screen readers.
+ * Notes: a 2 px blue rule on a faint blue wash. Makit labels every alert with its type ("note");
+ * the notes carry their own bold title, so the label is hidden visually and kept for screen readers.
  */
 .makit-prose .makit-alert {
-  --makit-alert-color: var(--tg-accent-text);
+  --makit-alert-color: var(--nr-accent-text);
   margin: 1.6em 0;
   padding: 14px 18px;
-  border: 1px solid var(--tg-line);
-  border-left: 3px solid var(--tg-accent);
-  border-radius: 0 4px 4px 0;
-  background: var(--tg-panel);
-  color: var(--tg-fg);
+  border: 0;
+  border-left: 2px solid var(--nr-accent);
+  border-radius: 0 var(--nr-radius) var(--nr-radius) 0;
+  background: var(--nr-tint);
+  color: var(--nr-soft);
   font-size: 15px;
   line-height: 1.65;
 }
@@ -564,13 +594,18 @@
 
 .makit-prose .makit-alert-title + p > strong:first-child {
   display: block;
-  font-weight: 700;
   margin-bottom: 2px;
+  color: var(--nr-fg);
+  font-weight: 700;
+}
+
+.makit-prose .makit-alert :not(pre) > code {
+  background: var(--nr-bg);
 }
 
 /* Pager */
 
-.tg-pager {
+.nr-pager {
   display: grid;
   max-width: 760px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -578,179 +613,169 @@
   margin-top: 64px;
 }
 
-.tg-pager a {
+.nr-pager a {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   padding: 14px 16px;
-  border: 1px solid var(--tg-line);
-  border-radius: 4px;
-  color: var(--tg-fg);
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  color: var(--nr-fg);
   text-decoration: none;
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
-.tg-pager a:hover {
-  border-color: var(--tg-line-strong);
-  background: var(--tg-panel);
+.nr-pager a:hover {
+  border-color: var(--nr-line-strong);
+  background: var(--nr-panel);
 }
 
-.tg-pager-next {
+.nr-pager-next {
   grid-column: 2;
   align-items: flex-end;
   text-align: right;
 }
 
-.tg-pager-label {
-  color: var(--tg-muted);
-  font-size: 11px;
-  letter-spacing: 0.12em;
+.nr-pager-label {
+  color: var(--nr-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
 }
 
-.tg-pager-title {
+.nr-pager-title {
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 /* Playground call to action */
 
-.tg-docs-cta {
-  position: relative;
+.nr-docs-cta {
   max-width: 760px;
   margin-top: 32px;
-  padding: 28px 28px 40px;
-  overflow: hidden;
-  border: 1px solid var(--tg-line);
-  border-radius: 4px;
-  background: var(--tg-panel);
+  padding: 28px;
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  background: var(--nr-panel);
 }
 
-/* The studio ruler along the bottom edge. */
-.tg-docs-cta::after {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 12px;
-  border-top: 1px solid var(--tg-line);
-  background: repeating-linear-gradient(90deg, var(--tg-line) 0 1px, transparent 1px 12px);
-  content: "";
-}
-
-.tg-docs-cta h2 {
+.nr-docs-cta h2 {
   margin: 0;
-  font-size: 22px;
-  font-weight: 650;
-  letter-spacing: -0.015em;
+  color: var(--nr-fg);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+}
+
+:lang(ja) .nr-docs-cta h2 {
+  letter-spacing: -0.01em;
   line-height: 1.3;
 }
 
-.tg-docs-cta em {
-  color: var(--tg-accent-text);
+.nr-docs-cta em {
+  color: var(--nr-muted);
   font-style: normal;
 }
 
-.tg-docs-cta p {
-  margin: 8px 0 20px;
-  color: var(--tg-muted);
+.nr-docs-cta p {
+  margin: 8px 0 22px;
+  color: var(--nr-soft);
 }
 
 @media (max-width: 639px) {
-  .tg-docs-cta {
-    padding: 22px 20px 36px;
+  .nr-docs-cta {
+    padding: 22px 20px;
   }
 }
 
 /* Table of contents, with the page actions (Makit's default) below. */
 
-.tg-toc {
+.nr-toc {
   position: sticky;
-  top: var(--tg-header-height);
-  height: calc(100vh - var(--tg-header-height));
-  height: calc(100dvh - var(--tg-header-height));
+  top: var(--nr-header-height);
+  height: calc(100vh - var(--nr-header-height));
+  height: calc(100dvh - var(--nr-header-height));
   overflow-y: auto;
-  padding: 48px 0 40px;
+  padding: 44px 0 40px 20px;
   font-size: 13px;
   overscroll-behavior: contain;
 }
 
-.tg-toc-title {
-  margin: 0 0 14px;
-  color: var(--tg-muted);
-  font-size: 11px;
-  letter-spacing: 0.14em;
+.nr-toc-title {
+  margin: 0 0 12px;
+  color: var(--nr-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
 }
 
-.tg-toc-list {
+.nr-toc-list {
   margin: 0;
   padding: 0;
-  border-left: 1px solid var(--tg-line);
   list-style: none;
 }
 
-.tg-toc-list li + li {
-  margin-top: 4px;
+.nr-toc-list li + li {
+  margin-top: 2px;
 }
 
-.tg-toc-list a {
+.nr-toc-list a {
   display: block;
-  margin-left: -1px;
-  padding: 3px 0 3px calc(12px + var(--tg-toc-level, 0) * 12px);
-  border-left: 2px solid transparent;
-  color: var(--tg-muted);
+  padding: 3px 0 3px calc(var(--nr-toc-level, 0) * 12px);
+  color: var(--nr-muted);
   line-height: 1.45;
   text-decoration: none;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  transition: color 0.15s ease;
 }
 
-.tg-toc-list a:hover {
-  color: var(--tg-fg);
+.nr-toc-list a:hover,
+.nr-toc-list a[aria-current] {
+  color: var(--nr-fg);
 }
 
-.tg-toc-list a[aria-current] {
-  border-left-color: var(--tg-accent-text);
-  color: var(--tg-fg);
+.nr-toc-list a[aria-current] {
+  font-weight: 600;
 }
 
-.tg-toc-actions nav[aria-label="Page actions"] {
+.nr-toc-actions nav[aria-label="Page actions"] {
   gap: 10px;
-  border-top-color: var(--tg-line);
-  color: var(--tg-muted);
+  border-top-color: var(--nr-line);
+  color: var(--nr-muted);
   font-size: 12.5px;
 }
 
-.tg-toc-actions nav[aria-label="Page actions"] :is(a, button, summary) {
+.nr-toc-actions nav[aria-label="Page actions"] :is(a, button, summary) {
   font-weight: 400;
 }
 
-.tg-toc-actions nav[aria-label="Page actions"] :is(a, button, summary):hover {
-  color: var(--tg-fg);
+.nr-toc-actions nav[aria-label="Page actions"] :is(a, button, summary):hover {
+  color: var(--nr-fg);
 }
 
-.tg-toc-actions nav[aria-label="Page actions"] details > div {
-  border-color: var(--tg-line);
-  border-radius: 4px;
-  background: var(--tg-bg);
+.nr-toc-actions nav[aria-label="Page actions"] details > div {
+  border-color: var(--nr-line-strong);
+  border-radius: var(--nr-radius);
+  background: var(--nr-bg);
 }
 
 /* Search dialog (Makit's default) */
 
 div:has(> section[role="dialog"][aria-label="Search documentation"]) {
-  background: rgb(10 10 9 / 0.55);
+  background: rgb(0 0 0 / 0.6);
 }
 
 section[role="dialog"][aria-label="Search documentation"] {
-  border-color: var(--tg-line-strong);
-  border-radius: 4px;
-  background: var(--tg-bg);
-  box-shadow: 0 32px 64px -24px rgb(0 0 0 / 0.55);
-  color: var(--tg-fg);
+  border-color: var(--nr-line-strong);
+  border-radius: 12px;
+  background: var(--nr-bg);
+  box-shadow: 0 32px 64px -24px rgb(0 0 0 / 0.6);
+  color: var(--nr-fg);
 }
 
 section[role="dialog"][aria-label="Search documentation"] > div:first-child {
-  border-color: var(--tg-line);
+  border-color: var(--nr-line);
 }
 
 section[role="dialog"][aria-label="Search documentation"] input {
@@ -763,22 +788,23 @@ section[role="dialog"][aria-label="Search documentation"] input:focus-visible {
 }
 
 section[role="dialog"][aria-label="Search documentation"] > div:first-child:focus-within {
-  box-shadow: inset 0 -2px 0 var(--tg-accent-text);
+  box-shadow: inset 0 -2px 0 var(--nr-accent);
 }
 
 section[role="dialog"][aria-label="Search documentation"] > div:first-child button {
-  border-color: var(--tg-line);
-  border-radius: var(--tg-radius);
-  font-family: var(--tg-font-mono);
-  font-size: 11px;
+  border-color: var(--nr-line-strong);
+  border-radius: 6px;
+  font-family: var(--nr-font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
 }
 
 section[role="dialog"][aria-label="Search documentation"] ul a {
-  border-radius: var(--tg-radius);
+  border-radius: var(--nr-radius);
 }
 
 section[role="dialog"][aria-label="Search documentation"] ul a:is(:hover, :focus-visible) {
-  background: var(--tg-panel);
+  background: var(--nr-panel);
 }
 
 section[role="dialog"][aria-label="Search documentation"] ul a:focus-visible {
@@ -786,16 +812,16 @@ section[role="dialog"][aria-label="Search documentation"] ul a:focus-visible {
 }
 
 section[role="dialog"][aria-label="Search documentation"] ul a > span:last-child {
-  color: var(--tg-accent-text);
+  color: var(--nr-accent-text);
 }
 
 section[role="dialog"][aria-label="Search documentation"] mark {
-  background: color-mix(in srgb, var(--tg-accent) 30%, transparent);
+  background: color-mix(in srgb, var(--nr-accent) 30%, transparent);
   color: inherit;
 }
 
 section[role="dialog"][aria-label="Search documentation"] > div:last-child {
-  border-color: var(--tg-line);
-  font-family: var(--tg-font-mono);
-  letter-spacing: 0.04em;
+  border-color: var(--nr-line);
+  font-family: var(--nr-font-mono);
+  letter-spacing: 0.06em;
 }

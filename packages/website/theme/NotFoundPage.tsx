@@ -7,9 +7,9 @@ import { LocaleProvider } from './LocaleContext.tsx';
 import { LocaleLinks } from './LocaleLinks.tsx';
 import { locales } from './locale.ts';
 
-/** One locale's copy of a region; CSS shows the variant matching `data-tg-locale` (set in `RootLayout`). */
+/** One locale's copy of a region; CSS shows the variant matching `data-nr-locale` (set in `RootLayout`). */
 const Variants = ({ render }: { render: (locale: Locale) => ReactNode }) => locales.map((locale) =>
-  <div key={locale} lang={locale} data-tg-variant={locale}><LocaleProvider locale={locale}>{render(locale)}</LocaleProvider></div>);
+  <div key={locale} lang={locale} data-nr-variant={locale}><LocaleProvider locale={locale}>{render(locale)}</LocaleProvider></div>);
 
 /**
  * Makit exports a single `404.html` for every URL, so the page cannot know its locale at build
@@ -24,9 +24,9 @@ export async function NotFoundPage({ components: C }: NotFoundPageProps) {
 
   const titles = Object.fromEntries(locales.map((locale) => [locale, copy(locale).notFound.title]));
   // `<title>` is hoisted and the first one wins; the script fixes it before paint, `DocumentTitle` after hydration.
-  const titleScript = `document.title=${JSON.stringify(titles).replace(/</g, '\\u003c')}[document.documentElement.getAttribute('data-tg-locale')]||document.title`;
+  const titleScript = `document.title=${JSON.stringify(titles).replace(/</g, '\\u003c')}[document.documentElement.getAttribute('data-nr-locale')]||document.title`;
 
-  return <div className="tg-page">
+  return <div className="nr-page">
     <title>{titles[locales[0]]}</title>
     <script dangerouslySetInnerHTML={{ __html: titleScript }} />
     <DocumentTitle titles={titles} />
@@ -39,15 +39,18 @@ export async function NotFoundPage({ components: C }: NotFoundPageProps) {
         {site.theme.colorScheme === 'system' && <C.ThemeToggle />}
       </>}
     />} />
-    <main id="main" className="tg-main tg-not-found" tabIndex={-1}>
+    <main id="main" className="nr-main nr-not-found" tabIndex={-1}>
       <Variants render={(locale) => {
         const { notFound } = copy(locale);
-        return <div className="tg-shell">
-          <p className="tg-timecode tg-mono" aria-hidden="true"><span className="tg-tally" />404 · --:--:--:--</p>
+        return <div className="nr-shell">
+          <p className="nr-eyebrow" aria-hidden="true">404 · --:--:--:--</p>
           <h1>{notFound.heading}</h1>
-          <p className="tg-not-found-description">{notFound.description}</p>
-          <RouteLink className="tg-button" href={homes[locale]}>{notFound.back}</RouteLink>
-          <div className="tg-ruler" aria-hidden="true" />
+          <p className="nr-not-found-description">{notFound.description}</p>
+          <RouteLink className="nr-button" href={homes[locale]}>{notFound.back}</RouteLink>
+          <div className="nr-not-found-rail" aria-hidden="true">
+            <div className="nr-rail"><i className="nr-rail-clip" /><i className="nr-rail-clip" /><i className="nr-rail-clip" /><span className="nr-rail-head" /></div>
+            <div className="nr-rail-tc"><span>00:00</span><b>--:--:--:--</b><span>00:10</span></div>
+          </div>
         </div>;
       }} />
     </main>

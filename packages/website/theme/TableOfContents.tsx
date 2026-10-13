@@ -46,15 +46,15 @@ export function TableOfContents({ headings, minDepth, maxDepth, actions }: Table
   }, [visible]);
 
   if (visible.length === 0) return null;
-  return <aside className="tg-toc">
-    {labels && <p id={id} className="tg-toc-title tg-mono">{labels.onThisPage}</p>}
+  return <aside className="nr-toc">
+    {labels && <p id={id} className="nr-toc-title nr-mono">{labels.onThisPage}</p>}
     <nav aria-labelledby={labels ? id : undefined}>
-      <ul className="tg-toc-list">
-        {visible.map((heading) => <li key={heading.id} style={{ '--tg-toc-level': heading.depth - minDepth } as CSSProperties}>
+      <ul className="nr-toc-list">
+        {visible.map((heading) => <li key={heading.id} style={{ '--nr-toc-level': heading.depth - minDepth } as CSSProperties}>
           <a href={`#${heading.id}`} aria-current={heading.id === activeId ? 'location' : undefined}>{heading.text}</a>
         </li>)}
       </ul>
     </nav>
-    {actions && <div className="tg-toc-actions">{actions}</div>}
+    {actions && <div className="nr-toc-actions">{actions}</div>}
   </aside>;
 }

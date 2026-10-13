@@ -44,7 +44,7 @@ packages/website/
 ├── content/<locale>/docs/ # the user guide: one Markdown file + .meta.ts per chapter
 ├── pages/                 # Makit static pages: landing (index.tsx), showcase/
 │   └── _components/       # shared parts: download button, playground mount, showcase entry
-├── theme/                 # Tungsten, the Makit theme (theme.extends: "./theme")
+├── theme/                 # Noir, the Makit theme (theme.extends: "./theme")
 ├── site/                  # shared code: copy/, links, downloads, locales, showcase catalog
 ├── playground/            # the playground island, built by Vite into public/_playground/
 ├── examples/              # documentation example sources, included into chapters
@@ -63,7 +63,7 @@ packages/website/
   `showcase/<slug>.tsx` renders the shared `ShowcaseEntry` for one work in
   `site/showcase-catalog.ts`. Each page has a `.meta.ts` with its localized title and description.
 - **`theme/`**: `index.tsx` exports the slots (root layout, header, footer, docs page, sidebar, page
-  header, pager, table of contents, 404, static page); `tungsten.css` holds the light and dark tokens and maps them onto
+  header, pager, table of contents, 404, static page); `noir.css` holds the light and dark tokens and maps them onto
   Makit's; `docs.css` styles the documentation.
 - **`playground/`**: the editor (`Playground.tsx`, Monaco in `SourceEditor.tsx`), the editable
   demo scene (`demo/title-scene.tsx`), the showcase source loader (`showcase-sources.ts`, which
@@ -184,7 +184,7 @@ The post-build step works around two Makit 0.8 gaps:
 
 `@natsuneko-laboratory/makit`, `@natsuneko-laboratory/makit-runtime`, and `next` are pinned to
 exact versions. Bump them together, then re-check the theme CSS that targets Makit's DOM and
-`aria-label`s (`theme/tungsten.css`, `theme/docs.css`: search dialog, page actions, copy button,
+`aria-label`s (`theme/noir.css`, `theme/docs.css`: search dialog, page actions, copy button,
 code blocks) and the gaps below.
 
 Makit 0.8 gaps this package works around or lives with, besides the two post-build fixes above:

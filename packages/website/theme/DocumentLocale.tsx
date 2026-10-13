@@ -16,18 +16,18 @@ export function DocumentLocale({ locales }: { locales: readonly string[] }) {
     const locale = locales.includes(segment) ? segment : locales[0];
     const root = document.documentElement;
     root.lang = locale;
-    root.setAttribute('data-tg-locale', locale);
+    root.setAttribute('data-nr-locale', locale);
   }, [pathname, locales]);
   return null;
 }
 
 /**
- * Sets `document.title` to the entry for `data-tg-locale`. For pages rendered once for every
+ * Sets `document.title` to the entry for `data-nr-locale`. For pages rendered once for every
  * locale (the 404): React restores the hoisted `<title>` on hydration, so this runs after it.
  */
 export function DocumentTitle({ titles }: { titles: Readonly<Record<string, string>> }) {
   useEffect(() => {
-    const title = titles[document.documentElement.getAttribute('data-tg-locale') ?? ''];
+    const title = titles[document.documentElement.getAttribute('data-nr-locale') ?? ''];
     if (title) document.title = title;
   }, [titles]);
   return null;

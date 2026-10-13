@@ -7,13 +7,13 @@ import { ByLocale } from './LocaleContext.tsx';
 
 function FooterBody({ locale }: { locale: Locale }) {
   const { navigation, footer } = copy(locale).common;
-  return <div className="tg-shell">
-    <div className="tg-footer-top">
-      <div className="tg-footer-brand">
+  return <div className="nr-shell">
+    <div className="nr-footer-top">
+      <div className="nr-footer-brand">
         <Brand href={`/${locale}/`} label={navigation.label} />
         <p>{footer.tagline}</p>
       </div>
-      <nav className="tg-footer-nav" aria-label={footer.label}>
+      <nav className="nr-footer-nav" aria-label={footer.label}>
         <RouteLink href={`/${locale}/docs/`}>{footer.documentation}</RouteLink>
         <RouteLink href={`/${locale}/showcase/`}>{navigation.showcase}</RouteLink>
         <a href={repository}>{navigation.github}</a>
@@ -21,7 +21,7 @@ function FooterBody({ locale }: { locale: Locale }) {
         <a href={`${repository}/issues`}>{footer.issues}</a>
       </nav>
     </div>
-    <div className="tg-footer-bottom tg-mono">
+    <div className="nr-footer-bottom nr-mono">
       <span>{footer.builtWith}</span>
       <span>{footer.license}</span>
     </div>
@@ -30,7 +30,7 @@ function FooterBody({ locale }: { locale: Locale }) {
 
 /** `FooterProps` carries no locale, so both variants render and the page's `LocaleProvider` picks one. */
 export function Footer(_: FooterProps) {
-  return <footer className="tg-footer">
+  return <footer className="nr-footer">
     <ByLocale en={<FooterBody locale="en" />} ja={<FooterBody locale="ja" />} />
   </footer>;
 }

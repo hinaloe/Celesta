@@ -20,9 +20,10 @@ for (const defaults of [monaco.typescript.typescriptDefaults, monaco.typescript.
   defaults.setDiagnosticsOptions({ noSemanticValidation: true });
 }
 
-// Tungsten surfaces with the documentation's Shiki colors (GitHub high contrast, light comments
-// darkened as in theme/docs.css); every token color reaches 4.5:1 on the editor and its line highlight.
-monaco.editor.defineTheme('tungsten-dark', {
+// Noir surfaces (the page background, the panel as the line highlight) with the documentation's
+// Shiki colors (GitHub high contrast, light comments darkened as in theme/docs.css); every token
+// color reaches 4.5:1 on the editor and its line highlight.
+monaco.editor.defineTheme('noir-dark', {
   base: 'vs-dark', inherit: true,
   rules: [
     { token: 'comment', foreground: 'bdc4cc' }, { token: 'keyword', foreground: 'ff9492' },
@@ -31,12 +32,12 @@ monaco.editor.defineTheme('tungsten-dark', {
     { token: 'delimiter', foreground: 'f0f3f6' }, { token: 'tag', foreground: '72f088' }, { token: 'attribute.name', foreground: '91cbff' },
   ],
   colors: {
-    'editor.background': '#111110', 'editor.foreground': '#efe9df', 'editor.selectionBackground': '#ffb0203d',
-    'editor.lineHighlightBackground': '#1a1917', 'editorCursor.foreground': '#ffb020',
-    'editorLineNumber.foreground': '#5c574f', 'editorLineNumber.activeForeground': '#958e82',
+    'editor.background': '#000000', 'editor.foreground': '#f5f5f7', 'editor.selectionBackground': '#3d7bff4d',
+    'editor.lineHighlightBackground': '#0d0d0f', 'editor.lineHighlightBorder': '#00000000', 'editorCursor.foreground': '#7aa7ff',
+    'editorLineNumber.foreground': '#86868b', 'editorLineNumber.activeForeground': '#f5f5f7',
   },
 });
-monaco.editor.defineTheme('tungsten-light', {
+monaco.editor.defineTheme('noir-light', {
   base: 'vs', inherit: true,
   rules: [
     { token: 'comment', foreground: '5a626c' }, { token: 'keyword', foreground: 'a0111f' },
@@ -45,13 +46,13 @@ monaco.editor.defineTheme('tungsten-light', {
     { token: 'delimiter', foreground: '0e1116' }, { token: 'tag', foreground: '024c1a' }, { token: 'attribute.name', foreground: '023b95' },
   ],
   colors: {
-    'editor.background': '#f4f2ed', 'editor.foreground': '#1a1916', 'editor.selectionBackground': '#ffb02052',
-    'editor.lineHighlightBackground': '#eae7e0', 'editorCursor.foreground': '#945700',
-    'editorLineNumber.foreground': '#a8a195', 'editorLineNumber.activeForeground': '#6b655b',
+    'editor.background': '#fafafa', 'editor.foreground': '#0a0a0b', 'editor.selectionBackground': '#3d7bff33',
+    'editor.lineHighlightBackground': '#f0f0f2', 'editor.lineHighlightBorder': '#00000000', 'editorCursor.foreground': '#1d59f0',
+    'editorLineNumber.foreground': '#6b6b70', 'editorLineNumber.activeForeground': '#0a0a0b',
   },
 });
 
-/** The page's resolved color scheme: Tungsten sets `color-scheme` on `<html>` from `data-theme` and the system preference. */
+/** The page's resolved color scheme: Noir sets `color-scheme` on `<html>` from `data-theme` and the system preference. */
 function useColorScheme() {
   const read = () => getComputedStyle(document.documentElement).colorScheme.includes('dark') ? 'dark' : 'light';
   const [scheme, setScheme] = useState(read);
@@ -80,7 +81,7 @@ export default function SourceEditor({ name, source, readOnly, loading, label, o
   }, [root]);
 
   const language = name.endsWith('.json') ? 'json' : /\.[cm]?jsx?$/.test(name) ? 'javascript' : 'typescript';
-  return <Editor path={`${root}${name.split('/').map(encodeURIComponent).join('/')}`} language={language} value={source} theme={`tungsten-${scheme}`}
+  return <Editor path={`${root}${name.split('/').map(encodeURIComponent).join('/')}`} language={language} value={source} theme={`noir-${scheme}`}
     loading={loading}
     onChange={value => { if (value !== undefined) onChange(value); }}
     options={{

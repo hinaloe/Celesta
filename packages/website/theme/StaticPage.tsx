@@ -15,9 +15,9 @@ export async function StaticPage({ page, site, i18n, locale: urlLocale, componen
 
   const homeHref = (await getHomeRoute(urlLocale)) ?? `${site.basePath}/${locale}/`;
   return <LocaleProvider locale={locale}>
-    <div className="tg-page">
+    <div className="nr-page">
       <C.Header header={site.header} siteTitle={site.title} homeHref={homeHref} actions={<HeaderActions page={page} site={site} i18n={i18n} components={C} />} />
-      <main id="main" className="tg-main" tabIndex={-1}>{body}</main>
+      <main id="main" className="nr-main" tabIndex={-1}>{body}</main>
       <C.Footer footer={site.footer} />
     </div>
   </LocaleProvider>;

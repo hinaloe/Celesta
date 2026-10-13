@@ -27,7 +27,7 @@ export interface DownloadButtonProps {
 /** The primary download call to action, matched to the visitor's platform. */
 export function DownloadButton({ links, labels, className = '' }: DownloadButtonProps) {
   const platform = useVisitorPlatform();
-  return <a className={`tg-button lp-download ${className}`.trim()} href={platform ? links[platform] : links.all} data-platform={platform ?? undefined}>
+  return <a className={`nr-button lp-download ${className}`.trim()} href={platform ? links[platform] : links.all} data-platform={platform ?? undefined}>
     {platform ? labels[platform] : labels.any} <span aria-hidden="true">↓</span>
   </a>;
 }

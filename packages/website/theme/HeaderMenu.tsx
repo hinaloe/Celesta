@@ -37,16 +37,16 @@ export function HeaderMenu({ links, download, labels }: HeaderMenuProps) {
   const { open, toggle, button, panel, closeOnLink } = useDisclosure();
 
   return <>
-    <button ref={button} type="button" className="tg-menu-button" aria-expanded={open} aria-controls={id} onClick={toggle}>
-      <span className="tg-menu-icon" aria-hidden="true" /><span className="tg-menu-label">{open ? labels.close : labels.menu}</span>
+    <button ref={button} type="button" className="nr-menu-button" aria-expanded={open} aria-controls={id} onClick={toggle}>
+      <span className="nr-menu-icon" aria-hidden="true" /><span className="nr-menu-label">{open ? labels.close : labels.menu}</span>
     </button>
-    <div ref={panel} id={id} className="tg-nav-panel" data-open={open ? '' : undefined} onClick={closeOnLink}>
-      <nav className="tg-nav" aria-label={labels.main}>
+    <div ref={panel} id={id} className="nr-nav-panel" data-open={open ? '' : undefined} onClick={closeOnLink}>
+      <nav className="nr-nav" aria-label={labels.main}>
         {links.map((link) => link.external
           ? <a key={link.href} href={link.href}>{link.label} <span aria-hidden="true">↗</span></a>
           : <RouteLink key={link.href} href={link.href} aria-current={link.section ? currentOf(pathname, link.href) : undefined}>{link.label}</RouteLink>)}
       </nav>
-      <a className="tg-button tg-nav-download" href={download.href}>{download.label} <span aria-hidden="true">↓</span></a>
+      <a className="nr-button nr-nav-download" href={download.href}>{download.label} <span aria-hidden="true">↓</span></a>
     </div>
   </>;
 }

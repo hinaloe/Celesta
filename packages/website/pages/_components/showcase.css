@@ -1,6 +1,7 @@
 /*
- * The showcase pages (pages/showcase/*, ShowcaseEntry): an intro in the Studio style, then a poster
- * gallery, a work's playground, or the desktop notice. Built on the `--tg-*` tokens.
+ * The showcase pages (pages/showcase/*, ShowcaseEntry) in Noir: a mono eyebrow over a solid
+ * headline, then a gallery of hairline poster cards, a work's playground, or the desktop notice.
+ * Built on the `--nr-*` tokens.
  */
 
 .sc {
@@ -25,22 +26,11 @@
 }
 
 .sc-eyebrow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--tg-accent-text);
-  font-size: 12px;
-  letter-spacing: 0.12em;
+  color: var(--nr-accent-text);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-}
-
-.sc-eyebrow::before {
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-  border-radius: 1px;
-  background: var(--tg-accent);
-  content: "";
 }
 
 .sc-eyebrow a {
@@ -55,10 +45,10 @@
 
 .sc h1 {
   max-width: 14ch;
-  margin-top: 28px;
-  color: var(--tg-fg);
-  font-size: clamp(44px, 7vw, 96px);
-  font-weight: 650;
+  margin-top: 22px;
+  color: var(--nr-fg);
+  font-size: clamp(46px, 7.4vw, 104px);
+  font-weight: 800;
   letter-spacing: -0.045em;
   line-height: 0.98;
 }
@@ -66,7 +56,7 @@
 .sc-lede {
   max-width: 56ch;
   margin-top: 28px;
-  color: var(--tg-muted);
+  color: var(--nr-soft);
   font-size: 18px;
   line-height: 1.6;
 }
@@ -78,20 +68,21 @@
   gap: 8px 24px;
   margin-top: 28px;
   padding-top: 16px;
-  border-top: 1px solid var(--tg-line-strong);
-  color: var(--tg-muted);
-  font-size: 12px;
-  letter-spacing: 0.06em;
+  border-top: 1px solid var(--nr-line);
+  color: var(--nr-muted);
+  font-size: 11.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
 .sc-meta a {
-  color: var(--tg-fg);
+  color: var(--nr-fg);
   text-decoration: none;
   transition: color 0.15s ease;
 }
 
 .sc-meta a:hover {
-  color: var(--tg-accent-text);
+  color: var(--nr-accent-text);
 }
 
 /* Gallery */
@@ -102,18 +93,18 @@
 
 .sc-note {
   max-width: 78ch;
-  color: var(--tg-muted);
+  color: var(--nr-muted);
   font-size: 14px;
   line-height: 1.65;
 }
 
 .sc-note a {
-  color: var(--tg-fg);
+  color: var(--nr-fg);
   text-underline-offset: 3px;
 }
 
 .sc-note a:hover {
-  color: var(--tg-accent-text);
+  color: var(--nr-accent-text);
 }
 
 .sc-grid {
@@ -128,17 +119,16 @@
   height: 100%;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--tg-line);
-  border-radius: 4px;
-  background: var(--tg-panel);
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  background: var(--nr-panel);
   color: inherit;
   text-decoration: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease;
 }
 
 .sc-card:hover {
-  border-color: var(--tg-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tg-accent) 18%, transparent);
+  border-color: var(--nr-line-strong);
 }
 
 .sc-poster {
@@ -146,8 +136,8 @@
   aspect-ratio: 16 / 9;
   place-items: center;
   overflow: hidden;
-  border-bottom: 1px solid var(--tg-line);
-  background: var(--tg-bg);
+  border-bottom: 1px solid var(--nr-line);
+  background: var(--nr-bg);
 }
 
 .sc-poster img {
@@ -164,9 +154,9 @@
 
 .sc-poster span {
   padding: 0 16px;
-  color: var(--tg-muted);
-  font-size: clamp(20px, 2.4vw, 30px);
-  letter-spacing: 0.14em;
+  color: var(--nr-muted);
+  font-size: clamp(18px, 2.2vw, 26px);
+  letter-spacing: 0.22em;
   text-align: center;
 }
 
@@ -176,27 +166,28 @@
   justify-content: space-between;
   gap: 4px 16px;
   margin: 20px 24px 0;
-  color: var(--tg-muted);
-  font-size: 12px;
-  letter-spacing: 0.06em;
+  color: var(--nr-muted);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
 .sc-card-meta [data-kind="run"] {
-  color: var(--tg-accent-text);
+  color: var(--nr-accent-text);
 }
 
 .sc-card h2 {
   margin: 10px 24px 0;
-  color: var(--tg-fg);
+  color: var(--nr-fg);
   font-size: 24px;
-  font-weight: 650;
-  letter-spacing: -0.025em;
-  line-height: 1.15;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
 }
 
 .sc-card p {
   margin: 10px 24px 24px;
-  color: var(--tg-muted);
+  color: var(--nr-soft);
   font-size: 15px;
   line-height: 1.6;
 }
@@ -209,16 +200,16 @@
 
 .sc-fallback {
   padding: 24px;
-  border: 1px solid var(--tg-line);
-  border-radius: 4px;
-  background: var(--tg-panel);
-  color: var(--tg-muted);
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  background: var(--nr-panel);
+  color: var(--nr-muted);
   font-size: 15px;
   line-height: 1.6;
 }
 
 .sc-fallback a {
-  color: var(--tg-fg);
+  color: var(--nr-fg);
 }
 
 .sc-edition {
@@ -228,23 +219,23 @@
 .sc-notice {
   margin-top: 56px;
   padding: 40px;
-  border: 1px solid var(--tg-line);
-  border-radius: 4px;
-  background: var(--tg-panel);
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  background: var(--nr-panel);
 }
 
 .sc-notice h2 {
-  color: var(--tg-fg);
-  font-size: clamp(28px, 3.4vw, 44px);
-  font-weight: 650;
-  letter-spacing: -0.035em;
-  line-height: 1.05;
+  color: var(--nr-fg);
+  font-size: clamp(30px, 3.6vw, 48px);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 1;
 }
 
 .sc-notice p {
   max-width: 56ch;
   margin-top: 16px;
-  color: var(--tg-muted);
+  color: var(--nr-soft);
   font-size: 17px;
   line-height: 1.6;
 }
@@ -261,7 +252,7 @@
 :lang(ja) .sc h1 {
   max-width: none;
   font-size: clamp(40px, 6.4vw, 88px);
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
   line-height: 1.12;
   word-break: auto-phrase;
 }
@@ -276,8 +267,10 @@
   line-height: 1.8;
 }
 
-:lang(ja) .sc-card h2 {
+:lang(ja) .sc-card h2,
+:lang(ja) .sc-notice h2 {
   letter-spacing: -0.01em;
+  line-height: 1.2;
 }
 
 /* Narrower screens */
