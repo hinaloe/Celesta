@@ -42,7 +42,6 @@ function loadIsland(): Promise<Island> {
 const placeholder: CSSProperties = {
   minHeight: 720,
   border: '1px solid var(--nr-line)',
-  borderRadius: 8,
   background: 'var(--nr-panel)',
 };
 

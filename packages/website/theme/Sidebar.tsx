@@ -1,5 +1,6 @@
 import { RouteLink } from '@natsuneko-laboratory/makit-runtime';
 import type { ResolvedNavNode, SidebarProps } from '@natsuneko-laboratory/makit-runtime';
+import { ArrowUpRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { copy } from '../site/copy/index.ts';
 import { localeOf } from './locale.ts';
@@ -20,7 +21,7 @@ const titleOf = (nodes: readonly ResolvedNavNode[], route: string): string | und
 };
 
 function Item({ node, currentRoute }: { node: Leaf | { title: string; href: string }; currentRoute: string }) {
-  if ('external' in node && node.external) return <a href={node.href} target="_blank" rel="noopener noreferrer">{node.title} <span aria-hidden="true">↗</span></a>;
+  if ('external' in node && node.external) return <a href={node.href} target="_blank" rel="noopener noreferrer">{node.title} <ArrowUpRight size={14} aria-hidden="true" /></a>;
   return <RouteLink href={node.href} aria-current={node.href === currentRoute ? 'page' : undefined}>{node.title}</RouteLink>;
 }
 
@@ -48,7 +49,7 @@ function Entry({ node, currentRoute }: { node: ResolvedNavNode; currentRoute: st
 }
 
 /**
- * Top-level groups get a monospace caption; loose pages between them share a plain list. A
+ * Top-level groups get a caption; loose pages between them share a plain list. A
  * section at the top is the collection's root, whose own page is already its first item, so its
  * items are listed in its place.
  */
@@ -68,7 +69,7 @@ function Groups({ nodes, currentRoute }: { nodes: readonly ResolvedNavNode[]; cu
     blocks.push(node.type === 'section'
       ? <Groups key={blocks.length} nodes={node.items} currentRoute={currentRoute} />
       : <div key={blocks.length} className="nr-sidebar-group">
-        {node.title && <p id={`nr-nav-${node.id ?? blocks.length}`} className="nr-sidebar-caption nr-mono">{node.href ? <Item node={{ title: node.title, href: node.href }} currentRoute={currentRoute} /> : node.title}</p>}
+        {node.title && <p id={`nr-nav-${node.id ?? blocks.length}`} className="nr-sidebar-caption">{node.href ? <Item node={{ title: node.title, href: node.href }} currentRoute={currentRoute} /> : node.title}</p>}
         <ul className="nr-sidebar-list" aria-labelledby={node.title ? `nr-nav-${node.id ?? blocks.length}` : undefined}>{node.items.map((child, index) => <Entry key={index} node={child} currentRoute={currentRoute} />)}</ul>
       </div>);
   }

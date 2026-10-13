@@ -48,7 +48,7 @@ packages/website/
 ├── site/                  # shared code: copy/, links, downloads, locales, showcase catalog
 ├── playground/            # the playground island, built by Vite into public/_playground/
 ├── examples/              # documentation example sources, included into chapters
-├── plugins/               # remark plugins: remark-include, remark-download-links
+├── plugins/               # remark plugins: remark-include, remark-download-links, remark-arrow-icons
 ├── scripts/postbuild.mjs  # fixes up dist/ after makit build (see below)
 ├── public/                # favicon, _headers; build output: _playground/, showcase/, showcase-assets/
 ├── worker.ts, wrangler.jsonc
@@ -65,6 +65,11 @@ packages/website/
 - **`theme/`**: `index.tsx` exports the slots (root layout, header, footer, docs page, sidebar, page
   header, pager, table of contents, 404, static page); `noir.css` holds the light and dark tokens and maps them onto
   Makit's; `docs.css` styles the documentation.
+- **Icons** come from `lucide-react` (`import { ArrowRight } from 'lucide-react'`) in `theme/`,
+  `pages/`, and `playground/`; pass `aria-hidden="true"`. Don't put arrow or symbol glyphs
+  (`→ ↗ ↓ ×`) in copy or JSX, since some platforms draw them as emoji: render the icon beside the
+  string instead. In Markdown, write arrows as usual: `plugins/remark-arrow-icons.ts` turns
+  `→ ← ↗ ↓ ↑` outside code into icon spans (`.nr-icon-*`, drawn in `theme/docs.css`).
 - **`playground/`**: the editor (`Playground.tsx`, Monaco in `SourceEditor.tsx`), the editable
   demo scene (`demo/title-scene.tsx`), the showcase source loader (`showcase-sources.ts`, which
   reads the repository's `examples/`), and the island's own strings (`copy.ts`).
@@ -183,7 +188,9 @@ The post-build step works around two Makit 0.8 gaps:
 ## Makit
 
 `@natsuneko-laboratory/makit`, `@natsuneko-laboratory/makit-runtime`, and `next` are pinned to
-exact versions. Bump them together, then re-check the theme CSS that targets Makit's DOM and
+exact versions. `lucide-react` is pinned to the version Makit depends on (0.468.0 for Makit 0.8.0):
+Makit aliases `lucide-react` for the theme and pages, and the type-check and the Vite island
+resolve this package's own copy, so the two must match. Bump them together, then re-check the theme CSS that targets Makit's DOM and
 `aria-label`s (`theme/noir.css`, `theme/docs.css`: search dialog, page actions, copy button,
 code blocks) and the gaps below.
 
@@ -201,6 +208,10 @@ Makit 0.8 gaps this package works around or lives with, besides the two post-bui
 - **Built-in labels stay English** on Japanese pages: the search dialog ("Search documentation…",
   "No results for …") and the page actions ("Edit on GitHub", "Copy as Markdown", …).
   `MakitMessages` has no keys for them.
+- **Default parts hard-code rounded corners and a glyph.** The search dialog, page actions,
+  copy button, and theme toggle use Tailwind `rounded-*` classes, which `theme/noir.css` and
+  `theme/docs.css` override to square corners; each search result ends in a `→` glyph, which
+  `theme/docs.css` hides and replaces with a masked lucide arrow.
 - **Canonical and `hreflang` links are relative**, because the generated root layout sets no
   `metadataBase`; `sitemap.xml` and `llms.txt` carry absolute URLs.
 - **No icon or theme-color option.** `theme/RootLayout.tsx` adds `<link rel="icon">` and

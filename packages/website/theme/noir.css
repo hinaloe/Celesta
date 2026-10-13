@@ -1,13 +1,16 @@
 /*
  * Noir — white on black, hairlines, film grain, and one electric blue. Light mode follows the OS.
- * No gradients anywhere: every fill is a flat color.
+ * No gradients anywhere: every fill is a flat color. Square corners everywhere (`--nr-radius: 0`),
+ * labels in natural case (only the wordmark is set in capitals), and lucide icons, never glyphs.
  *
  * Tokens (`--nr-*`) are the theme's vocabulary; later sections and pages use them directly.
  * `--makit-color-*` are mapped onto them so Makit's prose and default parts follow.
  * Contrast (WCAG): every text color reaches 4.5:1 on `bg`, `panel`, and `tint`; see the spec.
  */
 
+/* Light by default. */
 :root {
+  color-scheme: light;
   --nr-bg: #fafafa;
   /* Cards, code blocks, the rail's track. */
   --nr-panel: #f0f0f2;
@@ -33,18 +36,22 @@
   /* Header tabs: a faint fill and an inner hairline. */
   --nr-fill: #0000000a;
   --nr-fill-line: #00000014;
-  --nr-playhead: var(--nr-fg);
+  --nr-playhead: #0a0a0b;
   --nr-grain-opacity: 0.05;
-  --nr-radius: 8px;
-  --nr-radius-tab: 7px;
+  /* Square corners; Makit's own parts follow through `--makit-radius`. */
+  --nr-radius: 0;
   --nr-font-sans: "Helvetica Neue", ui-sans-serif, system-ui, -apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
   --nr-font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --nr-header-height: 56px;
-  --nr-letterbox: 10px;
-  color-scheme: light;
 }
 
+/*
+ * Dark, chosen with the theme toggle. The block below repeats it for a dark OS while `data-theme`
+ * is unset (before Makit's script runs, or without JavaScript); change both together.
+ * `color-scheme` stays on <html> for each scheme: the playground's editor reads it.
+ */
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --nr-bg: #000000;
   --nr-panel: #0d0d0f;
   --nr-raised: #161618;
@@ -59,11 +66,11 @@
   --nr-fill-line: #ffffff14;
   --nr-playhead: #ffffff;
   --nr-grain-opacity: 0.06;
-  color-scheme: dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
+    color-scheme: dark;
     --nr-bg: #000000;
     --nr-panel: #0d0d0f;
     --nr-raised: #161618;
@@ -78,7 +85,6 @@
     --nr-fill-line: #ffffff14;
     --nr-playhead: #ffffff;
     --nr-grain-opacity: 0.06;
-    color-scheme: dark;
   }
 }
 
@@ -151,6 +157,16 @@ body::before {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * lucide icons (`lucide-react`): inline with the text (Tailwind's preflight makes every `svg` a
+ * block), on its baseline, and never shrunk in a flex row.
+ */
+.lucide {
+  display: inline-block;
+  flex-shrink: 0;
+  vertical-align: -0.125em;
+}
+
 .nr-shell {
   width: min(100% - 32px, 1200px);
   margin-inline: auto;
@@ -167,15 +183,6 @@ body::before {
   min-height: 100vh;
   min-height: 100dvh;
   flex-direction: column;
-}
-
-/* The letterbox: a thin strip with a hairline above the header; it scrolls away. */
-.nr-page::before {
-  display: block;
-  height: var(--nr-letterbox);
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--nr-line);
-  content: "";
 }
 
 .nr-main {
@@ -196,22 +203,12 @@ div[data-nr-variant] {
   display: none;
 }
 
-/* Eyebrows, labels, timecodes: monospace capitals with wide tracking, in blue. */
+/* Eyebrows: a short label in blue, in natural case. */
 .nr-eyebrow {
   color: var(--nr-accent-text);
-  font-family: var(--nr-font-mono);
-  font-size: 11.5px;
+  font-size: 13px;
   font-weight: 500;
-  letter-spacing: 0.22em;
   line-height: 1.5;
-  text-transform: uppercase;
-}
-
-@media (max-width: 639px) {
-  .nr-eyebrow {
-    font-size: 11px;
-    letter-spacing: 0.16em;
-  }
 }
 
 /* Buttons: primary is a flat `fg` fill; secondary is a hairline. No gloss, no glow. */
@@ -299,6 +296,7 @@ div[data-nr-variant] {
 }
 
 .nr-wordmark {
+  /* The one label set in capitals. */
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -343,7 +341,7 @@ div[data-nr-variant] {
   align-items: center;
   gap: 0.3em;
   padding: 5px 10px;
-  border-radius: var(--nr-radius-tab);
+  border-radius: var(--nr-radius);
   color: var(--nr-muted);
   font-size: 13.5px;
   font-weight: 500;
@@ -379,7 +377,7 @@ div[data-nr-variant] {
   min-height: 30px;
   flex-shrink: 0;
   padding: 0 12px;
-  border-radius: var(--nr-radius-tab);
+  border-radius: var(--nr-radius);
   font-size: 13px;
 }
 
@@ -389,7 +387,7 @@ div[data-nr-variant] {
 
 /* Makit's default search button and theme toggle, as Chrome-style controls. */
 .nr-header-actions button {
-  border-radius: var(--nr-radius-tab);
+  border-radius: var(--nr-radius);
   box-shadow: none;
 }
 
@@ -408,7 +406,7 @@ div[data-nr-variant] {
 
 .nr-header-actions button[aria-label="Search documentation"] kbd {
   border-color: var(--nr-line-strong);
-  border-radius: 5px;
+  border-radius: 0;
   background: transparent;
   color: var(--nr-muted);
   font-family: var(--nr-font-mono);
@@ -452,7 +450,7 @@ div[data-nr-variant] {
   white-space: nowrap;
   padding: 0 2px;
   font-size: 11.5px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
 }
 
 .nr-locale a {
@@ -509,32 +507,15 @@ div[data-nr-variant] {
     gap: 8px;
     padding: 0 10px;
     border: 1px solid var(--nr-line-strong);
-    border-radius: var(--nr-radius-tab);
+    border-radius: var(--nr-radius);
     background: transparent;
     color: var(--nr-fg);
-    font-family: var(--nr-font-mono);
-    font-size: 11px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+    font-size: 13px;
     cursor: pointer;
   }
 
   .nr-menu-button[aria-expanded="true"] {
     background: var(--nr-fill);
-  }
-
-  /* Two rules that close into one. */
-  .nr-menu-icon {
-    position: relative;
-    width: 12px;
-    height: 7px;
-    border-block: 1px solid currentColor;
-    transition: height 0.15s ease;
-  }
-
-  .nr-menu-button[aria-expanded="true"] .nr-menu-icon {
-    height: 1px;
-    border-bottom: 0;
   }
 
   .nr-nav-panel {
@@ -648,8 +629,7 @@ div[data-nr-variant] {
   gap: 8px 24px;
   padding: 16px 0 28px;
   border-top: 1px solid var(--nr-line);
-  font-size: 11.5px;
-  letter-spacing: 0.06em;
+  font-size: 13px;
 }
 
 /*
@@ -662,7 +642,7 @@ div[data-nr-variant] {
   height: 30px;
   overflow: hidden;
   border: 1px solid var(--nr-line);
-  border-radius: var(--nr-radius-tab);
+  border-radius: var(--nr-radius);
   background: var(--nr-panel);
 }
 
@@ -673,7 +653,6 @@ div[data-nr-variant] {
   overflow: hidden;
   padding: 0 8px;
   border: 1px solid var(--nr-line-strong);
-  border-radius: 3px;
   background: var(--nr-raised);
   color: var(--nr-muted);
   font-family: var(--nr-font-mono);
@@ -721,7 +700,7 @@ div[data-nr-variant] {
   font-family: var(--nr-font-mono);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
 }
 
 .nr-rail-tc b {

@@ -20,7 +20,7 @@ export function SidebarDrawer({ label, title, children }: SidebarDrawerProps) {
   const { open, toggle, button, panel, closeOnLink } = useDisclosure();
   return <>
     <button ref={button} type="button" className="nr-drawer-button" aria-expanded={open} aria-controls={id} onClick={toggle}>
-      <span className="nr-drawer-label nr-mono">{label}</span>
+      <span className="nr-drawer-label">{label}</span>
       <span className="nr-drawer-title">{title}</span>
       <span className="nr-drawer-icon" aria-hidden="true" />
     </button>

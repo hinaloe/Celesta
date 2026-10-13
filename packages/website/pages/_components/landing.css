@@ -1,5 +1,5 @@
 /*
- * The landing page (pages/index.tsx) in Noir: a mono eyebrow over a giant solid headline, the
+ * The landing page (pages/index.tsx) in Noir: a blue eyebrow over a giant solid headline, the
  * lead and calls to action on one row, then the rail — a timeline track with a sweeping playhead
  * and the running timecode. Hairline cards on the panel below. Built on the `--nr-*` tokens.
  */
@@ -26,7 +26,7 @@
 .lp code {
   padding: 0.1em 0.38em;
   border: 1px solid var(--nr-line);
-  border-radius: 5px;
+  border-radius: var(--nr-radius);
   background: var(--nr-panel);
   color: var(--nr-fg);
   font-family: var(--nr-font-mono);
@@ -119,17 +119,24 @@
   margin-top: 56px;
 }
 
+/* The rail is a size container, so the playhead moves by the track's width (`cqw`) with a transform. */
+.lp-rail {
+  container-type: inline-size;
+}
+
 .lp-rail .nr-rail-head {
+  left: 0;
+  transform: translateX(38cqw);
   animation: lp-playhead 10s linear infinite;
 }
 
 @keyframes lp-playhead {
   from {
-    left: 0;
+    transform: translateX(0);
   }
 
   to {
-    left: calc(100% - 2px);
+    transform: translateX(calc(100cqw - 2px));
   }
 }
 
@@ -153,10 +160,9 @@
 
 .lp-specs dt {
   color: var(--nr-accent-text);
-  font-family: var(--nr-font-mono);
-  font-size: 11px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .lp-specs dd {
@@ -208,10 +214,8 @@
 
 .lp-eyebrow {
   color: var(--nr-accent-text);
-  font-size: 11.5px;
+  font-size: 13px;
   font-weight: 500;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
 }
 
 .lp-section-top .lp-eyebrow {
@@ -272,9 +276,9 @@
 .lp-feature-number {
   margin-bottom: 12px;
   color: var(--nr-accent-text);
-  font-size: 11px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .lp-feature h3 {
@@ -305,7 +309,7 @@
   transition: color 0.15s ease;
 }
 
-.lp-more span {
+.lp-more .lucide {
   transition: translate 0.2s ease;
 }
 
@@ -313,7 +317,7 @@
   color: var(--nr-accent-text);
 }
 
-.lp-more:hover span {
+.lp-more:hover .lucide {
   translate: 4px 0;
 }
 
@@ -363,7 +367,7 @@
   margin-bottom: 6px;
   padding-left: 10px;
   border: 1px solid var(--nr-line-strong);
-  border-radius: 4px;
+  border-radius: var(--nr-radius);
   background: var(--nr-raised);
   color: var(--nr-muted);
 }
@@ -454,9 +458,10 @@
   display: block;
   margin-bottom: 40px;
   color: var(--nr-accent-text);
-  font-size: 11px;
-  font-weight: 400;
-  letter-spacing: 0.2em;
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 
 /* Get started */
@@ -497,10 +502,11 @@
 }
 
 .lp-steps li > span {
-  padding-top: 5px;
+  padding-top: 3px;
   color: var(--nr-accent-text);
-  font-size: 11px;
-  letter-spacing: 0.2em;
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .lp-steps h3 {

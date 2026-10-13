@@ -1,5 +1,6 @@
 'use client';
 
+import { Download } from 'lucide-react';
 import { useSyncExternalStore, type ReactNode } from 'react';
 import type { DownloadLinks, Platform } from '../../site/downloads.ts';
 
@@ -28,7 +29,7 @@ export interface DownloadButtonProps {
 export function DownloadButton({ links, labels, className = '' }: DownloadButtonProps) {
   const platform = useVisitorPlatform();
   return <a className={`nr-button lp-download ${className}`.trim()} href={platform ? links[platform] : links.all} data-platform={platform ?? undefined}>
-    {platform ? labels[platform] : labels.any} <span aria-hidden="true">↓</span>
+    <Download size={16} strokeWidth={1.75} aria-hidden="true" />{platform ? labels[platform] : labels.any}
   </a>;
 }
 

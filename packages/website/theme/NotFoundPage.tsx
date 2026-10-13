@@ -1,5 +1,6 @@
 import { RouteLink, getHomeRoute, getLocalesData, getSiteData } from '@natsuneko-laboratory/makit-runtime';
 import type { NotFoundPageProps } from '@natsuneko-laboratory/makit-runtime';
+import { ArrowRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { copy, type Locale } from '../site/copy/index.ts';
 import { DocumentTitle } from './DocumentLocale.tsx';
@@ -46,7 +47,7 @@ export async function NotFoundPage({ components: C }: NotFoundPageProps) {
           <p className="nr-eyebrow" aria-hidden="true">404 · --:--:--:--</p>
           <h1>{notFound.heading}</h1>
           <p className="nr-not-found-description">{notFound.description}</p>
-          <RouteLink className="nr-button" href={homes[locale]}>{notFound.back}</RouteLink>
+          <RouteLink className="nr-button" href={homes[locale]}>{notFound.back}<ArrowRight size={16} strokeWidth={1.75} aria-hidden="true" /></RouteLink>
           <div className="nr-not-found-rail" aria-hidden="true">
             <div className="nr-rail"><i className="nr-rail-clip" /><i className="nr-rail-clip" /><i className="nr-rail-clip" /><span className="nr-rail-head" /></div>
             <div className="nr-rail-tc"><span>00:00</span><b>--:--:--:--</b><span>00:10</span></div>

@@ -47,7 +47,7 @@ export function TableOfContents({ headings, minDepth, maxDepth, actions }: Table
 
   if (visible.length === 0) return null;
   return <aside className="nr-toc">
-    {labels && <p id={id} className="nr-toc-title nr-mono">{labels.onThisPage}</p>}
+    {labels && <p id={id} className="nr-toc-title">{labels.onThisPage}</p>}
     <nav aria-labelledby={labels ? id : undefined}>
       <ul className="nr-toc-list">
         {visible.map((heading) => <li key={heading.id} style={{ '--nr-toc-level': heading.depth - minDepth } as CSSProperties}>

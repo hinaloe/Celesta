@@ -1,20 +1,21 @@
 import { getHomeRoute, RouteLink } from '@natsuneko-laboratory/makit-runtime';
 import type { DocsPageProps, GeneratedPage } from '@natsuneko-laboratory/makit-runtime';
-import type { ReactNode } from 'react';
+import { ArrowRight, ChevronRight } from 'lucide-react';
 import { copy, isLocale, type Locale } from '../site/copy/index.ts';
 import { withPackagePath } from '../site/edit-url.ts';
 import { HeaderActions } from './HeaderActions.tsx';
 import { LocaleProvider } from './LocaleContext.tsx';
 
-/** `DOCS / GROUP / PAGE` — the page's ancestors as a monospace strip; the docs root reads "Docs". */
+/** `Docs › Group › Page` — the page's ancestors, separated by chevrons; the docs root reads "Docs". */
 function Trail({ page, docsRoot, locale }: { page: GeneratedPage; docsRoot: string; locale: Locale }) {
   const { common, theme } = copy(locale);
   const label = (title: string, href?: string) => (href === docsRoot ? common.navigation.docs : title);
   const items = page.hierarchy.filter((node) => node.title || node.href).map((node) => ({ title: label(node.title, node.href), href: node.href }));
   if (items.at(-1)?.href !== page.route) items.push({ title: label(page.title, page.route), href: page.route });
-  return <nav className="nr-trail nr-mono" aria-label={theme.docs.breadcrumb}>
+  return <nav className="nr-trail" aria-label={theme.docs.breadcrumb}>
     <ol>
       {items.map((item, index) => <li key={index}>
+        {index > 0 && <ChevronRight size={14} aria-hidden="true" />}
         {index === items.length - 1
           ? <span aria-current="page">{item.title}</span>
           : item.href ? <RouteLink href={item.href}>{item.title}</RouteLink> : <span>{item.title}</span>}
@@ -27,9 +28,9 @@ function Trail({ page, docsRoot, locale }: { page: GeneratedPage; docsRoot: stri
 function PlaygroundCta({ locale }: { locale: Locale }) {
   const { docsCta } = copy(locale);
   return <section className="nr-docs-cta" aria-labelledby="nr-docs-cta">
-    <h2 id="nr-docs-cta">{docsCta.tryItWithoutInstalling((children?: ReactNode) => <em>{children}</em>)}</h2>
+    <h2 id="nr-docs-cta">{docsCta.tryItWithoutInstalling(children => <em>{children}</em>)}</h2>
     <p>{docsCta.thePlaygroundRunsCelestaInYourBrowser}</p>
-    <RouteLink className="nr-button" href={`/${locale}/#playground`}>{docsCta.openThePlayground((children?: ReactNode) => <span aria-hidden="true">{children}</span>)}</RouteLink>
+    <RouteLink className="nr-button" href={`/${locale}/#playground`}>{docsCta.openThePlayground(() => <ArrowRight size={16} strokeWidth={1.75} aria-hidden="true" />)}</RouteLink>
   </section>;
 }
 

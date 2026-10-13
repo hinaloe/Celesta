@@ -1,4 +1,5 @@
 import { RouteLink } from '@natsuneko-laboratory/makit-runtime';
+import { ArrowLeft, ArrowUpRight } from 'lucide-react';
 import { copy, type Locale } from '../../site/copy/index.ts';
 import { repository } from '../../site/links.ts';
 import { showcase } from '../../site/showcase-catalog.ts';
@@ -17,17 +18,17 @@ export function ShowcaseEntry({ slug, locale }: { slug: string; locale: Locale }
 
   return <div className="sc">
     <section className="sc-intro nr-shell" aria-labelledby="showcase-title">
-      <p className="sc-eyebrow nr-mono"><RouteLink href={`/${locale}/showcase/`}>{c.all}</RouteLink></p>
+      <p className="sc-eyebrow"><RouteLink href={`/${locale}/showcase/`}><ArrowLeft size={14} aria-hidden="true" />{c.all}</RouteLink></p>
       <h1 id="showcase-title">{work.title}</h1>
       <p className="sc-lede">{sample.description}</p>
-      <div className="sc-meta nr-mono"><span>{work.duration}</span><a href={source}>{c.credits}</a></div>
+      <div className="sc-meta"><span className="nr-mono">{work.duration}</span><a href={source}>{c.credits}<ArrowUpRight size={14} aria-hidden="true" /></a></div>
     </section>
     {'desktop' in work
       ? <section className="sc-notice nr-shell" aria-labelledby="notice-heading">
         <h2 id="notice-heading">{c.desktopHeading}</h2>
         <p>{sample.limitation}</p>
         <div className="sc-actions">
-          <a className="nr-button" href={source}>{c.setup}</a>
+          <a className="nr-button" href={source}>{c.setup}<ArrowUpRight size={16} strokeWidth={1.75} aria-hidden="true" /></a>
           <RouteLink className="nr-button-secondary" href={`/${locale}/docs/installation/`}>{c.install}</RouteLink>
         </div>
       </section>
@@ -35,7 +36,7 @@ export function ShowcaseEntry({ slug, locale }: { slug: string; locale: Locale }
         <section className="sc-playground nr-shell" aria-label={common.navigation.playground}>
           <PlaygroundMount options={{ kind: 'showcase', slug: work.slug, locale }} fallback={<p className="sc-fallback">{c.metadataNoscript(children => <a href={source}>{children}</a>)}</p>} />
         </section>
-        <div className="sc-edition nr-shell"><p className="sc-note">{c.editionNote} <a href={source}>{c.original}</a></p></div>
+        <div className="sc-edition nr-shell"><p className="sc-note">{c.editionNote} <a href={source}>{c.original} <ArrowUpRight size={14} aria-hidden="true" /></a></p></div>
       </>}
   </div>;
 }

@@ -1,5 +1,5 @@
 /*
- * The showcase pages (pages/showcase/*, ShowcaseEntry) in Noir: a mono eyebrow over a solid
+ * The showcase pages (pages/showcase/*, ShowcaseEntry) in Noir: a blue eyebrow over a solid
  * headline, then a gallery of hairline poster cards, a work's playground, or the desktop notice.
  * Built on the `--nr-*` tokens.
  */
@@ -27,13 +27,14 @@
 
 .sc-eyebrow {
   color: var(--nr-accent-text);
-  font-size: 11.5px;
+  font-size: 13px;
   font-weight: 500;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
 }
 
 .sc-eyebrow a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: inherit;
   text-decoration: none;
 }
@@ -70,12 +71,17 @@
   padding-top: 16px;
   border-top: 1px solid var(--nr-line);
   color: var(--nr-muted);
-  font-size: 11.5px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  font-size: 13px;
+}
+
+.sc-meta .nr-mono {
+  letter-spacing: 0.04em;
 }
 
 .sc-meta a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: var(--nr-fg);
   text-decoration: none;
   transition: color 0.15s ease;
@@ -155,8 +161,9 @@
 .sc-poster span {
   padding: 0 16px;
   color: var(--nr-muted);
-  font-size: clamp(18px, 2.2vw, 26px);
-  letter-spacing: 0.22em;
+  font-size: clamp(20px, 2.4vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
   text-align: center;
 }
 
@@ -167,12 +174,17 @@
   gap: 4px 16px;
   margin: 20px 24px 0;
   color: var(--nr-muted);
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  font-size: 13px;
+}
+
+.sc-card-meta .nr-mono {
+  letter-spacing: 0.04em;
 }
 
 .sc-card-meta [data-kind="run"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: var(--nr-accent-text);
 }
 

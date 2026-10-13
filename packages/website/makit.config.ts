@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@natsuneko-laboratory/makit';
+import { remarkArrowIcons } from './plugins/remark-arrow-icons.ts';
 import { remarkDownloadLinks } from './plugins/remark-download-links.ts';
 import { remarkInclude } from './plugins/remark-include.ts';
 import { repository } from './site/links.ts';
@@ -22,14 +23,14 @@ export default defineConfig({
   header: {
     links: [{ label: 'GitHub', href: repository, external: true }],
   },
-  theme: { extends: './theme', colorScheme: 'system', accentColor: '#3d7bff', radius: 'small' },
+  theme: { extends: './theme', colorScheme: 'system', accentColor: '#3d7bff', radius: 'none' },
   navigation: {
     auto: { numericPrefixes: true },
     pagination: { enabled: true, crossSection: true },
   },
   markdown: {
     code: { copyButton: true },
-    remarkPlugins: [[remarkInclude, { root: fileURLToPath(new URL('.', import.meta.url)) }], remarkDownloadLinks],
+    remarkPlugins: [[remarkInclude, { root: fileURLToPath(new URL('.', import.meta.url)) }], remarkDownloadLinks, remarkArrowIcons],
     // Every token color reaches 4.5:1 on the Noir code panels (one light override in theme/docs.css).
     shiki: { themes: { light: 'github-light-high-contrast', dark: 'github-dark-high-contrast' } },
   },

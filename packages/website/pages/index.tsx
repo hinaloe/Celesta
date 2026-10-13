@@ -1,5 +1,6 @@
 import { RouteLink } from '@natsuneko-laboratory/makit-runtime';
 import type { StaticPageComponentProps } from '@natsuneko-laboratory/makit-runtime';
+import { ArrowRight, ArrowUpRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { copy, isLocale } from '../site/copy/index.ts';
 import { downloadLinks, type Platform } from '../site/downloads.ts';
@@ -13,6 +14,8 @@ const platforms: Platform[] = ['macOS', 'Windows'];
 const br = () => <br />;
 const em = (children?: ReactNode) => <em>{children}</em>;
 const hidden = (children?: ReactNode) => <span aria-hidden="true">{children}</span>;
+const external = () => <ArrowUpRight size={14} aria-hidden="true" />;
+const forward = () => <ArrowRight size={16} strokeWidth={1.75} aria-hidden="true" />;
 
 /** The landing page: hero, playground, features, ideas, and getting started. */
 export default function Landing({ locale: urlLocale }: StaticPageComponentProps) {
@@ -31,7 +34,7 @@ export default function Landing({ locale: urlLocale }: StaticPageComponentProps)
     children => <RouteLink href={docs('installation')}>{children}</RouteLink>,
     hidden,
     children => <a href={links.all}>{children}</a>,
-    hidden,
+    external,
   );
   const variants = { any: alternatives(null), macOS: alternatives('macOS'), Windows: alternatives('Windows') };
 
@@ -40,7 +43,7 @@ export default function Landing({ locale: urlLocale }: StaticPageComponentProps)
       <div className="nr-shell">
         <p className="lp-hero-meta nr-eyebrow">{home.openSourceInActiveDevelopmentTc(
           children => <a className="lp-badge" href={`${repository}/commits`}>{children}</a>,
-          hidden,
+          external,
           () => null,
           () => null,
         )}</p>
@@ -72,7 +75,7 @@ export default function Landing({ locale: urlLocale }: StaticPageComponentProps)
 
     <section id="features" className="lp-section nr-shell" aria-labelledby="features-heading">
       <div className="lp-section-top">
-        <p className="lp-eyebrow nr-mono">{home.whyCelesta}</p>
+        <p className="lp-eyebrow">{home.whyCelesta}</p>
         <div>
           <h2 id="features-heading">{home.everyFrameIsAFunctionCall(br, em)}</h2>
           <p className="lp-section-description">{home.givesYouANumberPositionOpacityAnd(() => <code>useCurrentFrame()</code>)}</p>
@@ -81,10 +84,10 @@ export default function Landing({ locale: urlLocale }: StaticPageComponentProps)
       <div className="lp-features">
         <article className="lp-feature">
           <div className="lp-feature-visual lp-code-visual" aria-hidden="true">{home.yournextidea(children => <span className="nr-mono">{children}</span>, children => <i>{children}</i>, children => <i>{children}</i>)}</div>
-          <span className="lp-feature-number nr-mono">{home['01Compose']}</span>
+          <span className="lp-feature-number">{home['01Compose']}</span>
           <h3>{home.componentsAndHooks}</h3>
           <p>{home.buildScenesFromAndAnimateWithAnd(() => <code>Rect</code>, () => <code>Text</code>, () => <code>Image</code>, () => <code>Group</code>, () => <code>interpolate()</code>)}</p>
-          {docsLink('react-compositions', home.reactCompositions(hidden))}
+          {docsLink('react-compositions', home.reactCompositions(forward))}
         </article>
         <article className="lp-feature">
           <div className="lp-feature-visual lp-track-visual nr-mono" aria-hidden="true">
@@ -94,10 +97,10 @@ export default function Landing({ locale: urlLocale }: StaticPageComponentProps)
             <div className="lp-mini-track">{home.voiceWav}</div>
             <div className="lp-mini-playhead" />
           </div>
-          <span className="lp-feature-number nr-mono">{home.previewStep}</span>
+          <span className="lp-feature-number">{home.previewStep}</span>
           <h3>{home.scrubToAnyFrame}</h3>
           <p>{home.theBrowserPlaygroundPreviewsWithoutSoundThe}</p>
-          {docsLink('preview', home.previewing(hidden))}
+          {docsLink('preview', home.previewing(forward))}
         </article>
         <article className="lp-feature">
           <div className="lp-feature-visual lp-export-visual" aria-hidden="true">
@@ -108,40 +111,40 @@ export default function Landing({ locale: urlLocale }: StaticPageComponentProps)
               <div><dt>{home.frames}</dt><dd>{home['15030Fps']}</dd></div>
             </dl>
           </div>
-          <span className="lp-feature-number nr-mono">{home.exportStep}</span>
+          <span className="lp-feature-number">{home.exportStep}</span>
           <h3>{home.aStandardMp4}</h3>
           <p>{home.h264VideoWithAacAudioReady}</p>
-          {docsLink('export', home.exporting(hidden))}
+          {docsLink('export', home.exporting(forward))}
         </article>
       </div>
     </section>
 
     <section className="lp-section nr-shell" aria-labelledby="ideas-heading">
       <div className="lp-section-top">
-        <p className="lp-eyebrow nr-mono">{home.goodFor}</p>
+        <p className="lp-eyebrow">{home.goodFor}</p>
         <div><h2 id="ideas-heading">{home.videoYouWouldRatherDescribeThanDrag(br, em)}</h2></div>
       </div>
       <ul className="lp-ideas">{[home.ideas.title, home.ideas.dialogue, home.ideas.data, home.ideas.loops].map((idea, i) =>
-        <li key={idea}><span className="nr-mono">{String(i + 1).padStart(2, '0')}</span>{idea}</li>)}</ul>
+        <li key={idea}><span>{String(i + 1).padStart(2, '0')}</span>{idea}</li>)}</ul>
     </section>
 
     <section id="start" className="lp-start" aria-labelledby="start-heading">
       <div className="nr-shell lp-start-card">
         <div className="lp-start-intro">
-          <p className="lp-eyebrow nr-mono">{home.getStarted}</p>
+          <p className="lp-eyebrow">{home.getStarted}</p>
           <h2 id="start-heading">{home.startWithOneFile(br, em)}</h2>
           <p className="lp-section-description">{home.theDesktopAppShipsWithNodeJs}</p>
           {button}
           <DownloadAlternatives variants={variants} />
         </div>
         <div className="lp-steps">
-          <p className="lp-eyebrow nr-mono">{home.setup}</p>
+          <p className="lp-eyebrow">{home.setup}</p>
           <ol>
-            <li><span className="nr-mono">01</span><div><h3>{home.installTheApp}</h3><p>{home.packagesAreAvailableForMacosAndWindows}</p></div></li>
-            <li><span className="nr-mono">02</span><div><h3>{home.writeAComposition}</h3><p>{home.aSingleFileInAnyFolder(() => <code>.tsx</code>)}</p></div></li>
-            <li><span className="nr-mono">03</span><div><h3>{home.openPreviewExport}</h3><p>{home.openTheFileInCelestaItReloads}</p></div></li>
+            <li><span>01</span><div><h3>{home.installTheApp}</h3><p>{home.packagesAreAvailableForMacosAndWindows}</p></div></li>
+            <li><span>02</span><div><h3>{home.writeAComposition}</h3><p>{home.aSingleFileInAnyFolder(() => <code>.tsx</code>)}</p></div></li>
+            <li><span>03</span><div><h3>{home.openPreviewExport}</h3><p>{home.openTheFileInCelestaItReloads}</p></div></li>
           </ol>
-          {docsLink('examples', home.browseTheExamples(hidden))}
+          {docsLink('examples', home.browseTheExamples(forward))}
         </div>
       </div>
     </section>

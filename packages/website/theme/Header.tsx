@@ -1,4 +1,5 @@
 import type { HeaderProps } from '@natsuneko-laboratory/makit-runtime';
+import { Download } from 'lucide-react';
 import { copy } from '../site/copy/index.ts';
 import { downloadLinks } from '../site/downloads.ts';
 import { Brand } from './Brand.tsx';
@@ -25,7 +26,7 @@ export function Header({ header, siteTitle, homeHref, actions }: HeaderProps) {
       <Brand href={homeHref} label={navigation.label} title={header.title ?? siteTitle} />
       <HeaderMenu links={links} download={download} labels={{ menu: navigation.menu, close: navigation.close, main: navigation.main }} />
       {actions && <div className="nr-header-actions">{actions}</div>}
-      <a className="nr-button nr-header-download" href={download.href}>{download.label}</a>
+      <a className="nr-button nr-header-download" href={download.href}><Download size={14} aria-hidden="true" />{download.label}</a>
     </div>
   </header>;
 }

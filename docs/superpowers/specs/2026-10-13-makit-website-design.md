@@ -25,7 +25,7 @@ What the move buys:
 | Playground | Keep it a Vite build ("island") mounted by a client component in static pages. |
 | URLs | Keep `/en/…` and `/ja/…`. Locales are configured as `en` and `ja`. |
 | Legacy URLs | `/docs/<slug>/` goes through Makit's locale gateway (browser language, not forced English). `/docs/#<chapter>` hash redirects are dropped. |
-| Theme | New design, "Noir": white on pure black with one electric blue (`#3d7bff`), solid headlines, Chrome-shaped components, no gradients; light mode follows the OS. Replaced the earlier Tungsten (amber on graphite) design, which the user rejected as too subdued. |
+| Theme | New design, "Noir": white on pure black with one electric blue (`#3d7bff`), solid headlines, Chrome-shaped components with square corners, natural-case labels, lucide icons, no gradients; light mode follows the OS. Replaced the earlier Tungsten (amber on graphite) design, which the user rejected as too subdued. |
 
 ## Layout
 
@@ -56,7 +56,7 @@ packages/website/
 ├── theme/                         # Noir (theme.extends: "./theme")
 ├── playground/                    # Vite island → public/_playground/
 ├── examples/                      # documentation example sources (moved from src/pages/docs/examples)
-├── plugins/remark-include.ts      # code-fence file includes
+├── plugins/                       # remark plugins: file includes, download links, arrow icons
 ├── public/                        # favicon, _headers, built island
 ├── worker.ts, wrangler.jsonc
 └── tests/
@@ -167,6 +167,15 @@ components**, with one hard rule: **no gradients anywhere** (they read as AI-mad
 fills, text, borders, or masks, and no glossy or glowing buttons. Light mode stays and follows the
 OS (`colorScheme: 'system'`).
 
+A refinement round after the user approved the look added four more rules, all binding:
+
+- **No uppercase labels** (they also read as AI-made). Only the wordmark "CELESTA" is set in
+  capitals; every other label is in natural case.
+- **Square corners everywhere** (`--nr-radius: 0`, `theme.radius: 'none'`), including Makit's
+  default parts. The only round shape left is the playground's 6 px status dot.
+- **lucide icons, never arrow or symbol glyphs**, which some platforms draw as emoji.
+- **No letterbox**: the header starts at the very top of the page.
+
 `theme/index.tsx` exports these slots; all others fall back to Makit's defaults:
 
 | Slot | Role |
@@ -174,7 +183,7 @@ OS (`colorScheme: 'system'`).
 | `RootLayout` | `<html>`/`<body>` contract, skip link, font stacks |
 | `Header` | Crescent mark + wordmark, Docs / Showcase / Playground / GitHub as tabs, search, locale switch, theme toggle, download; menu button below 860 px |
 | `Footer` | Links, license, repository |
-| `DocsPage` | Sidebar · article · table of contents grid; breadcrumbs as a mono uppercase strip; playground call to action after the pager |
+| `DocsPage` | Sidebar · article · table of contents grid; breadcrumbs separated by chevron icons; playground call to action after the pager |
 | `Sidebar` | Grouped navigation with a blue active marker; mobile drawer |
 | `PageHeader` | Chapter title and description |
 | `StaticPage` | Header + full-width `<main>` + Footer; `data-pagefind-body` only when `page.search` |
@@ -190,7 +199,11 @@ and are restyled in CSS. Their built-in labels stay English (Makit's messages co
 
 `theme/noir.css` (listed in the theme manifest `styles`) defines the palette as `--nr-*` tokens for
 light and dark and maps them onto `--makit-color-*` (and `--makit-radius`) so Makit's prose and
-default parts follow. Shipped values, with WCAG contrast on `bg` / `panel`:
+default parts follow. Light is the `:root` default; the dark values (and `color-scheme: dark`, which
+the playground's editor reads) apply under `data-theme="dark"`, and under a dark OS while
+`data-theme` is unset (before Makit's script runs, or without JavaScript). The two dark blocks
+carry the same values; `light-dark()` is not used, so older browsers keep the palette. Shipped
+values, with WCAG contrast on `bg` / `panel`:
 
 | Token | Dark | Light | Use |
 | --- | --- | --- | --- |
@@ -216,26 +229,57 @@ faint header-tab fill. The 2 px accent rule reaches 3:1 as non-text UI (3.4:1 on
 Component vocabulary:
 
 - **Atmosphere**: 1 px hairlines; static film grain (an SVG `feTurbulence` data URI at 5–6 %
-  opacity) fixed behind all content with `pointer-events: none`, hidden in print; a 10 px
-  letterbox strip with a bottom hairline above the header.
+  opacity) fixed behind all content with `pointer-events: none`, hidden in print. There is no
+  letterbox strip: the sticky header starts at the top of the page.
 - **Type**: `"Helvetica Neue", ui-sans-serif, system-ui, -apple-system, "Hiragino Sans",
   "Hiragino Kaku Gothic ProN", sans-serif`. Display headings weight 800, tracking −0.045em,
   line height ≈ 0.98, solid `fg`; Japanese headings relax to about −0.02em and 1.12–1.2.
-  Eyebrows, labels, timecodes, and breadcrumbs are monospace capitals with 0.2–0.22em tracking.
-- **Header**: wordmark (700, 0.08em, uppercase) beside the crescent; nav items as rounded tabs
-  (5 × 10 px, 7 px radius), the current section with a faint fill and 1 px inner hairline;
-  search with `⌘K`, `EN / JA`, theme toggle, and a solid `fg` Download button on the right.
+  Eyebrows, section and feature numbers, sidebar captions, breadcrumbs, table heads, and other
+  labels are sans in natural case (12.5–13 px, normal tracking); eyebrows and numbers are
+  `accent-text`. Monospace is kept where it carries meaning: timecodes and the rail's time row,
+  code, keyboard hints (`⌘K`, `Esc`), file names (code-block titles, rail clips, the playground's
+  file bar), durations, and the `EN / JA` codes, at 0.02–0.04em tracking.
+- **Header**: the wordmark (700, 0.08em, the one uppercase label) beside the crescent; nav items
+  as square tabs (5 × 10 px), the current section with a faint fill and 1 px inner hairline;
+  search with `⌘K`, `EN / JA`, theme toggle, and a solid `fg` Download button (download icon
+  first) on the right; below 860 px a square menu button with lucide `Menu` / `X`.
 - **Buttons**: primary is a flat `fg` fill with `on-fg` text; secondary is a hairline border on a
-  faint fill; 8 px radius; no highlight or colored shadow.
-- **Rail** (landing hero, 404): a 30 px track (panel, hairline, 7 px radius) with three clips —
+  faint fill; square; no highlight or colored shadow.
+- **Rail** (landing hero, 404): a 30 px square track (panel, hairline) with three square clips —
   the first solid accent, the others `raised` with a hairline — a 2 px playhead (white in dark,
-  `fg` in light), and a mono timecode row (start · live timecode in `accent-text` · end). Ruler
-  ticks are gone; nothing is drawn with gradients.
-- **Docs**: mono uppercase sidebar captions; active item = 2 px accent left rule on `tint`, `fg`
-  text; breadcrumbs `DOCS / GUIDES / PAGE`; weight-800 headings; code blocks on the panel with a
-  hairline and a 40 px header row (title left, Makit's Copy button right); notes = 2 px accent rule
-  on `tint`; hairline pager cards; the playground call to action as a panel card.
-- Radius 8 px for buttons, cards, and code; 7 px for header tabs and the rail.
+  `fg` in light) that sweeps with `transform: translateX()` in container units, and a mono
+  timecode row (start · live timecode in `accent-text` · end). Nothing is drawn with gradients.
+- **Docs**: sans sidebar captions; active item = 2 px accent left rule on `tint`, `fg` text;
+  breadcrumbs `Docs › Guides › Page` with lucide chevrons; weight-800 headings; code blocks on
+  the panel with a hairline and a 40 px header row (title or language as written, left; Makit's
+  Copy button right); notes = 2 px accent rule on `tint`; hairline pager cards with arrow icons;
+  the playground call to action as a panel card.
+- **Corners**: 0 everywhere — buttons, tabs, search, inputs, cards, code, notes, the rail, the
+  sidebar's active item, dialogs, playground panels, showcase cards, the 404. Makit's default
+  parts that hard-code Tailwind `rounded-*` classes (search dialog, its field, results, and Esc;
+  page actions and their menu; copy button; theme toggle; fallback notice) are squared in
+  `theme/noir.css` and `theme/docs.css`. The playground's status dot is the only circle.
+- **Icons**: `lucide-react`, pinned in `package.json` to the version Makit 0.8.0 depends on
+  (0.468.0), so the theme, the static pages (resolved through Makit's module alias), and the Vite
+  island share one copy. 14 px beside small labels and 16 px (stroke 1.75) in buttons,
+  `aria-hidden`, `currentColor`: `ArrowUpRight` for external links, `ArrowRight` for forward links
+  and calls to action, `ArrowLeft` for back and previous, `Download`, `Menu` / `X`, `ChevronRight`
+  between breadcrumbs, `Play` / `Pause` in the playground. Copy strings carry no glyphs; the slot
+  or the JSX beside the string renders the icon. Makit's search results draw their arrow as a
+  `→` glyph, which CSS hides and replaces with a masked lucide arrow.
+- **Arrows in Markdown**: the sources keep their arrows (`[… on GitHub ↗](…)`, `**Start here →**`,
+  `File → Open…`). `plugins/remark-arrow-icons.ts`, registered after the other remark plugins,
+  replaces each `→ ← ↗ ↓ ↑` in a text node with
+  `<span class="nr-icon nr-icon-<lucide name>" aria-hidden="true">`, inside the link or emphasis
+  that held it. Between words the spaces stay (`File <span> Open…` reads "File Open…" to screen
+  readers, Pagefind, and copy-paste); a glyph at the very start or end of its text node drops the
+  adjacent space and is marked `nr-icon-at-start` / `nr-icon-at-end`, which CSS gives a 0.25em
+  margin on the text side. Inline code and code blocks keep their arrows. `theme/docs.css` draws the spans
+  as 1em lucide outlines with `mask-image` over `currentColor`, and drops Makit's automatic
+  external-link icon from a link that already ends in one. The `.md` endpoints and
+  `llms-full.txt` keep the plain arrows.
+- **Favicon**: the crescent and its star in white (`#ffffff`) on the existing near-black tile, so
+  it reads on light and dark tab strips alike and needs no `prefers-color-scheme` style.
 
 Code blocks use Shiki's `github-dark-high-contrast` / `github-light-high-contrast`. Re-measured on
 the Noir panels (`#0d0d0f` / `#f0f0f2`), every dark token color is ≥ 11:1 and every light one

@@ -1,6 +1,7 @@
 'use client';
 
 import { RouteLink } from '@natsuneko-laboratory/makit-runtime';
+import { ArrowUpRight, Download, Menu, X } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { useId } from 'react';
 import { useDisclosure } from './useDisclosure.ts';
@@ -38,15 +39,15 @@ export function HeaderMenu({ links, download, labels }: HeaderMenuProps) {
 
   return <>
     <button ref={button} type="button" className="nr-menu-button" aria-expanded={open} aria-controls={id} onClick={toggle}>
-      <span className="nr-menu-icon" aria-hidden="true" /><span className="nr-menu-label">{open ? labels.close : labels.menu}</span>
+      {open ? <X size={16} strokeWidth={1.75} aria-hidden="true" /> : <Menu size={16} strokeWidth={1.75} aria-hidden="true" />}<span className="nr-menu-label">{open ? labels.close : labels.menu}</span>
     </button>
     <div ref={panel} id={id} className="nr-nav-panel" data-open={open ? '' : undefined} onClick={closeOnLink}>
       <nav className="nr-nav" aria-label={labels.main}>
         {links.map((link) => link.external
-          ? <a key={link.href} href={link.href}>{link.label} <span aria-hidden="true">↗</span></a>
+          ? <a key={link.href} href={link.href}>{link.label}<ArrowUpRight size={14} aria-hidden="true" /></a>
           : <RouteLink key={link.href} href={link.href} aria-current={link.section ? currentOf(pathname, link.href) : undefined}>{link.label}</RouteLink>)}
       </nav>
-      <a className="nr-button nr-nav-download" href={download.href}>{download.label} <span aria-hidden="true">↓</span></a>
+      <a className="nr-button nr-nav-download" href={download.href}><Download size={16} strokeWidth={1.75} aria-hidden="true" />{download.label}</a>
     </div>
   </>;
 }

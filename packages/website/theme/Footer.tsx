@@ -21,7 +21,7 @@ function FooterBody({ locale }: { locale: Locale }) {
         <a href={`${repository}/issues`}>{footer.issues}</a>
       </nav>
     </div>
-    <div className="nr-footer-bottom nr-mono">
+    <div className="nr-footer-bottom">
       <span>{footer.builtWith}</span>
       <span>{footer.license}</span>
     </div>
