@@ -118,7 +118,10 @@ produces a video that differs between preview and export.
 
 ## Workflow
 
-1. **Find the tools and read what exists.** Locate the Celesta executables
+1. **Find the tools and read what exists.** If the Celesta MCP tools
+   (`inspect`, `render_frames`, …) are available, use them instead of the
+   shell commands below ([setup.md](references/setup.md#use-the-celesta-mcp-server)).
+   Otherwise locate the Celesta executables
    ([setup.md](references/setup.md#find-the-celesta-tools)). Check the entry
    file, any `.celesta.json`, and the media folder. Note the fps and
    dimensions before computing frame numbers. For a new React project,

@@ -25,6 +25,20 @@ impl ReactRuntimeOptions {
         }
     }
 
+    /// The bundled runtime (see `celesta_react_bridge::runtime_paths`) with
+    /// the property values an export of `entry` uses: `props_file`, else the
+    /// entry's `props.json`, with the `props` JSON object on top.
+    pub fn for_entry(
+        entry: &Path,
+        props_file: Option<&Path>,
+        props: Option<&str>,
+    ) -> Result<Self, ExportError> {
+        let (node, cli_script) = celesta_react_bridge::runtime_paths();
+        let properties = PropertyInputs::load_for_entry(entry, props_file, props)
+            .map_err(ExportError::Properties)?;
+        Ok(Self::new(node, cli_script).with_properties(properties))
+    }
+
     #[must_use]
     pub fn with_properties(mut self, properties: PropertyInputs) -> Self {
         self.properties = properties;

@@ -9,6 +9,9 @@ To try React, open a terminal in this directory and run:
 To export the example:
   .\Celesta-export.exe --react .\examples\title.tsx output.mp4
 
+To let a coding agent (Claude Code, Cursor, ...) check and render videos,
+register Celesta-mcp.exe in this directory as an MCP server.
+
 Choose File > Open... in Celesta to preview a project or React composition.
 Keep your projects and media in your own documents directory. The examples
 are starting points; copy them before editing them in a text editor.

@@ -198,9 +198,11 @@ def main():
         build_env["CARGO_TARGET_DIR"] = str(ROOT / "target")
         build_env["CARGO_BUILD_TARGET"] = target
         build_env["RUSTFLAGS"] = build_env.get("RUSTFLAGS", "") + " -C link-arg=-Wl,-headerpad_max_install_names"
-        run("cargo", "build", "--release", "--locked", "-p", "celesta-editor", "-p", "celesta-exporter", env=build_env)
+        run("cargo", "build", "--release", "--locked", "-p", "celesta-editor", "-p", "celesta-exporter",
+            "-p", "celesta-mcp", env=build_env)
     binaries = ROOT / "target" / target / "release"
-    for source, name in (("celesta-editor", "Celesta"), ("celesta-exporter", "Celesta-export")):
+    for source, name in (("celesta-editor", "Celesta"), ("celesta-exporter", "Celesta-export"),
+                         ("celesta-mcp", "Celesta-mcp")):
         shutil.copy2(binaries / source, executables / name)
 
     downloads = ROOT / "target/package-downloads"
@@ -240,12 +242,13 @@ def main():
     frameworks = contents / "Frameworks"
     # Main executables and Node are both one directory below Contents.
     run("dylibbundler", "-b", "-cd", "-ns", "-i", "/System/Library/", "-x", executables / "Celesta",
-        "-x", executables / "Celesta-export", "-x", helpers / "node", "-x", helpers / "esbuild",
+        "-x", executables / "Celesta-export", "-x", executables / "Celesta-mcp", "-x", helpers / "node", "-x", helpers / "esbuild",
         "-d", frameworks, "-p", "@executable_path/../Frameworks/")
     native = macho_files(app)
-    required = {executables / "Celesta", executables / "Celesta-export", helpers / "node", helpers / "esbuild"}
+    required = {executables / "Celesta", executables / "Celesta-export", executables / "Celesta-mcp",
+                helpers / "node", helpers / "esbuild"}
     if not required.issubset(native):
-        raise RuntimeError("The app, exporter, Node.js, and esbuild must all be Mach-O executables")
+        raise RuntimeError("The app, exporter, MCP server, Node.js, and esbuild must all be Mach-O executables")
     minimum = (0, 0)
     for binary in native:
         run("lipo", binary, "-verify_arch", platform.machine())

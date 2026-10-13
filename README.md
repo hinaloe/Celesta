@@ -524,6 +524,23 @@ node skills/celesta/scripts/inspect.mjs packages/cli/examples/title.tsx --frames
 node skills/celesta/scripts/inspect.mjs --psd-layers examples/assets/lipsync-fixture.psd
 ```
 
+### MCP server
+
+`Celesta-mcp`, shipped next to `Celesta-export`, is an
+[MCP](https://modelcontextprotocol.io) server that gives agents the same
+checks as tools: `inspect`, `render_frames` and `contact_sheet` (which
+return the rendered PNGs as images), `export_video` (with progress and
+cancellation), `init_project`, `list_templates`, and `read_docs` (the
+skill's documentation, matching the installed version). Register it with
+your agent, for example with Claude Code:
+
+```sh
+claude mcp add celesta -- /Applications/Celesta.app/Contents/MacOS/Celesta-mcp
+```
+
+On Windows, register `Celesta-mcp.exe` from the install folder; from source,
+build it with `cargo build -p celesta-mcp --release`.
+
 ## Current limitations
 
 - Remote media is cached by URL without revalidation. Use a new URL or clear

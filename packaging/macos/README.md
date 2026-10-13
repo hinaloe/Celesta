@@ -48,6 +48,7 @@ Celesta.app/
     MacOS/
       Celesta
       Celesta-export
+      Celesta-mcp
     Helpers/
       node
       esbuild

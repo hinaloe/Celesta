@@ -20,9 +20,9 @@ fn paths_for(executable: Option<&Path>) -> (PathBuf, PathBuf) {
             );
         }
         let runtime = directory.join("runtime");
-        let packaged_name = executable
-            .and_then(Path::file_stem)
-            .is_some_and(|name| name == "Celesta" || name == "Celesta-export");
+        let packaged_name = executable.and_then(Path::file_stem).is_some_and(|name| {
+            name == "Celesta" || name == "Celesta-export" || name == "Celesta-mcp"
+        });
         if packaged_name || runtime.is_dir() {
             return (
                 runtime.join(if cfg!(windows) { "node.exe" } else { "node" }),
@@ -43,7 +43,7 @@ mod tests {
     #[test]
     fn app_bundle_paths_are_relative_to_the_installed_app_even_if_files_are_missing() {
         let contents = Path::new("Applications/Celesta.app/Contents");
-        for name in ["Celesta", "Celesta-export"] {
+        for name in ["Celesta", "Celesta-export", "Celesta-mcp"] {
             assert_eq!(
                 paths_for(Some(&contents.join("MacOS").join(name))),
                 (
@@ -77,6 +77,21 @@ mod tests {
     fn missing_bundle_does_not_fall_back_to_development_runtime() {
         let root = Path::new("missing-celesta-installation");
         let (_, cli) = paths_for(Some(&root.join("Celesta-export.exe")));
+        assert_eq!(cli, root.join("runtime/react/dist/cli.js"));
+    }
+
+    #[test]
+    fn packaged_mcp_uses_the_runtime_folder() {
+        let root = Path::new("missing-celesta-installation");
+        let (node, cli) = paths_for(Some(&root.join("Celesta-mcp.exe")));
+        assert_eq!(
+            node,
+            root.join(if cfg!(windows) {
+                "runtime/node.exe"
+            } else {
+                "runtime/node"
+            })
+        );
         assert_eq!(cli, root.join("runtime/react/dist/cli.js"));
     }
 }

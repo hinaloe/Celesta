@@ -23,6 +23,11 @@ pub enum FrameSelection {
     /// Exact zero-based composition frames, in this order. Cannot be combined
     /// with an export range.
     Frames(Vec<u64>),
+    /// Exact composition frames where negative numbers count back from the
+    /// end (`-1` is the last frame). Frames that name the same frame once
+    /// resolved are rendered once, in first-seen order. Cannot be combined
+    /// with an export range.
+    FromEnd(Vec<i64>),
     /// Every `n`th frame of the export range (the whole composition without
     /// one) counted from its first frame, plus its last frame when that is
     /// not already on the interval. Frame numbers stay composition frames.
@@ -134,6 +139,37 @@ fn select(
                 return Err(too_many(frames.len() as u64));
             }
             Ok(frames.clone())
+        }
+        FrameSelection::FromEnd(frames) => {
+            if range.is_some() {
+                return Err(invalid(
+                    "PNG frame selection cannot be combined with an export range",
+                ));
+            }
+            let total = frame_count(duration, frame_rate)?;
+            let mut resolved = Vec::with_capacity(frames.len());
+            for &frame in frames {
+                let index = if frame < 0 {
+                    i128::from(total) + i128::from(frame)
+                } else {
+                    i128::from(frame)
+                };
+                let index = u64::try_from(index)
+                    .ok()
+                    .filter(|&index| index < total)
+                    .ok_or_else(|| {
+                        invalid(format!(
+                            "frame {frame} is out of range; composition has {total} frames (zero-based)"
+                        ))
+                    })?;
+                if !resolved.contains(&index) {
+                    resolved.push(index);
+                }
+            }
+            if resolved.len() > limit {
+                return Err(too_many(resolved.len() as u64));
+            }
+            Ok(resolved)
         }
         FrameSelection::Every(0) => Err(invalid("the frame interval must be at least 1")),
         &FrameSelection::Every(step) => {
@@ -680,6 +716,55 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    fn from_end(frames: &[i64], total: i64) -> Result<Vec<u64>, ExportError> {
+        let rate = Rational::new(30, 1);
+        select(
+            &FrameSelection::FromEnd(frames.to_vec()),
+            None,
+            Time::frames(total, rate).unwrap(),
+            rate,
+            None,
+        )
+    }
+
+    #[test]
+    fn from_end_counts_back_from_the_last_frame() {
+        assert_eq!(from_end(&[0, -1, -30], 90).unwrap(), [0, 89, 60]);
+    }
+
+    #[test]
+    fn from_end_rejects_frames_before_the_start() {
+        let error = from_end(&[-91], 90).unwrap_err();
+        assert!(matches!(error, ExportError::InvalidSelection(_)), "{error}");
+        assert!(error.to_string().contains("out of range"), "{error}");
+        assert!(
+            from_end(&[90], 90)
+                .unwrap_err()
+                .to_string()
+                .contains("out of range")
+        );
+    }
+
+    #[test]
+    fn from_end_drops_repeats() {
+        assert_eq!(from_end(&[89, -1], 90).unwrap(), [89]);
+        assert_eq!(from_end(&[0, -1], 1).unwrap(), [0]);
+    }
+
+    #[test]
+    fn from_end_cannot_combine_with_a_range() {
+        let rate = Rational::new(30, 1);
+        let error = select(
+            &FrameSelection::FromEnd(vec![-1]),
+            Some(&ExportRange::from(Time::ZERO)),
+            Time::frames(90, rate).unwrap(),
+            rate,
+            None,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("cannot be combined"), "{error}");
     }
 
     #[test]
