@@ -81,6 +81,7 @@ compositions: no package a composition imports depends on them, though
 | `celesta-gpu-renderer` | wgpu rendering, compositing, readback, and native preview bridge. |
 | `celesta-bench` | GPU export benchmarks driven by `scripts/bench.py`; not published. |
 | `celesta-exporter` | Frame-exact H.264/AAC MP4 export, including React entries. |
+| `celesta-mcp` | `Celesta-mcp`, the MCP server agents use to inspect, render, and export. |
 | `celesta-editor-core` | Read-only document, summaries, scene/audio evaluation, and timeline clock. |
 | `celesta-editor-theme` | Shared desktop theme. |
 | `celesta-editor` | GPUI preview app, playback, read-only panels, and export controls. |

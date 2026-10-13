@@ -1,11 +1,13 @@
 # Setup: tools, new projects, dependencies, TypeScript
 
-Where the Celesta executables are, how to start a new React project, how to
-use npm packages, how to type-check, and how the user previews your work.
+Where the Celesta executables are, how to use the Celesta MCP server, how to
+start a new React project, how to use npm packages, how to type-check, and
+how the user previews your work.
 
 ## Contents
 
 - [Find the Celesta tools](#find-the-celesta-tools)
+- [Use the Celesta MCP server](#use-the-celesta-mcp-server)
 - [Create a React project](#create-a-react-project)
 - [npm dependencies](#npm-dependencies)
 - [Type-check](#type-check)
@@ -36,6 +38,42 @@ use npm packages, how to type-check, and how the user previews your work.
   renders on the CPU, includes the DejaVu and Noto CJK fonts, and mounts the
   project at `/work`.
 - If nothing is found, ask the user where Celesta is installed.
+
+## Use the Celesta MCP server
+
+`Celesta-mcp` is an MCP server (stdio) next to `Celesta-export`. When its
+tools are available to you, prefer them over the shell commands in this
+skill: they return rendered frames as images, need no tool discovery, and
+report progress for long exports.
+
+| Install | Command to register |
+| --- | --- |
+| macOS app | `/Applications/Celesta.app/Contents/MacOS/Celesta-mcp` |
+| Windows | `<install folder>\Celesta-mcp.exe` (next to `Celesta.exe`) |
+| Source checkout | `target/release/celesta-mcp` after `cargo build -p celesta-mcp --release` |
+| Linux container image | `docker run --rm -i -v "$PWD:/work" --entrypoint /opt/celesta/celesta-mcp celesta-exporter` |
+
+For example, with Claude Code:
+
+```sh
+claude mcp add celesta -- /Applications/Celesta.app/Contents/MacOS/Celesta-mcp
+```
+
+| Shell command in this skill | MCP tool |
+| --- | --- |
+| `node inspect.mjs <entry> [--frames …] [--loop]` | `inspect` (`entry`, `frames`, `every`, `loop`) |
+| `Celesta-export --json … --frame/--frames/--every … out.png` | `render_frames` (returns the PNGs as images) |
+| `Celesta-export --json … --every N --contact-sheet out.png` | `contact_sheet` |
+| `Celesta-export --json … out.mp4` | `export_video` |
+| `Celesta --init <folder> [--template <name>]` | `init_project` |
+| `Celesta --list-templates` | `list_templates` |
+| reading these references | `read_docs` (`topic`: `setup`, `animation`, …) |
+
+Tool arguments are camelCase versions of the options (`propsFile`,
+`debugGuides`, `start`/`end` for `--from`/`--to`); a `source` ending in
+`.json` is a JSON project, anything else a React entry. Failed calls return
+the same error `code`s as `--json` ([export.md](export.md#json-results)).
+`inspect.mjs --psd-layers` has no tool; run it in a shell.
 
 ## Create a React project
 
