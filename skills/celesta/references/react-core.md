@@ -280,7 +280,7 @@ readable over light and dark scenes can be drawn in a light color inside
 
 ## Image
 
-`src` (path or URL). PNG, JPEG, WebP, PNM, and SVG are supported.
+`src` (path or URL). PNG, JPEG, WebP, GIF, PNM, and SVG are supported.
 Without dimensions, the image uses its natural size. `width` or `height`
 alone preserves its aspect ratio. Both dimensions stretch to the display box;
 `fit="contain"` centers the whole image with transparent letterboxing, while
@@ -289,6 +289,20 @@ alone preserves its aspect ratio. Both dimensions stretch to the display box;
 ```tsx
 <Image src="./logo.svg" width={432} />
 <Image src="./photo.png" width={800} height={450} fit="cover" />
+```
+
+An animated GIF, APNG, or WebP plays like a `<Video>`: synced to the
+enclosing sequence's clock from its frame 0, each frame shown for its own
+delay (delays of 10 ms or less show for 100 ms, as in browsers), and the same
+frame for the same time however the timeline is scrubbed. `startFrom`
+(seconds into the animation, default 0) and `playbackRate` (default 1) work
+as on `<Video>`; it loops unless `loop={false}`, which holds the last frame.
+Inside `<Static>` it draws its first frame. `preloadMedia()` reports its
+length (see [Media info](#media-info)).
+
+```tsx
+<Image src="./spinner.gif" width={64} />
+<Image src="./intro.webp" startFrom={0.5} playbackRate={2} loop={false} />
 ```
 
 SVGs rasterize at their display size and accumulated transform scale in
@@ -537,7 +551,9 @@ export async function prepare() {
 ```
 
 `preloadMedia(src)` resolves to
-`{ src, durationSeconds?, video?: { width, height, codec?, frameRate?, durationSeconds? }, audio: [{ codec?, sampleRate?, channels?, durationSeconds? }] }`.
+`{ src, durationSeconds?, video?: { width, height, codec?, frameRate?, durationSeconds? }, audio: [{ codec?, sampleRate?, channels?, durationSeconds? }], animation?: { frameCount, durationSeconds } }`.
+`animation` is there for an animated GIF, APNG, or WebP, whose
+`durationSeconds` is then one pass through its frames, as `<Image>` plays it.
 `mediaDurationInFrames(info, fps)` rounds up to whole frames. To lay out a
 whole voiced script this way, use `planDialogue()` (see
 [dialogue.md](dialogue.md#timing-a-script-from-its-voices)).

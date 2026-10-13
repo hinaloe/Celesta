@@ -145,7 +145,7 @@ Limits:
 
 - In Node only, `preloadMedia()` and `planDialogue()` are answered
   with `ffprobe` when it is installed; otherwise `prepare()` fails with a
-  clear message.
+  clear message. `ffprobe` gives no `animation` for an animated image.
 - Entries that render `<ProjectTimeline />`, `<ProjectTrack />`, or
   `useProjectTrack()` need the Rust evaluator and fail here by design;
   verify those with a PNG export using `--project`.
