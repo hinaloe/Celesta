@@ -45,3 +45,15 @@ fn json_reports_a_mismatched_output_format_as_a_usage_error() {
     let report = usage_error(&["--output-format", "mp4", output.to_str().unwrap()]);
     assert_usage_error(&report, "does not match");
 }
+
+#[test]
+fn json_reports_a_png_path_without_frame_selection_as_unsupported_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().join("out.png");
+    let report = usage_error(&[output.to_str().unwrap()]);
+    assert_eq!(report["status"], "error");
+    assert_eq!(report["error"]["code"], "unsupported_output");
+    let hint = report["error"]["hint"].as_str().unwrap();
+    assert!(hint.contains("--frame"), "{hint}");
+    assert!(!output.exists());
+}

@@ -399,13 +399,20 @@ fn output_choice(
             "--debug-guides applies to PNG output; video exports never draw debug guides".into(),
         );
     }
-    let format = VideoFormat::from_extension(cli.output())
-        .ok_or("the output must be a .mp4, .mov or .webm file")?;
-    if let Some(named) = named.filter(|&named| named != format) {
-        return Err(format!(
-            "--output-format {named} does not match the .{format} output"
-        ));
-    }
+    // An output with no video extension is left to the exporter, which reports
+    // it as `unsupported_output`; only a video extension that contradicts
+    // `--output-format` is a usage error.
+    let format = match VideoFormat::from_extension(cli.output()) {
+        Some(format) => {
+            if let Some(named) = named.filter(|&named| named != format) {
+                return Err(format!(
+                    "--output-format {named} does not match the .{format} output"
+                ));
+            }
+            format
+        }
+        None => named.unwrap_or_default(),
+    };
     if format.has_alpha() {
         for (id, flag) in [
             ("preset", "--preset"),
@@ -518,7 +525,17 @@ mod tests {
     #[test]
     fn an_output_format_must_match_the_extension() {
         assert!(error(&["--output-format", "mp4", "out.mov"]).contains("does not match"));
-        assert!(error(&["out.gif"]).contains(".mp4, .mov or .webm"));
+    }
+
+    #[test]
+    fn an_unknown_extension_is_left_to_the_exporter() {
+        // The library reports it as `unsupported_output`, with its PNG hint.
+        assert_eq!(choice(&["out.gif"]), Ok(Some(VideoFormat::Mp4)));
+        assert_eq!(choice(&["out.png"]), Ok(Some(VideoFormat::Mp4)));
+        assert_eq!(
+            choice(&["--output-format", "webm", "out.gif"]),
+            Ok(Some(VideoFormat::Webm))
+        );
     }
 
     #[test]
