@@ -11,7 +11,7 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
-use celesta_exporter::{ExportError, ExportProgress, RenderQuality, VideoEncoding};
+use celesta_exporter::{ExportError, ExportProgress, RenderQuality, VideoEncoding, VideoFormat};
 use ratatui::{
     Frame, Terminal, TerminalOptions, Viewport,
     backend::CrosstermBackend,
@@ -34,6 +34,7 @@ pub struct Settings<'a> {
     pub output: &'a Path,
     pub react: bool,
     pub png: bool,
+    pub format: VideoFormat,
     pub video: VideoEncoding,
     pub render_quality: RenderQuality,
     /// The property file in effect: `props.json (auto)` or the `--props-file` name.
@@ -66,7 +67,7 @@ impl Stage {
             Self::Preparing => "Preparing composition",
             Self::Rendering => "Rendering frames",
             Self::Mixing => "Mixing audio",
-            Self::Muxing => "Muxing MP4",
+            Self::Muxing => "Muxing",
             Self::Complete => "Export complete",
             Self::Failed => "Export failed",
         }
@@ -349,7 +350,11 @@ fn render(frame: &mut Frame, settings: &Settings<'_>, state: &State) {
                     if settings.png {
                         "PNG / LOSSLESS"
                     } else {
-                        "MP4 / H.264 + AAC"
+                        match settings.format {
+                            VideoFormat::Mp4 => "MP4 / H.264 + AAC",
+                            VideoFormat::Mov => "MOV / ProRes 4444 + PCM",
+                            VideoFormat::Webm => "WEBM / VP9 alpha + Opus",
+                        }
                     },
                     Style::new().fg(MUTED),
                 ),
@@ -447,7 +452,11 @@ fn render(frame: &mut Frame, settings: &Settings<'_>, state: &State) {
     let encoding = if settings.png {
         "Lossless RGBA".into()
     } else {
-        format!("{} / CRF {}", settings.video.preset, settings.video.crf)
+        match settings.format {
+            VideoFormat::Mp4 => format!("{} / CRF {}", settings.video.preset, settings.video.crf),
+            VideoFormat::Mov => "ProRes 4444".into(),
+            VideoFormat::Webm => "VP9 CRF 20".into(),
+        }
     };
     let mut profile = vec![
         Line::from(format!(
@@ -462,6 +471,8 @@ fn render(frame: &mut Frame, settings: &Settings<'_>, state: &State) {
         Line::from(format!(" Encode   {encoding}")),
         Line::from(if settings.png {
             " Alpha    preserved".into()
+        } else if settings.format.has_alpha() {
+            " Alpha    straight, BT.709".into()
         } else {
             format!(
                 " Color    {}, {}-bit",
@@ -632,13 +643,17 @@ fn render_compact(frame: &mut Frame, settings: &Settings<'_>, state: &State) {
     let format = if settings.png {
         "PNG stills".to_owned()
     } else {
-        format!(
-            "H.264 / AAC  •  {}  •  CRF {}  •  color {}  •  {}-bit",
-            settings.video.preset,
-            settings.video.crf,
-            settings.video.color_conversion,
-            settings.video.bit_depth
-        )
+        match settings.format {
+            VideoFormat::Mp4 => format!(
+                "H.264 / AAC  •  {}  •  CRF {}  •  color {}  •  {}-bit",
+                settings.video.preset,
+                settings.video.crf,
+                settings.video.color_conversion,
+                settings.video.bit_depth
+            ),
+            VideoFormat::Mov => "ProRes 4444 / PCM  •  straight alpha, BT.709".to_owned(),
+            VideoFormat::Webm => "VP9 alpha / Opus  •  straight alpha, BT.709".to_owned(),
+        }
     };
     frame.render_widget(
         Paragraph::new(vec![
@@ -731,7 +746,7 @@ impl PlainProgress {
             }
             ExportProgress::Muxing => {
                 self.state.update(event);
-                eprintln!("muxing MP4");
+                eprintln!("muxing");
             }
             ExportProgress::Composition(_) | ExportProgress::Wrote(_) => {}
             ExportProgress::Warning(warning) => {
@@ -766,6 +781,7 @@ mod tests {
             output: Path::new("film.mp4"),
             react: true,
             png: false,
+            format: VideoFormat::Mp4,
             video: VideoEncoding::default(),
             render_quality: RenderQuality::default(),
             props: Some("props.json (auto)".to_owned()),
@@ -784,6 +800,34 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect()
+    }
+
+    #[test]
+    fn alpha_formats_name_their_codecs_and_alpha() {
+        for (format, header, encode) in [
+            (VideoFormat::Mov, "MOV / ProRes 4444 + PCM", "ProRes 4444"),
+            (VideoFormat::Webm, "WEBM / VP9 alpha + Opus", "VP9 CRF 20"),
+        ] {
+            let settings = Settings {
+                format,
+                ..settings()
+            };
+            let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+            terminal
+                .draw(|frame| render(frame, &settings, &State::new()))
+                .unwrap();
+            let text: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            assert!(text.contains(header), "{text}");
+            assert!(text.contains(encode), "{text}");
+            assert!(text.contains("Alpha    straight, BT.709"), "{text}");
+            assert!(!text.contains("H.264"), "{text}");
+        }
     }
 
     #[test]
