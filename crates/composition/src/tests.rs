@@ -347,6 +347,7 @@ fn every_tagged_variant_round_trips() {
                 width: set.then_some(10.0),
                 height: set.then_some(20.0),
                 fit: set.then_some(ImageFit::Cover),
+                animation: None,
             },
             LayerContent::Psd {
                 asset: asset(),

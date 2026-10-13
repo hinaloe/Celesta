@@ -1500,6 +1500,7 @@ fn decodes_and_draws_a_real_image() {
                 width: None,
                 height: None,
                 fit: None,
+                animation: None,
                 asset: ResolvedAsset {
                     id: "checker".to_owned(),
                     location: AssetLocation::File {

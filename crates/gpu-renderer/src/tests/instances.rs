@@ -438,6 +438,7 @@ fn image_instances_scale_and_rotate() {
             width: Some(8.0),
             height: Some(8.0),
             fit: None,
+            animation: None,
         },
         ..instances_layer(
             "image",
@@ -566,6 +567,7 @@ fn one_sprite_dimension_keeps_the_images_aspect_ratio() {
             width: Some(8.0),
             height: None,
             fit: None,
+            animation: None,
         },
         ..instances_layer(
             "image",

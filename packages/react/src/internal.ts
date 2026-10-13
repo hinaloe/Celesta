@@ -41,7 +41,7 @@ export { flattenTextContent, sliceTextRuns, withTextRuns } from './rich-text';
 export type { FlatText } from './rich-text';
 
 export { probeMedia, setMediaProbe } from './media';
-export type { MediaAudioInfo, MediaInfo, MediaVideoInfo, ProbedMediaInfo } from './media';
+export type { MediaAnimationInfo, MediaAudioInfo, MediaInfo, MediaVideoInfo, ProbedMediaInfo } from './media';
 
 export { listComponentSchemas, resolveComponent } from './registry';
 export {

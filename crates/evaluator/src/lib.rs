@@ -1,8 +1,9 @@
 //! Evaluation of editor-owned project data into renderer-owned composition data.
 
 use celesta_composition::{
-    Animatable, AssetLocation, AudioClip, AudioGraph, BlendMode, EvaluatedTransform, Layer,
-    LayerContent, LayerEffects, MediaTiming, ResolvedAsset, Scene, TextStyle, Time,
+    Animatable, AssetLocation, AudioClip, AudioGraph, BlendMode, EvaluatedTransform,
+    ImageAnimation, Layer, LayerContent, LayerEffects, MediaTiming, ResolvedAsset, Scene,
+    TextStyle, Time,
 };
 use celesta_project::{
     Asset, AssetSource, LipSyncCue, MouthShape, Project, TimelineContent, TimelineItem, Track,
@@ -206,6 +207,11 @@ impl<'project> Evaluator<'project> {
                 width: *width,
                 height: *height,
                 fit: *fit,
+                // An animated image plays from the clip's start, over and over.
+                animation: Some(ImageAnimation {
+                    source_time_seconds: local_time.as_seconds()?,
+                    r#loop: true,
+                }),
             },
             TimelineContent::Text { text, style } => LayerContent::Text {
                 text: text.clone(),
@@ -270,6 +276,7 @@ impl<'project> Evaluator<'project> {
                     width: None,
                     height: None,
                     fit: None,
+                    animation: None,
                     asset: self.asset(asset)?,
                 },
             });
@@ -300,6 +307,7 @@ impl<'project> Evaluator<'project> {
                             width: None,
                             height: None,
                             fit: None,
+                            animation: None,
                             asset: self.asset(asset)?,
                         },
                     });

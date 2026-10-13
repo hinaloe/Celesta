@@ -1,9 +1,14 @@
 //! Shared raster and SVG decoding and display-box layout for both renderers.
-use celesta_composition::ImageFit;
-use image::{ImageReader, RgbaImage};
+use celesta_composition::{ImageAnimation, ImageFit};
+use image::{
+    AnimationDecoder, ImageFormat, ImageReader, Rgba, RgbaImage,
+    codecs::{gif::GifDecoder, png::PngDecoder, webp::WebPDecoder},
+};
 use resvg::{tiny_skia, usvg};
 use std::{
+    borrow::Cow,
     collections::{HashMap, VecDeque},
+    io::Read,
     path::Path,
     sync::Arc,
 };
@@ -49,7 +54,197 @@ fn keep_recent(renders: &mut VecDeque<Render>, pixels: u64) {
 }
 enum Source {
     Raster(Arc<RgbaImage>),
+    Animated(Animation),
     Svg(Box<usvg::Tree>),
+}
+
+impl Source {
+    fn size(&self) -> (f64, f64) {
+        match self {
+            Source::Raster(image) => (image.width() as f64, image.height() as f64),
+            Source::Animated(animation) => {
+                let (width, height) = animation.frames[0].dimensions();
+                (width as f64, height as f64)
+            }
+            Source::Svg(tree) => (tree.size().width() as f64, tree.size().height() as f64),
+        }
+    }
+}
+
+/// The frames of a GIF, APNG, or animated WebP, each composited onto the
+/// ones before it as its disposal and blending say, so any frame is drawn
+/// without decoding the others again.
+pub struct Animation {
+    pub frames: Vec<Arc<RgbaImage>>,
+    /// When each frame stops showing, in microseconds from the start.
+    pub ends: Vec<u64>,
+}
+
+impl Animation {
+    pub fn duration_seconds(&self) -> f64 {
+        self.ends.last().copied().unwrap_or(0) as f64 / 1e6
+    }
+}
+
+/// How long a frame with a delay of `numer / denom` milliseconds shows, in
+/// microseconds. Delays of 10 ms or less show for 100 ms, as browsers show
+/// them: GIFs saved with no delay expect it.
+pub fn frame_duration_micros(numer: u32, denom: u32) -> u64 {
+    let micros = if denom == 0 {
+        0
+    } else {
+        (u64::from(numer) * 1000 + u64::from(denom) / 2) / u64::from(denom)
+    };
+    if micros <= 10_000 { 100_000 } else { micros }
+}
+
+/// The frame showing `seconds` into an animation whose frames end at `ends`
+/// (microseconds). Before the start it is the first frame; past the end the
+/// animation starts over with `looped` and holds its last frame otherwise.
+/// `@celesta/web` picks frames the same way.
+pub fn animation_frame(ends: &[u64], seconds: f64, looped: bool) -> usize {
+    let total = ends.last().copied().unwrap_or(0);
+    if total == 0 {
+        return 0;
+    }
+    let micros = if seconds.is_finite() && seconds > 0.0 {
+        (seconds * 1e6).round() as u64
+    } else {
+        0
+    };
+    let micros = if looped {
+        micros % total
+    } else if micros >= total {
+        return ends.len() - 1;
+    } else {
+        micros
+    };
+    ends.partition_point(|&end| end <= micros)
+        .min(ends.len() - 1)
+}
+
+/// How many bytes an animation's decoded frames may hold between them.
+const ANIMATION_BYTES: u64 = 1 << 30;
+
+/// Decodes every frame of `data` when it is an animated GIF, APNG, or WebP;
+/// `None` for anything else, including those formats with a single frame.
+pub fn decode_animation(data: &[u8]) -> Result<Option<Animation>, image::ImageError> {
+    let webp;
+    let cursor = |data| std::io::Cursor::new(data);
+    let frames = match image::guess_format(data) {
+        Ok(ImageFormat::Gif) => GifDecoder::new(cursor(data))?.into_frames(),
+        Ok(ImageFormat::Png) => {
+            let decoder = PngDecoder::new(cursor(data))?;
+            if !decoder.is_apng()? {
+                return Ok(None);
+            }
+            decoder.apng()?.into_frames()
+        }
+        Ok(ImageFormat::WebP) => {
+            webp = with_webp_alpha(data);
+            let mut decoder = WebPDecoder::new(cursor(&*webp))?;
+            if !decoder.has_animation() {
+                return Ok(None);
+            }
+            // Disposed frames clear to transparent, as browsers draw them;
+            // without a color the decoder leaves them in place.
+            decoder.set_background_color(Rgba([0, 0, 0, 0]))?;
+            decoder.into_frames()
+        }
+        _ => return Ok(None),
+    };
+    let mut animation = Animation {
+        frames: Vec::new(),
+        ends: Vec::new(),
+    };
+    let mut bytes = 0;
+    let mut end = 0;
+    for frame in frames {
+        let frame = frame?;
+        let (numer, denom) = frame.delay().numer_denom_ms();
+        let pixels = frame.into_buffer();
+        bytes += pixels.as_raw().len() as u64;
+        if bytes > ANIMATION_BYTES {
+            return Err(invalid(
+                "the animated image's frames decode to more than 1 GiB",
+            ));
+        }
+        end += frame_duration_micros(numer, denom);
+        animation.frames.push(Arc::new(pixels));
+        animation.ends.push(end);
+    }
+    Ok((animation.frames.len() > 1).then_some(animation))
+}
+
+/// Whether `data` is an animated GIF, APNG, or WebP, read from its header
+/// (and a GIF's first two frames) without decoding the whole animation.
+pub fn is_animated(data: &[u8]) -> bool {
+    let cursor = std::io::Cursor::new(data);
+    match image::guess_format(data) {
+        Ok(ImageFormat::Gif) => {
+            GifDecoder::new(cursor).is_ok_and(|decoder| decoder.into_frames().take(2).count() == 2)
+        }
+        Ok(ImageFormat::Png) => PngDecoder::new(cursor)
+            .and_then(|decoder| decoder.is_apng())
+            .unwrap_or(false),
+        Ok(ImageFormat::WebP) => {
+            WebPDecoder::new(cursor).is_ok_and(|decoder| decoder.has_animation())
+        }
+        _ => false,
+    }
+}
+
+/// `data`, an extended WebP, marked as having alpha if it is animated. An
+/// animation's canvas is transparent where no frame has drawn yet, or where
+/// one was disposed, even when no frame has alpha of its own; marked
+/// without it, the decoder would return those pixels opaque black.
+fn with_webp_alpha(data: &[u8]) -> Cow<'_, [u8]> {
+    const VP8X_FLAGS: usize = 20;
+    const ALPHA: u8 = 0x10;
+    const ANIMATION: u8 = 0x02;
+    match data.get(VP8X_FLAGS) {
+        Some(&flags)
+            if data.get(12..16) == Some(b"VP8X") && flags & (ALPHA | ANIMATION) == ANIMATION =>
+        {
+            let mut data = data.to_vec();
+            data[VP8X_FLAGS] |= ALPHA;
+            Cow::Owned(data)
+        }
+        _ => Cow::Borrowed(data),
+    }
+}
+
+/// The size, frame count, and duration of an animated image file, or `None`
+/// for anything else.
+pub struct AnimationInfo {
+    pub width: u32,
+    pub height: u32,
+    pub frame_count: usize,
+    pub duration_seconds: f64,
+}
+
+pub fn probe_animation(path: &Path) -> Result<Option<AnimationInfo>, image::ImageError> {
+    // Enough to tell the format, before reading what may be a long video.
+    let mut header = Vec::with_capacity(16);
+    std::fs::File::open(path)?
+        .take(16)
+        .read_to_end(&mut header)?;
+    if !matches!(
+        image::guess_format(&header),
+        Ok(ImageFormat::Gif | ImageFormat::Png | ImageFormat::WebP)
+    ) {
+        return Ok(None);
+    }
+    let data = std::fs::read(path)?;
+    Ok(decode_animation(&data)?.map(|animation| {
+        let (width, height) = animation.frames[0].dimensions();
+        AnimationInfo {
+            width,
+            height,
+            frame_count: animation.frames.len(),
+            duration_seconds: animation.duration_seconds(),
+        }
+    }))
 }
 
 #[derive(Clone)]
@@ -59,6 +254,8 @@ pub struct DisplayImage {
     pub height: f64,
     /// SVG pixels are rasterized at the requested display density.
     pub is_svg: bool,
+    /// Which frame of an animated image this is; 0 for any other image.
+    pub frame: usize,
 }
 
 impl ImageSources {
@@ -91,6 +288,8 @@ impl ImageSources {
             Source::Svg(Box::new(
                 usvg::Tree::from_str(&text, &options).map_err(invalid)?,
             ))
+        } else if let Some(animation) = decode_animation(&data)? {
+            Source::Animated(animation)
         } else {
             Source::Raster(Arc::new(
                 ImageReader::new(std::io::Cursor::new(data))
@@ -111,12 +310,13 @@ impl ImageSources {
         path: &Path,
     ) -> Result<(f64, f64), image::ImageError> {
         self.load(key, path)?;
-        Ok(match &self.sources[key] {
-            Source::Raster(image) => (image.width() as f64, image.height() as f64),
-            Source::Svg(tree) => (tree.size().width() as f64, tree.size().height() as f64),
-        })
+        Ok(self.sources[key].size())
     }
 
+    /// Lays out the image at `key` (loading it from `path` once) in a
+    /// `width` x `height` box, drawing an animated image's frame at
+    /// `animation`.
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         key: &str,
@@ -124,13 +324,25 @@ impl ImageSources {
         width: Option<f64>,
         height: Option<f64>,
         fit: Option<ImageFit>,
+        animation: Option<ImageAnimation>,
         density: f64,
     ) -> Result<DisplayImage, image::ImageError> {
         self.load(key, path)?;
         let source = &self.sources[key];
-        let (sw, sh) = match source {
-            Source::Raster(image) => (image.width() as f64, image.height() as f64),
-            Source::Svg(tree) => (tree.size().width() as f64, tree.size().height() as f64),
+        let (sw, sh) = source.size();
+        let (raster, frame) = match source {
+            Source::Raster(pixels) => (Some(pixels), 0),
+            Source::Animated(frames) => {
+                let frame = animation.map_or(0, |animation| {
+                    animation_frame(
+                        &frames.ends,
+                        animation.source_time_seconds,
+                        animation.r#loop,
+                    )
+                });
+                (Some(&frames.frames[frame]), frame)
+            }
+            Source::Svg(_) => (None, 0),
         };
         let (w, h) = match (width, height) {
             (Some(w), Some(h)) => (w, h),
@@ -142,20 +354,21 @@ impl ImageSources {
             return Err(invalid("image dimensions must be finite and positive"));
         }
         if fit.is_none()
-            && let Source::Raster(pixels) = source
+            && let Some(pixels) = raster
         {
             return Ok(DisplayImage {
                 pixels: pixels.clone(),
                 width: w,
                 height: h,
                 is_svg: false,
+                frame,
             });
         }
         // SVG rasterization follows the
         // complete parent transform, including animated scale and rotation.
         let density = match source {
             Source::Svg(_) => density.max(1.0),
-            Source::Raster(_) => 1.0,
+            Source::Raster(_) | Source::Animated(_) => 1.0,
         };
         let pw = (w * density).ceil();
         let ph = (h * density).ceil();
@@ -168,7 +381,7 @@ impl ImageSources {
             return Err(invalid("image display size exceeds rasterization limits"));
         }
         let (pw, ph) = (pw as u32, ph as u32);
-        let layout = format!("{w}:{h}:{fit:?}");
+        let layout = format!("{w}:{h}:{fit:?}:{frame}");
         let renders = self.rendered.entry(key.to_owned()).or_default();
         // An animated SVG replaces its layout's render at a new resolution
         // instead of keeping one per resolution.
@@ -187,8 +400,19 @@ impl ImageSources {
             None => (sx, sy),
         };
         let (ox, oy) = ((pw as f64 - sw * sx) / 2.0, (ph as f64 - sh * sy) / 2.0);
-        let pixels = match source {
-            Source::Svg(tree) => {
+        let pixels = match (source, raster) {
+            (_, Some(image)) => {
+                let mut output = RgbaImage::new(pw, ph);
+                for (x, y, pixel) in output.enumerate_pixels_mut() {
+                    let x = (x as f64 + 0.5 - ox) / sx;
+                    let y = (y as f64 + 0.5 - oy) / sy;
+                    if x >= 0.0 && y >= 0.0 && x < sw && y < sh {
+                        *pixel = *image.get_pixel(x as u32, y as u32);
+                    }
+                }
+                output
+            }
+            (Source::Svg(tree), None) => {
                 let mut pixmap = tiny_skia::Pixmap::new(pw, ph)
                     .ok_or_else(|| invalid("invalid SVG raster size"))?;
                 resvg::render(
@@ -211,16 +435,8 @@ impl ImageSources {
                 RgbaImage::from_raw(pw, ph, pixmap.take())
                     .ok_or_else(|| invalid("invalid SVG pixels"))?
             }
-            Source::Raster(image) => {
-                let mut output = RgbaImage::new(pw, ph);
-                for (x, y, pixel) in output.enumerate_pixels_mut() {
-                    let x = (x as f64 + 0.5 - ox) / sx;
-                    let y = (y as f64 + 0.5 - oy) / sy;
-                    if x >= 0.0 && y >= 0.0 && x < sw && y < sh {
-                        *pixel = *image.get_pixel(x as u32, y as u32);
-                    }
-                }
-                output
+            (Source::Raster(_) | Source::Animated(_), None) => {
+                unreachable!("raster sources have pixels")
             }
         };
         let image = DisplayImage {
@@ -228,6 +444,7 @@ impl ImageSources {
             width: w,
             height: h,
             is_svg: matches!(source, Source::Svg(_)),
+            frame,
         };
         renders.push_front(Render {
             layout,
@@ -443,7 +660,7 @@ mod tests {
         let path = Path::new("not-read.png");
         let mut render = |fit| {
             cache
-                .render("photo", path, Some(8.0), Some(8.0), Some(fit), 1.0)
+                .render("photo", path, Some(8.0), Some(8.0), Some(fit), None, 1.0)
                 .unwrap()
                 .pixels
         };
@@ -464,6 +681,7 @@ mod tests {
                 width: 1.0,
                 height: 1.0,
                 is_svg: true,
+                frame: 0,
             },
         };
         let layouts = |renders: &VecDeque<Render>| {
@@ -499,7 +717,7 @@ mod tests {
         );
         let path = Path::new("not-read.png");
         let sized = cache
-            .render("photo", path, Some(8.0), None, None, 1.0)
+            .render("photo", path, Some(8.0), None, None, None, 1.0)
             .unwrap();
         assert_eq!((sized.width, sized.height), (8.0, 4.0));
         let contain = cache
@@ -509,6 +727,7 @@ mod tests {
                 Some(4.0),
                 Some(4.0),
                 Some(ImageFit::Contain),
+                None,
                 1.0,
             )
             .unwrap();
@@ -521,6 +740,7 @@ mod tests {
                 Some(2.0),
                 Some(2.0),
                 Some(ImageFit::Cover),
+                None,
                 1.0,
             )
             .unwrap();
@@ -533,6 +753,7 @@ mod tests {
                 Some(2.0),
                 Some(2.0),
                 Some(ImageFit::Cover),
+                None,
                 1.0,
             )
             .unwrap();
@@ -545,13 +766,13 @@ mod tests {
         let mut cache = ImageSources::default();
         assert!(
             cache
-                .render("missing", &path, None, None, None, 1.0)
+                .render("missing", &path, None, None, None, None, 1.0)
                 .is_err()
         );
         std::fs::write(&path, "invalid SVG").unwrap();
         assert!(
             cache
-                .render("invalid", &path, None, None, None, 1.0)
+                .render("invalid", &path, None, None, None, None, 1.0)
                 .is_err()
         );
         cache.insert_raster("size", RgbaImage::new(1, 1));
@@ -564,12 +785,245 @@ mod tests {
                         Some(width),
                         None,
                         Some(ImageFit::Contain),
+                        None,
                         1.0
                     )
                     .is_err()
             );
         }
     }
+    const RED: [u8; 4] = [255, 0, 0, 255];
+    const GREEN: [u8; 4] = [0, 255, 0, 255];
+    const BLUE: [u8; 4] = [0, 0, 255, 255];
+    const CLEAR: [u8; 4] = [0, 0, 0, 0];
+
+    fn at(seconds: f64) -> Option<ImageAnimation> {
+        Some(ImageAnimation {
+            source_time_seconds: seconds,
+            r#loop: true,
+        })
+    }
+
+    /// The pixels of `path`'s frame `seconds` in, a row at a time.
+    fn frame_pixels(path: &Path, seconds: f64) -> Vec<[u8; 4]> {
+        let image = ImageSources::default()
+            .render("animation", path, None, None, None, at(seconds), 1.0)
+            .unwrap();
+        image.pixels.pixels().map(|pixel| pixel.0).collect()
+    }
+
+    #[test]
+    fn picks_the_frame_showing_at_a_time() {
+        let ends = [100_000, 300_000, 400_000];
+        let frame = |seconds, looped| animation_frame(&ends, seconds, looped);
+        assert_eq!(frame(0.0, false), 0);
+        assert_eq!(frame(0.0999, false), 0);
+        assert_eq!(frame(0.1, false), 1);
+        assert_eq!(frame(0.35, false), 2);
+        // Past the end: start over, or hold the last frame.
+        assert_eq!(frame(0.4, true), 0);
+        assert_eq!(frame(0.45, true), 0);
+        assert_eq!(frame(0.75, true), 2);
+        assert_eq!(frame(0.4, false), 2);
+        assert_eq!(frame(10.0, false), 2);
+        for before in [-1.0, f64::NAN, f64::NEG_INFINITY] {
+            assert_eq!(frame(before, true), 0);
+        }
+        assert_eq!(animation_frame(&[], 1.0, true), 0);
+        assert_eq!(animation_frame(&[0, 0], 1.0, true), 0);
+        assert_eq!(animation_frame(&[0, 0], 1.0, false), 0);
+    }
+
+    #[test]
+    fn short_delays_show_as_browsers_show_them() {
+        assert_eq!(frame_duration_micros(0, 1), 100_000);
+        assert_eq!(frame_duration_micros(10, 1), 100_000);
+        assert_eq!(frame_duration_micros(20, 1), 20_000);
+        // An APNG frame of 1/30 s.
+        assert_eq!(frame_duration_micros(100, 3), 33_333);
+        assert_eq!(frame_duration_micros(1, 0), 100_000);
+    }
+
+    /// A 3x1 GIF exercising every disposal method.
+    fn write_gif(path: &Path) {
+        let palette = [255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0];
+        let mut file = std::fs::File::create(path).unwrap();
+        let mut encoder = gif::Encoder::new(&mut file, 3, 1, &palette).unwrap();
+        let frames: [(u16, &[u8], gif::DisposalMethod, u16); 4] = [
+            (0, &[0, 0, 0], gif::DisposalMethod::Keep, 5),
+            (1, &[1], gif::DisposalMethod::Previous, 5),
+            (2, &[2], gif::DisposalMethod::Background, 5),
+            // A transparent pixel, saved with no delay.
+            (0, &[3], gif::DisposalMethod::Keep, 0),
+        ];
+        for (left, buffer, dispose, delay) in frames {
+            encoder
+                .write_frame(&gif::Frame {
+                    left,
+                    width: buffer.len() as u16,
+                    height: 1,
+                    buffer: buffer.into(),
+                    dispose,
+                    delay,
+                    transparent: Some(3),
+                    ..gif::Frame::default()
+                })
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn composites_gif_frames_through_their_disposal() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dispose.gif");
+        write_gif(&path);
+        let animation = decode_animation(&std::fs::read(&path).unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(animation.ends, [50_000, 100_000, 150_000, 250_000]);
+        assert_eq!(frame_pixels(&path, 0.0), [RED, RED, RED]);
+        // Drawn over the first frame, then put back.
+        assert_eq!(frame_pixels(&path, 0.05), [RED, GREEN, RED]);
+        assert_eq!(frame_pixels(&path, 0.1), [RED, RED, BLUE]);
+        // The blue pixel cleared; the transparent one shows what is below.
+        assert_eq!(frame_pixels(&path, 0.2), [RED, RED, CLEAR]);
+        // Scrubbing back gives the same frame again.
+        assert_eq!(frame_pixels(&path, 0.25 + 0.05), [RED, GREEN, RED]);
+    }
+
+    #[test]
+    fn composites_apng_frames_through_their_disposal_and_blending() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("blend.png");
+        let file = std::fs::File::create(&path).unwrap();
+        let mut encoder = png::Encoder::new(file, 2, 1);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_animated(2, 0).unwrap();
+        let mut writer = encoder.write_header().unwrap();
+        writer.set_frame_delay(1, 10).unwrap();
+        writer.set_dispose_op(png::DisposeOp::Background).unwrap();
+        writer.set_blend_op(png::BlendOp::Source).unwrap();
+        writer.write_image_data(&[RED, CLEAR].concat()).unwrap();
+        writer.set_frame_dimension(1, 1).unwrap();
+        writer.set_frame_position(1, 0).unwrap();
+        writer.set_frame_delay(1, 4).unwrap();
+        writer.set_dispose_op(png::DisposeOp::None).unwrap();
+        writer.set_blend_op(png::BlendOp::Over).unwrap();
+        writer.write_image_data(&GREEN).unwrap();
+        writer.finish().unwrap();
+        assert_eq!(frame_pixels(&path, 0.0), [RED, CLEAR]);
+        assert_eq!(frame_pixels(&path, 0.1), [CLEAR, GREEN]);
+        // 350 ms long: 0.4 s loops back into the first frame.
+        assert_eq!(frame_pixels(&path, 0.4), [RED, CLEAR]);
+    }
+
+    #[test]
+    fn disposes_animated_webp_frames_to_transparent() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/two-frames.webp");
+        let red = [RED, RED, CLEAR, CLEAR];
+        assert_eq!(frame_pixels(&path, 0.0), [red, red].concat());
+        // The first frame was disposed to the background, which the file
+        // gives as opaque white; browsers clear it to transparent. The blue
+        // frame blends over that as libwebp blends it, a level darker.
+        let blue = [CLEAR, CLEAR, [0, 0, 254, 255], [0, 0, 254, 255]];
+        assert_eq!(frame_pixels(&path, 0.1), [blue, blue].concat());
+        let info = probe_animation(&path).unwrap().unwrap();
+        assert_eq!(
+            (
+                info.width,
+                info.height,
+                info.frame_count,
+                info.duration_seconds
+            ),
+            (4, 2, 2, 0.35)
+        );
+    }
+
+    #[test]
+    fn holds_the_last_frame_without_looping_and_draws_the_first_without_a_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dispose.gif");
+        write_gif(&path);
+        let mut cache = ImageSources::default();
+        let mut frame = |animation| {
+            cache
+                .render("gif", &path, Some(6.0), None, None, animation, 1.0)
+                .unwrap()
+                .frame
+        };
+        assert_eq!(frame(None), 0);
+        assert_eq!(frame(at(0.3)), 1);
+        let hold = ImageAnimation {
+            source_time_seconds: 0.3,
+            r#loop: false,
+        };
+        assert_eq!(frame(Some(hold)), 3);
+    }
+
+    #[test]
+    fn fits_each_frame_of_an_animation_into_its_box() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dispose.gif");
+        write_gif(&path);
+        let mut cache = ImageSources::default();
+        let mut render = |seconds| {
+            cache
+                .render(
+                    "gif",
+                    &path,
+                    Some(1.0),
+                    Some(1.0),
+                    Some(ImageFit::Cover),
+                    at(seconds),
+                    1.0,
+                )
+                .unwrap()
+                .pixels
+                .get_pixel(0, 0)
+                .0
+        };
+        // Cover crops the 3x1 frame to its middle pixel.
+        assert_eq!(render(0.0), RED);
+        assert_eq!(render(0.05), GREEN);
+        assert_eq!(render(0.0), RED);
+    }
+
+    #[test]
+    fn tells_animated_images_from_still_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let gif = dir.path().join("dispose.gif");
+        write_gif(&gif);
+        let webp = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/two-frames.webp");
+        let read = |path: &Path| std::fs::read(path).unwrap();
+        assert!(is_animated(&read(&gif)));
+        assert!(is_animated(&read(&webp)));
+        let mut png = Vec::new();
+        RgbaImage::new(1, 1)
+            .write_to(&mut std::io::Cursor::new(&mut png), ImageFormat::Png)
+            .unwrap();
+        assert!(!is_animated(&png));
+        assert!(!is_animated(b"<svg/>"));
+    }
+
+    #[test]
+    fn loads_a_single_frame_gif_as_a_still_image() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("still.gif");
+        let mut file = std::fs::File::create(&path).unwrap();
+        let mut encoder = gif::Encoder::new(&mut file, 1, 1, &[0, 0, 255]).unwrap();
+        encoder
+            .write_frame(&gif::Frame {
+                width: 1,
+                height: 1,
+                buffer: [0].as_slice().into(),
+                ..gif::Frame::default()
+            })
+            .unwrap();
+        drop(encoder);
+        assert!(probe_animation(&path).unwrap().is_none());
+        assert_eq!(frame_pixels(&path, 1.0), [BLUE]);
+    }
+
     #[test]
     fn resolves_nested_css_fallbacks() {
         assert_eq!(
@@ -583,7 +1037,7 @@ mod tests {
         let path = dir.path().join("logo.svg");
         std::fs::write(&path, r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="var(--fill, white)" opacity="0.5"/></svg>"#).unwrap();
         let result = ImageSources::default()
-            .render("logo", &path, Some(40.0), None, None, 2.0)
+            .render("logo", &path, Some(40.0), None, None, None, 2.0)
             .unwrap();
         assert_eq!(
             (result.width, result.height, result.pixels.dimensions()),

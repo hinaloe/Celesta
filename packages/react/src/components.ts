@@ -131,6 +131,19 @@ export interface ImageProps extends CommonProps {
   fit?: 'contain' | 'cover';
   src: AssetInput;
   name?: string;
+  /**
+   * An animated GIF, APNG, or WebP plays synced to the enclosing sequence's
+   * own clock from its frame 0, showing each frame for its own delay. These
+   * props are ignored for a still image, and inside `<Static>`, which draws
+   * the first frame.
+   *
+   * Seconds into the animation playback starts from. Defaults to 0.
+   */
+  startFrom?: number;
+  /** Speed relative to the enclosing sequence's clock. Defaults to 1. */
+  playbackRate?: number;
+  /** Starts over after the last frame instead of holding it. Defaults to true. */
+  loop?: boolean;
 }
 
 export interface TextProps extends Omit<CommonProps, 'anchorY'> {

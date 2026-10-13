@@ -383,6 +383,37 @@ fn prepare_can_preload_media_metadata_when_node_is_available() {
 }
 
 #[test]
+fn animated_images_report_their_length_and_play_when_node_is_available() {
+    let Some((node, cli_script, package_root)) = live_react_runtime() else {
+        return;
+    };
+
+    let entry = package_root.join("examples/with-animated-image.tsx");
+    let mut bridge = ReactBridge::spawn(&node, &cli_script, &entry).unwrap();
+    // `preloadMedia()` reads the GIF's 2 s.
+    assert_eq!(bridge.metadata().duration_in_frames, 60);
+
+    let animation = |layer: &Layer| match &layer.content {
+        LayerContent::Image { animation, .. } => {
+            animation.map(|animation| (animation.source_time_seconds, animation.r#loop))
+        }
+        content => panic!("not an image: {content:?}"),
+    };
+    let scene = bridge.scene_at(Time::new(45, 30)).unwrap();
+    let layers = all_layers(&scene.layers);
+    assert!(layers.iter().any(|layer| matches!(
+        &layer.content,
+        LayerContent::Text { text, .. } if text == "8 frames, 2 s"
+    )));
+    let images: Vec<_> = layers
+        .iter()
+        .filter(|layer| matches!(layer.content, LayerContent::Image { .. }))
+        .map(|layer| animation(layer))
+        .collect();
+    assert_eq!(images, [Some((1.5, true)), Some((1.0, false))]);
+}
+
+#[test]
 fn debug_guides_render_in_component_preview_or_when_asked_when_node_is_available() {
     let Some((node, cli_script, package_root)) = live_react_runtime() else {
         return;

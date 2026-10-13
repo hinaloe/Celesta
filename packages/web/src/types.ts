@@ -43,7 +43,7 @@ export type LayerContent =
   | { type: 'rect'; width: number; height: number; fill?: Paint | null; stroke?: Stroke | null; cornerRadius: number }
   | { type: 'path'; commands: PathCommand[]; fill?: Paint | null; stroke?: Stroke | null; lineCap?: 'butt' | 'round' | 'square'; lineJoin?: 'miter' | 'round' | 'bevel'; miterLimit?: number }
   | { type: 'text'; text: string; style: TextStyle; maxWidth?: number | null; baselineAnchor?: boolean }
-  | { type: 'image'; asset: Asset; width?: number; height?: number; fit?: 'contain' | 'cover' }
+  | { type: 'image'; asset: Asset; width?: number; height?: number; fit?: 'contain' | 'cover'; animation?: { sourceTimeSeconds: number; loop: boolean } }
   | { type: 'video'; asset: Asset; timing: { sourceTimeSeconds: number } }
   | { type: 'psd'; asset: Asset }
   | { type: 'missingComponent'; component: string; props: Record<string, unknown> };

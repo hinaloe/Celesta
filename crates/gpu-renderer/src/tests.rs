@@ -25,9 +25,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 use celesta_composition::{
-    AssetLocation, BlendMode, Clip, EvaluatedTransform, GroupMask, Layer, LayerContent,
-    LayerShadow, MaskMode, MediaTiming, Paint, Point, Rational, ResolvedAsset, Scene, Stroke,
-    TextStyle, Time,
+    AssetLocation, BlendMode, Clip, EvaluatedTransform, GroupMask, ImageAnimation, ImageFit, Layer,
+    LayerContent, LayerShadow, MaskMode, MediaTiming, Paint, Point, Rational, ResolvedAsset, Scene,
+    Stroke, TextStyle, Time,
 };
 use celesta_media::{MediaError, VideoFrame, VideoFrameDecoder};
 
@@ -190,6 +190,7 @@ fn seeded_image(renderer: &mut GpuRenderer, id: &str, x: f64, rgba: [u8; 4]) -> 
             width: None,
             height: None,
             fit: None,
+            animation: None,
             asset: ResolvedAsset {
                 id: id.to_owned(),
                 location: AssetLocation::File {
@@ -3305,6 +3306,7 @@ fn svg_display_size_and_animated_scale_match_cpu() {
             width: Some(20.0),
             height: None,
             fit: None,
+            animation: None,
         },
     });
     let mut cpu = celesta_renderer::CpuRenderer::default();
@@ -3315,6 +3317,64 @@ fn svg_display_size_and_animated_scale_match_cpu() {
         let difference = max_channel_difference(&actual, &expected);
         assert!(difference <= 1, "scale {scale}: difference {difference}");
         assert_eq!(pixel_at(&actual, 50, 50), [255, 255, 255, 255]);
+    }
+}
+
+#[test]
+fn animated_images_draw_the_frame_at_their_time_as_the_cpu_does() {
+    let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+        return;
+    };
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../renderer/tests/fixtures/two-frames.webp");
+    let mut scene = empty_scene(40, 20);
+    let image = |fit, seconds| LayerContent::Image {
+        asset: ResolvedAsset {
+            id: "two-frames".to_owned(),
+            location: AssetLocation::File {
+                path: path.to_string_lossy().into_owned(),
+            },
+        },
+        width: Some(40.0),
+        height: Some(20.0),
+        fit,
+        animation: Some(ImageAnimation {
+            source_time_seconds: seconds,
+            r#loop: true,
+        }),
+    };
+    scene.layers.push(Layer {
+        id: "animation".to_owned(),
+        transform: EvaluatedTransform {
+            anchor: Point { x: 0.0, y: 0.0 },
+            ..Default::default()
+        },
+        opacity: 1.0,
+        blend_mode: BlendMode::Normal,
+        effects: Default::default(),
+        content: image(None, 0.0),
+    });
+    let mut cpu = celesta_renderer::CpuRenderer::default();
+    // The first frame is red on the left; the second, blue on the right,
+    // over the background where the other was. Each is drawn again on the
+    // way back, with and without a fit.
+    for (fit, seconds, blue) in [
+        (None, 0.0, false),
+        (None, 0.1, true),
+        (None, 0.35, false),
+        (Some(ImageFit::Contain), 0.1, true),
+        (Some(ImageFit::Contain), 0.0, false),
+    ] {
+        scene.layers[0].content = image(fit, seconds);
+        let gpu = renderer.render(&scene).unwrap();
+        let cpu = cpu.render(&scene).unwrap();
+        // Inside the enlarged texels: between them, and at the image's
+        // edges, the GPU filters and the CPU does not.
+        for pixels in [cpu.pixels(), gpu.pixels()] {
+            let at = |x: usize| &pixels[(10 * 40 + x) * 4..][..4];
+            let (red, blue_side) = (at(7)[0] == 255, at(32)[2] >= 254);
+            assert_eq!((red, blue_side), (!blue, blue), "{fit:?} {seconds} s");
+        }
     }
 }
 
@@ -3589,6 +3649,7 @@ fn decodes_and_rotates_a_nested_image_on_the_gpu() {
                     width: None,
                     height: None,
                     fit: None,
+                    animation: None,
                     asset: ResolvedAsset {
                         id: "checker".to_owned(),
                         location: AssetLocation::File {
@@ -3754,6 +3815,7 @@ fn shrinks_images_and_video_frames_larger_than_the_texture_limit() {
             width: None,
             height: None,
             fit: None,
+            animation: None,
             asset: asset("split", "split.png"),
         },
     });
@@ -4245,6 +4307,7 @@ fn image_layer(
             width: None,
             height: None,
             fit: None,
+            animation: None,
         },
     }
 }
@@ -5307,6 +5370,7 @@ fn an_image_masks_a_group_by_luminance() {
             width: None,
             height: None,
             fit: None,
+            animation: None,
             asset: ResolvedAsset {
                 id: "checker".to_owned(),
                 location: AssetLocation::File {

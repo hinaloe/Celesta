@@ -48,7 +48,7 @@ export const movedExports = {
     'TextRevealProps', 'Typewriter', 'TypewriterOptions', 'fitText', 'useCountUp', 'useFitText', 'useTypewriter',
   ],
   '@celesta/debug': ['DebugBounds', 'DebugBoundsProps', 'DebugOverlay', 'DebugOverlayProps'],
-  '@celesta/media-utils': ['MediaAudioInfo', 'MediaInfo', 'MediaVideoInfo', 'mediaDurationInFrames', 'preloadMedia'],
+  '@celesta/media-utils': ['MediaAnimationInfo', 'MediaAudioInfo', 'MediaInfo', 'MediaVideoInfo', 'mediaDurationInFrames', 'preloadMedia'],
   '@celesta/character': [
     'BlinkPhase', 'BlinkTiming', 'Character', 'CharacterLipSync', 'CharacterPortrait', 'CharacterProps',
     'CharacterSubtitle', 'CharacterView', 'CharacterViewProps', 'CharacterViewReference', 'Dialogue', 'DialogueLine',

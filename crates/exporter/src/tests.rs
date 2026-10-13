@@ -350,6 +350,7 @@ fn absolutizes_assets_inside_a_groups_mask() {
             width: None,
             height: None,
             fit: None,
+            animation: None,
         },
     };
     let mut layers = vec![Layer {

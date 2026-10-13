@@ -77,7 +77,7 @@ impl CpuRenderer {
                 let density = state.scale.x.abs().max(state.scale.y.abs()) * largest;
                 let display = self
                     .image_sources
-                    .render(&asset.id, &path, None, None, None, density)
+                    .render(&asset.id, &path, None, None, None, None, density)
                     .map_err(decode_error)?;
                 Some((display, natural))
             }

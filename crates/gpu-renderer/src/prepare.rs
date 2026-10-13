@@ -15,8 +15,8 @@ use crate::texture::{rasterize_texts, text_jobs};
 use crate::transform::{Affine, CLIP_ENTRY_SIZE, ClipEntry, LayerState, MAX_CLIP_DEPTH};
 use crate::types::RenderQuality;
 use celesta_composition::{
-    BlendMode, Clip, ImageFit, InstanceShape, Layer, LayerContent, LayerEffects, Point,
-    ResolvedAsset, Scene,
+    BlendMode, Clip, ImageAnimation, ImageFit, InstanceShape, Layer, LayerContent, LayerEffects,
+    Point, ResolvedAsset, Scene,
 };
 use celesta_renderer::image_source::{fit_within, resize_rgba};
 use celesta_renderer::{
@@ -510,12 +510,14 @@ impl GpuRenderer {
                 width,
                 height,
                 fit,
+                animation,
             } => {
                 let (texture, display_width, display_height) = self.image_texture(
                     asset,
                     *width,
                     *height,
                     *fit,
+                    *animation,
                     largest_stretch(state.transform),
                     false,
                 )?;
@@ -801,7 +803,7 @@ impl GpuRenderer {
                             .fold(1.0, f64::max);
                         let density = largest_stretch(state.transform) * largest;
                         let (texture, _, _) =
-                            self.image_texture(asset, None, None, None, density, true)?;
+                            self.image_texture(asset, None, None, None, None, density, true)?;
                         PreparedInstanceShape::Image(texture)
                     }
                 };
@@ -984,13 +986,14 @@ impl GpuRenderer {
         width: Option<f64>,
         height: Option<f64>,
         fit: Option<ImageFit>,
+        animation: Option<ImageAnimation>,
         density: f64,
         svg_mipmaps: bool,
     ) -> Result<(LayerTexture, f64, f64), GpuRenderError> {
         let path = self.local_asset_path(asset)?;
         let display = self
             .image_sources
-            .render(&asset.id, &path, width, height, fit, density)
+            .render(&asset.id, &path, width, height, fit, animation, density)
             .map_err(|source| GpuRenderError::ImageDecode {
                 asset: asset.id.clone(),
                 source,
@@ -1009,11 +1012,12 @@ impl GpuRenderer {
             // Both sizes: SVG rasterized at different densities can shrink to
             // the same texture size from different pixels.
             format!(
-                "image\0{}\0{:?}\0{:?}\0{:?}\0{}x{}\0{}x{}\0{}",
+                "image\0{}\0{:?}\0{:?}\0{:?}\0{}\0{}x{}\0{}x{}\0{}",
                 asset.id,
                 width,
                 height,
                 fit,
+                display.frame,
                 display.pixels.width(),
                 display.pixels.height(),
                 texture_width,

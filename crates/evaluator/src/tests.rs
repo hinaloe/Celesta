@@ -1,5 +1,5 @@
 use crate::Evaluator;
-use celesta_composition::{Animatable, BlendMode, Scene};
+use celesta_composition::{Animatable, BlendMode, ImageAnimation, Scene};
 
 use celesta_composition::{
     Keyframe, KeyframeAnimation, KeyframeAnimationType, LayerContent, LayerFilter, Time,
@@ -401,4 +401,29 @@ fn returns_missing_components_as_placeholder_layers() {
         scene.layers[0].content,
         LayerContent::MissingComponent { .. }
     ));
+}
+
+#[test]
+fn an_image_item_plays_an_animation_from_its_own_start_and_loops() {
+    let mut project = example();
+    let item = &mut project.tracks[0].items[0];
+    item.content = TimelineContent::Image {
+        asset: "akane-default".to_owned(),
+        width: None,
+        height: None,
+        fit: None,
+    };
+    let evaluator = Evaluator::new(&project).unwrap();
+    // The item starts at 5 s.
+    let scene = evaluator.scene_at(Time::new(13, 2)).unwrap();
+    let LayerContent::Image { animation, .. } = &scene.layers[0].content else {
+        panic!("an image item must evaluate to an image layer");
+    };
+    assert_eq!(
+        *animation,
+        Some(ImageAnimation {
+            source_time_seconds: 1.5,
+            r#loop: true,
+        })
+    );
 }

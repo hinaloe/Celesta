@@ -6,6 +6,7 @@
 //! pipe, following the same "one long-lived process instead of one process
 //! per frame" shape as `celesta-media`'s sequential video decoding session.
 
+mod animated_images;
 mod audio;
 mod bridge;
 mod error;
