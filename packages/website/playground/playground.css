@@ -1,0 +1,580 @@
+/*
+ * The playground island, on the Noir tokens (`--nr-*`, theme/noir.css) so it follows the
+ * site's light and dark schemes. Every selector is scoped to `.pg` or a `pg-` class; the host
+ * page's styles and these never meet.
+ */
+
+.pg {
+  --pg-mono: var(--nr-font-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+  /* 5.6:1 on the light background, 5.1:1 on the light panel. */
+  --pg-error: #b33526;
+  color: var(--nr-fg);
+  font-family: var(--nr-font-sans, system-ui, sans-serif);
+}
+
+:root[data-theme="dark"] .pg {
+  --pg-error: #ff7a6b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .pg {
+    --pg-error: #ff7a6b;
+  }
+}
+
+.pg *,
+.pg *::before,
+.pg *::after {
+  box-sizing: border-box;
+}
+
+:where(.pg) p,
+:where(.pg) h2 {
+  margin: 0;
+}
+
+/* Resets carry no class weight, so every `pg-` rule below wins over them. */
+:where(.pg) button,
+:where(.pg) select,
+:where(.pg) input {
+  font: inherit;
+  color: inherit;
+}
+
+:where(.pg) button {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.pg button:disabled,
+.pg input:disabled,
+.pg select:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.pg button:focus-visible,
+.pg select:focus-visible,
+.pg input[type="range"]:focus-visible,
+.pg-file-action:focus-within {
+  outline: 2px solid var(--nr-accent-text);
+  outline-offset: 2px;
+}
+
+/* Heading row: label · title · hint */
+
+.pg-top {
+  display: grid;
+  grid-template-columns: 3fr 7fr 2fr;
+  gap: 24px;
+  margin-bottom: 40px;
+  padding-top: 20px;
+  border-top: 1px solid var(--nr-line);
+}
+
+.pg-eyebrow {
+  padding-top: 6px;
+  color: var(--nr-accent-text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.pg-hint {
+  color: var(--nr-muted);
+  font-size: 13px;
+}
+
+.pg-top h2 {
+  color: var(--nr-fg);
+  font-size: clamp(30px, 3.8vw, 50px);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+:lang(ja) .pg-top h2 {
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+}
+
+.pg-top h2 em {
+  color: var(--nr-muted);
+  font-style: normal;
+}
+
+.pg-hint {
+  align-self: end;
+  justify-self: end;
+  text-align: right;
+}
+
+/* Studio frame */
+
+.pg-studio {
+  overflow: hidden;
+  border: 1px solid var(--nr-line-strong);
+  border-radius: var(--nr-radius, 0);
+  background: var(--nr-panel);
+}
+
+.pg-bar {
+  display: flex;
+  height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--nr-line-strong);
+  color: var(--nr-muted);
+  font-family: var(--pg-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+}
+
+.pg-bar > span:first-child {
+  overflow: hidden;
+  color: var(--nr-fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pg-bar-state {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The status light: a flat blue dot (the island's one round shape). */
+.pg-lamp {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--nr-accent);
+}
+
+.pg-main {
+  display: grid;
+  grid-template-columns: 42% 58%;
+}
+
+/* Source */
+
+.pg-source {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border-right: 1px solid var(--nr-line-strong);
+  background: var(--nr-bg);
+}
+
+.pg-files {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--nr-line);
+  color: var(--nr-muted);
+  font-size: 12px;
+}
+
+.pg-files label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.pg-files select {
+  min-width: 0;
+  max-width: 260px;
+  padding: 5px 6px;
+  border: 1px solid var(--nr-line-strong);
+  border-radius: var(--nr-radius, 0);
+  background: var(--nr-panel);
+  color: var(--nr-fg);
+  font-family: var(--pg-mono);
+  font-size: 12px;
+}
+
+.pg-files button {
+  flex-shrink: 0;
+  color: var(--nr-muted);
+}
+
+.pg-files button:hover {
+  color: var(--nr-fg);
+}
+
+.pg-source-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--nr-line);
+  color: var(--nr-muted);
+  font-size: 13px;
+}
+
+.pg-source-heading b {
+  margin-right: 10px;
+  padding: 1px 5px;
+  border: 1px solid var(--nr-line-strong);
+  border-radius: var(--nr-radius, 0);
+  color: var(--nr-accent-text);
+  font-family: var(--pg-mono);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.pg-link-button {
+  color: var(--nr-muted);
+  font-size: 13px;
+  text-decoration: underline;
+  text-decoration-color: var(--nr-line-strong);
+  text-underline-offset: 3px;
+}
+
+.pg-link-button:hover {
+  color: var(--nr-fg);
+  text-decoration-color: currentColor;
+}
+
+.pg-source-scroll {
+  position: relative;
+  min-height: 0;
+  flex: 1 1 0;
+  contain: size;
+}
+
+.pg-editor {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pg-editor-loading {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  color: var(--nr-muted);
+  font-size: 13px;
+}
+
+.pg-source-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding: 10px 16px;
+  border-top: 1px solid var(--nr-line);
+  color: var(--nr-muted);
+  font-size: 12px;
+}
+
+.pg-source-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.pg-source-footer button,
+.pg-file-action {
+  gap: 6px;
+  color: var(--nr-muted);
+  font-size: 12px;
+}
+
+.pg-source-footer button:hover,
+.pg-file-action:hover {
+  color: var(--nr-fg);
+}
+
+.pg-file-action {
+  position: relative;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pg-file-action input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+
+/* Text-style controls keep at least a 24 px tall target (WCAG 2.2 target size). */
+.pg-link-button,
+.pg-files button,
+.pg-source-footer button,
+.pg-file-action,
+.pg-export > button:not(.pg-button) {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+}
+
+/* Preview */
+
+.pg-preview {
+  min-width: 0;
+  padding: 16px 20px;
+}
+
+.pg-preview-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: var(--nr-muted);
+  font-size: 12px;
+}
+
+/* The size and frame rate, beside the label. */
+.pg-preview-heading > span:last-child {
+  font-family: var(--pg-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pg-scene {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius, 0);
+  background: var(--nr-bg);
+}
+
+.pg-transport {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 14px 0;
+}
+
+.pg-play {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  place-items: center;
+  border: 1px solid var(--nr-line-strong);
+  border-radius: var(--nr-radius, 0);
+  color: var(--nr-fg);
+}
+
+.pg-play:not(:disabled):hover {
+  border-color: var(--nr-fg);
+  background: var(--nr-fill);
+}
+
+.pg-transport input {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--nr-accent);
+  cursor: pointer;
+}
+
+.pg-timecode {
+  color: var(--nr-muted);
+  font-family: var(--pg-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pg-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--nr-line);
+  color: var(--nr-muted);
+  font-size: 12px;
+}
+
+.pg-tools > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pg-export {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--nr-line);
+}
+
+.pg-export > button:not(.pg-button) {
+  color: var(--nr-muted);
+  font-size: 13px;
+}
+
+.pg-export > button:not(.pg-button):hover {
+  color: var(--nr-fg);
+}
+
+.pg-export progress {
+  flex: 1;
+  accent-color: var(--nr-accent);
+}
+
+/* The primary action, as Noir's flat `fg` button. */
+.pg-button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid var(--nr-fg);
+  border-radius: var(--nr-radius, 0);
+  background: var(--nr-fg);
+  color: var(--nr-on-fg);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.pg-button:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--nr-fg) 84%, var(--nr-bg));
+  background: color-mix(in srgb, var(--nr-fg) 84%, var(--nr-bg));
+}
+
+.pg-status {
+  min-height: 18px;
+  margin-top: 12px;
+  color: var(--nr-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* Compiler and runtime messages keep their columns. */
+.pg-status.is-error {
+  color: var(--pg-error);
+  font-family: var(--pg-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.pg-audio-note {
+  color: var(--nr-muted);
+  font-size: 12px;
+}
+
+.pg-caption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 14px;
+  color: var(--nr-muted);
+  font-size: 13px;
+}
+
+.pg-caption > span {
+  font-size: 13px;
+}
+
+/* Showcase source loading */
+
+.pg-loading {
+  padding-block: 40px 120px;
+  color: var(--nr-muted);
+}
+
+@media (max-width: 900px) {
+  .pg-top {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .pg-hint {
+    justify-self: start;
+    text-align: left;
+  }
+
+  .pg-main {
+    grid-template-columns: 1fr;
+  }
+
+  .pg-preview {
+    grid-row: 1;
+  }
+
+  .pg-source {
+    border-top: 1px solid var(--nr-line-strong);
+    border-right: 0;
+  }
+
+  .pg-source-scroll {
+    height: 360px;
+    flex: none;
+    overflow: hidden;
+    contain: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .pg-top {
+    margin-bottom: 28px;
+  }
+
+  .pg-hint {
+    display: none;
+  }
+
+  .pg-preview {
+    padding: 14px;
+  }
+
+  .pg-source-scroll {
+    height: 320px;
+  }
+
+  .pg-source-heading,
+  .pg-source-footer,
+  .pg-files {
+    padding-inline: 14px;
+  }
+
+  .pg-source-footer {
+    flex-wrap: wrap;
+  }
+
+  .pg-files {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .pg-files label {
+    width: 100%;
+  }
+
+  .pg-files select {
+    max-width: 100%;
+    flex: 1;
+  }
+
+  .pg-bar {
+    padding-inline: 12px;
+    font-size: 11px;
+  }
+
+  .pg-caption > span {
+    display: none;
+  }
+}

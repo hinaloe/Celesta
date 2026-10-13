@@ -13,20 +13,35 @@
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "types": [
+      "node",
       "vite/client"
     ],
     "jsx": "react-jsx",
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "paths": {
+      "react": [
+        "./node_modules/@types/react"
+      ],
+      "react/*": [
+        "./node_modules/@types/react/*"
+      ],
+      "react-dom": [
+        "./node_modules/@types/react-dom"
+      ],
+      "react-dom/*": [
+        "./node_modules/@types/react-dom/*"
+      ]
+    }
   },
   "include": [
-    "src",
+    "site",
+    "pages",
+    "theme",
+    "playground",
     "plugins",
-    "vite.config.ts",
-    "worker.ts",
-    "worker-configuration.d.ts"
+    "makit.config.ts"
   ],
   "exclude": [
-    "src/pages/docs/examples",
-    "src/features/playground/demo/title-scene.tsx"
+    "playground/demo/title-scene.tsx"
   ]
 }

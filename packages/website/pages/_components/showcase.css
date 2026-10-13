@@ -1,0 +1,352 @@
+/*
+ * The showcase pages (pages/showcase/*, ShowcaseEntry) in Noir: a blue eyebrow over a solid
+ * headline, then a gallery of hairline poster cards, a work's playground, or the desktop notice.
+ * Built on the `--nr-*` tokens.
+ */
+
+.sc {
+  padding-bottom: 112px;
+  overflow-x: clip;
+}
+
+/* Zero-specificity resets, so every rule below wins over them. */
+:where(.sc) :where(h1, h2, p, ul) {
+  margin: 0;
+}
+
+:where(.sc) ul {
+  padding: 0;
+  list-style: none;
+}
+
+/* Intro */
+
+.sc-intro {
+  padding-top: 64px;
+}
+
+.sc-eyebrow {
+  color: var(--nr-accent-text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.sc-eyebrow a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.sc-eyebrow a:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.sc h1 {
+  max-width: 14ch;
+  margin-top: 22px;
+  color: var(--nr-fg);
+  font-size: clamp(46px, 7.4vw, 104px);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+}
+
+.sc-lede {
+  max-width: 56ch;
+  margin-top: 28px;
+  color: var(--nr-soft);
+  font-size: 18px;
+  line-height: 1.6;
+}
+
+.sc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--nr-line);
+  color: var(--nr-muted);
+  font-size: 13px;
+}
+
+.sc-meta .nr-mono {
+  letter-spacing: 0.04em;
+}
+
+.sc-meta a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--nr-fg);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.sc-meta a:hover {
+  color: var(--nr-accent-text);
+}
+
+/* Gallery */
+
+.sc-gallery {
+  margin-top: 56px;
+}
+
+.sc-note {
+  max-width: 78ch;
+  color: var(--nr-muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.sc-note a {
+  color: var(--nr-fg);
+  text-underline-offset: 3px;
+}
+
+.sc-note a:hover {
+  color: var(--nr-accent-text);
+}
+
+.sc-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 32px;
+}
+
+.sc-card {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  background: var(--nr-panel);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.15s ease;
+}
+
+.sc-card:hover {
+  border-color: var(--nr-line-strong);
+}
+
+.sc-poster {
+  display: grid;
+  aspect-ratio: 16 / 9;
+  place-items: center;
+  overflow: hidden;
+  border-bottom: 1px solid var(--nr-line);
+  background: var(--nr-bg);
+}
+
+.sc-poster img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: scale 0.3s ease;
+}
+
+.sc-card:hover .sc-poster img {
+  scale: 1.03;
+}
+
+.sc-poster span {
+  padding: 0 16px;
+  color: var(--nr-muted);
+  font-size: clamp(20px, 2.4vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  text-align: center;
+}
+
+.sc-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin: 20px 24px 0;
+  color: var(--nr-muted);
+  font-size: 13px;
+}
+
+.sc-card-meta .nr-mono {
+  letter-spacing: 0.04em;
+}
+
+.sc-card-meta [data-kind="run"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--nr-accent-text);
+}
+
+.sc-card h2 {
+  margin: 10px 24px 0;
+  color: var(--nr-fg);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+
+.sc-card p {
+  margin: 10px 24px 24px;
+  color: var(--nr-soft);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* A work: playground, edition note, desktop notice */
+
+.sc-playground {
+  margin-top: 56px;
+}
+
+.sc-fallback {
+  padding: 24px;
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  background: var(--nr-panel);
+  color: var(--nr-muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.sc-fallback a {
+  color: var(--nr-fg);
+}
+
+.sc-edition {
+  margin-top: 24px;
+}
+
+.sc-notice {
+  margin-top: 56px;
+  padding: 40px;
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  background: var(--nr-panel);
+}
+
+.sc-notice h2 {
+  color: var(--nr-fg);
+  font-size: clamp(30px, 3.6vw, 48px);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+.sc-notice p {
+  max-width: 56ch;
+  margin-top: 16px;
+  color: var(--nr-soft);
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.sc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 32px;
+}
+
+/* Japanese needs line height; long words do not break. */
+
+:lang(ja) .sc h1 {
+  max-width: none;
+  font-size: clamp(40px, 6.4vw, 88px);
+  letter-spacing: -0.02em;
+  line-height: 1.12;
+  word-break: auto-phrase;
+}
+
+:lang(ja) .sc-lede,
+:lang(ja) .sc-notice p {
+  line-height: 1.85;
+}
+
+:lang(ja) .sc-note,
+:lang(ja) .sc-card p {
+  line-height: 1.8;
+}
+
+:lang(ja) .sc-card h2,
+:lang(ja) .sc-notice h2 {
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+/* Narrower screens */
+
+@media (max-width: 1023px) {
+  .sc-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 859px) {
+  .sc-intro {
+    padding-top: 48px;
+  }
+}
+
+@media (max-width: 639px) {
+  .sc {
+    padding-bottom: 80px;
+  }
+
+  .sc-intro {
+    padding-top: 32px;
+  }
+
+  .sc h1 {
+    margin-top: 20px;
+    font-size: clamp(40px, 13vw, 64px);
+  }
+
+  :lang(ja) .sc h1 {
+    font-size: clamp(34px, 10.4vw, 52px);
+  }
+
+  .sc-lede {
+    margin-top: 20px;
+    font-size: 17px;
+  }
+
+  .sc-gallery,
+  .sc-playground,
+  .sc-notice {
+    margin-top: 40px;
+  }
+
+  .sc-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sc-notice {
+    padding: 24px;
+  }
+
+  .sc-actions > * {
+    flex: 1 1 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sc-poster img {
+    transition: none;
+  }
+
+  .sc-card:hover .sc-poster img {
+    scale: none;
+  }
+}

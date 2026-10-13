@@ -1,0 +1,1060 @@
+/*
+ * Noir documentation: the docs grid, the sidebar and its drawer, the trail, the chapter header,
+ * Markdown prose, and Makit's default parts (table of contents, pager, search dialog).
+ * Loaded after `noir.css`; uses its `--nr-*` tokens.
+ */
+
+/* Layout: sidebar · article · contents from 1100 px, sidebar · article from 860 px */
+
+.nr-docs {
+  flex: 1;
+}
+
+.nr-docs-main {
+  min-width: 0;
+  padding: 28px 0 72px;
+}
+
+.nr-docs-main:focus {
+  outline: none;
+}
+
+.nr-docs-main > article {
+  max-width: 760px;
+}
+
+.nr-docs-toc {
+  display: none;
+}
+
+@media (min-width: 860px) {
+  .nr-docs {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    column-gap: 48px;
+  }
+
+  .nr-docs[data-sidebar] {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .nr-docs-main {
+    padding: 44px 0 96px;
+  }
+}
+
+@media (min-width: 1100px) {
+  .nr-docs[data-toc] {
+    grid-template-columns: minmax(0, 1fr) 200px;
+  }
+
+  .nr-docs[data-sidebar][data-toc] {
+    grid-template-columns: 220px minmax(0, 1fr) 200px;
+  }
+
+  .nr-docs-toc {
+    display: block;
+    border-left: 1px solid var(--nr-line);
+  }
+}
+
+/* Sidebar: group captions, the active page as a blue rule on a faint blue wash */
+
+.nr-sidebar-nav {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.nr-sidebar-nav ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nr-sidebar-group,
+.nr-sidebar-list + .nr-sidebar-group,
+.nr-sidebar-group + .nr-sidebar-list {
+  margin-top: 26px;
+}
+
+.nr-sidebar-nav > :first-child {
+  margin-top: 0;
+}
+
+.nr-sidebar-caption {
+  margin: 0 0 6px;
+  padding-left: 12px;
+  color: var(--nr-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.nr-sidebar-caption a {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+}
+
+.nr-sidebar-nav a {
+  display: block;
+  padding: 5px 10px;
+  border-left: 2px solid transparent;
+  border-radius: 0 var(--nr-radius) var(--nr-radius) 0;
+  color: var(--nr-muted);
+  text-decoration: none;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.nr-sidebar-nav a:hover {
+  color: var(--nr-fg);
+}
+
+.nr-sidebar-nav a[aria-current="page"] {
+  border-left-color: var(--nr-accent);
+  background: var(--nr-tint);
+  color: var(--nr-fg);
+  font-weight: 600;
+}
+
+/* A package's sub-pages, hung from a hairline under the package page. */
+.nr-sidebar-nav .nr-sidebar-children {
+  margin: 2px 0 4px 12px;
+  border-left: 1px solid var(--nr-line);
+}
+
+.nr-sidebar-children a {
+  margin-left: -1px;
+  font-size: 13.5px;
+}
+
+@media (min-width: 860px) {
+  .nr-sidebar {
+    position: sticky;
+    top: var(--nr-header-height);
+    align-self: start;
+    height: calc(100vh - var(--nr-header-height));
+    height: calc(100dvh - var(--nr-header-height));
+    overflow-y: auto;
+    padding: 36px 16px 48px 0;
+    border-right: 1px solid var(--nr-line);
+    overscroll-behavior: contain;
+  }
+
+  .nr-drawer-button {
+    display: none;
+  }
+}
+
+/* Below 860 px: a sticky bar naming the current page, with the navigation as its drawer. */
+@media (max-width: 859px) {
+  html:has(.nr-sidebar) {
+    scroll-padding-top: calc(var(--nr-header-height) + 44px + 16px);
+  }
+
+  .nr-sidebar {
+    position: sticky;
+    top: var(--nr-header-height);
+    z-index: 30;
+    margin-inline: -16px;
+    border-bottom: 1px solid var(--nr-line);
+    background: color-mix(in srgb, var(--nr-bg) 88%, transparent);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    backdrop-filter: blur(16px) saturate(1.4);
+  }
+
+  .nr-drawer-button {
+    display: flex;
+    width: 100%;
+    min-height: 44px;
+    align-items: center;
+    gap: 12px;
+    padding: 0 16px;
+    border: 0;
+    background: transparent;
+    color: var(--nr-fg);
+    font: inherit;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .nr-drawer-button:focus-visible {
+    outline-offset: -2px;
+  }
+
+  .nr-drawer-label {
+    flex-shrink: 0;
+    color: var(--nr-accent-text);
+    font-size: 12.5px;
+  }
+
+  .nr-drawer-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* A chevron that turns up when the drawer is open. */
+  .nr-drawer-icon {
+    width: 7px;
+    height: 7px;
+    flex-shrink: 0;
+    margin: -4px 4px 0 0;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    rotate: 45deg;
+    transition: rotate 0.15s ease, margin 0.15s ease;
+  }
+
+  .nr-drawer-button[aria-expanded="true"] .nr-drawer-icon {
+    margin-top: 4px;
+    rotate: -135deg;
+  }
+
+  .nr-drawer-panel {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: 0;
+    display: none;
+    max-height: calc(100vh - var(--nr-header-height) - 45px);
+    max-height: calc(100dvh - var(--nr-header-height) - 45px);
+    overflow-y: auto;
+    padding: 16px 16px 28px;
+    border-bottom: 1px solid var(--nr-line);
+    background: var(--nr-bg);
+    box-shadow: 0 24px 32px -24px rgb(0 0 0 / 0.4);
+    overscroll-behavior: contain;
+  }
+
+  .nr-drawer-panel[data-open] {
+    display: block;
+    animation: nr-drop 0.16s ease-out;
+  }
+
+  .nr-drawer-panel .nr-sidebar-nav a {
+    padding-block: 9px;
+    font-size: 15px;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 859px) {
+  .nr-sidebar {
+    margin-inline: -24px;
+  }
+
+  .nr-drawer-button,
+  .nr-drawer-panel {
+    padding-inline: 24px;
+  }
+}
+
+/* Trail: Docs › Group › Page, with lucide chevrons between */
+
+.nr-trail ol {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 0 18px;
+  padding: 0;
+  color: var(--nr-muted);
+  font-size: 13px;
+  line-height: 1.6;
+  list-style: none;
+}
+
+.nr-trail li {
+  display: inline-flex;
+  align-items: center;
+}
+
+.nr-trail li > .lucide {
+  margin: 0 6px;
+  color: var(--nr-line-strong);
+}
+
+.nr-trail a {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.nr-trail a:hover {
+  color: var(--nr-fg);
+}
+
+.nr-trail [aria-current] {
+  color: var(--nr-accent-text);
+}
+
+/* Chapter header */
+
+.nr-page-header {
+  margin-bottom: 36px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--nr-line);
+}
+
+.nr-page-header h1 {
+  margin: 0;
+  color: var(--nr-fg);
+  font-size: clamp(34px, 4.6vw, 50px);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+:lang(ja) .nr-page-header h1 {
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.nr-page-header p {
+  max-width: 60ch;
+  margin: 14px 0 0;
+  color: var(--nr-soft);
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+/* Prose */
+
+.makit-prose {
+  --tw-prose-body: var(--nr-soft);
+  --tw-prose-headings: var(--nr-fg);
+  --tw-prose-links: var(--nr-accent-text);
+  --tw-prose-bold: var(--nr-fg);
+  --tw-prose-counters: var(--nr-muted);
+  --tw-prose-bullets: var(--nr-muted);
+  --tw-prose-hr: var(--nr-line);
+  --tw-prose-quotes: var(--nr-fg);
+  --tw-prose-quote-borders: var(--nr-line-strong);
+  --tw-prose-code: var(--nr-fg);
+  --tw-prose-th-borders: var(--nr-line-strong);
+  --tw-prose-td-borders: var(--nr-line);
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+.makit-prose :is(h2, h3, h4) {
+  color: var(--nr-fg);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.makit-prose h2 {
+  margin: 2.4em 0 0.7em;
+  font-size: 26px;
+  line-height: 1.2;
+}
+
+.makit-prose h3 {
+  margin: 2em 0 0.6em;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+}
+
+.makit-prose h4 {
+  margin: 1.8em 0 0.5em;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+:lang(ja) .makit-prose :is(h2, h3, h4) {
+  letter-spacing: -0.01em;
+}
+
+.makit-prose > :first-child {
+  margin-top: 0;
+}
+
+.makit-prose a {
+  color: var(--nr-accent-text);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--nr-accent-text) 40%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.22em;
+}
+
+.makit-prose a:hover {
+  color: var(--nr-accent-text);
+  text-decoration-color: var(--nr-accent-text);
+}
+
+.makit-prose :not(pre) > code,
+.makit-prose kbd {
+  padding: 0.12em 0.4em;
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  background: var(--nr-panel);
+  color: var(--nr-fg);
+  font-family: var(--nr-font-mono);
+  font-size: 0.86em;
+  font-weight: 500;
+}
+
+.makit-prose kbd {
+  border-bottom-width: 2px;
+  box-shadow: none;
+}
+
+.makit-prose :is(ul, ol) > li::marker {
+  color: var(--nr-muted);
+}
+
+.makit-prose ol > li::marker {
+  font-family: var(--nr-font-mono);
+  font-size: 0.9em;
+}
+
+.makit-prose blockquote:not(.makit-alert) {
+  border-left: 2px solid var(--nr-line-strong);
+  color: var(--nr-muted);
+  font-style: normal;
+  font-weight: 400;
+}
+
+.makit-prose blockquote:not(.makit-alert) p::before,
+.makit-prose blockquote:not(.makit-alert) p::after {
+  content: none;
+}
+
+.makit-prose hr {
+  border-color: var(--nr-line);
+}
+
+/* Tables: muted column heads, hairline rows, scrolling inside a framed box on narrow screens. */
+.makit-prose .makit-table-wrapper {
+  margin: 1.6em 0;
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+}
+
+.makit-prose .makit-table-wrapper > table {
+  /* Makit sizes tables to their content; let long descriptions wrap instead. */
+  width: 100%;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.makit-prose th {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--nr-line);
+  background: var(--nr-panel);
+  color: var(--nr-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.makit-prose td {
+  padding: 10px 14px;
+  vertical-align: top;
+}
+
+.makit-prose tbody tr {
+  border-bottom-color: var(--nr-line);
+}
+
+.makit-prose tbody tr:last-child {
+  border-bottom: 0;
+}
+
+.makit-prose td:first-child > code:only-child {
+  white-space: nowrap;
+}
+
+/*
+ * Code blocks: the panel with a hairline, and a 40 px header row — the file name (or language) in
+ * monospace on the left, Makit's Copy button on the right — over Shiki's GitHub high-contrast colors.
+ */
+.makit-prose pre.shiki {
+  margin: 1.6em 0;
+  padding: calc(40px + 1rem) 1.25rem 1.1rem;
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  background: var(--nr-panel) !important;
+  box-shadow: none;
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+
+.makit-prose pre.shiki code {
+  font-family: var(--nr-font-mono);
+}
+
+.makit-prose pre.shiki::before {
+  right: 84px;
+  height: 40px;
+  overflow: hidden;
+  padding: 0 1rem;
+  color: var(--nr-muted);
+  font-family: var(--nr-font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  /* Makit sets the language label in capitals; Noir keeps it as written (`tsx`, `sh`). */
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.makit-prose pre.shiki[data-filename]::before {
+  letter-spacing: 0.02em;
+}
+
+.makit-prose pre.shiki::after {
+  top: 40px;
+  background: var(--nr-line);
+}
+
+/*
+ * Makit applies the Shiki dark colors (--shiki-dark) only under `:root[data-theme=dark]`. When
+ * `data-theme` is never set (JavaScript off, or site storage blocked) a dark OS still gets the dark
+ * panel from noir.css, so the same dark colors are applied here for that case.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) pre.shiki,
+  :root:not([data-theme]) pre.shiki span {
+    color: var(--shiki-dark) !important;
+  }
+}
+
+/*
+ * On the panels (#f0f0f2 / #0d0d0f) every token color of github-light-high-contrast and
+ * github-dark-high-contrast reaches 4.5:1 except the light comment grey #66707b (4.43:1), which is
+ * darkened to #5a626c (5.43:1). Makit 0.9 only takes bundled Shiki theme names, so this is CSS.
+ * Light only: on the dark panel the dark colors above apply.
+ */
+:root[data-theme="light"] pre.shiki span[style*="color:#66707B" i] {
+  color: #5a626c !important;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) pre.shiki span[style*="color:#66707B" i] {
+    color: #5a626c !important;
+  }
+}
+
+.makit-prose pre.shiki .line.highlighted {
+  background: color-mix(in srgb, var(--nr-accent) 14%, transparent);
+}
+
+.makit-prose .makit-copy-button {
+  top: 7px;
+  right: 8px;
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--nr-radius);
+  background: transparent;
+  color: var(--nr-muted);
+  font-family: var(--nr-font-sans);
+  font-size: 12px;
+}
+
+.makit-prose .makit-copy-button:hover {
+  background: var(--nr-fill);
+  color: var(--nr-fg);
+}
+
+.makit-prose .makit-copy-button:focus-visible {
+  outline-color: var(--nr-accent-text);
+}
+
+/*
+ * Notes: a 2 px blue rule on a faint blue wash. Makit labels every alert with its type ("note");
+ * the notes carry their own bold title, so the label is hidden visually and kept for screen readers.
+ */
+.makit-prose .makit-alert {
+  --makit-alert-color: var(--nr-accent-text);
+  margin: 1.6em 0;
+  padding: 14px 18px;
+  border: 0;
+  border-left: 2px solid var(--nr-accent);
+  border-radius: 0 var(--nr-radius) var(--nr-radius) 0;
+  background: var(--nr-tint);
+  color: var(--nr-soft);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.makit-prose .makit-alert p {
+  margin: 0.6em 0 0;
+}
+
+.makit-prose .makit-alert .makit-alert-title {
+  position: absolute;
+  text-transform: none;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.makit-prose .makit-alert-title + p {
+  margin-top: 0;
+}
+
+.makit-prose .makit-alert-title + p > strong:first-child {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--nr-fg);
+  font-weight: 700;
+}
+
+.makit-prose .makit-alert :not(pre) > code {
+  background: var(--nr-bg);
+}
+
+/*
+ * Tabs (Makit's `::::tabs`, the OS pickers): a hairline frame on the page background, so code blocks
+ * inside keep their own panel. The tab row is underlined by an inset hairline that the active tab's
+ * 2 px blue rule covers; inactive tabs are muted. Without JavaScript and in print, Makit shows every
+ * panel under its label (`.makit-tab-fallback-label`), set like a tab.
+ */
+.makit-prose .makit-tabs {
+  margin: 1.6em 0;
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  background: transparent;
+}
+
+.makit-prose .makit-tab-list {
+  gap: 0;
+  padding-inline: 0;
+  border-bottom: 0;
+  box-shadow: inset 0 -1px var(--nr-line);
+}
+
+.makit-prose .makit-tab {
+  padding: 10px 16px;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--nr-muted);
+  font-family: var(--nr-font-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: normal;
+  line-height: 1.4;
+  text-transform: none;
+}
+
+.makit-prose .makit-tab:hover {
+  color: var(--nr-fg);
+}
+
+.makit-prose .makit-tab[aria-selected="true"] {
+  border-bottom-color: var(--nr-accent);
+  color: var(--nr-fg);
+}
+
+.makit-prose .makit-tab-panel {
+  padding: 18px 20px;
+}
+
+.makit-prose :is(.makit-tab, .makit-tab-panel):focus-visible {
+  outline: 2px solid var(--nr-accent-text);
+  outline-offset: -2px;
+}
+
+.makit-prose .makit-tab-fallback-label {
+  margin: 0 0 0.8em;
+  color: var(--nr-fg);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+/*
+ * Toggles and accordions (`:::toggle`, `::::accordion`; native details/summary): the same hairline
+ * frame, the summary in the text color behind a lucide chevron (masked like `.nr-icon`) that turns
+ * 90° when open. An accordion's toggles share its frame, split by hairlines.
+ */
+.makit-prose :is(.makit-toggle, .makit-accordion) {
+  margin: 1.6em 0;
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  background: transparent;
+}
+
+.makit-prose .makit-toggle-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 16px;
+  color: var(--nr-fg);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+  list-style: none;
+}
+
+.makit-prose .makit-toggle-summary::-webkit-details-marker {
+  display: none;
+}
+
+.makit-prose .makit-toggle-summary::before {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  align-self: center;
+  background-color: var(--nr-muted);
+  content: "";
+  -webkit-mask: var(--nr-icon-chevron-right) center / contain no-repeat;
+  mask: var(--nr-icon-chevron-right) center / contain no-repeat;
+  transition: transform 0.15s ease;
+}
+
+.makit-prose .makit-toggle[open] > .makit-toggle-summary::before {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .makit-prose .makit-toggle-summary::before {
+    transition: none;
+  }
+}
+
+.makit-prose .makit-toggle-summary:hover {
+  background: var(--nr-fill);
+}
+
+.makit-prose .makit-toggle-summary:focus-visible {
+  border-radius: 0;
+  outline: 2px solid var(--nr-accent-text);
+  outline-offset: -2px;
+}
+
+.makit-prose .makit-toggle[open] > .makit-toggle-summary {
+  border-bottom: 1px solid var(--nr-line);
+}
+
+.makit-prose .makit-toggle-body {
+  padding: 16px 18px 18px;
+}
+
+.makit-prose .makit-accordion > .makit-toggle {
+  margin: 0;
+  border: 0;
+}
+
+.makit-prose .makit-accordion > .makit-toggle + .makit-toggle {
+  border-top: 1px solid var(--nr-line);
+}
+
+/* Pager */
+
+.nr-pager {
+  display: grid;
+  max-width: 760px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 64px;
+}
+
+.nr-pager a {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  color: var(--nr-fg);
+  text-decoration: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.nr-pager a:hover {
+  border-color: var(--nr-line-strong);
+  background: var(--nr-panel);
+}
+
+.nr-pager-next {
+  grid-column: 2;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.nr-pager-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--nr-muted);
+  font-size: 13px;
+}
+
+.nr-pager-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Playground call to action */
+
+.nr-docs-cta {
+  max-width: 760px;
+  margin-top: 32px;
+  padding: 28px;
+  border: 1px solid var(--nr-line);
+  border-radius: var(--nr-radius);
+  background: var(--nr-panel);
+}
+
+.nr-docs-cta h2 {
+  margin: 0;
+  color: var(--nr-fg);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+}
+
+:lang(ja) .nr-docs-cta h2 {
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.nr-docs-cta em {
+  color: var(--nr-muted);
+  font-style: normal;
+}
+
+.nr-docs-cta p {
+  margin: 8px 0 22px;
+  color: var(--nr-soft);
+}
+
+@media (max-width: 639px) {
+  .nr-docs-cta {
+    padding: 22px 20px;
+  }
+}
+
+/* Table of contents, with the page actions (Makit's default) below. */
+
+.nr-toc {
+  position: sticky;
+  top: var(--nr-header-height);
+  height: calc(100vh - var(--nr-header-height));
+  height: calc(100dvh - var(--nr-header-height));
+  overflow-y: auto;
+  padding: 44px 0 40px 20px;
+  font-size: 13px;
+  overscroll-behavior: contain;
+}
+
+.nr-toc-title {
+  margin: 0 0 12px;
+  color: var(--nr-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.nr-toc-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nr-toc-list li + li {
+  margin-top: 2px;
+}
+
+.nr-toc-list a {
+  display: block;
+  padding: 3px 0 3px calc(var(--nr-toc-level, 0) * 12px);
+  color: var(--nr-muted);
+  line-height: 1.45;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.nr-toc-list a:hover,
+.nr-toc-list a[aria-current] {
+  color: var(--nr-fg);
+}
+
+.nr-toc-list a[aria-current] {
+  font-weight: 600;
+}
+
+.nr-toc-actions nav[aria-label="Page actions"] {
+  gap: 10px;
+  border-top-color: var(--nr-line);
+  color: var(--nr-muted);
+  font-size: 12.5px;
+}
+
+.nr-toc-actions nav[aria-label="Page actions"] :is(a, button, summary) {
+  font-weight: 400;
+}
+
+.nr-toc-actions nav[aria-label="Page actions"] :is(a, button, summary):hover {
+  color: var(--nr-fg);
+}
+
+.nr-toc-actions nav[aria-label="Page actions"] details > div {
+  border-color: var(--nr-line-strong);
+  border-radius: var(--nr-radius);
+  background: var(--nr-bg);
+}
+
+/* Search dialog (Makit's default) */
+
+div:has(> section[role="dialog"][aria-label="Search documentation"]) {
+  background: rgb(0 0 0 / 0.6);
+}
+
+section[role="dialog"][aria-label="Search documentation"] {
+  border-color: var(--nr-line-strong);
+  border-radius: var(--nr-radius);
+  background: var(--nr-bg);
+  box-shadow: 0 32px 64px -24px rgb(0 0 0 / 0.6);
+  color: var(--nr-fg);
+}
+
+section[role="dialog"][aria-label="Search documentation"] > div:first-child {
+  border-color: var(--nr-line);
+}
+
+section[role="dialog"][aria-label="Search documentation"] input {
+  font-size: 16px;
+}
+
+/* The field row carries the focus mark instead of a ring around the bare input. */
+section[role="dialog"][aria-label="Search documentation"] input:focus-visible {
+  outline: none;
+}
+
+section[role="dialog"][aria-label="Search documentation"] > div:first-child:focus-within {
+  box-shadow: inset 0 -2px 0 var(--nr-accent);
+}
+
+/* "Esc": a keyboard hint, so monospace. */
+section[role="dialog"][aria-label="Search documentation"] > div:first-child button {
+  border-color: var(--nr-line-strong);
+  border-radius: var(--nr-radius);
+  font-family: var(--nr-font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+
+section[role="dialog"][aria-label="Search documentation"] ul a {
+  border-radius: var(--nr-radius);
+}
+
+section[role="dialog"][aria-label="Search documentation"] ul a:is(:hover, :focus-visible) {
+  background: var(--nr-panel);
+}
+
+section[role="dialog"][aria-label="Search documentation"] ul a:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Makit draws each result's arrow as a "→" glyph; it is hidden and the lucide arrow drawn instead. */
+section[role="dialog"][aria-label="Search documentation"] ul a > span:last-child {
+  display: inline-flex;
+  color: var(--nr-accent-text);
+  font-size: 0;
+}
+
+section[role="dialog"][aria-label="Search documentation"] ul a > span:last-child::before {
+  width: 16px;
+  height: 16px;
+  background-color: currentColor;
+  content: "";
+  -webkit-mask: var(--nr-icon-arrow-right) center / contain no-repeat;
+  mask: var(--nr-icon-arrow-right) center / contain no-repeat;
+}
+
+section[role="dialog"][aria-label="Search documentation"] mark {
+  background: color-mix(in srgb, var(--nr-accent) 30%, transparent);
+  color: inherit;
+}
+
+section[role="dialog"][aria-label="Search documentation"] > div:last-child {
+  border-color: var(--nr-line);
+}
+
+/*
+ * Square corners for Makit's default parts, which hard-code Tailwind `rounded-*` classes: the
+ * search dialog and its field, results, and Esc button; the page actions and their chat menu; the
+ * fallback notice (also squared through `--makit-radius`). The header's search button, its `⌘K`,
+ * and the theme toggle are in `noir.css`; the code copy button is above.
+ */
+section[role="dialog"][aria-label="Search documentation"],
+section[role="dialog"][aria-label="Search documentation"] :is(input, button, a, kbd),
+nav[aria-label="Page actions"] :is(a, button, summary, details > div),
+.nr-docs-main > [role="note"] {
+  border-radius: 0;
+}
+
+/*
+ * Icons that `plugins/remark-arrow-icons.ts` puts in place of arrow glyphs in Markdown
+ * (`<span class="nr-icon nr-icon-arrow-right">`): lucide's outlines as masks over the text color,
+ * 1em square. Between words the plugin keeps a real space on each side, so the icon needs no margin;
+ * at the start or end of a text it drops the space, and the margin stands in for it on the text side.
+ * When a link ends with one, Makit's external-link icon after it is dropped.
+ */
+:root {
+  --nr-icon-arrow-right: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3Cpath d='m12 5 7 7-7 7'/%3E%3C/svg%3E");
+  --nr-icon-arrow-left: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m12 19-7-7 7-7'/%3E%3Cpath d='M19 12H5'/%3E%3C/svg%3E");
+  --nr-icon-arrow-up-right: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 7h10v10'/%3E%3Cpath d='M7 17 17 7'/%3E%3C/svg%3E");
+  --nr-icon-arrow-down: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14'/%3E%3Cpath d='m19 12-7 7-7-7'/%3E%3C/svg%3E");
+  --nr-icon-arrow-up: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12 7-7 7 7'/%3E%3Cpath d='M12 19V5'/%3E%3C/svg%3E");
+  /* The toggle summaries' chevron (lucide ChevronRight). */
+  --nr-icon-chevron-right: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+}
+
+.nr-icon {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  background-color: currentColor;
+  vertical-align: -0.125em;
+  -webkit-mask: var(--nr-icon) center / contain no-repeat;
+  mask: var(--nr-icon) center / contain no-repeat;
+}
+
+.nr-icon-at-start {
+  margin-inline-end: 0.25em;
+}
+
+.nr-icon-at-end {
+  margin-inline-start: 0.25em;
+}
+
+.nr-icon-arrow-right {
+  --nr-icon: var(--nr-icon-arrow-right);
+}
+
+.nr-icon-arrow-left {
+  --nr-icon: var(--nr-icon-arrow-left);
+}
+
+.nr-icon-arrow-up-right {
+  --nr-icon: var(--nr-icon-arrow-up-right);
+}
+
+.nr-icon-arrow-down {
+  --nr-icon: var(--nr-icon-arrow-down);
+}
+
+.nr-icon-arrow-up {
+  --nr-icon: var(--nr-icon-arrow-up);
+}
+
+.makit-prose a:has(> .nr-icon) > .makit-external-link-icon {
+  display: none;
+}

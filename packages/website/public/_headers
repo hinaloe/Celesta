@@ -3,5 +3,12 @@
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY
 
-/assets/*
+/_next/static/*
   Cache-Control: public, max-age=31536000, immutable
+
+# The playground island's hashed files. manifest.json sits outside assets/ and names the current entry.
+/_playground/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/_playground/manifest.json
+  Cache-Control: no-cache

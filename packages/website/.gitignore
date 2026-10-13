@@ -7,3 +7,9 @@ dist/
 !.env.example
 
 worker-configuration.d.ts
+
+.makit/
+
+public/_playground/
+public/showcase-assets/
+public/showcase/

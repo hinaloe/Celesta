@@ -116,9 +116,9 @@ jobs:
           urls="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets')"
           find_url() { jq -er --arg re "$1" '[.[] | select(.name | test($re)) | .browserDownloadUrl // .url][0]' <<< "$urls"; }
           {
-            echo "VITE_DOWNLOAD_URL=https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG"
-            echo "VITE_DOWNLOAD_URL_MACOS=$(find_url '-macos-arm64\.dmg$')"
-            echo "VITE_DOWNLOAD_URL_WINDOWS=$(find_url '-windows-x64-setup\.exe$')"
+            echo "CELESTA_DOWNLOAD_URL=https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG"
+            echo "CELESTA_DOWNLOAD_URL_MACOS=$(find_url '-macos-arm64\.dmg$')"
+            echo "CELESTA_DOWNLOAD_URL_WINDOWS=$(find_url '-windows-x64-setup\.exe$')"
           } >> "$GITHUB_ENV"
 
       # `pnpm deploy` is a built-in command, so the script needs `run`.
