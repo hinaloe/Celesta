@@ -10,13 +10,14 @@ use celesta_react_bridge::{
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerConfig};
-use rmcp::{ServerHandler, tool, tool_handler, tool_router};
+use rmcp::service::RequestContext;
+use rmcp::{RoleServer, ServerHandler, tool, tool_handler, tool_router};
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
-use crate::args::{ContactSheetArgs, RenderFramesArgs};
+use crate::args::{ContactSheetArgs, ExportVideoArgs, RenderFramesArgs};
 use crate::docs;
 use crate::export::{self, Run};
 use crate::frames::{OutputDirs, image_blocks};
@@ -180,9 +181,10 @@ impl CelestaServer {
     async fn render_frames(
         &self,
         Parameters(args): Parameters<RenderFramesArgs>,
+        context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         match args.job(&self.outputs) {
-            Ok(job) => rendered(export::run(job, &self.render_lock).await),
+            Ok(job) => rendered(export::run(job, &self.render_lock, &context).await),
             Err(message) => usage_error(&message),
         }
     }
@@ -193,16 +195,26 @@ impl CelestaServer {
     async fn contact_sheet(
         &self,
         Parameters(args): Parameters<ContactSheetArgs>,
+        context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         match args.job(&self.outputs) {
-            Ok(job) => rendered(export::run(job, &self.render_lock).await),
+            Ok(job) => rendered(export::run(job, &self.render_lock, &context).await),
             Err(message) => usage_error(&message),
         }
     }
 
-    #[tool(description = "Not implemented yet.")]
-    fn export_video(&self) -> CallToolResult {
-        usage_error("not implemented")
+    #[tool(
+        description = "Export a React entry or JSON project as an H.264/AAC MP4, all of it or the start/end span. Sends progress notifications when the request has a progress token, and stops when the request is cancelled. Use it for the final file or to check audio; check pictures with render_frames."
+    )]
+    async fn export_video(
+        &self,
+        Parameters(args): Parameters<ExportVideoArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        match args.job() {
+            Ok(job) => rendered(export::run(job, &self.render_lock, &context).await),
+            Err(message) => usage_error(&message),
+        }
     }
 }
 
