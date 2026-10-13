@@ -63,7 +63,7 @@ pub(crate) fn export_progress_label(progress: &ExportProgress) -> String {
             format!("Exporting frame {frame}/{total}")
         }
         ExportProgress::MixingAudio => "Mixing export audio…".to_owned(),
-        ExportProgress::Muxing | ExportProgress::Wrote(_) => "Muxing MP4…".to_owned(),
+        ExportProgress::Muxing | ExportProgress::Wrote(_) => "Muxing…".to_owned(),
         ExportProgress::Warning(warning) => warning.clone(),
     }
 }

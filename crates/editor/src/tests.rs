@@ -2,7 +2,9 @@ use crate::EDITOR_DEMO_PROJECT;
 use crate::audio::{AudioCacheKey, CachedAudioDecoder, take_latest};
 use crate::audio_cache::DiskAudioCache;
 use crate::export_worker::{ExportEvent, ExportRequest, ExportSource, ExportWorker};
-use crate::helpers::{export_output, export_range_for, export_suggested_name, loop_range_for};
+use crate::helpers::{
+    export_output, export_progress_label, export_range_for, export_suggested_name, loop_range_for,
+};
 use crate::source::is_react_entry;
 use crate::waveform::{
     clip_level_envelope, level_at_time, map_clip_waveform, master_volume_from_drag, waveform_peaks,
@@ -20,7 +22,7 @@ use celesta_composition::{
     Time, TimeRange,
 };
 use celesta_editor_core::ClipSummary;
-use celesta_exporter::{ExportCancellation, VideoFormat};
+use celesta_exporter::{ExportCancellation, ExportProgress, VideoFormat};
 use celesta_media::{AudioBuffer, AudioDecoder};
 use celesta_project::Project;
 use celesta_react_bridge::ComponentResolutions;
@@ -117,6 +119,11 @@ fn export_name_replaces_project_extensions() {
         "demo.mp4"
     );
     assert_eq!(export_suggested_name(None, "Untitled"), "Untitled.mp4");
+}
+
+#[test]
+fn muxing_label_names_no_container() {
+    assert_eq!(export_progress_label(&ExportProgress::Muxing), "Muxing…");
 }
 
 #[test]
