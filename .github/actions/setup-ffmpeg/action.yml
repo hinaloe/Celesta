@@ -8,6 +8,13 @@ description: >
 runs:
   using: composite
   steps:
+    # ffmpeg-sys-next's build script reruns only when PKG_CONFIG_*/VCPKG_* change, so a
+    # restored target/ would keep link flags from before libvpx and libopus were enabled.
+    # Exposing the configuration changes the Rust cache key (rust-cache `env-vars`).
+    - name: Name the FFmpeg configuration
+      shell: bash
+      run: echo "FFMPEG_FEATURES=x264,vpx,opus" >> "$GITHUB_ENV"
+
     # vcpkg and Homebrew master both ship FFmpeg 9, which Celesta does not
     # support yet, so Windows pins a vcpkg release whose ffmpeg port is 8.1.x.
     - name: Check out vcpkg

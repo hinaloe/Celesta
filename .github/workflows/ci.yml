@@ -65,7 +65,7 @@ jobs:
       # crowds main's entries out of the repository's cache quota.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          env-vars: FFMPEG_VERSION
+          env-vars: FFMPEG_VERSION FFMPEG_FEATURES
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21

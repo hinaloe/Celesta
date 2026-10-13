@@ -48,7 +48,7 @@ jobs:
       # Only main's cache is visible to the next release tag.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          env-vars: FFMPEG_VERSION
+          env-vars: FFMPEG_VERSION FFMPEG_FEATURES
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # The pnpm version comes from package.json's `packageManager`.
@@ -118,7 +118,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          env-vars: FFMPEG_VERSION
+          env-vars: FFMPEG_VERSION FFMPEG_FEATURES
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # The pnpm version comes from package.json's `packageManager`.
