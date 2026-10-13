@@ -121,10 +121,12 @@ impl Exporter {
                 operation: "create export workspace",
                 source,
             })?;
-        let video_path = temporary.path().join("video.mp4");
+        let video_path = temporary
+            .path()
+            .join(format!("video.{}", self.options.video_format.as_str()));
         let final_file = tempfile::Builder::new()
             .prefix(".celesta-export-")
-            .suffix(".mp4")
+            .suffix(&format!(".{}", self.options.video_format.as_str()))
             .tempfile_in(parent)
             .map_err(|source| ExportError::Io {
                 operation: "create temporary output",

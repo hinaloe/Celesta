@@ -12,9 +12,10 @@ use std::path::Path;
 use std::{fs, io};
 
 impl Exporter {
-    /// Exports a React composition entry to MP4. When the composition (and
-    /// any companion project) declares no audio, the encoded video is
-    /// published directly instead of going through a separate mux stage.
+    /// Exports a React composition entry to a video in
+    /// `ExportOptions::video_format`. When the composition (and any companion
+    /// project) declares no audio, the encoded video is published directly
+    /// instead of going through a separate mux stage.
     pub fn export_react_entry(
         &self,
         entry: impl AsRef<Path>,
@@ -198,7 +199,7 @@ impl Exporter {
         // stage.
         let final_file = tempfile::Builder::new()
             .prefix(".celesta-export-")
-            .suffix(".mp4")
+            .suffix(&format!(".{}", self.options.video_format.as_str()))
             .tempfile_in(parent)
             .map_err(|source| ExportError::Io {
                 operation: "create temporary output",
@@ -252,7 +253,7 @@ impl Exporter {
             progress(ExportProgress::Muxing);
             let muxed_file = tempfile::Builder::new()
                 .prefix(".celesta-export-")
-                .suffix(".mp4")
+                .suffix(&format!(".{}", self.options.video_format.as_str()))
                 .tempfile_in(parent)
                 .map_err(|source| ExportError::Io {
                     operation: "create temporary output",

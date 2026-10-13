@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use celesta_composition::{Rational, Time, TimeRange};
 use celesta_exporter::{
     BitDepth, ColorConversion, EncoderPreset, ExportCancellation, ExportError, ExportOptions,
-    ExportRange, Exporter, VideoEncoding,
+    ExportProgress, ExportRange, ExportedFile, Exporter, ReactRuntimeOptions, VideoEncoding,
+    VideoFormat,
 };
 use celesta_gpu_renderer::GpuRenderError;
 use celesta_media::{FfmpegBackend, VideoFrameDecoder};
@@ -440,4 +441,273 @@ fn converting_colors_on_the_gpu_matches_the_encoder_conversion() {
     assert_eq!((eight_gpu, eight_encoder), (0, 0));
     assert_eq!(ten_gpu, ten_encoder);
     assert_ne!(ten_gpu, 0);
+}
+
+/// A 64x64, 2 fps, one-second project whose only item is a 64x64 image of
+/// straight `(255, 0, 0, 128)`. Images are centered on the canvas origin, so
+/// it covers the top-left 32x32 quadrant and leaves the rest undrawn.
+fn transparent_project(dir: &Path) -> Project {
+    let mut project =
+        Project::load(workspace_root().join("examples/minimal.celesta.json")).unwrap();
+    project.settings.width = 64;
+    project.settings.height = 64;
+    project.settings.frame_rate = Rational::new(2, 1);
+    project.settings.sample_rate = 8_000;
+    project.settings.duration = Some(Time::new(1, 1));
+    let file = std::fs::File::create(dir.join("red.png")).unwrap();
+    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), 64, 64);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().unwrap();
+    writer
+        .write_image_data(&[255, 0, 0, 128].repeat(64 * 64))
+        .unwrap();
+    writer.finish().unwrap();
+    project.assets.insert(
+        "red".to_owned(),
+        Asset::Image {
+            name: None,
+            source: AssetSource::File {
+                path: "red.png".to_owned(),
+            },
+        },
+    );
+    project.tracks.push(Track {
+        id: "images".to_owned(),
+        name: "Images".to_owned(),
+        kind: TrackKind::Video,
+        enabled: None,
+        locked: None,
+        muted: None,
+        solo: None,
+        items: vec![TimelineItem {
+            id: "red".to_owned(),
+            name: None,
+            range: TimeRange {
+                start: Time::ZERO,
+                duration: Time::new(1, 1),
+            },
+            content: TimelineContent::Image {
+                asset: "red".to_owned(),
+                width: None,
+                height: None,
+                fit: None,
+            },
+            enabled: None,
+            transform: None,
+            opacity: None,
+            blend_mode: None,
+            effects: None,
+        }],
+    });
+    project
+}
+
+/// Exports `project` as `format` to `name` in `dir`, or `None` without a GPU.
+fn export_as(project: &Project, dir: &Path, format: VideoFormat, name: &str) -> Option<PathBuf> {
+    let output = dir.join(name);
+    match Exporter::new(ExportOptions {
+        video_format: format,
+        ..ExportOptions::default()
+    })
+    .export_project(project, dir, &output)
+    {
+        Ok(()) => Some(output),
+        Err(ExportError::Render(GpuRenderError::RequestAdapter(error))) => {
+            eprintln!("skipping live export test: no GPU adapter is available: {error}");
+            None
+        }
+        Err(error) => panic!("{format} export failed: {error}"),
+    }
+}
+
+/// The first video frame of `path` as `rgba64le` samples, decoded with
+/// `decoder` when given (FFmpeg's native VP9 decoder drops the alpha plane).
+fn decode_rgba64(path: &Path, decoder: Option<&str>) -> Vec<u16> {
+    let raw = path.with_extension("rgba64");
+    let mut input = Input::from(path.to_string_lossy().into_owned());
+    if let Some(decoder) = decoder {
+        input = input.set_video_codec(decoder);
+    }
+    FfmpegContext::builder()
+        .input(input)
+        .output(
+            Output::from(raw.to_string_lossy().into_owned())
+                .add_stream_map("0:v:0")
+                .set_format("rawvideo")
+                .set_pix_fmt("rgba64le")
+                .set_max_video_frames(1),
+        )
+        .build()
+        .unwrap()
+        .start()
+        .unwrap()
+        .wait()
+        .unwrap();
+    std::fs::read(raw)
+        .unwrap()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&sample| u16::from_le_bytes(sample))
+        .collect()
+}
+
+fn pixel(pixels: &[u16], x: usize, y: usize) -> [u16; 4] {
+    let start = (y * 64 + x) * 4;
+    pixels[start..start + 4].try_into().unwrap()
+}
+
+/// The video stream's codec, `(color space, primaries, transfer)` and
+/// metadata.
+fn video_stream(
+    url: &str,
+) -> (
+    String,
+    (i32, i32, i32),
+    std::collections::HashMap<String, String>,
+) {
+    let Some(StreamInfo::Video {
+        codec_name,
+        color_space,
+        color_primaries,
+        color_transfer,
+        metadata,
+        ..
+    }) = find_video_stream_info(url).unwrap()
+    else {
+        panic!("exported file has no video stream");
+    };
+    (
+        codec_name,
+        (color_space, color_primaries, color_transfer),
+        metadata,
+    )
+}
+
+fn audio_stream(url: &str) -> (String, i32) {
+    let Some(StreamInfo::Audio {
+        codec_name,
+        sample_rate,
+        ..
+    }) = find_audio_stream_info(url).unwrap()
+    else {
+        panic!("exported file has no audio stream");
+    };
+    (codec_name, sample_rate)
+}
+
+/// The red quadrant keeps its straight color and half alpha (within
+/// `tolerance` 16-bit codes); undrawn pixels are fully transparent.
+fn assert_transparent_quadrant(pixels: &[u16], tolerance: u16) {
+    let (inside, outside) = (pixel(pixels, 8, 8), pixel(pixels, 48, 48));
+    assert!(inside[3].abs_diff(128 * 257) <= 2 * 257, "{inside:?}");
+    assert!(
+        inside[0].abs_diff(65535) <= tolerance && inside[1] <= tolerance,
+        "{inside:?}"
+    );
+    assert_eq!(outside[3], 0, "{outside:?}");
+}
+
+#[test]
+fn exports_transparent_prores_4444() {
+    let directory = tempfile::tempdir().unwrap();
+    let project = transparent_project(directory.path());
+    let Some(output) = export_as(&project, directory.path(), VideoFormat::Mov, "clip.mov") else {
+        return;
+    };
+
+    let url = output.to_string_lossy().into_owned();
+    // AVCOL_SPC_BT709, AVCOL_PRI_BT709 and AVCOL_TRC_BT709 are all 1.
+    let (codec_name, colors, _) = video_stream(&url);
+    assert_eq!(codec_name, "prores");
+    assert_eq!(colors, (1, 1, 1));
+    assert_eq!(audio_stream(&url), ("pcm_s24le".to_owned(), 8_000));
+    assert_transparent_quadrant(&decode_rgba64(&output, None), 3 * 257);
+}
+
+#[test]
+fn exports_transparent_vp9_webm() {
+    let directory = tempfile::tempdir().unwrap();
+    let project = transparent_project(directory.path());
+    let Some(output) = export_as(&project, directory.path(), VideoFormat::Webm, "clip.webm") else {
+        return;
+    };
+
+    let url = output.to_string_lossy().into_owned();
+    let (codec_name, colors, metadata) = video_stream(&url);
+    assert_eq!(codec_name, "vp9");
+    // Matroska tags read back upper-case (`ALPHA_MODE`).
+    assert!(
+        metadata
+            .iter()
+            .any(|(key, value)| key.eq_ignore_ascii_case("alpha_mode") && value == "1"),
+        "{metadata:?}"
+    );
+    assert_eq!(colors, (1, 1, 1));
+    // libopus takes no 8 kHz input here, so the audio is resampled.
+    assert_eq!(audio_stream(&url), ("opus".to_owned(), 48_000));
+    // 4:2:0 chroma blurs the quadrant's color a little more.
+    assert_transparent_quadrant(&decode_rgba64(&output, Some("libvpx-vp9")), 6 * 257);
+}
+
+#[test]
+fn exports_a_silent_react_entry_to_webm() {
+    let runtime_path = workspace_root().join("packages/cli/dist/cli.js");
+    if !runtime_path.exists() {
+        eprintln!("skipping React WebM test: build packages/cli first");
+        return;
+    }
+    let directory = tempfile::tempdir_in(workspace_root().join("packages/cli")).unwrap();
+    let entry = directory.path().join("film.tsx");
+    std::fs::write(
+        &entry,
+        r##"
+import { Composition, Rect } from '@celesta/react';
+export default function Root() {
+  return <Composition width={64} height={64} fps={2} durationInFrames={2}>
+    <Rect width={32} height={32} fill="#ff0000" />
+  </Composition>;
+}
+"##,
+    )
+    .unwrap();
+    let output = directory.path().join("film.webm");
+    let mut written = Vec::new();
+    match Exporter::new(ExportOptions {
+        video_format: VideoFormat::Webm,
+        ..ExportOptions::default()
+    })
+    .export_react_entry_with_progress(
+        &entry,
+        &ReactRuntimeOptions::new("node", runtime_path),
+        &output,
+        |event| {
+            if let ExportProgress::Wrote(file) = event {
+                written.push(file);
+            }
+        },
+    ) {
+        Ok(()) => {}
+        Err(ExportError::Render(GpuRenderError::RequestAdapter(error))) => {
+            eprintln!("skipping live export test: no GPU adapter is available: {error}");
+            return;
+        }
+        Err(error) => panic!("React WebM export failed: {error}"),
+    }
+
+    let url = output.to_string_lossy().into_owned();
+    assert_eq!(video_stream(&url).0, "vp9");
+    assert!(find_audio_stream_info(&url).unwrap().is_none());
+    assert!(
+        matches!(
+            written[..],
+            [ExportedFile::Video {
+                audio: false,
+                format: VideoFormat::Webm,
+                ..
+            }]
+        ),
+        "{written:?}"
+    );
 }

@@ -171,6 +171,7 @@ fn rejects_an_out_of_range_crf_before_encoding() {
         64,
         64,
         Rational::new(30, 1),
+        VideoFormat::Mp4,
         VideoEncoding {
             crf: VideoEncoding::MAX_CRF + 1,
             ..VideoEncoding::default()

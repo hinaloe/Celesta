@@ -88,7 +88,7 @@ impl fmt::Display for ExportError {
             ),
             Self::UnsupportedDimensions { width, height } => write!(
                 formatter,
-                "H.264 MP4 export requires non-zero even dimensions, got {width}x{height}"
+                "video export requires non-zero even dimensions, got {width}x{height}"
             ),
             Self::InvalidCrf(crf) => write!(
                 formatter,
