@@ -130,7 +130,8 @@ test('platform tabs replace the flattened pickers', () => {
 function tabGroups(markdown) {
   const groups = [];
   let group;
-  for (const line of markdown.split('\n')) {
+  // Windows checkouts may have CRLF line endings.
+  for (const line of markdown.split(/\r?\n/)) {
     const start = /^(:{4,})tabs\[[^\]]*\](?:\{default="([^"]*)"\})?$/.exec(line);
     if (start) { group = { fence: start[1], default: start[2], labels: [] }; groups.push(group); continue; }
     if (!group) continue;
