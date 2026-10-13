@@ -43,8 +43,12 @@ function Title() {
 - Call `defineShader` at module level, not inside a component.
 - Any visual layer or `Group` takes `shader`. On a group it filters the
   children composited together.
-- The shader runs **before** `blur`, `shadow`, and `glow`, so a shadow
-  follows the shader's output. To blur first, nest groups:
+- An array applies several shaders in order, each filtering the result of
+  the one before: `shader={[ripple({ time }), rgbSplit({ amount: 6 })]}`.
+  It draws as nesting a group around each shader would, without the extra
+  groups. A single shader still works as before.
+- The shaders run **before** `blur`, `shadow`, and `glow`, so a shadow
+  follows the last shader's output. To blur first, nest groups:
   `<Group shader={…}><Group blur={8}>…</Group></Group>`.
 - A `.wgsl` import gives the file's text. Saving the file reloads the
   preview.
@@ -83,7 +87,8 @@ fn effect(input: EffectInput) -> vec4f {
   still works in scene space.
 - The layer's box is the box of what it draws: a rect's own rectangle, a
   text's or image's quad, a group's children. A child's blur spreads its
-  pixels, not the box.
+  pixels, not the box, and neither does an earlier shader in an array:
+  every shader in it sees the same box.
 - There is no built-in time. Pass `frame / fps` (or any clock) as a
   parameter, so the shader follows `Sequence` and `FreezeFrame`.
 - Do not declare `@group`/`@binding` resources or entry points, or names
@@ -113,6 +118,10 @@ declares how far with `padding` in output pixels, on the definition or per
 use: `ripple({ time }, { padding: 16 })`. The shader then writes the box
 grown by that much on every side. The most is 512. A shader that only
 recolors needs none.
+
+In an array, each shader writes what the one before it wrote, grown by
+its own padding, so the paddings add up: two shaders that each push
+pixels 8px outward reach 16px past the box.
 
 ## Errors
 
