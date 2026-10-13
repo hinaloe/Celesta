@@ -103,7 +103,7 @@ fn validates_and_round_trips_effect_properties() {
             offset_x: Animatable::Static(4.0),
             offset_y: Animatable::Static(-2.0),
         }),
-        glow: None,
+        ..TimelineEffects::default()
     });
     project.validate().unwrap();
     let json = project.to_json().unwrap();
@@ -120,6 +120,72 @@ fn validates_and_round_trips_effect_properties() {
         .color = Animatable::Static("not-a-color".to_owned());
     let errors = project.validate().unwrap_err();
     assert!(errors.to_string().contains("effects.shadow.color"));
+}
+
+#[test]
+fn validates_and_round_trips_color_filters() {
+    let mut project =
+        Project::from_json(include_str!("../../../examples/voiceroid.celesta.json")).unwrap();
+    let mut item = serde_json::to_value(&project.tracks[0].items[0]).unwrap();
+    item["effects"] = serde_json::json!({
+        "brightness": 1.2,
+        "contrast": 0.8,
+        "saturation": 0,
+        "hue": -30,
+        "grayscale": 0.5,
+        "invert": 1,
+        "tint": { "color": "#704214" },
+        "vignette": { "amount": 0.6, "softness": 0.25 },
+    });
+    project.tracks[0].items[0] = serde_json::from_value(item).unwrap();
+    project.validate().unwrap();
+    let effects = project.tracks[0].items[0].effects.as_ref().unwrap();
+    assert_eq!(effects.tint.as_ref().unwrap().amount, None);
+    assert_eq!(effects.vignette.as_ref().unwrap().radius, None);
+    assert_eq!(
+        effects.vignette.as_ref().unwrap().softness,
+        Some(Animatable::Static(0.25))
+    );
+    assert_eq!(
+        Project::from_json(&project.to_json().unwrap()).unwrap(),
+        project
+    );
+
+    let cases: [(&str, serde_json::Value, &str); 9] = [
+        ("brightness", serde_json::json!(-0.5), "effects.brightness"),
+        ("contrast", serde_json::json!(-1), "effects.contrast"),
+        ("saturation", serde_json::json!(-0.1), "effects.saturation"),
+        ("grayscale", serde_json::json!(1.5), "effects.grayscale"),
+        ("invert", serde_json::json!(-1), "effects.invert"),
+        (
+            "tint",
+            serde_json::json!({ "color": "orange" }),
+            "effects.tint.color",
+        ),
+        (
+            "tint",
+            serde_json::json!({ "color": "#ffffff", "amount": 2 }),
+            "effects.tint.amount",
+        ),
+        (
+            "vignette",
+            serde_json::json!({ "amount": 2 }),
+            "effects.vignette.amount",
+        ),
+        (
+            "vignette",
+            serde_json::json!({ "amount": 1, "radius": -1 }),
+            "effects.vignette.radius",
+        ),
+    ];
+    for (name, value, path) in cases {
+        let mut broken = project.clone();
+        let mut item = serde_json::to_value(&broken.tracks[0].items[0]).unwrap();
+        item["effects"][name] = value;
+        broken.tracks[0].items[0] = serde_json::from_value(item).unwrap();
+        let errors = broken.validate().unwrap_err().to_string();
+        assert!(errors.contains(path), "{name}: {errors}");
+    }
 }
 
 #[test]

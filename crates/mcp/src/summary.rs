@@ -154,7 +154,33 @@ fn describe_transform(layer: &Value) -> String {
             fmt(num(&glow["blur"]))
         ));
     }
+    let filters = effects
+        .and_then(|effects| effects.get("filters"))
+        .and_then(Value::as_array)
+        .filter(|filters| !filters.is_empty());
+    if let Some(filters) = filters {
+        let described: Vec<_> = filters.iter().map(describe_filter).collect();
+        parts.push(format!("filters {}", described.join(" → ")));
+    }
     parts.join(" ")
+}
+
+/// A custom shader by its id, or a color filter with its values, as
+/// `inspect.mjs` prints them.
+fn describe_filter(filter: &Value) -> String {
+    let value = |name: &str| fmt(num(&filter[name]));
+    match filter["type"].as_str().unwrap_or("shader") {
+        "shader" => format!("shader {}", js(&filter["id"])),
+        "hue" => format!("hue({}°)", value("degrees")),
+        "tint" => format!("tint({}, {})", js(&filter["color"]), value("amount")),
+        "vignette" => format!(
+            "vignette({}, radius {}, softness {})",
+            value("amount"),
+            value("radius"),
+            value("softness")
+        ),
+        kind => format!("{kind}({})", value("amount")),
+    }
 }
 
 fn describe_paint(paint: Option<&Value>) -> String {
@@ -638,11 +664,19 @@ mod tests {
         moved["transform"]["scale"] = json!({ "x": 2, "y": 2 });
         moved["transform"]["rotation"] = json!(45);
         moved["opacity"] = json!(0.5);
-        moved["effects"] = json!({ "blur": 4 });
+        moved["effects"] = json!({ "blur": 4, "filters": [
+            { "type": "shader", "id": "1b0a62b2133ed451" },
+            { "type": "grayscale", "amount": 1 },
+            { "type": "hue", "degrees": 30 },
+            { "type": "tint", "color": "#704214", "amount": 0.35 },
+            { "type": "vignette", "amount": 0.6, "radius": 0.5, "softness": 0.25 },
+        ] });
         let (output, _, _) = describe(vec![moved], vec![]);
         assert_eq!(
             output,
-            "rect 1×1 at (10, 20) anchor (0.5, 0.5) scale 2 rotate 45° opacity 0.5 blur 4\n"
+            "rect 1×1 at (10, 20) anchor (0.5, 0.5) scale 2 rotate 45° opacity 0.5 blur 4 \
+             filters shader 1b0a62b2133ed451 → grayscale(1) → hue(30°) → tint(#704214, 0.35) → \
+             vignette(0.6, radius 0.5, softness 0.25)\n"
         );
     }
 

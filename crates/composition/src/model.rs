@@ -113,6 +113,26 @@ pub enum LayerFilter {
     },
 }
 
+impl LayerFilter {
+    /// Whether the filter leaves every pixel as it was: a color filter at
+    /// the value that changes nothing. A custom shader never is.
+    pub fn is_identity(&self) -> bool {
+        match self {
+            Self::Shader(_) => false,
+            Self::Brightness { amount }
+            | Self::Contrast { amount }
+            | Self::Saturation { amount } => *amount == 1.0,
+            Self::Hue { degrees } => degrees % 360.0 == 0.0,
+            Self::Grayscale { amount } | Self::Invert { amount } => *amount == 0.0,
+            // `#RRGGBB00` lays a transparent color.
+            Self::Tint { color, amount } => {
+                *amount == 0.0 || (color.len() == 9 && color.ends_with("00"))
+            }
+            Self::Vignette { amount, .. } => *amount == 0.0,
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for LayerFilter {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         LayerFilterDef::deserialize(TypeTagged(deserializer))

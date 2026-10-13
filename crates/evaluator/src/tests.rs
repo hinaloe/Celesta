@@ -1,10 +1,12 @@
 use crate::Evaluator;
 use celesta_composition::{Animatable, BlendMode, Scene};
 
-use celesta_composition::{Keyframe, KeyframeAnimation, KeyframeAnimationType, LayerContent, Time};
+use celesta_composition::{
+    Keyframe, KeyframeAnimation, KeyframeAnimationType, LayerContent, LayerFilter, Time,
+};
 use celesta_project::{
     LipSyncCue, LipSyncDefinition, MouthShape, Project, SourceRange, TimelineContent,
-    TimelineEffects, TimelineGlow, TimelineShadow,
+    TimelineEffects, TimelineGlow, TimelineShadow, TimelineTint, TimelineVignette,
 };
 
 fn example() -> Project {
@@ -102,6 +104,7 @@ fn evaluates_animated_effects_at_item_local_time() {
             color: Animatable::Static("#ffffff".to_owned()),
             blur: Animatable::Static(4.0),
         }),
+        ..TimelineEffects::default()
     });
     let start = project.tracks[0].items[0].range.start;
     let time = start.checked_add(Time::new(1, 2)).unwrap();
@@ -111,6 +114,98 @@ fn evaluates_animated_effects_at_item_local_time() {
     assert_eq!(layer.effects.shadow.as_ref().unwrap().offset_x, 4.0);
     assert_eq!(layer.effects.shadow.as_ref().unwrap().color, "#800000C0");
     assert_eq!(layer.effects.glow.as_ref().unwrap().blur, 4.0);
+    assert!(layer.effects.filters.is_empty());
+}
+
+#[test]
+fn evaluates_color_filters_in_the_props_order_at_the_item_time() {
+    let mut project = example();
+    let ramp = |from: f64, to: f64| {
+        Animatable::Keyframes(KeyframeAnimation {
+            kind: KeyframeAnimationType::Keyframes,
+            keyframes: vec![
+                Keyframe {
+                    time: Time::ZERO,
+                    value: from,
+                    easing: None,
+                },
+                Keyframe {
+                    time: Time::new(1, 1),
+                    value: to,
+                    easing: None,
+                },
+            ],
+        })
+    };
+    project.tracks[0].items[0].effects = Some(TimelineEffects {
+        vignette: Some(TimelineVignette {
+            amount: ramp(0.0, 1.0),
+            radius: None,
+            softness: Some(Animatable::Static(0.25)),
+        }),
+        tint: Some(TimelineTint {
+            color: Animatable::Keyframes(KeyframeAnimation {
+                kind: KeyframeAnimationType::Keyframes,
+                keyframes: vec![
+                    Keyframe {
+                        time: Time::ZERO,
+                        value: "#000000FF".to_owned(),
+                        easing: None,
+                    },
+                    Keyframe {
+                        time: Time::new(1, 1),
+                        value: "#FF0000FF".to_owned(),
+                        easing: None,
+                    },
+                ],
+            }),
+            amount: None,
+        }),
+        hue: Some(Animatable::Static(90.0)),
+        brightness: Some(ramp(1.0, 2.0)),
+        // Changes nothing, so adds no filter.
+        saturation: Some(Animatable::Static(1.0)),
+        ..TimelineEffects::default()
+    });
+    let start = project.tracks[0].items[0].range.start;
+    let at = |offset| {
+        let time = start.checked_add(offset).unwrap();
+        Evaluator::new(&project)
+            .unwrap()
+            .scene_at(time)
+            .unwrap()
+            .layers[0]
+            .effects
+            .filters
+            .clone()
+    };
+    assert_eq!(
+        at(Time::new(1, 2)),
+        [
+            LayerFilter::Brightness { amount: 1.5 },
+            LayerFilter::Hue { degrees: 90.0 },
+            LayerFilter::Tint {
+                color: "#800000FF".to_owned(),
+                amount: 1.0,
+            },
+            LayerFilter::Vignette {
+                amount: 0.5,
+                radius: 0.5,
+                softness: 0.25,
+            },
+        ]
+    );
+    // At the item's start the brightness and the vignette change nothing.
+    assert_eq!(
+        at(Time::ZERO),
+        [
+            LayerFilter::Hue { degrees: 90.0 },
+            LayerFilter::Tint {
+                color: "#000000FF".to_owned(),
+                amount: 1.0,
+            },
+        ]
+    );
 }
 
 #[test]

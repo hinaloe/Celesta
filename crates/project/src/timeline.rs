@@ -69,6 +69,57 @@ pub struct TimelineEffects {
     pub shadow: Option<TimelineShadow>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub glow: Option<TimelineGlow>,
+    // The color filters, applied in the order below before `blur`,
+    // `shadow`, and `glow`, as the React props of the same names are.
+    /// Multiplies the color: 1 keeps it, 0 is black.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brightness: Option<Animatable<f64>>,
+    /// Scales the distance from mid-gray: 1 keeps it, 0 is mid-gray.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contrast: Option<Animatable<f64>>,
+    /// 1 keeps the color, 0 is grayscale, above 1 saturates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saturation: Option<Animatable<f64>>,
+    /// Rotates the hue, in degrees.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hue: Option<Animatable<f64>>,
+    /// 0 keeps the color, 1 is grayscale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grayscale: Option<Animatable<f64>>,
+    /// 0 keeps the color, 1 inverts it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invert: Option<Animatable<f64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tint: Option<TimelineTint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vignette: Option<TimelineVignette>,
+}
+
+/// Lays `color` over the pixels at `amount` (default 1) times its alpha,
+/// keeping their alpha.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct TimelineTint {
+    pub color: Animatable<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub amount: Option<Animatable<f64>>,
+}
+
+/// Darkens toward the edges of the item's box by up to `amount`, starting
+/// `radius` (default 0.5) of the way from its centre to its corners and
+/// reaching `amount` `softness` (default 0.5) further.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct TimelineVignette {
+    pub amount: Animatable<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radius: Option<Animatable<f64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub softness: Option<Animatable<f64>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

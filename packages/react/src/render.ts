@@ -654,6 +654,10 @@ function useShaderSource(source: ShaderSource, context: WalkContext): void {
 }
 
 function extractEffects(props: Record<string, unknown>, context: WalkContext): Layer['effects'] | undefined {
+  // `rawEffects`, like `rawTransform`, carries what celesta-evaluator
+  // already computed for a project timeline item; project items have no
+  // custom shaders, so there are no sources to list.
+  if (props.rawEffects !== undefined) return props.rawEffects as Layer['effects'];
   const radius = (value: unknown, name: string): number => {
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 64) {
       throw new Error(`${name} must be a finite number between 0 and 64`);

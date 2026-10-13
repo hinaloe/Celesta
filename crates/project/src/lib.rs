@@ -18,7 +18,7 @@ pub use document::{Project, ProjectSettings, ProjectVersion};
 pub use error::LoadError;
 pub use timeline::{
     SourceRange, TimelineContent, TimelineEffects, TimelineGlow, TimelineItem, TimelineShadow,
-    Track, TrackKind,
+    TimelineTint, TimelineVignette, Track, TrackKind,
 };
 
 mod validation;

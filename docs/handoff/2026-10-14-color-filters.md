@@ -1,7 +1,8 @@
 # Built-in color filters (2026-10-14)
 
-Issue #285. Layers and groups take `brightness`, `contrast`, `saturation`,
-`hue`, `grayscale`, `invert`, `tint`, and `vignette` as props, and
+Issue #285. Layers and groups take `brightness`, `contrast`,
+`saturation`, `hue`, `grayscale`, `invert`, `tint`, and `vignette` as
+props, project timeline items as `effects` of the same names, and
 `@celesta/shader` exports functions of the same names that go in the
 `shader` array among custom shaders (#286's chains). They run on the GPU
 and in `@celesta/web`.
@@ -65,8 +66,24 @@ and in `@celesta/web`.
   rasterizes did not change.
 - CPU reference renderer: refuses every filter, as it refused shaders
   (`RenderError::UnsupportedShader`, message updated).
-- Not done: project timelines (`.celesta.json`) have no color filters;
-  `evaluate.rs` writes no filters, as it wrote no shaders.
+- Project timelines: `TimelineEffects` takes the same color filters, each
+  value a number or keyframes (`brightness` to `invert`), and
+  `TimelineTint { color, amount? }` and `TimelineVignette { amount,
+  radius?, softness? }` with the props' defaults. Validation uses the
+  props' ranges and names the field (`effects.grayscale: must be finite
+  and between 0 and 1`). `evaluate_color_filters` evaluates them at the
+  item's time in the props' order, holds an overshooting easing to that
+  range, and leaves out the ones that change nothing
+  (`LayerFilter::is_identity`, the walker's `isIdentityFilter` in Rust).
+  A tint color's keyframes interpolate RGBA as a shadow color's do.
+- `<ProjectTimeline />` now passes a resolved component item's evaluated
+  effects to the group around it (`rawEffects`, beside `rawTransform` and
+  `rawOpacity`). Before, the editor's preview applied a component item's
+  `blur`, `shadow`, and `glow` (its splice keeps the item's layer) and an
+  export dropped them; both now apply them, color filters included.
+- The MCP server's scene summary lists a layer's filters as
+  `inspect.mjs` does (a custom shader by its id, since the summary has no
+  sources).
 - Performance: the `color-filters` bench workload grades the `shaders`
   image with `saturation`, `tint`, and `vignette`; see
   `docs/performance/custom-shaders.md`.
