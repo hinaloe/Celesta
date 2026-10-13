@@ -169,12 +169,13 @@ test('a vignette spans the layer\'s shapes as the GPU renderer places them', asy
   const hidden = { ...rect, opacity: 0, transform: at(-50, -50) };
   const scaled = text('A', at(100.25, 0, { scale: { x: 2, y: 2 } }));
   assert.deepEqual(await box({ opacity: 1, transform: at(0, 0), content: { type: 'group', layers: [rect, hidden, scaled] } }), [0, 0, 120.25, 20]);
-  // A path: its stroked extent in whole pixels, within the scene.
-  const path = {
-    opacity: 1, transform: at(0.5, 0.5),
-    content: { type: 'path', commands: [{ type: 'moveTo', x: 0, y: 0 }, { type: 'lineTo', x: 10, y: 5 }], stroke: { width: 2, paint: { type: 'solid', color: '#fff' } } },
-  };
-  assert.deepEqual(await box(path), [0, 0, 12, 7]);
+  // A path: its points, control points included, grown by half the stroke;
+  // a path that does not start with moveTo draws from 0,0.
+  const stroke = { width: 4, paint: { type: 'solid', color: '#fff' } };
+  const path = (commands, transform = at(0.5, 0.5)) => ({ opacity: 1, transform, content: { type: 'path', commands, stroke } });
+  assert.deepEqual(await box(path([{ type: 'moveTo', x: 10, y: 10 }, { type: 'lineTo', x: 50, y: 10 }, { type: 'lineTo', x: 50, y: 40 }], at(0, 0))), [8, 8, 52, 42]);
+  assert.deepEqual(await box(path([{ type: 'quadTo', x1: 20, y1: -10, x: 30, y: 5 }])), [-1.5, -11.5, 32.5, 7.5]);
+  assert.equal(await box(path([{ type: 'moveTo', x: 10, y: 10 }])), null);
   // A rotated rect: the box around its corners.
   const turned = await box({ ...rect, transform: at(0, 0, { rotation: 90 }) });
   assert.deepEqual(turned.map(value => Math.round(value * 1e9) / 1e9), [-10, 0, 0, 10]);

@@ -672,18 +672,21 @@ export class SceneCanvas {
       return place(x, y, x + w, y + h, Number.isInteger(w) && Number.isInteger(h));
     }
     if (content.type === 'path') {
-      // The outline's whole pixels within the scene. Control points and the
-      // stroke's half width stand in for the outline's own bounds.
-      const points = content.commands.flatMap(command => command.type === 'close' ? []
-        : command.type === 'cubicTo' ? [[command.x1, command.y1], [command.x2, command.y2], [command.x, command.y]]
-        : command.type === 'quadTo' ? [[command.x1, command.y1], [command.x, command.y]]
-        : [[command.x, command.y]]);
-      if (!points.length || !(content.fill || content.stroke?.width)) return null;
-      const reach = content.stroke?.width ? content.stroke.width / 2 : 0;
+      // The box of the points the commands name (control points included,
+      // and 0,0 when the first command draws from there), grown by half the
+      // stroke, as `PendingPath::shape_box` gives it.
+      const commands = content.commands;
+      if (!commands.some(command => command.type !== 'moveTo' && command.type !== 'close')) return null;
+      if (!content.fill && !(content.stroke && content.stroke.width > 0)) return null;
+      const points = commands[0]?.type === 'moveTo' ? [] : [[0, 0]];
+      for (const command of commands) {
+        if (command.type === 'cubicTo') points.push([command.x1, command.y1], [command.x2, command.y2], [command.x, command.y]);
+        else if (command.type === 'quadTo') points.push([command.x1, command.y1], [command.x, command.y]);
+        else if (command.type !== 'close') points.push([command.x, command.y]);
+      }
+      const reach = content.stroke && content.stroke.width > 0 ? content.stroke.width / 2 : 0;
       const xs = points.map(([x]) => x), ys = points.map(([, y]) => y);
-      const [left, top, right, bottom] = place(Math.min(...xs) - reach, Math.min(...ys) - reach, Math.max(...xs) + reach, Math.max(...ys) + reach);
-      const box: Box = [Math.max(0, Math.floor(left)), Math.max(0, Math.floor(top)), Math.min(ctx.canvas.width, Math.ceil(right)), Math.min(ctx.canvas.height, Math.ceil(bottom))];
-      return box[2] > box[0] && box[3] > box[1] ? box : null;
+      return place(Math.min(...xs) - reach, Math.min(...ys) - reach, Math.max(...xs) + reach, Math.max(...ys) + reach);
     }
     return null;
   }

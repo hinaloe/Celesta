@@ -39,21 +39,30 @@ and in `@celesta/web`.
   (`invalid brightness color filter: …`).
 - `@celesta/web`: `color-filters.ts` repeats the arithmetic on
   `getImageData` pixels of the layer's surface, before `blur`, `shadow`,
-  and `glow`, and writes back only the box it changed. A vignette reads
-  the box of the layer's shapes, which `SceneCanvas.shapeBox` computes as
-  `PreparedLayer::shape` and the group plan do: a rect's corners; a text
-  layer's image (the layout box in whole pixels, a single line's visible
-  rows padded to an even count, grown by the stroke, moved onto whole
-  pixels when drawn unscaled); an image's or video's display box; a path's
-  whole pixels within the scene; a group's union. A path's box uses its
-  control points and the stroke's half width where the GPU uses the
-  stroked outline, and a text's font-run overflow rows are not counted.
-  With the same font (Bebas Neue loaded by `<Font>`), Chrome's boxes for a
+  and `glow`, and writes back only the box it changed. Its test compares
+  that arithmetic against bytes the GPU renderer drew (within 1 for its
+  dithering). A vignette reads the box of the layer's shapes, which
+  `SceneCanvas.shapeBox` computes as `PreparedLayer::shape` and the group
+  plan do: a rect's corners; a text layer's image (the layout box in whole
+  pixels, a single line's visible rows padded to an even count, grown by
+  the stroke, moved onto whole pixels when drawn unscaled); an image's or
+  video's display box; a path's box (below); a group's union. In Chrome,
+  with the same font (Bebas Neue loaded by `<Font>`), the boxes of a
   stroked single line and a two-line text equalled the GPU's `uv` box to
-  the pixel. Its test compares the filters' arithmetic against bytes the
-  GPU renderer drew (within 1 for its dithering). The worker now serves
-  `@celesta/shader`; a frame that draws a custom shader still throws in
-  `SceneCanvas`.
+  the pixel, as did a rotated, round-capped path of a cubic and a quad.
+  The worker now serves `@celesta/shader`; a frame that draws a custom
+  shader still throws in `SceneCanvas`.
+- A path's box (`PendingPath::shape_box`, which `PreparedLayer::shape`
+  now returns for paths) changed on the GPU too: it was the stroked
+  outline's whole pixels within the scene, which only tiny-skia's stroker
+  gives exactly (its round joins and offset curves are quads whose
+  control points lie outside the stroke). It is now the box of the points
+  the commands name (control points included, and 0,0 when the first
+  command draws from there), grown by half the stroke width, its corners
+  placed by the layer's transform as a rect's are, and not cut to the
+  scene. Custom shaders on paths see it as `uv`/`celesta.content` as well
+  (`uv_spans_a_paths_points_grown_by_half_its_stroke`); what a path
+  rasterizes did not change.
 - CPU reference renderer: refuses every filter, as it refused shaders
   (`RenderError::UnsupportedShader`, message updated).
 - Not done: project timelines (`.celesta.json`) have no color filters;

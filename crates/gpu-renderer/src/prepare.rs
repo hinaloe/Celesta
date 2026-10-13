@@ -701,6 +701,7 @@ impl GpuRenderer {
                     state,
                     blend_mode,
                     raster_scale: 1.0,
+                    shape: None,
                 }));
             }
             LayerContent::Path {
@@ -952,6 +953,7 @@ impl GpuRenderer {
                 },
                 blend_mode: path.blend_mode,
                 raster_scale: 1.0,
+                shape: path.shape_box(),
             });
         }
         // Each path's entries into its own part of the buffer.

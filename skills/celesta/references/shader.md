@@ -87,7 +87,8 @@ fn effect(input: EffectInput) -> vec4f {
 - Coordinates are output pixels after transforms: a rotated layer's shader
   still works in scene space.
 - The layer's box is the box of what it draws: a rect's own rectangle, a
-  text's or image's quad, a group's children. A child's blur spreads its
+  text's or image's quad, a path's points (control points included) grown
+  by half its stroke width, a group's children. A child's blur spreads its
   pixels, not the box, and neither does an earlier shader in an array:
   every shader in it sees the same box.
 - There is no built-in time. Pass `frame / fps` (or any clock) as a
