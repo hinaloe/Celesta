@@ -427,7 +427,7 @@ pub(crate) fn export_renderer(
 ///   (`-preset medium -crf 18` by default), with `-pix_fmt yuv420p10le`
 ///   (High 10) for 10-bit output. Input already in the output's pixel format
 ///   reaches the encoder without a conversion.
-/// - `Mov`: `ffmpeg -vf <BT709_FILTER> -c:v prores_ks -profile:v 4444 -alpha_bits 16 -vendor apl0 -pix_fmt yuva444p10le -movflags +faststart`
+/// - `Mov`: `ffmpeg -vf <BT709_FILTER> -c:v prores_ks -profile:v 4444 -alpha_bits 16 -vendor apl0 -pix_fmt yuva444p10le`
 /// - `Webm`: `ffmpeg -vf <BT709_FILTER> -c:v libvpx-vp9 -crf 20 -b:v 0 -row-mt 1 -pix_fmt yuva420p`
 ///
 /// The alpha formats take straight-alpha `rgba64le`, which libswscale
@@ -456,14 +456,15 @@ pub(crate) fn open_video_writer(
             .set_video_codec_opt("crf", encoding.crf.to_string())
             .set_pix_fmt(encoding.bit_depth.pixel_format())
             .set_format_opt("movflags", "+faststart"),
+        // No faststart here: this is the video-only intermediate, and `mux_audio`
+        // sets it on the final file.
         VideoFormat::Mov => output
             .set_video_codec("prores_ks")
             .set_video_codec_opt("profile", "4444")
             .set_video_codec_opt("alpha_bits", "16")
             .set_video_codec_opt("vendor", "apl0")
             .set_pix_fmt("yuva444p10le")
-            .set_video_filter(BT709_FILTER)
-            .set_format_opt("movflags", "+faststart"),
+            .set_video_filter(BT709_FILTER),
         VideoFormat::Webm => output
             .set_video_codec("libvpx-vp9")
             .set_video_codec_opt("crf", "20")
