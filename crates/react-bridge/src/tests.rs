@@ -10,7 +10,7 @@ use crate::protocol::{
 };
 use crate::types::{ComponentPropertyField, ReactAudioClipDescriptor};
 use celesta_composition::{
-    Animatable, AssetLocation, ShaderParam, ShaderParamType, ShaderSource, Time,
+    Animatable, AssetLocation, LayerFilter, ShaderParam, ShaderParamType, ShaderSource, Time,
 };
 use std::path::Path;
 
@@ -325,7 +325,7 @@ fn deserializes_the_shaders_component_resolutions_use() {
             "id": "shaded",
             "transform": {},
             "opacity": 1.0,
-            "effects": {"blur": 0.0, "shaders": [{"id": "1b0a62b2133ed451", "params": [0.5]}]},
+            "effects": {"blur": 0.0, "filters": [{"type": "shader", "id": "1b0a62b2133ed451", "params": [0.5]}]},
             "content": {"type": "group", "layers": []}
         }]],
         "shaders": [{
@@ -344,7 +344,9 @@ fn deserializes_the_shaders_component_resolutions_use() {
     else {
         panic!("expected a Components response");
     };
-    let shader = &components[0].as_ref().unwrap()[0].effects.shaders[0];
+    let LayerFilter::Shader(shader) = &components[0].as_ref().unwrap()[0].effects.filters[0] else {
+        panic!("expected a custom shader");
+    };
     assert_eq!(shader.id, "1b0a62b2133ed451");
     assert_eq!(
         shaders,

@@ -1,9 +1,9 @@
 /// <reference path="../wgsl.d.ts" preserve="true" />
 
-import type { ShaderEffect } from '@celesta/react';
-import { shaderEffect, shaderSource } from '@celesta/react/internal';
+import type { ColorFilterValues, LayerTint, LayerVignette, ShaderEffect } from '@celesta/react';
+import { colorFilter, shaderEffect, shaderSource } from '@celesta/react/internal';
 
-export type { ShaderEffect } from '@celesta/react';
+export type { LayerTint, LayerVignette, ShaderEffect } from '@celesta/react';
 
 /** The type of a shader parameter, and the WGSL type it is declared as. */
 export type ShaderParamType = 'f32' | 'vec2' | 'vec3' | 'vec4' | 'color';
@@ -214,4 +214,50 @@ export function defineShader<const P extends Record<string, ShaderParamSpec> = {
   };
   Object.defineProperty(shader, 'id', { value: source.id, enumerable: true });
   return shader as unknown as Shader<P>;
+}
+
+// The built-in color filters, for a layer's `shader` array: they run where
+// they are listed among custom shaders, where the props of the same names
+// run after the array. Each works on the straight sRGB color, keeps alpha,
+// and clamps its result to 0–1. Unlike custom shaders, they also run in the
+// browser renderer.
+
+/** Multiplies the color: 1 keeps it, 0 is black, above 1 brightens. */
+export function brightness(amount: number): ShaderEffect {
+  return colorFilter('brightness', amount);
+}
+
+/** Scales the distance from mid-gray: 1 keeps it, 0 is mid-gray, above 1 adds contrast. */
+export function contrast(amount: number): ShaderEffect {
+  return colorFilter('contrast', amount);
+}
+
+/** 1 keeps the color, 0 is grayscale, above 1 saturates. */
+export function saturation(amount: number): ShaderEffect {
+  return colorFilter('saturation', amount);
+}
+
+/** Rotates the hue, in degrees, as CSS `hue-rotate()`. */
+export function hue(degrees: number): ShaderEffect {
+  return colorFilter('hue', degrees);
+}
+
+/** 0 keeps the color, 1 (the default) is grayscale. */
+export function grayscale(amount = 1): ShaderEffect {
+  return colorFilter('grayscale', amount);
+}
+
+/** 0 keeps the color, 1 (the default) inverts it. */
+export function invert(amount = 1): ShaderEffect {
+  return colorFilter('invert', amount);
+}
+
+/** Lays `color` over the pixels at `amount`, keeping their alpha. */
+export function tint(value: LayerTint): ShaderEffect {
+  return colorFilter('tint', value);
+}
+
+/** Darkens toward the edges of the content box. A number is the amount, 0–1. */
+export function vignette(value: ColorFilterValues['vignette']): ShaderEffect {
+  return colorFilter('vignette', value);
 }

@@ -9,6 +9,7 @@ import * as codeComponents from '../../code/src/index';
 import * as debug from '../../debug/src/index';
 import * as layout from '../../layout/src/index';
 import * as mediaUtils from '../../media-utils/src/index';
+import * as shader from '../../shader/src/index';
 import * as shapes from '../../shapes/src/index';
 import * as text from '../../text/src/index';
 import * as transitions from '../../transitions/src/index';
@@ -30,6 +31,8 @@ const modules: Record<(typeof runtimeModules)[number], unknown> = {
   '@celesta/media-utils': mediaUtils,
   '@celesta/character': character,
   '@celesta/code': codeComponents,
+  // Its color filters run here; custom shaders fail when a frame draws them.
+  '@celesta/shader': shader,
 };
 
 let initialized: Promise<void> | undefined;

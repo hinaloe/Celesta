@@ -2304,7 +2304,7 @@ fn metrics_retain_empty_line_source_offsets() {
 
 #[test]
 fn refuses_custom_shaders() {
-    use celesta_composition::LayerShader;
+    use celesta_composition::{LayerFilter, LayerShader};
 
     let mut layer = Layer {
         id: "shaded".to_owned(),
@@ -2322,11 +2322,11 @@ fn refuses_custom_shaders() {
             corner_radius: 0.0,
         },
     };
-    layer.effects.shaders.push(LayerShader {
+    layer.effects.filters.push(LayerFilter::Shader(LayerShader {
         id: "identity".to_owned(),
         params: Vec::new(),
         padding: 0.0,
-    });
+    }));
     let scene = Scene {
         width: 16,
         height: 16,

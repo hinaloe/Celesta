@@ -70,13 +70,59 @@ test('file font URLs are reused across frames and isolated opacity is applied on
   ]);
   assert.deepEqual(composites.filter(([, id]) => id === output.id).map(([, , alpha, from, filter]) => [alpha, from, filter]), [[0.5, result, 'none']]);
   await assert.rejects(
-    renderer.draw(output, { ...scene, layers: [{ ...rect, effects: { shaders: [{ id: 'ripple' }] } }] }),
+    renderer.draw(output, { ...scene, layers: [{ ...rect, effects: { filters: [{ type: 'invert', amount: 1 }, { type: 'shader', id: 'ripple' }] } }] }),
     /custom shaders are not supported in the browser renderer/,
   );
   renderer.dispose();
   assert.equal(revokeURL.mock.callCount(), 1);
   assert.equal(faces.size, 0);
 
+});
+
+test('color filters change the layer\'s pixels before its other effects', async t => {
+  const originals = { document: globalThis.document, DOMMatrix: globalThis.DOMMatrix };
+  t.after(() => Object.assign(globalThis, originals));
+  globalThis.DOMMatrix = class { translate() { return this; } rotate() { return this; } scale() { return this; } };
+  const operations = [];
+  let nextCanvas = 0;
+  const canvas = () => {
+    const element = { id: nextCanvas++, width: 4, height: 1, getContext() { return context; } };
+    // Every pixel of a canvas a fill touches is red, opaque.
+    let pixels = new Uint8ClampedArray(16);
+    const context = {
+      canvas: element, globalAlpha: 1, filter: 'none', globalCompositeOperation: 'source-over',
+      save() {}, restore() {}, setTransform() {}, beginPath() {}, roundRect() {},
+      fillRect() {},
+      fill() { pixels = Uint8ClampedArray.from([255, 0, 0, 255, 255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0]); },
+      getImageData(x, y, width, height) {
+        operations.push(['read', element.id, x, y, width, height]);
+        return { data: Uint8ClampedArray.from(pixels) };
+      },
+      putImageData(image, x, y, dirtyX, dirtyY, dirtyWidth, dirtyHeight) {
+        operations.push(['write', element.id, Array.from(image.data.slice(0, 8)), dirtyX, dirtyY, dirtyWidth, dirtyHeight]);
+      },
+      drawImage(source) { operations.push(['composite', element.id, source.id, this.filter]); },
+    };
+    return element;
+  };
+  globalThis.document = { fonts: new Set(), createElement: canvas };
+  const renderer = new SceneCanvas(new Map());
+  const transform = { position: { x: 0, y: 0 }, scale: { x: 1, y: 1 }, anchor: { x: 0, y: 0 }, rotation: 0 };
+  const rect = {
+    opacity: 1, transform,
+    effects: { blur: 1, filters: [{ type: 'invert', amount: 1 }, { type: 'brightness', amount: 0.5 }] },
+    content: { type: 'rect', width: 2, height: 1, cornerRadius: 0, fill: { type: 'solid', color: '#f00' } },
+  };
+  const output = canvas();
+  await renderer.draw(output, { width: 4, height: 1, layers: [rect] });
+  const [read] = operations.filter(([kind]) => kind === 'read');
+  const source = read[1];
+  assert.deepEqual(read.slice(2), [0, 0, 4, 1]);
+  // Inverted, then halved; only the layer's box is written back.
+  assert.deepEqual(operations.find(([kind]) => kind === 'write'), ['write', source, [0, 128, 128, 255, 0, 128, 128, 255], 0, 0, 2, 1]);
+  // The blur reads the filtered source.
+  assert.ok(operations.some(([kind, , from, filter]) => kind === 'composite' && from === source && filter === 'blur(1px)'));
+  renderer.dispose();
 });
 
 test('text wrapped at maxWidth is anchored by its line boxes, as text broken with newlines', async t => {

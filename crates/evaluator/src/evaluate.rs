@@ -46,8 +46,8 @@ pub(crate) fn evaluate_effects(
                 }))
             })
             .transpose()?,
-        // Project timelines have no custom shaders.
-        shaders: Vec::new(),
+        // Project timelines have no custom shaders or color filters.
+        filters: Vec::new(),
     })
 }
 

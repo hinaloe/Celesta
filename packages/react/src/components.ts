@@ -8,7 +8,7 @@ import {
   resolveTextLanguage,
 } from './hooks';
 import type { Animatable, BlendMode, Paint, TextStyle, LayerShadow, LayerGlow } from './scene';
-import type { ShaderEffect } from './shader';
+import type { LayerTint, LayerVignette, ShaderEffect } from './shader';
 import { endsWithComposition, secondsFromTime, secondsToTime } from './time';
 
 // Unlike the pre-reconciler tree walker, these are real function components:
@@ -55,11 +55,35 @@ export interface CommonProps {
   /** A centered colored halo behind the composited layer. */
   glow?: LayerGlow;
   /**
-   * Custom WGSL filters from `@celesta/shader`, applied to the composited
-   * layer before `blur`, `shadow`, and `glow`. An array runs them in order,
-   * each filtering the result of the one before it.
+   * Filters from `@celesta/shader` (custom WGSL shaders from
+   * `defineShader()`, or built-in color filters such as `brightness(1.2)`),
+   * applied to the composited layer before the color filter props, `blur`,
+   * `shadow`, and `glow`. An array runs them in order, each filtering the
+   * result of the one before it.
    */
   shader?: ShaderEffect | readonly ShaderEffect[];
+  /*
+   * The color filters below apply after `shader` and before `blur`,
+   * `shadow`, and `glow`, in the order listed here. Each works on the
+   * straight sRGB color, keeps alpha, and clamps its result to 0–1. For
+   * another order, pass them to `shader` as an array instead.
+   */
+  /** Multiplies the color: 1 keeps it, 0 is black, above 1 brightens. */
+  brightness?: number;
+  /** Scales the distance from mid-gray: 1 keeps it, 0 is mid-gray, above 1 adds contrast. */
+  contrast?: number;
+  /** 1 keeps the color, 0 is grayscale, above 1 saturates. */
+  saturation?: number;
+  /** Rotates the hue, in degrees. */
+  hue?: number;
+  /** 0 keeps the color, 1 is grayscale. */
+  grayscale?: number;
+  /** 0 keeps the color, 1 inverts it. */
+  invert?: number;
+  /** Lays a color over the pixels, keeping their alpha. */
+  tint?: LayerTint;
+  /** Darkens toward the edges of the content box. A number is the amount, 0–1. */
+  vignette?: number | LayerVignette;
 }
 
 export interface CompositionProps {

@@ -129,7 +129,7 @@ fn run(options: &Options) -> Result<(), String> {
         .any(|workload| {
             matches!(
                 workload.name,
-                "images" | "shaders" | "shader-chain" | "shader-nest"
+                "images" | "shaders" | "shader-chain" | "shader-nest" | "color-filters"
             )
         })
         .then(AssetDir::new)

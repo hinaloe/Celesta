@@ -2,7 +2,9 @@
 //! run WGSL, so these compare against expected pixels.
 
 use super::*;
-use celesta_composition::{LayerEffects, LayerShader, ShaderParam, ShaderParamType, ShaderSource};
+use celesta_composition::{
+    LayerEffects, LayerFilter, LayerShader, ShaderParam, ShaderParamType, ShaderSource,
+};
 
 const IDENTITY: &str =
     "fn effect(input: EffectInput) -> vec4f {\n    return source_at(input.position);\n}\n";
@@ -30,11 +32,11 @@ fn source(id: &str, wgsl: &str, params: &[(&str, ShaderParamType)]) -> ShaderSou
 }
 
 fn shaded(mut layer: Layer, id: &str, params: Vec<f64>, padding: f64) -> Layer {
-    layer.effects.shaders.push(LayerShader {
+    layer.effects.filters.push(LayerFilter::Shader(LayerShader {
         id: id.to_owned(),
         params,
         padding,
-    });
+    }));
     layer
 }
 

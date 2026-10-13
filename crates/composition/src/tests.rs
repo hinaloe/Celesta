@@ -639,7 +639,9 @@ fn font_families_take_a_name_or_a_stack() {
 
 #[test]
 fn custom_shaders_round_trip_and_omit_their_defaults() {
-    use crate::{LayerEffects, LayerShader, Scene, ShaderParam, ShaderParamType, ShaderSource};
+    use crate::{
+        LayerEffects, LayerFilter, LayerShader, Scene, ShaderParam, ShaderParamType, ShaderSource,
+    };
 
     let scene = serde_json::json!({
         "width": 64,
@@ -681,13 +683,15 @@ fn custom_shaders_round_trip_and_omit_their_defaults() {
     assert!(parsed.shaders.is_empty());
     assert_eq!(serde_json::to_value(&parsed).unwrap(), without);
 
-    let shader = |id: &str, params: Vec<f64>, padding| LayerShader {
-        id: id.to_owned(),
-        params,
-        padding,
+    let shader = |id: &str, params: Vec<f64>, padding| {
+        LayerFilter::Shader(LayerShader {
+            id: id.to_owned(),
+            params,
+            padding,
+        })
     };
     let effects = LayerEffects {
-        shaders: vec![
+        filters: vec![
             shader("9f3c", vec![1.25, 1.0, 0.5, 0.0, 1.0], 8.0),
             shader("a1b2", Vec::new(), 0.0),
         ],
@@ -696,16 +700,73 @@ fn custom_shaders_round_trip_and_omit_their_defaults() {
     assert!(!effects.is_empty());
     assert_eq!(
         serde_json::to_value(&effects).unwrap(),
-        serde_json::json!({ "shaders": [
-            { "id": "9f3c", "params": [1.25, 1.0, 0.5, 0.0, 1.0], "padding": 8.0 },
-            { "id": "a1b2" },
+        serde_json::json!({ "filters": [
+            { "type": "shader", "id": "9f3c", "params": [1.25, 1.0, 0.5, 0.0, 1.0], "padding": 8.0 },
+            { "type": "shader", "id": "a1b2" },
         ] })
     );
-    let bare = serde_json::json!({ "shaders": [{ "id": "9f3c" }] });
+    let bare = serde_json::json!({ "filters": [{ "type": "shader", "id": "9f3c" }] });
     let parsed = serde_json::from_value::<LayerEffects>(bare.clone()).unwrap();
-    assert_eq!(parsed.shaders, vec![shader("9f3c", Vec::new(), 0.0)]);
+    assert_eq!(parsed.filters, vec![shader("9f3c", Vec::new(), 0.0)]);
     assert_eq!(serde_json::to_value(&parsed).unwrap(), bare);
     assert!(LayerEffects::default().is_empty());
+}
+
+#[test]
+fn color_filters_round_trip_in_order_with_shaders() {
+    use crate::{LayerEffects, LayerFilter, LayerShader};
+
+    let json = serde_json::json!({ "filters": [
+        { "type": "brightness", "amount": 1.25 },
+        { "type": "contrast", "amount": 0.5 },
+        { "type": "shader", "id": "9f3c" },
+        { "type": "saturation", "amount": 2.0 },
+        { "type": "hue", "degrees": -90.0 },
+        { "type": "grayscale", "amount": 1.0 },
+        { "type": "invert", "amount": 0.5 },
+        { "type": "tint", "color": "#ff880080", "amount": 0.25 },
+        { "type": "vignette", "amount": 0.5, "radius": 0.25, "softness": 0.75 },
+    ] });
+    let parsed = serde_json::from_value::<LayerEffects>(json.clone()).unwrap();
+    assert_eq!(
+        parsed.filters,
+        vec![
+            LayerFilter::Brightness { amount: 1.25 },
+            LayerFilter::Contrast { amount: 0.5 },
+            LayerFilter::Shader(LayerShader {
+                id: "9f3c".to_owned(),
+                params: Vec::new(),
+                padding: 0.0,
+            }),
+            LayerFilter::Saturation { amount: 2.0 },
+            LayerFilter::Hue { degrees: -90.0 },
+            LayerFilter::Grayscale { amount: 1.0 },
+            LayerFilter::Invert { amount: 0.5 },
+            LayerFilter::Tint {
+                color: "#ff880080".to_owned(),
+                amount: 0.25,
+            },
+            LayerFilter::Vignette {
+                amount: 0.5,
+                radius: 0.25,
+                softness: 0.75,
+            },
+        ]
+    );
+    assert_eq!(serde_json::to_value(&parsed).unwrap(), json);
+    // `Serialize` writes `type` first, which the deserializer reads without
+    // buffering; a later `type` loads too.
+    let text = serde_json::to_string(&parsed).unwrap();
+    assert_eq!(serde_json::from_str::<LayerEffects>(&text).unwrap(), parsed);
+    let later = r#"{ "filters": [{ "amount": 0.5, "type": "invert" }] }"#;
+    assert_eq!(
+        serde_json::from_str::<LayerEffects>(later).unwrap().filters,
+        vec![LayerFilter::Invert { amount: 0.5 }]
+    );
+    let error = serde_json::from_str::<LayerEffects>(r#"{ "filters": [{ "type": "sepia" }] }"#)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("sepia"), "{error}");
 }
 
 #[test]

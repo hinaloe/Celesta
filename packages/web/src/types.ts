@@ -47,11 +47,22 @@ export type LayerContent =
   | { type: 'video'; asset: Asset; timing: { sourceTimeSeconds: number } }
   | { type: 'psd'; asset: Asset }
   | { type: 'missingComponent'; component: string; props: Record<string, unknown> };
+/** A built-in color filter; see `LayerFilter` in `@celesta/react`. */
+export type ColorFilter =
+  | { type: 'brightness' | 'contrast' | 'saturation' | 'grayscale' | 'invert'; amount: number }
+  | { type: 'hue'; degrees: number }
+  | { type: 'tint'; color: string; amount: number }
+  | { type: 'vignette'; amount: number; radius: number; softness: number };
 export type Layer = {
   id: string;
   transform: Transform;
   opacity: number;
-  effects?: { blur?: number; shadow?: { color: string; blur: number; offsetX: number; offsetY: number } | null; glow?: { color: string; blur: number } | null; shaders?: { id: string }[] };
+  effects?: {
+    blur?: number;
+    shadow?: { color: string; blur: number; offsetX: number; offsetY: number } | null;
+    glow?: { color: string; blur: number } | null;
+    filters?: (ColorFilter | { type: 'shader'; id: string })[];
+  };
   blendMode?: 'normal' | 'multiply' | 'screen' | 'overlay' | 'add' | 'difference';
   content: LayerContent;
 };

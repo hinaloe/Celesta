@@ -1,4 +1,5 @@
-import type { Scene, Layer, Asset, FontRun, Paint, TextStyle } from './types';
+import type { Scene, Layer, Asset, ColorFilter, FontRun, Paint, TextStyle } from './types';
+import { applyColorFilters } from './color-filters';
 import { loadFonts, releaseFonts } from './fonts';
 import { checkFontRuns, cssFont, letterSpacingPx, measureLine, runPieces, textLineRanges, textStyle } from './text-layout';
 import type { RunPiece } from './text-layout';
@@ -375,11 +376,18 @@ export class SceneCanvas {
     const mode = blend[layer.blendMode ?? 'normal'];
     if (!mode) throw new Error(`Unsupported blend mode: ${layer.blendMode}`);
     const effects = layer.effects;
+    const filters = effects?.filters ?? [];
     // Canvas 2D cannot run WGSL; drawing the layer without it would be wrong.
-    if (effects?.shaders?.length) throw new Error('custom shaders are not supported in the browser renderer');
-    if (effects && (effects.blur || effects.shadow || effects.glow)) {
+    if (filters.some(filter => filter.type === 'shader')) throw new Error('custom shaders are not supported in the browser renderer');
+    if (effects && (effects.blur || effects.shadow || effects.glow || filters.length)) {
       const source = this.surface(ctx);
       await this.layer(source, { ...layer, opacity: 1, blendMode: 'normal', effects: undefined }, parent, 1);
+      if (filters.length) {
+        const { width, height } = source.canvas;
+        const pixels = source.getImageData(0, 0, width, height);
+        const box = applyColorFilters(pixels.data, width, filters as ColorFilter[]);
+        if (box) source.putImageData(pixels, 0, 0, box[0], box[1], box[2] - box[0], box[3] - box[1]);
+      }
       const result = this.surface(ctx);
       // Each effect reads the unmodified source, matching the native renderer.
       for (const effect of [effects.shadow, effects.glow ? { ...effects.glow, offsetX: 0, offsetY: 0 } : null]) {

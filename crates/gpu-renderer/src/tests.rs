@@ -31,6 +31,7 @@ use celesta_composition::{
 };
 use celesta_media::{MediaError, VideoFrame, VideoFrameDecoder};
 
+mod color_filter;
 mod instances;
 mod readback;
 mod shader;
@@ -1074,7 +1075,7 @@ fn blurred_group_with_shadow_and_glow_matches_cpu() {
                 color: "#ff000080".to_owned(),
                 blur: 3.0,
             })),
-            shaders: Vec::new(),
+            filters: Vec::new(),
         },
         content: LayerContent::Group {
             layers: vec![corner_rect("child", 20.0, 20.0, 16.0, 12.0, "#ffe080")],
@@ -1163,7 +1164,7 @@ fn effects_on_small_layers_match_cpu() {
                     offset_y: -4.25,
                 })),
                 glow: None,
-                shaders: Vec::new(),
+                filters: Vec::new(),
             },
             vec![nested],
         ),
@@ -1234,7 +1235,7 @@ fn large_blurs_match_cpu() {
                     color: "#ffe060ff".to_owned(),
                     blur: 64.0,
                 })),
-                shaders: Vec::new(),
+                filters: Vec::new(),
             },
             vec![corner_rect("edge", 120.0, 70.0, 40.0, 42.0, "#a0ff60")],
         ),

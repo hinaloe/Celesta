@@ -247,8 +247,9 @@ impl Compositor<'_> {
             self.effects.recycle(canvas);
             return None;
         };
-        // The shaders first, each filtering the one before it, through two
-        // canvases in turn; the other effects filter their result.
+        // The filters (custom shaders and color filters) first, each
+        // filtering the one before it, through two canvases in turn; the
+        // other effects filter their result.
         for index in effects.shaders.map_or(0..0, ShaderChain::uses) {
             let shaded = self.effects.take_canvas(
                 self.device,

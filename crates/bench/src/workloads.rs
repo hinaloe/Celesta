@@ -12,9 +12,9 @@ use std::path::{Path, PathBuf};
 
 use celesta_composition::{
     AssetLocation, BlendMode, Clip, EvaluatedTransform, GradientStop, ImageFit, Layer,
-    LayerContent, LayerEffects, LayerGlow, LayerShader, LayerShadow, LineBreak, LineCap, LineJoin,
-    Paint, PathCommand, Point, Rational, ResolvedAsset, Scene, ShaderParam, ShaderParamType,
-    ShaderSource, Stroke, TextStyle, Time,
+    LayerContent, LayerEffects, LayerFilter, LayerGlow, LayerShader, LayerShadow, LineBreak,
+    LineCap, LineJoin, Paint, PathCommand, Point, Rational, ResolvedAsset, Scene, ShaderParam,
+    ShaderParamType, ShaderSource, Stroke, TextStyle, Time,
 };
 use celesta_react_bridge::{ReactBridge, runtime_paths};
 
@@ -98,6 +98,11 @@ pub const WORKLOADS: &[Workload] = &[
         name: "shader-nest",
         description: "`shader-chain` with a group nested around each shader instead",
         source: Source::Shaded(shader_nest, shader_sources),
+    },
+    Workload {
+        name: "color-filters",
+        description: "`shader-chain` with the built-in saturation, tint, and vignette filters as the grade",
+        source: Source::Shaded(color_filters, shader_sources),
     },
 ];
 
@@ -801,18 +806,42 @@ fn shader_sources() -> Vec<ShaderSource> {
 /// ripple, reaching past their edges into the padding.
 fn shaders(canvas: &Canvas, frame: usize) -> Vec<Layer> {
     let mut backdrop = backdrop_image(canvas);
-    backdrop.effects.shaders.push(LayerShader {
-        id: "bench-grade".to_owned(),
-        params: grade_params(frame).concat(),
-        padding: 0.0,
-    });
+    backdrop
+        .effects
+        .filters
+        .push(LayerFilter::Shader(LayerShader {
+            id: "bench-grade".to_owned(),
+            params: grade_params(frame).concat(),
+            padding: 0.0,
+        }));
     rippling_lines(canvas, frame, backdrop)
 }
 
 /// As `shaders`, grading through three shaders in a row.
 fn shader_chain(canvas: &Canvas, frame: usize) -> Vec<Layer> {
     let mut backdrop = backdrop_image(canvas);
-    backdrop.effects.shaders = grade_steps(frame);
+    backdrop.effects.filters = grade_steps(frame);
+    rippling_lines(canvas, frame, backdrop)
+}
+
+/// As `shader_chain`, grading through the built-in color filters.
+fn color_filters(canvas: &Canvas, frame: usize) -> Vec<Layer> {
+    let [saturation, _, _] = grade_params(frame);
+    let mut backdrop = backdrop_image(canvas);
+    backdrop.effects.filters = vec![
+        LayerFilter::Saturation {
+            amount: saturation[0],
+        },
+        LayerFilter::Tint {
+            color: "#FFEBD9".to_owned(),
+            amount: 0.5,
+        },
+        LayerFilter::Vignette {
+            amount: 0.6,
+            radius: 0.0,
+            softness: 1.0,
+        },
+    ];
     rippling_lines(canvas, frame, backdrop)
 }
 
@@ -821,7 +850,7 @@ fn shader_chain(canvas: &Canvas, frame: usize) -> Vec<Layer> {
 fn shader_nest(canvas: &Canvas, frame: usize) -> Vec<Layer> {
     let mut steps = grade_steps(frame).into_iter();
     let mut backdrop = backdrop_image(canvas);
-    backdrop.effects.shaders.extend(steps.next());
+    backdrop.effects.filters.extend(steps.next());
     for (index, step) in steps.enumerate() {
         backdrop = layer(
             format!("graded-{index}"),
@@ -832,7 +861,7 @@ fn shader_nest(canvas: &Canvas, frame: usize) -> Vec<Layer> {
                 mask: None,
             },
         );
-        backdrop.effects.shaders.push(step);
+        backdrop.effects.filters.push(step);
     }
     rippling_lines(canvas, frame, backdrop)
 }
@@ -868,14 +897,16 @@ fn grade_params(frame: usize) -> [Vec<f64>; 3] {
 }
 
 /// The grade as three shaders, one per step.
-fn grade_steps(frame: usize) -> Vec<LayerShader> {
+fn grade_steps(frame: usize) -> Vec<LayerFilter> {
     ["bench-desaturate", "bench-tint", "bench-vignette"]
         .into_iter()
         .zip(grade_params(frame))
-        .map(|(id, params)| LayerShader {
-            id: id.to_owned(),
-            params,
-            padding: 0.0,
+        .map(|(id, params)| {
+            LayerFilter::Shader(LayerShader {
+                id: id.to_owned(),
+                params,
+                padding: 0.0,
+            })
         })
         .collect()
 }
@@ -900,11 +931,11 @@ fn rippling_lines(canvas: &Canvas, frame: usize, backdrop: Layer) -> Vec<Layer> 
                 baseline_anchor: false,
             },
         );
-        line.effects.shaders.push(LayerShader {
+        line.effects.filters.push(LayerFilter::Shader(LayerShader {
             id: "bench-ripple".to_owned(),
             params: vec![t + index as f64 * 0.4, amplitude, 0.06 / canvas.k],
             padding: amplitude + 2.0,
-        });
+        }));
         line
     }));
     layers
