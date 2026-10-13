@@ -51,7 +51,10 @@ Pass local media as `new SceneCanvas(new Map<string, File>([['clip.mp4', file]])
 The source string accepts runtime imports from `react`, `@celesta/react`,
 `@celesta/math`, `@celesta/shapes`, `@celesta/layout`, `@celesta/transitions`,
 `@celesta/text`, `@celesta/debug`, `@celesta/media-utils`, `@celesta/character`,
-and `@celesta/code`. It needs a default component returning `<Composition>`.
+`@celesta/code`, and `@celesta/shader`. It needs a default component returning
+`<Composition>`. The built-in color filters (`brightness`, `grayscale`,
+`vignette`, and the rest, as props or from `@celesta/shader`) run in the
+browser; a frame that draws a custom WGSL shader from `defineShader()` fails.
 Paths, motion helpers, Canvas text measurement, and custom OpenType fonts or
 font CSS URLs are supported. An async `prepare()` may use browser APIs and
 `measureText()`; filesystem helpers (`preloadMedia`, `loadLipSync`,

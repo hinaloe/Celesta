@@ -10,6 +10,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `Group` | `@celesta/react` | 子のレイヤーに共通の位置・拡縮・回転・透明度を適用します。`lang` で既定のテキスト言語を指定できます。 |
 | `Image` / `Video` / `Audio` | `@celesta/react` | `src` でローカルファイルや HTTP(S) の素材を指定します。[画像・動画・音声](/ja/docs/media/)も参照してください。 |
 | `defineShader` | `@celesta/shader` | WGSL のカスタムフィルタを定義します。パラメータを渡して呼び出し、結果を `shader` に渡します。 |
+| `brightness`、`contrast`、`saturation`、`hue`、`grayscale`、`invert`、`tint`、`vignette` | `@celesta/shader` | `shader` の配列でカスタムシェーダーの間に入れる色補正です。同名の props でどのレイヤーにも指定できます。[レイアウトの「色補正」](/ja/docs/layout/)を参照してください。 |
 | `Font` | `@celesta/react` | `src` でフォントファイルやウェブフォントの CSS を読み込み、`Text` で使えるようにします。[テキストとフォント](/ja/docs/text-fonts/)も参照してください。 |
 
 **時間と動き**

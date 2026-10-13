@@ -27,9 +27,20 @@
 </Group>
 ```
 
+## 色補正
+
+映像のレイヤーや Group には色補正も指定できます。値はフレームごとに変更できます。`brightness`・`contrast`・`saturation`（1 で元の色）、`hue`（色相を回す角度）、`grayscale`・`invert`（0 から 1）、`tint`（画素に色を乗せる。`{ color, amount }`）、`vignette`（0 から 1、または `{ amount, radius, softness }`。レイヤーの矩形の端に向かって暗くする）があります。どれも CSS の `filter` 関数と同じく、乗算済みでない sRGB の色にかかり、アルファは変えず、結果を 0 から 1 に収めます。`shader` の後に、ここに挙げた順で適用され、blur、shadow、glow より先にかかります。プレビュー、書き出し、ブラウザ版エディタのどれでも動きます。
+
+```tsx title="古い写真のように"
+<Image src="street.jpg" grayscale={1} tint={{ color: "#704214", amount: 0.35 }}
+  contrast={1.1} vignette={0.6} />
+```
+
+別の順番で適用したいときや、カスタムシェーダーの間に挟みたいときは、`@celesta/shader` の同名の関数を `shader` の配列に入れます：`shader={[ripple({ time }), grayscale(), vignette(0.6)]}`。
+
 ## カスタムシェーダー
 
-`@celesta/shader` の `defineShader` で、WGSL のフィルタを定義できます。`fn effect(input: EffectInput) -> vec4f` を書き、出力の各ピクセルを乗算済みアルファの RGBA で返します。レイヤーの画素は `source_at(position)`（シーンのピクセル座標、補間あり）か `source_load(pixel)` で読みます。`input.uv` はレイヤーの矩形の中での位置（0,0 から 1,1）で、`celesta` にはシーンの大きさとその矩形が入っています。パラメータは `params` で宣言し、使うたびに値を渡します。時間もパラメータとして渡すので、シーケンスや FreezeFrame の中でも正しく動きます。結果はどのレイヤーの `shader` にも渡せます。`shader={[ripple({ time }), rgbSplit({ amount: 6 })]}` のように配列を渡すと、複数のシェーダーを順に適用し、それぞれが前のシェーダーの結果にかかります。どのシェーダーも同じレイヤーの矩形を見ており、パディングは足し合わされます。シェーダーは blur、shadow、glow より先に適用され、レイヤーの矩形と `padding` の範囲にだけ書き込みます。ソースは `.wgsl` ファイルとして import でき、エディタのハイライトが効くうえ、保存するとプレビューが再読み込みされます。シェーダーはプレビューと書き出しで動き、ブラウザ版エディタでは使えません。
+`@celesta/shader` の `defineShader` で、WGSL のフィルタを定義できます。`fn effect(input: EffectInput) -> vec4f` を書き、出力の各ピクセルを乗算済みアルファの RGBA で返します。レイヤーの画素は `source_at(position)`（シーンのピクセル座標、補間あり）か `source_load(pixel)` で読みます。`input.uv` はレイヤーの矩形の中での位置（0,0 から 1,1）で、`celesta` にはシーンの大きさとその矩形が入っています。パラメータは `params` で宣言し、使うたびに値を渡します。時間もパラメータとして渡すので、シーケンスや FreezeFrame の中でも正しく動きます。結果はどのレイヤーの `shader` にも渡せます。`shader={[ripple({ time }), rgbSplit({ amount: 6 })]}` のように配列を渡すと、複数のシェーダーを順に適用し、それぞれが前のシェーダーの結果にかかります。どのシェーダーも同じレイヤーの矩形を見ており、パディングは足し合わされます。シェーダーは色補正の props、blur、shadow、glow より先に適用され、レイヤーの矩形と `padding` の範囲にだけ書き込みます。ソースは `.wgsl` ファイルとして import でき、エディタのハイライトが効くうえ、保存するとプレビューが再読み込みされます。シェーダーはプレビューと書き出しで動き、ブラウザ版エディタでは使えません。
 
 ```tsx title="波打つタイトル"
 import { defineShader } from '@celesta/shader';
