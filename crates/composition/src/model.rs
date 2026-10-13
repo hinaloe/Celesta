@@ -60,16 +60,121 @@ pub struct LayerEffects {
     pub shadow: Option<Box<LayerShadow>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub glow: Option<Box<LayerGlow>>,
-    /// Custom WGSL filters, applied in order before `blur`, `shadow`, and
-    /// `glow`: each filters the result of the one before it.
+    /// Custom shaders and built-in color filters, applied in order before
+    /// `blur`, `shadow`, and `glow`: each filters the result of the one
+    /// before it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub shaders: Vec<LayerShader>,
+    pub filters: Vec<LayerFilter>,
 }
 
 impl LayerEffects {
     pub fn is_empty(&self) -> bool {
-        self.blur <= 0.0 && self.shadow.is_none() && self.glow.is_none() && self.shaders.is_empty()
+        self.blur <= 0.0 && self.shadow.is_none() && self.glow.is_none() && self.filters.is_empty()
     }
+}
+
+/// One filter in a layer's `filters`. The built-in color filters work on
+/// the straight (unpremultiplied) sRGB-encoded color, keep alpha, and clamp
+/// their result to 0–1, as CSS `filter` functions do.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum LayerFilter {
+    /// A custom WGSL shader.
+    Shader(LayerShader),
+    /// Multiplies the color by `amount`: 1 keeps it, 0 is black.
+    Brightness { amount: f64 },
+    /// Scales the color's distance from mid-gray by `amount`: 1 keeps it,
+    /// 0 is mid-gray.
+    Contrast { amount: f64 },
+    /// 1 keeps the color, 0 is its luma (Rec. 709), above 1 saturates it.
+    Saturation { amount: f64 },
+    /// Rotates the hue by `degrees`, as CSS `hue-rotate()`.
+    Hue { degrees: f64 },
+    /// Mixes the color toward its luma by `amount`, 0–1.
+    Grayscale { amount: f64 },
+    /// Mixes the color toward its inverse by `amount`, 0–1.
+    Invert { amount: f64 },
+    /// Mixes the color toward `color` (`#RRGGBB` or `#RRGGBBAA`) by
+    /// `amount` times `color`'s alpha, 0–1.
+    Tint { color: String, amount: f64 },
+    /// Darkens toward the content box's edges by up to `amount`, 0–1.
+    /// Darkening starts `radius` of the way from the box's centre to its
+    /// corners and reaches `amount` `softness` further.
+    Vignette {
+        amount: f64,
+        radius: f64,
+        softness: f64,
+    },
+}
+
+impl LayerFilter {
+    /// Whether the filter leaves every pixel as it was: a color filter at
+    /// the value that changes nothing. A custom shader never is.
+    pub fn is_identity(&self) -> bool {
+        match self {
+            Self::Shader(_) => false,
+            Self::Brightness { amount }
+            | Self::Contrast { amount }
+            | Self::Saturation { amount } => *amount == 1.0,
+            Self::Hue { degrees } => degrees % 360.0 == 0.0,
+            Self::Grayscale { amount } | Self::Invert { amount } => *amount == 0.0,
+            // `#RRGGBB00` lays a transparent color.
+            Self::Tint { color, amount } => {
+                *amount == 0.0 || (color.len() == 9 && color.ends_with("00"))
+            }
+            Self::Vignette { amount, .. } => *amount == 0.0,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for LayerFilter {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        LayerFilterDef::deserialize(TypeTagged(deserializer))
+    }
+}
+
+/// `LayerFilter` without the `type` tag, which [`TypeTagged`] reads instead.
+#[derive(Deserialize)]
+#[serde(
+    remote = "LayerFilter",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+enum LayerFilterDef {
+    Shader(LayerShader),
+    Brightness {
+        amount: f64,
+    },
+    Contrast {
+        amount: f64,
+    },
+    Saturation {
+        amount: f64,
+    },
+    Hue {
+        degrees: f64,
+    },
+    Grayscale {
+        amount: f64,
+    },
+    Invert {
+        amount: f64,
+    },
+    Tint {
+        color: String,
+        amount: f64,
+    },
+    Vignette {
+        amount: f64,
+        radius: f64,
+        softness: f64,
+    },
 }
 
 /// One use of a custom shader on a layer.

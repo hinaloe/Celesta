@@ -56,6 +56,9 @@ pub(crate) struct PreparedLayer {
     /// Texels per layer unit: the scale text was rasterized at, 1 for
     /// everything else. The quad keeps the layer's size in layer units.
     pub(crate) raster_scale: f32,
+    /// The box of the layer's shape when it is not its quad's: a path's
+    /// (`PendingPath::shape_box`), whose quad covers its outline's pixels.
+    pub(crate) shape: Option<PixelBounds>,
 }
 
 impl PreparedLayer {
@@ -72,6 +75,7 @@ impl PreparedLayer {
             state,
             blend_mode,
             raster_scale,
+            shape: None,
         }
     }
 
@@ -86,6 +90,7 @@ impl PreparedLayer {
             state,
             blend_mode,
             raster_scale: 1.0,
+            shape: None,
         }
     }
 
@@ -182,10 +187,13 @@ impl PreparedLayer {
     }
 
     /// The box of the layer's own shape in scene pixels: the corners of the
-    /// quad `write_instance` draws, without the margins `bounds` adds. A
-    /// layer copied texel for texel lands on whole pixels, so its box does
-    /// too.
+    /// quad `write_instance` draws, without the margins `bounds` adds, or
+    /// `shape` when set. A layer copied texel for texel lands on whole
+    /// pixels, so its box does too.
     pub(crate) fn shape(&self) -> PixelBounds {
+        if let Some(shape) = self.shape {
+            return shape;
+        }
         let mut transform = self.state.transform;
         let is_rect = matches!(self.content, PreparedContent::Rect(_));
         if !is_rect && transform.is_uniform_scale(self.raster_scale) {

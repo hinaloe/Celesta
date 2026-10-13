@@ -6,7 +6,9 @@ use celesta_composition::{
     Animatable, GradientStop, LetterSpacing, Paint, TextStyle, Time, Transform,
 };
 
-use crate::{AssetKind, Character, Project, SourceRange, TimelineContent, TimelineItem};
+use crate::{
+    AssetKind, Character, Project, SourceRange, TimelineContent, TimelineEffects, TimelineItem,
+};
 
 fn valid_effect_color(color: &str) -> bool {
     let hex = color.strip_prefix('#').unwrap_or("");
@@ -258,6 +260,7 @@ impl Validator<'_> {
                     "must be finite and between 0 and 64",
                 );
             }
+            self.color_filters(&format!("{path}.effects"), effects);
         }
 
         match &item.content {
@@ -481,6 +484,77 @@ impl Validator<'_> {
                 |v| v.is_finite(),
                 "must be finite",
             );
+        }
+    }
+
+    /// The color filters of `effects` at `path`, with the ranges the React
+    /// props of the same names take.
+    fn color_filters(&mut self, path: &str, effects: &TimelineEffects) {
+        let at_least_zero = |value: &f64| value.is_finite() && *value >= 0.0;
+        let unit = |value: &f64| value.is_finite() && (0.0..=1.0).contains(value);
+        const AT_LEAST_ZERO: &str = "must be finite and at least 0";
+        const UNIT: &str = "must be finite and between 0 and 1";
+        for (name, value) in [
+            ("brightness", &effects.brightness),
+            ("contrast", &effects.contrast),
+            ("saturation", &effects.saturation),
+        ] {
+            if let Some(value) = value {
+                self.animatable(
+                    &format!("{path}.{name}"),
+                    value,
+                    at_least_zero,
+                    AT_LEAST_ZERO,
+                );
+            }
+        }
+        if let Some(hue) = &effects.hue {
+            self.animatable(
+                &format!("{path}.hue"),
+                hue,
+                |value| value.is_finite(),
+                "must be finite",
+            );
+        }
+        for (name, value) in [
+            ("grayscale", &effects.grayscale),
+            ("invert", &effects.invert),
+        ] {
+            if let Some(value) = value {
+                self.animatable(&format!("{path}.{name}"), value, unit, UNIT);
+            }
+        }
+        if let Some(tint) = &effects.tint {
+            self.animatable(
+                &format!("{path}.tint.color"),
+                &tint.color,
+                |color| valid_effect_color(color),
+                "must be a #RRGGBB or #RRGGBBAA color",
+            );
+            if let Some(amount) = &tint.amount {
+                self.animatable(&format!("{path}.tint.amount"), amount, unit, UNIT);
+            }
+        }
+        if let Some(vignette) = &effects.vignette {
+            self.animatable(
+                &format!("{path}.vignette.amount"),
+                &vignette.amount,
+                unit,
+                UNIT,
+            );
+            for (name, value) in [
+                ("radius", &vignette.radius),
+                ("softness", &vignette.softness),
+            ] {
+                if let Some(value) = value {
+                    self.animatable(
+                        &format!("{path}.vignette.{name}"),
+                        value,
+                        at_least_zero,
+                        AT_LEAST_ZERO,
+                    );
+                }
+            }
         }
     }
 

@@ -67,7 +67,7 @@ test('values pack in declared order, with defaults, colors, and padding', () => 
      <Rect width={8} height={8} shader={grade({ amount: 1, offset: [3, 4], tint: '#00ff0080', axis: [0, 1, 0], weights: [1, 1, 1, 1] }, { padding: 0 })} />`,
   );
   assert.equal(frame.error, undefined, frame.error);
-  const [first, second] = frame.scene.layers.map((layer) => layer.effects.shaders[0]);
+  const [first, second] = frame.scene.layers.map((layer) => layer.effects.filters[0]);
   const close = (actual, expected) => {
     assert.equal(actual.length, expected.length);
     actual.forEach((value, index) => assert.ok(Math.abs(value - expected[index]) < 1e-9, `${actual} vs ${expected}`));
@@ -98,7 +98,7 @@ test('a shader without parameters takes no arguments', () => {
     `<Group shader={plain()}><Rect width={8} height={8} /></Group>`,
   );
   assert.equal(frame.error, undefined, frame.error);
-  assert.deepEqual(frame.scene.layers[0].effects.shaders, [{ id: frame.scene.shaders[0].id }]);
+  assert.deepEqual(frame.scene.layers[0].effects.filters, [{ type: 'shader', id: frame.scene.shaders[0].id }]);
 });
 
 test('a layer takes several shaders, run in the order given', () => {
@@ -110,11 +110,47 @@ test('a layer takes several shaders, run in the order given', () => {
   assert.equal(frame.error, undefined, frame.error);
   const [ripple, plain] = frame.scene.shaders;
   assert.deepEqual(frame.scene.shaders.map((source) => source.name), ['ripple', 'plain']);
-  assert.deepEqual(frame.scene.layers[0].effects.shaders, [
-    { id: ripple.id, params: [1], padding: 6 },
-    { id: plain.id },
-    { id: ripple.id, params: [2] },
+  assert.deepEqual(frame.scene.layers[0].effects.filters, [
+    { type: 'shader', id: ripple.id, params: [1], padding: 6 },
+    { type: 'shader', id: plain.id },
+    { type: 'shader', id: ripple.id, params: [2] },
   ]);
+});
+
+test('the built-in color filters run where the array lists them', () => {
+  const frame = render(
+    `import { brightness, contrast, grayscale, hue, invert, saturation, tint, vignette } from '@celesta/shader';
+     const plain = defineShader({ name: 'plain', wgsl });`,
+    `<Rect width={8} height={8} shader={[
+       brightness(1.2), plain(), contrast(0.5), saturation(0), hue(-30), grayscale(), invert(0.5),
+       tint({ color: '#ff8000' }), vignette(0.4), vignette({ amount: 1, radius: 0.2, softness: 0 }),
+     ]} />`,
+  );
+  assert.equal(frame.error, undefined, frame.error);
+  // Only custom shaders are listed in the scene.
+  assert.deepEqual(frame.scene.shaders.map((source) => source.name), ['plain']);
+  assert.deepEqual(frame.scene.layers[0].effects.filters, [
+    { type: 'brightness', amount: 1.2 },
+    { type: 'shader', id: frame.scene.shaders[0].id },
+    { type: 'contrast', amount: 0.5 },
+    { type: 'saturation', amount: 0 },
+    { type: 'hue', degrees: -30 },
+    { type: 'grayscale', amount: 1 },
+    { type: 'invert', amount: 0.5 },
+    { type: 'tint', color: '#ff8000', amount: 1 },
+    { type: 'vignette', amount: 0.4, radius: 0.5, softness: 0.5 },
+    { type: 'vignette', amount: 1, radius: 0.2, softness: 0 },
+  ]);
+});
+
+test('color filters without custom shaders list no shaders in the scene', () => {
+  const frame = render(
+    `import { invert } from '@celesta/shader';`,
+    `<Rect width={8} height={8} shader={invert()} />`,
+  );
+  assert.equal(frame.error, undefined, frame.error);
+  assert.equal('shaders' in frame.scene, false);
+  assert.deepEqual(frame.scene.layers[0].effects.filters, [{ type: 'invert', amount: 1 }]);
 });
 
 test('shader.id is the id the scene carries', () => {
@@ -185,5 +221,5 @@ test('a parameter named like an Object method takes its default when omitted', (
     `<Rect width={8} height={8} shader={odd()} />`,
   );
   assert.equal(frame.error, undefined, frame.error);
-  assert.deepEqual(frame.scene.layers[0].effects.shaders[0].params, [3]);
+  assert.deepEqual(frame.scene.layers[0].effects.filters[0].params, [3]);
 });

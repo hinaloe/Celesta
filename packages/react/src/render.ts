@@ -26,7 +26,7 @@ import type {
   KeyframeAnimation,
   Layer,
   LayerContent,
-  LayerShader,
+  LayerFilter,
   Paint,
   PathCommand,
   ResolvedAsset,
@@ -36,7 +36,8 @@ import type {
   TextStyle,
   Time,
 } from './scene';
-import { ShaderEffect } from './shader';
+import { COLOR_FILTERS, ShaderEffect, colorFilter, isIdentityFilter } from './shader';
+import type { ColorFilter } from './shader';
 import type { JsonValue } from './generated/serde_json/JsonValue';
 import { SECONDS_TIMESCALE, endsWithComposition, secondsFromTime, secondsToTime } from './time';
 
@@ -611,18 +612,29 @@ function sameShaderSource(a: ShaderSource, b: ShaderSource): boolean {
   return a.wgsl === b.wgsl && JSON.stringify(a.params ?? []) === JSON.stringify(b.params ?? []);
 }
 
-/** The `shader` prop as the layer's shaders, in the order they run. */
-function extractShaders(value: unknown, context: WalkContext): LayerShader[] {
-  if (value === undefined) return [];
+/**
+ * The layer's filters, in the order they run: the `shader` prop's, then the
+ * color filter props' in `COLOR_FILTERS` order. Props that leave the pixels
+ * as they were add no filter.
+ */
+function extractFilters(props: Record<string, unknown>, context: WalkContext): LayerFilter[] {
+  const value = props.shader;
   // A dense copy: a hole is refused like any other value that is not a shader.
-  const effects = Array.isArray(value) ? Array.from(value as unknown[]) : [value];
-  return effects.map((effect) => {
+  const effects = value === undefined ? [] : Array.isArray(value) ? Array.from(value as unknown[]) : [value];
+  const filters = effects.map((effect) => {
     if (!(effect instanceof ShaderEffect)) {
-      throw new Error("shader must be a value returned by a shader from @celesta/shader's defineShader(), or an array of them");
+      throw new Error("shader must be a value returned by @celesta/shader (defineShader() or a color filter such as brightness()), or an array of them");
     }
-    useShaderSource(ShaderEffect.source(effect).source, context);
+    const source = ShaderEffect.source(effect);
+    if (source) useShaderSource(source.source, context);
     return ShaderEffect.serialize(effect);
   });
+  for (const name of COLOR_FILTERS) {
+    if (props[name] === undefined) continue;
+    const filter = ShaderEffect.serialize(colorFilter(name, props[name] as never)) as ColorFilter;
+    if (!isIdentityFilter(filter)) filters.push(filter);
+  }
+  return filters;
 }
 
 /** Lists `source` among the frame's shaders. */
@@ -642,6 +654,10 @@ function useShaderSource(source: ShaderSource, context: WalkContext): void {
 }
 
 function extractEffects(props: Record<string, unknown>, context: WalkContext): Layer['effects'] | undefined {
+  // `rawEffects`, like `rawTransform`, carries what celesta-evaluator
+  // already computed for a project timeline item; project items have no
+  // custom shaders, so there are no sources to list.
+  if (props.rawEffects !== undefined) return props.rawEffects as Layer['effects'];
   const radius = (value: unknown, name: string): number => {
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 64) {
       throw new Error(`${name} must be a finite number between 0 and 64`);
@@ -666,11 +682,11 @@ function extractEffects(props: Record<string, unknown>, context: WalkContext): L
   }
   const shadow = props.shadow === undefined ? undefined : props.shadow as Record<string, unknown>;
   const glow = props.glow === undefined ? undefined : props.glow as Record<string, unknown>;
-  const shaders = extractShaders(props.shader, context);
-  if (blur === 0 && !shadow && !glow && shaders.length === 0) return undefined;
+  const filters = extractFilters(props, context);
+  if (blur === 0 && !shadow && !glow && filters.length === 0) return undefined;
   return {
     blur,
-    ...(shaders.length > 0 ? { shaders } : {}),
+    ...(filters.length > 0 ? { filters } : {}),
     ...(shadow ? { shadow: {
       color: color(shadow.color, 'shadow.color'),
       blur: radius(shadow.blur, 'shadow.blur'),

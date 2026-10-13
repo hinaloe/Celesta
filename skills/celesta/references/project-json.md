@@ -15,6 +15,7 @@ load and refuses it with `path: message` errors (for example
 - [settings](#settings)
 - [assets](#assets)
 - [tracks and items](#tracks-and-items)
+- [Color filters](#color-filters)
 - [Item content types](#item-content-types)
 - [transform and opacity](#transform-and-opacity)
 - [Keyframes](#keyframes)
@@ -119,7 +120,42 @@ backgrounds and footage first, titles and subtitles last.
 | `transform` | Optional; see below. |
 | `opacity` | `0`–`1`, number or keyframes. |
 | `blendMode` | `normal` (default), `multiply`, `screen`, `overlay`, `add`, or `difference`. |
-| `effects` | Optional `{ "blur": numberOrKeyframes, "shadow": { "color": colorOrKeyframes, "blur": numberOrKeyframes, "offsetX": numberOrKeyframes, "offsetY": numberOrKeyframes }, "glow": { "color": colorOrKeyframes, "blur": numberOrKeyframes } }`. Colors are `#RRGGBB` or `#RRGGBBAA`; color keyframes interpolate RGBA channels. Blur radii are 0–64 output pixels. |
+| `effects` | Optional `{ "blur": numberOrKeyframes, "shadow": { "color": colorOrKeyframes, "blur": numberOrKeyframes, "offsetX": numberOrKeyframes, "offsetY": numberOrKeyframes }, "glow": { "color": colorOrKeyframes, "blur": numberOrKeyframes } }`, plus the color filters below. Colors are `#RRGGBB` or `#RRGGBBAA`; color keyframes interpolate RGBA channels. Blur radii are 0–64 output pixels. |
+
+### Color filters
+
+`effects` also takes the color filters React layers take as props (see
+the layer props in [react-core.md](react-core.md)), with the same names,
+ranges, and order: they apply in the order of this list, before `shadow`,
+`glow`, and `blur`.
+
+```json
+"effects": {
+  "brightness": 1.1,
+  "contrast": 1.2,
+  "saturation": { "type": "keyframes", "keyframes": [
+    { "time": { "value": 0, "timescale": 1 }, "value": 1 },
+    { "time": { "value": 2, "timescale": 1 }, "value": 0 }
+  ] },
+  "hue": 30,
+  "grayscale": 0.5,
+  "invert": 0,
+  "tint": { "color": "#704214", "amount": 0.35 },
+  "vignette": { "amount": 0.6, "radius": 0.5, "softness": 0.5 }
+}
+```
+
+| Key | Value |
+| --- | --- |
+| `brightness`, `contrast`, `saturation` | numberOrKeyframes, at least 0; 1 changes nothing |
+| `hue` | numberOrKeyframes, degrees |
+| `grayscale`, `invert` | numberOrKeyframes, 0–1; 0 changes nothing |
+| `tint` | `{ "color": colorOrKeyframes, "amount"?: numberOrKeyframes }`; amount 0–1, default 1 |
+| `vignette` | `{ "amount": numberOrKeyframes, "radius"?: numberOrKeyframes, "softness"?: numberOrKeyframes }`; amount 0–1, radius and softness at least 0, default 0.5 |
+
+Keyframe times are relative to the item, as for `opacity`. Values that
+change nothing at a frame add no work there. A `component` item drawn by
+`<ProjectTimeline />` keeps its effects, color filters included.
 
 ## Item content types
 
@@ -272,6 +308,11 @@ Celesta rejects the project if any of these fail:
 - `opacity` values within 0–1; `volume` ≥ 0; `playbackRate` > 0; transform
   numbers finite.
 - Keyframe lists non-empty, times ≥ 0 and ascending.
+- Effects: blur radii 0–64; shadow and glow colors and the tint color
+  exactly `#RRGGBB` or `#RRGGBBAA`; `brightness`, `contrast`,
+  `saturation`, the vignette's `radius` and `softness` ≥ 0; `grayscale`,
+  `invert`, the tint's and the vignette's `amount` within 0–1; `hue`
+  finite.
 - Text styles: `fontSize` and `lineHeight` > 0, stroke `width` ≥ 0, colors
   exactly `#RRGGBB` or `#RRGGBBAA`, `lineBreak` `"normal"` or `"phrase"`.
 - Characters: `defaultExpression` must be a key of `expressions`;

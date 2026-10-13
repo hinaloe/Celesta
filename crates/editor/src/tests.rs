@@ -16,8 +16,8 @@ use crate::preview::{
 };
 use celesta_composition::{
     Animatable, AssetLocation, AudioClip, EvaluatedTransform, GroupMask, Layer, LayerContent,
-    LayerEffects, LayerShader, MaskMode, Rational, ResolvedAsset, Scene, ShaderSource, Time,
-    TimeRange,
+    LayerEffects, LayerFilter, LayerShader, MaskMode, Rational, ResolvedAsset, Scene, ShaderSource,
+    Time, TimeRange,
 };
 use celesta_editor_core::ClipSummary;
 use celesta_exporter::ExportCancellation;
@@ -310,11 +310,11 @@ fn shader(id: &str) -> ShaderSource {
 fn shaded(id: &str) -> Layer {
     Layer {
         effects: LayerEffects {
-            shaders: vec![LayerShader {
+            filters: vec![LayerFilter::Shader(LayerShader {
                 id: id.to_owned(),
                 params: Vec::new(),
                 padding: 0.0,
-            }],
+            })],
             ..Default::default()
         },
         content: LayerContent::Group {

@@ -20,6 +20,7 @@ export type { Layer } from './generated/Layer';
 export type { LayerEffects } from './generated/LayerEffects';
 export type { LayerShadow } from './generated/LayerShadow';
 export type { LayerGlow } from './generated/LayerGlow';
+export type { LayerFilter } from './generated/LayerFilter';
 export type { LayerShader } from './generated/LayerShader';
 export type { LayerContent } from './generated/LayerContent';
 export type { LetterSpacing } from './generated/LetterSpacing';

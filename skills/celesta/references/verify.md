@@ -68,7 +68,7 @@ text "Hello, Celesta." at (960, 540) anchor (0.5, 0.5) opacity 0.42 [sans-serif 
 group at (1400, 200) blend add glow #ffcc66/12 clip 600×80 at (0, 0)
   image ./mira/calm.png at (0, 0) size 432×auto  ← MISSING FILE
 path 3 commands at (0, 0) stroke #EF402B/3
-text "CELESTA" at (960, 900) anchor (0.5, 0.5) shader ripple(time=0.4, amplitude=6) pad 8 → rgb-split(amount=10) pad 24 [sans-serif 120px 900 #ffffff]
+text "CELESTA" at (960, 900) anchor (0.5, 0.5) filters ripple(time=0.4, amplitude=6) pad 8 → rgb-split(amount=10) pad 24 → saturation(1.2) [sans-serif 120px 900 #ffffff]
 audio ./voices/line-01.wav from 0 s for 3 s
 
 missing: ./mira/calm.png (relative paths resolve from /Users/me/my-video)
@@ -78,9 +78,12 @@ missing: ./mira/calm.png (relative paths resolve from /Users/me/my-video)
 Read it as: one line per layer in draw order (later lines draw on top),
 nested groups indented, positions in canvas pixels, followed by
 non-default opacity, blend mode, effects, and clip. A layer's custom
-shaders follow `shader`, in the order they run (`→`), each with its name
-(the id when it has none), its parameters' values, and its padding (`pad`);
-a `color` parameter shows as the four 0–1 numbers the shader receives.
+shaders and color filters follow `filters`, in the order they run (`→`):
+the `shader` prop's first, then the color filter props'. A custom shader
+shows its name (the id when it has none), its parameters' values, and its
+padding (`pad`); a `color` parameter shows as the four 0–1 numbers the
+shader receives. A color filter shows its values, as `saturation(1.2)` or
+`vignette(0.5, radius 0.5, softness 0.5)`.
 Check that:
 
 - the frames you changed contain the layers you expect, with the text,

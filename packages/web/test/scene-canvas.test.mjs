@@ -70,13 +70,115 @@ test('file font URLs are reused across frames and isolated opacity is applied on
   ]);
   assert.deepEqual(composites.filter(([, id]) => id === output.id).map(([, , alpha, from, filter]) => [alpha, from, filter]), [[0.5, result, 'none']]);
   await assert.rejects(
-    renderer.draw(output, { ...scene, layers: [{ ...rect, effects: { shaders: [{ id: 'ripple' }] } }] }),
+    renderer.draw(output, { ...scene, layers: [{ ...rect, effects: { filters: [{ type: 'invert', amount: 1 }, { type: 'shader', id: 'ripple' }] } }] }),
     /custom shaders are not supported in the browser renderer/,
   );
   renderer.dispose();
   assert.equal(revokeURL.mock.callCount(), 1);
   assert.equal(faces.size, 0);
 
+});
+
+test('color filters change the layer\'s pixels before its other effects', async t => {
+  const originals = { document: globalThis.document, DOMMatrix: globalThis.DOMMatrix };
+  t.after(() => Object.assign(globalThis, originals));
+  globalThis.DOMMatrix = class { translate() { return this; } rotate() { return this; } scale() { return this; } };
+  const operations = [];
+  let nextCanvas = 0;
+  const canvas = () => {
+    const element = { id: nextCanvas++, width: 4, height: 1, getContext() { return context; } };
+    // Every pixel of a canvas a fill touches is red, opaque.
+    let pixels = new Uint8ClampedArray(16);
+    const context = {
+      canvas: element, globalAlpha: 1, filter: 'none', globalCompositeOperation: 'source-over',
+      save() {}, restore() {}, setTransform() {}, beginPath() {}, roundRect() {},
+      fillRect() {},
+      fill() { pixels = Uint8ClampedArray.from([255, 0, 0, 255, 255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0]); },
+      getImageData(x, y, width, height) {
+        operations.push(['read', element.id, x, y, width, height]);
+        return { data: Uint8ClampedArray.from(pixels) };
+      },
+      putImageData(image, x, y, dirtyX, dirtyY, dirtyWidth, dirtyHeight) {
+        operations.push(['write', element.id, Array.from(image.data.slice(0, 8)), dirtyX, dirtyY, dirtyWidth, dirtyHeight]);
+      },
+      drawImage(source) { operations.push(['composite', element.id, source.id, this.filter]); },
+    };
+    return element;
+  };
+  globalThis.document = { fonts: new Set(), createElement: canvas };
+  const renderer = new SceneCanvas(new Map());
+  const transform = { position: { x: 0, y: 0 }, scale: { x: 1, y: 1 }, anchor: { x: 0, y: 0 }, rotation: 0 };
+  const rect = {
+    opacity: 1, transform,
+    effects: { blur: 1, filters: [{ type: 'invert', amount: 1 }, { type: 'brightness', amount: 0.5 }] },
+    content: { type: 'rect', width: 2, height: 1, cornerRadius: 0, fill: { type: 'solid', color: '#f00' } },
+  };
+  const output = canvas();
+  await renderer.draw(output, { width: 4, height: 1, layers: [rect] });
+  const [read] = operations.filter(([kind]) => kind === 'read');
+  const source = read[1];
+  assert.deepEqual(read.slice(2), [0, 0, 4, 1]);
+  // Inverted, then halved; only the layer's box is written back.
+  assert.deepEqual(operations.find(([kind]) => kind === 'write'), ['write', source, [0, 128, 128, 255, 0, 128, 128, 255], 0, 0, 2, 1]);
+  // The blur reads the filtered source.
+  assert.ok(operations.some(([kind, , from, filter]) => kind === 'composite' && from === source && filter === 'blur(1px)'));
+  renderer.dispose();
+});
+
+test('a vignette spans the layer\'s shapes as the GPU renderer places them', async t => {
+  const originals = { document: globalThis.document, DOMMatrix: globalThis.DOMMatrix, DOMPoint: globalThis.DOMPoint };
+  t.after(() => Object.assign(globalThis, originals));
+  // A 2D affine matrix, as DOMMatrix behaves for these calls.
+  globalThis.DOMMatrix = class Matrix {
+    constructor(a = 1, b = 0, c = 0, d = 1, e = 0, f = 0) { Object.assign(this, { a, b, c, d, e, f }); }
+    multiply(m) {
+      return new Matrix(this.a * m.a + this.c * m.b, this.b * m.a + this.d * m.b, this.a * m.c + this.c * m.d,
+        this.b * m.c + this.d * m.d, this.a * m.e + this.c * m.f + this.e, this.b * m.e + this.d * m.f + this.f);
+    }
+    translate(x, y) { return this.multiply(new Matrix(1, 0, 0, 1, x, y)); }
+    scale(x, y) { return this.multiply(new Matrix(x, 0, 0, y, 0, 0)); }
+    rotate(degrees) {
+      const r = degrees * Math.PI / 180;
+      return this.multiply(new Matrix(Math.cos(r), Math.sin(r), -Math.sin(r), Math.cos(r), 0, 0));
+    }
+    transformPoint(p) { return { x: this.a * p.x + this.c * p.y + this.e, y: this.b * p.x + this.d * p.y + this.f }; }
+  };
+  globalThis.DOMPoint = class { constructor(x, y) { this.x = x; this.y = y; } };
+  // Every character advances 10px; ink reaches 8 above the baseline and 2
+  // below, the font box 9 and 3.
+  const ctx = {
+    canvas: { width: 200, height: 200 }, font: '', letterSpacing: '', save() {}, restore() {},
+    measureText: text => ({
+      width: 10 * Array.from(text).length, actualBoundingBoxLeft: 0, actualBoundingBoxRight: 10 * Array.from(text).length,
+      actualBoundingBoxAscent: 8, actualBoundingBoxDescent: 2, fontBoundingBoxAscent: 9, fontBoundingBoxDescent: 3,
+    }),
+  };
+  const renderer = new SceneCanvas(new Map());
+  const at = (x, y, extra = {}) => ({ position: { x, y }, scale: { x: 1, y: 1 }, anchor: { x: 0, y: 0 }, rotation: 0, ...extra });
+  const text = (value, transform, style = {}) => ({ opacity: 1, transform, content: { type: 'text', text: value, style: { fontSize: 10, ...style } } });
+  const box = layer => renderer.shapeBox(ctx, layer, new DOMMatrix(), 1);
+
+  // One line: its visible rows (1 to 11 below the line's top), grown by the
+  // stroke, moved onto whole pixels.
+  assert.deepEqual(await box(text('ABC', at(10.4, 20.3), { stroke: { width: 2, paint: { type: 'solid', color: '#000' } } })), [8, 18, 42, 32]);
+  // Several lines: their line boxes, anchored at the centre.
+  assert.deepEqual(await box(text('A\nBC', at(50, 50, { anchor: { x: 0.5, y: 0.5 } }))), [40, 38, 60, 62]);
+  // A group: the union of its children's shapes; scaled text is not moved
+  // onto whole pixels, and a child drawn at opacity 0 has no shape.
+  const rect = { opacity: 1, transform: at(0, 0), content: { type: 'rect', width: 10, height: 10, cornerRadius: 0 } };
+  const hidden = { ...rect, opacity: 0, transform: at(-50, -50) };
+  const scaled = text('A', at(100.25, 0, { scale: { x: 2, y: 2 } }));
+  assert.deepEqual(await box({ opacity: 1, transform: at(0, 0), content: { type: 'group', layers: [rect, hidden, scaled] } }), [0, 0, 120.25, 20]);
+  // A path: its points, control points included, grown by half the stroke;
+  // a path that does not start with moveTo draws from 0,0.
+  const stroke = { width: 4, paint: { type: 'solid', color: '#fff' } };
+  const path = (commands, transform = at(0.5, 0.5)) => ({ opacity: 1, transform, content: { type: 'path', commands, stroke } });
+  assert.deepEqual(await box(path([{ type: 'moveTo', x: 10, y: 10 }, { type: 'lineTo', x: 50, y: 10 }, { type: 'lineTo', x: 50, y: 40 }], at(0, 0))), [8, 8, 52, 42]);
+  assert.deepEqual(await box(path([{ type: 'quadTo', x1: 20, y1: -10, x: 30, y: 5 }])), [-1.5, -11.5, 32.5, 7.5]);
+  assert.equal(await box(path([{ type: 'moveTo', x: 10, y: 10 }])), null);
+  // A rotated rect: the box around its corners.
+  const turned = await box({ ...rect, transform: at(0, 0, { rotation: 90 }) });
+  assert.deepEqual(turned.map(value => Math.round(value * 1e9) / 1e9), [-10, 0, 0, 10]);
 });
 
 test('text wrapped at maxWidth is anchored by its line boxes, as text broken with newlines', async t => {

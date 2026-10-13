@@ -13,6 +13,7 @@ export const runtimeModules = [
   '@celesta/media-utils',
   '@celesta/character',
   '@celesta/code',
+  '@celesta/shader',
 ] as const;
 
 /** Virtual project files; no filesystem or network module resolution. */

@@ -24,7 +24,7 @@ pub use animation::{AnimationError, evaluate_f64, integrate_f64};
 pub use instances::{F32Column, InstanceShape, U8Column, instance_size};
 pub use model::{
     AssetLocation, AudioClip, AudioGraph, BlendMode, Clip, DEFAULT_MITER_LIMIT, EvaluatedTransform,
-    GroupMask, ImageFit, Layer, LayerContent, LayerEffects, LayerGlow, LayerShader, LayerShadow,
-    LineCap, LineJoin, MaskMode, MediaTiming, PathCommand, Point, ResolvedAsset, Scene,
-    ShaderParam, ShaderParamType, ShaderSource,
+    GroupMask, ImageFit, Layer, LayerContent, LayerEffects, LayerFilter, LayerGlow, LayerShader,
+    LayerShadow, LineCap, LineJoin, MaskMode, MediaTiming, PathCommand, Point, ResolvedAsset,
+    Scene, ShaderParam, ShaderParamType, ShaderSource,
 };

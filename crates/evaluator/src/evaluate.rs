@@ -1,9 +1,9 @@
 use crate::error::EvaluationError;
 use celesta_composition::{
     Animatable, AnimationError, EvaluatedTransform, Keyframe, KeyframeAnimation, LayerEffects,
-    LayerGlow, LayerShadow, Point, Time, Transform, evaluate_f64, integrate_f64,
+    LayerFilter, LayerGlow, LayerShadow, Point, Time, Transform, evaluate_f64, integrate_f64,
 };
-use celesta_project::TimelineItem;
+use celesta_project::{TimelineEffects, TimelineItem};
 
 pub(crate) fn evaluate_optional(
     value: &Option<Animatable<f64>>,
@@ -46,9 +46,68 @@ pub(crate) fn evaluate_effects(
                 }))
             })
             .transpose()?,
-        // Project timelines have no custom shaders.
-        shaders: Vec::new(),
+        filters: evaluate_color_filters(effects, time)?,
     })
+}
+
+/// The item's color filters at `time`, in the order the React props of the
+/// same names apply, leaving out those that change nothing. An easing that
+/// overshoots is held to the range validation allows.
+fn evaluate_color_filters(
+    effects: &TimelineEffects,
+    time: Time,
+) -> Result<Vec<LayerFilter>, EvaluationError> {
+    let at = |value: &Option<Animatable<f64>>| -> Result<Option<f64>, EvaluationError> {
+        Ok(value
+            .as_ref()
+            .map(|value| evaluate_f64(value, time))
+            .transpose()?)
+    };
+    let unit = |value: f64| value.clamp(0.0, 1.0);
+    let mut filters = Vec::new();
+    if let Some(amount) = at(&effects.brightness)? {
+        filters.push(LayerFilter::Brightness {
+            amount: amount.max(0.0),
+        });
+    }
+    if let Some(amount) = at(&effects.contrast)? {
+        filters.push(LayerFilter::Contrast {
+            amount: amount.max(0.0),
+        });
+    }
+    if let Some(amount) = at(&effects.saturation)? {
+        filters.push(LayerFilter::Saturation {
+            amount: amount.max(0.0),
+        });
+    }
+    if let Some(degrees) = at(&effects.hue)? {
+        filters.push(LayerFilter::Hue { degrees });
+    }
+    if let Some(amount) = at(&effects.grayscale)? {
+        filters.push(LayerFilter::Grayscale {
+            amount: unit(amount),
+        });
+    }
+    if let Some(amount) = at(&effects.invert)? {
+        filters.push(LayerFilter::Invert {
+            amount: unit(amount),
+        });
+    }
+    if let Some(tint) = &effects.tint {
+        filters.push(LayerFilter::Tint {
+            color: evaluate_effect_color(&tint.color, time)?,
+            amount: unit(at(&tint.amount)?.unwrap_or(1.0)),
+        });
+    }
+    if let Some(vignette) = &effects.vignette {
+        filters.push(LayerFilter::Vignette {
+            amount: unit(evaluate_f64(&vignette.amount, time)?),
+            radius: at(&vignette.radius)?.unwrap_or(0.5).max(0.0),
+            softness: at(&vignette.softness)?.unwrap_or(0.5).max(0.0),
+        });
+    }
+    filters.retain(|filter| !filter.is_identity());
+    Ok(filters)
 }
 
 pub(crate) fn evaluate_effect_color(

@@ -113,7 +113,18 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
   assert.deepEqual(view.content.layers[0].content.asset.location, { type: 'file', path: 'n.png' });
   const missing = await send({ id: 11, type: 'compile', source: `import { ProjectTimeline } from '@celesta/project'; export default ProjectTimeline;` });
   assert.match(missing.error, /unavailable in the web editor/);
-  // Canvas 2D cannot run WGSL, so the worker does not serve shaders.
-  const shader = await send({ id: 12, type: 'compile', source: `import { defineShader } from '@celesta/shader'; export default defineShader;` });
-  assert.match(shader.error, /unavailable in the web editor/);
+  // The color filters run in the browser; custom shaders fail when drawn.
+  const shader = await send({ id: 12, type: 'compile', source: `import { Composition, Rect } from '@celesta/react';
+    import { grayscale } from '@celesta/shader';
+    export default function Scene() {
+      return <Composition width={100} height={100} fps={30} durationInFrames={1}>
+        <Rect width={10} height={10} fill="#ff0000" shader={grayscale()} brightness={1.5} />
+      </Composition>;
+    }` });
+  assert.equal(shader.error, undefined);
+  const shaded = await send({ id: 13, type: 'frame', frame: 0 });
+  assert.deepEqual(shaded.value.scene.layers[0].effects.filters, [
+    { type: 'grayscale', amount: 1 },
+    { type: 'brightness', amount: 1.5 },
+  ]);
 });

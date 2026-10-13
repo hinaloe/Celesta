@@ -2,7 +2,10 @@ use crate::bounds::PixelBounds;
 use crate::compositor::begin_pass;
 use crate::error::GpuRenderError;
 use crate::texture::CanvasTexture;
-use celesta_composition::{LayerShader, Scene, ShaderParamType, ShaderSource};
+use celesta_composition::{
+    LayerFilter, LayerShader, Scene, ShaderParam, ShaderParamType, ShaderSource,
+};
+use celesta_renderer::Color as CpuColor;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -27,18 +30,19 @@ const PARAMS_SIZE: u64 = MAX_SHADER_PARAMS as u64 * 16;
 
 const PRELUDE: &str = include_str!("shader_prelude.wgsl");
 const ENTRY: &str = include_str!("shader_entry.wgsl");
+const COLOR_FILTER: &str = include_str!("color_filter.wgsl");
 
 /// The signature `shader_entry.wgsl` calls, named in errors that arise there.
 const EFFECT_SIGNATURE: &str = "fn effect(input: EffectInput) -> vec4f";
 
-/// One layer's custom shaders in the frame being prepared, run in order.
+/// One layer's filters in the frame being prepared, run in order.
 #[derive(Clone, Copy)]
 pub(crate) struct ShaderChain {
     /// The first of its uses in the frame's uses; the rest follow it.
     first: usize,
-    /// How many shaders it runs.
+    /// How many filters it runs.
     count: usize,
-    /// Output pixels the shaders together may write beyond the content
+    /// Output pixels the filters together may write beyond the content
     /// box: the sum of their paddings, since each can write that far past
     /// what the one before it wrote.
     pub(crate) padding: f32,
@@ -60,19 +64,30 @@ struct CachedShader {
     last_used: u64,
 }
 
+/// The pipeline a use runs.
+enum UsePipeline {
+    /// The custom shader of this id.
+    Custom(String),
+    /// `color_filter.wgsl`.
+    ColorFilter,
+}
+
 struct ShaderUse {
-    id: String,
+    pipeline: UsePipeline,
     /// The values, one parameter per slot as `Params` lays them out.
     params: [[f32; 4]; MAX_SHADER_PARAMS],
     /// Output pixels it may write beyond what it reads.
     padding: f32,
 }
 
-/// Compiles the scene's custom shaders and runs the layers' uses of them.
+/// Compiles the scene's custom shaders and runs the layers' filters: those
+/// shaders and the built-in color filters.
 pub(crate) struct ShaderProcessor {
     layout: wgpu::BindGroupLayout,
     pipeline_layout: wgpu::PipelineLayout,
     shaders: HashMap<String, CachedShader>,
+    /// `color_filter.wgsl`, compiled when the first layer uses it.
+    color_filter: Option<wgpu::RenderPipeline>,
     /// Counts prepared frames; see `UNUSED_FRAMES`.
     frame: u64,
     scene_size: [f32; 2],
@@ -136,6 +151,7 @@ impl ShaderProcessor {
             layout,
             pipeline_layout,
             shaders: HashMap::new(),
+            color_filter: None,
             frame: 0,
             scene_size: [0.0; 2],
             uses: Vec::new(),
@@ -229,23 +245,95 @@ impl ShaderProcessor {
         Ok(())
     }
 
-    /// Records `layer`'s uses of `shaders`, in order, in the frame being
-    /// prepared; `None` when it uses none.
-    pub(crate) fn use_shaders(
+    /// Records `layer`'s `filters`, in order, in the frame being prepared;
+    /// `None` when it has none.
+    pub(crate) fn use_filters(
         &mut self,
+        device: &wgpu::Device,
         layer: &str,
-        shaders: &[LayerShader],
+        filters: &[LayerFilter],
     ) -> Result<Option<ShaderChain>, GpuRenderError> {
         let first = self.uses.len();
         let mut padding = 0.0;
-        for shader in shaders {
-            padding += self.use_shader(layer, shader)?;
+        for filter in filters {
+            padding += match filter {
+                LayerFilter::Shader(shader) => self.use_shader(layer, shader)?,
+                _ => self.use_color_filter(device, layer, filter)?,
+            };
         }
-        Ok((!shaders.is_empty()).then_some(ShaderChain {
+        Ok((!filters.is_empty()).then_some(ShaderChain {
             first,
-            count: shaders.len(),
+            count: filters.len(),
             padding,
         }))
+    }
+
+    /// Records `layer`'s use of the built-in color `filter`, which writes
+    /// only the pixels it reads.
+    fn use_color_filter(
+        &mut self,
+        device: &wgpu::Device,
+        layer: &str,
+        filter: &LayerFilter,
+    ) -> Result<f32, GpuRenderError> {
+        let (kind, name, amounts, color) = match filter {
+            LayerFilter::Shader(_) => unreachable!("use_filters runs custom shaders itself"),
+            LayerFilter::Brightness { amount } => (0, "brightness", [*amount, 0.0, 0.0], None),
+            LayerFilter::Contrast { amount } => (1, "contrast", [*amount, 0.0, 0.0], None),
+            LayerFilter::Saturation { amount } => (2, "saturation", [*amount, 0.0, 0.0], None),
+            // In one turn, so a large angle keeps its precision as `f32`.
+            LayerFilter::Hue { degrees } => (3, "hue", [degrees.rem_euclid(360.0), 0.0, 0.0], None),
+            LayerFilter::Grayscale { amount } => (4, "grayscale", [*amount, 0.0, 0.0], None),
+            LayerFilter::Invert { amount } => (5, "invert", [*amount, 0.0, 0.0], None),
+            LayerFilter::Tint { color, amount } => (6, "tint", [*amount, 0.0, 0.0], Some(color)),
+            LayerFilter::Vignette {
+                amount,
+                radius,
+                softness,
+            } => (7, "vignette", [*amount, *radius, *softness], None),
+        };
+        let error = |message: String| GpuRenderError::ColorFilter {
+            filter: name,
+            message,
+        };
+        // The values are uploaded as `f32`, which a finite `f64` can overflow.
+        if !amounts.iter().all(|value| (*value as f32).is_finite()) {
+            return Err(error(format!(
+                "layer `{layer}` gives a value that is not finite"
+            )));
+        }
+        let color = match color {
+            Some(color) => {
+                let color = CpuColor::from_hex(color)
+                    .map_err(|message| error(format!("layer `{layer}`: {message}")))?;
+                [color.red, color.green, color.blue, color.alpha]
+                    .map(|value| f32::from(value) / 255.0)
+            }
+            None => [0.0; 4],
+        };
+        if self.uses.len() >= self.max_uses {
+            return Err(GpuRenderError::TooManyLayers(self.uses.len() + 1));
+        }
+        if self.color_filter.is_none() {
+            let pipeline = self
+                .compile(device, &color_filter_source())
+                .unwrap_or_else(|message| panic!("color_filter.wgsl does not compile: {message}"));
+            self.color_filter = Some(pipeline);
+        }
+        let mut params = [[0.0; 4]; MAX_SHADER_PARAMS];
+        params[0] = [
+            kind as f32,
+            amounts[0] as f32,
+            amounts[1] as f32,
+            amounts[2] as f32,
+        ];
+        params[1] = color;
+        self.uses.push(ShaderUse {
+            pipeline: UsePipeline::ColorFilter,
+            params,
+            padding: 0.0,
+        });
+        Ok(0.0)
     }
 
     /// Records `layer`'s use of `shader`, returning its padding.
@@ -303,7 +391,7 @@ impl ShaderProcessor {
         }
         let padding = (shader.padding as f32).clamp(0.0, MAX_PADDING);
         self.uses.push(ShaderUse {
-            id: shader.id.clone(),
+            pipeline: UsePipeline::Custom(shader.id.clone()),
             params,
             padding,
         });
@@ -357,10 +445,16 @@ impl ShaderProcessor {
         index: usize,
     ) {
         let shader = &self.uses[index];
-        let pipeline = self.shaders[&shader.id]
-            .pipeline
-            .as_ref()
-            .expect("begin_scene rejects scenes whose shaders do not compile");
+        let pipeline = match &shader.pipeline {
+            UsePipeline::Custom(id) => self.shaders[id]
+                .pipeline
+                .as_ref()
+                .expect("begin_scene rejects scenes whose shaders do not compile"),
+            UsePipeline::ColorFilter => self
+                .color_filter
+                .as_ref()
+                .expect("use_color_filter compiles it"),
+        };
         let [left, top, right, bottom] = content.0;
         let builtins = [
             self.scene_size[0],
@@ -472,6 +566,20 @@ impl ShaderProcessor {
             Some(error) => Err(error.to_string()),
             None => Ok(pipeline),
         }
+    }
+}
+
+/// `color_filter.wgsl` as a shader source.
+fn color_filter_source() -> ShaderSource {
+    let param = |name: &str| ShaderParam {
+        name: name.to_owned(),
+        ty: ShaderParamType::Vec4,
+    };
+    ShaderSource {
+        id: "color filter".to_owned(),
+        name: Some("color filter".to_owned()),
+        wgsl: COLOR_FILTER.to_owned(),
+        params: vec![param("op"), param("color")],
     }
 }
 

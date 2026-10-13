@@ -40,9 +40,9 @@ impl CpuRenderer {
             clip: parent.clip.clone(),
             blend_mode: layer.blend_mode,
         };
-        // WGSL runs only on the GPU renderer, so a shader is refused even on
+        // Filters run only on the GPU renderer, so they are refused even on
         // a layer that would draw nothing.
-        if !layer.effects.shaders.is_empty() {
+        if !layer.effects.filters.is_empty() {
             return Err(RenderError::UnsupportedShader {
                 layer: layer.id.clone(),
             });

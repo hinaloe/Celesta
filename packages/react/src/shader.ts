@@ -1,7 +1,9 @@
-// Custom shader effects as the scene walker accepts them. `@celesta/shader`
-// builds them through `@celesta/react/internal`; the walker serializes them
-// into `effects.shaders` and the scene's `shaders`.
+// Filters as the scene walker accepts them: custom shaders, which
+// `@celesta/shader` builds through `@celesta/react/internal`, and the
+// built-in color filters. The walker serializes them into `effects.filters`
+// and lists the custom shaders' sources in the scene's `shaders`.
 
+import type { LayerFilter } from './generated/LayerFilter';
 import type { ShaderSource } from './generated/ShaderSource';
 import type { ShaderParamType } from './generated/ShaderParamType';
 
@@ -24,31 +26,162 @@ export class ShaderSourceHandle {
   }
 }
 
-/** A custom shader with concrete values. Made by a shader from `@celesta/shader`. */
+/** A built-in color filter as the scene lists it. */
+export type ColorFilter = Exclude<LayerFilter, { type: 'shader' }>;
+
+/**
+ * A filter with concrete values: a custom shader from `@celesta/shader`'s
+ * `defineShader()`, or a built-in color filter such as `brightness(1.2)`.
+ */
 export class ShaderEffect {
-  readonly #source: ShaderSourceHandle;
+  readonly #source: ShaderSourceHandle | null;
   readonly #params: readonly number[];
   readonly #padding: number;
+  readonly #filter: ColorFilter | null;
 
   /** @internal */
-  constructor(source: ShaderSourceHandle, params: readonly number[], padding: number) {
-    this.#source = source;
+  constructor(source: ShaderSourceHandle | ColorFilter, params: readonly number[] = [], padding = 0) {
+    const custom = source instanceof ShaderSourceHandle;
+    this.#source = custom ? source : null;
+    this.#filter = custom ? null : source;
     this.#params = params;
     this.#padding = padding;
   }
 
-  /** @internal */
-  static source(effect: ShaderEffect): ShaderSourceHandle {
+  /** @internal The custom shader's source; `null` for a color filter. */
+  static source(effect: ShaderEffect): ShaderSourceHandle | null {
     return effect.#source;
   }
 
   /** @internal */
-  static serialize(effect: ShaderEffect): { id: string; params?: number[]; padding?: number } {
+  static serialize(effect: ShaderEffect): LayerFilter {
+    if (effect.#filter) return { ...effect.#filter };
     return {
-      id: effect.#source.id,
+      type: 'shader',
+      id: effect.#source!.id,
       ...(effect.#params.length > 0 ? { params: [...effect.#params] } : {}),
       ...(effect.#padding !== 0 ? { padding: effect.#padding } : {}),
     };
+  }
+}
+
+/** `tint`: lays `color` over the pixels at `amount`, keeping their alpha. */
+export interface LayerTint {
+  /** `#RRGGBB` or `#RRGGBBAA`; its alpha scales `amount`. */
+  color: string;
+  /** 0 keeps the pixels, 1 replaces their color. Defaults to 1. */
+  amount?: number;
+}
+
+/** `vignette`: darkens toward the edges of the layer's content box. */
+export interface LayerVignette {
+  /** How dark the corners get: 0 not at all, 1 black. */
+  amount: number;
+  /**
+   * Where darkening starts, from 0 at the box's centre to 1 at its
+   * corners. Defaults to 0.5.
+   */
+  radius?: number;
+  /** How far beyond `radius` darkening takes to reach `amount`. Defaults to 0.5. */
+  softness?: number;
+}
+
+/** The value each built-in color filter takes. */
+export interface ColorFilterValues {
+  /** Multiplies the color: 1 keeps it, 0 is black, above 1 brightens. */
+  brightness: number;
+  /** Scales the distance from mid-gray: 1 keeps it, 0 is mid-gray. */
+  contrast: number;
+  /** 1 keeps the color, 0 is grayscale, above 1 saturates. */
+  saturation: number;
+  /** Rotates the hue, in degrees. */
+  hue: number;
+  /** 0 keeps the color, 1 is grayscale. */
+  grayscale: number;
+  /** 0 keeps the color, 1 inverts it. */
+  invert: number;
+  tint: LayerTint;
+  /** A number is the `amount`, with the default radius and softness. */
+  vignette: number | LayerVignette;
+}
+
+export type ColorFilterName = keyof ColorFilterValues;
+
+/** The built-in color filters, in the order their props apply. */
+export const COLOR_FILTERS: readonly ColorFilterName[] = [
+  'brightness', 'contrast', 'saturation', 'hue', 'grayscale', 'invert', 'tint', 'vignette',
+];
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
+
+/**
+ * The built-in color filter `name` with `value`, checked; throws naming
+ * the filter. Each works on the straight sRGB color, keeps alpha, and
+ * clamps its result to 0–1.
+ */
+export function colorFilter<N extends ColorFilterName>(name: N, value: ColorFilterValues[N]): ShaderEffect;
+export function colorFilter(name: ColorFilterName, value: unknown): ShaderEffect {
+  const number = (input: unknown, label: string, min = -Infinity, max = Infinity): number => {
+    if (typeof input !== 'number' || !Number.isFinite(input) || input < min || input > max) {
+      const range = max === Infinity
+        ? (min === -Infinity ? '' : ` of at least ${min}`)
+        : ` between ${min} and ${max}`;
+      throw new Error(`${label} must be a finite number${range}`);
+    }
+    return input;
+  };
+  const object = (input: unknown, label: string): Record<string, unknown> => {
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+      throw new Error(`${label} must be an object`);
+    }
+    return input as Record<string, unknown>;
+  };
+  switch (name) {
+    case 'brightness':
+    case 'contrast':
+    case 'saturation':
+      return new ShaderEffect({ type: name, amount: number(value, name, 0) });
+    case 'hue':
+      return new ShaderEffect({ type: 'hue', degrees: number(value, 'hue') });
+    case 'grayscale':
+    case 'invert':
+      return new ShaderEffect({ type: name, amount: number(value, name, 0, 1) });
+    case 'tint': {
+      const tint = object(value, 'tint');
+      if (typeof tint.color !== 'string' || !HEX_COLOR.test(tint.color)) {
+        throw new Error('tint.color must be a #RRGGBB or #RRGGBBAA color');
+      }
+      const amount = tint.amount === undefined ? 1 : number(tint.amount, 'tint.amount', 0, 1);
+      return new ShaderEffect({ type: 'tint', color: tint.color, amount });
+    }
+    case 'vignette': {
+      const vignette = typeof value === 'number' ? { amount: value } : object(value, 'vignette');
+      const label = typeof value === 'number' ? 'vignette' : 'vignette.amount';
+      return new ShaderEffect({
+        type: 'vignette',
+        amount: number(vignette.amount, label, 0, 1),
+        radius: vignette.radius === undefined ? 0.5 : number(vignette.radius, 'vignette.radius', 0),
+        softness: vignette.softness === undefined ? 0.5 : number(vignette.softness, 'vignette.softness', 0),
+      });
+    }
+    default:
+      throw new Error(`unknown color filter ${JSON.stringify(name)}`);
+  }
+}
+
+/** Whether the color filter leaves every pixel as it was. */
+export function isIdentityFilter(filter: ColorFilter): boolean {
+  switch (filter.type) {
+    case 'brightness':
+    case 'contrast':
+    case 'saturation':
+      return filter.amount === 1;
+    case 'hue':
+      return filter.degrees % 360 === 0;
+    case 'tint':
+      return filter.amount === 0 || /^#[0-9a-fA-F]{6}00$/.test(filter.color);
+    default:
+      return filter.amount === 0;
   }
 }
 

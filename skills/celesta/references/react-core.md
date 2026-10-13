@@ -99,6 +99,14 @@ Every visual layer (`Rect`, `Circle`, `Ellipse`, `Text`, `Group`, `Image`, `Vide
 | `blur` | `0` | Gaussian blur radius in output pixels, from 0 to 64. |
 | `shadow` | none | `{ color, blur, offsetX, offsetY }`; hex color, 0–64 px blur, output-pixel offsets. |
 | `glow` | none | `{ color, blur }`; centered halo with a 0–64 px blur. |
+| `brightness` | `1` | Multiplies the color: `0` black, above `1` brighter. |
+| `contrast` | `1` | Scales the distance from mid-gray: `0` mid-gray, above `1` more contrast. |
+| `saturation` | `1` | `0` grayscale, above `1` more saturated. |
+| `hue` | `0` | Rotates the hue, in degrees (CSS `hue-rotate()`). |
+| `grayscale` | `0` | `0`–`1`; `1` is fully gray. |
+| `invert` | `0` | `0`–`1`; `1` inverts the color. |
+| `tint` | none | `{ color, amount? }`; lays a hex color over the pixels at `amount` (0–1, default 1) times the color's alpha, keeping their alpha. |
+| `vignette` | none | `0`–`1`, or `{ amount, radius?, softness? }`; darkens toward the edges of the layer's box. Darkening starts at `radius` (0 centre, 1 corners; default 0.5) and reaches `amount` `softness` further (default 0.5). |
 | `id` | generated | Optional stable layer id. |
 
 To center something at a point, set `anchorX={0.5} anchorY={0.5}` and put
@@ -106,6 +114,14 @@ the point in `x`/`y`.
 
 Effects apply to the composited pixels of the layer; on a `Group` they apply
 to all children together. They combine with `opacity` and `blendMode`.
+They run in this order: `shader` (see [shader.md](shader.md)), then the
+color filters in the order of the table (`brightness` first, `vignette`
+last), then `shadow` and `glow` from the result, with `blur` on top. Each
+color filter works on the straight sRGB color, keeps alpha, and clamps its
+result to 0–1; values that change nothing (`brightness={1}`,
+`grayscale={0}`) add no work. For another order, pass the filters to
+`shader` as an array: `shader={[grayscale(), tint({ color: '#704214', amount: 0.4 })]}`.
+Color filters also run in the browser editor.
 Compute any prop from `useCurrentFrame()` to animate it. Visual props do not
 take keyframe objects in React. Effects and blend modes cost GPU passes; see
 [performance.md](performance.md) before putting them on many layers.

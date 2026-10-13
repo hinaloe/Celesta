@@ -128,10 +128,11 @@ function renderProjectLayers(layers: Layer[]): ReturnType<typeof React.createEle
 // where that name actually gets resolved against registerComponent()'s
 // registry, on the Node side. Resolved, the registered component renders as
 // a real subtree — its own hooks and state work normally — wrapped in a
-// `group` that carries the transform/opacity celesta-evaluator already
-// computed for that timeline item (see the `rawTransform`/`rawOpacity`
-// escape hatch in render.ts), so its authored position on the timeline is
-// preserved regardless of what the component itself renders. Unresolved
+// `group` that carries the transform/opacity/effects celesta-evaluator
+// already computed for that timeline item (see the `rawTransform`/
+// `rawOpacity`/`rawEffects` escape hatch in render.ts), so its authored
+// position and effects on the timeline are preserved regardless of what the
+// component itself renders, as the editor's preview keeps them. Unresolved
 // (no matching registerComponent() call), the layer passes through as-is:
 // `GpuRenderer` errors on `missingComponent` content, which is the honest
 // outcome for a name the entry never registered.
@@ -145,6 +146,7 @@ function ResolvedProjectLayer({ layer }: { layer: Layer }): ReturnType<typeof Re
           id: layer.id,
           rawTransform: layer.transform,
           rawOpacity: layer.opacity,
+          rawEffects: layer.effects,
           blendMode: layer.blendMode,
         },
         React.createElement(definition, layer.content.props),

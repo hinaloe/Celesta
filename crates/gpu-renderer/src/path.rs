@@ -1,3 +1,4 @@
+use crate::bounds::PixelBounds;
 use crate::draw::encode_paint;
 use crate::transform::LayerState;
 use celesta_composition::{BlendMode, LineCap, LineJoin, Paint, PathCommand, Stroke};
@@ -19,6 +20,60 @@ pub(crate) struct PendingPath {
 }
 
 impl PendingPath {
+    /// The box of the path's shape in scene pixels, which `uv` and a
+    /// vignette span: the box of the points its commands name (control
+    /// points included, and 0,0 when the first command draws from there),
+    /// grown by half the stroke's width, with its corners placed by the
+    /// layer's transform as a rect's are. `@celesta/web` computes the same
+    /// box (`SceneCanvas.shapeBox`), so it does not follow the stroked
+    /// outline, which only tiny-skia's stroker gives exactly.
+    pub(crate) fn shape_box(&self) -> Option<PixelBounds> {
+        let mut points = Vec::with_capacity(self.commands.len() + 1);
+        if !matches!(self.commands.first(), Some(PathCommand::MoveTo { .. })) {
+            points.push((0.0, 0.0));
+        }
+        for command in &self.commands {
+            match *command {
+                PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => points.push((x, y)),
+                PathCommand::QuadTo { x1, y1, x, y } => points.extend([(x1, y1), (x, y)]),
+                PathCommand::CubicTo {
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    x,
+                    y,
+                } => points.extend([(x1, y1), (x2, y2), (x, y)]),
+                PathCommand::Close => {}
+            }
+        }
+        let reach = self
+            .stroke
+            .as_ref()
+            .filter(|stroke| stroke.width.is_finite() && stroke.width > 0.0)
+            .map_or(0.0, |stroke| stroke.width / 2.0);
+        let fold = |pick: fn((f64, f64)) -> f64, min: bool| {
+            points
+                .iter()
+                .map(|&point| pick(point))
+                .reduce(if min { f64::min } else { f64::max })
+        };
+        let left = fold(|(x, _)| x, true)? - reach;
+        let top = fold(|(_, y)| y, true)? - reach;
+        let right = fold(|(x, _)| x, false)? + reach;
+        let bottom = fold(|(_, y)| y, false)? + reach;
+        let t = self.state.transform;
+        let corners = [(left, top), (right, top), (left, bottom), (right, bottom)].map(|(x, y)| {
+            let (x, y) = (x as f32, y as f32);
+            (t.a * x + t.c * y + t.tx, t.b * x + t.d * y + t.ty)
+        });
+        let xs = corners.map(|(x, _)| x);
+        let ys = corners.map(|(_, y)| y);
+        let min = |values: [f32; 4]| values.into_iter().fold(f32::INFINITY, f32::min);
+        let max = |values: [f32; 4]| values.into_iter().fold(f32::NEG_INFINITY, f32::max);
+        Some(PixelBounds([min(xs), min(ys), max(xs), max(ys)]))
+    }
+
     pub(crate) fn shape(&self) -> PathShape<'_> {
         PathShape {
             commands: &self.commands,

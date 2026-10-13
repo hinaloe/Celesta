@@ -2,7 +2,9 @@
 //! run WGSL, so these compare against expected pixels.
 
 use super::*;
-use celesta_composition::{LayerEffects, LayerShader, ShaderParam, ShaderParamType, ShaderSource};
+use celesta_composition::{
+    LayerEffects, LayerFilter, LayerShader, ShaderParam, ShaderParamType, ShaderSource,
+};
 
 const IDENTITY: &str =
     "fn effect(input: EffectInput) -> vec4f {\n    return source_at(input.position);\n}\n";
@@ -30,11 +32,11 @@ fn source(id: &str, wgsl: &str, params: &[(&str, ShaderParamType)]) -> ShaderSou
 }
 
 fn shaded(mut layer: Layer, id: &str, params: Vec<f64>, padding: f64) -> Layer {
-    layer.effects.shaders.push(LayerShader {
+    layer.effects.filters.push(LayerFilter::Shader(LayerShader {
         id: id.to_owned(),
         params,
         padding,
-    });
+    }));
     layer
 }
 
@@ -166,6 +168,54 @@ fn uv_spans_the_layers_shapes() {
             case,
         );
     }
+}
+
+#[test]
+fn uv_spans_a_paths_points_grown_by_half_its_stroke() {
+    use celesta_composition::PathCommand;
+
+    let Some(mut renderer) = renderer(black_background()) else {
+        return;
+    };
+    let uv = source(
+        "uv",
+        "fn effect(input: EffectInput) -> vec4f {\n    return vec4f(input.uv, 0.0, 1.0);\n}\n",
+        &[],
+    );
+    let near = |value: f32| (value * 255.0).round() as u8;
+    // A stroke 4 wide along two sides of a box, with butt caps: its outline
+    // starts at x 10, but its box takes half the stroke around every point,
+    // from 8,8 to 52,42.
+    let path = path_layer(
+        "path",
+        vec![
+            PathCommand::MoveTo { x: 10.0, y: 10.0 },
+            PathCommand::LineTo { x: 50.0, y: 10.0 },
+            PathCommand::LineTo { x: 50.0, y: 40.0 },
+        ],
+        None,
+        Some((
+            Paint::Solid {
+                color: "#ffffff".to_owned(),
+            },
+            4.0,
+        )),
+    );
+    let frame = renderer
+        .render(&scene(vec![uv], vec![shaded(path, "uv", Vec::new(), 0.0)]))
+        .unwrap();
+    assert_near(
+        pixel_at(&frame, 10, 9),
+        [near(2.5 / 44.0), near(1.5 / 34.0), 0, 255],
+        1,
+        "top-left",
+    );
+    assert_near(
+        pixel_at(&frame, 51, 39),
+        [near(43.5 / 44.0), near(31.5 / 34.0), 0, 255],
+        1,
+        "bottom-right",
+    );
 }
 
 #[test]

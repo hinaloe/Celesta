@@ -36,6 +36,12 @@ pub enum GpuRenderError {
         shader: String,
         message: String,
     },
+    /// A layer's built-in color filter with a value the renderer cannot
+    /// use. `filter` is its type, such as `brightness`.
+    ColorFilter {
+        filter: &'static str,
+        message: String,
+    },
     InvalidImageData {
         width: u32,
         height: u32,
@@ -118,6 +124,9 @@ impl fmt::Display for GpuRenderError {
             Self::Effects(error) => write!(formatter, "invalid GPU layer effect: {error}"),
             Self::Shader { shader, message } => {
                 write!(formatter, "invalid custom shader {shader}: {message}")
+            }
+            Self::ColorFilter { filter, message } => {
+                write!(formatter, "invalid {filter} color filter: {message}")
             }
             Self::InvalidImageData {
                 width,
@@ -217,6 +226,7 @@ impl Error for GpuRenderError {
             | Self::ClipsNestedTooDeep(_)
             | Self::PathsTooComplex(_)
             | Self::Shader { .. }
+            | Self::ColorFilter { .. }
             | Self::InvalidImageData { .. }
             | Self::MissingVideoDecoder(_)
             | Self::UnsupportedContent { .. }

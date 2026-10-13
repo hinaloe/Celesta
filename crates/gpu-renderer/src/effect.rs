@@ -472,7 +472,8 @@ pub(crate) struct EffectSpec {
     pub(crate) blur: f32,
     pub(crate) shadow: Option<EffectShadow>,
     pub(crate) glow: Option<EffectShadow>,
-    /// Run before the others, which filter their result.
+    /// The custom shaders and color filters, run before the others, which
+    /// filter their result.
     pub(crate) shaders: Option<ShaderChain>,
 }
 
@@ -503,7 +504,7 @@ impl EffectSpec {
         }
     }
 
-    /// Everything but the shaders, which `ShaderProcessor::use_shaders` adds.
+    /// Everything but the filters, which `ShaderProcessor::use_filters` adds.
     pub(crate) fn parse(effects: &LayerEffects) -> Result<Self, GpuRenderError> {
         let parse_color = |color: &str| -> Result<[f32; 4], GpuRenderError> {
             let color = CpuColor::from_hex(color).map_err(GpuRenderError::Effects)?;

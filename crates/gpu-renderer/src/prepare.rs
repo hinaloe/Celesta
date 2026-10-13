@@ -403,9 +403,9 @@ impl GpuRenderer {
         let blend_mode = layer.blend_mode;
         if !layer.effects.is_empty() {
             let mut effects = EffectSpec::parse(&layer.effects)?;
-            effects.shaders = self
-                .shaders
-                .use_shaders(&layer.id, &layer.effects.shaders)?;
+            effects.shaders =
+                self.shaders
+                    .use_filters(&self.device, &layer.id, &layer.effects.filters)?;
             output.push(PreparedItem::BeginGroup);
             let mut inner = layer.clone();
             inner.opacity = 1.0;
@@ -701,6 +701,7 @@ impl GpuRenderer {
                     state,
                     blend_mode,
                     raster_scale: 1.0,
+                    shape: None,
                 }));
             }
             LayerContent::Path {
@@ -952,6 +953,7 @@ impl GpuRenderer {
                 },
                 blend_mode: path.blend_mode,
                 raster_scale: 1.0,
+                shape: path.shape_box(),
             });
         }
         // Each path's entries into its own part of the buffer.

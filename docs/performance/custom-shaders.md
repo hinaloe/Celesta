@@ -86,3 +86,34 @@ one shader per layer take the same work as before (`shaders`, and `blur`,
 ```sh
 cargo run --release -p celesta-bench -- run --frames 120 --size 1920x1080 --dump out/ shaders shader-chain shader-nest
 ```
+
+## Built-in color filters: the `color-filters` workload
+
+The color filters (`brightness`, `saturation`, `vignette`, …, 2026-10-14)
+run as passes of the same chain, one per filter, through one built-in
+pipeline (`color_filter.wgsl`). `color-filters` is `shader-chain` with its
+three grade shaders replaced by the built-in `saturation`, `tint`, and
+`vignette`.
+
+Apple M4, Metal, 1920x1080, 120 measured frames after 10 warmup, 10
+rounds (`scripts/bench.py compare --base main`, medians). This session was
+noisier than the one above: every workload's 95% interval spans more than
+±5%, and none of the unchanged workloads moved beyond its interval.
+
+| Workload | main (ms/frame) | this change (ms/frame) |
+| --- | ---: | ---: |
+| `shaders` | 2.110 | 2.149 |
+| `shader-chain` (three custom passes) | 2.193 | 2.262 |
+| `color-filters` (three built-in passes) | — | 2.479 |
+| `blur` | 6.361 | 6.721 |
+| `text` | 1.284 | 1.270 |
+| `images` | 0.937 | 0.922 |
+
+A built-in pass costs a little more than the bench's custom grade shaders,
+which skip unpremultiplying (`tint`) or clamping; together the three stay
+well below one `blur`. Layers without filters take the same code paths as
+before.
+
+```sh
+cargo run --release -p celesta-bench -- run --frames 120 --size 1920x1080 --dump out/ shader-chain color-filters
+```

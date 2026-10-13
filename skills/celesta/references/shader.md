@@ -6,14 +6,14 @@ import rippleSource from './ripple.wgsl';
 ```
 
 A custom shader filters a layer's pixels with WGSL code you write. Use it
-for what `blur`, `shadow`, `glow`, `blendMode`, and masks cannot do:
-ripples, RGB splits, pixelation, color grades, glitches. Celesta's runtime
-supplies the package; never install it from npm.
+for what `blur`, `shadow`, `glow`, `blendMode`, masks, and the built-in
+color filters cannot do: ripples, RGB splits, pixelation, glitches.
+Celesta's runtime supplies the package; never install it from npm.
 
 Shaders run in the desktop preview and in export (on the GPU), including
 in components placed on project timelines (`registerComponent` resolved
 into a `.celesta.json`). The browser editor (`@celesta/web`) cannot run
-them.
+them; it runs the built-in color filters.
 
 ## Contents
 
@@ -21,6 +21,7 @@ them.
 - [What the shader sees](#what-the-shader-sees)
 - [Parameters](#parameters)
 - [Padding](#padding)
+- [Built-in color filters](#built-in-color-filters)
 - [Errors](#errors)
 
 ## Define and use
@@ -86,7 +87,8 @@ fn effect(input: EffectInput) -> vec4f {
 - Coordinates are output pixels after transforms: a rotated layer's shader
   still works in scene space.
 - The layer's box is the box of what it draws: a rect's own rectangle, a
-  text's or image's quad, a group's children. A child's blur spreads its
+  text's or image's quad, a path's points (control points included) grown
+  by half its stroke width, a group's children. A child's blur spreads its
   pixels, not the box, and neither does an earlier shader in an array:
   every shader in it sees the same box.
 - There is no built-in time. Pass `frame / fps` (or any clock) as a
@@ -123,6 +125,34 @@ In an array, each shader writes what the one before it wrote, grown by
 its own padding, so the paddings add up: two shaders that each push
 pixels 8px outward reach 16px past the box.
 
+## Built-in color filters
+
+For brightness, contrast, saturation, hue, grayscale, invert, tint, or a
+vignette, write no WGSL: each layer and `Group` takes them as props
+(`<Image src="a.png" saturation={0.4} vignette={0.5} />`; see the layer
+props in [react-core.md](react-core.md)). The props run after `shader`,
+in a fixed order. To place a color filter elsewhere among custom shaders,
+use its function from `@celesta/shader` in the `shader` array:
+
+```tsx
+import { brightness, contrast, grayscale, hue, invert, saturation, tint, vignette } from '@celesta/shader';
+
+<Group shader={[ripple({ time }), grayscale(), tint({ color: '#704214', amount: 0.35 }), vignette(0.6)]}>…</Group>
+```
+
+| Function | Takes |
+| --- | --- |
+| `brightness(amount)`, `contrast(amount)`, `saturation(amount)` | `1` keeps the color; at least `0` |
+| `hue(degrees)` | any angle |
+| `grayscale(amount = 1)`, `invert(amount = 1)` | `0`–`1` |
+| `tint({ color, amount? })` | as the `tint` prop |
+| `vignette(amount)` or `vignette({ amount, radius?, softness? })` | as the `vignette` prop |
+
+They take no padding, and the scene lists no source for them. They work on
+the straight sRGB color, keep alpha, and clamp to 0–1, as CSS `filter`
+functions do (`saturation` and `hue` use CSS's matrices). `vignette`
+follows the same box as `uv`.
+
 ## Errors
 
 A shader that does not compile fails the frame with its line and column in
@@ -133,6 +163,8 @@ invalid custom shader ripple: 3:17: no definition in scope for identifier: `ampl
 ```
 
 A missing or misdeclared `effect` names the signature it expects:
-`fn effect(input: EffectInput) -> vec4f`. The CPU reference renderer does
-not run shaders; check the output with PNG frames from the exporter
+`fn effect(input: EffectInput) -> vec4f`. A color filter with a value out
+of range throws, naming the prop: `grayscale must be a finite number
+between 0 and 1`. The CPU reference renderer does not run shaders or color
+filters; check the output with PNG frames from the exporter
 ([verify.md](verify.md)).
