@@ -12,12 +12,11 @@ mod progress;
 
 use celesta_composition::Time;
 use celesta_exporter::{
-    BitDepth, ColorConversion, CompanionProject, ContactSheet, EncoderPreset, ExportError,
-    ExportOptions, ExportProgress, ExportRange, Exporter, FrameSelection, GpuDriver, PngExport,
+    BitDepth, ColorConversion, ContactSheet, EncoderPreset, ExportCancellation, ExportError,
+    ExportJob, ExportOptions, ExportProgress, ExportRange, FrameSelection, GpuDriver, PngExport,
     ReactRuntimeOptions, RenderQuality, VideoEncoding, parse_timecode,
 };
-use celesta_project::Project;
-use celesta_react_bridge::{PropertyInputs, PropsFileChoice, resolve_props_file};
+use celesta_react_bridge::{PropsFileChoice, resolve_props_file};
 
 const AFTER_HELP: &str = "\
 Timecodes are HH:MM:SS(.mmm), MM:SS(.mmm) or SS(.mmm); --from/--to select a
@@ -294,7 +293,11 @@ fn main() -> ExitCode {
 }
 
 fn inspect(cli: &Cli) -> ExitCode {
-    let result = match react_runtime(cli) {
+    let result = match ReactRuntimeOptions::for_entry(
+        &cli.source,
+        cli.props_file.as_deref(),
+        cli.props.as_deref(),
+    ) {
         Ok(runtime) => inspect::run(
             &cli.source,
             &ReactRuntimeOptions {
@@ -366,25 +369,14 @@ fn export(
     range: Option<ExportRange>,
     on_progress: &mut dyn FnMut(ExportProgress),
 ) -> Result<(), ExportError> {
-    let exporter = Exporter::new(ExportOptions {
-        overwrite: cli.overwrite,
-        range,
-        video: cli.video(),
-        render_quality: cli.render_quality,
-        driver: cli.driver,
-    });
-    let load = |path: &Path| Project::load(path).map_err(ExportError::Project);
-    let companion = cli
-        .project
-        .as_deref()
-        .map(|path| load(path).map(|project| (project, path)))
-        .transpose()?;
-    let companion = companion.as_ref().map(|(project, path)| CompanionProject {
-        project,
-        project_asset_root: asset_root(path),
-    });
-    if png {
-        let png_export = PngExport {
+    let job = ExportJob {
+        source: cli.source.clone(),
+        react: cli.react,
+        companion: cli.project.clone(),
+        props_file: cli.props_file.clone(),
+        props: cli.props.clone(),
+        output: cli.output().to_owned(),
+        png: png.then(|| PngExport {
             frames: match cli.every {
                 Some(step) => FrameSelection::Every(step.get()),
                 None => FrameSelection::Frames(cli.frames.clone()),
@@ -394,50 +386,16 @@ fn export(
                 tile_width: cli.tile_width.get(),
             }),
             debug_guides: cli.debug_guides,
-        };
-        if cli.react {
-            exporter.export_react_png_with(
-                &cli.source,
-                &react_runtime(cli)?,
-                companion,
-                &png_export,
-                cli.output(),
-                on_progress,
-            )
-        } else {
-            exporter.export_project_png_with(
-                &load(&cli.source)?,
-                asset_root(&cli.source),
-                &png_export,
-                cli.output(),
-                on_progress,
-            )
-        }
-    } else if cli.react {
-        let runtime = react_runtime(cli)?;
-        match companion {
-            Some(companion) => exporter.export_react_entry_with_project_and_progress(
-                &cli.source,
-                &runtime,
-                companion,
-                cli.output(),
-                on_progress,
-            ),
-            None => exporter.export_react_entry_with_progress(
-                &cli.source,
-                &runtime,
-                cli.output(),
-                on_progress,
-            ),
-        }
-    } else {
-        exporter.export_file_with_progress(&cli.source, cli.output(), on_progress)
-    }
-}
-
-/// Where a project's relative asset paths resolve from.
-fn asset_root(project_path: &Path) -> &Path {
-    project_path.parent().unwrap_or_else(|| Path::new("."))
+        }),
+        options: ExportOptions {
+            overwrite: cli.overwrite,
+            range,
+            video: cli.video(),
+            render_quality: cli.render_quality,
+            driver: cli.driver,
+        },
+    };
+    job.run(&ExportCancellation::default(), on_progress)
 }
 
 /// Builds an [`ExportRange`] from the `--from` / `--to` timecodes. Returns
@@ -461,15 +419,4 @@ fn export_range(start: Option<Time>, end: Option<Time>) -> Result<Option<ExportR
         start: start.unwrap_or(Time::ZERO),
         end,
     }))
-}
-
-fn react_runtime(cli: &Cli) -> Result<ReactRuntimeOptions, ExportError> {
-    let (node, cli_script) = celesta_react_bridge::runtime_paths();
-    let properties = PropertyInputs::load_for_entry(
-        &cli.source,
-        cli.props_file.as_deref(),
-        cli.props.as_deref(),
-    )
-    .map_err(ExportError::Properties)?;
-    Ok(ReactRuntimeOptions::new(node, cli_script).with_properties(properties))
 }

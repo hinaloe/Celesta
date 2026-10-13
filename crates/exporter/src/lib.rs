@@ -3,6 +3,7 @@
 mod control;
 mod error;
 mod exporter;
+mod job;
 mod options;
 mod project;
 mod range;
@@ -17,6 +18,7 @@ mod timecode;
 pub use control::{CompositionInfo, ExportCancellation, ExportProgress, ExportedFile};
 pub use error::ExportError;
 pub use exporter::Exporter;
+pub use job::ExportJob;
 pub use options::{
     BitDepth, ColorConversion, EncoderPreset, ExportOptions, UnknownBitDepth,
     UnknownColorConversion, UnknownEncoderPreset, VideoEncoding,
