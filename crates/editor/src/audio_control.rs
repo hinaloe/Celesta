@@ -23,7 +23,6 @@ impl EditorView {
             let (node, cli_script) = react_runtime_paths();
             self.clip_waveforms.clear();
             self.audio_pending = true;
-            self.problems.clear(Source::Audio);
             if let Err(error) = self.react_audio_worker.request(ReactAudioRequest {
                 generation,
                 node,
@@ -47,7 +46,6 @@ impl EditorView {
             }
             Ok(graph) => {
                 self.audio_pending = true;
-                self.problems.clear(Source::Audio);
                 if let Err(error) = self.audio_mix_worker.request(AudioMixRequest {
                     generation,
                     graph,

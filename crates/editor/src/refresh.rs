@@ -187,7 +187,6 @@ impl EditorView {
         match self.document.scene_at(self.current_time()) {
             Ok(scene) => {
                 self.preview_pending = true;
-                self.problems.clear(Source::Preview);
                 self.problems.set_preview_warnings(Vec::new());
                 if let Err(error) = self.preview_worker.request(PreviewRequest {
                     generation,
@@ -427,7 +426,6 @@ impl EditorView {
             return;
         };
         self.component_schema_pending = true;
-        self.problems.clear(Source::Schemas);
         let (node, cli_script) = react_runtime_paths();
         if let Err(error) = self
             .component_schema_worker
