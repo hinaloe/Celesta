@@ -9,6 +9,9 @@ use crate::export_worker::{ExportEvent, ExportRequest, ExportSource, ExportWorke
 use crate::helpers::{
     export_output, export_progress_label, export_range_for, export_suggested_name, loop_range_for,
 };
+use crate::layer_select::{
+    SourceLookup, display_path, letterbox, scene_point, source_lookup, source_position,
+};
 use crate::source::is_react_entry;
 use crate::waveform::{
     clip_level_envelope, level_at_time, map_clip_waveform, master_volume_from_drag, waveform_peaks,
@@ -656,4 +659,99 @@ fn reading_login_shell_output_returns_what_it_got_at_eof() {
 
     assert_eq!(output, "only noise");
     assert_eq!(parse_login_shell_output(&output), None);
+}
+
+/// The viewer area the layer selection tests click in: 960 x 960 at the origin.
+fn square_viewer() -> gpui_kit::Bounds<gpui_kit::Pixels> {
+    gpui_kit::Bounds::new(
+        gpui_kit::point(gpui_kit::px(0.0), gpui_kit::px(0.0)),
+        gpui_kit::size(gpui_kit::px(960.0), gpui_kit::px(960.0)),
+    )
+}
+
+#[test]
+fn layer_select_letterboxes_a_wide_frame_in_a_square_area() {
+    assert_eq!(
+        letterbox(square_viewer(), (1920.0, 1080.0)),
+        Some((0.0, 210.0, 0.5))
+    );
+}
+
+#[test]
+fn layer_select_letterboxes_nothing_for_a_frame_without_size() {
+    assert_eq!(letterbox(square_viewer(), (0.0, 1080.0)), None);
+    assert_eq!(letterbox(square_viewer(), (1920.0, 0.0)), None);
+}
+
+#[test]
+fn layer_select_maps_a_click_in_the_frame_to_scene_pixels() {
+    let point = scene_point(
+        square_viewer(),
+        (1920.0, 1080.0),
+        gpui_kit::point(gpui_kit::px(480.0), gpui_kit::px(480.0)),
+    );
+
+    assert_eq!(
+        point,
+        Some(celesta_composition::Point { x: 960.0, y: 540.0 })
+    );
+}
+
+#[test]
+fn layer_select_maps_a_click_in_the_letterbox_bar_to_nothing() {
+    let point = scene_point(
+        square_viewer(),
+        (1920.0, 1080.0),
+        gpui_kit::point(gpui_kit::px(480.0), gpui_kit::px(100.0)),
+    );
+
+    assert_eq!(point, None);
+}
+
+#[test]
+fn layer_select_reads_each_lookup_outcome() {
+    let chain = vec![layer_source_at("/project/title.tsx", 12, 5)];
+
+    assert_eq!(source_lookup(Ok(None)), SourceLookup::NotInFrame);
+    assert_eq!(
+        source_lookup(Ok(Some(Vec::new()))),
+        SourceLookup::NoPosition
+    );
+    assert_eq!(
+        source_lookup(Ok(Some(chain.clone()))),
+        SourceLookup::Found(chain)
+    );
+    assert_eq!(
+        source_lookup(Err("bridge closed".to_string())),
+        SourceLookup::Failed("bridge closed".to_string())
+    );
+}
+
+#[test]
+fn layer_select_shows_a_file_inside_the_entry_directory_relative_to_it() {
+    let entry_dir = Path::new("/project/src");
+    let source = layer_source_at("/project/src/components/title.tsx", 12, 5);
+
+    assert_eq!(
+        display_path(&source.file, entry_dir),
+        Path::new("components")
+            .join("title.tsx")
+            .display()
+            .to_string()
+    );
+    assert_eq!(
+        source_position(&source, entry_dir),
+        format!(
+            "{}:12:5",
+            Path::new("components").join("title.tsx").display()
+        )
+    );
+}
+
+#[test]
+fn layer_select_shows_a_file_outside_the_entry_directory_in_full() {
+    let entry_dir = Path::new("/project/src");
+    let file = Path::new("/project/shared/title.tsx");
+
+    assert_eq!(display_path(file, entry_dir), file.display().to_string());
 }

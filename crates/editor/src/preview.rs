@@ -1,12 +1,13 @@
 use crate::audio::take_latest;
 use crate::helpers::prepare_preview_frame;
 use crate::problems::error_chain;
+use crate::layer_select::LookupResult;
 use crate::source::PropertyArgs;
-use celesta_composition::{Layer, LayerContent, Scene, ShaderSource};
-use celesta_gpu_renderer::{GpuRenderer, RenderQuality};
+use celesta_composition::{Layer, LayerContent, Scene, ShaderSource, Time};
+use celesta_gpu_renderer::{GpuRenderer, HitRegion, RenderQuality};
 use celesta_react_bridge::{
     ComponentPropertyField, ComponentResolutionRequest, ComponentResolutions, PropertyInputs,
-    PropertyIssue, ReactBridge, ReactCompositionMetadata,
+    PropertyIssue, ReactBridge, ReactCompositionMetadata, SpawnOptions,
 };
 use gpui_kit::RenderImage;
 use rodio::Player;
@@ -47,6 +48,9 @@ pub(crate) struct PreviewRequest {
     /// frame; `Final` otherwise, so a paused or scrubbed frame looks exactly
     /// like the export.
     pub(crate) render_quality: RenderQuality,
+    /// The selected layer whose JSX source to look up in this frame
+    /// (`WholeScene` only); `None` sends no lookup, as during playback.
+    pub(crate) source_of: Option<String>,
 }
 
 pub(crate) struct PreviewResult {
@@ -55,6 +59,13 @@ pub(crate) struct PreviewResult {
     /// Recoverable diagnostics for this frame: unresolved `registerComponent`
     /// names (hidden from the preview) and React runtime failures.
     pub(crate) warnings: Vec<String>,
+    /// Where each leaf layer was drawn, for selecting layers by clicking the
+    /// preview. Recorded in `WholeScene` mode only; empty otherwise.
+    pub(crate) hit_regions: Vec<HitRegion>,
+    /// The request's `source_of` and what looking it up returned: `Ok(None)`
+    /// when the frame has no layer with that id. `None` when nothing was
+    /// looked up.
+    pub(crate) layer_source: Option<(String, LookupResult)>,
 }
 
 /// The Node.js runtime a preview's `TimelineContent::Component` clips resolve
@@ -172,6 +183,8 @@ impl PreviewWorker {
                         react_reload = request.react_reload;
                         react_bridge = None;
                     }
+                    let whole_scene = request.react_mode == ReactPreviewMode::WholeScene;
+                    renderer.set_record_hit_regions(whole_scene);
                     let mut scene = request.scene;
                     let mut warnings = Vec::new();
                     // In `.tsx` preview mode the React entry is the whole
@@ -201,11 +214,17 @@ impl PreviewWorker {
                         warnings.extend(renderer.missing_glyphs().iter().map(ToString::to_string));
                         frame
                     });
+                    let layer_source = request.source_of.filter(|_| whole_scene).map(|id| {
+                        let source = look_up_layer_source(&mut react_bridge, scene.time, &id);
+                        (id, source)
+                    });
                     if result_tx
                         .send(PreviewResult {
                             generation: request.generation,
                             frame,
                             warnings,
+                            hit_regions: renderer.hit_regions().to_vec(),
+                            layer_source,
                         })
                         .is_err()
                     {
@@ -226,6 +245,28 @@ impl PreviewWorker {
     }
 }
 
+/// The JSX chain that produced layer `id` at `time`, from the bridge the
+/// frame was just evaluated with. A bridge that is not running answers with
+/// why, so the panel does not wait for a lookup that never comes.
+fn look_up_layer_source(
+    react_bridge: &mut Option<ReactPreviewBridge>,
+    time: Time,
+    id: &str,
+) -> LookupResult {
+    let Some(state) = react_bridge.as_mut() else {
+        return Err("React runtime is unavailable for this preview".to_owned());
+    };
+    match &mut state.bridge {
+        Some(bridge) => bridge
+            .layer_source(time, id)
+            .map_err(|error| error.to_string()),
+        None => Err(format!(
+            "React preview unavailable: {}",
+            state.failure.as_deref().unwrap_or("unknown error")
+        )),
+    }
+}
+
 /// Spawns (or reuses) the preview worker's long-lived React connection for
 /// `react`. Respawns only when the entry, runtime paths, or property values
 /// changed; a spawn
@@ -240,11 +281,16 @@ pub(crate) fn ensure_react_bridge<'a>(
         .is_none_or(|state| state.context != *react)
     {
         *react_bridge = Some(
-            match ReactBridge::spawn_with_properties(
+            match ReactBridge::spawn_with_options(
                 &react.node,
                 &react.cli_script,
                 &react.entry,
                 &react.properties,
+                // `layer_source` answers only when the runtime recorded
+                // where each JSX element was written.
+                SpawnOptions {
+                    source_locations: true,
+                },
             ) {
                 Ok(mut bridge) => {
                     // Whole `.tsx` frames are requested like an export's;

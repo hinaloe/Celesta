@@ -1,5 +1,6 @@
 use crate::audio::AudioMixRequest;
 use crate::export_worker::ExportEvent;
+use crate::layer_select::source_lookup;
 use crate::preview::AudioPreview;
 use crate::problems::{Source, error_chain};
 use crate::view::EditorView;
@@ -33,6 +34,13 @@ impl EditorView {
                         }
                     }
                     self.problems.set_preview_warnings(result.warnings);
+                    self.hit_regions = result.hit_regions;
+                    // An answer for a layer that is no longer selected is stale.
+                    if let Some((id, source)) = result.layer_source
+                        && self.selected_layer.as_ref() == Some(&id)
+                    {
+                        self.source_lookup = Some(source_lookup(source));
+                    }
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {

@@ -1,5 +1,6 @@
 use crate::component_schema::ComponentSchemaRequest;
 use crate::helpers::format_time;
+use crate::layer_select::SourceLookup;
 use crate::media_probe::{MediaProbeRequest, ProbeAsset};
 use crate::preview::{
     KeptSchema, PreviewRequest, ReactPreview, ReactPreviewContext, ReactPreviewMode,
@@ -184,6 +185,13 @@ impl EditorView {
         } else {
             ReactPreviewMode::ResolveComponents
         };
+        // The selected layer's source follows the paused frame. During
+        // playback the panel keeps the last answer, unless the selection
+        // changed and its lookup has not been answered yet.
+        let source_of = self.selected_layer.clone().filter(|_| {
+            self.is_react_preview()
+                && (!self.playing || self.source_lookup == Some(SourceLookup::Pending))
+        });
         match self.document.scene_at(self.current_time()) {
             // The warnings stay until the result replaces them, so their
             // counts don't flicker while frames are in flight.
@@ -201,6 +209,7 @@ impl EditorView {
                     } else {
                         RenderQuality::Final
                     },
+                    source_of,
                 }) {
                     self.preview_pending = false;
                     self.problems.set_preview_warnings(Vec::new());
@@ -228,6 +237,8 @@ impl EditorView {
         let property_args = react.property_args.clone();
         let (node, cli_script) = react_runtime_paths();
         let frame = self.clock.frame();
+        // The reloaded code may not produce the same layers.
+        self.clear_layer_selection();
         let session = self.session;
         let sequence = self.react_reloads.request();
         cx.spawn(async move |view, cx| {
