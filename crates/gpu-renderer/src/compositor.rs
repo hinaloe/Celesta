@@ -1,3 +1,4 @@
+use crate::average::AveragePipeline;
 use crate::effect::EffectProcessor;
 use crate::mask::MaskPipelines;
 use crate::plan::{GpuStep, PreparedDraws};
@@ -16,6 +17,7 @@ pub(crate) struct Compositor<'a> {
     pub(crate) effects: &'a mut EffectProcessor,
     pub(crate) shaders: &'a mut ShaderProcessor,
     pub(crate) masks: &'a MaskPipelines,
+    pub(crate) averages: &'a AveragePipeline,
 }
 
 /// One draw onto a canvas, in painter's order.
@@ -71,10 +73,17 @@ impl Compositor<'_> {
                         });
                     }
                 }
-                GpuStep::BeginGroup { .. } | GpuStep::BeginMask { .. } => {
+                GpuStep::BeginGroup { .. }
+                | GpuStep::BeginMask { .. }
+                | GpuStep::BeginAverage { .. } => {
                     let end = group_end(steps, index);
                     let (instance, blend_mode, area) = match &steps[end] {
                         GpuStep::EndGroup {
+                            instance,
+                            blend_mode,
+                            area,
+                        }
+                        | GpuStep::EndAverage {
                             instance,
                             blend_mode,
                             area,
@@ -112,7 +121,9 @@ impl Compositor<'_> {
                 GpuStep::EndGroup { .. }
                 | GpuStep::EndEffect { .. }
                 | GpuStep::MaskContent
-                | GpuStep::EndMask { .. } => {
+                | GpuStep::EndMask { .. }
+                | GpuStep::NextSample
+                | GpuStep::EndAverage { .. } => {
                     unreachable!("draw_group consumes every group's steps")
                 }
             }
@@ -181,22 +192,48 @@ impl Compositor<'_> {
         }
     }
 
-    /// Composites the group `steps` (from its `BeginGroup` or `BeginMask` to
-    /// its end) onto a canvas of its own and applies its effect or mask,
-    /// returning the canvas to draw onto the group's parent, or `None` when
-    /// it holds nothing.
+    /// Composites the group `steps` (from its `BeginGroup`, `BeginMask`, or
+    /// `BeginAverage` to its end) onto a canvas of its own and applies its
+    /// effect, mask, or average, returning the canvas to draw onto the
+    /// group's parent, or `None` when it holds nothing.
     pub(crate) fn draw_group(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         steps: &[GpuStep],
     ) -> Option<CanvasTexture> {
         let (
-            Some(GpuStep::BeginGroup { canvas: region } | GpuStep::BeginMask { canvas: region }),
+            Some(
+                GpuStep::BeginGroup { canvas: region }
+                | GpuStep::BeginMask { canvas: region }
+                | GpuStep::BeginAverage { canvas: region },
+            ),
             Some(end),
         ) = (steps.first(), steps.last())
         else {
-            unreachable!("a group runs from its BeginGroup or BeginMask to its end");
+            unreachable!("a group runs from its BeginGroup, BeginMask, or BeginAverage to its end");
         };
+        if let GpuStep::EndAverage { .. } = end {
+            let samples = samples(&steps[1..steps.len() - 1]);
+            let weight = 1.0 / samples.len() as f64;
+            let take = |effects: &mut EffectProcessor| {
+                effects.take_canvas(
+                    self.device,
+                    self.texture_layout,
+                    region.width,
+                    region.height,
+                )
+            };
+            let result = take(self.effects);
+            // One canvas for every sample in turn: `draw_canvas` clears it.
+            let canvas = take(self.effects);
+            for (index, sample) in samples.into_iter().enumerate() {
+                self.draw_canvas(encoder, &canvas, wgpu::Color::TRANSPARENT, sample);
+                self.averages
+                    .add(encoder, &canvas, &result, weight, index == 0);
+            }
+            self.effects.recycle(canvas);
+            return Some(result);
+        }
         if let GpuStep::EndMask { mask, .. } = end {
             let split = mask_content(steps);
             // Copied out of `self`, so the closure borrows nothing of it
@@ -331,15 +368,9 @@ impl Compositor<'_> {
 pub(crate) fn group_end(steps: &[GpuStep], begin: usize) -> usize {
     let mut depth = 0;
     for (index, step) in steps.iter().enumerate().skip(begin) {
-        match step {
-            GpuStep::BeginGroup { .. } | GpuStep::BeginMask { .. } => depth += 1,
-            GpuStep::EndGroup { .. } | GpuStep::EndEffect { .. } | GpuStep::EndMask { .. } => {
-                depth -= 1;
-                if depth == 0 {
-                    return index;
-                }
-            }
-            GpuStep::Draw(_) | GpuStep::Blend { .. } | GpuStep::MaskContent => {}
+        depth += nesting(step);
+        if depth == 0 {
+            return index;
         }
     }
     unreachable!("every group has an end")
@@ -349,16 +380,40 @@ pub(crate) fn group_end(steps: &[GpuStep], begin: usize) -> usize {
 fn mask_content(steps: &[GpuStep]) -> usize {
     let mut depth = 0;
     for (index, step) in steps.iter().enumerate() {
-        match step {
-            GpuStep::BeginGroup { .. } | GpuStep::BeginMask { .. } => depth += 1,
-            GpuStep::EndGroup { .. } | GpuStep::EndEffect { .. } | GpuStep::EndMask { .. } => {
-                depth -= 1;
-            }
-            GpuStep::MaskContent if depth == 1 => return index,
-            GpuStep::Draw(_) | GpuStep::Blend { .. } | GpuStep::MaskContent => {}
+        depth += nesting(step);
+        if depth == 1 && matches!(step, GpuStep::MaskContent) {
+            return index;
         }
     }
     unreachable!("every mask has its content")
+}
+
+/// The steps of each sample among `steps`, a motion-blurred group's steps
+/// between its `BeginAverage` and `EndAverage`.
+fn samples(steps: &[GpuStep]) -> Vec<&[GpuStep]> {
+    let mut samples = Vec::new();
+    let (mut depth, mut start) = (0, 0);
+    for (index, step) in steps.iter().enumerate() {
+        depth += nesting(step);
+        if depth == 0 && matches!(step, GpuStep::NextSample) {
+            samples.push(&steps[start..index]);
+            start = index + 1;
+        }
+    }
+    samples.push(&steps[start..]);
+    samples
+}
+
+/// How `step` changes the depth of the groups it is inside.
+fn nesting(step: &GpuStep) -> i32 {
+    match step {
+        GpuStep::BeginGroup { .. } | GpuStep::BeginMask { .. } | GpuStep::BeginAverage { .. } => 1,
+        GpuStep::EndGroup { .. }
+        | GpuStep::EndEffect { .. }
+        | GpuStep::EndMask { .. }
+        | GpuStep::EndAverage { .. } => -1,
+        GpuStep::Draw(_) | GpuStep::Blend { .. } | GpuStep::MaskContent | GpuStep::NextSample => 0,
+    }
 }
 
 pub(crate) struct BackdropTexture {

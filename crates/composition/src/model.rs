@@ -397,6 +397,16 @@ pub enum LayerContent {
         /// `GroupMask`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mask: Option<GroupMask>,
+        /// Each child is one sample of the same subtree at another moment
+        /// while the shutter is open. Each draws onto a transparent canvas of
+        /// its own, and the group shows their average with equal weights,
+        /// taken on premultiplied, sRGB-encoded values with no
+        /// linearization. The group is always isolated: the average then
+        /// goes through the mask, the effects, the opacity, and the blend
+        /// mode as the children of any isolated group do. The clip applies
+        /// to every sample.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        motion_blur: bool,
     },
     /// A flat-shaded rectangle, optionally rounded and/or stroked. Has no
     /// natural size the way `Image`/`Video` do, so `width`/`height` are
@@ -619,6 +629,8 @@ enum LayerContentDef {
         clip: Option<Clip>,
         #[serde(default)]
         mask: Option<GroupMask>,
+        #[serde(default)]
+        motion_blur: bool,
     },
     Rect {
         width: f64,

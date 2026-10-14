@@ -15,6 +15,7 @@ fn texts(layers: &[Layer]) -> usize {
                 layers,
                 clip: _,
                 mask,
+                motion_blur: _,
             } => texts(layers) + mask.as_ref().map_or(0, |mask| texts(&mask.layers)),
             _ => 0,
         })

@@ -70,7 +70,12 @@ impl CpuRenderer {
                 *baseline_anchor,
                 &state,
             )?,
-            LayerContent::Group { layers, clip, mask } => {
+            LayerContent::Group {
+                layers,
+                clip,
+                mask,
+                motion_blur,
+            } => {
                 let mut child_state = state.clone();
                 if let Some(clip) = clip {
                     if clip.is_empty() {
@@ -82,7 +87,24 @@ impl CpuRenderer {
                     }));
                 }
                 if let Some(mask) = mask {
-                    return self.render_masked_group(frame, layers, mask, &state, child_state);
+                    return self.render_masked_group(
+                        frame,
+                        layers,
+                        *motion_blur,
+                        mask,
+                        &state,
+                        child_state,
+                    );
+                }
+                if *motion_blur {
+                    return self.render_isolated(
+                        frame,
+                        &state,
+                        child_state,
+                        |renderer, isolated, inner| {
+                            renderer.render_average(isolated, layers, inner)
+                        },
+                    );
                 }
                 if !layer.blend_mode.is_normal() {
                     // The children carry the clip; the layer itself does not.
@@ -297,6 +319,47 @@ impl CpuRenderer {
         Ok(())
     }
 
+    /// Draws each of a motion-blurred group's `samples` onto a transparent
+    /// frame of its own and writes their average, with equal weights, onto
+    /// `frame`, which must be transparent: the mean of the premultiplied
+    /// colors over the mean alpha, as the GPU renderer's canvases average.
+    fn render_average(
+        &mut self,
+        frame: &mut RgbaFrame,
+        samples: &[Layer],
+        inner: ParentState,
+    ) -> Result<(), RenderError> {
+        // Premultiplied red, green, and blue, then alpha, all in 0–255.
+        let mut sums = vec![0.0_f32; frame.pixels.len()];
+        let mut sample = RgbaFrame {
+            width: frame.width,
+            height: frame.height,
+            pixels: vec![0; frame.pixels.len()],
+        };
+        for layer in samples {
+            sample.pixels.fill(0);
+            self.render_layer(&mut sample, layer, inner.clone())?;
+            for (sum, pixel) in sums.chunks_exact_mut(4).zip(sample.pixels.chunks_exact(4)) {
+                let alpha = f32::from(pixel[3]);
+                for channel in 0..3 {
+                    sum[channel] += f32::from(pixel[channel]) * alpha / 255.0;
+                }
+                sum[3] += alpha;
+            }
+        }
+        let count = samples.len() as f32;
+        for (pixel, sum) in frame.pixels.chunks_exact_mut(4).zip(sums.chunks_exact(4)) {
+            if sum[3] == 0.0 {
+                continue;
+            }
+            for channel in 0..3 {
+                pixel[channel] = (sum[channel] * 255.0 / sum[3]).round().clamp(0.0, 255.0) as u8;
+            }
+            pixel[3] = (sum[3] / count).round().clamp(0.0, 255.0) as u8;
+        }
+        Ok(())
+    }
+
     pub(crate) fn render_effect_layer(
         &mut self,
         frame: &mut RgbaFrame,
@@ -379,6 +442,7 @@ impl CpuRenderer {
         &mut self,
         frame: &mut RgbaFrame,
         layers: &[Layer],
+        motion_blur: bool,
         mask: &GroupMask,
         state: &ParentState,
         child_state: ParentState,
@@ -394,8 +458,12 @@ impl CpuRenderer {
             blend_mode: BlendMode::Normal,
             ..child_state
         };
-        for child in layers {
-            self.render_layer(&mut children, child, inner.clone())?;
+        if motion_blur {
+            self.render_average(&mut children, layers, inner)?;
+        } else {
+            for child in layers {
+                self.render_layer(&mut children, child, inner.clone())?;
+            }
         }
         let mut matte = blank();
         let matte_state = ParentState {

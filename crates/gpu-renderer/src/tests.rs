@@ -34,6 +34,7 @@ use celesta_media::{MediaError, VideoFrame, VideoFrameDecoder};
 
 mod color_filter;
 mod instances;
+mod motion_blur;
 mod readback;
 mod shader;
 
@@ -444,6 +445,7 @@ fn blend_group(opacity: f64, blend_mode: BlendMode, layers: Vec<Layer>) -> Layer
             layers,
             clip: None,
             mask: None,
+            motion_blur: false,
         },
     }
 }
@@ -820,6 +822,7 @@ fn shades_sheared_rects_like_the_cpu_rasterizer() {
                 }],
                 clip: None,
                 mask: None,
+                motion_blur: false,
             },
         }];
         let layer = LayerState::default()
@@ -1033,6 +1036,7 @@ fn clipped_group(transform: EvaluatedTransform, clip: Clip, layers: Vec<Layer>) 
             layers,
             clip: Some(clip),
             mask: None,
+            motion_blur: false,
         },
     }
 }
@@ -1083,6 +1087,7 @@ fn blurred_group_with_shadow_and_glow_matches_cpu() {
             layers: vec![corner_rect("child", 20.0, 20.0, 16.0, 12.0, "#ffe080")],
             clip: None,
             mask: None,
+            motion_blur: false,
         },
     }];
     let gpu = renderer.render(&scene).unwrap();
@@ -1130,6 +1135,7 @@ fn effects_on_small_layers_match_cpu() {
             layers,
             clip: None,
             mask: None,
+            motion_blur: false,
         },
     };
     let glow = |color: &str, blur: f64| LayerEffects {
@@ -1210,6 +1216,7 @@ fn large_blurs_match_cpu() {
             layers,
             clip: None,
             mask: None,
+            motion_blur: false,
         },
     };
     let mut scene = empty_scene(160, 112);
@@ -1904,6 +1911,7 @@ fn group(transform: EvaluatedTransform, layers: Vec<Layer>) -> Layer {
             layers,
             clip: None,
             mask: None,
+            motion_blur: false,
         },
     }
 }
@@ -3842,6 +3850,7 @@ fn decodes_and_rotates_a_nested_image_on_the_gpu() {
             }],
             clip: None,
             mask: None,
+            motion_blur: false,
         },
     });
 
@@ -5076,6 +5085,7 @@ fn reduced_resolution_blurs_match_cpu() {
                     layers: vec![corner_rect("content", x, y, width, height, "#ff40a0")],
                     clip: None,
                     mask: None,
+                    motion_blur: false,
                 },
             },
         ];
@@ -5297,6 +5307,7 @@ fn masked_group(transform: EvaluatedTransform, mask: GroupMask, layers: Vec<Laye
             layers,
             clip: None,
             mask: Some(mask),
+            motion_blur: false,
         },
     }
 }

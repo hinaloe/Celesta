@@ -28,6 +28,7 @@ fn a_group_without_a_clip_or_mask_serializes_and_parses_as_before() {
         layers: Vec::new(),
         clip: None,
         mask: None,
+        motion_blur: false,
     };
     let json = serde_json::to_value(&content).unwrap();
     assert_eq!(json, serde_json::json!({ "type": "group", "layers": [] }));
@@ -63,6 +64,7 @@ fn a_groups_mask_round_trips_and_omits_its_defaults() {
             mode: MaskMode::Luminance,
             invert: true,
         }),
+        motion_blur: false,
     };
     let json = serde_json::to_value(&luminance).unwrap();
     assert_eq!(
@@ -99,6 +101,7 @@ fn a_groups_clip_round_trips_and_defaults_its_corner_radius() {
         layers: Vec::new(),
         clip: Some(rounded),
         mask: None,
+        motion_blur: false,
     })
     .unwrap();
     assert_eq!(
@@ -106,6 +109,27 @@ fn a_groups_clip_round_trips_and_defaults_its_corner_radius() {
         serde_json::json!({
             "x": 10.0, "y": 20.0, "width": 300.0, "height": 40.0, "cornerRadius": 8.0,
         })
+    );
+}
+
+#[test]
+fn a_motion_blurred_group_round_trips_and_is_omitted_when_off() {
+    let json = serde_json::json!({ "type": "group", "layers": [], "motionBlur": true });
+    let content = serde_json::from_value::<LayerContent>(json.clone()).unwrap();
+    assert!(matches!(
+        content,
+        LayerContent::Group {
+            motion_blur: true,
+            ..
+        }
+    ));
+    assert_eq!(serde_json::to_value(&content).unwrap(), json);
+
+    let off = serde_json::json!({ "type": "group", "layers": [], "motionBlur": false });
+    let content = serde_json::from_value::<LayerContent>(off).unwrap();
+    assert_eq!(
+        serde_json::to_value(&content).unwrap(),
+        serde_json::json!({ "type": "group", "layers": [] })
     );
 }
 
@@ -419,6 +443,7 @@ fn every_tagged_variant_round_trips() {
                         layers: Vec::new(),
                         clip: None,
                         mask: None,
+                        motion_blur: false,
                     },
                 }],
                 clip: set.then_some(Clip {
@@ -433,6 +458,7 @@ fn every_tagged_variant_round_trips() {
                     mode: MaskMode::Luminance,
                     invert: true,
                 }),
+                motion_blur: set,
             },
             LayerContent::StaticRef { key: 7 },
             LayerContent::Rect {

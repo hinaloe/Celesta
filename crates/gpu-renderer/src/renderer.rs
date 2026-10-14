@@ -1,3 +1,4 @@
+use crate::average::AveragePipeline;
 use crate::compositor::BackdropTexture;
 use crate::draw::{LAYER_INSTANCE_SIZE, clip_bind_group, clip_buffer, instance_buffer};
 use crate::effect::EffectProcessor;
@@ -66,6 +67,8 @@ pub struct GpuRenderer {
     pub(crate) shaders: ShaderProcessor,
     /// Shows masked groups' children through their masks.
     pub(crate) masks: MaskPipelines,
+    /// Averages motion-blurred groups' samples.
+    pub(crate) averages: AveragePipeline,
     /// Every layer's `LayerInstance` for the frame being prepared, reused
     /// (and grown when a frame needs more) across frames.
     pub(crate) instances: wgpu::Buffer,
@@ -283,6 +286,7 @@ impl GpuRenderer {
         let effects = EffectProcessor::new(&device, &texture_bind_group_layout, canvas_format);
         let shaders = ShaderProcessor::new(&device, &texture_bind_group_layout, canvas_format);
         let masks = MaskPipelines::new(&device, &texture_bind_group_layout, canvas_format);
+        let averages = AveragePipeline::new(&device, &texture_bind_group_layout, canvas_format);
         let quantizer = Quantizer::new(&device, &texture_bind_group_layout);
         let pipeline = create_pipeline(
             &device,
@@ -330,6 +334,7 @@ impl GpuRenderer {
             effects,
             shaders,
             masks,
+            averages,
             instances,
             clip_bind_group_layout,
             clips,

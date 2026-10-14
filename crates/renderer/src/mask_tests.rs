@@ -64,6 +64,7 @@ fn masked(transform: EvaluatedTransform, mask: GroupMask, layers: Vec<Layer>) ->
             layers,
             clip: None,
             mask: Some(mask),
+            motion_blur: false,
         },
     }
 }

@@ -992,6 +992,7 @@ mod statics {
                 layers,
                 clip: None,
                 mask,
+                motion_blur: false,
             },
         )
     }

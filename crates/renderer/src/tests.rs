@@ -252,6 +252,7 @@ fn clipped_group(transform: EvaluatedTransform, clip: Clip, children: Vec<Layer>
             layers: children,
             clip: Some(clip),
             mask: None,
+            motion_blur: false,
         },
     }
 }
@@ -1406,6 +1407,7 @@ fn blends_a_layer_with_everything_beneath_it() {
                     )],
                     clip: None,
                     mask: None,
+                    motion_blur: false,
                 },
             },
         ],
@@ -1443,6 +1445,7 @@ fn blends_an_isolated_group_as_one_layer() {
             ],
             clip: None,
             mask: None,
+            motion_blur: false,
         },
     };
     let render = |opacity: f64| {
@@ -2575,6 +2578,7 @@ fn blended_instances_match_a_blended_group() {
                 layers: three_rects(|width: f64, height| width.min(height) / 2.0),
                 clip: None,
                 mask: None,
+                motion_blur: false,
             },
         )
     };

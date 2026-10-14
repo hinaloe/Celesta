@@ -88,8 +88,9 @@ impl GpuRenderer {
             items.retain(|item| !matches!(item, PreparedItem::PendingPath));
         }
 
-        // A frame with an isolated group, an effect, a mask or a layer that
-        // blends anything but source-over composites through canvases, so
+        // A frame with an isolated group, an effect, a mask, a motion blur,
+        // or a layer that blends anything but source-over composites through
+        // canvases, so
         // its layers need one more instance: the one that copies the
         // finished root canvas onto the target.
         let composited = items.iter().any(|item| match item {
@@ -101,7 +102,11 @@ impl GpuRenderer {
         let instance_count = items
             .iter()
             .map(|item| match item {
-                PreparedItem::BeginGroup | PreparedItem::BeginMask | PreparedItem::MaskContent => 0,
+                PreparedItem::BeginGroup
+                | PreparedItem::BeginMask
+                | PreparedItem::MaskContent
+                | PreparedItem::BeginAverage
+                | PreparedItem::NextSample => 0,
                 PreparedItem::EndEffect(..) => 2,
                 PreparedItem::Instances(instances) => instances.count() as usize,
                 _ => 1,
@@ -182,6 +187,34 @@ impl GpuRenderer {
                 // The children draw onto a canvas covering the mask's region.
                 PreparedItem::MaskContent => {
                     steps.push(GpuStep::MaskContent);
+                    continue;
+                }
+                PreparedItem::BeginAverage => {
+                    let group = groups.next().expect("plan_groups plans every average");
+                    steps.push(GpuStep::BeginAverage {
+                        canvas: group.canvas,
+                    });
+                    open.push(group);
+                    continue;
+                }
+                // Each sample draws onto a canvas covering the group's region.
+                PreparedItem::NextSample => {
+                    steps.push(GpuStep::NextSample);
+                    continue;
+                }
+                PreparedItem::EndAverage(layer) => {
+                    let group = open.pop().expect("every average was begun");
+                    let target = open.last().expect("the root canvas is always open").canvas;
+                    layer.write_instance(target, group.canvas, &mut instances);
+                    steps.push(GpuStep::EndAverage {
+                        instance: index,
+                        blend_mode: layer.blend_mode,
+                        area: group
+                            .drawn
+                            .then(|| target.local_area(group.canvas.bounds()))
+                            .flatten(),
+                    });
+                    index += 1;
                     continue;
                 }
                 PreparedItem::EndMask(layer, mask) => {
@@ -445,7 +478,12 @@ impl GpuRenderer {
             return Ok(());
         }
         match &layer.content {
-            LayerContent::Group { layers, clip, mask } => {
+            LayerContent::Group {
+                layers,
+                clip,
+                mask,
+                motion_blur,
+            } => {
                 let mut child_state = state;
                 if let Some(clip) = clip {
                     if clip.is_empty() {
@@ -475,8 +513,23 @@ impl GpuRenderer {
                         opacity: 1.0,
                         ..child_state
                     };
-                    for child in layers {
-                        self.prepare_layer(child, inner, output)?;
+                    if *motion_blur {
+                        // Averaged onto a canvas of their own, which then
+                        // draws onto the children's.
+                        self.prepare_average(layers, inner, output)?;
+                        output.push(PreparedItem::EndAverage(PreparedLayer::canvas(
+                            LayerState {
+                                transform: Affine::IDENTITY,
+                                opacity: 1.0,
+                                clip: None,
+                            },
+                            BlendMode::Normal,
+                            true,
+                        )));
+                    } else {
+                        for child in layers {
+                            self.prepare_layer(child, inner, output)?;
+                        }
                     }
                     output.push(PreparedItem::EndMask(
                         PreparedLayer::canvas(
@@ -490,6 +543,29 @@ impl GpuRenderer {
                         ),
                         Box::new(MaskSpec::new(mask)),
                     ));
+                    return Ok(());
+                }
+                if *motion_blur {
+                    // Always isolated: the samples' average draws onto the
+                    // parent as one layer, as an isolated group's children
+                    // do. The samples carry the clip.
+                    self.prepare_average(
+                        layers,
+                        LayerState {
+                            opacity: 1.0,
+                            ..child_state
+                        },
+                        output,
+                    )?;
+                    output.push(PreparedItem::EndAverage(PreparedLayer::canvas(
+                        LayerState {
+                            transform: Affine::IDENTITY,
+                            opacity: state.opacity,
+                            clip: None,
+                        },
+                        blend_mode,
+                        true,
+                    )));
                     return Ok(());
                 }
                 if blend_mode.is_normal() {
@@ -871,6 +947,25 @@ impl GpuRenderer {
                 layer_id: layer.id.clone(),
                 clip: state.clip,
             });
+        }
+        Ok(())
+    }
+
+    /// Begins a motion-blurred group's canvas and prepares its `samples`,
+    /// each drawn through `inner`, with a `NextSample` between them. The
+    /// caller ends the canvas with an `EndAverage`.
+    fn prepare_average(
+        &mut self,
+        samples: &[Layer],
+        inner: LayerState,
+        output: &mut Vec<PreparedItem>,
+    ) -> Result<(), GpuRenderError> {
+        output.push(PreparedItem::BeginAverage);
+        for (index, sample) in samples.iter().enumerate() {
+            if index > 0 {
+                output.push(PreparedItem::NextSample);
+            }
+            self.prepare_layer(sample, inner, output)?;
         }
         Ok(())
     }

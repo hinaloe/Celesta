@@ -331,8 +331,14 @@ mod tests {
         // ones that special-case those endpoints, like elastic/expo, to
         // avoid landing exactly on an asymptote).
         for easing in ALL_EASINGS {
-            assert!((apply_easing(0.0, easing) - 0.0).abs() < 1e-9, "{easing:?} at t=0");
-            assert!((apply_easing(1.0, easing) - 1.0).abs() < 1e-9, "{easing:?} at t=1");
+            assert!(
+                (apply_easing(0.0, easing) - 0.0).abs() < 1e-9,
+                "{easing:?} at t=0"
+            );
+            assert!(
+                (apply_easing(1.0, easing) - 1.0).abs() < 1e-9,
+                "{easing:?} at t=1"
+            );
         }
     }
 
@@ -362,7 +368,12 @@ mod tests {
         // The numeric fallback (used for everything but the four original
         // curves) should agree with the hand-derived closed form for those
         // four, cross-checking `integrate_numerically` itself.
-        for easing in [Easing::Linear, Easing::EaseIn, Easing::EaseOut, Easing::EaseInOut] {
+        for easing in [
+            Easing::Linear,
+            Easing::EaseIn,
+            Easing::EaseOut,
+            Easing::EaseInOut,
+        ] {
             let closed_form = easing_integral(0.7, easing);
             let numeric = integrate_numerically(0.7, |p| apply_easing(p, easing));
             assert!(
