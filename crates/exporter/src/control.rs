@@ -9,6 +9,11 @@ pub enum ExportProgress {
     /// The composition being exported, reported once as soon as it is known
     /// (before the export range or frame selection is checked against it).
     Composition(CompositionInfo),
+    /// All roots and the selected ID of a React entry.
+    ReactCompositions {
+        selected: String,
+        compositions: Vec<celesta_react_bridge::ReactCompositionInfo>,
+    },
     Rendering {
         frame: u64,
         total: u64,

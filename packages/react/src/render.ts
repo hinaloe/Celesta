@@ -9,7 +9,7 @@
 import * as React from 'react';
 
 import { isRemoteUrl } from './entry-dir';
-import { CompositionRuntimeContext, RerenderRequestContext, RootRuntimeContext, resolveTextLanguage } from './hooks';
+import { CompositionRuntimeContext, CompositionSelectionContext, RerenderRequestContext, RootRuntimeContext, resolveTextLanguage } from './hooks';
 import { TextMetricsFontsContext, withTextLanguage } from './text-measure';
 import { flattenTextContent, withTextRuns } from './rich-text';
 import { ProjectLayersContext, ProjectTrackLayersContext } from './hooks';
@@ -23,6 +23,7 @@ import type {
   BlendMode,
   Clip,
   CompositionConfig,
+  CompositionInfo,
   EvaluatedTransform,
   KeyframeAnimation,
   Layer,
@@ -166,6 +167,8 @@ export interface MountedComposition {
   /** Unmounts the persistent React root and runs effect cleanup. */
   dispose(): void;
   readonly config: CompositionConfig;
+  readonly compositionId: string;
+  readonly compositions: readonly CompositionInfo[];
   readonly fonts: readonly ResolvedAsset[];
   /**
    * Renders one exact frame against the persistent root. Audio declarations
@@ -1087,7 +1090,8 @@ function inheritTextLanguage(layers: Layer[], lang?: string): Layer[] {
   });
 }
 
-export function mount(defaultExport: EntryComponent): MountedComposition {
+export function mount(defaultExport: EntryComponent, compositionId?: string): MountedComposition {
+  let selection: string | null = null;
   const { container, root } = createRoot();
   let fonts: ResolvedAsset[] = [];
   let rerenderRequested = false;
@@ -1132,7 +1136,8 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
               React.createElement(
                 RerenderRequestContext.Provider,
                 { value: requestRerender },
-                React.createElement(defaultExport, {}),
+                React.createElement(CompositionSelectionContext.Provider, { value: selection },
+                  React.createElement(defaultExport, {})),
               ),
             ),
           ),
@@ -1144,16 +1149,31 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
     });
   };
 
-  // The first pass reads <Composition>'s size and clock props, which must
-  // be static (not derived from useVideoConfig()/useCurrentFrame()/
-  // <ProjectTimeline />/<ProjectTrack />). lang may vary by frame. Children still render
-  // and may use those, so a placeholder context is provided rather than
-  // leaving it unset, which would throw. Empty layers/tracks (rather than
-  // null, which would still throw) are enough since this pass's own output
-  // layers are discarded.
+  // IDs and size/clock props must be static, independent of the placeholder
+  // runtime or project layers. Discover roots without mounting their children.
   renderTree(ZERO_TIME, { layers: [], tracks: {} }, PLACEHOLDER_CONFIG);
+  const roots = container.children;
+  if (roots.length === 0 || roots.some((node) => node.type !== 'composition')) {
+    throw new Error("the entry module's default export must render root <Composition> elements");
+  }
+  const ids = new Set<string>();
+  const compositions = roots.map((node): CompositionInfo => {
+    const id = node.props.id;
+    if ((id !== undefined && (typeof id !== 'string' || id.trim().length === 0)) ||
+        (roots.length > 1 && id === undefined)) {
+      throw new Error('each <Composition> requires a non-empty string `id` when registering multiple compositions');
+    }
+    const resolvedId = (id as string | undefined) ?? 'default';
+    if (ids.has(resolvedId)) throw new Error(`duplicate <Composition> id: ${resolvedId}`);
+    ids.add(resolvedId);
+    return { id: resolvedId, ...readCompositionConfig(node) };
+  });
+  const selected = compositionId === undefined ? compositions[0] : compositions.find((item) => item.id === compositionId);
+  if (!selected) throw new Error(`unknown composition id: ${compositionId}; available: ${[...ids].join(', ')}`);
+  selection = selected.id;
+  const { id: _id, ...config } = selected;
+  renderTree(ZERO_TIME, { layers: [], tracks: {} }, config);
   const compositionInstance = findCompositionInstance(container);
-  const config = readCompositionConfig(compositionInstance);
   const initialFonts: ResolvedAsset[] = [];
   collectFonts(compositionInstance, initialFonts);
   fonts = initialFonts;
@@ -1242,6 +1262,8 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
   return {
     dispose() { HostReconciler.flushSync(() => { HostReconciler.updateContainer(null, root, null, null); }); },
     config,
+    compositionId: selected.id,
+    compositions,
     get fonts() { return fonts; },
     renderAt: (time, project, options) =>
       renderFrame(

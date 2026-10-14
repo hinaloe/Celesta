@@ -1,7 +1,7 @@
 use crate::error::ExportError;
 use celesta_project::Project;
 use celesta_react_bridge::{
-    PropertyInputs, ReactAudioClipDescriptor, ReactBridge, ReactCompositionMetadata,
+    PropertyInputs, ReactAudioClipDescriptor, ReactBridge, ReactCompositionMetadata, SpawnOptions,
 };
 use std::path::{Path, PathBuf};
 
@@ -14,6 +14,8 @@ pub struct ReactRuntimeOptions {
     /// `--props`/`--props-file` values. A companion project's `properties`
     /// are added below them when one is exported alongside.
     pub properties: PropertyInputs,
+    /// Root composition ID; absent selects the first root.
+    pub composition_id: Option<String>,
 }
 
 impl ReactRuntimeOptions {
@@ -22,6 +24,7 @@ impl ReactRuntimeOptions {
             node: node.into(),
             cli_script: cli_script.into(),
             properties: PropertyInputs::default(),
+            composition_id: None,
         }
     }
 
@@ -45,6 +48,12 @@ impl ReactRuntimeOptions {
         self
     }
 
+    #[must_use]
+    pub fn with_composition(mut self, id: Option<String>) -> Self {
+        self.composition_id = id;
+        self
+    }
+
     /// Starts the entry with these properties over the companion project's.
     pub(crate) fn spawn(
         &self,
@@ -59,8 +68,17 @@ impl ReactRuntimeOptions {
             }
             None => self.properties.clone(),
         };
-        ReactBridge::spawn_with_properties(&self.node, &self.cli_script, entry, &properties)
-            .map_err(ExportError::React)
+        ReactBridge::spawn_with_options(
+            &self.node,
+            &self.cli_script,
+            entry,
+            &properties,
+            SpawnOptions {
+                composition_id: self.composition_id.clone(),
+                ..SpawnOptions::default()
+            },
+        )
+        .map_err(ExportError::React)
     }
 }
 

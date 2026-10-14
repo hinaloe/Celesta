@@ -3,7 +3,7 @@ use crate::preview::{KeptSchema, ReactPreview};
 use crate::problems::error_chain;
 use celesta_editor_core::EditorDocument;
 use celesta_react_bridge::{
-    PropertyInputs, ReactBridge, project_types_template, refresh_project_types,
+    PropertyInputs, ReactBridge, SpawnOptions, project_types_template, refresh_project_types,
     runtime_paths as react_runtime_paths,
 };
 use std::ffi::OsStr;
@@ -27,13 +27,14 @@ pub(crate) fn is_react_entry(path: &Path) -> bool {
     )
 }
 
-/// `--props`/`--props-file` from the command line, kept with the opened entry
+/// `--props`/`--props-file` and the initial `--composition` selection, kept with the opened entry
 /// so every reload re-reads the file and passes the same values to preview,
 /// audio, and export as `celesta-exporter` would.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct PropertyArgs {
     pub(crate) props_file: Option<PathBuf>,
     pub(crate) props: Option<String>,
+    pub(crate) composition: Option<String>,
 }
 
 impl PropertyArgs {
@@ -42,11 +43,12 @@ impl PropertyArgs {
             // Absolute, so a reload reads the same file whatever the current directory.
             props_file: props_file.map(|file| std::path::absolute(&file).unwrap_or(file)),
             props,
+            composition: None,
         }
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.props_file.is_none() && self.props.is_none()
+        self.props_file.is_none() && self.props.is_none() && self.composition.is_none()
     }
 
     pub(crate) fn load(&self, entry: &Path) -> Result<PropertyInputs, String> {
@@ -64,7 +66,9 @@ pub(crate) fn load_source(
     property_args: PropertyArgs,
 ) -> Result<(EditorDocument, Option<ReactPreview>), String> {
     if !property_args.is_empty() && !path.is_some_and(is_react_entry) {
-        return Err("--props and --props-file need a React entry to open".to_owned());
+        return Err(
+            "--props, --props-file and --composition need a React entry to open".to_owned(),
+        );
     }
     let loaded = match path {
         Some(path) if is_react_entry(path) => {
@@ -72,11 +76,19 @@ pub(crate) fn load_source(
             // Sampled before reading, so an edit made while Node starts is noticed.
             let watched_mtime = watched_mtime(path, &property_args);
             let properties = property_args.load(path)?;
-            let metadata =
-                ReactBridge::spawn_with_properties(&node, &cli_script, path, &properties)
-                    .map_err(|error| error_chain(&error))?
-                    .metadata()
-                    .clone();
+            let metadata = ReactBridge::spawn_with_options(
+                &node,
+                &cli_script,
+                path,
+                &properties,
+                SpawnOptions {
+                    composition_id: property_args.composition.clone(),
+                    ..SpawnOptions::default()
+                },
+            )
+            .map_err(|error| error_chain(&error))?
+            .metadata()
+            .clone();
             // A failed first load never opens, so there is no schema to keep.
             let property_schema = KeptSchema::from_metadata(&metadata);
             let document = EditorDocument::react_preview(
@@ -94,6 +106,8 @@ pub(crate) fn load_source(
             Ok((
                 document,
                 Some(ReactPreview {
+                    composition_id: metadata.composition_id,
+                    compositions: metadata.compositions,
                     entry,
                     watched_mtime,
                     property_args,

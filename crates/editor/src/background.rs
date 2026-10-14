@@ -213,6 +213,7 @@ impl EditorView {
                 Ok(ExportEvent::Progress(
                     ExportProgress::Warning(_)
                     | ExportProgress::Composition(_)
+                    | ExportProgress::ReactCompositions { .. }
                     | ExportProgress::Wrote(_),
                 )) => {}
                 Ok(ExportEvent::Progress(progress)) => {

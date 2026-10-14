@@ -8,6 +8,7 @@ import { listProjectProperties } from '@celesta/react';
 import type {
   ComponentPropertySchema,
   CompositionConfig,
+  CompositionInfo,
   Layer,
   ProjectPropertyField,
   Scene,
@@ -105,14 +106,16 @@ function isResolveRequest(request: Request): request is ResolveRequest {
 }
 
 async function main(): Promise<void> {
-  const [entry, ...options] = process.argv.slice(2);
-  if (
-    !entry ||
-    options.some((option) => option !== PROPERTIES_STDIN && option !== LENGTH_PREFIXED && option !== SOURCE_LOCATIONS)
-  ) {
-    process.stderr.write(
-      `usage: celesta-react-render <entry-file> [${PROPERTIES_STDIN}] [${LENGTH_PREFIXED}] [${SOURCE_LOCATIONS}]\n`,
-    );
+  const [entry, ...args] = process.argv.slice(2);
+  const options: string[] = [];
+  let compositionId: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--composition' && args[i + 1] !== undefined) {
+      compositionId = args[++i];
+    } else options.push(args[i]);
+  }
+  if (!entry || options.some((option) => ![PROPERTIES_STDIN, LENGTH_PREFIXED, SOURCE_LOCATIONS].includes(option))) {
+    process.stderr.write(`usage: celesta-react-render <entry-file> [--composition ID] [${PROPERTIES_STDIN}] [${LENGTH_PREFIXED}] [${SOURCE_LOCATIONS}]\n`);
     process.exitCode = 1;
     return;
   }
@@ -207,7 +210,7 @@ async function main(): Promise<void> {
 
   let mounted: MountedComposition;
   try {
-    mounted = mount(defaultExport);
+    mounted = mount(defaultExport, compositionId);
   } catch (error) {
     writeLine({ error: describeError(error) });
     process.exitCode = 1;
@@ -216,6 +219,8 @@ async function main(): Promise<void> {
 
   writeLine({
     config: mounted.config,
+    compositionId: mounted.compositionId,
+    compositions: mounted.compositions,
     componentSchemas: listComponentSchemas(),
     propertySchema: listProjectProperties() ?? null,
   });
@@ -386,6 +391,8 @@ function writeLine(
   value:
     | {
         config: CompositionConfig;
+        compositionId: string;
+        compositions: readonly CompositionInfo[];
         componentSchemas: Record<string, ComponentPropertySchema>;
         propertySchema: Record<string, ProjectPropertyField> | null;
       }

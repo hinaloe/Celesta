@@ -15,6 +15,7 @@ use celesta_editor_theme as theme;
 use celesta_project::AssetKind;
 use celesta_react_bridge::{ENTRY_PROPS_FILE, resolve_props_file};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::{ActiveTheme as _, Disableable as _, IconName, Sizable as _, TitleBar};
 use gpui_kit::prelude::*;
 use gpui_kit::{ClickEvent, Context, ObjectFit, SharedString, Window, div, img, px};
@@ -53,6 +54,43 @@ impl EditorView {
                         .child("React composition"),
                 )
             });
+        let leading = leading.when_some(
+            self.react_preview
+                .as_ref()
+                .filter(|react| react.compositions.len() > 1),
+            |leading, react| {
+                let compositions = react.compositions.clone();
+                let selected = react.composition_id.clone();
+                let view = cx.entity().downgrade();
+                leading.child(
+                    div().occlude().child(
+                        Button::new("select-composition")
+                            .small()
+                            .outline()
+                            .label(format!("Composition: {}", selected))
+                            .loading(self.react_reloads.is_running())
+                            .icon(IconName::ChevronDown)
+                            .disabled(self.opening || exporting || self.react_reloads.is_running())
+                            .dropdown_menu(move |mut menu, _, _| {
+                                for composition in &compositions {
+                                    let id = composition.id.clone();
+                                    let view = view.clone();
+                                    menu = menu.item(
+                                        PopupMenuItem::new(id.clone())
+                                            .checked(id == selected)
+                                            .on_click(move |_, _, cx| {
+                                                let _ = view.update(cx, |this, cx| {
+                                                    this.select_composition(id.clone(), cx)
+                                                });
+                                            }),
+                                    );
+                                }
+                                menu
+                            }),
+                    ),
+                )
+            },
+        );
         TitleBar::new().child(leading).child(
             div()
                 .id("title-bar-actions")
@@ -102,7 +140,11 @@ impl EditorView {
                         .small()
                         .outline()
                         .label("Export…")
-                        .disabled(self.choosing_export_path || self.opening)
+                        .disabled(
+                            self.choosing_export_path
+                                || self.opening
+                                || self.react_reloads.is_running(),
+                        )
                         .on_click(cx.listener(Self::export_project_click))
                 }),
         )

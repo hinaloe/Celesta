@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 use celesta_composition::{Rational, Time};
 use celesta_exporter::report::{self, HintStyle};
 use celesta_exporter::{ExportError, ReactRuntimeOptions};
-use celesta_react_bridge::{FrameEvaluation, ReactBridge, ReactBridgeError, resolve_props_file};
+use celesta_react_bridge::{
+    FrameEvaluation, ReactBridge, ReactBridgeError, SpawnOptions, resolve_props_file,
+};
 use rmcp::model::{CallToolResult, ContentBlock};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -26,6 +28,8 @@ const LOOP_DIFFERENCE_LIMIT: usize = 20;
 pub struct InspectArgs {
     /// The React entry (`.tsx`) to inspect.
     entry: PathBuf,
+    /// Root composition ID; defaults to the first declared root.
+    composition: Option<String>,
     /// Zero-based frames to evaluate; negative numbers count from the end
     /// (`-1` is the last frame). Default: the first, middle, and last frames.
     frames: Option<Vec<i64>>,
@@ -70,11 +74,15 @@ pub fn inspect(args: InspectArgs) -> CallToolResult {
         Ok(runtime) => runtime,
         Err(error) => return failed(error),
     };
-    let bridge = ReactBridge::spawn_with_properties(
+    let bridge = ReactBridge::spawn_with_options(
         &runtime.node,
         &runtime.cli_script,
         &entry,
         &runtime.properties,
+        SpawnOptions {
+            composition_id: args.composition,
+            ..SpawnOptions::default()
+        },
     );
     let mut bridge = match bridge {
         Ok(bridge) => bridge,
@@ -97,6 +105,8 @@ struct Inspection {
     entry_dir: PathBuf,
     text: String,
     composition: Value,
+    composition_id: String,
+    compositions: Vec<celesta_react_bridge::ReactCompositionInfo>,
     frames: Vec<Value>,
     loop_check: Option<Value>,
     warnings: Vec<String>,
@@ -148,6 +158,8 @@ impl Inspection {
             total,
             entry_dir,
             text,
+            composition_id: metadata.composition_id.clone(),
+            compositions: metadata.compositions.clone(),
             composition: json!({
                 "width": metadata.width,
                 "height": metadata.height,
@@ -367,6 +379,8 @@ impl Inspection {
         self.text.push_str(&summary);
         let mut value = json!({
             "composition": self.composition,
+            "compositionId": self.composition_id,
+            "compositions": self.compositions,
             "warnings": warnings,
             "missingFiles": self.missing,
         });

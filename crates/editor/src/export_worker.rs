@@ -31,6 +31,7 @@ pub(crate) enum ExportSource {
         cli_script: PathBuf,
         /// The `--props`/`--props-file` values the preview uses.
         properties: PropertyInputs,
+        composition_id: String,
     },
 }
 
@@ -79,10 +80,12 @@ impl ExportWorker {
                             node,
                             cli_script,
                             properties,
+                            composition_id,
                         } => exporter.export_react_entry_cancellable(
                             entry,
                             &ReactRuntimeOptions::new(node.clone(), cli_script.clone())
-                                .with_properties(properties.clone()),
+                                .with_properties(properties.clone())
+                                .with_composition(Some(composition_id.clone())),
                             &request.output,
                             &request.cancellation,
                             progress,

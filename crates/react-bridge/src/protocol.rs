@@ -5,7 +5,7 @@ use crate::props_edit::OrderedObject;
 use crate::statics::StaticDefinition;
 use crate::types::{
     ComponentPropertyField, ComponentPropertySchema, LayerSource, ReactAudioClipDescriptor,
-    ReactCompositionConfig,
+    ReactCompositionConfig, ReactCompositionInfo,
 };
 use celesta_composition::{Layer, Scene, ShaderSource, Time};
 use serde::{Deserialize, Serialize};
@@ -220,6 +220,10 @@ pub(crate) fn ready_property_order(message: &[u8]) -> Vec<String> {
 pub(crate) enum ReadyMessage {
     Ready {
         config: ReactCompositionConfig,
+        #[serde(default, rename = "compositionId")]
+        composition_id: Option<String>,
+        #[serde(default)]
+        compositions: Vec<ReactCompositionInfo>,
         #[serde(default, rename = "componentSchemas")]
         component_schemas: BTreeMap<String, ComponentPropertySchema>,
         /// `null` (or absent) when the entry never called

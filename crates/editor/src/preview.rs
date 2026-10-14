@@ -83,6 +83,7 @@ pub(crate) struct ReactPreviewContext {
     /// interactive mode). Switching respawns the bridge: the plain preview
     /// pays nothing for it.
     pub(crate) source_locations: bool,
+    pub(crate) composition_id: Option<String>,
 }
 
 /// Whether the renderer records where each leaf layer was drawn for this
@@ -110,6 +111,8 @@ pub(crate) enum ReactPreviewMode {
 /// composition's dimensions/frame rate/duration; every previewed frame and the
 /// audio graph come from the React bridge instead of evaluating tracks.
 pub(crate) struct ReactPreview {
+    pub(crate) composition_id: String,
+    pub(crate) compositions: Vec<celesta_react_bridge::ReactCompositionInfo>,
     pub(crate) entry: PathBuf,
     /// Newest source-file modification time seen under the entry's directory
     /// (or of the `--props-file`). The reload watcher compares against this
@@ -309,6 +312,7 @@ pub(crate) fn ensure_react_bridge<'a>(
                 // where each JSX element was written.
                 SpawnOptions {
                     source_locations: react.source_locations,
+                    composition_id: react.composition_id.clone(),
                 },
             ) {
                 Ok(mut bridge) => {

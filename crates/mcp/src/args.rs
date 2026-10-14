@@ -19,6 +19,8 @@ pub struct SourceArgs {
     /// A JSON project (`.json`, such as `project.celesta.json`) or a React
     /// entry (any other extension, normally `.tsx`).
     source: PathBuf,
+    /// React only: root composition ID; defaults to the first root.
+    composition: Option<String>,
     /// React only: a `.celesta.json` exported alongside the entry.
     project: Option<PathBuf>,
     /// React only: project property values, over the props file's.
@@ -109,6 +111,7 @@ pub struct ExportVideoArgs {
 struct Source {
     path: PathBuf,
     react: bool,
+    composition: Option<String>,
     companion: Option<PathBuf>,
     props_file: Option<PathBuf>,
     props: Option<String>,
@@ -127,12 +130,13 @@ impl SourceArgs {
             .is_some_and(|extension| extension.eq_ignore_ascii_case("json"));
         if !react
             && (self.project.is_some()
+                || self.composition.is_some()
                 || self.props.is_some()
                 || self.props_file.is_some()
                 || debug_guides)
         {
             return Err(format!(
-                "project, props, propsFile, and debugGuides apply to React entries; {} is a JSON project",
+                "project, composition, props, propsFile, and debugGuides apply to React entries; {} is a JSON project",
                 self.source.display()
             ));
         }
@@ -158,6 +162,7 @@ impl SourceArgs {
         });
         Ok(Source {
             path: absolute(&self.source),
+            composition: self.composition.clone(),
             react,
             companion: self.project.as_deref().map(absolute),
             props_file: self.props_file.as_deref().map(absolute),
@@ -225,6 +230,7 @@ fn job(
     ExportJob {
         source: source.path,
         react: source.react,
+        composition_id: source.composition,
         companion: source.companion,
         props_file: source.props_file,
         props: source.props,

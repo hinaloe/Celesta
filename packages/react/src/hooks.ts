@@ -2,6 +2,9 @@ import * as React from 'react';
 
 import type { Layer, Time } from './scene';
 
+/** @internal undefined outside a mount, null while discovering roots. */
+export const CompositionSelectionContext = React.createContext<string | null | undefined>(undefined);
+
 export interface VideoConfig {
   width: number;
   height: number;

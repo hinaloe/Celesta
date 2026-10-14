@@ -17,7 +17,7 @@ use std::path::Path;
 
 use celesta_composition::Time;
 use celesta_exporter::ReactRuntimeOptions;
-use celesta_react_bridge::{ReactBridge, ReactBridgeError};
+use celesta_react_bridge::{ReactBridge, ReactBridgeError, SpawnOptions};
 use serde_json::{Value, json};
 
 #[derive(serde::Deserialize)]
@@ -29,11 +29,15 @@ struct InspectRequest {
 
 /// Runs the inspection protocol until stdin closes; `false` if anything failed.
 pub fn run(entry: &Path, runtime: &ReactRuntimeOptions) -> Result<bool, io::Error> {
-    let spawned = ReactBridge::spawn_with_properties(
+    let spawned = ReactBridge::spawn_with_options(
         &runtime.node,
         &runtime.cli_script,
         entry,
         &runtime.properties,
+        SpawnOptions {
+            composition_id: runtime.composition_id.clone(),
+            ..SpawnOptions::default()
+        },
     );
     let mut bridge = match spawned {
         Ok(bridge) => bridge,
@@ -55,6 +59,8 @@ pub fn run(entry: &Path, runtime: &ReactRuntimeOptions) -> Result<bool, io::Erro
     write_line(
         &mut output,
         &json!({
+            "compositionId": metadata.composition_id,
+            "compositions": metadata.compositions,
             "config": {
                 "width": metadata.width,
                 "height": metadata.height,

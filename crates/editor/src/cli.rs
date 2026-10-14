@@ -16,6 +16,10 @@ pub struct Args {
     #[arg(long, value_name = "JSON", requires = "path")]
     pub props: Option<String>,
 
+    /// Root composition ID; defaults to the first declared composition.
+    #[arg(long, value_name = "ID", requires = "path")]
+    pub composition: Option<String>,
+
     /// JSON file of project property values for the React entry; relative
     /// paths in it resolve from the file's directory. Re-read on reload.
     #[arg(long, value_name = "FILE", requires = "path")]
@@ -31,7 +35,7 @@ pub struct Args {
     pub template: Option<String>,
 
     /// List the templates --init --template accepts, then exit.
-    #[arg(long, conflicts_with_all = ["path", "init", "props", "props_file"])]
+    #[arg(long, conflicts_with_all = ["path", "init", "props", "props_file", "composition"])]
     pub list_templates: bool,
 
     /// Graphics API to render the preview and exports with; auto takes the

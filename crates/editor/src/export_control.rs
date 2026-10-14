@@ -97,6 +97,7 @@ impl EditorView {
                         node,
                         cli_script,
                         properties: react.properties.clone(),
+                        composition_id: react.composition_id.clone(),
                     },
                     None,
                 )

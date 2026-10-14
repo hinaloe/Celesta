@@ -12,7 +12,7 @@ use crate::statics::StaticCache;
 use crate::stderr::StderrCapture;
 use crate::types::{
     ComponentResolutionRequest, ComponentResolutions, FrameEvaluation, LayerSource, ProjectFrame,
-    ReactCompositionMetadata, SpawnOptions,
+    ReactCompositionInfo, ReactCompositionMetadata, SpawnOptions,
 };
 use celesta_composition::{AudioGraph, Scene, Time};
 use celesta_media::FfmpegBackend;
@@ -115,6 +115,9 @@ impl ReactBridge {
             .map_err(ReactBridgeError::Protocol)?;
             Some(payload)
         };
+        if let Some(id) = &options.composition_id {
+            command.arg("--composition").arg(id);
+        }
         if options.source_locations {
             command.arg("--source-locations");
         }
@@ -161,6 +164,8 @@ impl ReactBridge {
                 match ready {
                     ReadyMessage::Ready {
                         config,
+                        composition_id,
+                        mut compositions,
                         component_schemas,
                         project_property_schema,
                     } => {
@@ -171,7 +176,19 @@ impl ReactBridge {
                         {
                             project_property_order = schema.keys().cloned().collect();
                         }
+                        let composition_id = composition_id.unwrap_or_else(|| "default".to_owned());
+                        if compositions.is_empty() {
+                            compositions.push(ReactCompositionInfo {
+                                id: composition_id.clone(),
+                                width: config.width,
+                                height: config.height,
+                                frame_rate: config.frame_rate,
+                                duration_in_frames: config.duration_in_frames,
+                            });
+                        }
                         return Ok(ReactCompositionMetadata {
+                            composition_id,
+                            compositions,
                             width: config.width,
                             height: config.height,
                             frame_rate: config.frame_rate,
