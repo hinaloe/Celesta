@@ -147,8 +147,9 @@ cargo run -p celesta-editor --release -- examples/reel/film.tsx
    one second, the up and down arrow keys to jump between clip edges, and Home
    and End to go to the start and end. Drag along the timeline ruler, or swipe
    sideways over the tracks, to scrub. Press = and - to zoom the timeline (or
-   pinch over the tracks) and Shift-Z to fit it; scroll sideways over the ruler
-   or drag the bar under the tracks to move along it. Loop playback (Command-/ on
+   pinch over the tracks) and Shift-Z to fit it; scroll sideways over the ruler,
+   scroll over the tracks with Option (Alt) held, or drag the bar under the
+   tracks to move along it. Loop playback (Command-/ on
    macOS, Ctrl-/ elsewhere) repeats the In–Out range when one is marked, and
    ' shows safe areas over the viewer. The Master meter beside the timeline
    shows the preview's audio levels. Select an asset, track, or clip to see its

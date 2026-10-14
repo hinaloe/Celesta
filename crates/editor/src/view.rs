@@ -18,7 +18,7 @@ use celesta_react_bridge::{ComponentPropertyField, ComponentPropertySchema};
 #[cfg(not(target_os = "macos"))]
 use gpui_kit::component::menu::AppMenuBar;
 use gpui_kit::component::resizable::ResizableState;
-use gpui_kit::{Bounds, Entity, FocusHandle, Pixels, SharedString};
+use gpui_kit::{Bounds, Entity, FocusHandle, Pixels, ScrollHandle, SharedString};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
@@ -159,6 +159,8 @@ pub(crate) struct EditorView {
     /// locked to.
     pub(crate) timeline_scrub_remainder: f64,
     pub(crate) timeline_lane_gesture: LaneGesture,
+    /// The tracks' vertical scroll, moved directly by an Option pan.
+    pub(crate) timeline_tracks_scroll: ScrollHandle,
     /// Drag of the overview bar's thumb: `(pointer x at grab, view_start at
     /// grab)`.
     pub(crate) timeline_overview_drag: Option<(f32, f64)>,
@@ -302,6 +304,7 @@ impl EditorView {
             timeline_pan: None,
             timeline_scrub_remainder: 0.0,
             timeline_lane_gesture: LaneGesture::default(),
+            timeline_tracks_scroll: ScrollHandle::new(),
             timeline_overview_drag: None,
             timeline_lane_bounds: Rc::default(),
             timeline_overview_bounds: Rc::default(),
