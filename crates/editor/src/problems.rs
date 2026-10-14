@@ -107,6 +107,8 @@ pub(crate) struct LogEntry {
     pub(crate) severity: Severity,
     pub(crate) source: Source,
     pub(crate) problem: Problem,
+    /// Whether announcing this entry shows a toast.
+    pub(crate) toast: bool,
 }
 
 impl LogEntry {
@@ -153,7 +155,7 @@ impl Problems {
             return;
         }
         let time = Local::now();
-        self.push(time, source.severity(), source, problem.clone());
+        self.push(time, source.severity(), source, problem.clone(), true);
         self.active.insert(source, ActiveProblem { time, problem });
     }
 
@@ -187,6 +189,24 @@ impl Problems {
             Severity::Done,
             source,
             Problem::new(title, detail),
+            true,
+        );
+    }
+
+    /// Logs a finished operation the user already sees ended, such as a
+    /// cancelled export, without a toast.
+    pub(crate) fn info_without_toast(
+        &mut self,
+        source: Source,
+        title: impl Into<String>,
+        detail: impl Into<String>,
+    ) {
+        self.push(
+            Local::now(),
+            Severity::Done,
+            source,
+            Problem::new(title, detail),
+            false,
         );
     }
 
@@ -227,11 +247,16 @@ impl Problems {
         self.unannounced = 0;
     }
 
-    /// The entries logged since the last call, oldest first.
+    /// The entries logged since the last call that get a toast, oldest
+    /// first.
     pub(crate) fn take_unannounced(&mut self) -> Vec<LogEntry> {
         let start = self.history.len() - self.unannounced;
         self.unannounced = 0;
-        self.history.range(start..).cloned().collect()
+        self.history
+            .range(start..)
+            .filter(|entry| entry.toast)
+            .cloned()
+            .collect()
     }
 
     pub(crate) fn error_count(&self) -> usize {
@@ -255,6 +280,7 @@ impl Problems {
         severity: Severity,
         source: Source,
         problem: Problem,
+        toast: bool,
     ) {
         self.history.push_back(LogEntry {
             id: self.next_id,
@@ -262,6 +288,7 @@ impl Problems {
             severity,
             source,
             problem,
+            toast,
         });
         self.next_id += 1;
         self.unannounced += 1;
@@ -442,6 +469,34 @@ mod tests {
     }
 
     #[test]
+    fn info_without_toast_is_logged_but_not_announced() {
+        let mut problems = Problems::default();
+        problems.fail(Source::Export, "disk full");
+        problems.info_without_toast(Source::Export, "Export cancelled", "");
+        problems.info(Source::TypeScript, "TypeScript set up in film", "");
+        let logged: Vec<&str> = problems
+            .history()
+            .map(|entry| entry.problem.title.as_str())
+            .collect();
+        assert_eq!(
+            logged,
+            [
+                "Export failed",
+                "Export cancelled",
+                "TypeScript set up in film"
+            ]
+        );
+        let announced: Vec<String> = problems
+            .take_unannounced()
+            .into_iter()
+            .map(|entry| entry.problem.title)
+            .collect();
+        assert_eq!(announced, ["Export failed", "TypeScript set up in film"]);
+        assert_eq!(problems.history().next().unwrap().severity, Severity::Error);
+        assert_eq!(problems.history().nth(1).unwrap().severity, Severity::Done);
+    }
+
+    #[test]
     fn clear_history_empties_the_log_but_not_active_problems() {
         let mut problems = Problems::default();
         problems.fail(Source::Export, "disk full");
@@ -480,6 +535,7 @@ mod tests {
             severity: Severity::Error,
             source: Source::Export,
             problem: problem("Export failed", "ffmpeg exited\ncaused by: disk full"),
+            toast: true,
         };
         assert_eq!(
             entry.to_text(),

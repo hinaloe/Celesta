@@ -228,7 +228,13 @@ impl EditorView {
                         Err(_) if cancelled => {
                             self.export_path = None;
                             self.problems.clear(Source::Export);
-                            self.problems.info(Source::Export, "Export cancelled", "");
+                            // The progress disappearing shows it ended; a
+                            // toast would only repeat what the user did.
+                            self.problems.info_without_toast(
+                                Source::Export,
+                                "Export cancelled",
+                                "",
+                            );
                         }
                         Err(error) => {
                             self.export_path = None;

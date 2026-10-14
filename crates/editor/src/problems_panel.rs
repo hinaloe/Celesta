@@ -287,31 +287,54 @@ impl EditorView {
     }
 
     /// Toasts for the entries logged since the last render: errors stay
-    /// until closed and link to Problems; finished operations fade out;
-    /// warnings only count in the status bar. `push_notification` needs the
-    /// window, which most code that records a problem does not have, so
-    /// render announces them.
+    /// until closed and link to Problems; warnings and finished operations
+    /// fade out. An error or warning toast closes once its problem clears.
+    /// `push_notification` needs the window, which most code that records a
+    /// problem does not have, so render announces them.
     pub(crate) fn announce_problems(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // First, so a toast pushed below under the same key survives.
+        let problems = &self.problems;
+        self.toasted_sources.retain(|source| {
+            let active = problems.active(*source).is_some();
+            if !active {
+                window.remove_notification1::<ProblemToast>(source.label(), cx);
+            }
+            active
+        });
         let view = cx.entity().downgrade();
         for entry in self.problems.take_unannounced() {
-            let key = entry.source.label();
+            let source = entry.source;
+            let key = source.label();
+            // An error or warning that cleared before this render has
+            // nothing left to point at.
+            if entry.severity != Severity::Done && self.problems.active(source).is_none() {
+                continue;
+            }
+            let with_message = |note: Notification| {
+                let message = first_line(&entry.problem.detail);
+                if message.is_empty() {
+                    note
+                } else {
+                    note.message(message.to_owned())
+                }
+            };
             let note = match entry.severity {
-                Severity::Warning => continue,
+                Severity::Warning => with_message(
+                    Notification::new()
+                        .with_type(NotificationType::Warning)
+                        .title(entry.problem.title.clone()),
+                ),
                 Severity::Done => Notification::new()
                     .with_type(NotificationType::Success)
-                    .title(entry.problem.title),
+                    .title(entry.problem.title.clone()),
                 Severity::Error => {
                     let view = view.clone();
-                    let note = Notification::new()
-                        .with_type(NotificationType::Error)
-                        .title(entry.problem.title.clone());
-                    let message = first_line(&entry.problem.detail);
-                    let note = if message.is_empty() {
-                        note
-                    } else {
-                        note.message(message.to_owned())
-                    };
-                    note.action(move |_, _, _| {
+                    with_message(
+                        Notification::new()
+                            .with_type(NotificationType::Error)
+                            .title(entry.problem.title.clone()),
+                    )
+                    .action(move |_, _, _| {
                         let view = view.clone();
                         Button::new("show-in-problems")
                             .xsmall()
@@ -323,6 +346,12 @@ impl EditorView {
                     })
                 }
             };
+            // A finished operation's toast replaces the source's earlier one.
+            if entry.severity == Severity::Done {
+                self.toasted_sources.remove(&source);
+            } else {
+                self.toasted_sources.insert(source);
+            }
             window.push_notification(note.id1::<ProblemToast>(key), cx);
         }
     }

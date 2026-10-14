@@ -4,7 +4,7 @@ use crate::export_worker::ExportWorker;
 use crate::media_probe::{MediaAssetInfo, MediaProbeWorker};
 use crate::meter::MasterLevels;
 use crate::preview::{AudioPreview, PreviewPresentation, PreviewWorker, ReactPreview};
-use crate::problems::Problems;
+use crate::problems::{Problems, Source};
 use crate::property_panel::PropertyPanelState;
 use crate::react_audio::ReactAudioWorker;
 use crate::refresh::ReloadOrder;
@@ -49,6 +49,9 @@ pub(crate) struct EditorView {
     pub(crate) right_tab: RightTab,
     /// History rows the user expanded, by `LogEntry::id`.
     pub(crate) expanded_log_entries: HashSet<u64>,
+    /// Sources whose error or warning toast this window shows; each closes
+    /// once its source has no active problem.
+    pub(crate) toasted_sources: HashSet<Source>,
     /// The in-window menu bar. macOS shows the same menus natively instead.
     #[cfg(not(target_os = "macos"))]
     pub(crate) app_menu_bar: Option<Entity<AppMenuBar>>,
@@ -228,6 +231,7 @@ impl EditorView {
             problems: Problems::default(),
             right_tab: RightTab::Details,
             expanded_log_entries: HashSet::new(),
+            toasted_sources: HashSet::new(),
             #[cfg(not(target_os = "macos"))]
             app_menu_bar: None,
             document,
