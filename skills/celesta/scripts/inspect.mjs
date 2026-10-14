@@ -30,9 +30,9 @@
 // be measured, which needs the exporter or a PNG export.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
 
@@ -200,6 +200,48 @@ function probeMedia(mediaPath) {
   };
 }
 
+// Holds the decoded file handed to the runtime last, removed when its next
+// message arrives: it has read the file by then, as with Celesta's own answer.
+let decodedAudioDirectory;
+let ffmpegAvailable;
+function decodeAudio(mediaPath) {
+  ffmpegAvailable ??= spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
+  if (!ffmpegAvailable) {
+    return { error: 'inspect.mjs answers loadAudioSpectrum() with ffmpeg, which is not installed; install FFmpeg or use --native' };
+  }
+  const probed = probeMedia(mediaPath);
+  if (probed.error) return probed;
+  const stream = probed.media.audio[0];
+  if (!stream) return { error: `could not decode ${mediaPath}: it has no audio stream` };
+  // Like Celesta: the stream's own rate, mono kept, wider mixed to stereo,
+  // then the channels averaged.
+  const sampleRate = stream.sampleRate || 48000;
+  const channels = stream.channels === 1 ? 1 : 2;
+  const result = spawnSync('ffmpeg', [
+    '-v', 'error', '-i', mediaPath, '-map', '0:a:0', '-ac', String(channels), '-ar', String(sampleRate),
+    '-f', 'f32le', '-acodec', 'pcm_f32le', '-',
+  ], { maxBuffer: 2 ** 31 });
+  if (result.status !== 0) return { error: `could not decode ${mediaPath}: ${result.stderr.toString().trim()}` };
+  const frames = Math.floor(result.stdout.length / 4 / channels);
+  const mono = Buffer.alloc(frames * 4);
+  for (let frame = 0; frame < frames; frame += 1) {
+    let sum = 0;
+    for (let channel = 0; channel < channels; channel += 1) sum += result.stdout.readFloatLE((frame * channels + channel) * 4);
+    mono.writeFloatLE(sum / channels, frame * 4);
+  }
+  // A new private directory, so nothing another user placed in a shared
+  // temporary directory is written through.
+  decodedAudioDirectory = mkdtempSync(path.join(tmpdir(), 'celesta-inspect-'));
+  const file = path.join(decodedAudioDirectory, 'audio.f32le');
+  writeFileSync(file, mono, { flag: 'wx', mode: 0o600 });
+  return { audio: { path: file, sampleRate, frames } };
+}
+
+function removeDecodedAudio() {
+  if (decodedAudioDirectory) rmSync(decodedAudioDirectory, { recursive: true, force: true });
+  decodedAudioDirectory = undefined;
+}
+
 // ------------------------------------------------------------ inspection
 
 /** The same layers Celesta-export sends: --props-file or the entry's props.json, then --props on top. */
@@ -323,8 +365,13 @@ async function inspectEntry(options) {
   const receive = async () => {
     for (;;) {
       const message = await next();
+      removeDecodedAudio();
       if (message.probeMedia) {
         send(probeMedia(message.probeMedia.path));
+        continue;
+      }
+      if (message.decodeAudio) {
+        send(decodeAudio(message.decodeAudio.path));
         continue;
       }
       if (message.measureText) {
@@ -341,6 +388,7 @@ async function inspectEntry(options) {
     // The exporter drops its bridge, ending Node, once stdin closes.
     if (options.native) await exited;
     else child.kill();
+    removeDecodedAudio();
     process.exit(code);
   };
 
