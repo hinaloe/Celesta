@@ -111,13 +111,15 @@ with the `<Static>` cache disabled and a `Map<layerId, HostNode>` that
 The response is
 
 ```json
-{ "layerSource": [ { "name": "Rect", "file": "/abs/Title.tsx", "line": 12, "column": 5 }, ... ] }
+{ "layerSource": { "chain": [ { "name": "Rect", "file": "/abs/Title.tsx", "line": 12, "column": 5 }, ... ] } }
 ```
 
-or `{ "layerSource": null }` when no layer in that frame has the id, and
-`{ "layerSource": [] }` when the layer exists but no element on its chain
-has a position (for example the CLI was started without
-`--source-locations`). The re-walk does not touch the `<Static>` cache or
+with `"chain": null` when no layer in that frame has the id, and
+`"chain": []` when the layer exists but no element on its chain has a
+position (for example the CLI was started without `--source-locations`).
+The chain sits in an object, not directly under `layerSource`, so the
+bridge's single-pass response parser can tell a missing layer from a
+message without the key. The re-walk does not touch the `<Static>` cache or
 the statics sequence numbers, and its scene is discarded.
 
 ## Bridge (Rust)
@@ -128,7 +130,7 @@ the statics sequence numbers, and its scene is discarded.
 - `ReactBridge::layer_source(time, id) -> Result<Option<Vec<LayerSource>>,
   ReactBridgeError>`, with `LayerSource { name, file: PathBuf, line,
   column }`.
-- `Response`/`RawResponse` gain the `layerSource` key.
+- `Response`/`RawResponse` gain the `layerSource` key (`{ chain }`).
 
 ## Hit regions (GPU renderer)
 
