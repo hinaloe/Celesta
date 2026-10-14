@@ -63,6 +63,9 @@ const HOST_TYPES = new Set([
   'audio',
   'sequence',
   'freeze-frame',
+  'motion-blur',
+  'trail',
+  'time-sample',
   'rawLayers',
   'subtitles',
 ]);
@@ -157,6 +160,15 @@ interface WalkContext {
   windowEndSec: number;
   frozen: boolean;
   idPrefix: string;
+  /**
+   * The local time `<Video>`, animated images, and host elements are drawn
+   * at: `time` itself, except inside a `<MotionBlur>` sample or a `<Trail>`
+   * copy, where it is the frame's moment rather than the sample's, so every
+   * sample shows the frame's picture. It goes through `<Sequence>`s exactly
+   * as `time` would without the samples, so it is the very value they would
+   * see.
+   */
+  mediaTime: Time;
   /** Shared by host elements for one frame; see `HostVisit.frameState`. */
   frameState: Map<unknown, unknown>;
   /** Leave out what Rust reads back by default; see `renderAt`'s `compact`. */
@@ -180,7 +192,9 @@ interface StaticWalk {
 }
 
 /** Host types whose layers depend on the time, which `<Static>` cannot hold. */
-const TIME_DEPENDENT_TYPES = new Set(['video', 'audio', 'sequence', 'freeze-frame', 'rawLayers', 'subtitles']);
+const TIME_DEPENDENT_TYPES = new Set([
+  'video', 'audio', 'sequence', 'freeze-frame', 'motion-blur', 'trail', 'time-sample', 'rawLayers', 'subtitles',
+]);
 
 export interface MountedComposition {
   /** Unmounts the persistent React root and runs effect cleanup. */
@@ -294,6 +308,7 @@ function rootWalkContext(
     windowEndSec: endSec,
     frozen: false,
     idPrefix: '',
+    mediaTime: time,
     frameState: new Map(),
     compact,
     statics,
@@ -403,7 +418,7 @@ function resolveAsset(src: unknown): ResolvedAsset {
 function hostWalk(id: string, context: WalkContext, audio: AudioClipDescriptor[]): HostWalk {
   return {
     id,
-    frame: Math.round((secondsFromTime(context.time) + context.originSec) * context.fps),
+    frame: Math.round((secondsFromTime(context.mediaTime) + context.originSec) * context.fps),
     fps: context.fps,
     frozen: context.frozen,
     frameState: context.frameState,
@@ -531,6 +546,10 @@ function buildLayer(
   } else if (node.type === 'freeze-frame') {
     // Frozen children are always silent: their audio goes nowhere.
     content = { type: 'group', layers: walkChildren(node, path, childFreezeContext(node, context, id), []) };
+  } else if (node.type === 'motion-blur') {
+    content = { type: 'group', layers: sampleLayers(node, path, id, context, audio), motionBlur: true };
+  } else if (node.type === 'trail') {
+    content = { type: 'group', layers: sampleLayers(node, path, id, context, audio) };
   } else if (node.type === 'image') {
     for (const key of ['width', 'height']) {
       if (props[key] !== undefined && (typeof props[key] !== 'number' || !Number.isFinite(props[key]) || props[key] <= 0)) {
@@ -557,7 +576,7 @@ function buildLayer(
       // images. A <Static> subtree cannot depend on the time.
       ...(context.insideStatic ? {} : {
         animation: {
-          sourceTimeSeconds: numberOr(props.startFrom, 0) + secondsFromTime(context.time) * numberOr(props.playbackRate, 1),
+          sourceTimeSeconds: numberOr(props.startFrom, 0) + secondsFromTime(context.mediaTime) * numberOr(props.playbackRate, 1),
           loop: props.loop !== false,
         },
       }),
@@ -630,13 +649,14 @@ function buildLayer(
     // project TimelineContent::Video at a constant playback rate.
     const startFrom = numberOr(props.startFrom, 0);
     const playbackRate = numberOr(props.playbackRate, 1);
+    const localTime = context.mediaTime;
     content = {
       type: 'video',
       asset: resolveAsset(props.src),
       timing: {
-        localTime: context.time,
+        localTime,
         sourceStart: secondsToTime(startFrom),
-        sourceTimeSeconds: startFrom + secondsFromTime(context.time) * playbackRate,
+        sourceTimeSeconds: startFrom + secondsFromTime(localTime) * playbackRate,
         playbackRate,
         ...(props.loop === true ? { loop: true } : {}),
       },
@@ -859,8 +879,9 @@ function childSequenceContext(node: HostNode, context: WalkContext): WalkContext
   if (rangeEndSec <= rangeStartSec) {
     return null;
   }
+  const time = secondsToTime(localSec - startLocalSec);
   return {
-    time: secondsToTime(localSec - startLocalSec),
+    time,
     lang: context.lang,
     fps,
     originSec,
@@ -871,6 +892,7 @@ function childSequenceContext(node: HostNode, context: WalkContext): WalkContext
     windowEndSec,
     frozen: context.frozen,
     idPrefix: context.idPrefix,
+    mediaTime: context.mediaTime === context.time ? time : sequenceMediaTime(context.mediaTime, startLocalSec),
     frameState: context.frameState,
     compact: context.compact,
     statics: context.statics,
@@ -887,8 +909,9 @@ function childSequenceContext(node: HostNode, context: WalkContext): WalkContext
  * Authored ids inside are prefixed with the freeze layer's id.
  */
 function childFreezeContext(node: HostNode, context: WalkContext, layerId: string): WalkContext {
+  const time = secondsToTime(numberOr(node.props.frame, 0) / context.fps);
   return {
-    time: secondsToTime(numberOr(node.props.frame, 0) / context.fps),
+    time,
     lang: context.lang,
     fps: context.fps,
     originSec: 0,
@@ -899,6 +922,8 @@ function childFreezeContext(node: HostNode, context: WalkContext, layerId: strin
     windowEndSec: context.compositionEndSec,
     frozen: true,
     idPrefix: `${layerId}/`,
+    // A freeze's moment is its own frame, not one near the frame drawn.
+    mediaTime: time,
     frameState: context.frameState,
     compact: context.compact,
     statics: context.statics,
@@ -909,14 +934,114 @@ function childFreezeContext(node: HostNode, context: WalkContext, layerId: strin
   };
 }
 
+/**
+ * A sample's `mediaTime` inside a `<Sequence>` starting `startLocalSec`
+ * into its parent: as `childSequenceContext` shifts `time`, except that a
+ * sequence the sample has entered before the frame has (the sample being
+ * later) starts at 0.
+ */
+function sequenceMediaTime(mediaTime: Time, startLocalSec: number): Time {
+  const seconds = secondsFromTime(mediaTime) - startLocalSec;
+  return secondsToTime(Math.max(0, seconds));
+}
+
+/**
+ * The walk context for a 'time-sample''s children: its moment, inside a
+ * copy (`frozen`) unless it is a `<Trail>`'s live children. `mediaTime`
+ * stays the frame's.
+ */
+function childSampleContext(node: HostNode, context: WalkContext): WalkContext {
+  if (node.props.live === true) {
+    return context;
+  }
+  return { ...context, time: node.props.time as Time, frozen: true };
+}
+
+/**
+ * The sample of a 'motion-blur' or 'trail' whose audio plays and whose
+ * subtitles show: a `<Trail>`'s
+ * live children, or the `<MotionBlur>` moment nearest the frame (the
+ * earlier of two as near).
+ */
+function audibleSample(node: HostNode, context: WalkContext): HostNode | undefined {
+  const now = secondsFromTime(context.time);
+  let nearest: HostNode | undefined;
+  let distance = Infinity;
+  for (const sample of node.children) {
+    if (sample.props.live === true) return sample;
+    const from = Math.abs(secondsFromTime(sample.props.time as Time) - now);
+    if (from < distance) {
+      nearest = sample;
+      distance = from;
+    }
+  }
+  return nearest;
+}
+
+/**
+ * The layers of a 'motion-blur''s or 'trail''s samples: each moment as a
+ * group of its own (a `<Trail>` copy's at its opacity), and a `<Trail>`'s
+ * live children as they are. Every sample's children are walked with the
+ * paths they would have without the samples, so a layer has the same id in
+ * every moment and a `<Video>` decodes once.
+ */
+function sampleLayers(
+  node: HostNode,
+  path: string,
+  id: string,
+  context: WalkContext,
+  audio: AudioClipDescriptor[],
+): Layer[] {
+  const audible = audibleSample(node, context);
+  const layers: Layer[] = [];
+  node.children.forEach((sample, index) => {
+    // Audio and subtitles come from one sample only.
+    const sampleContext = childSampleContext(sample, context);
+    const children = sample === audible
+      ? walkChildren(sample, path, sampleContext, audio)
+      : walkChildren(sample, path, { ...sampleContext, subtitles: null }, []);
+    if (sample.props.live === true) {
+      layers.push(...children);
+      return;
+    }
+    const sampleId = [id, 'sample', index].join('.');
+    recordLayerNode(context, sampleId, sample);
+    const opacity = numberOr(sample.props.opacity, 1);
+    layers.push({
+      id: sampleId,
+      transform: identityTransform(context),
+      ...(opacity !== 1 || !context.compact ? { opacity } : {}),
+      content: { type: 'group', layers: children },
+    } as Layer);
+  });
+  return layers;
+}
+
+/** The transform of a group the walk adds around layers, which leaves them where they are. */
+function identityTransform(context: WalkContext): EvaluatedTransform {
+  const identity: EvaluatedTransform = {
+    position: { x: 0, y: 0 },
+    scale: { x: 1, y: 1 },
+    rotation: 0,
+    anchor: { x: 0, y: 0 },
+  };
+  return context.compact ? compactTransform(identity) : identity;
+}
+
+/** The walk context for `node`'s children. */
+function childWalkContext(node: HostNode, context: WalkContext): WalkContext | null {
+  return node.type === 'sequence'
+    ? childSequenceContext(node, context)
+    : node.type === 'freeze-frame'
+      ? childFreezeContext(node, context, '')
+      : node.type === 'time-sample'
+        ? childSampleContext(node, context)
+        : context;
+}
+
 /** Runs registered host elements' `prepare` over the nodes this frame shows. */
 function prepareHostElements(node: HostNode, context: WalkContext): void {
-  const childContext =
-    node.type === 'sequence'
-      ? childSequenceContext(node, context)
-      : node.type === 'freeze-frame'
-        ? childFreezeContext(node, context, '')
-        : context;
+  const childContext = childWalkContext(node, context);
   if (!childContext) {
     return;
   }
@@ -1072,6 +1197,11 @@ function walkNode(
       : [buildLayer(node, path, childContext, audio)];
   }
   if (audioOnly) {
+    if (node.type === 'motion-blur' || node.type === 'trail') {
+      // One sample plays, as when its layers are walked.
+      const sample = audibleSample(node, context);
+      return sample ? walkChildren(sample, path, childSampleContext(sample, context), audio, true) : [];
+    }
     // A <FreezeFrame> subtree is silent, so the audio sweep skips it whole.
     return node.type === 'group' ? walkChildren(node, path, context, audio, true) : [];
   }
@@ -1136,15 +1266,9 @@ function staticLayer(node: HostNode, path: string, context: WalkContext, audio: 
   } else {
     content = { type: 'group', layers: entry ? entry.layers : walked!.layers };
   }
-  const identity: EvaluatedTransform = {
-    position: { x: 0, y: 0 },
-    scale: { x: 1, y: 1 },
-    rotation: 0,
-    anchor: { x: 0, y: 0 },
-  };
   return {
     id: path,
-    transform: context.compact ? compactTransform(identity) : identity,
+    transform: identityTransform(context),
     ...(context.compact ? {} : { opacity: 1 }),
     content,
   } as Layer;

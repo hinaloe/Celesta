@@ -28,6 +28,14 @@ export interface CompositionRuntimeContextValue extends VideoConfig {
    * ends with it stays open.
    */
   openEnd?: boolean;
+  /**
+   * Inside a `<MotionBlur>` sample or a `<Trail>` copy, how far its time is
+   * from a whole frame, in frames: `time` is that moment rounded to a
+   * microsecond, and `useCurrentFrame()` adds this to the whole frame
+   * instead of rounding, so it reports the sample's frame exactly. Absent
+   * elsewhere.
+   */
+  frameOffset?: number;
 }
 
 // Populated by render.ts around the entry's default export on every frame
@@ -44,8 +52,10 @@ export const CompositionRuntimeContext = React.createContext<CompositionRuntimeC
 export const RootRuntimeContext = React.createContext<CompositionRuntimeContextValue | null>(null);
 
 /**
- * @internal Inside a `<FreezeFrame>`, an object unique to that freeze (and
- * stable across frames), which packages key per-freeze state on; null outside.
+ * @internal Inside a `<FreezeFrame>`, a `<MotionBlur>` sample, or a past
+ * `<Trail>` copy (each a copy of the composition drawn at a time other than
+ * the frame's), an object unique to that copy (and stable across frames),
+ * which packages key per-copy state on; null outside.
  */
 export const FreezeFrameContext = React.createContext<object | null>(null);
 
@@ -104,9 +114,19 @@ export function useCurrentTime(): Time {
   return useRuntimeContext('useCurrentTime').time;
 }
 
+/**
+ * The frame being drawn: a whole number, except inside a `<MotionBlur>` or
+ * a `<Trail>` copy, where it is the exact frame of the sample being drawn
+ * (12.25, say).
+ */
 export function useCurrentFrame(): number {
-  const { time, fps } = useRuntimeContext('useCurrentFrame');
-  return Math.round((time.value / time.timescale) * fps);
+  const { time, fps, frameOffset } = useRuntimeContext('useCurrentFrame');
+  return runtimeFrame(time, fps, frameOffset);
+}
+
+/** @internal The frame `useCurrentFrame()` reports for a runtime context. */
+export function runtimeFrame(time: Time, fps: number, frameOffset = 0): number {
+  return Math.round((time.value / time.timescale) * fps - frameOffset) + frameOffset;
 }
 
 /** True only while the GPUI editor resolves a component for its preview. */

@@ -177,7 +177,7 @@ test('a frozen line must refer to a view inside the same, innermost freeze', () 
       body({ view: h(CharacterView, { ref: view, character: mira }), line: h(Dialogue, { character: view }, 'hi') }),
     ));
   };
-  const message = /<Dialogue> inside <FreezeFrame> must refer to a <CharacterView> rendered inside the same <FreezeFrame>/;
+  const message = /<Dialogue> inside <FreezeFrame>, <MotionBlur>, or a <Trail> copy must refer to a <CharacterView> rendered inside the same copy/;
   assert.throws(() => at(setup(({ view, line }) => h(React.Fragment, null, view, h(FreezeFrame, { frame: 0 }, line))), 0), message);
   assert.throws(
     () => at(setup(({ view, line }) => h(FreezeFrame, { frame: 0 }, view, h(FreezeFrame, { frame: 0 }, line))), 0),

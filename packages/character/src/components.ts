@@ -278,9 +278,10 @@ export const Character = React.forwardRef<AssetReference, CharacterProps>(functi
 });
 
 /**
- * The views drawn inside one `<FreezeFrame>`, by the ref their author
- * passed. A copy never attaches the author's ref, which the live view owns;
- * `<Dialogue>`s inside resolve that ref through `references` instead.
+ * The views drawn inside one `<FreezeFrame>`, `<MotionBlur>` sample, or
+ * `<Trail>` copy, by the ref their author passed. A copy never attaches the
+ * author's ref, which the live view owns; `<Dialogue>`s inside resolve that
+ * ref through `references` instead.
  */
 interface ViewScope {
   readonly views: Map<object, unknown>;
