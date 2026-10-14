@@ -35,6 +35,17 @@ pub(crate) enum RightTab {
     Problems,
 }
 
+impl RightTab {
+    /// The tab `ShowProblems` switches to: Problems, or back to Details from
+    /// Problems.
+    pub(crate) fn toggled_problems(self) -> Self {
+        match self {
+            Self::Details => Self::Problems,
+            Self::Problems => Self::Details,
+        }
+    }
+}
+
 pub(crate) struct EditorView {
     /// The file this view was opened from (`None` for the built-in demo);
     /// File > Reload opens it again.
@@ -311,5 +322,16 @@ impl EditorView {
             editor.refresh_component_schemas();
         }
         Ok(editor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RightTab;
+
+    #[test]
+    fn show_problems_toggles_between_problems_and_details() {
+        assert_eq!(RightTab::Details.toggled_problems(), RightTab::Problems);
+        assert_eq!(RightTab::Problems.toggled_problems(), RightTab::Details);
     }
 }

@@ -74,9 +74,7 @@ impl EditorView {
             .collect();
         let warnings = self.problems.preview_warnings().to_vec();
         let nothing_active = active.is_empty() && warnings.is_empty();
-        let history: Vec<LogEntry> = self.problems.history().rev().cloned().collect();
-        let has_history = !history.is_empty();
-        let history_text = self.problems.history_text();
+        let has_history = self.problems.history().next().is_some();
         div()
             .id("problems-scroll")
             .flex()
@@ -137,11 +135,11 @@ impl EditorView {
                                         .xsmall()
                                         .ghost()
                                         .label("Copy all")
-                                        .on_click(move |_, _, cx| {
+                                        .on_click(cx.listener(|this, _, _, cx| {
                                             cx.write_to_clipboard(ClipboardItem::new_string(
-                                                history_text.clone(),
+                                                this.problems.history_text(),
                                             ));
-                                        }),
+                                        })),
                                 )
                                 .child(
                                     Button::new("clear-history")
@@ -167,12 +165,20 @@ impl EditorView {
                         .child("Nothing logged yet"),
                 )
             })
-            .children(history.into_iter().map(|entry| self.history_row(entry, cx)))
+            .children(
+                self.problems
+                    .history()
+                    .rev()
+                    .map(|entry| self.history_row(entry, cx)),
+            )
     }
 
-    fn history_row(&self, entry: LogEntry, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let expanded = self.expanded_log_entries.contains(&entry.id);
+    /// One log entry. A row with a detail expands on click to show it; a row
+    /// without one has nothing to expand.
+    fn history_row(&self, entry: &LogEntry, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let id = entry.id;
+        let has_detail = !entry.problem.detail.is_empty();
+        let expanded = has_detail && self.expanded_log_entries.contains(&id);
         let muted = cx.theme().muted_foreground;
         div()
             .flex()
@@ -181,18 +187,23 @@ impl EditorView {
                 div()
                     .id(SharedString::from(format!("log-row-{id}")))
                     .flex()
+                    // A wrapped title runs onto more lines; the icon and the
+                    // lanes stay on its first.
                     .items_center()
+                    .when(expanded, |row| row.items_start())
                     .gap_2()
                     .px_3()
                     .py_1()
                     .text_xs()
-                    .hover(|row| row.bg(cx.theme().list_hover))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if !this.expanded_log_entries.remove(&id) {
-                            this.expanded_log_entries.insert(id);
-                        }
-                        cx.notify();
-                    }))
+                    .when(has_detail, |row| {
+                        row.hover(|row| row.bg(cx.theme().list_hover))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if !this.expanded_log_entries.remove(&id) {
+                                    this.expanded_log_entries.insert(id);
+                                }
+                                cx.notify();
+                            }))
+                    })
                     .child(severity_icon(entry.severity, cx))
                     // Source and time sit in lanes wide enough for
                     // `TypeScript` and `00:00:00`, so every row's title starts
@@ -223,22 +234,24 @@ impl EditorView {
                             .text_color(cx.theme().foreground)
                             .child(entry.problem.title.clone()),
                     )
-                    .child(
-                        Icon::new(if expanded {
-                            IconName::ChevronDown
-                        } else {
-                            IconName::ChevronRight
-                        })
-                        .xsmall()
-                        .text_color(muted),
-                    ),
+                    .when(has_detail, |row| {
+                        row.child(
+                            Icon::new(if expanded {
+                                IconName::ChevronDown
+                            } else {
+                                IconName::ChevronRight
+                            })
+                            .xsmall()
+                            .text_color(muted),
+                        )
+                    }),
             )
-            .when(expanded && !entry.problem.detail.is_empty(), |row| {
-                row.child(detail_block(
+            .when(expanded, |row| {
+                row.child(div().px_3().pb_2().child(detail_block(
                     format!("log-detail-{id}").into(),
                     &entry.problem.detail,
                     cx,
-                ))
+                )))
             })
     }
 
@@ -248,7 +261,8 @@ impl EditorView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.show_problems(cx);
+        self.right_tab = self.right_tab.toggled_problems();
+        cx.notify();
     }
 
     /// `⊗ 1  ⚠ 2` at the end of the status bar; opens the Problems tab. It
