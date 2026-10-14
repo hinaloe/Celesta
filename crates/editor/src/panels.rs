@@ -8,7 +8,9 @@ use crate::widgets::{
     inspector_note, inspector_row, inspector_section, json_display, panel_header, property_display,
 };
 use celesta_composition::{Animatable, evaluate_f64};
-use celesta_editor_core::{CharacterSummary, ComponentClipSummary, DialogueClipSummary};
+use celesta_editor_core::{
+    CharacterSummary, ClipSummary, ComponentClipSummary, DialogueClipSummary,
+};
 use celesta_editor_theme as theme;
 use celesta_project::AssetKind;
 use celesta_react_bridge::{ENTRY_PROPS_FILE, resolve_props_file};
@@ -341,20 +343,8 @@ impl EditorView {
                     .when(!clip.enabled, |panel| {
                         panel.child(inspector_row("State", "Disabled", cx))
                     })
-                    .when_some(clip.volume.as_ref(), |panel, volume| {
-                        let local_time = clip_local_time(self.current_time(), &clip);
-                        let current = evaluate_f64(volume, local_time).unwrap_or(1.0);
-                        let current = format!("{}%", (current * 100.0).round() as i32);
-                        panel.child(inspector_row(
-                            "Volume",
-                            match volume {
-                                Animatable::Keyframes(animation) => {
-                                    format!("{current} · {} keyframes", animation.keyframes.len())
-                                }
-                                Animatable::Static(_) => current,
-                            },
-                            cx,
-                        ))
+                    .when_some(self.clip_volume_label(&clip), |panel, volume| {
+                        panel.child(inspector_row("Volume", volume, cx))
                     })
                     .when_some(clip.component.clone(), |panel, component| {
                         self.render_component_props(panel, &component, cx)
@@ -371,6 +361,83 @@ impl EditorView {
             .w_full()
             .bg(cx.theme().sidebar)
             .child(contents)
+    }
+
+    /// A clip's volume at the playhead, and how many keyframes change it.
+    fn clip_volume_label(&self, clip: &ClipSummary) -> Option<String> {
+        let volume = clip.volume.as_ref()?;
+        let local_time = clip_local_time(self.current_time(), clip);
+        let current = evaluate_f64(volume, local_time).unwrap_or(1.0);
+        let current = format!("{}%", (current * 100.0).round() as i32);
+        Some(match volume {
+            Animatable::Keyframes(animation) => {
+                format!("{current} · {} keyframes", animation.keyframes.len())
+            }
+            Animatable::Static(_) => current,
+        })
+    }
+
+    /// The React composition's track and audio clip selected in the
+    /// timeline, read-only: they change in the entry's source.
+    fn react_audio_selection<E: ParentElement + FluentBuilder>(
+        &self,
+        panel: E,
+        cx: &mut Context<Self>,
+    ) -> E {
+        let selected_track = self.selected_track_id.as_deref().and_then(|selected| {
+            self.react_audio_tracks
+                .iter()
+                .find(|track| track.id == selected)
+        });
+        let selected_clip = self.selected_clip_id.as_deref().and_then(|selected| {
+            let summary = self
+                .react_audio_tracks
+                .iter()
+                .flat_map(|track| &track.clips)
+                .find(|clip| clip.id == selected)?;
+            let clip = self
+                .react_audio_clips
+                .iter()
+                .find(|clip| clip.id == selected)?;
+            Some((summary, clip))
+        });
+        let panel = match selected_track {
+            Some(track) => panel
+                .child(inspector_section("Track", cx))
+                .child(inspector_row("Name", track.name.clone(), cx))
+                .child(inspector_row("Clips", track.item_count.to_string(), cx)),
+            None => panel,
+        };
+        let Some((summary, clip)) = selected_clip else {
+            return panel;
+        };
+        let rate = match &clip.playback_rate {
+            Animatable::Static(rate) => format!("{rate}×"),
+            Animatable::Keyframes(animation) => {
+                format!("{} keyframes", animation.keyframes.len())
+            }
+        };
+        panel
+            .child(inspector_section("Clip", cx))
+            .child(inspector_row("Source", clip.asset.id.clone(), cx))
+            .child(inspector_row("Start", self.timecode_for(summary.start), cx))
+            .child(inspector_row(
+                "Length",
+                self.timecode_for(summary.duration),
+                cx,
+            ))
+            .child(inspector_row(
+                "Starts in the file at",
+                format!("{} s", clip.source_start.as_seconds().unwrap_or(0.0)),
+                cx,
+            ))
+            .when_some(self.clip_volume_label(summary), |panel, volume| {
+                panel.child(inspector_row("Volume", volume, cx))
+            })
+            .child(inspector_row("Playback rate", rate, cx))
+            .when(clip.muted, |panel| {
+                panel.child(inspector_row("State", "Muted", cx))
+            })
     }
 
     pub(crate) fn render_characters<E: ParentElement + Sized>(
@@ -586,7 +653,8 @@ impl EditorView {
                     .overflow_y_scroll()
                     .child(self.react_preview_facts(entry, properties, cx))
                     .children(self.layer_section(cx))
-                    .children(self.property_section(cx)),
+                    .children(self.property_section(cx))
+                    .map(|panel| self.react_audio_selection(panel, cx)),
             )
     }
 

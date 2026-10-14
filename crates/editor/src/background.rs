@@ -121,9 +121,11 @@ impl EditorView {
                             self.audio_preview = None;
                             self.clip_waveforms.clear();
                             self.clip_levels.clear();
+                            self.set_react_audio_clips(Vec::new());
                             self.problems.clear(Source::Audio);
                         }
                         Ok(graph) => {
+                            self.set_react_audio_clips(graph.clips.clone());
                             if let Err(error) = self.audio_mix_worker.request(AudioMixRequest {
                                 generation: self.audio_generation,
                                 graph,
@@ -139,6 +141,7 @@ impl EditorView {
                             self.audio_preview = None;
                             self.clip_waveforms.clear();
                             self.clip_levels.clear();
+                            self.set_react_audio_clips(Vec::new());
                             self.problems.fail(Source::Audio, error);
                         }
                     }

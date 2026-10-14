@@ -449,7 +449,7 @@ impl EditorView {
 
     pub(crate) fn timeline(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let view = self.lane_view();
-        let (visual, audio) = timeline_rows(&self.tracks);
+        let (visual, audio) = timeline_rows(self.timeline_tracks());
         let border = cx.theme().border;
         let tracks_empty = visual.is_empty() && audio.is_empty();
         let mut rows: Vec<gpui_kit::AnyElement> = Vec::new();
@@ -460,7 +460,7 @@ impl EditorView {
             self.track_row(row, VIDEO_TRACK_HEIGHT, view, cx)
                 .into_any_element()
         }));
-        if !visual.is_empty() && !audio.is_empty() {
+        if (self.is_react_preview() || !visual.is_empty()) && !audio.is_empty() {
             rows.push(
                 div()
                     .flex_none()
@@ -563,6 +563,16 @@ impl EditorView {
                 ),
             )
             .child(self.timeline_footer(view, cx))
+    }
+
+    /// The tracks the timeline lists: the project's, or a standalone React
+    /// composition's audio laid out on tracks.
+    pub(crate) fn timeline_tracks(&self) -> &[TrackSummary] {
+        if self.is_react_preview() {
+            &self.react_audio_tracks
+        } else {
+            &self.tracks
+        }
     }
 
     /// `[start, end)` composition fractions of the In/Out marks when both are
@@ -771,50 +781,57 @@ impl EditorView {
                 ))
             })
             .when(track.kind != TrackKind::Overlay, |header| {
-                header
-                    .child(
-                        div()
-                            .flex_none()
-                            .w(px(4.0))
-                            .h(px(18.0))
-                            .rounded_sm()
-                            .overflow_hidden()
-                            .flex()
-                            .flex_col()
-                            .justify_end()
-                            .bg(cx.theme().background)
-                            .child(
-                                div()
-                                    .w_full()
-                                    .h(relative(track_level))
-                                    .bg(theme::meter(track_level)),
-                            ),
-                    )
-                    .child(
-                        Button::new(SharedString::from(format!("track-mute-{}", track.id)))
-                            .xsmall()
-                            .ghost()
-                            .label("M")
-                            .selected(track.muted)
-                            .tooltip("Mute in the preview")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.toggle_track_mute(&mute_track_id, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new(SharedString::from(format!("track-solo-{}", track.id)))
-                            .xsmall()
-                            .ghost()
-                            .label("S")
-                            .selected(track.solo)
-                            .tooltip("Solo in the preview")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.toggle_track_solo(&solo_track_id, cx);
-                            })),
-                    )
+                header.child(
+                    div()
+                        .flex_none()
+                        .w(px(4.0))
+                        .h(px(18.0))
+                        .rounded_sm()
+                        .overflow_hidden()
+                        .flex()
+                        .flex_col()
+                        .justify_end()
+                        .bg(cx.theme().background)
+                        .child(
+                            div()
+                                .w_full()
+                                .h(relative(track_level))
+                                .bg(theme::meter(track_level)),
+                        ),
+                )
             })
+            // Mute and solo change the project; a React composition's tracks
+            // are only a view of its source.
+            .when(
+                track.kind != TrackKind::Overlay && !self.is_react_preview(),
+                |header| {
+                    header
+                        .child(
+                            Button::new(SharedString::from(format!("track-mute-{}", track.id)))
+                                .xsmall()
+                                .ghost()
+                                .label("M")
+                                .selected(track.muted)
+                                .tooltip("Mute in the preview")
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.toggle_track_mute(&mute_track_id, cx);
+                                })),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!("track-solo-{}", track.id)))
+                                .xsmall()
+                                .ghost()
+                                .label("S")
+                                .selected(track.solo)
+                                .tooltip("Solo in the preview")
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.toggle_track_solo(&solo_track_id, cx);
+                                })),
+                        )
+                },
+            )
     }
 
     fn track_row(

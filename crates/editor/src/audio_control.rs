@@ -1,8 +1,9 @@
 use crate::audio::{AudioMixRequest, MasterVolumeDrag};
 use crate::problems::{Source, error_chain};
-use crate::react_audio::ReactAudioRequest;
+use crate::react_audio::{ReactAudioRequest, react_audio_tracks};
 use crate::view::EditorView;
 use crate::waveform::master_volume_from_drag;
+use celesta_composition::AudioClip;
 use celesta_react_bridge::runtime_paths as react_runtime_paths;
 use gpui_kit::{Context, KeyDownEvent, MouseDownEvent, MouseMoveEvent, Window};
 
@@ -62,6 +63,13 @@ impl EditorView {
                 self.problems.fail(Source::Audio, error_chain(&error));
             }
         }
+    }
+
+    /// Replaces the React composition's audio clips and the timeline tracks
+    /// they are laid out on.
+    pub(crate) fn set_react_audio_clips(&mut self, clips: Vec<AudioClip>) {
+        self.react_audio_tracks = react_audio_tracks(&clips);
+        self.react_audio_clips = clips;
     }
 
     pub(crate) fn toggle_track_mute(&mut self, track_id: &str, cx: &mut Context<Self>) {
