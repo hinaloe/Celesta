@@ -118,8 +118,9 @@ test('color filters change the layer\'s pixels before its other effects', async 
   const [read] = operations.filter(([kind]) => kind === 'read');
   const source = read[1];
   assert.deepEqual(read.slice(2), [0, 0, 4, 1]);
-  // Inverted, then halved; only the layer's box is written back.
-  assert.deepEqual(operations.find(([kind]) => kind === 'write'), ['write', source, [0, 128, 128, 255, 0, 128, 128, 255], 0, 0, 2, 1]);
+  // Inverted, then halved; only what the layer covers is written back,
+  // 2 pixels wider as the GPU reckons it.
+  assert.deepEqual(operations.find(([kind]) => kind === 'write'), ['write', source, [0, 128, 128, 255, 0, 128, 128, 255], 0, 0, 4, 1]);
   // The blur reads the filtered source.
   assert.ok(operations.some(([kind, , from, filter]) => kind === 'composite' && from === source && filter === 'blur(1px)'));
   renderer.dispose();

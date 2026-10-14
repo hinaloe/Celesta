@@ -1,5 +1,5 @@
-import type { Scene, Layer, Asset, ColorFilter, FontRun, LineDash, Paint, PathCommand, TextStyle } from './types';
-import { applyColorFilters } from './color-filters';
+import type { Scene, Layer, Asset, BuiltinFilter, FontRun, LineDash, Paint, PathCommand, TextStyle } from './types';
+import { applyFilters } from './filters';
 import { canvasDrawsAlike, gradientPixels } from './gradients';
 import { loadFonts, releaseFonts } from './fonts';
 import { checkFontRuns, cssFont, letterSpacingPx, measureLine, runPieces, textLineRanges, textStyle } from './text-layout';
@@ -13,6 +13,9 @@ type WebLayer = Layer;
 type TextContent = Extract<Layer['content'], { type: 'text' }>;
 /** Left, top, right, bottom, in scene pixels. */
 type Box = [number, number, number, number];
+
+/** The built-in filters whose grids, centres, or `uv` follow the content box. */
+const READS_CONTENT_BOX = new Set(['vignette', 'pixelate', 'halftone', 'wave', 'scanlines', 'zoomBlur']);
 
 const blend: Record<string, GlobalCompositeOperation> = {
   normal: 'source-over', multiply: 'multiply', screen: 'screen',
@@ -436,11 +439,12 @@ export class SceneCanvas {
       if (filters.length) {
         const { width, height } = source.canvas;
         const pixels = source.getImageData(0, 0, width, height);
-        // Only a vignette reads the content box.
-        const shape = filters.some(filter => filter.type === 'vignette')
+        // Surfaces are scene-sized, as a zoom blur's reach expects. Only
+        // grids, centres, and `uv` read the box of the layer's shapes.
+        const shape = filters.some(filter => READS_CONTENT_BOX.has(filter.type))
           ? await this.shapeBox(source, { ...layer, effects: undefined }, parent, 1)
           : null;
-        const box = applyColorFilters(pixels.data, width, filters as ColorFilter[], shape ?? undefined);
+        const box = applyFilters(pixels.data, width, filters as BuiltinFilter[], shape ? { content: shape } : {});
         if (box) source.putImageData(pixels, 0, 0, box[0], box[1], box[2] - box[0], box[3] - box[1]);
       }
       const result = this.surface(ctx);

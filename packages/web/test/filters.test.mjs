@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { applyColorFilters } from '../src/color-filters.ts';
+import { applyFilters } from '../src/filters.ts';
+
+const applyColorFilters = (pixels, width, filters, content) =>
+  applyFilters(pixels, width, filters, content ? { content } : {});
 
 // What the GPU renderer drew for a #c06030 rect at 8,8 to 56,56 of a
 // 64x64 scene, with each filter, at three pixels: the centre, near the
@@ -39,7 +43,8 @@ const at = (pixels, x, y) => Array.from(pixels.slice((y * 64 + x) * 4, (y * 64 +
 test('each filter matches what the GPU renderer draws', () => {
   for (const [filter, ...expected] of GPU) {
     const pixels = rect();
-    assert.deepEqual(applyColorFilters(pixels, 64, [filter]), [8, 8, 56, 56]);
+    // What the layers cover, 2 pixels wider as the GPU reckons it.
+    assert.deepEqual(applyColorFilters(pixels, 64, [filter]), [6, 6, 58, 58]);
     for (const [index, [x, y]] of [[32, 32], [9, 10], [50, 20]].entries()) {
       const actual = at(pixels, x, y);
       const near = actual.every((value, i) => Math.abs(value - [...expected[index], 255][i]) <= 1);
@@ -69,11 +74,62 @@ test('a vignette follows the content box it is given, not the pixels', () => {
   // The rect's pixels are 8..56; its shapes' box reaches to 104, so the
   // rect lies in the box's left half and its left edge is darkened.
   const pixels = rect([255, 255, 255, 255]);
-  assert.deepEqual(applyColorFilters(pixels, 64, vignette, [8, 8, 104, 56]), [8, 8, 56, 56]);
+  assert.deepEqual(applyColorFilters(pixels, 64, vignette, [8, 8, 104, 56]), [6, 6, 64, 58]);
   assert.deepEqual(at(pixels, 9, 32), [0, 0, 0, 255]);
   assert.deepEqual(at(pixels, 55, 32), [255, 255, 255, 255]);
   // By the pixels alone, both edges would be darkened alike.
   const alone = rect([255, 255, 255, 255]);
   applyColorFilters(alone, 64, vignette);
   assert.deepEqual(at(alone, 9, 32), at(alone, 54, 32));
+});
+
+// A test pattern the GPU renderer drew in a 48x48 scene, its content box
+// 8..40, and what it drew with each stylize effect and the chroma key: raw
+// premultiplied RGBA (`write_web_effect_fixtures` in `celesta-gpu-renderer`,
+// Apple M4).
+const FIXTURES = new URL('./fixtures/effects/', import.meta.url);
+const EFFECTS = [
+  ['pixelate', { type: 'pixelate', size: 6 }],
+  ['halftone', { type: 'halftone', size: 6, angle: 30 }],
+  ['chromatic-aberration', { type: 'chromaticAberration', offset: 3, angle: 20 }],
+  ['wave', { type: 'wave', amplitude: 3, wavelength: 16, phase: 40, angle: 0 }],
+  ['noise', { type: 'noise', amount: 0.3, seed: 0x10007, monochrome: false }],
+  ['noise-monochrome', { type: 'noise', amount: 0.3, seed: 7, monochrome: true }],
+  ['scanlines', { type: 'scanlines', amount: 0.6, spacing: 4, thickness: 0.5, offset: 1 }],
+  ['zoom-blur', { type: 'zoomBlur', amount: 0.3, centerX: 0.4, centerY: 0.6 }],
+  ['chroma-key', { type: 'chromaKey', color: '#00b140', tolerance: 0.2, softness: 0.1, spill: 0.5 }],
+];
+
+/** Straight RGBA, as `getImageData` gives, of premultiplied bytes. */
+function straight(premultiplied) {
+  const pixels = new Uint8ClampedArray(premultiplied.length);
+  for (let at = 0; at < pixels.length; at += 4) {
+    const alpha = premultiplied[at + 3];
+    for (let i = 0; i < 3; i++) pixels[at + i] = alpha ? Math.round(premultiplied[at + i] * 255 / alpha) : 0;
+    pixels[at + 3] = alpha;
+  }
+  return pixels;
+}
+
+test('each stylize effect and the chroma key match what the GPU renderer draws', () => {
+  const source = readFileSync(new URL('source.rgba', FIXTURES));
+  for (const [name, filter] of EFFECTS) {
+    const pixels = straight(source);
+    applyFilters(pixels, 48, [filter], { content: [8, 8, 40, 40] });
+    const expected = readFileSync(new URL(`${name}.rgba`, FIXTURES));
+    // Compared premultiplied, as the GPU stores them. The GPU's quantizer
+    // dithers, and its canvases hold more than 8 bits between the drawing
+    // and the filter, so a channel may differ by 2.
+    let worst = 0, where = 0;
+    for (let at = 0; at < pixels.length; at += 4) {
+      const alpha = pixels[at + 3];
+      for (let i = 0; i < 4; i++) {
+        const actual = i === 3 ? alpha : Math.round(pixels[at + i] * alpha / 255);
+        const difference = Math.abs(actual - expected[at + i]);
+        if (difference > worst) [worst, where] = [difference, at / 4];
+      }
+    }
+    const [x, y] = [where % 48, Math.floor(where / 48)];
+    assert.ok(worst <= 2, `${name}: ${worst} at ${x},${y}`);
+  }
 });

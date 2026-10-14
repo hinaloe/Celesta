@@ -54,6 +54,17 @@ export type ColorFilter =
   | { type: 'hue'; degrees: number }
   | { type: 'tint'; color: string; amount: number }
   | { type: 'vignette'; amount: number; radius: number; softness: number };
+/** A built-in stylize effect or the chroma key; see `LayerFilter` in `@celesta/react`. */
+export type EffectFilter =
+  | { type: 'pixelate'; size: number }
+  | { type: 'halftone'; size: number; angle: number }
+  | { type: 'chromaticAberration'; offset: number; angle: number }
+  | { type: 'wave'; amplitude: number; wavelength: number; phase: number; angle: number }
+  | { type: 'noise'; amount: number; seed: number; monochrome: boolean }
+  | { type: 'scanlines'; amount: number; spacing: number; thickness: number; offset: number }
+  | { type: 'zoomBlur'; amount: number; centerX: number; centerY: number }
+  | { type: 'chromaKey'; color: string; tolerance: number; softness: number; spill: number };
+export type BuiltinFilter = ColorFilter | EffectFilter;
 export type Layer = {
   id: string;
   transform: Transform;
@@ -62,7 +73,7 @@ export type Layer = {
     blur?: number;
     shadow?: { color: string; blur: number; offsetX: number; offsetY: number } | null;
     glow?: { color: string; blur: number } | null;
-    filters?: (ColorFilter | { type: 'shader'; id: string })[];
+    filters?: (BuiltinFilter | { type: 'shader'; id: string })[];
   };
   blendMode?: 'normal' | 'multiply' | 'screen' | 'overlay' | 'add' | 'difference';
   content: LayerContent;
