@@ -1,6 +1,10 @@
 use crate::EDITOR_DEMO_PROJECT;
 use crate::audio::{AudioCacheKey, CachedAudioDecoder, take_latest};
 use crate::audio_cache::DiskAudioCache;
+use crate::editor_launch::{
+    Invocation, LaunchError, default_opener, editor_invocation, editor_value,
+    parse_login_shell_output, split_command,
+};
 use crate::export_worker::{ExportEvent, ExportRequest, ExportSource, ExportWorker};
 use crate::helpers::{
     export_output, export_progress_label, export_range_for, export_suggested_name, loop_range_for,
@@ -25,9 +29,9 @@ use celesta_editor_core::ClipSummary;
 use celesta_exporter::{ExportCancellation, ExportProgress, VideoFormat};
 use celesta_media::{AudioBuffer, AudioDecoder};
 use celesta_project::Project;
-use celesta_react_bridge::ComponentResolutions;
+use celesta_react_bridge::{ComponentResolutions, LayerSource};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -392,5 +396,227 @@ fn splicing_component_resolutions_lists_their_shaders_once() {
     assert!(children.is_empty());
     assert!(
         matches!(&mask.layers[0].content, LayerContent::Group { layers, .. } if layers.len() == 1)
+    );
+}
+
+fn layer_source_at(file: &str, line: u32, column: u32) -> LayerSource {
+    LayerSource {
+        name: "Title".to_string(),
+        file: PathBuf::from(file),
+        line,
+        column,
+    }
+}
+
+fn invocation(program: &str, args: &[&str]) -> Invocation {
+    Invocation {
+        program: program.to_string(),
+        args: args.iter().map(|arg| arg.to_string()).collect(),
+    }
+}
+
+#[test]
+fn editor_value_prefers_visual_over_editor() {
+    let env = |name: &str| match name {
+        "VISUAL" => Some("code".to_string()),
+        "EDITOR" => Some("vim".to_string()),
+        _ => None,
+    };
+
+    assert_eq!(editor_value(env), Some("code".to_string()));
+}
+
+#[test]
+fn editor_value_falls_back_to_editor_when_visual_is_empty() {
+    let env = |name: &str| match name {
+        "VISUAL" => Some(String::new()),
+        "EDITOR" => Some("zed".to_string()),
+        _ => None,
+    };
+
+    assert_eq!(editor_value(env), Some("zed".to_string()));
+}
+
+#[test]
+fn editor_value_is_none_when_both_are_unset_or_empty() {
+    assert_eq!(editor_value(|_| None), None);
+    assert_eq!(editor_value(|_| Some(String::new())), None);
+    assert_eq!(editor_value(|_| Some("  ".to_string())), None);
+}
+
+#[test]
+fn editor_invocation_passes_the_position_the_way_each_editor_expects() {
+    let source = layer_source_at("/p/a.tsx", 12, 5);
+    let goto = ["--goto", "/p/a.tsx:12:5"];
+    let cases: Vec<(&str, Invocation)> = vec![
+        ("code", invocation("code", &goto)),
+        (
+            "code -n",
+            invocation("code", &["-n", "--goto", "/p/a.tsx:12:5"]),
+        ),
+        ("cursor", invocation("cursor", &goto)),
+        ("windsurf", invocation("windsurf", &goto)),
+        ("codium", invocation("codium", &goto)),
+        ("code-insiders", invocation("code-insiders", &goto)),
+        ("zed", invocation("zed", &["/p/a.tsx:12:5"])),
+        ("subl", invocation("subl", &["/p/a.tsx:12:5"])),
+        (
+            "sublime_text",
+            invocation("sublime_text", &["/p/a.tsx:12:5"]),
+        ),
+        (
+            "idea",
+            invocation("idea", &["--line", "12", "--column", "5", "/p/a.tsx"]),
+        ),
+        (
+            "rustrover",
+            invocation("rustrover", &["--line", "12", "--column", "5", "/p/a.tsx"]),
+        ),
+        ("mate", invocation("mate", &["--line", "12", "/p/a.tsx"])),
+        ("emacs", invocation("emacs", &["+12", "/p/a.tsx"])),
+        ("gedit", invocation("gedit", &["+12", "/p/a.tsx"])),
+        (
+            "emacsclient -c",
+            invocation("emacsclient", &["-c", "+12", "/p/a.tsx"]),
+        ),
+    ];
+
+    for (value, expected) in cases {
+        assert_eq!(
+            editor_invocation(value, &source),
+            Ok(expected),
+            "value {value:?}"
+        );
+    }
+}
+
+#[test]
+fn editor_invocation_keeps_a_quoted_program_path_with_spaces() {
+    let source = layer_source_at("/p/a.tsx", 12, 5);
+
+    assert_eq!(
+        editor_invocation(
+            "'/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl'",
+            &source
+        ),
+        Ok(invocation(
+            "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl",
+            &["/p/a.tsx:12:5"]
+        ))
+    );
+}
+
+#[test]
+fn editor_invocation_matches_a_windows_program_path_without_extension() {
+    let source = layer_source_at("/p/a.tsx", 12, 5);
+
+    assert_eq!(
+        editor_invocation("\"C:\\Tools\\Code.exe\"", &source),
+        Ok(invocation(
+            "C:\\Tools\\Code.exe",
+            &["--goto", "/p/a.tsx:12:5"]
+        ))
+    );
+    assert_eq!(
+        split_command("C:\\Tools\\Code.exe --wait", true),
+        Some(vec![
+            "C:\\Tools\\Code.exe".to_string(),
+            "--wait".to_string()
+        ])
+    );
+    assert_eq!(
+        split_command("\"C:\\Program Files\\Code.exe\" -n", true),
+        Some(vec![
+            "C:\\Program Files\\Code.exe".to_string(),
+            "-n".to_string()
+        ])
+    );
+}
+
+#[test]
+fn editor_invocation_refuses_terminal_editors() {
+    let source = layer_source_at("/p/a.tsx", 12, 5);
+    let cases = [
+        ("vim", "vim"),
+        ("nvim", "nvim"),
+        ("nano", "nano"),
+        ("hx", "hx"),
+        ("/usr/bin/vim", "vim"),
+        ("emacs -nw", "emacs"),
+        ("emacsclient -t", "emacsclient"),
+        ("emacs --tty", "emacs"),
+    ];
+
+    for (value, name) in cases {
+        assert_eq!(
+            editor_invocation(value, &source),
+            Err(LaunchError::TerminalEditor(name.to_string())),
+            "value {value:?}"
+        );
+    }
+}
+
+#[test]
+fn editor_invocation_rejects_an_unbalanced_quote() {
+    let source = layer_source_at("/p/a.tsx", 12, 5);
+
+    assert_eq!(
+        editor_invocation("code '--goto", &source),
+        Err(LaunchError::Unparsable("code '--goto".to_string()))
+    );
+    assert!(matches!(
+        editor_invocation("  ", &source),
+        Err(LaunchError::Unparsable(_))
+    ));
+}
+
+#[test]
+fn parse_login_shell_output_reads_both_variables_between_the_markers() {
+    let output = "motd noise\n__CELESTA_EDITOR__vim\0code__CELESTA_EDITOR__\ntrailing";
+    assert_eq!(parse_login_shell_output(output), Some("vim".to_string()));
+
+    let empty_visual = "banner\n__CELESTA_EDITOR__\0code__CELESTA_EDITOR__\n";
+    assert_eq!(
+        parse_login_shell_output(empty_visual),
+        Some("code".to_string())
+    );
+}
+
+#[test]
+fn parse_login_shell_output_is_none_without_a_value_or_markers() {
+    assert_eq!(parse_login_shell_output("no markers here\n"), None);
+    assert_eq!(
+        parse_login_shell_output("__CELESTA_EDITOR__\0__CELESTA_EDITOR__\n"),
+        None
+    );
+    assert_eq!(parse_login_shell_output("__CELESTA_EDITOR__code"), None);
+}
+
+#[test]
+fn default_opener_uses_the_os_default_application() {
+    let expected = if cfg!(target_os = "macos") {
+        invocation("open", &["/p/a.tsx"])
+    } else if cfg!(windows) {
+        invocation("cmd", &["/C", "start", "", "/p/a.tsx"])
+    } else {
+        invocation("xdg-open", &["/p/a.tsx"])
+    };
+
+    assert_eq!(default_opener(Path::new("/p/a.tsx")), expected);
+}
+
+#[test]
+fn launch_error_displays_the_panel_copy() {
+    assert_eq!(
+        LaunchError::TerminalEditor("vim".to_string()).to_string(),
+        "VISUAL/EDITOR is a terminal editor (vim); set VISUAL to a graphical editor"
+    );
+    assert_eq!(
+        LaunchError::Unparsable("code '--goto".to_string()).to_string(),
+        "VISUAL/EDITOR could not be parsed: code '--goto"
+    );
+    assert_eq!(
+        LaunchError::Spawn("No such file or directory".to_string()).to_string(),
+        "Could not open the editor: No such file or directory"
     );
 }

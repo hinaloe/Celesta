@@ -22,6 +22,9 @@ mod audio_control;
 mod background;
 mod cli;
 mod component_schema;
+// Task 7 wires this into the Layer section of the React Preview panel.
+#[allow(dead_code)]
+mod editor_launch;
 mod export_control;
 mod export_worker;
 mod helpers;
