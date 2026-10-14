@@ -14,10 +14,10 @@
     "@celesta/shapes": "workspace:*",
     "@celesta/text": "workspace:*",
     "@celesta/transitions": "workspace:*",
-    "react": "^18.3.1"
+    "react": "^19.3.0"
   },
   "devDependencies": {
-    "@types/react": "^18.3.31",
+    "@types/react": "^19.3.0",
     "typescript": "^5.7.3"
   }
 }

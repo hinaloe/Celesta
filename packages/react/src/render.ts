@@ -2,9 +2,9 @@
 // and evaluates it into the same `Scene` JSON shape that
 // `celesta_composition::Scene` deserializes on the Rust side. The mount is
 // persistent across frames: cli.ts calls `renderAt` once per requested
-// time against the same root, so component state and effects (to the extent
-// a synchronous, un-scheduled reconciler runs them) carry across frames
-// exactly as they would across re-renders in any other React host.
+// time against the same root, so component state and effects (which run
+// before each synchronous render returns) carry across frames exactly as
+// they would across re-renders in any other React host.
 
 import * as React from 'react';
 
@@ -17,7 +17,7 @@ import { type HostWalk, hasHostElementPreparation, hostElement } from './host-el
 import { instancesContent } from './instances';
 import { type StaticsFrame, StaticSubtrees } from './static';
 import { resolveComponent } from './registry';
-import { type HostNode, type RootContainer, HostReconciler, createRoot } from './reconciler';
+import { type HostNode, type RootContainer, createRoot } from './reconciler';
 import { type LayerSourceEntry, sourceChain } from './source-chain';
 import { checkCue } from './subtitles';
 import type {
@@ -1157,7 +1157,8 @@ function inheritTextLanguage(layers: Layer[], lang?: string): Layer[] {
 
 export function mount(defaultExport: EntryComponent, compositionId?: string): MountedComposition {
   let selection: string | null = null;
-  const { container, root } = createRoot();
+  const root = createRoot();
+  const { container } = root;
   let fonts: ResolvedAsset[] = [];
   let rerenderRequested = false;
   const requestRerender = () => {
@@ -1209,9 +1210,7 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
         ),
       ),
     );
-    HostReconciler.flushSync(() => {
-      HostReconciler.updateContainer(element, root, null, null);
-    });
+    root.render(element);
   };
 
   // IDs and size/clock props must be static, independent of the placeholder
@@ -1329,7 +1328,7 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
   };
 
   return {
-    dispose() { HostReconciler.flushSync(() => { HostReconciler.updateContainer(null, root, null, null); }); },
+    dispose() { root.render(null); },
     config,
     compositionId: selected.id,
     compositions,
@@ -1442,7 +1441,8 @@ export interface Resolver {
  * `<Composition>` tree. `lang` supplies that composition's text language.
  */
 export function createResolver(lang?: string): Resolver {
-  const { container, root } = createRoot();
+  const root = createRoot();
+  const { container } = root;
 
   const ResolverHost = ({ items }: { items: readonly ComponentResolutionRequest[] }) =>
     React.createElement(
@@ -1497,14 +1497,10 @@ export function createResolver(lang?: string): Resolver {
           ),
         ),
       );
-      HostReconciler.flushSync(() => {
-        HostReconciler.updateContainer(element(), root, null, null);
-      });
+      root.render(element());
       if (rerenderRequested) {
         // A ref read during render is attached only by the commit.
-        HostReconciler.flushSync(() => {
-          HostReconciler.updateContainer(element(), root, null, null);
-        });
+        root.render(element());
       }
       const walkContext = rootWalkContext(
         runtimeValue.fps,

@@ -19,7 +19,7 @@ cargo run -p celesta-editor --release -- packages/code/examples/lines.tsx
 
 Like `@celesta/react`, this package is currently private and has not been
 published to npm. It depends on the matching `@celesta/react` runtime and
-React 18 as peers. Celesta's desktop app ships it as a separate package;
+React 19 as peers. Celesta's desktop app ships it as a separate package;
 the CLI resolves it from that runtime when a composition imports it, sharing
 the CLI's React and Celesta instances.
 

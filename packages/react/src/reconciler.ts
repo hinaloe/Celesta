@@ -5,8 +5,9 @@
 // not performance-sensitive (one composition, re-rendered once per exported
 // frame, not sixty times a second against a live display).
 
+import * as React from 'react';
 import Reconciler from 'react-reconciler';
-import { DefaultEventPriority, LegacyRoot } from 'react-reconciler/constants';
+import { ConcurrentRoot, DefaultEventPriority, NoEventPriority } from 'react-reconciler/constants';
 
 export interface HostNode {
   type: string;
@@ -80,6 +81,11 @@ function insertBefore(children: HostNode[], child: HostNode, beforeChild: HostNo
   children.splice(index === -1 ? children.length : index, 0, child);
 }
 
+// The priority of the update React is scheduling, which it sets around the
+// updates it makes itself. Without events of its own, this renderer has no
+// other source for it.
+let currentUpdatePriority: number = NoEventPriority;
+
 const hostConfig: Reconciler.HostConfig<
   string,
   Record<string, unknown>,
@@ -88,17 +94,29 @@ const hostConfig: Reconciler.HostConfig<
   never,
   never,
   never,
+  never,
+  never,
   HostNode,
   typeof NO_CONTEXT,
-  Record<string, unknown>,
   never,
   ReturnType<typeof setTimeout>,
-  NoTimeout
+  NoTimeout,
+  null,
+  null,
+  null,
+  never,
+  never,
+  never
 > = {
   supportsMutation: true,
   supportsPersistence: false,
   supportsHydration: false,
   isPrimaryRenderer: true,
+
+  rendererPackageName: '@celesta/react',
+  rendererVersion: React.version,
+  extraDevToolsConfig: null,
+  bindToConsole: (methodName, args) => console[methodName as 'error'].bind(console, ...args),
 
   scheduleTimeout: setTimeout,
   cancelTimeout: clearTimeout,
@@ -166,8 +184,8 @@ const hostConfig: Reconciler.HostConfig<
   // and the frame's runtime context changes every frame; most of the host
   // props it then produces are the same. Leaving those uncommitted keeps a
   // `<Static>` with groups inside from looking changed on every frame.
-  prepareUpdate: (_instance, type, oldProps, newProps) => (sameProps(type, oldProps, newProps) ? null : {}),
-  commitUpdate(instance, _updatePayload, _type, _oldProps, newProps, internalInstanceHandle) {
+  commitUpdate(instance, type, oldProps, newProps, internalInstanceHandle) {
+    if (sameProps(type, oldProps, newProps)) return;
     instance.props = newProps;
     instance.fiber = internalInstanceHandle;
     touch(instance);
@@ -177,11 +195,36 @@ const hostConfig: Reconciler.HostConfig<
   preparePortalMount: () => {},
   detachDeletedInstance: () => {},
 
-  // Event/DevTools integration this renderer has no use for (there is no
-  // real host platform to dispatch DOM-style events against), but the
-  // @types/react-reconciler 0.28 HostConfig type marks them required even
-  // though the runtime treats them as optional.
-  getCurrentEventPriority: () => DefaultEventPriority,
+  setCurrentUpdatePriority: (priority) => {
+    currentUpdatePriority = priority;
+  },
+  getCurrentUpdatePriority: () => currentUpdatePriority,
+  resolveUpdatePriority: () =>
+    currentUpdatePriority === NoEventPriority ? DefaultEventPriority : currentUpdatePriority,
+
+  // Nothing here suspends a commit: assets load before the frame renders
+  // (render.ts awaits them), not while React commits it.
+  maySuspendCommit: () => false,
+  maySuspendCommitOnUpdate: () => false,
+  maySuspendCommitInSyncRender: () => false,
+  preloadInstance: () => true,
+  startSuspendingCommit: () => null,
+  suspendInstance: () => {},
+  suspendOnActiveViewTransition: () => {},
+  waitForCommitToBeReady: () => null,
+  getSuspendedCommitReason: () => null,
+
+  // Event, form, transition, and DevTools integration this renderer has no
+  // use for (there is no real host platform to dispatch DOM-style events
+  // against), but the HostConfig type marks them required.
+  NotPendingTransition: null,
+  HostTransitionContext: React.createContext(null) as unknown as Reconciler.ReactContext<null>,
+  resetFormInstance: () => {},
+  requestPostPaintCallback: () => {},
+  shouldAttemptEagerTransition: () => false,
+  trackSchedulerEvent: () => {},
+  resolveEventType: () => null,
+  resolveEventTimeStamp: () => -1.1,
   getInstanceFromNode: () => null,
   beforeActiveInstanceBlur: () => {},
   afterActiveInstanceBlur: () => {},
@@ -189,24 +232,54 @@ const hostConfig: Reconciler.HostConfig<
   getInstanceFromScope: () => null,
 };
 
-export const HostReconciler = Reconciler(hostConfig);
+const HostReconciler = Reconciler(hostConfig);
 
-export function createRoot(): {
+export interface HostRoot {
   container: RootContainer;
-  root: ReturnType<typeof HostReconciler.createContainer>;
-} {
+  /**
+   * Renders `element` into the container and commits it before returning,
+   * effects included. An error no error boundary caught is thrown from here.
+   */
+  render(element: React.ReactNode): void;
+}
+
+export function createRoot(): HostRoot {
   const container: RootContainer = { children: [] };
+  // React reports an error no boundary caught to `onUncaughtError` during the
+  // commit and defers anything that callback throws to a timer, which would
+  // crash the process instead of failing the frame. Keep it to throw from
+  // `render` once the commit is done.
+  const uncaught: unknown[] = [];
   const root = HostReconciler.createContainer(
     container,
-    LegacyRoot,
+    ConcurrentRoot,
     null,
     false,
     null,
     '',
     (error) => {
-      throw error instanceof Error ? error : new Error(String(error));
+      uncaught.push(error);
     },
+    (error) => {
+      console.error(error);
+    },
+    (error) => {
+      console.error(error);
+    },
+    () => {},
     null,
   );
-  return { container, root };
+  return {
+    container,
+    render(element) {
+      uncaught.length = 0;
+      HostReconciler.updateContainerSync(element, root, null, null);
+      HostReconciler.flushSyncWork();
+      if (uncaught.length > 0) {
+        const [error] = uncaught;
+        uncaught.length = 0;
+        throw error instanceof Error ? error : new Error(String(error));
+      }
+    },
+  };
 }
