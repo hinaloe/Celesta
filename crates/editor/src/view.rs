@@ -18,7 +18,7 @@ use celesta_react_bridge::{ComponentPropertyField, ComponentPropertySchema};
 #[cfg(not(target_os = "macos"))]
 use gpui_kit::component::menu::AppMenuBar;
 use gpui_kit::component::resizable::ResizableState;
-use gpui_kit::{Bounds, Entity, FocusHandle, Pixels, SharedString};
+use gpui_kit::{Bounds, Entity, FocusHandle, Pixels, ScrollHandle, SharedString};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::error::Error;
@@ -168,6 +168,8 @@ pub(crate) struct EditorView {
     /// Width of the transport bar as last painted; a narrow viewer drops its
     /// secondary controls (they stay in the menus and on the keyboard).
     pub(crate) transport_width: Rc<Cell<Option<Pixels>>>,
+    /// Scroll position of the preview error's detail over the viewer.
+    pub(crate) preview_error_scroll: ScrollHandle,
 }
 
 impl EditorView {
@@ -296,6 +298,7 @@ impl EditorView {
             timeline_lane_bounds: Rc::default(),
             timeline_overview_bounds: Rc::default(),
             transport_width: Rc::default(),
+            preview_error_scroll: ScrollHandle::new(),
         };
         editor.refresh_preview();
         editor.refresh_audio_preview();

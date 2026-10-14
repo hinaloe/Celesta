@@ -150,17 +150,32 @@ impl EditorView {
                             .child(Icon::new(IconName::CircleX).small())
                             .child(active.problem.title.clone()),
                     )
+                    // The detail keeps its own height until the surface hits
+                    // its max height, then shrinks and scrolls. A plain scroll
+                    // container rather than `overflow_y_scrollbar()`: that
+                    // wrapper sizes its scroll area at 100% of a height this
+                    // auto-sized column never makes definite, so it collapses.
                     .child(
                         div()
-                            .id("preview-error-detail-scroll")
-                            .flex_1()
+                            .relative()
+                            .flex()
+                            .flex_col()
+                            .flex_initial()
                             .min_h_0()
-                            .child(detail_block(
-                                "preview-error-detail".into(),
-                                &active.problem.detail,
-                                cx,
-                            ))
-                            .overflow_y_scrollbar(),
+                            .child(
+                                div()
+                                    .id("preview-error-detail-scroll")
+                                    .flex_initial()
+                                    .min_h_0()
+                                    .overflow_y_scroll()
+                                    .track_scroll(&self.preview_error_scroll)
+                                    .child(detail_block(
+                                        "preview-error-detail".into(),
+                                        &active.problem.detail,
+                                        cx,
+                                    )),
+                            )
+                            .vertical_scrollbar(&self.preview_error_scroll),
                     )
                     .child(
                         div().flex().flex_none().justify_end().child(
