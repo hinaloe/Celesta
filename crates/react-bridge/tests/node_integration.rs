@@ -1485,7 +1485,7 @@ fn a_runtime_that_dies_before_the_handshake_shows_its_last_output() {
     };
     let (dir, runtime) = fake_runtime(
         "stderr-handshake",
-        "console.error('Error: first line');\nconsole.error('second line');\nprocess.exit(3);\n",
+        "console.error('Error: first line');\nconsole.error('second line');\nprocess.exitCode = 3;\n",
     );
     let error = ReactBridge::spawn(&node, &runtime, dir.join("film.tsx"))
         .err()
@@ -1503,18 +1503,16 @@ fn a_runtime_that_dies_on_a_request_shows_its_last_output() {
     // Sends a valid handshake, then dies on the first request.
     let (dir, runtime) = fake_runtime(
         "stderr-request",
-        r#"const ready = Buffer.from(JSON.stringify({
-  config: { width: 16, height: 9, frameRate: { numerator: 30, denominator: 1 }, durationInFrames: 30 },
-}));
-const length = Buffer.alloc(4);
-length.writeUInt32LE(ready.length);
-process.stdout.write(Buffer.concat([length, ready]));
-process.stdin.once('data', () => {
+        &format!(
+            "{FAKE_HANDSHAKE}
+process.stdin.once('data', () => {{
   console.error('Error: request failed');
   console.error('    at render');
-  process.exit(1);
-});
-"#,
+  process.exitCode = 1;
+  process.stdin.destroy();
+}});
+"
+        ),
     );
     let mut bridge = ReactBridge::spawn(&node, &runtime, dir.join("film.tsx")).unwrap();
     let error = bridge.scene_at(Time::new(0, 30)).unwrap_err();
@@ -1525,6 +1523,46 @@ process.stdin.once('data', () => {
     drop(bridge);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_runtime_that_dies_while_measuring_text_shows_its_last_output() {
+    let Some(node) = find_executable("CELESTA_NODE", "node") else {
+        eprintln!("skipping live Node.js test: node was not found");
+        return;
+    };
+    // Asks for a text measurement and exits without waiting for the answer,
+    // so the bridge usually finds the pipe closed when it replies.
+    let (dir, runtime) = fake_runtime(
+        "stderr-measure",
+        &format!(
+            "{FAKE_HANDSHAKE}
+process.stdin.once('data', () => {{
+  send({{ measureText: {{ text: 'Hello' }} }});
+  console.error('Error: measuring failed');
+  process.exitCode = 1;
+  process.stdin.destroy();
+}});
+"
+        ),
+    );
+    let mut bridge = ReactBridge::spawn(&node, &runtime, dir.join("film.tsx")).unwrap();
+    let error = bridge.scene_at(Time::new(0, 30)).unwrap_err();
+    assert_exit_shows(&error, &["Error: measuring failed"]);
+    drop(bridge);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The start of a fake runtime: `send()` writes one length-prefixed
+/// message, and a valid handshake goes out first.
+const FAKE_HANDSHAKE: &str = r"function send(message) {
+  const body = Buffer.from(JSON.stringify(message));
+  const length = Buffer.alloc(4);
+  length.writeUInt32LE(body.length);
+  process.stdout.write(Buffer.concat([length, body]));
+}
+send({
+  config: { width: 16, height: 9, frameRate: { numerator: 30, denominator: 1 }, durationInFrames: 30 },
+});";
 
 fn live_react_runtime() -> Option<(PathBuf, PathBuf, PathBuf)> {
     let Some(node) = find_executable("CELESTA_NODE", "node") else {

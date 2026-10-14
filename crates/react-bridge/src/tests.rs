@@ -40,7 +40,7 @@ fn an_unexpected_exit_shows_the_runtime_s_last_output() {
     };
     assert_eq!(
         with_output.to_string(),
-        "the Node.js React runtime exited unexpectedly. Its last output:\n  \
+        "the Node.js React runtime exited unexpectedly\nIts last output:\n  \
          Error: Cannot find module '@celesta/react'\n\n  Node.js v24.0.0"
     );
 }

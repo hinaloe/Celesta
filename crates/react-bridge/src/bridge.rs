@@ -93,9 +93,16 @@ impl ReactBridge {
             .arg(cli_script.as_ref())
             .arg(entry.as_ref())
             .arg("--length-prefixed");
-        if !properties.is_empty() {
+        let property_payload = if properties.is_empty() {
+            None
+        } else {
             command.arg("--properties-stdin");
-        }
+            let payload = serde_json::to_string(&PropertyInputsMessage {
+                property_inputs: properties.layers(),
+            })
+            .map_err(ReactBridgeError::Protocol)?;
+            Some(payload)
+        };
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -105,17 +112,24 @@ impl ReactBridge {
                 executable: node.to_owned(),
                 source,
             })?;
-        let mut stdin = child.stdin.take().ok_or(ReactBridgeError::MissingPipe)?;
-        let stdout = child.stdout.take().ok_or(ReactBridgeError::MissingPipe)?;
-        let stderr = child.stderr.take().ok_or(ReactBridgeError::MissingPipe)?;
-        let stderr = StderrCapture::start(stderr).map_err(ReactBridgeError::Io)?;
+        let (mut stdin, stdout, stderr) =
+            match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
+                (Some(stdin), Some(stdout), Some(stderr)) => (stdin, stdout, stderr),
+                _ => {
+                    end(&mut child);
+                    return Err(ReactBridgeError::MissingPipe);
+                }
+            };
+        let stderr = match StderrCapture::start(stderr) {
+            Ok(stderr) => stderr,
+            Err(error) => {
+                end(&mut child);
+                return Err(ReactBridgeError::Io(error));
+            }
+        };
         let mut stdout = BufReader::new(stdout);
         let mut message = Vec::new();
-        if !properties.is_empty() {
-            let payload = serde_json::to_string(&PropertyInputsMessage {
-                property_inputs: properties.layers(),
-            })
-            .map_err(ReactBridgeError::Protocol)?;
+        if let Some(payload) = property_payload {
             // A runtime that already exited fails below as `UnexpectedExit`,
             // with its last stderr lines.
             let _ = writeln!(stdin, "{payload}").and_then(|()| stdin.flush());
@@ -213,8 +227,7 @@ impl ReactBridge {
                 let error = stderr.exit_error(&mut child, error);
                 // The entry may already be imported; handles it opened could
                 // keep Node alive.
-                let _ = child.kill();
-                let _ = child.wait();
+                end(&mut child);
                 return Err(error);
             }
         };
@@ -498,9 +511,8 @@ impl ReactBridge {
     }
 
     fn write_request<R: Serialize>(&mut self, request: R) -> Result<(), ReactBridgeError> {
-        let payload = serde_json::to_string(&request).map_err(ReactBridgeError::Protocol)?;
-        let written = writeln!(self.stdin, "{payload}").and_then(|()| self.stdin.flush());
-        written.map_err(|error| self.exit_error(ReactBridgeError::Io(error)))
+        let written = write_line(&mut self.stdin, &request);
+        written.map_err(|error| self.exit_error(error))
     }
 
     /// Reads messages into `self.message` until one is not a text
@@ -530,11 +542,24 @@ impl ReactBridge {
                 return Err(ReactBridgeError::UnexpectedResponse);
             };
             let metrics = measure_text_response(&mut self.text_measurer, &measure_text);
-            serde_json::to_writer(&mut self.stdin, &metrics).map_err(ReactBridgeError::Protocol)?;
-            writeln!(self.stdin).map_err(ReactBridgeError::Io)?;
-            self.stdin.flush().map_err(ReactBridgeError::Io)?;
+            // `receive_message` explains a closed pipe here.
+            write_line(&mut self.stdin, &metrics)?;
         }
     }
+}
+
+/// Writes `message` to the CLI as one line of JSON.
+fn write_line(stdin: &mut ChildStdin, message: &impl Serialize) -> Result<(), ReactBridgeError> {
+    let payload = serde_json::to_string(message).map_err(ReactBridgeError::Protocol)?;
+    writeln!(stdin, "{payload}")
+        .and_then(|()| stdin.flush())
+        .map_err(ReactBridgeError::Io)
+}
+
+/// Ends a runtime this bridge gives up on before it is set up.
+fn end(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// A frame's response read by [`ReactBridge::receive_frame`], not yet

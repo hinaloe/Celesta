@@ -55,7 +55,7 @@ impl fmt::Display for ReactBridgeError {
                 if stderr.is_empty() {
                     return Ok(());
                 }
-                formatter.write_str(". Its last output:")?;
+                formatter.write_str("\nIts last output:")?;
                 for line in stderr.lines() {
                     if line.is_empty() {
                         formatter.write_str("\n")?;
