@@ -153,6 +153,11 @@ pub(crate) struct EditorView {
     /// Middle-button pan of the timeline: `(pointer x at grab, view_start at
     /// grab)`. `Some` while the middle button is held over the timeline.
     pub(crate) timeline_pan: Option<(f32, f64)>,
+    /// Swipe scrubbing over the clip lanes: the partial frame carried
+    /// between wheel events, and whether the fingers have lifted so the
+    /// trackpad's momentum events that follow should not scrub.
+    pub(crate) timeline_scrub_remainder: f64,
+    pub(crate) timeline_scrub_coasting: bool,
     /// Drag of the overview bar's thumb: `(pointer x at grab, view_start at
     /// grab)`.
     pub(crate) timeline_overview_drag: Option<(f32, f64)>,
@@ -294,6 +299,8 @@ impl EditorView {
             timeline_zoom: 1.0,
             timeline_view_start: 0.0,
             timeline_pan: None,
+            timeline_scrub_remainder: 0.0,
+            timeline_scrub_coasting: false,
             timeline_overview_drag: None,
             timeline_lane_bounds: Rc::default(),
             timeline_overview_bounds: Rc::default(),

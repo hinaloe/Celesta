@@ -145,9 +145,10 @@ cargo run -p celesta-editor --release -- examples/reel/film.tsx
 3. **Preview.** Press Space to play or pause (L plays, K stops). Use the left
    and right arrow keys to step one frame at a time, Shift with them to move
    one second, the up and down arrow keys to jump between clip edges, and Home
-   and End to go to the start and end. Drag along the timeline ruler to scrub.
-   Press = and - to zoom the timeline and Shift-Z to fit it; scroll sideways or
-   drag the bar under the tracks to move along it. Loop playback (Command-/ on
+   and End to go to the start and end. Drag along the timeline ruler, or swipe
+   sideways over the tracks, to scrub. Press = and - to zoom the timeline (or
+   pinch over the tracks) and Shift-Z to fit it; scroll sideways over the ruler
+   or drag the bar under the tracks to move along it. Loop playback (Command-/ on
    macOS, Ctrl-/ elsewhere) repeats the In–Out range when one is marked, and
    ' shows safe areas over the viewer. The Master meter beside the timeline
    shows the preview's audio levels. Select an asset, track, or clip to see its

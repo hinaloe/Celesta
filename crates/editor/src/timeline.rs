@@ -14,8 +14,9 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     Bounds, Context, CursorStyle, Hsla, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement as _, PathBuilder, Pixels, Point, ScrollDelta, ScrollWheelEvent, SharedString,
-    Window, canvas, div, fill, point, prelude::*, px, relative, rgb, size,
+    ParentElement as _, PathBuilder, PinchEvent, Pixels, Point, ScrollDelta, ScrollWheelEvent,
+    SharedString, TouchPhase, Window, canvas, div, fill, point, prelude::*, px, relative, rgb,
+    size,
 };
 
 use crate::actions::{ZoomTimelineIn, ZoomTimelineOut, ZoomTimelineToFit};
@@ -276,20 +277,73 @@ impl EditorView {
         cx.notify();
     }
 
+    /// Moves the playhead as far along the lane as `delta_pixels`, then
+    /// scrolls the view just enough to keep it in sight.
+    fn scrub_timeline_pixels(&mut self, delta_pixels: f32) {
+        let (zoom, view_start) = self.timeline_view();
+        let end_frame = self.clock.end_frame();
+        let pixels_per_frame = f64::from(self.lane_width()) * zoom / end_frame.max(1) as f64;
+        let frames = scrub_frames(
+            delta_pixels,
+            pixels_per_frame,
+            &mut self.timeline_scrub_remainder,
+        );
+        self.pause();
+        let frame = self
+            .clock
+            .frame()
+            .saturating_add(frames)
+            .clamp(0, end_frame);
+        if frame != self.clock.frame() {
+            self.seek_frame(frame);
+        }
+        self.timeline_view_start = follow_playhead(view_start, zoom, self.playhead_fraction());
+    }
+
     /// Wheel over the clip lanes: Option/Ctrl/Cmd zooms, a horizontal swipe
-    /// pans, and plain vertical scrolling falls through to scroll the tracks.
+    /// (or Shift with the wheel) scrubs the playhead, and plain vertical
+    /// scrolling falls through to scroll the tracks.
     fn lane_wheel(&mut self, event: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
+        match event.touch_phase {
+            TouchPhase::Started => {
+                self.timeline_scrub_coasting = false;
+                self.timeline_scrub_remainder = 0.0;
+            }
+            TouchPhase::Ended | TouchPhase::Cancelled => self.timeline_scrub_coasting = true,
+            TouchPhase::Moved => {}
+        }
         let delta = wheel_pixels(event.delta);
         let modifiers = event.modifiers;
         if modifiers.alt || modifiers.control || modifiers.platform {
             let anchor = self.timeline_fraction_at(event.position.x);
             self.zoom_timeline_about(anchor, wheel_zoom_factor(delta.y + delta.x));
         } else if delta.x.abs() > delta.y.abs() || modifiers.shift {
-            let amount = if delta.x != 0.0 { delta.x } else { delta.y };
-            self.pan_timeline_pixels(amount);
+            // Momentum after the fingers lift arrives as pixel deltas with
+            // no phase; dropping it stops the playhead where the fingers did.
+            let momentum = self.timeline_scrub_coasting
+                && event.touch_phase == TouchPhase::Moved
+                && matches!(event.delta, ScrollDelta::Pixels(_));
+            if !momentum {
+                // A swipe moves the playhead with the scroll direction (the
+                // fingers' under natural scrolling); the wheel advances it
+                // when rolled down.
+                let amount = if delta.x != 0.0 { delta.x } else { -delta.y };
+                self.scrub_timeline_pixels(amount);
+            }
         } else {
             return;
         }
+        cx.stop_propagation();
+        cx.notify();
+    }
+
+    /// Pinch over the clip lanes: zoom about the pinch center.
+    fn lane_pinch(&mut self, event: &PinchEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if event.delta == 0.0 {
+            return;
+        }
+        let anchor = self.timeline_fraction_at(event.position.x);
+        self.zoom_timeline_about(anchor, (1.0 + f64::from(event.delta)).clamp(0.5, 2.0));
         cx.stop_propagation();
         cx.notify();
     }
@@ -784,6 +838,7 @@ impl EditorView {
                     .mr(px(LANE_GUTTER))
                     .overflow_hidden()
                     .on_scroll_wheel(cx.listener(Self::lane_wheel))
+                    .on_pinch(cx.listener(Self::lane_pinch))
                     .on_mouse_down(MouseButton::Middle, cx.listener(Self::begin_timeline_pan))
                     .children(clips),
             )
@@ -1122,6 +1177,29 @@ fn wheel_pixels(delta: ScrollDelta) -> Point<f32> {
     }
 }
 
+/// Whole frames a scrub of `delta_pixels` covers at `pixels_per_frame`. The
+/// partial frame is carried in `remainder`, so slow swipes at a deep zoom
+/// still step through every frame.
+fn scrub_frames(delta_pixels: f32, pixels_per_frame: f64, remainder: &mut f64) -> i64 {
+    let frames = *remainder + f64::from(delta_pixels) / pixels_per_frame.max(f64::EPSILON);
+    let whole = frames.trunc();
+    *remainder = frames - whole;
+    whole as i64
+}
+
+/// `view_start` moved just far enough that the window `1 / zoom` wide
+/// shows composition fraction `playhead`.
+fn follow_playhead(view_start: f64, zoom: f64, playhead: f64) -> f64 {
+    let span = 1.0 / zoom;
+    if playhead < view_start {
+        playhead
+    } else if playhead > view_start + span {
+        playhead - span
+    } else {
+        view_start
+    }
+}
+
 /// Zoom factor for a vertical wheel movement in pixels: scrolling up (away
 /// from the user) zooms in.
 fn wheel_zoom_factor(delta_y: f32) -> f64 {
@@ -1130,7 +1208,7 @@ fn wheel_zoom_factor(delta_y: f32) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{edit_points, timeline_rows};
+    use super::{edit_points, follow_playhead, scrub_frames, timeline_rows};
     use celesta_composition::Time;
     use celesta_editor_core::{ClipKind, ClipSummary, TrackSummary};
     use celesta_project::TrackKind;
@@ -1192,5 +1270,30 @@ mod tests {
         ];
         let points = edit_points(&tracks, |time| Some(time.value * 10), 100);
         assert_eq!(points, [0, 10, 20, 50, 100]);
+    }
+
+    #[test]
+    fn scrub_frames_carry_the_partial_frame_between_events() {
+        let mut remainder = 0.0;
+        assert_eq!(scrub_frames(25.0, 10.0, &mut remainder), 2);
+        assert_eq!(scrub_frames(5.0, 10.0, &mut remainder), 1);
+        assert_eq!(remainder, 0.0);
+        assert_eq!(scrub_frames(-15.0, 10.0, &mut remainder), -1);
+        assert_eq!(scrub_frames(5.0, 10.0, &mut remainder), 0);
+        assert_eq!(remainder, 0.0);
+    }
+
+    #[test]
+    fn scrub_frames_skip_frames_when_zoomed_out() {
+        let mut remainder = 0.0;
+        assert_eq!(scrub_frames(3.0, 0.25, &mut remainder), 12);
+    }
+
+    #[test]
+    fn following_the_playhead_moves_the_view_only_as_far_as_needed() {
+        // The window shows a quarter of the composition.
+        assert_eq!(follow_playhead(0.5, 4.0, 0.6), 0.5);
+        assert_eq!(follow_playhead(0.5, 4.0, 0.8), 0.55);
+        assert_eq!(follow_playhead(0.5, 4.0, 0.4), 0.4);
     }
 }
