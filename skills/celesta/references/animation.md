@@ -233,8 +233,8 @@ Both:
 - Give the same result for a frame whatever was drawn before; the editor
   preview draws what the export does.
 - Keep `<Video>`, animated images, lip sync, and blinking at the frame's
-  moment in every copy. Audio inside plays once (from the moment nearest the
-  frame, or `Trail`'s live children).
+  moment in every copy. Audio and subtitles inside play once (from the
+  moment nearest the frame, or `Trail`'s live children).
 - Draw each moment as a copy, like `<FreezeFrame>`: a `<CharacterView>`
   inside never takes its ref, so its `<Dialogue>` must be inside too.
   `<ProjectTimeline />` and `<ProjectTrack />` throw inside. `<Static>`

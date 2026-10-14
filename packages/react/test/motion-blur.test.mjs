@@ -12,6 +12,7 @@ import {
   Rect,
   Sequence,
   Static,
+  Subtitles,
   Trail,
   Video,
   useCurrentFrame,
@@ -127,6 +128,14 @@ test('audio inside plays once', () => {
     const plain = mount(tree(Group));
     expect(at(blurred, 20).audio, Wrapper.name).toEqual(at(plain, 20).audio);
     expect(blurred.collectAudio(), Wrapper.name).toEqual(plain.collectAudio());
+  }
+});
+
+test('subtitles inside show once', () => {
+  const cues = [{ from: 10, durationInFrames: 20, text: 'hello' }];
+  const tree = (Wrapper) => root(60, h(Wrapper, null, h(Subtitles, { cues })));
+  for (const Wrapper of [MotionBlur, Trail]) {
+    expect(at(mount(tree(Wrapper)), 20).subtitles, Wrapper.name).toEqual(at(mount(tree(Group)), 20).subtitles);
   }
 });
 

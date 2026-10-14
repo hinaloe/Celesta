@@ -98,7 +98,7 @@ Inside, `useCurrentFrame()` returns each moment’s frame, such as `12.25`, so c
 </MotionBlur>
 ```
 
-The result of a frame does not depend on which frames were drawn before it, and the editor preview draws the same blur as the export. Moments stay within the enclosing `Sequence`, so the first and last frames of a shot do not fade. `<Video>`, animated images, lip sync, and blinking keep the frame’s picture in every moment (footage already carries the blur of its own camera), and audio inside plays once. Every moment is a copy, like a `FreezeFrame`’s: a `CharacterView` inside leaves its ref alone, so put its `Dialogue` inside too. Project layers cannot be drawn inside. The blurred layer takes a group’s props (`x`, `opacity`, `blendMode`, `blur`, …), which apply to the average.
+The result of a frame does not depend on which frames were drawn before it, and the editor preview draws the same blur as the export. Moments stay within the enclosing `Sequence`, so the first and last frames of a shot do not fade. `<Video>`, animated images, lip sync, and blinking keep the frame’s picture in every moment (footage already carries the blur of its own camera), and audio and subtitles inside play once. Every moment is a copy, like a `FreezeFrame`’s: a `CharacterView` inside leaves its ref alone, so put its `Dialogue` inside too. Project layers cannot be drawn inside. The blurred layer takes a group’s props (`x`, `opacity`, `blendMode`, `blur`, …), which apply to the average.
 
 ## Leave a trail
 

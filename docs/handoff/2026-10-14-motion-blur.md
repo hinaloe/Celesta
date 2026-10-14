@@ -87,9 +87,11 @@ costs an export is in
   `<id>.sample.<index>`. Duplicate ids within a scene are deliberate here:
   hit testing and `layerSource` return any of them, which are the same JSX.
   Each sample still uploads its own `<Video>` texture.
-- **Audio** plays once: from the `<MotionBlur>` moment nearest the frame
-  (the earlier of two equally near), or from `<Trail>`'s live children. The
-  audio-only sweep (`collectAudio`) takes the same sample.
+- **Audio and subtitles** come from one sample: the `<MotionBlur>` moment
+  nearest the frame (the earlier of two equally near), or `<Trail>`'s live
+  children. The other samples walk with `subtitles: null` and a throwaway
+  audio list, and the audio-only sweep (`collectAudio`) takes the same
+  sample.
 - **Copies:** every `<MotionBlur>` moment and past `<Trail>` copy provides its
   own `FreezeFrameContext` scope and walks with `frozen`, as `<FreezeFrame>`
   does. A `<CharacterView>` inside never attaches its author's ref, and a
