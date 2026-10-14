@@ -48,8 +48,8 @@ use actions::{
     ClearExportRange, CloseWindow, CreateNewProject, ExportProject, GoToEnd, GoToIn, GoToOut,
     GoToStart, JumpBackward, JumpForward, NextEditPoint, NextFrame, OpenProject, PausePlayback,
     PlayForward, PreviousEditPoint, PreviousFrame, Quit, ReloadProject, SetExportIn, SetExportOut,
-    SetUpTypeScript, SetUpTypeScriptInFolder, ToggleLoop, TogglePlayback, ToggleSafeAreas,
-    ZoomTimelineIn, ZoomTimelineOut, ZoomTimelineToFit,
+    SetUpTypeScript, SetUpTypeScriptInFolder, ShowProblems, ToggleLoop, TogglePlayback,
+    ToggleSafeAreas, ZoomTimelineIn, ZoomTimelineOut, ZoomTimelineToFit,
 };
 use source::PropertyArgs;
 use view::EditorView;
@@ -136,6 +136,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             KeyBinding::new("down", NextEditPoint, EDITOR_KEYS),
             KeyBinding::new("secondary-/", ToggleLoop, Some("CelestaEditor")),
             KeyBinding::new("'", ToggleSafeAreas, EDITOR_KEYS),
+            KeyBinding::new("secondary-shift-m", ShowProblems, Some("CelestaEditor")),
             KeyBinding::new("=", ZoomTimelineIn, EDITOR_KEYS),
             KeyBinding::new("-", ZoomTimelineOut, EDITOR_KEYS),
             KeyBinding::new("shift-z", ZoomTimelineToFit, EDITOR_KEYS),
@@ -228,6 +229,7 @@ fn app_menus() -> Vec<Menu> {
         ]),
         Menu::new("View").items([
             MenuItem::action("Safe Areas", ToggleSafeAreas),
+            MenuItem::action("Problems", ShowProblems),
             MenuItem::separator(),
             MenuItem::action("Zoom In", ZoomTimelineIn),
             MenuItem::action("Zoom Out", ZoomTimelineOut),

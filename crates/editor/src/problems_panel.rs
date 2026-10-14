@@ -1,5 +1,6 @@
 //! The right dock's tab bar, the Problems tab, and its entry points.
 
+use crate::actions::ShowProblems;
 use crate::problems::{ActiveProblem, LogEntry, Severity, Source, fenced};
 use crate::view::{EditorView, RightTab};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -8,7 +9,7 @@ use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _};
 use gpui_kit::prelude::*;
-use gpui_kit::{App, ClipboardItem, Context, Hsla, SharedString, div};
+use gpui_kit::{App, ClipboardItem, Context, Hsla, SharedString, Window, div};
 
 impl EditorView {
     /// The right dock: a tab bar over the inspector (or React Preview panel)
@@ -224,6 +225,48 @@ impl EditorView {
                     cx,
                 ))
             })
+    }
+
+    pub(crate) fn show_problems_action(
+        &mut self,
+        _: &ShowProblems,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_problems(cx);
+    }
+
+    /// `⊗ 1  ⚠ 2` at the end of the status bar; opens the Problems tab. It
+    /// stays at zero so the tab always has the same entry point.
+    pub(crate) fn problems_indicator(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let errors = self.problems.error_count();
+        let warnings = self.problems.warning_count();
+        let muted = cx.theme().muted_foreground;
+        let count = |icon: IconName, color: Hsla, value: usize| {
+            div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(
+                    Icon::new(icon)
+                        .xsmall()
+                        .text_color(if value > 0 { color } else { muted }),
+                )
+                .child(value.to_string())
+        };
+        Button::new("problems-indicator")
+            .ghost()
+            .xsmall()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .text_xs()
+                    .child(count(IconName::CircleX, cx.theme().danger, errors))
+                    .child(count(IconName::TriangleAlert, cx.theme().warning, warnings)),
+            )
+            .on_click(cx.listener(|this, _, _, cx| this.show_problems(cx)))
     }
 }
 

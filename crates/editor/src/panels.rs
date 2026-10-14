@@ -1,5 +1,5 @@
 use crate::helpers::clip_kind_label;
-use crate::problems::{Severity, Source};
+use crate::problems::Source;
 use crate::timecode::format_timecode;
 use crate::view::EditorView;
 use crate::waveform::{clip_local_time, format_media_asset_info};
@@ -18,23 +18,11 @@ use gpui_kit::{ClickEvent, Context, ObjectFit, SharedString, Window, div, img, p
 
 impl EditorView {
     /// The window's title bar: the menu bar (outside macOS, which shows it
-    /// natively), the open file, status messages, and the window-wide
-    /// commands — Open…, Export…, and the preview volume.
+    /// natively), the open file, and the window-wide commands — Create New
+    /// Project…, Open…, and Export….
     pub(crate) fn title_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let exporting = self.export_cancellation.is_some();
-        let danger = cx.theme().danger;
-        let warning = cx.theme().warning;
         let muted = cx.theme().muted_foreground;
-        let message = |text: String, color| {
-            div()
-                .max_w(px(420.0))
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .text_xs()
-                .text_color(color)
-                .child(text)
-        };
         let leading = div()
             .flex()
             .items_center()
@@ -73,16 +61,6 @@ impl EditorView {
                 .items_center()
                 .gap_2()
                 .pr_2()
-                .children(self.problems.active_problems().map(|(source, active)| {
-                    let color = match source.severity() {
-                        Severity::Warning => warning,
-                        _ => danger,
-                    };
-                    message(
-                        format!("{}: {}", active.problem.title, active.problem.detail),
-                        color,
-                    )
-                }))
                 .child(
                     Button::new("create-new-project")
                         .small()
