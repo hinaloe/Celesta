@@ -2,615 +2,144 @@
 
 Celesta is a code-first video tool. Build animated scenes with React and
 TypeScript, combining video, images, text, shapes, and audio. Preview your work
-in the Celesta desktop app and export it as a video (MP4, or transparent MOV
-or WebM) or PNG frames.
+in the Celesta desktop app and export it as MP4, transparent MOV or WebM, or
+PNG frames.
 
-Celesta is under active development. Packaged desktop apps include the React
-runtime and Node.js; the instructions below also cover running from source.
+**[Website](https://celesta.natsuneko.cat/)** ·
+**[Documentation](https://celesta.natsuneko.cat/en/docs/)** ·
+**[日本語ドキュメント](https://celesta.natsuneko.cat/ja/docs/)** ·
+**[Download](https://github.com/mika-f/Celesta/releases/latest)** ·
+**[Showcase](https://celesta.natsuneko.cat/en/showcase/)**
 
-## Gallery
+Celesta is under active development. The official website includes a browser
+playground, example projects, and the full user guide in English and Japanese.
 
-### Main Visual - [Reel](examples/reel/film.tsx) by Claude Opus 5.5
+## See it in action
+
+### [Reel](examples/reel/film.tsx) by Claude Opus 5.5
 
 https://github.com/user-attachments/assets/df585cd3-26a1-4d35-aaff-e36eea4e7d14
 
-for more examples, see the [examples directory](examples) and the [gallery](docs/gallery.md).
+Explore the [showcase](https://celesta.natsuneko.cat/en/showcase/) to try
+browser-ready projects and view their source. The [examples directory](examples)
+contains the projects and their setup instructions.
 
 ## What you can do
 
-- **Compose with React:** use components, hooks, sequences, transitions, and
-  layouts to build scenes. Join scenes with cuts, cross-fades, slides, or
-  wipes using `<TransitionSeries>`, which works out the overlaps and length.
-  Animate positions, colors, and effects with interpolation and springs,
-  hold a scene at a chosen frame with `<FreezeFrame>`, and blur fast motion
-  with `<MotionBlur>` or leave a trail behind it with `<Trail>`.
-- **Draw and lay out content:** combine rectangles, circles, ellipses, arrows,
-  and paths with text. Load fonts, measure text, fit it into a box, and wrap
-  Japanese text at phrase boundaries. Draw up to hundreds of thousands of
-  particles, as rects, circles, or image sprites, with `<Instances>`.
-- **Use media:** load local or HTTP(S) video, images, and audio. Remote files
-  are downloaded into a cache for native preview and export.
-- **Preview frame by frame:** open a React composition, play it
-  with synchronized audio, scrub the timeline, or step through frames. The
-  timeline, asset list, and Inspector show what the composition contains.
-  The preview reloads when you save its source.
-- **Check audio:** see waveforms and track levels, mute or solo tracks, and
-  set the preview volume. Use frame-based keyframes for volume fades and
-  playback-rate changes.
-- **Create character dialogue:** combine image or PSD portraits, expressions,
-  subtitles, voice recordings, lip-sync cues, and blinking. Use
-  `<DialogueSeries>` to sequence conversations.
-- **Export video:** render H.264 MP4 with AAC audio, or transparent MOV
-  (ProRes 4444) and WebM (VP9), either from the app or the command line.
-  Export the whole composition or a selected time range.
-- **Inspect frames:** export selected frames as PNG files or a labelled
-  contact sheet, and request machine-readable export results for scripts.
+- **Compose with React:** build reusable scenes with components, hooks,
+  sequences, transitions, interpolation, and springs.
+- **Create motion graphics:** combine text, shapes, paths, particles, layouts,
+  and visual effects with local or remote media.
+- **Preview as you edit:** play with synchronized audio, scrub or step through
+  frames, and inspect layers and tracks. The app reloads when you save your source.
+- **Build character dialogue:** combine image or PSD portraits, expressions,
+  subtitles, voice recordings, lip sync, and blinking.
+- **Export and automate:** render videos, PNG frames, and contact sheets from
+  the desktop app or CLI, with JSON results and MCP tools for scripts and agents.
 
-## Start with the desktop app
+## Get started
 
-Download a macOS or Windows package from the
-[GitHub releases](https://github.com/mika-f/celesta/releases/latest).
-Choose **File › Create New Project…**, select a folder, and edit the generated
-`film.tsx` in your text editor. Celesta opens it for preview and reloads it
-when you save. Choose **Export…** to write a video.
+1. [Download and install Celesta](https://celesta.natsuneko.cat/en/docs/installation/)
+   for macOS or Windows. The packages include the React runtime, Node.js, and
+   media dependencies.
+2. Choose **File › Create New Project…**, pick a template, and select a folder.
+3. Edit the generated `film.tsx` in your text editor. Save to reload the preview,
+   then choose **Export…** to write a video.
 
-Preview and export use the bundled runtime. Install Node.js and a package
-manager separately when you need TypeScript checking or external npm packages;
-see [Create a React project](#create-a-react-project).
+For Linux, follow the [source-build guide](https://celesta.natsuneko.cat/en/docs/build-from-source/)
+or use the [headless container](packaging/linux/README.md).
 
-## Run from source
+The website documents the complete workflow:
 
-You need Rust 1.89 or later, the native build tools for your platform, and
-FFmpeg 8.1.x development libraries (FFmpeg 9 and later are not supported yet).
-To build the React runtime, use Node.js 24 and the pnpm version declared in
-the root `package.json`, matching the repository's CI setup.
+| Task | Guide |
+| --- | --- |
+| Start a project or use a template | [Create a project](https://celesta.natsuneko.cat/en/docs/create-project/) |
+| Write your first scene | [React compositions](https://celesta.natsuneko.cat/en/docs/react-compositions/) |
+| Play, scrub, and inspect | [Preview](https://celesta.natsuneko.cat/en/docs/preview/) |
+| Export video or check frames from the CLI | [Export](https://celesta.natsuneko.cat/en/docs/export/) |
+| Find components and hooks | [API reference](https://celesta.natsuneko.cat/en/docs/reference/) |
+| Resolve setup or rendering problems | [Troubleshooting](https://celesta.natsuneko.cat/en/docs/troubleshooting/) |
 
-### 1. Prepare FFmpeg
+## Use with AI agents
 
-Celesta links to FFmpeg libraries; installing only the `ffmpeg` command-line
-executable is not sufficient.
-
-- **Windows:** install the MSVC C++ build tools and vcpkg, run
-  `vcpkg install ffmpeg[x264,vpx,opus]:x64-windows-static-md`, and set `VCPKG_ROOT` to
-  your vcpkg directory. Use a vcpkg release whose `ffmpeg` port is 8.1.x, such
-  as `2026.07.29`; newer releases provide FFmpeg 9.
-- **macOS:** install the Xcode Command Line Tools, then run
-  `brew install ffmpeg@8 pkg-config`. `ffmpeg@8` is keg-only, so point
-  `pkg-config` at it before building:
-  `export PKG_CONFIG_PATH="$(brew --prefix ffmpeg@8)/lib/pkgconfig"`.
-- **Linux:** most distributions, including Ubuntu 24.04 LTS (FFmpeg 6.1), do
-  not package FFmpeg 8.1.x, so build it from source with
-  [`scripts/build-ffmpeg-linux.sh`](scripts/build-ffmpeg-linux.sh) after
-  cloning the repository (step 2). On Debian and Ubuntu:
-
-  ```sh
-  sudo apt-get install -y build-essential nasm pkg-config curl xz-utils zlib1g-dev libx264-dev libvpx-dev libopus-dev libclang-dev
-  sudo scripts/build-ffmpeg-linux.sh /opt/ffmpeg8
-  export PKG_CONFIG_PATH=/opt/ffmpeg8/lib/pkgconfig
-  ```
-
-  The script downloads the FFmpeg source from ffmpeg.org and builds static
-  libraries with `libx264`, `libvpx`, and `libopus` into `/opt/ffmpeg8` (about 5 minutes on 4 cores).
-  Celesta links them into its executables, so `LD_LIBRARY_PATH` is not needed;
-  only `libx264`, `libvpx`, and `libopus` stay shared libraries. With `libx264`
-  the FFmpeg build is GPL-licensed; `libvpx` and `libopus` are BSD-licensed
-  (see [License](#license)). `libclang-dev` is for Cargo, which
-  generates the FFmpeg bindings with it. Set `PKG_CONFIG_PATH` in every shell
-  where you run Cargo. If your distribution does provide FFmpeg 8.1.x, install
-  `pkg-config` and its `libavcodec`, `libavformat`, `libavfilter`,
-  `libavdevice`, `libavutil`, `libswscale`, and `libswresample` development
-  packages instead.
-
-  The Celesta app also needs the ALSA, xkbcommon, and Fontconfig development
-  packages:
-
-  ```sh
-  sudo apt-get install -y libasound2-dev libxkbcommon-x11-dev libfontconfig-dev
-  ```
-
-  These steps are tested on Ubuntu 24.04 in CI. To export on a machine without
-  a GPU, see [Export without a GPU on Linux](#export-without-a-gpu-on-linux).
-
-### 2. Get the source and launch
+Install the [Celesta Agent Skill](skills/celesta) to teach coding agents such
+as Claude Code and Codex to write, inspect, and export compositions:
 
 ```sh
-git clone https://github.com/mika-f/celesta.git
-cd celesta
+npx skills add mika-f/celesta
 ```
 
-Prepare FFmpeg before running Cargo. On Linux, run the source-build script
-from step 1 now. Then build the React runtime and launch the app:
+The desktop packages also ship `Celesta-mcp`, an MCP server for project
+initialization, scene inspection, PNG frame and contact-sheet rendering, video
+export, and documentation matching the installed version. For example, register
+it with Claude Code on macOS:
 
 ```sh
+claude mcp add celesta -- /Applications/Celesta.app/Contents/MacOS/Celesta-mcp
+```
+
+On Windows, register `Celesta-mcp.exe` from the install folder. From source,
+build it with `cargo build -p celesta-mcp --release`. See the
+[skill setup guide](skills/celesta/references/setup.md) for runtime setup and
+[inspection tools](skills/celesta/scripts) for checks without the GUI.
+
+## Develop Celesta
+
+To run from source, use Rust 1.89 or later, Node.js 24, the pnpm version in
+[`package.json`](package.json), and your platform's native build tools.
+Prepare the **FFmpeg 8.1.x development libraries** using the
+[source-build guide](https://celesta.natsuneko.cat/en/docs/build-from-source/)
+before running Cargo. The FFmpeg executable alone is insufficient; FFmpeg 9
+and later are not supported yet.
+
+```sh
+git clone https://github.com/mika-f/Celesta.git celesta
+cd celesta
 pnpm install
 pnpm --dir packages/react run codegen
 pnpm run build:runtime
 cargo run -p celesta-editor --release -- packages/cli/examples/title.tsx
 ```
 
-The app opens the sample title composition. Choose **File › Open…** (Command-O
-on macOS, Ctrl-O elsewhere) to open another React composition, or pass its path:
+On Linux, clone the repository before preparing FFmpeg so the guide's build
+script is available. The [source of the build guide](packages/website/content/en/docs/05-(more)/03-build-from-source.md)
+is also in this repository.
+
+After building the runtime, check the area you changed. Common checks are:
 
 ```sh
-cargo run -p celesta-editor --release -- examples/reel/film.tsx
-```
-
-## Preview and export
-
-1. **Open a composition.** Choose **File › Open…** and select a React
-   composition (`.tsx`, `.jsx`, `.ts`, or `.js`).
-   `packages/cli/examples/title.tsx` is a small starting point.
-2. **Edit the source file.** Change the composition in your text editor.
-   Compositions reload automatically when you save. You can also choose
-   **File › Reload** (Command-R on macOS, Ctrl-R elsewhere).
-3. **Preview.** Press Space to play or pause (L plays, K stops). Use the left
-   and right arrow keys to step one frame at a time, Shift with them to move
-   one second, the up and down arrow keys to jump between clip edges, and Home
-   and End to go to the start and end. Drag along the timeline ruler, or swipe
-   sideways over the tracks, to scrub. Press = and - to zoom the timeline (or
-   pinch over the tracks) and Shift-Z to fit it; scroll sideways over the ruler,
-   scroll over the tracks with Option (Alt) held, or drag the bar under the
-   tracks to move along it. Loop playback (Command-/ on
-   macOS, Ctrl-/ elsewhere) repeats the In–Out range when one is marked, and
-   ' shows safe areas over the viewer. The Master meter beside the timeline
-   shows the preview's audio levels. Select an asset, track, or clip to see its
-   details in the Inspector.
-4. **Export.** Choose **Export…** and a video destination (.mp4, .mov or .webm). To export a section,
-   press I and O to mark its start and end. Progress appears in the status
-   bar; **Cancel export** stops the job.
-
-Compositions reference your source media. Keep local media available when
-reopening or sharing a project. Assets whose files cannot be found are marked
-in the Assets panel. Remote media needs network access on its first use;
-subsequent runs reuse the cached files.
-
-### Character dialogue
-
-See [`with-dialogue-series.tsx`](packages/cli/examples/with-dialogue-series.tsx)
-for a conversation built with `<DialogueSeries>`, or
-[`with-lip-sync.tsx`](packages/cli/examples/with-lip-sync.tsx)
-for a PSD portrait with lip-sync.
-
-## Use React compositions
-
-For source builds, complete [Run from source](#run-from-source) first. React
-compositions under `examples/*` are workspace packages too. Examples with a
-`tsconfig.json` are type-checked in CI; after `pnpm run build:runtime`, check
-them all or name some:
-
-```sh
+pnpm run test:runtime
 pnpm run typecheck:examples
-pnpm run typecheck:examples apex reel
+cargo test --workspace --locked
 ```
 
-This copies the editor's TypeScript support files into each example's
-`.celesta/` (ignored by Git) and adds no other files, so it also prepares an
-example for your text editor.
+See the [CI workflow](.github/workflows/ci.yml) for the full checks and platform
+setup. For rendering changes, include screenshots of the same scene before and
+after the change.
 
-Use the files in [`packages/cli/examples`](packages/cli/examples) as
-starting points. They demonstrate text, animation, layout, shapes, dialogue,
-audio, and project properties. Celesta's API is split into packages, in the
-manner of Remotion; import each piece from the package that provides it:
+### Repository guide
 
-| Package | Provides |
+| Location | Contents |
 | --- | --- |
-| [`@celesta/react`](packages/react) | `<Composition>`, `<Sequence>`, `<Series>`, `<FreezeFrame>`, `<MotionBlur>`, `<Trail>`, `<Group>`, `<Rect>`, `<Text>`, `<Span>`, `<Image>`, `<Video>`, `<Audio>`, `<Font>`, `<Assets>`, frame and config hooks, `interpolate`, `spring`, `Easings`, keyframes, beats and cues, text measurement, `registerComponent`, and `defineProjectProperties` |
-| [`@celesta/shapes`](packages/shapes) | `<Line>`, `<Polyline>`, `<Path>`, `<Circle>`, `<Ellipse>`, `<Arrow>`, `<Triangle>`, `<Polygon>`, `<Star>`, `<Pie>`, `<Heart>`, `pointOnPolyline`, path generators (`starPath`, `piePath`, …), `pointOnPath`, `measurePath`, `interpolatePath`, `parseSvgPath`, `toSvgPath` |
-| [`@celesta/layout`](packages/layout) | `<Center>`, `<Stack>`, `<Grid>`, `<Fit>`, `<SafeArea>`, `safeAreaInsets`, `useLayoutBounds`, `<Camera>` |
-| [`@celesta/transitions`](packages/transitions) | `<Transition>`, `<TransitionSeries>` and its hooks |
-| [`@celesta/text`](packages/text) | `<TextReveal>`, `useTypewriter`, `useCountUp`, `<TextBox>`, `fitText`, `useFitText` |
-| [`@celesta/character`](packages/character) | `<Character>`, `<CharacterView>`, `<Dialogue>`, `<DialogueSeries>`, `planDialogue`, lip sync, blinking, PSD presets |
-| [`@celesta/media-utils`](packages/media-utils) | `preloadMedia`, `mediaDurationInFrames`, `loadAudioSpectrum`, `useAudioSpectrum` |
-| [`@celesta/project`](packages/project) | `<ProjectProvider>`, `<ProjectTimeline>`, `<ProjectTrack>`, `useProject`, `useProjectProperty`, `loadProject`, and the project file types |
-| [`@celesta/debug`](packages/debug) | `<DebugOverlay>`, `<DebugBounds>` |
-| [`@celesta/math`](packages/math) | Deterministic random numbers, noise, and other math helpers |
-| [`@celesta/code`](packages/code/README.md) | Syntax-highlighted `<Code>` |
-| [`@celesta/voicevox`](packages/voicevox/README.md) | Lip sync from VOICEVOX AudioQuery |
-| [`@celesta/aivis-speech`](packages/aivis-speech/README.md) | Lip sync from AivisSpeech AudioQuery and WAV |
-
-[`@celesta/cli`](packages/cli) is the Node.js runtime the editor and exporter
-evaluate compositions in; it ships every package above.
-
-Compositions written before this split import everything from
-`@celesta/react`. Move those imports to the packages above automatically:
-
-```sh
-node skills/celesta/scripts/migrate-packages.mjs path/to/project --dry-run
-node skills/celesta/scripts/migrate-packages.mjs path/to/project
-```
-
-It rewrites named imports and `export … from` re-exports, adds the new
-packages beside `@celesta/react` in a `package.json` that lists it, and reports
-`import * as` namespaces that use moved names, which it leaves for you.
-`--check` exits 1 when anything is left to migrate, including such a
-namespace.
-
-`@celesta/code` supports TSX, TypeScript, JSON, Bash, line highlights, and
-measured caret positions. For typing animations, combine it with
-`useTypewriter()` from `@celesta/text`. Its highlighting dependencies stay out
-of the other packages.
-
-Visual layers and groups accept `blur`, `shadow`, and `glow`. Radii and shadow
-offsets use output pixels. All three can change each frame through React props:
-
-```tsx
-import { Group, Text, useCurrentFrame } from '@celesta/react';
-
-function Title() {
-  const frame = useCurrentFrame();
-  return <Group blur={Math.min(frame / 10, 8)}
-    glow={{ color: '#FFCC6680', blur: 12 }}>
-    <Text shadow={{ color: '#000000B0', blur: 6, offsetX: 4, offsetY: 6 }}>
-      Celesta
-    </Text>
-  </Group>;
-}
-```
-
-Blur radii are limited to 64 pixels.
-
-### Create a React project
-
-With Celesta's command-line executables on PATH, initialize a directory:
-
-```sh
-celesta-editor --init my-video
-cd my-video
-celesta-editor film.tsx
-celesta-exporter --react film.tsx output.mp4
-```
-
-Use `celesta-editor --init` to initialize the current directory. In the GUI,
-choose **File > Create New Project…** (Ctrl-N, or Command-N on macOS), or the
-toolbar's **Create New Project…**, pick a template, and select a project
-folder. The folder picker can create a new folder. Celesta initializes it and
-opens `film.tsx`.
-
-Initialization creates a five-second `film.tsx`, a private `package.json` with
-preview/export/typecheck scripts, `tsconfig.json`, `.gitignore`, and the
-matching type declarations in `.celesta/`. Preview and export use the bundled
-runtime without a package installation. Run `pnpm install` and `pnpm typecheck`
-to use the project's TypeScript compiler.
-
-Re-running `--init` refreshes `.celesta/` and creates missing starter files.
-Existing source files, `package.json` (including dependencies and scripts),
-`.gitignore`, and `tsconfig.json` are kept unchanged. If your existing tsconfig
-does not extend `./.celesta/tsconfig.json`, Celesta reports the required change;
-merge the base configuration into your configuration as appropriate.
-
-#### Start from a template
-
-To start from a ready-made video, add `--template`:
-
-```sh
-celesta-editor --list-templates
-celesta-editor --init my-video --template slideshow
-```
-
-| Template | Contents |
-| --- | --- |
-| `blank` | A five-second title card. The default. |
-| `slideshow` | A title card, then photos with captions joined by transitions, with optional music. |
-| `ranking` | A ranking card built from a data file, with a theme and accent color. |
-| `dialogue` | Two characters talking, with subtitles and lip sync; recorded voices are optional. |
-
-Each template except `blank` is a `film.tsx` that declares its inputs with
-`defineProjectProperties()`, a `props.json` holding their values, a data file
-for list-shaped content (slides, rows, lines), sample media where it applies
-(`slideshow`, `dialogue`), and a `README.md`
-that says what to replace. Edit `props.json` and the data file instead of the
-source; everything renders at 1920×1080 or 1080×1920 (`"format": "9:16"`), 30
-fps. The first preview or export downloads Noto Sans JP, and later ones use the
-cache. The templates ship with Celesta, so a template always matches the
-runtime it runs on.
-
-A `props.json` next to the entry file is loaded automatically by the preview
-and the exporter; the preview panel and the exporter show it as
-`props.json (auto)`. `--props-file` replaces it, and `--props` still wins over
-either. It is checked like `--props-file`, so an undeclared key or a wrong type
-is an error, and it is ignored with a warning when the entry declares no
-properties.
-
-You can change these values without editing JSON. Open `film.tsx` in Celesta
-and use the **Properties** section of the React Preview panel: it lists every
-property the entry declares, with a control for each type. A change is saved to
-the props file in use (`props.json`, or the `--props-file` you opened with) and
-the preview reloads. A file you pick from outside the project is copied into
-`assets/`.
-
-With `--template`, initialization refuses to write if any file the template
-would create already exists, and lists them; without it, existing files are
-kept as described above.
-
-For source builds, use `cargo run -p celesta-editor -- --init my-video` after
-building the React runtime above. Preview with
-`cargo run -p celesta-editor -- my-video/film.tsx` and export with
-`cargo run -p celesta-exporter --release -- --react my-video/film.tsx output.mp4`.
-Desktop packages currently name these executables `Celesta` and `Celesta-export`
-(`.exe` on Windows); use their installed paths in place of the Cargo binary
-names, including in generated scripts when needed.
-
-### Add external dependencies
-
-Install general npm packages in the project that imports them. For a repository
-example, add the dependency to that example's workspace package:
-
-```sh
-pnpm --dir examples/versus add ag-psd
-cargo run -p celesta-editor --release -- examples/versus/film.tsx
-cargo run -p celesta-exporter --release -- --react examples/versus/film.tsx output.mp4
-```
-
-For a project outside the repository, run `pnpm add ag-psd` inside the initialized
-directory. Both preview and export resolve external imports from the importing
-file's project `node_modules`. Celesta supplies every `@celesta/*` package above
-and React from its runtime; these do not need to be added to an external
-project's dependencies. Example manifests use `workspace:*` for the
-local Celesta packages so Node tools can also resolve their imports.
-
-Node asset preparation scripts use the same project dependencies directly. For
-example, save this as `prepare-assets.mjs` beside your `package.json`:
-
-```js
-import { readFileSync, writeFileSync } from 'node:fs';
-import { readPsd } from 'ag-psd';
-
-const { width, height } = readPsd(readFileSync(new URL('./portrait.psd', import.meta.url)), {
-  skipLayerImageData: true,
-  skipCompositeImageData: true,
-  skipThumbnail: true,
-});
-writeFileSync(new URL('./portrait-info.json', import.meta.url), JSON.stringify({ width, height }));
-```
-
-Run `node prepare-assets.mjs` from the project directory after installing its
-dependencies; no `createRequire` workaround pointing to another package is
-needed. Import the generated JSON from your composition as usual. For `.ts`
-preparation scripts, use a Node version with TypeScript stripping support or
-install a TypeScript runner in that project. The bundled Node runtime evaluates
-compositions; direct Node scripts use your installed Node.
-
-### Type-check your compositions
-
-Choose **File > Set Up TypeScript** with a React composition open. Celesta
-copies the type declarations of every `@celesta/*` package above, React, and
-Node.js that match its bundled runtime into a `.celesta/` folder in your
-project. To start a new
-project before writing its first composition, choose **File > Set Up TypeScript
-in Folder…** and pick the project folder instead. If the project
-has no `tsconfig.json`, Celesta creates one that extends
-`./.celesta/tsconfig.json`. If a `tsconfig.json` already exists, add
-`"extends": "./.celesta/tsconfig.json"` to it. You don't need to install
-the `@celesta/*` packages, `react`, or `@types/*` from npm.
-
-Celesta updates `.celesta/` when you open the project in a newer version. The
-folder ignores itself in Git.
-
-## Export from the command line
-
-Export a React composition after completing the source-build setup:
-
-```sh
-cargo run -p celesta-exporter --release -- --react packages/cli/examples/title.tsx output.mp4
-```
-
-An entry can return multiple root `<Composition id="…">` elements in a fragment.
-IDs must be unique and non-empty; multiple roots each require an ID. An unnamed
-single root keeps working as `default`. The first root is selected unless you
-pass `--composition ID` to the editor, exporter, or `skills/celesta/scripts/inspect.mjs`.
-The editor's title-bar composition menu switches both preview and export.
-`defineProjectProperties()` and `prepare()` are shared by the entry. Exporter
-`--json` includes `compositionId` and `compositions`; inspection includes them
-in `ready`. See [the two-format example](packages/cli/examples/multiple-compositions.tsx).
-
-
-In a terminal, exports show a [Ratatui](https://github.com/ratatui/ratatui)
-dashboard with a timed pipeline, rendered-frame progress, a throughput history
-graph, FPS, elapsed time, estimated rendering time remaining, export settings,
-and warnings. Smaller terminals use a compact layout. The dashboard stays
-in your terminal's scrollback after the export finishes. The rendering bar
-can reach 100% while audio mixing and muxing are still running.
-
-Use `--no-ui` for text progress. Redirected output, CI without a terminal,
-and `TERM=dumb` automatically use text progress without terminal control codes.
-
-For scripts and AI agents, `--json` prints no progress. When the export ends,
-it prints one line of JSON on stdout: the status, each written file with its
-frame numbers, warnings, the composition's size, fps and frame count once it
-has been loaded, and on failure an error `code`, `message` and sometimes a
-`hint`. When the arguments are rejected, the JSON has only `status` and
-`error`. The exit status is 0 on success, 1 when the export fails, and 2 for
-invalid arguments.
-
-Add `--overwrite` to replace an existing output file. To export a section, add
-`--from` and `--to` with times in `HH:MM:SS.mmm`, `MM:SS.mmm`, or seconds:
-
-```sh
-cargo run -p celesta-exporter --release -- --react --from 0 --to 1 packages/cli/examples/title.tsx section.mp4
-```
-
-The video is encoded with libx264 using `--preset medium --crf 18` by default.
-For faster exports, pass a faster preset such as `--preset veryfast`. The file
-will be larger, but quality stays about the same. `--crf` takes a value from 0
-to 51. Lower values give higher quality and larger files:
-
-```sh
-cargo run -p celesta-exporter --release -- --react --preset veryfast packages/cli/examples/title.tsx draft.mp4
-```
-
-On a hardware GPU, frames are converted from RGB to the video's YUV colors
-on the GPU. The exporter then reads less data back from the GPU, and the
-encoder has less work to do. `--color-conversion encoder` does the conversion
-in the encoder instead, which is how software renderers are always handled.
-`--color-conversion gpu` forces the GPU conversion.
-
-Frames are rounded to 8 bits with a fine dither, so dark, gentle gradients do
-not band. To keep them smoother still, `--bit-depth 10` encodes 10-bit video
-(H.264 High 10, `yuv420p10le`). It exports somewhat slower, and fewer devices
-play it: many phones, browsers, and editing tools decode only 8-bit H.264, so
-8 bits stay the default:
-
-```sh
-cargo run -p celesta-exporter --release -- --react --bit-depth 10 packages/cli/examples/title.tsx smooth.mp4
-```
-
-The output extension picks the video format. `.mov` writes ProRes 4444 with
-24-bit PCM audio and `.webm` writes VP9 with Opus audio; both keep
-transparency where nothing is drawn (straight alpha, BT.709), so a full-frame
-background layer makes them opaque. `--preset`, `--crf`, `--bit-depth`, and
-`--color-conversion` apply to MP4 only, and are usage errors with `.mov` or
-`.webm`:
-
-```sh
-cargo run -p celesta-exporter --release -- --react packages/cli/examples/title.tsx overlay.mov
-```
-
-To check frames as PNG instead of encoding a video, select zero-based frames
-with `--frame`/`--frames`, or every *n*th frame (plus the last one) with
-`--every`, which can be narrowed with `--from`/`--to`. Add `--contact-sheet`
-to lay the selection out as labelled tiles on one image (`--columns`,
-`--tile-width`):
-
-```sh
-cargo run -p celesta-exporter --release -- --react --frames 0,90 packages/cli/examples/title.tsx check.png
-cargo run -p celesta-exporter --release -- --react --every 60 --contact-sheet packages/cli/examples/title.tsx sheet.png
-```
-
-### Render variants of one composition
-
-An entry that declares its inputs with `defineProjectProperties()` can be
-rendered with different titles, colors, or data files without editing the
-source. Pass a JSON object of values with `--props-file`, or inline with
-`--props` (which wins over the file). Relative paths in the file resolve from
-the file's folder. Every value is checked against the declaration before
-anything renders, and `--json` reports the problems with the code
-`invalid_properties`. [`templates/ranking`](templates/ranking/README.md) is a
-template with two variants:
-
-```sh
-cargo run -p celesta-exporter --release -- --react templates/ranking/film.tsx spring.mp4 \
-  --props-file templates/ranking/variants/spring.json
-cargo run -p celesta-exporter --release -- --react templates/ranking/film.tsx autumn.mp4 \
-  --props-file templates/ranking/variants/autumn.json --props '{"title":"秋のおすすめドリンク"}'
-```
-
-`celesta-editor` takes the same `--props-file` and `--props` options for the
-preview and its exports. Values win over a `--project` file's `properties`,
-which win over the declared defaults. Without `--props-file`, a `props.json`
-next to the entry file is used (every template ships one).
-
-### Export without a GPU on Linux
-
-The exporter renders through Vulkan on Linux. On machines without a GPU, such
-as CI runners and cloud containers, install Mesa's software Vulkan driver
-(lavapipe), which renders on the CPU:
-
-```sh
-sudo apt-get install -y mesa-vulkan-drivers
-```
-
-Software rendering is much slower than a GPU: with 4 CPU cores, 1080p
-compositions render at roughly 10 to 60 frames per second, depending on the
-scene. Check a single frame before exporting the whole video:
-
-```sh
-cargo run -p celesta-exporter --release -- --react packages/cli/examples/title.tsx --frame 0 frame.png
-```
-
-Minimal containers often have no fonts installed, and text cannot be drawn
-without at least one. Install some, such as `fonts-dejavu-core` (and
-`fonts-noto-cjk` for Japanese), or load font files with `<Font>`.
-
-On a software renderer, `--color-conversion auto` leaves the RGB-to-YUV
-conversion to the encoder. `--render-quality draft` skips re-rasterizing scaled
-text, which is quicker for checking timing but not for checking pixels.
-
-To export in a container without building Celesta on the host, use the
-[Linux container image](packaging/linux/README.md).
-
-## Use with AI agents
-
-[`skills/celesta`](skills/celesta) is an [Agent Skill](https://agentskills.io)
-that teaches coding agents such as Claude Code and Codex to write React
-compositions, check them without the GUI, and export them. Install it with
-the `skills` CLI:
-
-```sh
-npx skills add mika-f/celesta
-```
-
-Or copy the `skills/celesta` folder into your agent's skills directory, for
-example `~/.claude/skills/` or a project's `.claude/skills/`.
-
-The skill includes `scripts/inspect.mjs`, which loads a React composition
-with Celesta's bundled runtime and prints the layers and audio of selected
-frames, and lists PSD layer paths for character portraits:
-
-```sh
-node skills/celesta/scripts/inspect.mjs packages/cli/examples/title.tsx --frames 0,-1
-node skills/celesta/scripts/inspect.mjs --psd-layers examples/assets/lipsync-fixture.psd
-```
-
-### MCP server
-
-`Celesta-mcp`, shipped next to `Celesta-export`, is an
-[MCP](https://modelcontextprotocol.io) server that gives agents the same
-checks as tools: `inspect`, `render_frames` and `contact_sheet` (which
-return the rendered PNGs as images), `export_video` (with progress and
-cancellation), `init_project`, `list_templates`, and `read_docs` (the
-skill's documentation, matching the installed version). Register it with
-your agent, for example with Claude Code:
-
-```sh
-claude mcp add celesta -- /Applications/Celesta.app/Contents/MacOS/Celesta-mcp
-```
-
-On Windows, register `Celesta-mcp.exe` from the install folder; from source,
-build it with `cargo build -p celesta-mcp --release`.
-
-## Current limitations
-
-- Remote media is cached by URL without revalidation. Use a new URL or clear
-  the cache when the remote file changes.
-- Video export requires non-zero, even-numbered width and height.
-- The Celesta app previews and exports compositions; edit their source files
-  in a text editor.
-
-## Build a Windows package
-
-To create a Windows installer or portable ZIP with Node.js included, follow the
-[Windows packaging guide](packaging/windows/README.md).
-
-## Build a macOS package
-
-To create a DMG with `Celesta.app` and an Applications shortcut for
-drag-and-drop installation, follow the [macOS packaging guide](packaging/macos/README.md).
-Node.js is included. Developer ID signing and notarization are supported for
-distribution outside the Mac App Store.
-
-## Build a Linux container image
-
-To export in Docker on a machine without a GPU, such as a CI runner, build the
-headless exporter image described in the
-[Linux container guide](packaging/linux/README.md).
-
-## Website
-
-The English product website lives in [`packages/website`](packages/website).
-It uses Vite, React, and Tailwind CSS, with Cloudflare Workers Static Assets
-deployment configured. See the [website guide](packages/website/README.md) for
-local development, production builds, and deployment instructions.
-
-The browser composition evaluator, Canvas preview, and MP4 exporter are a
-reusable package in [`packages/web`](packages/web). The website consumes its
-public `@celesta/web` API. See the [web package guide](packages/web/README.md)
-for an embedding example and browser requirements.
+| [`crates/`](crates) | Native desktop app, renderers, exporter, media pipeline, and MCP server |
+| [`packages/`](packages) | React composition APIs and the Node.js runtime |
+| [`packages/web/`](packages/web/README.md) | Browser evaluator, Canvas preview, and MP4 exporter |
+| [`packages/website/`](packages/website/README.md) | Official website, English and Japanese documentation, and playground |
+| [`examples/`](examples) | Complete video projects; [`packages/cli/examples/`](packages/cli/examples) has smaller API examples |
+| [`templates/`](templates) | Starter projects bundled with Celesta |
+| [`skills/celesta/`](skills/celesta) | Agent instructions, API guides, and inspection scripts |
+| [`docs/performance/`](docs/performance) | Benchmarks and renderer performance notes |
+
+To build release packages, use the [macOS](packaging/macos/README.md),
+[Windows](packaging/windows/README.md), or [Linux container](packaging/linux/README.md)
+packaging guide.
 
 ## Report a problem
 
-Open an issue in this repository with your operating system, steps to reproduce
-the problem, and any error message. If possible, include a small project that
-reproduces it, along with media you have permission to share.
+[Open an issue](https://github.com/mika-f/Celesta/issues) with your operating
+system, steps to reproduce the problem, and any error message. If possible,
+include a small project that reproduces it, along with media you have permission
+to share.
 
 ## License
 
