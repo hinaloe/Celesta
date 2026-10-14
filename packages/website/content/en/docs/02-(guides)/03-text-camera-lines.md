@@ -37,6 +37,8 @@ For a quick monospaced caret, use `length × advance` as an estimate. For actual
 
 For other shapes, `<Path>` takes `points` (with `closed`) or SVG-like `commands` (`moveTo`, `lineTo`, `quadTo`, `cubicTo`, `close`), a `stroke` and/or `fill`, and `cap`/`join`/`miterLimit`. Each is one layer however many segments it has, stays sharp when scaled, and paints a translucent stroke that crosses itself only once, so draw procedural line art as a few paths rather than many thin rects.
 
+Every line and shape stroke takes `dash`, the lengths of its dashes and gaps in turn (like SVG’s `stroke-dasharray`), and `dashOffset`, which shifts them along the line. `dash={[0, 12]}` with `cap="round"` draws dots, and `dashOffset={-frame}` makes the dashes flow towards the end. The pattern is anchored at the first point, so a dashed polyline drawn on with `progress` keeps its dashes in place. Closed shapes run their dashes clockwise: from the rightmost point of a circle or an ellipse, and from the end of a `Rect`’s top-left corner. An `<Arrow>` dashes only its shaft.
+
 ## Circles, ellipses, and arrows
 
 `<Circle radius>` and `<Ellipse width height>` are placed like a `Rect`: `x`/`y` put their box’s anchor (top-left by default), `fill` gradients start from the box’s top-left, and a `stroke` stays inside the box. `<Arrow x1 y1 x2 y2>` points its head’s tip at `x2`/`y2`; set `strokeWidth`, `headLength`, `headWidth`, and `heads` (`end`, `start`, or `both`). An arrow shorter than its heads shrinks them to fit, so it can grow from nothing, and one with no length draws nothing. A circle is drawn as a rounded `Rect` and the other two as paths; all three take gradients, transforms, and effects like any layer.

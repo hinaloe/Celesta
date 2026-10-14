@@ -215,6 +215,7 @@ impl CpuRenderer {
                 line_cap,
                 line_join,
                 miter_limit,
+                line_dash,
             } => {
                 let shape = PathShape {
                     commands,
@@ -223,6 +224,7 @@ impl CpuRenderer {
                     line_cap: *line_cap,
                     line_join: *line_join,
                     miter_limit: *miter_limit,
+                    line_dash: line_dash.as_deref(),
                 };
                 let transform = PathTransform::scale_translate(
                     state.scale.x,

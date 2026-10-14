@@ -127,6 +127,7 @@ fn a_path_masks_a_group() {
             line_cap: LineCap::Butt,
             line_join: LineJoin::Miter,
             miter_limit: DEFAULT_MITER_LIMIT,
+            line_dash: None,
         },
     };
     let frame = render(vec![masked(

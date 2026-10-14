@@ -1,6 +1,6 @@
 import * as React from 'react';
 
-import { Rect } from '@celesta/react';
+import { Group, Rect } from '@celesta/react';
 import type { CommonProps, LineCap, LineJoin, Paint, PathCommand } from '@celesta/react';
 
 export type { LineCap, LineJoin, PathCommand };
@@ -29,6 +29,30 @@ interface StrokeProps extends PathLayerProps {
    * it is drawn as a bevel instead. Defaults to 4, like SVG.
    */
   miterLimit?: number;
+  /**
+   * Breaks the stroke into dashes: lengths of the dashes and the gaps
+   * between them, in turn, in pixels, starting over at each `moveTo`, like
+   * SVG's `stroke-dasharray`. An odd count repeats once more. With `cap`
+   * `'round'`, `[0, gap]` draws dots. The pattern is anchored at the start
+   * of the path, so it stays put while `progress` draws the line on.
+   */
+  dash?: readonly number[];
+  /** How far into `dash` the stroke starts; animate it to make the dashes flow. */
+  dashOffset?: number;
+}
+
+/** The dash props of a closed shape, whose dashes run clockwise from a point it names. */
+interface ShapeDashProps {
+  /** As for `<Path>`, from the point the shape's docs name, clockwise. */
+  dash?: readonly number[];
+  /** How far into `dash` the stroke starts; animate it to make the dashes flow. */
+  dashOffset?: number;
+  /** How each dash ends: `'butt'` (the default), `'round'`, or `'square'`. Only matters with `dash`. */
+  cap?: LineCap;
+}
+
+function isDashed(dash: readonly number[] | undefined): dash is readonly number[] {
+  return dash !== undefined && dash.length > 0;
 }
 
 export interface PathProps extends StrokeProps {
@@ -213,7 +237,7 @@ export function Polyline({
   });
 }
 
-export interface EllipseProps extends CommonProps {
+export interface EllipseProps extends CommonProps, ShapeDashProps {
   /** Width of the ellipse's bounding box, in pixels. 0 draws nothing. */
   width: number;
   /** Height of the ellipse's bounding box, in pixels. 0 draws nothing. */
@@ -254,6 +278,14 @@ export interface ArrowProps extends PathLayerProps {
   headWidth?: number;
   /** Which ends get a head: `'end'` (the default, at `x2`/`y2`), `'start'`, or `'both'`. */
   heads?: 'end' | 'start' | 'both';
+  /**
+   * Breaks the shaft into flat-ended dashes, measured from the tail
+   * (`x1`/`y1`) as for a `<Line>` between the same points; the heads stay
+   * solid. An odd count repeats once more.
+   */
+  dash?: readonly number[];
+  /** How far into `dash` the shaft starts; animate it to make the dashes flow. */
+  dashOffset?: number;
 }
 
 function dimensionOf(value: number, name: string, component: string): number {
@@ -299,7 +331,11 @@ function offsetPaint(paint: string | Paint | undefined, dx: number, dy: number):
 /**
  * An ellipse filling a `width` × `height` box, drawn as one `<Path>`. Like
  * `<Rect>`, `x`/`y` place the box's `anchorX`/`anchorY` point (its top-left
- * by default), and the stroke stays inside the box.
+ * by default), and the stroke stays inside the box. Its `dash` runs
+ * clockwise from its rightmost point, as in SVG; a dashed ellipse with a
+ * fill is drawn as a fill and a stroke path in a `<Group>`, so the fill
+ * reaches the box's edge between the dashes and shows through a
+ * translucent dash.
  */
 export function Ellipse({
   width,
@@ -309,6 +345,9 @@ export function Ellipse({
   strokeWidth,
   anchorX = 0,
   anchorY = 0,
+  dash,
+  dashOffset,
+  cap,
   ...props
 }: EllipseProps): ReturnType<typeof React.createElement> | null {
   dimensionOf(width, 'width', 'Ellipse');
@@ -324,20 +363,38 @@ export function Ellipse({
   const top = -anchorY * height;
   // The stroke is centred on the outline, so inset it by half its width.
   const inset = strokeWidthDrawn / 2;
-  return React.createElement(Path, {
-    ...props,
-    commands: ellipseCommands(left + width / 2, top + height / 2, width / 2 - inset, height / 2 - inset),
-    fill: offsetPaint(fill, left, top),
-    stroke: offsetPaint(stroke, left, top),
-    ...(stroke === undefined ? {} : { strokeWidth: strokeWidthDrawn }),
-  });
+  const outline = (by: number) =>
+    ellipseCommands(left + width / 2, top + height / 2, width / 2 - by, height / 2 - by);
+  const dashes = { cap, dash, dashOffset };
+  if (fill === undefined || stroke === undefined || !isDashed(dash)) {
+    return React.createElement(Path, {
+      ...props,
+      ...dashes,
+      commands: outline(inset),
+      fill: offsetPaint(fill, left, top),
+      stroke: offsetPaint(stroke, left, top),
+      ...(stroke === undefined ? {} : { strokeWidth: strokeWidthDrawn }),
+    });
+  }
+  return React.createElement(
+    Group,
+    props,
+    React.createElement(Path, { commands: outline(0), fill: offsetPaint(fill, left, top) }),
+    React.createElement(Path, {
+      ...dashes,
+      commands: outline(inset),
+      stroke: offsetPaint(stroke, left, top),
+      strokeWidth: strokeWidthDrawn,
+    }),
+  );
 }
 
 /**
  * A circle of `radius`, placed like an `<Ellipse>` `2 * radius` square but
  * drawn as a `<Rect>` with `cornerRadius` `radius`: shaded directly on the
  * GPU with no outline to flatten, so many animated circles are much cheaper
- * than paths.
+ * than paths. A dashed stroke makes it an `<Ellipse>`, whose dashes run
+ * clockwise from its rightmost point.
  */
 export function Circle({
   radius,
@@ -354,6 +411,9 @@ export function Circle({
   if (radius === 0) {
     return null;
   }
+  if (stroke !== undefined && isDashed(props.dash)) {
+    return React.createElement(Ellipse, { ...props, width: radius * 2, height: radius * 2, stroke, strokeWidth });
+  }
   return React.createElement(Rect, {
     ...props,
     width: radius * 2,
@@ -362,6 +422,49 @@ export function Circle({
     stroke,
     ...(stroke === undefined ? {} : { strokeWidth: strokeWidthDrawn }),
   });
+}
+
+/** Above this many dashes, a dashed `<Arrow>` is refused, as the renderers refuse a stroke. */
+const MAX_DASHES = 1_000_000;
+
+/**
+ * The stretches `[start, end]` of `from`–`to` along a line that `dash` and
+ * `offset` leave drawn, with flat ends, measured from the line's start as a
+ * stroke's dashes are; `null` when the pattern draws a solid line.
+ */
+function dashedStretches(
+  dash: readonly number[],
+  offset: number,
+  from: number,
+  to: number,
+): [number, number][] | null {
+  if (!dash.every((length) => Number.isFinite(length) && length >= 0)) {
+    throw new Error('<Arrow> dash must be an array of finite numbers of at least 0');
+  }
+  if (!Number.isFinite(offset)) {
+    throw new Error('<Arrow> dashOffset must be a finite number');
+  }
+  const lengths = dash.length % 2 === 1 ? [...dash, ...dash] : dash;
+  const period = lengths.reduce((sum, length) => sum + length, 0);
+  if (!(period > 0)) {
+    return null;
+  }
+  if (((to - from) / period) * (lengths.length / 2) > MAX_DASHES) {
+    throw new Error(`<Arrow> dash would draw more than ${MAX_DASHES} dashes`);
+  }
+  // The pattern starts `offset` before the tail; begin at its last start
+  // before `from`.
+  let distance = -(((offset % period) + period) % period);
+  distance += Math.floor((from - distance) / period) * period;
+  const stretches: [number, number][] = [];
+  for (let i = 0; distance < to; i = (i + 1) % lengths.length) {
+    const end = distance + lengths[i];
+    if (i % 2 === 0 && Math.min(end, to) > Math.max(distance, from)) {
+      stretches.push([Math.max(distance, from), Math.min(end, to)]);
+    }
+    distance = end;
+  }
+  return stretches;
 }
 
 /**
@@ -381,6 +484,8 @@ export function Arrow({
   headLength,
   headWidth,
   heads = 'end',
+  dash,
+  dashOffset,
   ...props
 }: ArrowProps): ReturnType<typeof React.createElement> | null {
   for (const [name, value] of [['x1', x1], ['y1', y1], ['x2', x2], ['y2', y2]] as const) {
@@ -415,6 +520,21 @@ export function Arrow({
   const point = (s: number, t: number): PolylinePoint => [x1 + ux * s - uy * t, y1 + uy * s + ux * t];
   const back = atStart ? head : 0;
   const front = atEnd ? total - head : total;
+  const stretches = dash === undefined ? null : dashedStretches(dash, dashOffset ?? 0, back, front);
+  if (stretches !== null) {
+    // The heads and each dash of the shaft as outlines of their own, all
+    // turning the same way, filled as one.
+    const outlines: PolylinePoint[][] = [
+      ...(atStart ? [[point(0, 0), point(back, -wing), point(back, wing)]] : []),
+      ...stretches.map(([from, to]) => [point(from, -shaft), point(to, -shaft), point(to, shaft), point(from, shaft)]),
+      ...(atEnd ? [[point(front, -wing), point(total, 0), point(front, wing)]] : []),
+    ];
+    return React.createElement(Path, {
+      ...props,
+      commands: outlines.flatMap((points) => commandsThrough(points, true)),
+      fill: stroke,
+    });
+  }
   const outline: PolylinePoint[] = [
     ...(atStart ? [point(0, 0), point(back, -wing)] : []),
     point(back, -shaft),

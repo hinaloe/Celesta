@@ -26,6 +26,7 @@ export type { LayerContent } from './generated/LayerContent';
 export type { LetterSpacing } from './generated/LetterSpacing';
 export type { LineBreak } from './generated/LineBreak';
 export type { LineCap } from './generated/LineCap';
+export type { LineDash } from './generated/LineDash';
 export type { LineJoin } from './generated/LineJoin';
 export type { MediaTiming } from './generated/MediaTiming';
 export type { GradientStop } from './generated/GradientStop';

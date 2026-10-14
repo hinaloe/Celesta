@@ -30,6 +30,7 @@ import type {
   Layer,
   LayerContent,
   LayerFilter,
+  LineDash,
   Paint,
   PathCommand,
   ResolvedAsset,
@@ -607,6 +608,7 @@ function buildLayer(
     if (miterLimit !== undefined && (typeof miterLimit !== 'number' || !Number.isFinite(miterLimit) || miterLimit < 1)) {
       throw new Error('<Path> miterLimit must be a finite number of at least 1');
     }
+    const lineDash = extractLineDash(props.dash, props.dashOffset);
     content = {
       type: 'path',
       commands: extractPathCommands(props.commands),
@@ -615,6 +617,7 @@ function buildLayer(
       ...(props.cap && props.cap !== 'butt' ? { lineCap: extractOneOf(props.cap, LINE_CAPS, 'cap') } : {}),
       ...(props.join && props.join !== 'miter' ? { lineJoin: extractOneOf(props.join, LINE_JOINS, 'join') } : {}),
       ...(miterLimit !== undefined && miterLimit !== 4 ? { miterLimit } : {}),
+      ...(lineDash ? { lineDash } : {}),
     };
   } else if (node.type === 'video') {
     // A React <Video> plays synced to the enclosing sequence chain's own
@@ -656,6 +659,23 @@ function toPaint(value: unknown): Paint | undefined {
 
 const LINE_CAPS = ['butt', 'round', 'square'] as const;
 const LINE_JOINS = ['miter', 'round', 'bevel'] as const;
+
+/** A path's `dash` and `dashOffset`, or none for a solid stroke. */
+function extractLineDash(dash: unknown, offset: unknown): LineDash | undefined {
+  if (offset !== undefined && (typeof offset !== 'number' || !Number.isFinite(offset))) {
+    throw new Error('<Path> dashOffset must be a finite number');
+  }
+  if (dash === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(dash) || !dash.every((length) => typeof length === 'number' && Number.isFinite(length) && length >= 0)) {
+    throw new Error('<Path> dash must be an array of finite numbers of at least 0');
+  }
+  if (dash.length === 0) {
+    return undefined;
+  }
+  return { pattern: [...dash], ...(offset ? { offset } : {}) };
+}
 
 function extractOneOf<T extends string>(value: unknown, allowed: readonly T[], name: string): T {
   if (!allowed.includes(value as T)) {

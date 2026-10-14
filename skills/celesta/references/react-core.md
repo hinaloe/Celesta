@@ -143,6 +143,7 @@ the current frame or `useVideoConfig()`. Optional `lang` (for example
 | `fill` | Hex string (`"#RRGGBB"` / `"#RRGGBBAA"`) or a gradient `Paint` (see below). Omit for no fill. |
 | `stroke`, `strokeWidth` | Inner stroke (hex or `Paint`); needs both to be visible. |
 | `cornerRadius` | Pixels. A square with `cornerRadius = size / 2` is a circle. |
+| `dash`, `dashOffset`, `cap` | Dash the stroke, as for `<Path>`, clockwise from the end of the top-left corner. A dashed rect is drawn as its fill under a stroked `Path`, in a `Group`. |
 
 A full-canvas background: `<Rect width={1920} height={1080} fill="#101018" />`
 as the first child.
@@ -179,6 +180,7 @@ into one path each (tens of paths, not thousands of rects).
 | `cap` | `'butt'` (default), `'round'`, `'square'`. |
 | `join` | `'miter'` (default), `'round'`, `'bevel'`; `miterLimit` (4) bevels sharper miters. |
 | `fill` | Hex or `Paint` (non-zero rule); drawn under the stroke. |
+| `dash`, `dashOffset` | Dash and gap lengths in turn, like SVG's `stroke-dasharray` (an odd count repeats), starting over at each `moveTo`; `dashOffset` shifts the pattern, so animating it makes the dashes flow. `dash={[0, gap]}` with `cap="round"` draws dots. |
 
 Coordinates are the path's own pixels: `x`/`y` move their origin and
 `scale`/`rotation` turn about it (there is no `anchorX`/`anchorY`). Gradient
@@ -197,7 +199,9 @@ else miter), plus `Path`'s transform, `opacity`, and `blendMode` props.
 `Polyline` takes `[x, y]` pairs (`closed` to loop) and draws the first
 `progress` (0–1) of its length, which animates a line being drawn;
 `pointOnPolyline(points, t)` gives the tip as an `[x, y]` pair (not
-`{ x, y }`), for a marker or a label that rides the line.
+`{ x, y }`), for a marker or a label that rides the line. Both take
+`dash`/`dashOffset`; the dashes are anchored at the first point, so they
+stay put while `progress` draws the line on.
 
 ## Circle, Ellipse, Arrow
 
@@ -217,6 +221,7 @@ are placed like `<Rect>`: `x`/`y` put the box's `anchorX`/`anchorY` point
 | `width`, `height` / `radius` | Required, pixels, at least 0. A 0 size draws nothing; a negative or non-finite one fails the render. |
 | `fill` | Hex or `Paint`, in local pixels from the box's top-left (as for `Rect`). Omit for no fill. |
 | `stroke`, `strokeWidth` | Hex or `Paint`; width defaults to 2. The stroke lies inside the box, like `Rect`'s, and is at most half the shorter side (a thicker one is drawn at that). |
+| `dash`, `dashOffset`, `cap` | As for `<Path>`; the dashes run clockwise from the rightmost point. A dashed `Circle` is drawn as an `Ellipse`, and a dashed shape with a `fill` as a fill and a stroke in a `Group`, so the fill reaches the edge between the dashes. `<Rect>` takes them too, its dashes starting at the end of the top-left corner. |
 
 `<Arrow x1 y1 x2 y2>` is a straight arrow whose head's tip is exactly at
 `x2`/`y2`. Its shaft and heads are one filled outline, so a translucent or
@@ -229,6 +234,7 @@ gradient arrow has no seam. Coordinates are its own pixels, like `Line`'s
 | `strokeWidth` | Shaft thickness, default 2. The shaft ends flat. |
 | `headLength`, `headWidth` | Head size along and across the arrow; default 4 × `strokeWidth` each. A head is never narrower than the shaft. |
 | `heads` | `'end'` (default), `'start'`, or `'both'`. |
+| `dash`, `dashOffset` | Cut the shaft into flat-ended dashes, measured from `x1`/`y1` as for a `<Line>`; the heads stay solid, and the arrow is still one filled outline. |
 
 An arrow shorter than its heads (`headLength`, twice that with `'both'`)
 scales them down to fit, keeping their shape, so animating `x2`/`y2` from

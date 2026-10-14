@@ -398,6 +398,7 @@ fn rings(canvas: &Canvas, frame: usize) -> Vec<Layer> {
                     line_cap: LineCap::Butt,
                     line_join: LineJoin::Miter,
                     miter_limit: 4.0,
+                    line_dash: None,
                 },
             );
             ring.opacity = 0.18 + 0.22 * (0.5 + 0.5 * (t * 2.0 + k as f64 * 0.4).sin());
@@ -434,6 +435,7 @@ fn blur(canvas: &Canvas, frame: usize) -> Vec<Layer> {
                     line_cap: LineCap::Butt,
                     line_join: LineJoin::Miter,
                     miter_limit: 4.0,
+                    line_dash: None,
                 },
             );
             blob.opacity = 0.8;

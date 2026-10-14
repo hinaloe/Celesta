@@ -1,4 +1,4 @@
-import type { Scene, Layer, Asset, ColorFilter, FontRun, Paint, TextStyle } from './types';
+import type { Scene, Layer, Asset, ColorFilter, FontRun, LineDash, Paint, TextStyle } from './types';
 import { applyColorFilters } from './color-filters';
 import { loadFonts, releaseFonts } from './fonts';
 import { checkFontRuns, cssFont, letterSpacingPx, measureLine, runPieces, textLineRanges, textStyle } from './text-layout';
@@ -25,6 +25,21 @@ function paint(ctx: Context, value: Paint, x = 0, y = 0): string | CanvasGradien
     : ctx.createRadialGradient(x + value.center.x, y + value.center.y, 0, x + value.center.x, y + value.center.y, value.radius);
   for (const stop of value.stops) gradient.addColorStop(stop.offset, stop.color);
   return gradient;
+}
+
+/**
+ * A path's dashes for `setLineDash`, as the native renderers draw them: an
+ * odd count repeated, an all-zero pattern solid, and the offset brought
+ * within one repeat of the pattern first, so one that grows every frame
+ * keeps its precision in engines that dash in single precision.
+ */
+export function canvasDash(dash: LineDash | null | undefined): { pattern: number[]; offset: number } {
+  const pattern = dash?.pattern ?? [];
+  const lengths = pattern.length % 2 === 1 ? [...pattern, ...pattern] : pattern;
+  const period = lengths.reduce((sum, length) => sum + length, 0);
+  const offset = dash?.offset ?? 0;
+  if (!(period > 0 && Number.isFinite(period) && Number.isFinite(offset))) return { pattern: [], offset: 0 };
+  return { pattern: lengths, offset: ((offset % period) + period) % period };
 }
 
 type Region = { start: number; end: number; x: number; width: number };
@@ -511,6 +526,9 @@ export class SceneCanvas {
         ctx.lineCap = content.lineCap ?? 'butt';
         ctx.lineJoin = content.lineJoin ?? 'miter';
         ctx.miterLimit = content.miterLimit ?? 4;
+        const dash = canvasDash(content.lineDash);
+        ctx.setLineDash(dash.pattern);
+        ctx.lineDashOffset = dash.offset;
         ctx.stroke();
       }
     } else if (content.type === 'text') {

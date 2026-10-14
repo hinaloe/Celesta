@@ -6,7 +6,7 @@
 //! Both renderers composite the result unscaled, which keeps their pixels
 //! identical.
 
-use celesta_composition::{LineCap, LineJoin, Paint, PathCommand, Stroke};
+use celesta_composition::{LineCap, LineDash, LineJoin, Paint, PathCommand, Stroke};
 use rayon::prelude::*;
 use resvg::tiny_skia;
 
@@ -21,6 +21,26 @@ pub struct PathShape<'a> {
     pub line_cap: LineCap,
     pub line_join: LineJoin,
     pub miter_limit: f64,
+    pub line_dash: Option<&'a LineDash>,
+}
+
+/// tiny-skia's dash pattern for a `LineDash`, or `None` for a solid stroke:
+/// an odd count repeated to make an even one and an all-zero pattern drawn
+/// solid, as canvas's `setLineDash` does. The offset is brought within one
+/// repeat of the pattern before it is narrowed to `f32`, so one that grows
+/// every frame keeps its precision.
+fn stroke_dash(dash: &LineDash) -> Option<tiny_skia::StrokeDash> {
+    let LineDash { pattern, offset } = dash;
+    let repeat = if pattern.len() % 2 == 1 { 2 } else { 1 };
+    let period: f64 = pattern.iter().sum::<f64>() * repeat as f64;
+    if !(period > 0.0 && period.is_finite() && offset.is_finite()) {
+        return None;
+    }
+    let lengths = pattern.iter().cycle().take(pattern.len() * repeat);
+    tiny_skia::StrokeDash::new(
+        lengths.map(|&length| length as f32).collect(),
+        offset.rem_euclid(period) as f32,
+    )
 }
 
 /// An affine map from a layer's own coordinates to output pixels:
@@ -512,7 +532,18 @@ impl Outline {
                 dash: None,
             };
             let resolution = tiny_skia::PathStroker::compute_resolution_scale(&ts);
-            Some((paint, path.stroke(&style, resolution)?.transform(ts)?))
+            // `Path::stroke` ignores `Stroke::dash`: the path is cut into
+            // its dashes first, as `Pixmap::stroke_path` does. A dash that
+            // leaves nothing (every dash in a gap) strokes nothing.
+            let dashed = match shape.line_dash.and_then(stroke_dash) {
+                Some(dash) => Some(path.dash(&dash, resolution)?),
+                None => None,
+            };
+            let outline = dashed
+                .as_ref()
+                .unwrap_or(&path)
+                .stroke(&style, resolution)?;
+            Some((paint, outline.transform(ts)?))
         });
         let Some(bounds) = [&fill, &stroke]
             .into_iter()
@@ -770,6 +801,7 @@ mod tests {
             line_cap: LineCap::Butt,
             line_join: LineJoin::Miter,
             miter_limit: DEFAULT_MITER_LIMIT,
+            line_dash: None,
         }
     }
 
@@ -889,6 +921,7 @@ mod tests {
                 line_cap: LineCap::Butt,
                 line_join: LineJoin::Round,
                 miter_limit: DEFAULT_MITER_LIMIT,
+                line_dash: None,
             };
             let path = flatten_path(&shape, transform, width, height)
                 .unwrap()
@@ -985,6 +1018,7 @@ mod tests {
                         line_cap,
                         line_join,
                         miter_limit,
+                        line_dash: None,
                     },
                     EvaluatedTransform::default(),
                 )],
@@ -1056,6 +1090,7 @@ mod tests {
             line_cap: LineCap::Butt,
             line_join: LineJoin::Miter,
             miter_limit: DEFAULT_MITER_LIMIT,
+            line_dash: None,
         };
         let frame = render(
             30,
@@ -1104,6 +1139,7 @@ mod tests {
                         line_cap,
                         line_join,
                         miter_limit,
+                        line_dash: None,
                     },
                     EvaluatedTransform::default(),
                 )],
@@ -1115,6 +1151,87 @@ mod tests {
         // Square caps make a 6x6 square, which reaches a corner a disc misses.
         assert_eq!(dot(LineCap::Square), (255, 255));
         assert!(dot(LineCap::Round).1 < 128);
+    }
+
+    /// The alpha along row 5 of a 40x10 frame with a 4px horizontal stroke
+    /// through it from x = 0 to 40, dashed by `dash` and `offset`.
+    fn dashed_row(dash: &[f64], offset: f64, line_cap: LineCap) -> Vec<u8> {
+        let LayerContent::Path {
+            commands, stroke, ..
+        } = stroked(polyline(&[(0.0, 5.0), (40.0, 5.0)], false), "#FFFFFF", 4.0)
+        else {
+            unreachable!()
+        };
+        let frame = render(
+            40,
+            10,
+            vec![layer(
+                LayerContent::Path {
+                    commands,
+                    fill: None,
+                    stroke,
+                    line_cap,
+                    line_join: LineJoin::Miter,
+                    miter_limit: DEFAULT_MITER_LIMIT,
+                    line_dash: Some(Box::new(LineDash {
+                        pattern: dash.to_vec(),
+                        offset,
+                    })),
+                },
+                EvaluatedTransform::default(),
+            )],
+        );
+        (0..40).map(|x| alpha(&frame, x, 5)).collect()
+    }
+
+    #[test]
+    fn dashes_a_stroke_from_the_start_of_the_path() {
+        let row = dashed_row(&[4.0, 6.0], 0.0, LineCap::Butt);
+        let drawn = |x: usize| row[x] == 255;
+        // On for 4, off for 6, from x = 0.
+        assert!((0..4).chain(10..14).chain(20..24).all(drawn), "{row:?}");
+        assert!((4..10).chain(14..20).all(|x| row[x] == 0), "{row:?}");
+    }
+
+    #[test]
+    fn the_dash_offset_moves_the_pattern_back_along_the_path() {
+        let shifted = dashed_row(&[4.0, 6.0], 2.0, LineCap::Butt);
+        assert!(
+            (0..2).chain(8..12).all(|x| shifted[x] == 255),
+            "{shifted:?}"
+        );
+        assert!((2..8).all(|x| shifted[x] == 0), "{shifted:?}");
+        // A whole period, or a negative offset a period short of it, draws
+        // the same; so does an offset many periods on, as when animated.
+        assert_eq!(dashed_row(&[4.0, 6.0], 12.0, LineCap::Butt), shifted);
+        assert_eq!(dashed_row(&[4.0, 6.0], -8.0, LineCap::Butt), shifted);
+        assert_eq!(dashed_row(&[4.0, 6.0], 100_002.0, LineCap::Butt), shifted);
+    }
+
+    #[test]
+    fn caps_zero_length_dashes_into_dots() {
+        let row = dashed_row(&[0.0, 10.0], 0.0, LineCap::Round);
+        // A round dot of diameter 4 at x = 0, 10, 20, 30.
+        for centre in [10, 20, 30] {
+            assert_eq!(row[centre], 255, "{row:?}");
+            assert_eq!(row[centre + 4], 0, "{row:?}");
+        }
+        assert_eq!(dashed_row(&[0.0, 10.0], 0.0, LineCap::Butt), vec![0; 40]);
+    }
+
+    #[test]
+    fn repeats_an_odd_dash_count_and_strokes_an_all_zero_one_solid() {
+        assert_eq!(
+            dashed_row(&[4.0], 0.0, LineCap::Butt),
+            dashed_row(&[4.0, 4.0], 0.0, LineCap::Butt)
+        );
+        assert_eq!(
+            dashed_row(&[4.0, 2.0, 1.0], 0.0, LineCap::Butt),
+            dashed_row(&[4.0, 2.0, 1.0, 4.0, 2.0, 1.0], 0.0, LineCap::Butt)
+        );
+        let solid = dashed_row(&[], 0.0, LineCap::Butt);
+        assert!(solid.iter().all(|&alpha| alpha == 255), "{solid:?}");
+        assert_eq!(dashed_row(&[0.0, 0.0], 3.0, LineCap::Butt), solid);
     }
 
     #[test]
@@ -1136,6 +1253,7 @@ mod tests {
                 line_cap: LineCap::Round,
                 line_join: LineJoin::Round,
                 miter_limit: DEFAULT_MITER_LIMIT,
+                line_dash: None,
             },
             PathShape {
                 commands: &commands[1],
@@ -1144,6 +1262,7 @@ mod tests {
                 line_cap: LineCap::Butt,
                 line_join: LineJoin::Miter,
                 miter_limit: DEFAULT_MITER_LIMIT,
+                line_dash: None,
             },
         ];
         let identity = PathTransform::scale_translate(1.0, 1.0, 0.0, 0.0);
@@ -1235,6 +1354,7 @@ mod tests {
             line_cap: LineCap::Round,
             line_join: LineJoin::Round,
             miter_limit: DEFAULT_MITER_LIMIT,
+            line_dash: None,
         };
         let draws: Vec<_> = [0.0, 15.5, -12.25]
             .into_iter()
@@ -1272,6 +1392,7 @@ mod tests {
             line_cap: LineCap::Round,
             line_join: LineJoin::Round,
             miter_limit: DEFAULT_MITER_LIMIT,
+            line_dash: None,
         };
         let identity = PathTransform::scale_translate(1.0, 1.0, 0.0, 0.0);
         assert_eq!(rasterize_path(&shape, identity, 20, 20).unwrap(), None);
