@@ -1261,20 +1261,23 @@ impl LaneGesture {
         let locked = (!self.coasting || momentum) && self.axis != LaneAxis::Free;
         if !locked {
             return if delta.x.abs() > delta.y.abs() || shift {
-                scrub(scrub_amount(delta, true))
+                scrub(scrub_amount(delta))
             } else {
                 LaneWheel::Scroll
             };
         }
+        // A trackpad gesture ignores Shift (that is for wheels that cannot
+        // scroll sideways) and scrubs by its sideways travel alone: mixing
+        // in the vertical travel would jerk the playhead back and forth.
         match self.axis {
             LaneAxis::Undecided(travel) => {
                 let travel = travel + delta;
-                if !shift && travel.x.abs().max(travel.y.abs()) < AXIS_LOCK_PIXELS {
+                if travel.x.abs().max(travel.y.abs()) < AXIS_LOCK_PIXELS {
                     self.axis = LaneAxis::Undecided(travel);
                     LaneWheel::Scroll
-                } else if shift || travel.x.abs() > travel.y.abs() {
+                } else if travel.x.abs() > travel.y.abs() {
                     self.axis = LaneAxis::Scrub;
-                    scrub(scrub_amount(travel, shift))
+                    scrub(travel.x)
                 } else {
                     self.axis = LaneAxis::Scroll;
                     LaneWheel::Scroll
@@ -1282,21 +1285,17 @@ impl LaneGesture {
             }
             // Dropping momentum stops the playhead where the fingers did.
             LaneAxis::Scrub if momentum => LaneWheel::Ignore,
-            LaneAxis::Scrub => scrub(scrub_amount(delta, shift)),
+            LaneAxis::Scrub => scrub(delta.x),
             LaneAxis::Scroll | LaneAxis::Free => LaneWheel::Scroll,
         }
     }
 }
 
 /// A swipe moves the playhead with the scroll direction (the fingers' under
-/// natural scrolling); with `vertical`, a wheel that only moves vertically
-/// advances it when rolled down.
-fn scrub_amount(delta: Point<f32>, vertical: bool) -> f32 {
-    if delta.x == 0.0 && vertical {
-        -delta.y
-    } else {
-        delta.x
-    }
+/// natural scrolling); a wheel that only moves vertically advances it when
+/// rolled down.
+fn scrub_amount(delta: Point<f32>) -> f32 {
+    if delta.x == 0.0 { -delta.y } else { delta.x }
 }
 
 fn scrub(amount: f32) -> LaneWheel {
@@ -1500,12 +1499,22 @@ mod tests {
     }
 
     #[test]
-    fn shift_turns_a_trackpad_scroll_into_a_scrub() {
+    fn shift_leaves_a_trackpad_gesture_to_its_axis() {
         let mut gesture = LaneGesture::default();
         gesture.wheel(TouchPhase::Started, point(0.0, 0.0), true, true);
         assert_eq!(
-            gesture.wheel(TouchPhase::Moved, point(0.0, -2.0), true, true),
-            LaneWheel::Scrub(2.0)
+            gesture.wheel(TouchPhase::Moved, point(0.0, -10.0), true, true),
+            LaneWheel::Scroll
+        );
+
+        gesture.wheel(TouchPhase::Started, point(0.0, 0.0), true, true);
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, point(10.0, 1.0), true, true),
+            LaneWheel::Scrub(10.0)
+        );
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, point(0.0, 3.0), true, true),
+            LaneWheel::Ignore
         );
     }
 
