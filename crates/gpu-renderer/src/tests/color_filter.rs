@@ -35,7 +35,6 @@ fn saturated(rgb: [f64; 3], amount: f64) -> [f64; 3] {
 fn reference(filter: &LayerFilter, rgb: [f64; 3], uv: [f64; 2]) -> [f64; 3] {
     let mix = |a: [f64; 3], b: [f64; 3], t: f64| [0, 1, 2].map(|i| a[i] + (b[i] - a[i]) * t);
     let result = match filter {
-        LayerFilter::Shader(_) => unreachable!("not a color filter"),
         LayerFilter::Brightness { amount } => rgb.map(|c| c * amount.max(0.0)),
         LayerFilter::Contrast { amount } => rgb.map(|c| (c - 0.5) * amount.max(0.0) + 0.5),
         LayerFilter::Saturation { amount } => saturated(rgb, amount.max(0.0)),
@@ -75,6 +74,7 @@ fn reference(filter: &LayerFilter, rgb: [f64; 3], uv: [f64; 2]) -> [f64; 3] {
             let t = ((distance - radius) / softness.max(1e-4)).clamp(0.0, 1.0);
             rgb.map(|c| c * (1.0 - amount.clamp(0.0, 1.0) * t * t * (3.0 - 2.0 * t)))
         }
+        _ => unreachable!("not a color filter"),
     };
     result.map(|c| c.clamp(0.0, 1.0))
 }

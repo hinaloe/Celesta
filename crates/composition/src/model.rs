@@ -75,7 +75,9 @@ impl LayerEffects {
 
 /// One filter in a layer's `filters`. The built-in color filters work on
 /// the straight (unpremultiplied) sRGB-encoded color, keep alpha, and clamp
-/// their result to 0–1, as CSS `filter` functions do.
+/// their result to 0–1, as CSS `filter` functions do. The stylize effects
+/// and the chroma key measure in output pixels and degrees; their grids and
+/// centres follow the content box, the box of the layers' shapes.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
 #[cfg_attr(feature = "codegen", ts(export))]
@@ -111,14 +113,74 @@ pub enum LayerFilter {
         radius: f64,
         softness: f64,
     },
+    /// Averages cells of `size` output pixels, from the content box's
+    /// top-left corner. 1 or less keeps the pixels.
+    Pixelate { size: f64 },
+    /// Dots of each cell's color on a grid of `size` pixels turned by
+    /// `angle` degrees about the content box's top-left corner, each dot's
+    /// area its cell's luma; transparent between them. 0 keeps the pixels.
+    Halftone { size: f64, angle: f64 },
+    /// Moves red `offset` pixels toward `angle` degrees and blue as far the
+    /// other way.
+    ChromaticAberration { offset: f64, angle: f64 },
+    /// Sways the pixels `amplitude` pixels toward `angle` degrees, along a
+    /// sine of `wavelength` pixels across that direction, shifted by
+    /// `phase` degrees.
+    Wave {
+        amplitude: f64,
+        wavelength: f64,
+        phase: f64,
+        angle: f64,
+    },
+    /// Adds grain of up to `amount` to the color, from a hash of the scene
+    /// pixel and `seed`: the same for every channel when `monochrome`.
+    Noise {
+        amount: f64,
+        seed: u32,
+        monochrome: bool,
+    },
+    /// Darkens by up to `amount` the horizontal bands `thickness` of each
+    /// `spacing` pixels thick, from `offset` pixels below the content box's
+    /// top.
+    Scanlines {
+        amount: f64,
+        spacing: f64,
+        thickness: f64,
+        offset: f64,
+    },
+    /// Blurs toward `center_x`, `center_y` of the content box (0–1), over
+    /// `amount` of each pixel's distance to it, 0–1.
+    ZoomBlur {
+        amount: f64,
+        center_x: f64,
+        center_y: f64,
+    },
+    /// Makes the colors near `color` (`#RRGGBB`) transparent: those within
+    /// `tolerance` of its chroma (BT.709 CbCr distance) fully, those within
+    /// `softness` further partly. `spill`, 0–1, takes the key's chroma out
+    /// of what remains.
+    ChromaKey {
+        color: String,
+        tolerance: f64,
+        softness: f64,
+        spill: f64,
+    },
 }
 
 impl LayerFilter {
-    /// Whether the filter leaves every pixel as it was: a color filter at
-    /// the value that changes nothing. A custom shader never is.
+    /// Whether the filter leaves every pixel as it was: a built-in filter
+    /// at the value that changes nothing. A custom shader and a chroma key
+    /// never are.
     pub fn is_identity(&self) -> bool {
         match self {
-            Self::Shader(_) => false,
+            Self::Shader(_) | Self::ChromaKey { .. } => false,
+            Self::Pixelate { size } => *size <= 1.0,
+            Self::Halftone { size, .. } => *size == 0.0,
+            Self::ChromaticAberration { offset, .. } => *offset == 0.0,
+            Self::Wave { amplitude, .. } => *amplitude == 0.0,
+            Self::Noise { amount, .. }
+            | Self::Scanlines { amount, .. }
+            | Self::ZoomBlur { amount, .. } => *amount == 0.0,
             Self::Brightness { amount }
             | Self::Contrast { amount }
             | Self::Saturation { amount } => *amount == 1.0,
@@ -174,6 +236,45 @@ enum LayerFilterDef {
         amount: f64,
         radius: f64,
         softness: f64,
+    },
+    Pixelate {
+        size: f64,
+    },
+    Halftone {
+        size: f64,
+        angle: f64,
+    },
+    ChromaticAberration {
+        offset: f64,
+        angle: f64,
+    },
+    Wave {
+        amplitude: f64,
+        wavelength: f64,
+        phase: f64,
+        angle: f64,
+    },
+    Noise {
+        amount: f64,
+        seed: u32,
+        monochrome: bool,
+    },
+    Scanlines {
+        amount: f64,
+        spacing: f64,
+        thickness: f64,
+        offset: f64,
+    },
+    ZoomBlur {
+        amount: f64,
+        center_x: f64,
+        center_y: f64,
+    },
+    ChromaKey {
+        color: String,
+        tolerance: f64,
+        softness: f64,
+        spill: f64,
     },
 }
 

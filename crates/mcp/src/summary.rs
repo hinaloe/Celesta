@@ -165,7 +165,7 @@ fn describe_transform(layer: &Value) -> String {
     parts.join(" ")
 }
 
-/// A custom shader by its id, or a color filter with its values, as
+/// A custom shader by its id, or a built-in filter with its values, as
 /// `inspect.mjs` prints them.
 fn describe_filter(filter: &Value) -> String {
     let value = |name: &str| fmt(num(&filter[name]));
@@ -178,6 +178,50 @@ fn describe_filter(filter: &Value) -> String {
             value("amount"),
             value("radius"),
             value("softness")
+        ),
+        "pixelate" => format!("pixelate({} px)", value("size")),
+        "halftone" => format!("halftone({} px, {}°)", value("size"), value("angle")),
+        "chromaticAberration" => format!(
+            "chromaticAberration({} px, {}°)",
+            value("offset"),
+            value("angle")
+        ),
+        "wave" => format!(
+            "wave({} px, wavelength {} px, phase {}°, {}°)",
+            value("amplitude"),
+            value("wavelength"),
+            value("phase"),
+            value("angle")
+        ),
+        "noise" => format!(
+            "noise({}, seed {}{})",
+            value("amount"),
+            value("seed"),
+            if filter["monochrome"] == Value::Bool(false) {
+                ", color"
+            } else {
+                ""
+            }
+        ),
+        "scanlines" => format!(
+            "scanlines({}, spacing {} px, thickness {}, offset {} px)",
+            value("amount"),
+            value("spacing"),
+            value("thickness"),
+            value("offset")
+        ),
+        "zoomBlur" => format!(
+            "zoomBlur({}, centre ({}, {}))",
+            value("amount"),
+            value("centerX"),
+            value("centerY")
+        ),
+        "chromaKey" => format!(
+            "chromaKey({}, tolerance {}, softness {}, spill {})",
+            js(&filter["color"]),
+            value("tolerance"),
+            value("softness"),
+            value("spill")
         ),
         kind => format!("{kind}({})", value("amount")),
     }
@@ -685,6 +729,29 @@ mod tests {
             "rect 1×1 at (10, 20) anchor (0.5, 0.5) scale 2 rotate 45° opacity 0.5 blur 4 \
              filters shader 1b0a62b2133ed451 → grayscale(1) → hue(30°) → tint(#704214, 0.35) → \
              vignette(0.6, radius 0.5, softness 0.25)\n"
+        );
+    }
+
+    #[test]
+    fn describes_stylize_effects_and_chroma_keys() {
+        let mut keyed = layer("k", json!({ "type": "rect", "width": 1, "height": 1 }));
+        keyed["effects"] = json!({ "filters": [
+            { "type": "chromaKey", "color": "#00b140", "tolerance": 0.2, "softness": 0.1, "spill": 0.5 },
+            { "type": "pixelate", "size": 8 },
+            { "type": "wave", "amplitude": 6, "wavelength": 80, "phase": 90, "angle": 0 },
+            { "type": "zoomBlur", "amount": 0.25, "centerX": 0.5, "centerY": 0.25 },
+            { "type": "chromaticAberration", "offset": 4, "angle": 30 },
+            { "type": "halftone", "size": 10, "angle": 45 },
+            { "type": "noise", "amount": 0.2, "seed": 42, "monochrome": false },
+            { "type": "scanlines", "amount": 0.5, "spacing": 4, "thickness": 0.5, "offset": 1.5 },
+        ] });
+        let (output, _, _) = describe(vec![keyed], vec![]);
+        assert_eq!(
+            output,
+            "rect 1×1 at (10, 20) filters chromaKey(#00b140, tolerance 0.2, softness 0.1, spill 0.5) → \
+             pixelate(8 px) → wave(6 px, wavelength 80 px, phase 90°, 0°) → zoomBlur(0.25, centre (0.5, 0.25)) → \
+             chromaticAberration(4 px, 30°) → halftone(10 px, 45°) → noise(0.2, seed 42, color) → \
+             scanlines(0.5, spacing 4 px, thickness 0.5, offset 1.5 px)\n"
         );
     }
 

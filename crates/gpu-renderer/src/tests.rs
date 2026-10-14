@@ -32,6 +32,7 @@ use celesta_composition::{
 };
 use celesta_media::{MediaError, VideoFrame, VideoFrameDecoder};
 
+mod builtin_effect;
 mod color_filter;
 mod instances;
 mod readback;

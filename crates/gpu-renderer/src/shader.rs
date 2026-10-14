@@ -31,6 +31,7 @@ const PARAMS_SIZE: u64 = MAX_SHADER_PARAMS as u64 * 16;
 const PRELUDE: &str = include_str!("shader_prelude.wgsl");
 const ENTRY: &str = include_str!("shader_entry.wgsl");
 const COLOR_FILTER: &str = include_str!("color_filter.wgsl");
+const BUILTIN_EFFECT: &str = include_str!("builtin_effect.wgsl");
 
 /// The signature `shader_entry.wgsl` calls, named in errors that arise there.
 const EFFECT_SIGNATURE: &str = "fn effect(input: EffectInput) -> vec4f";
@@ -70,6 +71,8 @@ enum UsePipeline {
     Custom(String),
     /// `color_filter.wgsl`.
     ColorFilter,
+    /// `builtin_effect.wgsl`.
+    BuiltinEffect,
 }
 
 struct ShaderUse {
@@ -81,13 +84,15 @@ struct ShaderUse {
 }
 
 /// Compiles the scene's custom shaders and runs the layers' filters: those
-/// shaders and the built-in color filters.
+/// shaders and the built-in filters.
 pub(crate) struct ShaderProcessor {
     layout: wgpu::BindGroupLayout,
     pipeline_layout: wgpu::PipelineLayout,
     shaders: HashMap<String, CachedShader>,
     /// `color_filter.wgsl`, compiled when the first layer uses it.
     color_filter: Option<wgpu::RenderPipeline>,
+    /// `builtin_effect.wgsl`, compiled when the first layer uses it.
+    builtin_effect: Option<wgpu::RenderPipeline>,
     /// Counts prepared frames; see `UNUSED_FRAMES`.
     frame: u64,
     scene_size: [f32; 2],
@@ -152,6 +157,7 @@ impl ShaderProcessor {
             pipeline_layout,
             shaders: HashMap::new(),
             color_filter: None,
+            builtin_effect: None,
             frame: 0,
             scene_size: [0.0; 2],
             uses: Vec::new(),
@@ -258,7 +264,15 @@ impl ShaderProcessor {
         for filter in filters {
             padding += match filter {
                 LayerFilter::Shader(shader) => self.use_shader(layer, shader)?,
-                _ => self.use_color_filter(device, layer, filter)?,
+                LayerFilter::Brightness { .. }
+                | LayerFilter::Contrast { .. }
+                | LayerFilter::Saturation { .. }
+                | LayerFilter::Hue { .. }
+                | LayerFilter::Grayscale { .. }
+                | LayerFilter::Invert { .. }
+                | LayerFilter::Tint { .. }
+                | LayerFilter::Vignette { .. } => self.use_color_filter(device, layer, filter)?,
+                _ => self.use_builtin_effect(device, layer, filter)?,
             };
         }
         Ok((!filters.is_empty()).then_some(ShaderChain {
@@ -277,7 +291,17 @@ impl ShaderProcessor {
         filter: &LayerFilter,
     ) -> Result<f32, GpuRenderError> {
         let (kind, name, amounts, color) = match filter {
-            LayerFilter::Shader(_) => unreachable!("use_filters runs custom shaders itself"),
+            LayerFilter::Shader(_)
+            | LayerFilter::Pixelate { .. }
+            | LayerFilter::Halftone { .. }
+            | LayerFilter::ChromaticAberration { .. }
+            | LayerFilter::Wave { .. }
+            | LayerFilter::Noise { .. }
+            | LayerFilter::Scanlines { .. }
+            | LayerFilter::ZoomBlur { .. }
+            | LayerFilter::ChromaKey { .. } => {
+                unreachable!("use_filters runs the other filters itself")
+            }
             LayerFilter::Brightness { amount } => (0, "brightness", [*amount, 0.0, 0.0], None),
             LayerFilter::Contrast { amount } => (1, "contrast", [*amount, 0.0, 0.0], None),
             LayerFilter::Saturation { amount } => (2, "saturation", [*amount, 0.0, 0.0], None),
@@ -292,7 +316,7 @@ impl ShaderProcessor {
                 softness,
             } => (7, "vignette", [*amount, *radius, *softness], None),
         };
-        let error = |message: String| GpuRenderError::ColorFilter {
+        let error = |message: String| GpuRenderError::BuiltinFilter {
             filter: name,
             message,
         };
@@ -316,7 +340,10 @@ impl ShaderProcessor {
         }
         if self.color_filter.is_none() {
             let pipeline = self
-                .compile(device, &color_filter_source())
+                .compile(
+                    device,
+                    &builtin_source("color filter", COLOR_FILTER, "color"),
+                )
                 .unwrap_or_else(|message| panic!("color_filter.wgsl does not compile: {message}"));
             self.color_filter = Some(pipeline);
         }
@@ -334,6 +361,164 @@ impl ShaderProcessor {
             padding: 0.0,
         });
         Ok(0.0)
+    }
+
+    /// Records `layer`'s use of the built-in stylize effect or chroma key
+    /// `filter`, returning how far it may write beyond what it reads.
+    fn use_builtin_effect(
+        &mut self,
+        device: &wgpu::Device,
+        layer: &str,
+        filter: &LayerFilter,
+    ) -> Result<f32, GpuRenderError> {
+        let diagonal = f64::from(self.scene_size[0].hypot(self.scene_size[1]));
+        // `[kind, values…]` as `op` and `more` lay them out, the reach
+        // beyond the pixels it reads, and the chroma key's color.
+        let (name, values, padding, color): (_, [f64; 7], f64, Option<&String>) = match filter {
+            LayerFilter::Pixelate { size } => (
+                "pixelate",
+                [0.0, *size, 0.0, 0.0, 0.0, 0.0, 0.0],
+                *size,
+                None,
+            ),
+            LayerFilter::Halftone { size, angle } => (
+                "halftone",
+                [1.0, *size, angle.rem_euclid(360.0), 0.0, 0.0, 0.0, 0.0],
+                size * std::f64::consts::SQRT_2,
+                None,
+            ),
+            LayerFilter::ChromaticAberration { offset, angle } => (
+                "chromaticAberration",
+                [2.0, *offset, angle.rem_euclid(360.0), 0.0, 0.0, 0.0, 0.0],
+                offset.abs(),
+                None,
+            ),
+            LayerFilter::Wave {
+                amplitude,
+                wavelength,
+                phase,
+                angle,
+            } => (
+                "wave",
+                [
+                    3.0,
+                    *amplitude,
+                    *wavelength,
+                    phase.rem_euclid(360.0),
+                    angle.rem_euclid(360.0),
+                    0.0,
+                    0.0,
+                ],
+                amplitude.abs(),
+                None,
+            ),
+            LayerFilter::Noise {
+                amount,
+                seed,
+                monochrome,
+            } => (
+                "noise",
+                [
+                    4.0,
+                    *amount,
+                    // In halves, which `f32` holds exactly.
+                    f64::from(seed & 0xffff),
+                    f64::from(seed >> 16),
+                    if *monochrome { 1.0 } else { 0.0 },
+                    0.0,
+                    0.0,
+                ],
+                0.0,
+                None,
+            ),
+            LayerFilter::Scanlines {
+                amount,
+                spacing,
+                thickness,
+                offset,
+            } => (
+                "scanlines",
+                [5.0, *amount, *spacing, *thickness, *offset, 0.0, 0.0],
+                0.0,
+                None,
+            ),
+            LayerFilter::ZoomBlur {
+                amount,
+                center_x,
+                center_y,
+            } => {
+                // A pixel `d` from the centre shows what lies `1 - amount`
+                // as far, so streaks reach past the content by up to
+                // `amount / (1 - amount)` of its distance from the centre,
+                // which the scene's diagonal bounds.
+                let amount_clamped = amount.clamp(0.0, 1.0);
+                let reach = if amount_clamped < 1.0 {
+                    amount_clamped / (1.0 - amount_clamped) * diagonal
+                } else {
+                    f64::from(MAX_PADDING)
+                };
+                (
+                    "zoomBlur",
+                    [6.0, *amount, *center_x, *center_y, 0.0, 0.0, 0.0],
+                    reach,
+                    None,
+                )
+            }
+            LayerFilter::ChromaKey {
+                color,
+                tolerance,
+                softness,
+                spill,
+            } => (
+                "chromaKey",
+                [7.0, *tolerance, *softness, *spill, 0.0, 0.0, 0.0],
+                0.0,
+                Some(color),
+            ),
+            _ => unreachable!("use_filters runs the other filters itself"),
+        };
+        let error = |message: String| GpuRenderError::BuiltinFilter {
+            filter: name,
+            message,
+        };
+        // The values are uploaded as `f32`, which a finite `f64` can overflow.
+        if !values.iter().all(|value| (*value as f32).is_finite()) {
+            return Err(error(format!(
+                "layer `{layer}` gives a value that is not finite"
+            )));
+        }
+        let mut values = values.map(|value| value as f32);
+        if let Some(color) = color {
+            let color = CpuColor::from_hex(color)
+                .map_err(|message| error(format!("layer `{layer}`: {message}")))?;
+            values[4..7].copy_from_slice(
+                &[color.red, color.green, color.blue].map(|value| f32::from(value) / 255.0),
+            );
+        }
+        if self.uses.len() >= self.max_uses {
+            return Err(GpuRenderError::TooManyLayers(self.uses.len() + 1));
+        }
+        if self.builtin_effect.is_none() {
+            let pipeline = self
+                .compile(
+                    device,
+                    &builtin_source("built-in effect", BUILTIN_EFFECT, "more"),
+                )
+                .unwrap_or_else(|message| {
+                    panic!("builtin_effect.wgsl does not compile: {message}")
+                });
+            self.builtin_effect = Some(pipeline);
+        }
+        let mut params = [[0.0; 4]; MAX_SHADER_PARAMS];
+        params[0] = [values[0], values[1], values[2], values[3]];
+        params[1] = [values[4], values[5], values[6], 0.0];
+        let padding = (padding as f32).clamp(0.0, MAX_PADDING);
+        self.uses.push(ShaderUse {
+            pipeline: UsePipeline::BuiltinEffect,
+            params,
+            padding,
+        });
+        Ok(padding)
     }
 
     /// Records `layer`'s use of `shader`, returning its padding.
@@ -454,6 +639,10 @@ impl ShaderProcessor {
                 .color_filter
                 .as_ref()
                 .expect("use_color_filter compiles it"),
+            UsePipeline::BuiltinEffect => self
+                .builtin_effect
+                .as_ref()
+                .expect("use_builtin_effect compiles it"),
         };
         let [left, top, right, bottom] = content.0;
         let builtins = [
@@ -569,17 +758,18 @@ impl ShaderProcessor {
     }
 }
 
-/// `color_filter.wgsl` as a shader source.
-fn color_filter_source() -> ShaderSource {
+/// A built-in filter's `wgsl` as a shader source with two `vec4f`
+/// parameters: `op` and `second`.
+fn builtin_source(name: &str, wgsl: &str, second: &str) -> ShaderSource {
     let param = |name: &str| ShaderParam {
         name: name.to_owned(),
         ty: ShaderParamType::Vec4,
     };
     ShaderSource {
-        id: "color filter".to_owned(),
-        name: Some("color filter".to_owned()),
-        wgsl: COLOR_FILTER.to_owned(),
-        params: vec![param("op"), param("color")],
+        id: name.to_owned(),
+        name: Some(name.to_owned()),
+        wgsl: wgsl.to_owned(),
+        params: vec![param("op"), param(second)],
     }
 }
 

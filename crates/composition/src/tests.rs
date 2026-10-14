@@ -812,6 +812,91 @@ fn color_filters_round_trip_in_order_with_shaders() {
 }
 
 #[test]
+fn stylize_filters_and_chroma_keys_round_trip() {
+    use crate::{LayerEffects, LayerFilter};
+
+    let json = serde_json::json!({ "filters": [
+        { "type": "chromaKey", "color": "#00b140", "tolerance": 0.2, "softness": 0.1, "spill": 0.5 },
+        { "type": "pixelate", "size": 8.0 },
+        { "type": "wave", "amplitude": 6.0, "wavelength": 80.0, "phase": 90.0, "angle": 0.0 },
+        { "type": "zoomBlur", "amount": 0.25, "centerX": 0.5, "centerY": 0.25 },
+        { "type": "chromaticAberration", "offset": 4.0, "angle": 30.0 },
+        { "type": "halftone", "size": 10.0, "angle": 45.0 },
+        { "type": "noise", "amount": 0.2, "seed": 42, "monochrome": false },
+        { "type": "scanlines", "amount": 0.5, "spacing": 4.0, "thickness": 0.5, "offset": 1.5 },
+    ] });
+    let parsed = serde_json::from_value::<LayerEffects>(json.clone()).unwrap();
+    assert_eq!(
+        parsed.filters,
+        vec![
+            LayerFilter::ChromaKey {
+                color: "#00b140".to_owned(),
+                tolerance: 0.2,
+                softness: 0.1,
+                spill: 0.5,
+            },
+            LayerFilter::Pixelate { size: 8.0 },
+            LayerFilter::Wave {
+                amplitude: 6.0,
+                wavelength: 80.0,
+                phase: 90.0,
+                angle: 0.0,
+            },
+            LayerFilter::ZoomBlur {
+                amount: 0.25,
+                center_x: 0.5,
+                center_y: 0.25,
+            },
+            LayerFilter::ChromaticAberration {
+                offset: 4.0,
+                angle: 30.0,
+            },
+            LayerFilter::Halftone {
+                size: 10.0,
+                angle: 45.0,
+            },
+            LayerFilter::Noise {
+                amount: 0.2,
+                seed: 42,
+                monochrome: false,
+            },
+            LayerFilter::Scanlines {
+                amount: 0.5,
+                spacing: 4.0,
+                thickness: 0.5,
+                offset: 1.5,
+            },
+        ]
+    );
+    assert_eq!(serde_json::to_value(&parsed).unwrap(), json);
+    assert!(parsed.filters.iter().all(|filter| !filter.is_identity()));
+    for identity in [
+        LayerFilter::Pixelate { size: 1.0 },
+        LayerFilter::Halftone {
+            size: 0.0,
+            angle: 45.0,
+        },
+        LayerFilter::ChromaticAberration {
+            offset: 0.0,
+            angle: 0.0,
+        },
+        LayerFilter::Wave {
+            amplitude: 0.0,
+            wavelength: 10.0,
+            phase: 0.0,
+            angle: 0.0,
+        },
+        LayerFilter::Noise {
+            amount: 0.0,
+            seed: 1,
+            monochrome: true,
+        },
+    ] {
+        assert!(identity.is_identity(), "{identity:?}");
+    }
+}
+
+#[test]
 fn letter_spacing_is_px_or_em() {
     let parse = |json| {
         serde_json::from_value::<TextStyle>(json)
