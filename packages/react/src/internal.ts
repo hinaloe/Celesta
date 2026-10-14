@@ -14,6 +14,8 @@ export type {
   Resolver,
 } from './render';
 export type { HostNode } from './reconciler';
+export { sourceChain } from './source-chain';
+export type { LayerSourceEntry } from './source-chain';
 export { registerHostElement } from './host-elements';
 export type { HostElement, HostVisit, HostWalk } from './host-elements';
 

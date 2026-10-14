@@ -16,6 +16,8 @@ export interface HostNode {
   parent: HostNode | null;
   /** The `hostRevision()` of the last change to this node or below it. */
   changedAt: number;
+  /** The React fiber that created or last updated this node, for `sourceChain`. */
+  fiber?: unknown;
 }
 
 // Counts changes React makes to any host tree. Each change stamps the node it
@@ -116,8 +118,8 @@ const hostConfig: Reconciler.HostConfig<
     );
   },
 
-  createInstance(type, props) {
-    return { type, props, children: [], parent: null, changedAt: 0 };
+  createInstance(type, props, _root, _hostContext, internalInstanceHandle) {
+    return { type, props, children: [], parent: null, changedAt: 0, fiber: internalInstanceHandle };
   },
   appendInitialChild(parent, child) {
     parent.children.push(child);
@@ -165,8 +167,9 @@ const hostConfig: Reconciler.HostConfig<
   // props it then produces are the same. Leaving those uncommitted keeps a
   // `<Static>` with groups inside from looking changed on every frame.
   prepareUpdate: (_instance, type, oldProps, newProps) => (sameProps(type, oldProps, newProps) ? null : {}),
-  commitUpdate(instance, _updatePayload, _type, _oldProps, newProps) {
+  commitUpdate(instance, _updatePayload, _type, _oldProps, newProps, internalInstanceHandle) {
     instance.props = newProps;
+    instance.fiber = internalInstanceHandle;
     touch(instance);
   },
 
