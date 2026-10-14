@@ -3,6 +3,7 @@
 //! beside the timeline.
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Selectable as _, Sizable as _};
@@ -44,6 +45,7 @@ impl EditorView {
         let frame_size = (settings.width as f32, settings.height as f32);
         let overlay_color = cx.theme().foreground.opacity(0.55);
         let preview_problem = self.problems.active(Source::Preview).cloned();
+        let has_warnings = !self.problems.preview_warnings().is_empty();
         let canvas_area = div()
             .relative()
             .flex()
@@ -79,27 +81,22 @@ impl EditorView {
                     .size_full(),
                 )
             })
-            .when_some(preview_problem, |area, active| {
-                area.child(self.preview_error_panel(&active, cx))
-            })
-            .when(!self.problems.preview_warnings().is_empty(), |area| {
+            // One column over the frame: the error panel takes the space the
+            // warnings strip leaves, so the two never overlap.
+            .when(preview_problem.is_some() || has_warnings, |area| {
                 area.child(
                     div()
                         .absolute()
-                        .bottom(px(8.0))
-                        .left(px(8.0))
-                        .right(px(8.0))
+                        .inset_0()
                         .flex()
                         .flex_col()
-                        .gap_1()
-                        .rounded(cx.theme().radius)
-                        .border_1()
-                        .border_color(cx.theme().warning.opacity(0.5))
-                        .bg(cx.theme().warning.opacity(0.12))
-                        .p_2()
-                        .text_xs()
-                        .text_color(cx.theme().warning)
-                        .children(self.problems.preview_warnings().iter().cloned()),
+                        .justify_end()
+                        .when_some(preview_problem, |overlay, active| {
+                            overlay.child(self.preview_error_panel(&active, cx))
+                        })
+                        .when(has_warnings, |overlay| {
+                            overlay.child(self.preview_warnings_strip(cx))
+                        }),
                 )
             });
         div()
@@ -112,18 +109,19 @@ impl EditorView {
             .child(self.transport_bar(cx))
     }
 
-    /// The active preview error, centered over the viewer: its title, the
-    /// whole detail (selectable, with its own copy button), and a way into
-    /// the Problems tab.
+    /// The active preview error, centered in the space above the warnings
+    /// strip: its title, the whole detail (selectable, with its own copy
+    /// button), and a way into the Problems tab. Only the detail scrolls, so
+    /// the title and the button stay in view.
     fn preview_error_panel(
         &self,
         active: &ActiveProblem,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         div()
-            .absolute()
-            .inset_0()
             .flex()
+            .flex_1()
+            .min_h_0()
             .items_center()
             .justify_center()
             .p_6()
@@ -136,7 +134,6 @@ impl EditorView {
                     .w_full()
                     .max_w(px(560.0))
                     .max_h_full()
-                    .overflow_y_scroll()
                     .rounded(cx.theme().radius)
                     .border_1()
                     .border_color(cx.theme().danger.opacity(0.5))
@@ -145,6 +142,7 @@ impl EditorView {
                     .child(
                         div()
                             .flex()
+                            .flex_none()
                             .items_center()
                             .gap_2()
                             .text_sm()
@@ -152,13 +150,20 @@ impl EditorView {
                             .child(Icon::new(IconName::CircleX).small())
                             .child(active.problem.title.clone()),
                     )
-                    .child(detail_block(
-                        "preview-error-detail".into(),
-                        &active.problem.detail,
-                        cx,
-                    ))
                     .child(
-                        div().flex().justify_end().child(
+                        div()
+                            .id("preview-error-detail-scroll")
+                            .flex_1()
+                            .min_h_0()
+                            .child(detail_block(
+                                "preview-error-detail".into(),
+                                &active.problem.detail,
+                                cx,
+                            ))
+                            .overflow_y_scrollbar(),
+                    )
+                    .child(
+                        div().flex().flex_none().justify_end().child(
                             Button::new("preview-error-show-problems")
                                 .xsmall()
                                 .outline()
@@ -167,6 +172,26 @@ impl EditorView {
                         ),
                     ),
             )
+    }
+
+    /// The current frame's preview warnings (font fallbacks), along the
+    /// bottom of the viewer.
+    fn preview_warnings_strip(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex_none()
+            .mx_2()
+            .mb_2()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .rounded(cx.theme().radius)
+            .border_1()
+            .border_color(cx.theme().warning.opacity(0.5))
+            .bg(cx.theme().warning.opacity(0.12))
+            .p_2()
+            .text_xs()
+            .text_color(cx.theme().warning)
+            .children(self.problems.preview_warnings().iter().cloned())
     }
 
     /// Playhead timecode, transport controls, and the In/Out marks.
