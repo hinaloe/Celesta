@@ -967,11 +967,15 @@ impl EditorView {
             )
             .child(
                 div()
+                    .id("composition-lane")
                     .relative()
                     .flex_1()
                     .h_full()
                     .mr(px(LANE_GUTTER))
                     .overflow_hidden()
+                    .on_scroll_wheel(cx.listener(Self::lane_wheel))
+                    .on_pinch(cx.listener(Self::lane_pinch))
+                    .on_mouse_down(MouseButton::Middle, cx.listener(Self::begin_timeline_pan))
                     .child(
                         div()
                             .absolute()
