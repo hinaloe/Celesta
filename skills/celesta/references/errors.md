@@ -67,4 +67,6 @@ or `ERROR:` per frame (`UNSUPPORTED inspection:` for text it cannot measure). Di
 | `favorite "x" not found in y.pfv (have: …)` | Use one of the listed PSDTool favorites. |
 | `not a RIFF/WAVE file` / `unsupported WAV sample size` | `loadLipSync` needs uncompressed WAV; convert with `ffmpeg -i in.mp3 -c:a pcm_s16le out.wav`. |
 | `inspect.mjs answers preloadMedia() with ffprobe, which is not installed` | Install FFmpeg's `ffprobe`, or verify with a PNG export instead. |
+| `inspect.mjs answers loadAudioSpectrum() with ffmpeg, which is not installed` | Install FFmpeg, or let `inspect.mjs` use the exporter (`--native`). |
+| `could not decode <path>: …` (`loadAudioSpectrum`) | The file is missing, has no audio stream, or FFmpeg cannot read it. In `@celesta/web`, `this browser cannot decode … audio` means WebCodecs lacks that codec there; use WAV or another codec. |
 | `Could not find the Celesta React runtime` (inspect.mjs) | Pass `--runtime <cli.js>` ([setup.md](setup.md#find-the-celesta-tools)), or build the runtime in a source checkout. |

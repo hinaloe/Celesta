@@ -17,3 +17,18 @@ frameKeyframes(keys, { fps, origin? }) は、フレーム番号から音量や�
 ## メディアに合わせてシーンの長さを決める
 
 任意の `prepare()` エクスポートは描画前に一度だけ実行され、`async` にできます。この例は `preloadMedia()` で動画の長さを取得し、`mediaDurationInFrames()` でフレーム数に変換するので、エンドカードが常に映像の直後に来ます。
+
+## 音に合わせて動かす
+
+`loadAudioSpectrum()` は `prepare()` の中で音声ファイル（または動画の音声）をデコードし、全体を解析します。描画中は `useAudioSpectrum()` が現在のフレームの周波数帯と音量を返すので、バーやリング、光を音楽や声に合わせて動かせます。
+
+```tsx file=examples/audio-spectrum.tsx title="audio-spectrum.tsx"
+```
+
+- `bands` は低い周波数から高い周波数への各帯の強さで、それぞれ 0〜1 です。帯の強さは FFT のパワーの平均を、フルスケールの正弦波を基準とした dB で表し、`minDecibels`（既定 −80）から `maxDecibels`（既定 −20）を 0〜1 に対応させたものです。`rms` はサンプルの二乗平均平方根で、フルスケールの正弦波ではおよそ 0.707 になります。
+- `fftSize` は 1 回の FFT のサンプル数（2 の累乗、既定 2048）です。`bands` は帯の数（既定 32）、`scale` は `minFrequency`（20 Hz）から `maxFrequency`（16 kHz）までの分け方です。`'log'`（既定）は 1 オクターブごとに同じ数の帯、`'linear'` は Hz で同じ幅、`'mel'` は聴感上の音の高さに沿って分けます。
+- `smoothing` は秒数、または立ち上がりと立ち下がりを分けた `{ attack, release }` で指定します。その時間がたつと、値は変化のおよそ 63% まで進みます。既定の 0 では平滑化しません。
+- ファイルは `hopSeconds`（既定 1/240 秒）ごとに先頭から順に一度だけ解析されます。窓はハン窓で、各時刻を中心に置きます。2 回の解析の間にあるフレームは、その間を補間します。そのため、フレームの値は fps にも描画の順序にもよらず、プレビューと書き出しで同じになります。
+- hook は `Audio` と同じく、囲んでいる `Sequence` の時計に従います。`Audio` に `startFrom` があるときは同じ値を `startFrom` に渡してください。`playbackRate` には追従しません。ファイルの前後では、すべての値が 0 です。
+- `spectrumAt(spectrum, seconds)` はコンポーネントの外で同じ値を返し、`analyzeAudioSpectrum({ sampleRate, samples }, options)` は手元のサンプルを解析します。
+- 複数のチャンネルは平均し、ファイル本来のサンプルレートのまま解析します。相対パスと URL は `preloadMedia()` と同じように解決されます。

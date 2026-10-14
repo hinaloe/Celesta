@@ -200,7 +200,7 @@ manner of Remotion; import each piece from the package that provides it:
 | [`@celesta/transitions`](packages/transitions) | `<Transition>`, `<TransitionSeries>` and its hooks |
 | [`@celesta/text`](packages/text) | `<TextReveal>`, `useTypewriter`, `useCountUp`, `<TextBox>`, `fitText`, `useFitText` |
 | [`@celesta/character`](packages/character) | `<Character>`, `<CharacterView>`, `<Dialogue>`, `<DialogueSeries>`, `planDialogue`, lip sync, blinking, PSD presets |
-| [`@celesta/media-utils`](packages/media-utils) | `preloadMedia`, `mediaDurationInFrames` |
+| [`@celesta/media-utils`](packages/media-utils) | `preloadMedia`, `mediaDurationInFrames`, `loadAudioSpectrum`, `useAudioSpectrum` |
 | [`@celesta/project`](packages/project) | `<ProjectProvider>`, `<ProjectTimeline>`, `<ProjectTrack>`, `useProject`, `useProjectProperty`, `loadProject`, and the project file types |
 | [`@celesta/debug`](packages/debug) | `<DebugOverlay>`, `<DebugBounds>` |
 | [`@celesta/math`](packages/math) | Deterministic random numbers, noise, and other math helpers |

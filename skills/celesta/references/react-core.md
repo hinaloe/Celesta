@@ -665,6 +665,45 @@ export async function prepare() {
 whole voiced script this way, use `planDialogue()` (see
 [dialogue.md](dialogue.md#timing-a-script-from-its-voices)).
 
+## Audio spectrum and loudness
+
+Also from `@celesta/media-utils`. `loadAudioSpectrum(src, options?)`
+decodes an audio file (or a video's soundtrack) in `prepare()` and analyzes
+all of it; `useAudioSpectrum(spectrum, { startFrom? })` returns
+`{ bands: number[], rms: number }` for the current frame:
+
+```tsx
+let music: AudioSpectrum;
+export async function prepare() {
+  music = await loadAudioSpectrum('./score.mp3', { bands: 32, smoothing: { attack: 0.01, release: 0.2 } });
+}
+function Bars() {
+  const { bands, rms } = useAudioSpectrum(music);
+  return <>{bands.map((level, i) => <Rect key={i} x={i * 20} y={400} width={16} height={4 + level * 300} anchorY={1} fill="#fff" />)}</>;
+}
+// <Audio src={music.src!} /> plays the same file.
+```
+
+- `bands` are 0–1: each band's mean FFT power in dB relative to a
+  full-scale sine, mapped from `minDecibels` (default −80) to `maxDecibels`
+  (default −20) and clamped. `rms` is linear, about 0.707 for a full-scale
+  sine.
+- Options: `fftSize` (power of two, 32–32768, default 2048), `bands`
+  (default 32), `scale` (`'log'` default, `'linear'`, `'mel'`),
+  `minFrequency` (20 Hz) / `maxFrequency` (16 kHz, capped at Nyquist),
+  `smoothing` (seconds, or `{ attack, release }`; default 0), `hopSeconds`
+  (default 1/240).
+- The window is Hann, centered on the frame's time; the channels are
+  averaged at the file's own sample rate. The file is analyzed in order once,
+  every `hopSeconds`, and frames interpolate between hops, so values do not
+  depend on fps or on the order frames are rendered in.
+- The hook reads the enclosing `<Sequence>`'s clock, like `<Audio>`; pass
+  `startFrom` to match an `<Audio startFrom>`. `playbackRate` is not
+  followed. Outside the file every value is 0.
+- `spectrumAt(spectrum, seconds)` is the same lookup without a hook;
+  `analyzeAudioSpectrum({ sampleRate, samples }, options)` analyzes mono
+  samples you already have.
+
 ## Keyframe values
 
 `Audio` `volume`/`playbackRate` and `Dialogue` `volume`/`playbackRate` accept
