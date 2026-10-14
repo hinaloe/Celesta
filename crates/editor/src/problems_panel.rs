@@ -247,6 +247,7 @@ impl EditorView {
                 .flex()
                 .items_center()
                 .gap_1()
+                .when(value == 0, |group| group.text_color(muted))
                 .child(
                     Icon::new(icon)
                         .xsmall()
@@ -257,6 +258,7 @@ impl EditorView {
         Button::new("problems-indicator")
             .ghost()
             .xsmall()
+            .tooltip_with_action("Problems", &ShowProblems, Some("CelestaEditor"))
             .child(
                 div()
                     .flex()
