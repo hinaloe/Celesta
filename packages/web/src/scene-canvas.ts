@@ -1,5 +1,6 @@
-import type { Scene, Layer, Asset, ColorFilter, FontRun, LineDash, Paint, TextStyle } from './types';
+import type { Scene, Layer, Asset, ColorFilter, FontRun, LineDash, Paint, PathCommand, TextStyle } from './types';
 import { applyColorFilters } from './color-filters';
+import { canvasDrawsAlike, gradientPixels } from './gradients';
 import { loadFonts, releaseFonts } from './fonts';
 import { checkFontRuns, cssFont, letterSpacingPx, measureLine, runPieces, textLineRanges, textStyle } from './text-layout';
 import type { RunPiece } from './text-layout';
@@ -18,14 +19,19 @@ const blend: Record<string, GlobalCompositeOperation> = {
   overlay: 'overlay', add: 'lighter', difference: 'difference',
 };
 
-function paint(ctx: Context, value: Paint, x = 0, y = 0): string | CanvasGradient {
-  if (value.type === 'solid') return value.color;
-  const gradient = value.type === 'linear'
-    ? ctx.createLinearGradient(x + value.start.x, y + value.start.y, x + value.end.x, y + value.end.y)
-    : ctx.createRadialGradient(x + value.center.x, y + value.center.y, 0, x + value.center.x, y + value.center.y, value.radius);
-  for (const stop of value.stops) gradient.addColorStop(stop.offset, stop.color);
-  return gradient;
+/** The box of the points `commands` name, control points included, and 0,0 when the first command draws from there. */
+function commandBox(commands: PathCommand[]): Box {
+  const points = commands[0]?.type === 'moveTo' ? [] : [[0, 0]];
+  for (const command of commands) {
+    if (command.type === 'cubicTo') points.push([command.x1, command.y1], [command.x2, command.y2], [command.x, command.y]);
+    else if (command.type === 'quadTo') points.push([command.x1, command.y1], [command.x, command.y]);
+    else if (command.type !== 'close') points.push([command.x, command.y]);
+  }
+  const xs = points.map(([x]) => x), ys = points.map(([, y]) => y);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 }
+
+const grow = ([left, top, right, bottom]: Box, by: number): Box => [left - by, top - by, right + by, bottom + by];
 
 /**
  * A path's dashes for `setLineDash`, as the native renderers draw them: an
@@ -113,6 +119,9 @@ export class SceneCanvas {
   private fontKey = '';
   private usedLayouts = new Set<string>();
   private usedText = new Set<string>();
+  /** Gradients computed by `paint`, which a still frame draws again unchanged. */
+  private patterns = new Map<string, CanvasPattern>();
+  private usedPatterns = new Set<string>();
   /** Where stroked text is composed; see `strokeSurface`. */
   private strokeCanvas?: Context;
 
@@ -123,6 +132,8 @@ export class SceneCanvas {
     this.textLayouts.clear();
     this.usedLayouts.clear();
     this.usedText.clear();
+    this.patterns.clear();
+    this.usedPatterns.clear();
     releaseFonts(this.urls.values());
     for (const url of this.urls.values()) URL.revokeObjectURL(url);
     this.urls.clear();
@@ -278,7 +289,7 @@ export class SceneCanvas {
         if ('lang' in outline) outline.lang = lang;
         outline.lineJoin = 'round';
         outline.lineWidth = style.stroke.width * 2;
-        outline.strokeStyle = paint(outline, style.stroke.paint, originX, originY);
+        outline.strokeStyle = this.paint(outline, style.stroke.paint, [0, 0, stroke.width, stroke.height], originX, originY);
         drawText(outline, 'strokeText');
       }
       drawText(draw, 'fillText');
@@ -308,7 +319,7 @@ export class SceneCanvas {
     result.width = layout.mask.width;
     result.height = layout.mask.height;
     const draw = result.getContext('2d')!;
-    draw.fillStyle = fill ? paint(draw, fill, originX, originY) : '#fff';
+    draw.fillStyle = fill ? this.paint(draw, fill, [0, 0, result.width, result.height], originX, originY) : '#fff';
     draw.fillRect(0, 0, result.width, result.height);
     const hidden = new Uint8Array(result.width);
     const leftEdge = layout.regions.reduce((left, region) => Math.min(left, region.x), Infinity);
@@ -380,6 +391,7 @@ export class SceneCanvas {
   async draw(canvas: Canvas, scene: Scene): Promise<void> {
     this.usedLayouts.clear();
     this.usedText.clear();
+    this.usedPatterns.clear();
     await loadFonts(scene.fonts ?? [], asset => this.src(asset));
     const fontKey = JSON.stringify(scene.fonts ?? []);
     if (fontKey !== this.fontKey) {
@@ -398,7 +410,7 @@ export class SceneCanvas {
     ctx.fillRect(0, 0, scene.width, scene.height);
     for (const layer of scene.layers) await this.layer(ctx, layer as WebLayer, new DOMMatrix(), 1);
     // Retain the active scene, even when it exceeds the idle-cache limit.
-    for (const [cache, used, limit] of [[this.textLayouts, this.usedLayouts, 32], [this.styledText, this.usedText, 64]] as const) {
+    for (const [cache, used, limit] of [[this.textLayouts, this.usedLayouts, 32], [this.styledText, this.usedText, 64], [this.patterns, this.usedPatterns, 8]] as const) {
       for (const key of cache.keys()) {
         if (cache.size <= Math.max(limit, used.size)) break;
         if (!used.has(key)) cache.delete(key);
@@ -491,18 +503,19 @@ export class SceneCanvas {
       const width = content.width, height = content.height;
       const x = -t.anchor.x * width, y = -t.anchor.y * height;
       const radius = Math.max(0, Math.min(content.cornerRadius, width / 2, height / 2));
+      const box: Box = [x, y, x + width, y + height];
       ctx.setTransform(matrix);
       if (content.fill) {
         ctx.beginPath();
         ctx.roundRect(x, y, width, height, radius);
-        ctx.fillStyle = paint(ctx, content.fill, x, y);
+        ctx.fillStyle = this.paint(ctx, content.fill, box, x, y);
         ctx.fill();
       }
       if (content.stroke?.width) {
         const inset = content.stroke.width / 2;
         ctx.beginPath();
         ctx.roundRect(x + inset, y + inset, width - 2 * inset, height - 2 * inset, Math.max(0, radius - inset));
-        ctx.strokeStyle = paint(ctx, content.stroke.paint, x, y);
+        ctx.strokeStyle = this.paint(ctx, content.stroke.paint, box, x, y);
         ctx.lineWidth = content.stroke.width;
         ctx.stroke();
       }
@@ -519,9 +532,9 @@ export class SceneCanvas {
         else ctx.closePath();
         started = true;
       }
-      if (content.fill) { ctx.fillStyle = paint(ctx, content.fill); ctx.fill(); }
+      const box = commandBox(content.commands);
+      if (content.fill) { ctx.fillStyle = this.paint(ctx, content.fill, box); ctx.fill(); }
       if (content.stroke?.width) {
-        ctx.strokeStyle = paint(ctx, content.stroke.paint);
         ctx.lineWidth = content.stroke.width;
         ctx.lineCap = content.lineCap ?? 'butt';
         ctx.lineJoin = content.lineJoin ?? 'miter';
@@ -529,6 +542,9 @@ export class SceneCanvas {
         const dash = canvasDash(content.lineDash);
         ctx.setLineDash(dash.pattern);
         ctx.lineDashOffset = dash.offset;
+        // A square cap's corner, or a miter up to its limit, reaches past half the width.
+        const reach = ctx.lineWidth / 2 * (ctx.lineJoin === 'miter' ? Math.max(ctx.miterLimit, Math.SQRT2) : Math.SQRT2);
+        ctx.strokeStyle = this.paint(ctx, content.stroke.paint, grow(box, reach));
         ctx.stroke();
       }
     } else if (content.type === 'text') {
@@ -562,8 +578,9 @@ export class SceneCanvas {
           ctx.drawImage(image, left, inkTop);
           continue;
         }
+        const box: Box = [left, inkTop, right, bottom];
         if (!style.stroke?.width) {
-          ctx.fillStyle = style.fill ? paint(ctx, style.fill) : '#fff';
+          ctx.fillStyle = style.fill ? this.paint(ctx, style.fill, box) : '#fff';
           ctx.fillText(lines[i].text, placed[i].x, baseline);
           continue;
         }
@@ -594,7 +611,7 @@ export class SceneCanvas {
         if ('lang' in outline && 'lang' in ctx) outline.lang = ctx.lang;
         outline.lineJoin = 'round';
         outline.lineWidth = style.stroke.width * 2;
-        outline.strokeStyle = paint(outline, style.stroke.paint);
+        outline.strokeStyle = this.paint(outline, style.stroke.paint, box);
         outline.strokeText(lines[i].text, placed[i].x, baseline);
         outline.globalCompositeOperation = 'destination-out';
         outline.fillStyle = '#000';
@@ -602,7 +619,7 @@ export class SceneCanvas {
         // Adding the fill keeps antialiased edges opaque where fill and
         // stroke meet, which drawing it over the cut-out stroke would not.
         outline.globalCompositeOperation = 'lighter';
-        outline.fillStyle = style.fill ? paint(outline, style.fill) : '#fff';
+        outline.fillStyle = style.fill ? this.paint(outline, style.fill, box) : '#fff';
         outline.fillText(lines[i].text, placed[i].x, baseline);
         outline.globalCompositeOperation = 'source-over';
         ctx.save();
@@ -650,6 +667,52 @@ export class SceneCanvas {
       throw new Error(`The web renderer does not support ${content.type} layers yet.`);
     }
     ctx.restore();
+  }
+
+  /**
+   * `value` as a fill or stroke style for what `ctx` draws next inside
+   * `box`, in its current coordinates, with the paint's origin at `x, y`.
+   * A gradient Canvas draws differently (see `canvasDrawsAlike`) is
+   * computed pixel by pixel as the native renderers sample it (see
+   * `gradientPixels`), over `box`'s pixels on the canvas, and drawn as a
+   * pattern that lands on those pixels texel for texel.
+   */
+  private paint(ctx: Context, value: Paint, box: Box, x = 0, y = 0): string | CanvasGradient | CanvasPattern {
+    if (value.type === 'solid') return value.color;
+    if (canvasDrawsAlike(value)) {
+      const gradient = value.type === 'linear'
+        ? ctx.createLinearGradient(x + value.start.x, y + value.start.y, x + value.end.x, y + value.end.y)
+        : ctx.createRadialGradient(x + value.center.x, y + value.center.y, 0, x + value.center.x, y + value.center.y, value.radius);
+      for (const stop of value.stops) gradient.addColorStop(stop.offset, stop.color);
+      return gradient;
+    }
+    const transform = ctx.getTransform();
+    const corners = [[box[0], box[1]], [box[2], box[1]], [box[0], box[3]], [box[2], box[3]]]
+      .map(([px, py]) => transform.transformPoint(new DOMPoint(px, py)));
+    // A pixel past the box on each side, which edge antialiasing can reach.
+    const left = Math.max(0, Math.floor(Math.min(...corners.map(p => p.x))) - 1);
+    const top = Math.max(0, Math.floor(Math.min(...corners.map(p => p.y))) - 1);
+    const right = Math.min(ctx.canvas.width, Math.ceil(Math.max(...corners.map(p => p.x))) + 1);
+    const bottom = Math.min(ctx.canvas.height, Math.ceil(Math.max(...corners.map(p => p.y))) + 1);
+    if (!(right > left && bottom > top)) return '#00000000';
+    const { a, b, c, d, e, f } = transform.translate(x, y).inverse();
+    const key = JSON.stringify([value, a, b, c, d, e, f, left, top, right, bottom]);
+    this.usedPatterns.add(key);
+    let pattern = this.patterns.get(key);
+    if (!pattern) {
+      const pixels = gradientPixels(value, [a, b, c, d, e, f], [left, top, right, bottom]);
+      const image = document.createElement('canvas');
+      image.width = right - left;
+      image.height = bottom - top;
+      image.getContext('2d')!.putImageData(new ImageData(pixels, image.width, image.height), 0, 0);
+      pattern = ctx.createPattern(image, 'no-repeat')!;
+      this.patterns.set(key, pattern);
+    }
+    // Undoes the transform the pattern is drawn through, so its pixels map
+    // to the canvas's by a whole-pixel translation. The same pixels can
+    // come from another transform, with the paint's origin moved to match.
+    pattern.setTransform(transform.inverse().translate(left, top));
+    return pattern;
   }
 
   /** A `surface` kept for stroked text, which reuses it line after line. */
@@ -724,15 +787,8 @@ export class SceneCanvas {
       const commands = content.commands;
       if (!commands.some(command => command.type !== 'moveTo' && command.type !== 'close')) return null;
       if (!content.fill && !(content.stroke && content.stroke.width > 0)) return null;
-      const points = commands[0]?.type === 'moveTo' ? [] : [[0, 0]];
-      for (const command of commands) {
-        if (command.type === 'cubicTo') points.push([command.x1, command.y1], [command.x2, command.y2], [command.x, command.y]);
-        else if (command.type === 'quadTo') points.push([command.x1, command.y1], [command.x, command.y]);
-        else if (command.type !== 'close') points.push([command.x, command.y]);
-      }
       const reach = content.stroke && content.stroke.width > 0 ? content.stroke.width / 2 : 0;
-      const xs = points.map(([x]) => x), ys = points.map(([, y]) => y);
-      return place(Math.min(...xs) - reach, Math.min(...ys) - reach, Math.max(...xs) + reach, Math.max(...ys) + reach);
+      return place(...grow(commandBox(commands), reach));
     }
     return null;
   }
