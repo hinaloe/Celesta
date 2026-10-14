@@ -1,5 +1,5 @@
 use crate::assets::rasterize_psd;
-use crate::composite::{blend, blend_with_mode, psd_blend_channel};
+use crate::composite::{PsdBlend, blend, blend_with_mode, psd_blend};
 use crate::error::RenderError;
 use crate::fonts::TextRasterizer;
 use crate::linebreak::{WORD_JOINER, insert_joiners, phrase_segments};
@@ -1678,11 +1678,66 @@ fn rasterize_psd_applies_each_layer_blend_mode() {
 }
 
 #[test]
+fn rasterize_psd_mixes_whole_colors_for_hue_saturation_color_and_luminosity() {
+    // 4×1: an opaque rgb(200, 100, 50) base; over it one pixel each of a
+    // hue layer of rgb(0, 0, 255), a saturation layer of rgb(128, 128, 128),
+    // a color layer of rgb(255, 0, 0) and a luminosity layer of
+    // rgb(100, 200, 250). Written with ag-psd, as `blend-modes.psd`.
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/non-separable-blend-modes.psd");
+    let layers = ["base", "hue", "saturation", "color", "luminosity"].map(str::to_owned);
+    let frame = rasterize_psd("fixture", &fixture, &layers, &[], &[]).unwrap();
+    let close = |actual: [u8; 4], expected: [u8; 4]| {
+        actual.iter().zip(expected).all(|(a, e)| a.abs_diff(e) <= 1)
+    };
+    // Worked out from the spec's formulas; the base's luminosity is 0.488.
+    let expected = [
+        // Blue at the base's saturation, lifted to its luminosity and
+        // clipped below 1.
+        ("hue", [108, 108, 255, 255]),
+        // A gray source has no saturation: gray at the base's luminosity.
+        ("saturation", [125, 125, 125, 255]),
+        // Red lifted to the base's luminosity, then clipped below 1.
+        ("color", [255, 69, 69, 255]),
+        // The base lifted by 0.2, the difference in luminosity.
+        ("luminosity", [251, 151, 101, 255]),
+    ];
+    for (x, (mode, expected)) in expected.into_iter().enumerate() {
+        let actual = pixel_at(&frame, x as u32, 0);
+        assert!(close(actual, expected), "{mode}: {actual:?}");
+    }
+}
+
+#[test]
 fn psd_blend_modes_mix_like_photoshop() {
-    let mix = |mode| psd_blend_channel(mode).unwrap();
+    let mix = |mode| {
+        let blend = psd_blend(mode).unwrap();
+        move |b: f64, s: f64| blend.mix([b; 3], [s; 3])[0]
+    };
     let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
-    assert!(psd_blend_channel("Normal").is_none());
-    assert!(psd_blend_channel("Hue").is_none());
+    for mode in [
+        "Normal",
+        "PassThrough",
+        "Dissolve",
+        "DarkerColor",
+        "LighterColor",
+    ] {
+        assert!(psd_blend(mode).is_none(), "{mode} draws as normal");
+    }
+    // The modes layers also have use the same functions.
+    for (mode, shared) in [
+        ("LinearDodge", BlendMode::Add),
+        ("SoftLight", BlendMode::SoftLight),
+        ("Hue", BlendMode::Hue),
+        ("Saturation", BlendMode::Saturation),
+        ("Color", BlendMode::Color),
+        ("Luminosity", BlendMode::Luminosity),
+    ] {
+        assert!(
+            matches!(psd_blend(mode), Some(PsdBlend::Mode(m)) if m == shared),
+            "{mode}"
+        );
+    }
     assert!(close(mix("Multiply")(0.5, 0.5), 0.25));
     assert!(close(mix("Screen")(0.5, 0.5), 0.75));
     assert!(close(mix("Overlay")(0.25, 0.5), 0.25));
@@ -1693,6 +1748,9 @@ fn psd_blend_modes_mix_like_photoshop() {
     assert!(close(mix("Difference")(0.3, 0.8), 0.5));
     assert!(close(mix("ColorDodge")(0.25, 0.5), 0.5));
     assert!(close(mix("ColorBurn")(0.75, 0.5), 0.5));
+    // Vivid light: color-burn by 2Cs below a half, color-dodge by 2Cs - 1 above.
+    assert!(close(mix("VividLight")(0.75, 0.25), 0.5));
+    assert!(close(mix("VividLight")(0.75, 0.75), 1.0));
     // White and black are neutral where Photoshop says they are.
     for mode in ["Multiply", "ColorBurn", "LinearBurn"] {
         assert!(close(mix(mode)(0.4, 1.0), 0.4), "{mode:?} with white");

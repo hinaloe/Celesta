@@ -55,27 +55,38 @@ impl BlendMode {
 
     /// The blended color `B(Cb, Cs)`, every channel in `0.0..=1.0`.
     pub fn blend(self, backdrop: [f64; 3], source: [f64; 3]) -> [f64; 3] {
-        let channel =
-            |mix: fn(f64, f64) -> f64| [0, 1, 2].map(|index| mix(backdrop[index], source[index]));
+        if let Some(mix) = self.separable() {
+            return [0, 1, 2].map(|index| mix(backdrop[index], source[index]));
+        }
         match self {
-            Self::Normal => source,
-            Self::Multiply => channel(|b, s| b * s),
-            Self::Screen => channel(screen),
-            Self::Overlay => channel(|b, s| hard_light(s, b)),
-            Self::Add => channel(|b, s| (b + s).min(1.0)),
-            Self::Difference => channel(|b, s| (b - s).abs()),
-            Self::Darken => channel(f64::min),
-            Self::Lighten => channel(f64::max),
-            Self::ColorDodge => channel(color_dodge),
-            Self::ColorBurn => channel(color_burn),
-            Self::HardLight => channel(hard_light),
-            Self::SoftLight => channel(soft_light),
-            Self::Exclusion => channel(|b, s| b + s - 2.0 * b * s),
             Self::Hue => set_lum(set_sat(source, sat(backdrop)), lum(backdrop)),
             Self::Saturation => set_lum(set_sat(backdrop, sat(source)), lum(backdrop)),
             Self::Color => set_lum(source, lum(backdrop)),
             Self::Luminosity => set_lum(backdrop, lum(source)),
+            _ => unreachable!("{self:?} is separable"),
         }
+    }
+
+    /// `B(Cb, Cs)` of one channel for the modes that blend each channel on
+    /// its own; `None` for hue, saturation, color and luminosity, which mix
+    /// whole colors.
+    pub fn separable(self) -> Option<fn(f64, f64) -> f64> {
+        Some(match self {
+            Self::Normal => |_, s| s,
+            Self::Multiply => |b, s| b * s,
+            Self::Screen => screen,
+            Self::Overlay => |b, s| hard_light(s, b),
+            Self::Add => |b, s| (b + s).min(1.0),
+            Self::Difference => |b, s| (b - s).abs(),
+            Self::Darken => f64::min,
+            Self::Lighten => f64::max,
+            Self::ColorDodge => color_dodge,
+            Self::ColorBurn => color_burn,
+            Self::HardLight => hard_light,
+            Self::SoftLight => soft_light,
+            Self::Exclusion => |b, s| b + s - 2.0 * b * s,
+            Self::Hue | Self::Saturation | Self::Color | Self::Luminosity => return None,
+        })
     }
 }
 
@@ -249,6 +260,16 @@ mod tests {
                 close(actual, expected),
                 "{mode:?}({backdrop}, {source}) = {actual}, expected {expected}"
             );
+        }
+    }
+
+    #[test]
+    fn only_the_non_separable_modes_lack_a_channel_function() {
+        for mode in SEPARABLE {
+            assert!(mode.separable().is_some(), "{mode:?}");
+        }
+        for mode in NON_SEPARABLE {
+            assert!(mode.separable().is_none(), "{mode:?}");
         }
     }
 

@@ -9,7 +9,7 @@
 //! kept in one cache bounded by bytes, dropping the least recently used.
 use super::{
     Color, RenderError,
-    composite::{blend, blend_mixed, psd_blend_channel},
+    composite::{blend, blend_mixed, psd_blend},
     image_source::{fit_within, resize_rgba},
 };
 use std::{
@@ -208,7 +208,7 @@ impl PsdSources {
             let opacity = f64::from(layer.opacity()) / 255.0;
             // The `psd` crate does not export its `BlendMode` type, only its
             // values, so modes are told apart by name.
-            let mix = psd_blend_channel(&format!("{:?}", layer.blend_mode()));
+            let mix = psd_blend(&format!("{:?}", layer.blend_mode()));
             let row_bytes = raster.width as usize * 4;
             for row in 0..raster.height as usize {
                 let start =
@@ -223,9 +223,9 @@ impl PsdSources {
                     }
                     let source = Color::rgba(source[0], source[1], source[2], source[3]);
                     match mix {
-                        Some(mix) => blend_mixed(destination, source, opacity, |b, s| {
-                            [0, 1, 2].map(|channel| mix(b[channel], s[channel]))
-                        }),
+                        Some(mix) => {
+                            blend_mixed(destination, source, opacity, |b, s| mix.mix(b, s))
+                        }
                         None => blend(destination, source, opacity),
                     }
                 }

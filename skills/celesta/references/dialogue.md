@@ -555,9 +555,9 @@ export async function prepare() {
   common for full-body tachie in 1080p).
 - Each layer's blend mode is applied: multiply, screen, overlay, darken,
   lighten, the dodges and burns, soft/hard/vivid/linear/pin light, hard mix,
-  difference, exclusion, subtract, and divide. Folders pass through (their own
-  blend mode and opacity are ignored), and dissolve, darker/lighter color,
-  hue, saturation, color, and luminosity layers draw as normal.
+  difference, exclusion, subtract, divide, hue, saturation, color, and
+  luminosity. Folders pass through (their own blend mode and opacity are
+  ignored), and dissolve and darker/lighter color layers draw as normal.
 
 ### PSD expressions
 
