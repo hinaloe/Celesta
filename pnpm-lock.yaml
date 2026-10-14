@@ -454,6 +454,25 @@ importers:
         specifier: ^31.0.2
         version: 31.0.2
 
+  examples/shorts-loop:
+    dependencies:
+      '@celesta/react':
+        specifier: workspace:*
+        version: link:../../packages/react
+      '@celesta/shader':
+        specifier: workspace:*
+        version: link:../../packages/shader
+      '@celesta/shapes':
+        specifier: workspace:*
+        version: link:../../packages/shapes
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.31
+        version: 18.3.31
+
   examples/shorts-tips:
     dependencies:
       '@celesta/code':
