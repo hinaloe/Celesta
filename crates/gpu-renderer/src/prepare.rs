@@ -587,8 +587,12 @@ impl GpuRenderer {
                     .video_decoder
                     .as_mut()
                     .ok_or_else(|| GpuRenderError::MissingVideoDecoder(layer.id.clone()))?;
-                let frame =
-                    decoder.decode_frame_for(&layer.id, &path, timing.source_time_seconds)?;
+                let source_time_seconds = if timing.r#loop {
+                    decoder.loop_source_time(&path, timing.source_time_seconds)?
+                } else {
+                    timing.source_time_seconds
+                };
+                let frame = decoder.decode_frame_for(&layer.id, &path, source_time_seconds)?;
                 let (width, height) =
                     fit_within(frame.width, frame.height, self.max_texture_dimension);
                 // Checked against its size before anything reads it.

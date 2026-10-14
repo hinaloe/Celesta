@@ -91,7 +91,12 @@ pub fn mix_audio_graph_cancellable(
             if source_end_seconds.is_some_and(|end| source_seconds >= end) {
                 continue;
             }
-            let source_position = source_seconds * f64::from(graph.sample_rate);
+            let mut source_position = source_seconds * f64::from(graph.sample_rate);
+            if clip.r#loop {
+                // Past the end the source starts over, and its last sample
+                // runs into its first.
+                source_position = source_position.rem_euclid(source.frame_count() as f64);
+            }
             if !source_position.is_finite() || source_position < 0.0 {
                 continue;
             }
@@ -99,7 +104,11 @@ pub fn mix_audio_graph_cancellable(
             if source_frame >= source.frame_count() {
                 continue;
             }
-            let next_frame = (source_frame + 1).min(source.frame_count() - 1);
+            let next_frame = if clip.r#loop {
+                (source_frame + 1) % source.frame_count()
+            } else {
+                (source_frame + 1).min(source.frame_count() - 1)
+            };
             let fraction = (source_position - source_frame as f64) as f32;
             let volume = evaluate_f64(&clip.volume, local_time)?.clamp(0.0, 16.0) as f32;
             for channel in 0..usize::from(CHANNELS) {
@@ -160,7 +169,17 @@ pub(crate) fn clamp_to_source_end(
     else {
         return source_time_seconds;
     };
-    let seconds = match (format_duration, video.duration) {
+    let Some(seconds) = video_seconds(video, format_duration) else {
+        return source_time_seconds;
+    };
+    let frame_step = f64::from(frame_rate.denominator) / f64::from(frame_rate.numerator);
+    source_time_seconds.min((seconds - frame_step).max(0.0))
+}
+
+/// How long the video stream lasts: the shorter of the stream's and the
+/// container's durations, whichever are known.
+pub(crate) fn video_seconds(video: &VideoStream, format_duration: Option<Time>) -> Option<f64> {
+    match (format_duration, video.duration) {
         (Some(format), Some(stream)) => format
             .as_seconds()
             .ok()
@@ -168,10 +187,5 @@ pub(crate) fn clamp_to_source_end(
             .map(|(format, stream)| format.min(stream)),
         (available, None) | (None, available) => available.and_then(|time| time.as_seconds().ok()),
     }
-    .filter(|seconds| seconds.is_finite() && *seconds > 0.0);
-    let Some(seconds) = seconds else {
-        return source_time_seconds;
-    };
-    let frame_step = f64::from(frame_rate.denominator) / f64::from(frame_rate.numerator);
-    source_time_seconds.min((seconds - frame_step).max(0.0))
+    .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
 }

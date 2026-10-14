@@ -276,6 +276,7 @@ fn deserializes_audio_clips_from_a_frame_response() {
             muted: false,
             start: 2.0,
             duration: 3.0,
+            r#loop: false,
         }]
     );
 }
@@ -434,6 +435,7 @@ fn audio_descriptor(src: &str, start: f64) -> ReactAudioClipDescriptor {
         muted: false,
         start,
         duration: 2.0,
+        r#loop: false,
     }
 }
 

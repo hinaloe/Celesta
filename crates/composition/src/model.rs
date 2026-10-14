@@ -254,6 +254,10 @@ fn is_zero(value: &f64) -> bool {
     *value == 0.0
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
 #[cfg_attr(feature = "codegen", ts(export))]
@@ -924,6 +928,10 @@ pub struct MediaTiming {
     pub source_start: Time,
     pub source_time_seconds: f64,
     pub playback_rate: f64,
+    /// Past the end of the video, start over from its first frame instead
+    /// of holding the last one.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub r#loop: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -965,6 +973,10 @@ pub struct AudioClip {
     pub playback_rate: Animatable<f64>,
     pub volume: Animatable<f64>,
     pub muted: bool,
+    /// Past the end of the source, start over from its beginning instead of
+    /// falling silent.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub r#loop: bool,
 }
 
 /// The frame of an animated image to draw.

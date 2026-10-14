@@ -333,6 +333,7 @@ fn every_tagged_variant_round_trips() {
                 source_start: Time::new(0, 1),
                 source_time_seconds: 0.5,
                 playback_rate: 1.0,
+                r#loop: false,
             },
         },
         LayerContent::MissingComponent {

@@ -1533,16 +1533,20 @@ fn renders_a_video_frame_from_the_injected_decoder() {
             source_time_seconds: f64,
         ) -> Result<VideoFrame, MediaError> {
             assert_eq!(path, Path::new("./clip.mp4"));
-            assert_eq!(source_time_seconds, 2.0);
+            // The red channel says which time was asked for.
             Ok(VideoFrame {
                 width: 1,
                 height: 1,
-                pixels: vec![12, 34, 56, 255].into(),
+                pixels: vec![(source_time_seconds * 10.0) as u8, 34, 56, 255].into(),
             })
+        }
+
+        fn video_duration(&mut self, _: &Path) -> Result<Option<f64>, MediaError> {
+            Ok(Some(1.5))
         }
     }
 
-    let scene = Scene {
+    let mut scene = Scene {
         width: 1,
         height: 1,
         frame_rate: Rational::new(60, 1),
@@ -1569,6 +1573,7 @@ fn renders_a_video_frame_from_the_injected_decoder() {
                     source_start: Time::new(1, 1),
                     source_time_seconds: 2.0,
                     playback_rate: 2.0,
+                    r#loop: false,
                 },
             },
         }],
@@ -1576,7 +1581,15 @@ fn renders_a_video_frame_from_the_injected_decoder() {
     };
     let mut renderer = CpuRenderer::default().with_video_decoder(Decoder);
     let frame = renderer.render(&scene).unwrap();
-    assert_eq!(frame.pixels(), &[12, 34, 56, 255]);
+    assert_eq!(frame.pixels(), &[20, 34, 56, 255]);
+
+    // A looping clip 2 s into a 1.5 s video is 0.5 s into its second pass.
+    let LayerContent::Video { timing, .. } = &mut scene.layers[0].content else {
+        unreachable!()
+    };
+    timing.r#loop = true;
+    let frame = renderer.render(&scene).unwrap();
+    assert_eq!(frame.pixels(), &[5, 34, 56, 255]);
 }
 
 // `examples/assets/lipsync-fixture.psd` mimics a real "tachie" PSD: a

@@ -66,6 +66,7 @@ pub fn react_audio_clips(clips: &[ReactAudioClipDescriptor], entry_dir: &Path) -
                 playback_rate: clip.playback_rate,
                 volume: clip.volume,
                 muted: clip.muted,
+                r#loop: clip.r#loop,
             }
         })
         .collect()

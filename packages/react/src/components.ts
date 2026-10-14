@@ -287,6 +287,12 @@ export interface VideoProps extends CommonProps {
   volume?: AnimatedNumber;
   /** Silences the video's soundtrack. Defaults to false. */
   muted?: boolean;
+  /**
+   * Past the end of the file, starts the picture and soundtrack over from
+   * the file's beginning instead of holding the last frame in silence.
+   * Defaults to false.
+   */
+  loop?: boolean;
 }
 
 export interface AssetReference {
@@ -542,6 +548,11 @@ export interface AudioProps extends CommonProps {
   volume?: AnimatedNumber;
   /** Defaults to false. */
   muted?: boolean;
+  /**
+   * Past the end of the file, starts it over from its beginning instead of
+   * falling silent. Defaults to false.
+   */
+  loop?: boolean;
 }
 
 /**

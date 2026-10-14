@@ -96,7 +96,7 @@ pub(crate) fn map_clip_waveform(
             let Ok(mapped_end) = integrate_f64(&clip.playback_rate, local_end) else {
                 return 0.0;
             };
-            let start = (source_start + mapped_start).max(0.0);
+            let start = source_start + mapped_start;
             let mut end = (source_start + mapped_end).max(start);
             if let Some(limit) = source_limit {
                 if start >= limit {
@@ -104,18 +104,35 @@ pub(crate) fn map_clip_waveform(
                 }
                 end = end.min(limit);
             }
-            if start >= source_duration || end <= start {
-                return 0.0;
+            if !clip.r#loop {
+                return source_peak(peaks, source_duration, start.max(0.0), end);
             }
-            let start_fraction = (start / source_duration).clamp(0.0, 1.0) as f32;
-            let duration_fraction =
-                ((end.min(source_duration) - start) / source_duration).clamp(0.0, 1.0) as f32;
-            waveform_segment(peaks, start_fraction, duration_fraction, 1)
-                .into_iter()
-                .next()
-                .unwrap_or(0.0)
+            // A looping clip starts the source over past its end, so a
+            // bucket across the end shows both sides of it.
+            let length = (end - start).min(source_duration);
+            let start = start.rem_euclid(source_duration);
+            source_peak(peaks, source_duration, start, start + length).max(source_peak(
+                peaks,
+                source_duration,
+                0.0,
+                start + length - source_duration,
+            ))
         })
         .collect()
+}
+
+/// The loudest peak between `start` and `end` seconds into a source.
+fn source_peak(peaks: &[f32], source_duration: f64, start: f64, end: f64) -> f32 {
+    if start >= source_duration || end <= start {
+        return 0.0;
+    }
+    let start_fraction = (start / source_duration).clamp(0.0, 1.0) as f32;
+    let duration_fraction =
+        ((end.min(source_duration) - start) / source_duration).clamp(0.0, 1.0) as f32;
+    waveform_segment(peaks, start_fraction, duration_fraction, 1)
+        .into_iter()
+        .next()
+        .unwrap_or(0.0)
 }
 
 pub(crate) fn clip_level_envelope(waveform: &[f32], clip: &AudioClip) -> Vec<f32> {

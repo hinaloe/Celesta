@@ -601,7 +601,11 @@ export class SceneCanvas {
       else {
         const video = await this.video(content.asset);
         image = video;
-        const requested = Math.max(0, content.timing.sourceTimeSeconds);
+        const looped = content.timing.loop && Number.isFinite(video.duration) && video.duration > 0;
+        // A looping clip starts over from the first frame past the end.
+        const requested = looped
+          ? ((content.timing.sourceTimeSeconds % video.duration) + video.duration) % video.duration
+          : Math.max(0, content.timing.sourceTimeSeconds);
         const end = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.001) : requested;
         const time = Math.min(requested, end);
         if (Math.abs(video.currentTime - time) > 0.001) {

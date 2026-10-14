@@ -113,6 +113,65 @@ fn freezes_on_the_last_frame_past_the_source_end() {
 }
 
 #[test]
+fn loops_video_from_its_first_frame_past_the_source_end() {
+    let directory = fixture_dir("loop");
+    let clip = directory.join("clip.mkv");
+    generate_clip(&clip, "testsrc=size=64x64:rate=10:duration=1", (10, 1));
+
+    let mut backend = FfmpegBackend::new();
+    let duration = backend.video_duration(&clip).unwrap().unwrap();
+    assert!((duration - 1.0).abs() < 1e-9, "video duration {duration}");
+    // The last frame still shows just before the end; at the end, and a
+    // whole pass later, the first one does again.
+    assert!((backend.loop_source_time(&clip, 0.95).unwrap() - 0.95).abs() < 1e-9);
+    assert!(backend.loop_source_time(&clip, 1.0).unwrap().abs() < 1e-9);
+    assert!((backend.loop_source_time(&clip, 2.3).unwrap() - 0.3).abs() < 1e-9);
+
+    let mut sequential = FfmpegBackend::new().with_sequential_video(Rational::new(10, 1));
+    let first = sequential.decode_frame_for("clip", &clip, 0.0).unwrap();
+    let third = sequential.decode_frame_for("clip", &clip, 0.2).unwrap();
+    let wrapped = sequential.loop_source_time(&clip, 1.0).unwrap();
+    assert_eq!(
+        sequential
+            .decode_frame_for("clip", &clip, wrapped)
+            .unwrap()
+            .pixels,
+        first.pixels
+    );
+    let wrapped = sequential.loop_source_time(&clip, 2.2).unwrap();
+    assert_eq!(
+        sequential
+            .decode_frame_for("clip", &clip, wrapped)
+            .unwrap()
+            .pixels,
+        third.pixels
+    );
+
+    fs::remove_dir_all(&directory).ok();
+}
+
+#[test]
+fn decodes_aac_without_the_encoder_padding_after_its_last_sample() {
+    let directory = fixture_dir("aac");
+    let tone = directory.join("tone.m4a");
+    // One second is 46.875 AAC frames, so the encoder pads the last one.
+    FfmpegContext::builder()
+        .input(Input::from("sine=frequency=440:sample_rate=48000:duration=1").set_format("lavfi"))
+        .output(Output::from(path_to_url(&tone)).set_audio_codec("aac"))
+        .build()
+        .unwrap()
+        .start()
+        .unwrap()
+        .wait()
+        .unwrap();
+
+    let audio = FfmpegBackend::new().decode_audio(&tone, 48_000, 2).unwrap();
+    assert_eq!(audio.frame_count(), 48_000);
+
+    fs::remove_dir_all(&directory).ok();
+}
+
+#[test]
 fn mixes_audio_at_exact_timeline_and_source_offsets() {
     struct Decoder;
 
@@ -156,6 +215,7 @@ fn mixes_audio_at_exact_timeline_and_source_offsets() {
             playback_rate: Animatable::Static(1.0),
             volume: Animatable::Static(0.5),
             muted: false,
+            r#loop: false,
         }],
     };
 
@@ -185,6 +245,76 @@ fn mixes_audio_at_exact_timeline_and_source_offsets() {
         .map(|frame| frame[0])
         .collect::<Vec<_>>();
     assert_eq!(left, vec![0.0, 0.0, 0.125, 0.25, 0.0, 0.0, 0.0, 0.0]);
+}
+
+#[test]
+fn loops_audio_from_the_start_of_the_source_past_its_end() {
+    struct Decoder;
+
+    impl AudioDecoder for Decoder {
+        fn decode_audio(
+            &mut self,
+            _: &Path,
+            sample_rate: u32,
+            channels: u16,
+        ) -> Result<AudioBuffer, MediaError> {
+            Ok(AudioBuffer {
+                sample_rate,
+                channels,
+                samples: [0.0_f32, 0.25, 0.5, 0.75, 1.0]
+                    .into_iter()
+                    .flat_map(|sample| [sample, sample])
+                    .collect(),
+            })
+        }
+    }
+
+    let mut graph = AudioGraph {
+        sample_rate: 4,
+        master_volume: 1.0,
+        clips: vec![AudioClip {
+            id: "loop".to_owned(),
+            asset: ResolvedAsset {
+                id: "loop".to_owned(),
+                location: AssetLocation::File {
+                    path: "loop.wav".to_owned(),
+                },
+            },
+            range: TimeRange {
+                start: Time::ZERO,
+                duration: Time::new(2, 1),
+            },
+            source_start: Time::new(1, 1),
+            source_duration: None,
+            playback_rate: Animatable::Static(1.0),
+            volume: Animatable::Static(1.0),
+            muted: false,
+            r#loop: true,
+        }],
+    };
+    let left = |graph: &AudioGraph| {
+        mix_audio_graph(graph, Path::new("assets"), Time::new(2, 1), &mut Decoder)
+            .unwrap()
+            .samples
+            .chunks_exact(2)
+            .map(|frame| frame[0])
+            .collect::<Vec<_>>()
+    };
+
+    // `startFrom` one second into a 1.25 s source: its last sample, then
+    // the source again from its first.
+    assert_eq!(
+        left(&graph),
+        vec![1.0, 0.0, 0.25, 0.5, 0.75, 1.0, 0.0, 0.25]
+    );
+
+    // Between samples, the last one blends into the first.
+    graph.clips[0].source_start = Time::new(9, 8);
+    assert_eq!(left(&graph)[0], 0.5);
+
+    graph.clips[0].source_start = Time::new(1, 1);
+    graph.clips[0].r#loop = false;
+    assert_eq!(left(&graph), vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
 }
 
 #[test]

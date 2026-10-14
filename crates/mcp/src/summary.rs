@@ -310,8 +310,13 @@ fn print_layers(
                 let mut extra = String::new();
                 if kind == "video" {
                     extra = format!(
-                        " (source {} s)",
-                        fmt(num(&content["timing"]["sourceTimeSeconds"]))
+                        " (source {} s{})",
+                        fmt(num(&content["timing"]["sourceTimeSeconds"])),
+                        if truthy(content["timing"].get("loop")) {
+                            ", looping"
+                        } else {
+                            ""
+                        }
                     );
                 }
                 if kind == "image"
@@ -442,6 +447,9 @@ pub fn describe_frame(
             }
             Some(Value::Object(_) | Value::Array(_)) => line.push_str(", volume keyframes"),
             _ => {}
+        }
+        if truthy(clip.get("loop")) {
+            line.push_str(", looping");
         }
         if truthy(clip.get("muted")) {
             line.push_str(", muted");
