@@ -1,5 +1,6 @@
 use crate::audio::take_latest;
 use crate::helpers::prepare_preview_frame;
+use crate::problems::error_chain;
 use crate::source::PropertyArgs;
 use celesta_composition::{Layer, LayerContent, Scene, ShaderSource};
 use celesta_gpu_renderer::{GpuRenderer, RenderQuality};
@@ -186,7 +187,7 @@ impl PreviewWorker {
                     };
                     let frame = renderer
                         .render_preview(&scene)
-                        .map_err(|error| error.to_string())
+                        .map_err(|error| error_chain(&error))
                         .map(prepare_preview_frame);
                     warnings.extend(renderer.font_fallbacks().iter().map(ToString::to_string));
                     warnings.extend(renderer.missing_glyphs().iter().map(ToString::to_string));

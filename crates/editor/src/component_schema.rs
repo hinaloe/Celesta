@@ -1,4 +1,5 @@
 use crate::audio::take_latest;
+use crate::problems::error_chain;
 use celesta_react_bridge::{ComponentPropertyField, ComponentPropertySchema, ReactBridge};
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -54,7 +55,7 @@ impl ComponentSchemaWorker {
                                 .map(|(name, schema)| (name.clone(), schema.clone()))
                                 .collect()
                         })
-                        .map_err(|error| error.to_string());
+                        .map_err(|error| error_chain(&error));
                     let project_property_schema = result
                         .ok()
                         .and_then(|bridge| bridge.metadata().project_property_schema.clone());

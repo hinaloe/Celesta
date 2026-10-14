@@ -4,6 +4,8 @@
 
 use chrono::{DateTime, Local};
 use std::collections::{BTreeMap, VecDeque};
+use std::error::Error;
+use std::fmt::Write as _;
 
 /// The most log entries kept; the oldest are dropped first.
 pub(crate) const HISTORY_LIMIT: usize = 500;
@@ -287,6 +289,21 @@ pub(crate) fn first_line(detail: &str) -> &str {
     detail.lines().next().unwrap_or_default()
 }
 
+/// `error` and the errors that caused it, outermost first, one per line.
+/// A cause whose text the message already contains is left out.
+pub(crate) fn error_chain(error: &dyn Error) -> String {
+    let mut text = error.to_string();
+    let mut cause = error.source();
+    while let Some(error) = cause {
+        let message = error.to_string();
+        if !text.contains(&message) {
+            write!(text, "\ncaused by: {message}").expect("writing to a String cannot fail");
+        }
+        cause = error.source();
+    }
+    text
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,5 +521,64 @@ mod tests {
         assert_eq!(Source::Audio.severity(), Severity::Warning);
         assert_eq!(Source::Project.severity(), Severity::Error);
         assert_eq!(Source::Export.failure_title(), "Export failed");
+    }
+
+    #[derive(Debug)]
+    struct Outer {
+        message: &'static str,
+        cause: Option<Inner>,
+    }
+
+    #[derive(Debug)]
+    struct Inner(&'static str);
+
+    impl std::fmt::Display for Outer {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str(self.message)
+        }
+    }
+
+    impl std::fmt::Display for Inner {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str(self.0)
+        }
+    }
+
+    impl std::error::Error for Outer {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            self.cause.as_ref().map(|cause| cause as _)
+        }
+    }
+
+    impl std::error::Error for Inner {}
+
+    #[test]
+    fn error_chain_lists_causes_one_per_line() {
+        let error = Outer {
+            message: "export failed",
+            cause: Some(Inner("disk full")),
+        };
+        assert_eq!(error_chain(&error), "export failed\ncaused by: disk full");
+    }
+
+    #[test]
+    fn error_chain_skips_causes_already_in_the_message() {
+        let error = Outer {
+            message: "could not run node: No such file or directory",
+            cause: Some(Inner("No such file or directory")),
+        };
+        assert_eq!(
+            error_chain(&error),
+            "could not run node: No such file or directory"
+        );
+    }
+
+    #[test]
+    fn error_chain_without_causes_is_the_message() {
+        let error = Outer {
+            message: "bad json",
+            cause: None,
+        };
+        assert_eq!(error_chain(&error), "bad json");
     }
 }

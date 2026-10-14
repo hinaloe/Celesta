@@ -1,6 +1,7 @@
 use crate::audio_cache::DiskAudioCache;
 use crate::meter::MasterLevels;
 use crate::preview::AudioPreview;
+use crate::problems::error_chain;
 use crate::waveform::{clip_level_envelope, map_clip_waveform, waveform_peaks};
 use celesta_composition::{AudioClip, AudioGraph, Time};
 use celesta_media::{
@@ -186,7 +187,7 @@ impl AudioMixWorker {
                             buffer,
                         }
                     })
-                    .map_err(|error| error.to_string());
+                    .map_err(|error| error_chain(&error));
                     if result_tx
                         .send(AudioMixResult {
                             generation: request.generation,
