@@ -111,10 +111,9 @@ prefixed string.
   helper of the same name in `crates/gpu-renderer/src/shader.rs`.
 - Background workers turn errors into strings before sending them. They use
   the same helper at that point, so causes survive the channel.
-- Some messages carry very little, such as `node exited` from the React
-  bridge. The implementation checks whether `ReactBridgeError` already holds
-  the child's stderr and includes it in the detail if it does. If capturing
-  it requires bridge changes, that becomes a separate issue.
+- When the Node.js React runtime exits unexpectedly, the React bridge's
+  error message ends with the last lines Node wrote to stderr, so the detail
+  shows why without any extra handling.
 
 ## Interface
 
