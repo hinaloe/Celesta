@@ -26,6 +26,9 @@ const NEVER_IN_REACT = new Set([
   'CharacterReference', 'SafeAreaPreset', 'SafeAreaValue', 'safeAreaInsets',
   'lipSyncFromSpeechTiming', 'speechVowelShape',
   'SpeechAccentPhrase', 'SpeechMora', 'SpeechPause', 'SpeechPhoneme', 'SpeechSpan', 'SpeechTiming',
+  ...['Triangle', 'Polygon', 'Star', 'Pie', 'Heart'].flatMap((shape) => [
+    shape, `${shape}Props`, `${shape}PathOptions`, `${shape.toLowerCase()}Path`,
+  ]),
 ]);
 
 // Type-checking the declarations takes a few seconds on CI runners.

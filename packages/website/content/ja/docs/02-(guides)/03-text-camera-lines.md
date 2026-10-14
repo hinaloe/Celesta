@@ -46,3 +46,16 @@
   stroke="#FFD84D" strokeWidth={8} />
 <Arrow x1={600} y1={300} x2={890} y2={480} strokeWidth={6} stroke="#FFD84D" />
 ```
+
+## 三角形・多角形・星・扇形・ハート
+
+`<Polygon radius sides>`、`<Star radius points innerRatio>`、`<Pie radius startAngle endAngle>` は半径で大きさを決め、同じ半径の `<Circle>` と同じように配置します。`<Triangle width height apex>` と `<Heart width height>` は、`Rect` と同じように配置したボックスいっぱいに描きます。多角形の角と星の先端は 12 時の位置から始まります。扇形の角度は 12 時から時計回りの度数です。`endAngle` を `startAngle` からアニメーションすると扇形が開きます。2 つの角度が等しいと何も描かず、360° 離れると円になります。`cornerRadius` はハート以外の角を丸めます。どの図形も 1 つのパスで、`stroke` は円や楕円と違って輪郭の中心に描きます。`<Path>` と同じく `join` / `miterLimit` も指定できます。
+
+`trianglePath`、`polygonPath`、`starPath`、`piePath`、`heartPath` は、同じ形のパスコマンドをボックスの左上を原点として返します。そのまま `<Path>` に渡すことも、変形してから渡すこともできます。
+
+```tsx title="開いていく円グラフ"
+<Pie x={760} y={340} radius={200} endAngle={interpolate(frame, [0, 45], [0, 270], { extrapolateRight: 'clamp' })}
+  fill="#4DD8C0" />
+<Star x={1200} y={340} radius={120} points={5} innerRatio={0.45} cornerRadius={8} fill="#FFD84D" />
+<Path x={1200} y={640} commands={starPath({ radius: 120, points: 5 })} stroke="#FFFFFF" strokeWidth={4} />
+```

@@ -243,6 +243,50 @@ Non-finite points or a head size of 0 or less fail the render.
 
 See `packages/cli/examples/with-shapes.tsx` in the Celesta repository for all three side by side.
 
+## Triangle, Polygon, Star, Pie, Heart
+
+Imported from `@celesta/shapes`.
+
+Closed shapes, each one `<Path>` layer, so they take every common layer
+prop. `x`/`y` place the box's `anchorX`/`anchorY` point (top-left by
+default), which `rotation`/`scale` turn about, as for `<Rect>`. Polygons,
+stars, and pies are sized by `radius` in a `2 * radius` square box, like
+`<Circle>`; triangles and hearts fill a `width` × `height` box.
+
+| Component | Props |
+| --- | --- |
+| `<Triangle width height>` | `apex` (0–1, default 0.5): where the top corner is along the top edge; 0 is a right angle on the left. The base is the bottom edge. |
+| `<Polygon radius sides>` | `sides`: whole number ≥ 3. Corners on the circle, the first at 12 o'clock. |
+| `<Star radius points>` | `points`: whole number ≥ 3 tips on the circle, the first at 12 o'clock; `innerRatio` (0–1, default 0.5): inner corners at that fraction of `radius`. |
+| `<Pie radius endAngle>` | `startAngle` (default 0), `endAngle`: degrees clockwise from 12 o'clock. Below `startAngle` it runs counter-clockwise; equal angles draw nothing; 360° or more apart is a whole circle. |
+| `<Heart width height>` | Fills the box; the tip is at the bottom middle. |
+
+All but `Heart` take `cornerRadius` (pixels, default 0): each corner
+becomes an arc of that radius tangent to both sides, shrunk where it would
+reach more than halfway along a side (pie corners shrink with the slice, so
+animating `endAngle` stays smooth). `fill` and `stroke` are hex or `Paint`
+in box-local pixels. **The stroke is centred on the outline** (as for
+`<Path>`, unlike `<Ellipse>`/`<Circle>`/`<Rect>`, whose stroke lies inside
+the box), so half of it lies outside the box; `join` and `miterLimit` work
+as for `<Path>` (a sharp star tip bevels past `miterLimit`). A 0 size draws
+nothing; negative or non-finite sizes, a `sides`/`points` that is not a
+whole number ≥ 3, or `apex`/`innerRatio` outside 0–1 fail the render.
+
+`trianglePath`, `polygonPath`, `starPath`, `piePath`, and `heartPath` take
+the same options as an object and return the `PathCommand[]` the component
+draws, measured from the box's top-left. Pass them to `<Path commands>` (at
+the same `x`/`y`, that matches the component with its default anchor), or
+map over them first to reshape the outline.
+
+```tsx
+<Pie x={960} y={540} anchorX={0.5} anchorY={0.5} radius={200}
+  endAngle={interpolate(frame, [0, 45], [0, 360], { extrapolateRight: 'clamp' })} fill="#4DD8C0" />
+<Star x={300} y={300} radius={80} points={5} innerRatio={0.45} cornerRadius={6} fill="#FFD84D" />
+<Path x={600} y={300} commands={polygonPath({ radius: 80, sides: 6, cornerRadius: 12 })} stroke="#FFFFFF" />
+```
+
+See `packages/cli/examples/with-more-shapes.tsx` in the Celesta repository for every shape and generator.
+
 ## Text (summary)
 
 `<Text style={…} maxWidth?>` draws strings and numbers only; build combined

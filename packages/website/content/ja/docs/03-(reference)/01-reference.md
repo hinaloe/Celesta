@@ -30,6 +30,8 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `Camera` | `@celesta/layout` | 大きなワールドの一部を、ズーム・回転・揺れ付きで映します。 |
 | `Line` / `Polyline` / `Path` / `pointOnPolyline` | `@celesta/shapes` | 線分・曲線・塗りつぶした形。折れ線は段階的に描けます。 |
 | `Circle` / `Ellipse` / `Arrow` | `@celesta/shapes` | 図のコンポーネント。円は丸い `Rect`、楕円と矢印は `Path` です。円と楕円は `Rect` と同様に配置します。 |
+| `Triangle` / `Polygon` / `Star` / `Pie` / `Heart` | `@celesta/shapes` | `Path` で描く閉じた図形。角を丸められ、扇形の角度はアニメーションできます。 |
+| `trianglePath` / `polygonPath` / `starPath` / `piePath` / `heartPath` | `@celesta/shapes` | 同じ図形のパスコマンド。`Path` に渡したり変形したりできます。 |
 | `interpolate` / `Easings` | `@celesta/react` | フレームを、イージング・外挿付きの値に変換します。 |
 | `interpolateColor` | `@celesta/react` | フレームを `#RRGGBBAA` の色に変換し、乗算済みアルファで混ぜます。 |
 | `frameKeyframes` | `@celesta/react` | frameKeyframes(keys, { fps, origin? }) は、フレーム番号から音量や再生速度のキーフレームを作ります。時刻は Audio を囲む Sequence の時計で (frame - origin) / fps 秒となり、origin の既定値は 0 です。音声のフェードなどに使えます。ブラウザでの書き出しは、固定の音量と再生速度に限られます。 |

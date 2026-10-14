@@ -179,7 +179,7 @@ layers sit; it does not prove the rendered pixels.
 | Package | Provides |
 | --- | --- |
 | `@celesta/react` | `Composition`, `Sequence`, `Series`, `Stagger`, `FreezeFrame`, `Group`, `Rect`, `Text`, `Span`, `Image`, `Video`, `Audio`, `Font`, `Assets`, `useCurrentFrame`/`useCurrentTime`/`useVideoConfig`/`useIsPreview`/`useDebugGuides`, `interpolate`, `interpolateColor`, `Easings`, `spring`, `progress`, `frameKeyframes`, `useBeat`/`useCue`, timecodes, `parseSubtitles`/`formatSubtitles`/`Subtitles`, `measureText`/`useTextMetrics`/`textCaret`, `registerComponent`, `defineProjectProperties`/`getProjectProperty`, and the scene types |
-| `@celesta/shapes` | `Line`, `Polyline`, `Path`, `Circle`, `Ellipse`, `Arrow`, `pointOnPolyline` |
+| `@celesta/shapes` | `Line`, `Polyline`, `Path`, `Circle`, `Ellipse`, `Arrow`, `Triangle`, `Polygon`, `Star`, `Pie`, `Heart`, `pointOnPolyline`, `trianglePath`/`polygonPath`/`starPath`/`piePath`/`heartPath` |
 | `@celesta/shader` | `defineShader` (custom WGSL filters for the `shader` prop), and the color filters `brightness`, `contrast`, `saturation`, `hue`, `grayscale`, `invert`, `tint`, `vignette` for the same array |
 | `@celesta/layout` | `Center`, `Stack`, `Grid`, `Fit`, `SafeArea`, `safeAreaInsets`, `useLayoutBounds`, `Camera` |
 | `@celesta/transitions` | `Transition`, `TransitionSeries`, `useTransitionSeriesScene`, `useTransitionVolume` |
