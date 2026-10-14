@@ -106,8 +106,10 @@ equal if the motion crosses one.
 
 - **Video clips** keep playing forward: `<Video>` at frame `LOOP` shows a
   different source frame from frame 0. Use only clips that themselves loop
-  and last exactly `LOOP` frames. A `<Video>` also plays its soundtrack, which
-  must loop the same way as the music below; mute it if it does not.
+  and last exactly `LOOP` frames, or `LOOP` divided by a whole number with
+  `<Video loop>`, which starts the clip over at its end. A `<Video>` also
+  plays its soundtrack, which must loop the same way as the music below;
+  mute it if it does not.
 
 ## Noise that loops
 
@@ -153,6 +155,8 @@ The radius (`0.8`) sets how much the field changes over one loop. See
   The file must be at least `LOOP` frames long, and its tail shorter than the
   loop. Folding the overhang into the file itself (in a DAW or a script) works
   too; then one `<Audio>` is enough.
+- **A short loop file** (ambience, a one-bar beat) repeats with
+  `<Audio loop>`. Its length times a whole number must be `LOOP` frames.
 - **AAC at the seam.** The exporter's AAC encoder starts from silence, so a
   loud hit exactly on frame 0 can come out slightly smeared in the first few
   milliseconds, and a looping player repeats that on every pass. Listen to

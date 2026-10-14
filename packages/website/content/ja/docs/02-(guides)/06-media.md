@@ -8,6 +8,7 @@
 - `Image` と `Video` は自身のピクセルサイズで描画されます。`x` / `y` とアンカーで配置し、`scale` または `Fit` で拡縮します。画像は PNG、JPEG、WebP、GIF、PNM に対応します。
 - アニメーション GIF・APNG・アニメーション WebP は、親シーケンスの時計に合わせて各フレームをその表示時間どおりに描き、ループします。`startFrom` と `playbackRate` は `Video` と同じように使えます。`loop={false}` で最後のフレームのまま止まります。`preloadMedia()` は尺を `animation.durationSeconds` で返します。
 - `Video` と `Audio` は `startFrom`（ファイル内の開始秒）、`playbackRate`、`volume`、`muted` を取ります。`Video` は動画の音声も鳴らすので、音を聞くために同じファイルの `Audio` を並べる必要はありません。映像だけにするときは `muted` を指定します。
+- `Video` と `Audio` に `loop` を指定すると、再生がファイルの終わりに達したところで先頭から繰り返します。`Video` は映像と音声がそろって戻ります。指定しなければ、最後のフレームのまま止まり、音は鳴りやみます。
 - `Sequence` 内のメディアはシーケンスの開始と同時に始まり、終了時に止まります。
 - `volume` と音声の `playbackRate` には数値またはキーフレームを使えます。時刻は親シーケンスの開始からの秒数で、`{ value, timescale }` の形式です。
 

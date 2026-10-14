@@ -411,6 +411,7 @@ import { Static } from '@celesta/react';
 | `playbackRate` | Static number only. Default `1`. |
 | `volume` | Linear gain of the soundtrack, number or [keyframes](#keyframe-values). Default `1`. |
 | `muted` | Silences the soundtrack. Default `false`. |
+| `loop` | Past the end of the file, starts the picture and soundtrack over from the file's beginning. Default `false`: the last frame holds, in silence. |
 
 A `<Video>` plays its soundtrack with its picture, on the same clock:
 `startFrom`, `playbackRate`, and the enclosing sequences apply to both, and
@@ -434,6 +435,7 @@ To show a 1280×720 clip full-screen in a 1920×1080 composition, wrap it in
 | `playbackRate` | Number or [keyframes](#keyframe-values). Default `1`. |
 | `volume` | Linear gain, number or [keyframes](#keyframe-values). Default `1`. |
 | `muted` | Default `false`. |
+| `loop` | Past the end of the file, starts over from its beginning. Default `false`: silence. |
 
 Bare, an `<Audio>` spans the whole composition. Inside a `<Sequence>` it
 starts when the sequence starts and stops when it ends. An `<Audio>` behind a
