@@ -50,16 +50,18 @@ pub(crate) struct TimelineRow<'a> {
 
 /// Visual tracks (everything that draws, including dialogue) as `V1…`
 /// listed topmost-first, the order they composite in; then audio tracks as
-/// `A1…` in project order.
+/// `A1…` in project order. `taken_visual` video numbers are already in use:
+/// a React composition's own row is `V1`.
 pub(crate) fn timeline_rows(
     tracks: &[TrackSummary],
+    taken_visual: usize,
 ) -> (Vec<TimelineRow<'_>>, Vec<TimelineRow<'_>>) {
     let mut visual: Vec<_> = tracks
         .iter()
         .filter(|track| track.kind != TrackKind::Audio)
         .enumerate()
         .map(|(index, track)| TimelineRow {
-            label: format!("V{}", index + 1),
+            label: format!("V{}", taken_visual + index + 1),
             track,
         })
         .collect();
@@ -449,17 +451,19 @@ impl EditorView {
 
     pub(crate) fn timeline(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let view = self.lane_view();
-        let (visual, audio) = timeline_rows(self.timeline_tracks());
+        let react = self.is_react_preview();
+        let (visual, audio) = timeline_rows(self.timeline_tracks(), usize::from(react));
         let border = cx.theme().border;
         let tracks_empty = visual.is_empty() && audio.is_empty();
         let mut rows: Vec<gpui_kit::AnyElement> = Vec::new();
-        if self.is_react_preview() {
-            rows.push(self.react_composition_row(view, cx).into_any_element());
-        }
         rows.extend(visual.iter().map(|row| {
             self.track_row(row, VIDEO_TRACK_HEIGHT, view, cx)
                 .into_any_element()
         }));
+        // A React composition's own row is V1, under its videos.
+        if react {
+            rows.push(self.react_composition_row(view, cx).into_any_element());
+        }
         if (self.is_react_preview() || !visual.is_empty()) && !audio.is_empty() {
             rows.push(
                 div()
@@ -566,10 +570,10 @@ impl EditorView {
     }
 
     /// The tracks the timeline lists: the project's, or a standalone React
-    /// composition's audio laid out on tracks.
+    /// composition's videos and audio laid out on tracks.
     pub(crate) fn timeline_tracks(&self) -> &[TrackSummary] {
         if self.is_react_preview() {
-            &self.react_audio_tracks
+            &self.react_tracks
         } else {
             &self.tracks
         }
@@ -780,26 +784,31 @@ impl EditorView {
                     "Locked in the project",
                 ))
             })
-            .when(track.kind != TrackKind::Overlay, |header| {
-                header.child(
-                    div()
-                        .flex_none()
-                        .w(px(4.0))
-                        .h(px(18.0))
-                        .rounded_sm()
-                        .overflow_hidden()
-                        .flex()
-                        .flex_col()
-                        .justify_end()
-                        .bg(cx.theme().background)
-                        .child(
-                            div()
-                                .w_full()
-                                .h(relative(track_level))
-                                .bg(theme::meter(track_level)),
-                        ),
-                )
-            })
+            // A React video's sound plays, and meters, on its audio track.
+            .when(
+                track.kind != TrackKind::Overlay
+                    && !(self.is_react_preview() && track.kind != TrackKind::Audio),
+                |header| {
+                    header.child(
+                        div()
+                            .flex_none()
+                            .w(px(4.0))
+                            .h(px(18.0))
+                            .rounded_sm()
+                            .overflow_hidden()
+                            .flex()
+                            .flex_col()
+                            .justify_end()
+                            .bg(cx.theme().background)
+                            .child(
+                                div()
+                                    .w_full()
+                                    .h(relative(track_level))
+                                    .bg(theme::meter(track_level)),
+                            ),
+                    )
+                },
+            )
             // Mute and solo change the project; a React composition's tracks
             // are only a view of its source.
             .when(
@@ -1455,7 +1464,7 @@ mod tests {
             track("dialogue", TrackKind::Dialogue, &[]),
             track("sfx", TrackKind::Audio, &[]),
         ];
-        let (visual, audio) = timeline_rows(&tracks);
+        let (visual, audio) = timeline_rows(&tracks, 0);
         let labels = |rows: &[super::TimelineRow<'_>]| {
             rows.iter()
                 .map(|row| format!("{} {}", row.label, row.track.id))
@@ -1466,6 +1475,24 @@ mod tests {
             ["V3 dialogue", "V2 titles", "V1 background"]
         );
         assert_eq!(labels(&audio), ["A1 music", "A2 sfx"]);
+    }
+
+    #[test]
+    fn a_react_composition_s_videos_number_from_v2() {
+        let tracks = [
+            track("clip", TrackKind::Video, &[]),
+            track("intro", TrackKind::Video, &[]),
+            track("score", TrackKind::Audio, &[]),
+            track("clip-sound", TrackKind::Audio, &[]),
+        ];
+        let (visual, audio) = timeline_rows(&tracks, 1);
+        let labels = |rows: &[super::TimelineRow<'_>]| {
+            rows.iter()
+                .map(|row| format!("{} {}", row.label, row.track.id))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(labels(&visual), ["V3 intro", "V2 clip"]);
+        assert_eq!(labels(&audio), ["A1 score", "A2 clip-sound"]);
     }
 
     #[test]

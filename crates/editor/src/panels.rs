@@ -1,6 +1,7 @@
 use crate::helpers::clip_kind_label;
 use crate::problems::{Source, flow_line_breaks};
 use crate::problems_panel::show_in_problems_row;
+use crate::react_audio::react_audio_clip_id;
 use crate::timecode::format_timecode;
 use crate::view::EditorView;
 use crate::waveform::{clip_local_time, format_media_asset_info};
@@ -426,21 +427,19 @@ impl EditorView {
         panel: E,
         cx: &mut Context<Self>,
     ) -> E {
-        let selected_track = self.selected_track_id.as_deref().and_then(|selected| {
-            self.react_audio_tracks
-                .iter()
-                .find(|track| track.id == selected)
-        });
+        let selected_track = self
+            .selected_track_id
+            .as_deref()
+            .and_then(|selected| self.react_tracks.iter().find(|track| track.id == selected));
         let selected_clip = self.selected_clip_id.as_deref().and_then(|selected| {
             let summary = self
-                .react_audio_tracks
+                .react_tracks
                 .iter()
                 .flat_map(|track| &track.clips)
                 .find(|clip| clip.id == selected)?;
-            let clip = self
-                .react_audio_clips
-                .iter()
-                .find(|clip| clip.id == selected)?;
+            // A video's picture shows the clip its sound plays.
+            let id = react_audio_clip_id(selected);
+            let clip = self.react_audio_clips.iter().find(|clip| clip.id == id)?;
             Some((summary, clip))
         });
         let panel = match selected_track {

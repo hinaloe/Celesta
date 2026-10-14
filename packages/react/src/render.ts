@@ -116,6 +116,8 @@ export interface AudioClipDescriptor {
   duration: number;
   /** Starts the source over from its beginning past its end. Present only when set. */
   loop?: true;
+  /** The soundtrack of a `<Video>`, not an `<Audio>`. Present only when set. */
+  video?: true;
 }
 
 /**
@@ -924,7 +926,12 @@ function prepareHostElements(node: HostNode, context: WalkContext): void {
   }
 }
 
-function collectAudioClip(props: Record<string, unknown>, context: WalkContext, results: AudioClipDescriptor[]): void {
+function collectAudioClip(
+  props: Record<string, unknown>,
+  context: WalkContext,
+  results: AudioClipDescriptor[],
+  video = false,
+): void {
   const source = resolveAsset(props.src);
   // An audio clip can play no earlier than its own local zero and not at
   // all outside the enclosing sequence window.
@@ -950,6 +957,7 @@ function collectAudioClip(props: Record<string, unknown>, context: WalkContext, 
     start: startSec,
     duration: endSec - startSec,
     ...(props.loop === true ? { loop: true } : {}),
+    ...(video ? { video: true } : {}),
   });
 }
 
@@ -1049,7 +1057,7 @@ function walkNode(
     // `src`, `startFrom`, `playbackRate`, `volume` and `muted` would, so
     // sound and picture share one clock. A file without an audio stream
     // mixes as silence.
-    collectAudioClip(node.props, context, audio);
+    collectAudioClip(node.props, context, audio, true);
     if (audioOnly) {
       return [];
     }

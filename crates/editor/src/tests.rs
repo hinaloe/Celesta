@@ -13,7 +13,7 @@ use crate::layer_select::{
     SourceLookup, display_path, launch_outcome_applies, letterbox, scene_point, source_lookup,
     source_lookup_target, source_position,
 };
-use crate::react_audio::react_audio_tracks;
+use crate::react_audio::{react_audio_clip_id, react_tracks};
 use crate::source::is_react_entry;
 use crate::waveform::{
     clip_level_envelope, level_at_time, map_clip_waveform, master_volume_from_drag, waveform_peaks,
@@ -34,8 +34,9 @@ use celesta_composition::{
 use celesta_editor_core::ClipSummary;
 use celesta_exporter::{ExportCancellation, ExportProgress, VideoFormat};
 use celesta_media::{AudioBuffer, AudioDecoder};
-use celesta_project::Project;
+use celesta_project::{Project, TrackKind};
 use celesta_react_bridge::{ComponentResolutions, LayerSource};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -230,12 +231,15 @@ fn react_audio_clips_take_one_track_per_file_and_more_only_to_overlap() {
         muted,
         r#loop: false,
     };
-    let tracks = react_audio_tracks(&[
-        clip(0, "./voice.wav", 2, 4, false),
-        clip(1, "https://example.com/clip.mp4", 0, 6, false),
-        clip(2, "./voice.wav", 3, 5, false),
-        clip(3, "./voice.wav", 0, 2, true),
-    ]);
+    let tracks = react_tracks(
+        &[
+            clip(0, "./voice.wav", 2, 4, false),
+            clip(1, "https://example.com/clip.mp4", 0, 6, false),
+            clip(2, "./voice.wav", 3, 5, false),
+            clip(3, "./voice.wav", 0, 2, true),
+        ],
+        &HashMap::new(),
+    );
 
     let layout = tracks
         .iter()
@@ -275,6 +279,102 @@ fn react_audio_clips_take_one_track_per_file_and_more_only_to_overlap() {
         (muted.start, muted.duration),
         (Time::new(0, 1), Time::new(2, 1))
     );
+}
+
+#[test]
+fn react_videos_take_video_tracks_and_keep_their_sound_on_audio_tracks() {
+    let clip = |index: usize, src: &str, start: i64, end: i64, muted: bool| AudioClip {
+        id: format!("react-audio:{index}"),
+        asset: ResolvedAsset {
+            id: src.to_owned(),
+            location: AssetLocation::File {
+                path: format!("/project/{src}"),
+            },
+        },
+        range: TimeRange {
+            start: Time::new(start, 1),
+            duration: Time::new(end - start, 1),
+        },
+        source_start: Time::ZERO,
+        source_duration: None,
+        playback_rate: Animatable::Static(1.0),
+        volume: Animatable::Static(1.0),
+        muted,
+        r#loop: false,
+    };
+    let videos = HashMap::from([
+        ("react-audio:1".to_owned(), true),
+        ("react-audio:2".to_owned(), true),
+        ("react-audio:3".to_owned(), false),
+    ]);
+    let tracks = react_tracks(
+        &[
+            clip(0, "./score.wav", 0, 24, false),
+            clip(1, "./film.mp4", 0, 4, true),
+            clip(2, "./film.mp4", 2, 6, false),
+            clip(3, "./silent.mp4", 0, 2, false),
+        ],
+        &videos,
+    );
+
+    let layout = tracks
+        .iter()
+        .map(|track| {
+            let clips = track
+                .clips
+                .iter()
+                .map(|clip| (clip.id.as_str(), clip.kind, clip.enabled))
+                .collect::<Vec<_>>();
+            (track.id.as_str(), track.kind, track.name.as_str(), clips)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        layout,
+        vec![
+            // Pictures first, overlapping ones on a track each; a muted
+            // video still shows.
+            (
+                "react-video-track:0",
+                TrackKind::Video,
+                "film.mp4",
+                vec![("react-audio:1:video", ClipKind::Video, true)]
+            ),
+            (
+                "react-video-track:1",
+                TrackKind::Video,
+                "film.mp4",
+                vec![("react-audio:2:video", ClipKind::Video, true)]
+            ),
+            (
+                "react-video-track:2",
+                TrackKind::Video,
+                "silent.mp4",
+                vec![("react-audio:3:video", ClipKind::Video, true)]
+            ),
+            // Sound after, without the video that has none.
+            (
+                "react-audio-track:0",
+                TrackKind::Audio,
+                "score.wav",
+                vec![("react-audio:0", ClipKind::Audio, true)]
+            ),
+            (
+                "react-audio-track:1",
+                TrackKind::Audio,
+                "film.mp4",
+                vec![("react-audio:1", ClipKind::Audio, false)]
+            ),
+            (
+                "react-audio-track:2",
+                TrackKind::Audio,
+                "film.mp4",
+                vec![("react-audio:2", ClipKind::Audio, true)]
+            ),
+        ]
+    );
+    assert_eq!(tracks[0].clips[0].volume, None);
+    assert_eq!(react_audio_clip_id("react-audio:1:video"), "react-audio:1");
+    assert_eq!(react_audio_clip_id("react-audio:1"), "react-audio:1");
 }
 
 #[test]

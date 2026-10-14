@@ -1,9 +1,11 @@
 use crate::audio::take_latest;
 use crate::problems::error_chain;
-use celesta_composition::{AudioClip, AudioGraph};
+use celesta_composition::{AssetLocation, AudioClip, AudioGraph};
 use celesta_editor_core::{ClipKind, ClipSummary, TrackSummary};
+use celesta_media::FfmpegBackend;
 use celesta_project::TrackKind;
 use celesta_react_bridge::{PropertyInputs, ReactBridge, SpawnOptions};
+use std::collections::HashMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -22,12 +24,21 @@ pub(crate) struct ReactAudioRequest {
 
 pub(crate) struct ReactAudioResult {
     pub(crate) generation: u64,
-    pub(crate) graph: Result<AudioGraph, String>,
+    pub(crate) media: Result<ReactMediaClips, String>,
+}
+
+/// A standalone entry's audio graph, and which of its clips a `<Video>`
+/// plays.
+pub(crate) struct ReactMediaClips {
+    pub(crate) graph: AudioGraph,
+    /// The ids of the clips a `<Video>` plays, each with whether its file has
+    /// sound. A file that cannot be probed here counts as having sound.
+    pub(crate) videos: HashMap<String, bool>,
 }
 
 /// Spawns a transient `@celesta/cli` process, sweeps every frame of a
-/// standalone entry for its `<Audio>` declarations, and returns the assembled
-/// [`AudioGraph`] — the standalone-preview counterpart of the audio graph
+/// standalone entry for its `<Audio>` and `<Video>` declarations, and returns
+/// the assembled [`AudioGraph`] — the standalone-preview counterpart of the audio graph
 /// `celesta-exporter` accumulates while rendering. Runs on its own thread
 /// because `ReactBridge::spawn` and the per-frame sweep both block.
 pub(crate) struct ReactAudioWorker {
@@ -48,7 +59,7 @@ impl ReactAudioWorker {
                         .entry
                         .parent()
                         .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
-                    let graph = ReactBridge::spawn_with_options(
+                    let media = ReactBridge::spawn_with_options(
                         &request.node,
                         &request.cli_script,
                         &request.entry,
@@ -61,17 +72,33 @@ impl ReactAudioWorker {
                     .map_err(|error| error_chain(&error))
                     .and_then(|mut bridge| {
                         bridge
-                            .collect_audio_graph(
-                                request.sample_rate,
-                                request.master_volume,
-                                &entry_dir,
-                            )
+                            .collect_media(request.sample_rate, request.master_volume, &entry_dir)
                             .map_err(|error| error_chain(&error))
+                    })
+                    .map(|media| {
+                        let mut backend = FfmpegBackend::new();
+                        let videos = media
+                            .video_clip_ids
+                            .into_iter()
+                            .map(|id| {
+                                let has_audio = media
+                                    .audio
+                                    .clips
+                                    .iter()
+                                    .find(|clip| clip.id == id)
+                                    .is_none_or(|clip| has_audio(&mut backend, &entry_dir, clip));
+                                (id, has_audio)
+                            })
+                            .collect();
+                        ReactMediaClips {
+                            graph: media.audio,
+                            videos,
+                        }
                     });
                     if result_tx
                         .send(ReactAudioResult {
                             generation: request.generation,
-                            graph,
+                            media,
                         })
                         .is_err()
                     {
@@ -92,12 +119,49 @@ impl ReactAudioWorker {
     }
 }
 
-/// The timeline's audio tracks for a standalone React composition: one per
-/// source file, in the order the files are first heard. Clips of one file
-/// that play at the same time take as many tracks as they need.
-pub(crate) fn react_audio_tracks(clips: &[AudioClip]) -> Vec<TrackSummary> {
+/// Whether `clip`'s local file has an audio stream. A URL is not downloaded
+/// for this, and a file that cannot be probed is left to the mix to report:
+/// both count as having sound.
+fn has_audio(backend: &mut FfmpegBackend, entry_dir: &Path, clip: &AudioClip) -> bool {
+    let AssetLocation::File { path } = &clip.asset.location else {
+        return true;
+    };
+    backend
+        .probe(entry_dir.join(path))
+        .map_or(true, |probe| !probe.audio.is_empty())
+}
+
+/// The timeline's tracks for a standalone React composition: the picture of
+/// each `<Video>` on video tracks, then the sound of every `<Audio>` and
+/// `<Video>` on audio tracks. `videos` tells the clips a `<Video>` plays, and
+/// whether its file has sound; one without has no audio track.
+pub(crate) fn react_tracks(
+    clips: &[AudioClip],
+    videos: &HashMap<String, bool>,
+) -> Vec<TrackSummary> {
+    let pictures: Vec<_> = clips
+        .iter()
+        .filter(|clip| videos.contains_key(&clip.id))
+        .collect();
+    let sounds: Vec<_> = clips
+        .iter()
+        .filter(|clip| videos.get(&clip.id) != Some(&false))
+        .collect();
+    let mut tracks = lay_out(&pictures, TrackKind::Video);
+    tracks.extend(lay_out(&sounds, TrackKind::Audio));
+    tracks
+}
+
+/// Lays clips out on tracks of `kind`: one per source file, in the order the
+/// files first appear. Clips of one file that play at the same time take as
+/// many tracks as they need.
+fn lay_out(clips: &[&AudioClip], kind: TrackKind) -> Vec<TrackSummary> {
+    let (track_prefix, clip_suffix, clip_kind) = match kind {
+        TrackKind::Audio => ("react-audio-track", "", ClipKind::Audio),
+        _ => ("react-video-track", ":video", ClipKind::Video),
+    };
     let mut sources: Vec<(&str, Vec<&AudioClip>)> = Vec::new();
-    for clip in clips {
+    for &clip in clips {
         match sources.iter_mut().find(|(src, _)| *src == clip.asset.id) {
             Some((_, group)) => group.push(clip),
             None => sources.push((&clip.asset.id, vec![clip])),
@@ -117,9 +181,9 @@ pub(crate) fn react_audio_tracks(clips: &[AudioClip]) -> Vec<TrackSummary> {
                 None => {
                     lanes.push((
                         TrackSummary {
-                            id: format!("react-audio-track:{}", tracks.len() + lanes.len()),
+                            id: format!("{track_prefix}:{}", tracks.len() + lanes.len()),
                             name: name.clone(),
-                            kind: TrackKind::Audio,
+                            kind,
                             item_count: 0,
                             clips: Vec::new(),
                             enabled: true,
@@ -133,14 +197,18 @@ pub(crate) fn react_audio_tracks(clips: &[AudioClip]) -> Vec<TrackSummary> {
                 }
             };
             let (track, lane_end) = &mut lanes[lane];
+            let sound = kind == TrackKind::Audio;
             track.clips.push(ClipSummary {
-                id: clip.id.clone(),
+                // The picture of a `<Video>` gets an id of its own, so its
+                // sound's waveform and level stay on its audio track.
+                id: format!("{}{clip_suffix}", clip.id),
                 name: name.clone(),
                 start: clip.range.start,
                 duration: clip.range.duration,
-                kind: ClipKind::Audio,
-                enabled: !clip.muted,
-                volume: Some(clip.volume.clone()),
+                kind: clip_kind,
+                // Muting silences the sound, not the picture.
+                enabled: !sound || !clip.muted,
+                volume: sound.then(|| clip.volume.clone()),
                 component: None,
                 dialogue: None,
             });
@@ -150,6 +218,13 @@ pub(crate) fn react_audio_tracks(clips: &[AudioClip]) -> Vec<TrackSummary> {
         tracks.extend(lanes.into_iter().map(|(track, _)| track));
     }
     tracks
+}
+
+/// The id of the [`AudioClip`] a timeline clip of [`react_tracks`] shows.
+pub(crate) fn react_audio_clip_id(timeline_clip_id: &str) -> &str {
+    timeline_clip_id
+        .strip_suffix(":video")
+        .unwrap_or(timeline_clip_id)
 }
 
 fn seconds(time: celesta_composition::Time) -> f64 {

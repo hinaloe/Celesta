@@ -12,8 +12,13 @@ const root = (durationInFrames, ...children) => () =>
 test('a bare <Video> plays its soundtrack across the composition by default', () => {
   const composition = mount(root(60, h(Video, { src: './clip.mp4' })));
   expect(at(composition, 0).audio).toEqual([
-    { src: './clip.mp4', sourceStart: 0, playbackRate: 1, volume: 1, muted: false, start: 0, duration: 2 },
+    { src: './clip.mp4', sourceStart: 0, playbackRate: 1, volume: 1, muted: false, start: 0, duration: 2, video: true },
   ]);
+});
+
+test('only a <Video> marks its sound as coming from a video', () => {
+  const composition = mount(root(30, h(Video, { src: './clip.mp4' }), h(Audio, { src: './music.wav' })));
+  expect(at(composition, 0).audio.map((clip) => clip.video)).toEqual([true, undefined]);
 });
 
 test('<Video> volume, muted, startFrom and playbackRate reach its audio clip', () => {
@@ -22,8 +27,8 @@ test('<Video> volume, muted, startFrom and playbackRate reach its audio clip', (
     h(Video, { src: './loud.mp4', startFrom: 1, playbackRate: 2, volume }),
     h(Video, { src: './quiet.mp4', muted: true })));
   expect(at(composition, 0).audio).toEqual([
-    { src: './loud.mp4', sourceStart: 1, playbackRate: 2, volume, muted: false, start: 0, duration: 1 },
-    { src: './quiet.mp4', sourceStart: 0, playbackRate: 1, volume: 1, muted: true, start: 0, duration: 1 },
+    { src: './loud.mp4', sourceStart: 1, playbackRate: 2, volume, muted: false, start: 0, duration: 1, video: true },
+    { src: './quiet.mp4', sourceStart: 0, playbackRate: 1, volume: 1, muted: true, start: 0, duration: 1, video: true },
   ]);
 });
 
@@ -34,7 +39,8 @@ test('<Video> sound follows the same sequence rules as <Audio> and stays in sync
   const video = mount(tree(Video));
   const audio = mount(tree(Audio));
   for (const frame of [0, 30, 45, 89, 90]) {
-    expect(at(video, frame).audio, `frame ${frame}`).toEqual(at(audio, frame).audio);
+    const sound = at(audio, frame).audio.map((clip) => ({ ...clip, video: true }));
+    expect(at(video, frame).audio, `frame ${frame}`).toEqual(sound);
   }
   // The head is clipped by half a second, so sound and picture both start
   // one second (0.5 s at 2x) into the source after `startFrom`.

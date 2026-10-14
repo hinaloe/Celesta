@@ -18,6 +18,7 @@ use celesta_react_bridge::{
     SpawnOptions, runtime_paths as react_runtime_paths,
 };
 use gpui_kit::Context;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
@@ -355,7 +356,7 @@ impl EditorView {
                 {
                     self.export_in_frame = None;
                     self.export_out_frame = None;
-                    self.set_react_audio_clips(Vec::new());
+                    self.set_react_audio_clips(Vec::new(), &HashMap::new());
                 }
                 if let Some(react) = self.react_preview.as_mut() {
                     react.composition_id = metadata.composition_id.clone();

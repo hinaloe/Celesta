@@ -20,8 +20,8 @@ mod stderr;
 mod tests;
 mod types;
 
-pub use audio::{merge_react_audio_clips, react_audio_clips};
-pub use bridge::{PendingFrame, ReactBridge};
+pub use audio::{merge_react_audio_clips, react_audio_clips, react_video_clip_ids};
+pub use bridge::{PendingFrame, ReactBridge, ReactMedia};
 pub use error::ReactBridgeError;
 pub use properties::{
     ENTRY_PROPS_FILE, EffectiveValue, PropertyInputError, PropertyInputs, PropertyIssue,

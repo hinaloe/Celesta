@@ -1,5 +1,5 @@
 use crate::animated_images::AnimatedImages;
-use crate::audio::react_audio_clips;
+use crate::audio::{react_audio_clips, react_video_clip_ids};
 use crate::error::ReactBridgeError;
 use crate::measure::measure_text_response;
 use crate::probe::{MediaProbeResponse, animation_probe_payload, media_probe_payload};
@@ -559,15 +559,32 @@ impl ReactBridge {
         master_volume: f64,
         entry_dir: &Path,
     ) -> Result<AudioGraph, ReactBridgeError> {
+        Ok(self
+            .collect_media(sample_rate, master_volume, entry_dir)?
+            .audio)
+    }
+
+    /// [`Self::collect_audio_graph`], also telling which of its clips play a
+    /// `<Video>`'s soundtrack: every `<Video>` reports one, so they also
+    /// place its picture in time.
+    pub fn collect_media(
+        &mut self,
+        sample_rate: u32,
+        master_volume: f64,
+        entry_dir: &Path,
+    ) -> Result<ReactMedia, ReactBridgeError> {
         let reports = match self.request_response(serde_json::json!({ "collectAudio": true }))? {
             Response::CollectedAudio { collected_audio } => collected_audio,
             Response::Err { error } => return Err(ReactBridgeError::Render(error)),
             _ => return Err(ReactBridgeError::UnexpectedResponse),
         };
-        Ok(AudioGraph {
-            sample_rate,
-            master_volume,
-            clips: react_audio_clips(&reports, entry_dir),
+        Ok(ReactMedia {
+            audio: AudioGraph {
+                sample_rate,
+                master_volume,
+                clips: react_audio_clips(&reports, entry_dir),
+            },
+            video_clip_ids: react_video_clip_ids(&reports),
         })
     }
 
@@ -635,6 +652,14 @@ fn end(child: &mut Child) {
 /// A frame's response read by [`ReactBridge::receive_frame`], not yet
 /// decoded.
 pub struct PendingFrame(Vec<u8>);
+
+/// What [`ReactBridge::collect_media`] found: the composition's audio graph
+/// and the ids of its clips that a `<Video>` plays.
+#[derive(Clone, Debug)]
+pub struct ReactMedia {
+    pub audio: AudioGraph,
+    pub video_clip_ids: Vec<String>,
+}
 
 /// Reads one message from the CLI into `buffer`, reusing its allocation. With
 /// `--length-prefixed` every message is a little-endian `u32` byte count
