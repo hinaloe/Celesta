@@ -28,6 +28,7 @@ import type {
   ComponentResolutionRequest,
   ComponentResolutions,
   EntryComponent,
+  LayerSourceEntry,
   MeasureTextRequest,
   MountedComposition,
   ProbedMediaInfo,
@@ -81,11 +82,22 @@ interface ResolveRequest {
   runtime?: ResolutionRuntime;
 }
 
-type Request = FrameRequest | ResolveRequest | { collectAudio: true };
+/** Asks which JSX produced a layer; see `MountedComposition.layerSource`. */
+interface LayerSourceRequest {
+  layerSource: string;
+  time: Time;
+  preview?: boolean;
+}
+
+type Request = FrameRequest | ResolveRequest | LayerSourceRequest | { collectAudio: true };
 
 interface ProbeMediaResponse {
   media?: ProbedMediaInfo;
   error?: string;
+}
+
+function isLayerSourceRequest(request: Request): request is LayerSourceRequest {
+  return typeof (request as LayerSourceRequest).layerSource === 'string';
 }
 
 function isResolveRequest(request: Request): request is ResolveRequest {
@@ -94,8 +106,13 @@ function isResolveRequest(request: Request): request is ResolveRequest {
 
 async function main(): Promise<void> {
   const [entry, ...options] = process.argv.slice(2);
-  if (!entry || options.some((option) => option !== PROPERTIES_STDIN && option !== LENGTH_PREFIXED)) {
-    process.stderr.write(`usage: celesta-react-render <entry-file> [${PROPERTIES_STDIN}] [${LENGTH_PREFIXED}]\n`);
+  if (
+    !entry ||
+    options.some((option) => option !== PROPERTIES_STDIN && option !== LENGTH_PREFIXED && option !== SOURCE_LOCATIONS)
+  ) {
+    process.stderr.write(
+      `usage: celesta-react-render <entry-file> [${PROPERTIES_STDIN}] [${LENGTH_PREFIXED}] [${SOURCE_LOCATIONS}]\n`,
+    );
     process.exitCode = 1;
     return;
   }
@@ -147,7 +164,7 @@ async function main(): Promise<void> {
   let prepare: (() => Promise<void>) | undefined;
   holdProjectPropertyValues();
   try {
-    ({ defaultExport, prepare } = await loadEntry(entryPath));
+    ({ defaultExport, prepare } = await loadEntry(entryPath, options.includes(SOURCE_LOCATIONS)));
   } catch (error) {
     writeLine({ error: describeError(error) });
     process.exitCode = 1;
@@ -226,6 +243,14 @@ async function main(): Promise<void> {
       if ('collectAudio' in request) {
         if (request.collectAudio !== true) throw new Error('collectAudio must be true');
         writeLine({ collectedAudio: mounted.collectAudio() });
+      } else if (isLayerSourceRequest(request)) {
+        const chain = mounted.layerSource(
+          request.time,
+          request.layerSource,
+          (fileName) => path.resolve(path.dirname(entryPath), fileName),
+          { preview: request.preview === true },
+        );
+        writeLine({ layerSource: { chain } });
       } else if (isResolveRequest(request)) {
         resolver ??= createResolver(mounted.config.lang);
         writeLine(resolver.resolve(request.components, request.runtime, mounted.fonts));
@@ -267,6 +292,11 @@ const PROPERTIES_STDIN = '--properties-stdin';
  * message is one JSON line, which is easier to read from scripts and tests.
  */
 const LENGTH_PREFIXED = '--length-prefixed';
+/**
+ * With this option the entry is built with JSX positions, which `layerSource`
+ * requests read. Only the editor's preview asks for it.
+ */
+const SOURCE_LOCATIONS = '--source-locations';
 
 async function readPropertyInputs(lines: AsyncIterator<string>): Promise<PropertyInputLayer[]> {
   const next = await lines.next();
@@ -367,6 +397,7 @@ function writeLine(
         droppedStatics?: number[];
       }
     | { collectedAudio: AudioClipDescriptor[] }
+    | { layerSource: { chain: LayerSourceEntry[] | null } }
     | ComponentResolutions
     | { probeMedia: { path: string } }
     | { measureText: MeasureTextRequest }
@@ -431,7 +462,7 @@ interface LoadedEntry {
   prepare: (() => Promise<void>) | undefined;
 }
 
-async function loadEntry(entryPath: string): Promise<LoadedEntry> {
+async function loadEntry(entryPath: string, sourceLocations: boolean): Promise<LoadedEntry> {
   const contents = path.resolve(__dirname, '../../..');
   if (process.platform === 'darwin' && path.basename(contents) === 'Contents') {
     // Keep native helper executables in the app's code directory for signing.
@@ -446,6 +477,9 @@ async function loadEntry(entryPath: string): Promise<LoadedEntry> {
     platform: 'node',
     format: 'esm',
     jsx: 'automatic',
+    // `jsxDEV(type, props, key, isStatic, { fileName, lineNumber, columnNumber })`
+    // for every JSX element in the entry's own files.
+    ...(sourceLocations ? { jsxDev: true } : {}),
     // `@celesta/shader` sources, imported as their text.
     loader: { '.wgsl': 'text' },
     absWorkingDir: path.dirname(entryPath),
@@ -471,7 +505,11 @@ async function loadEntry(entryPath: string): Promise<LoadedEntry> {
         build.onResolve({ filter: /^(react(?:\/jsx(?:-dev)?-runtime)?|@celesta\/[^/]+(?:\/internal)?)$/ }, (args) => {
           let resolved: string;
           try {
-            resolved = require.resolve(args.path);
+            // React's dev runtime would need development React; Celesta's
+            // records the positions on top of the production runtime.
+            resolved = require.resolve(
+              sourceLocations && args.path === 'react/jsx-dev-runtime' ? '@celesta/react/jsx-dev-runtime' : args.path,
+            );
           } catch (error) {
             if ((error as NodeJS.ErrnoException).code !== 'MODULE_NOT_FOUND') throw error;
             return { errors: [{ text: `${args.path} is not a Celesta package` }] };
