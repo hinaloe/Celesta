@@ -159,6 +159,15 @@ impl fmt::Display for RemoteAssetError {
                 write!(formatter, "`{url}` is not an http or https URL")
             }
             Self::Request { url, source } => {
+                if (url.starts_with("https://fonts.googleapis.com/css?")
+                    || url.starts_with("https://fonts.googleapis.com/css2?"))
+                    && matches!(source.as_ref(), ureq::Error::StatusCode(400))
+                {
+                    return write!(
+                        formatter,
+                        "Google Fonts could not find the family or requested weights in `{url}`; check the family name and available weights at https://fonts.google.com"
+                    );
+                }
                 write!(formatter, "could not download `{url}`: {source}")
             }
             Self::Io { url, source } => {
@@ -327,6 +336,60 @@ mod tests {
     }
 
     #[test]
+    fn stylesheet_and_split_font_files_work_offline_in_a_new_cache_instance() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let css = b"@font-face {font-family: 'Noto Sans JP'; src: url(japanese.woff2)} @font-face {font-family: 'Noto Sans JP'; src: url(latin.woff2)}";
+        let server = thread::spawn(move || {
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                let stylesheet = line.contains("/css?");
+                while reader.read_line(&mut line).is_ok_and(|read| read > 2) {
+                    line.clear();
+                }
+                let body: &[u8] = if stylesheet { css } else { b"font bytes" };
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(body).unwrap();
+            }
+        });
+        let directory = tempfile::tempdir().unwrap();
+        let url = format!("{base}/css?family=Noto+Sans+JP:400&subset=japanese");
+        let location = AssetLocation::Url { url: url.clone() };
+        let online = cache(directory.path());
+        let stylesheet = online.fetch(&url).unwrap();
+        let faces = stylesheet_font_faces(&fs::read_to_string(&stylesheet).unwrap(), &location);
+        assert_eq!(faces.len(), 2);
+        let paths: Vec<_> = faces
+            .iter()
+            .map(|face| {
+                let AssetLocation::Url { url } = &face.location else {
+                    panic!("remote face")
+                };
+                online.fetch(url).unwrap()
+            })
+            .collect();
+        server.join().unwrap(); // The listener is now closed: no network remains.
+        drop(online);
+        let offline = cache(directory.path());
+        assert_eq!(offline.fetch(&url).unwrap(), stylesheet);
+        for (face, path) in faces.iter().zip(paths) {
+            let AssetLocation::Url { url } = &face.location else {
+                panic!("remote face")
+            };
+            assert_eq!(offline.fetch(url).unwrap(), path);
+            assert_eq!(fs::read(path).unwrap(), b"font bytes");
+        }
+    }
+
+    #[test]
     fn rejects_non_http_urls() {
         let directory = tempfile::tempdir().unwrap();
         let error = cache(directory.path())
@@ -336,6 +399,24 @@ mod tests {
         assert!(!is_remote_url("ftp://example.com/a.png"));
         assert!(!is_remote_url("images/a.png"));
         assert!(is_remote_url("HTTPS://example.com/a.png"));
+    }
+
+    #[test]
+    fn google_fonts_bad_request_names_the_family_and_weights() {
+        let error = RemoteAssetError::Request {
+            url: "https://fonts.googleapis.com/css?family=Missing+Family:400".to_owned(),
+            source: Box::new(ureq::Error::StatusCode(400)),
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("could not find the family or requested weights")
+        );
+        let error = RemoteAssetError::Request {
+            url: "https://fonts.googleapis.com/css?family=Noto+Sans+JP:400".to_owned(),
+            source: Box::new(ureq::Error::StatusCode(503)),
+        };
+        assert!(!error.to_string().contains("could not find"));
     }
 
     #[test]

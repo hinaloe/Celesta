@@ -1,5 +1,6 @@
 import * as React from 'react';
 import type { ReactNode } from 'react';
+import { googleFont, type GoogleFontOptions } from './google-font';
 
 import {
   CompositionRuntimeContext,
@@ -308,10 +309,10 @@ export interface AssetsProps {
   children?: ReactNode;
 }
 
-export interface FontProps {
-  src: AssetInput;
+export type FontProps = {
   name?: string;
-}
+} & ({ src: AssetInput; google?: never; weights?: never; subsets?: never }
+  | ({ src?: never; google: string } & GoogleFontOptions));
 
 const AssetsContext = React.createContext(false);
 
@@ -405,10 +406,14 @@ export const Video = React.forwardRef<AssetReference, VideoProps>(function Video
 });
 
 export const Font = React.forwardRef<AssetReference, FontProps>(function Font(props, ref) {
-  const reference = React.useMemo(() => assetReference('font', props.src, props.name), [props.src, props.name]);
+  if (props.google !== undefined && props.src !== undefined) {
+    throw new Error('<Font> accepts either `src` or `google`, but not both.');
+  }
+  const src = props.google !== undefined ? googleFont(props.google, props) : props.src;
+  const reference = React.useMemo(() => assetReference('font', src, props.name), [src, props.name]);
   assignAssetRef(ref, reference);
   React.useImperativeHandle(ref, () => reference, [reference]);
-  return React.createElement('asset-font', props);
+  return React.createElement('asset-font', { src, name: props.name });
 });
 
 export interface SequenceProps extends CommonProps {

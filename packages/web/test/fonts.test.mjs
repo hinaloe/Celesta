@@ -62,3 +62,39 @@ test('Unicode font names, preload requirements, cached failures and partial CSS 
   assert.equal(warnings.length, 6);
   resetFonts();
 });
+
+test('Google Fonts loads every Japanese split face and reports unknown names without caching failures', async t => {
+  const faces = new Set();
+  const originals = { fetch: globalThis.fetch, FontFace: globalThis.FontFace, fonts: globalThis.fonts };
+  t.after(() => { resetFonts(); Object.assign(globalThis, originals); });
+  globalThis.fonts = faces;
+  globalThis.FontFace = class {
+    constructor(family, source, descriptors) { Object.assign(this, { family, source, descriptors }); }
+    async load() { return this; }
+  };
+  let hits = 0;
+  globalThis.fetch = async url => {
+    hits++;
+    if (url.includes('Missing')) return new Response('', { status: 400 });
+    return new Response(`
+      @font-face {font-family: 'Noto Sans JP'; font-weight: 700; src: url(https://fonts.gstatic.com/japanese.woff2); unicode-range: U+3040-30FF}
+      @font-face {font-family: 'Noto Sans JP'; font-weight: 700; src: url(https://fonts.gstatic.com/latin.woff2); unicode-range: U+0000-00FF}
+    `, { headers: { 'content-type': 'text/css' } });
+  };
+  const url = 'https://fonts.googleapis.com/css?family=Noto+Sans+JP:700&subset=japanese';
+  const font = { id: url, location: { type: 'url', url } };
+  const resolve = asset => asset.location.url;
+  await loadFonts([font], resolve);
+  await loadFonts([font], resolve);
+  assert.equal(hits, 1);
+  assert.deepEqual([...faces].map(face => [face.family, face.descriptors.weight, face.descriptors.unicodeRange]), [
+    ['Noto Sans JP', '700', 'U+3040-30FF'], ['Noto Sans JP', '700', 'U+0000-00FF'],
+  ]);
+  const missingURL = 'https://fonts.googleapis.com/css?family=Missing+Family:400';
+  const missing = { id: missingURL, location: { type: 'url', url: missingURL } };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await assert.rejects(loadFonts([missing], resolve), /could not find family "Missing Family" or the requested weights/);
+    assert.throws(() => requireLoadedFonts([missing], resolve), /preloaded fonts/);
+  }
+  assert.equal(hits, 3);
+});

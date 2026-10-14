@@ -34,6 +34,8 @@ export type {
   TextProps,
   VideoProps,
 } from './components';
+export { googleFont } from './google-font';
+export type { GoogleFontOptions } from './google-font';
 export type {
   AssetLocation,
   AudioClip,

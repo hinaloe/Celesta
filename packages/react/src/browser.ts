@@ -3,6 +3,7 @@
 import * as React from 'react';
 
 export { React };
+export { googleFont } from './google-font';
 export {
   Audio, Assets, Composition, Font, FreezeFrame, Group, Image, Instances, Rect, Sequence, Static, Text, Video,
 } from './components';
