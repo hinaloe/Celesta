@@ -84,7 +84,8 @@ adds it directly with only the `clock` feature.
   therefore keeps its log, and the failure is appended to it.
 - The history keeps at most 500 entries and drops the oldest first.
 - `take_unannounced()` returns the entries appended since the last call,
-  once, leaving out those logged without a toast.
+  once, leaving out those logged without a toast. `set` logs a Preview
+  problem without a toast.
 - `error_count()` and `warning_count()` count the active problems and the
   preview warnings by severity.
 
@@ -181,7 +182,9 @@ none is available, so toasts are driven from render rather than from `set`.
   first line of the detail, and a `Show in Problems` action selects the
   Problems tab. Because of the action, the toast does not autohide. Toasts
   are keyed with `id1` by source, so a repeated error from the same source
-  replaces its toast instead of stacking.
+  replaces its toast instead of stacking. A Preview error is logged without
+  a toast: the preview error panel already shows it in place, for as long as
+  it persists. It is still logged, listed under Active, and counted.
 - **Warning** entries: the title is the problem title and the message is
   the first line of the detail, with no action, autohiding. A command that
   ends in a warning, such as TypeScript setup or a track change, therefore
@@ -227,6 +230,8 @@ Unit tests in `problems.rs`:
 - Clearing a problem removes it from active and keeps its history entry.
 - `info` appends a `Done` entry without active state.
 - `info_without_toast` appends an entry that `take_unannounced` leaves out.
+- A Preview error is logged and counted but left out of `take_unannounced`;
+  an Export error is not.
 - The history drops the oldest entries beyond 500.
 - `take_unannounced` returns each entry once.
 - `error_count` and `warning_count` count active problems and preview

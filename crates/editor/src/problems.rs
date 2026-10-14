@@ -44,6 +44,12 @@ impl Source {
         }
     }
 
+    /// Whether this source's problems get a toast. The preview error panel
+    /// already shows a preview error in place, for as long as it persists.
+    fn toasts_problems(self) -> bool {
+        self != Self::Preview
+    }
+
     /// The title for a failure that has no more specific one.
     pub(crate) fn failure_title(self) -> &'static str {
         match self {
@@ -107,7 +113,8 @@ pub(crate) struct LogEntry {
     pub(crate) severity: Severity,
     pub(crate) source: Source,
     pub(crate) problem: Problem,
-    /// Whether announcing this entry shows a toast.
+    /// Whether announcing this entry shows a toast. Preview errors and
+    /// cancelled exports do not.
     pub(crate) toast: bool,
 }
 
@@ -141,7 +148,8 @@ pub(crate) struct Problems {
 
 impl Problems {
     /// Replaces `source`'s active problem. A problem that differs from the
-    /// current one is logged; setting the same one again is not.
+    /// current one is logged; setting the same one again is not. A preview
+    /// problem is logged without a toast.
     pub(crate) fn set(&mut self, source: Source, problem: Option<Problem>) {
         let Some(problem) = problem else {
             self.active.remove(&source);
@@ -155,7 +163,13 @@ impl Problems {
             return;
         }
         let time = Local::now();
-        self.push(time, source.severity(), source, problem.clone(), true);
+        self.push(
+            time,
+            source.severity(),
+            source,
+            problem.clone(),
+            source.toasts_problems(),
+        );
         self.active.insert(source, ActiveProblem { time, problem });
     }
 
@@ -361,7 +375,7 @@ mod tests {
     fn setting_the_same_problem_again_logs_nothing() {
         let mut problems = Problems::default();
         for _ in 0..3 {
-            problems.fail(Source::Preview, "node exited");
+            problems.fail(Source::Export, "disk full");
         }
         assert_eq!(problems.history().count(), 1);
         assert_eq!(problems.take_unannounced().len(), 1);
@@ -464,8 +478,34 @@ mod tests {
             .collect();
         assert_eq!(first, [Source::Export, Source::TypeScript]);
         assert!(problems.take_unannounced().is_empty());
-        problems.fail(Source::Preview, "node exited");
+        problems.fail(Source::Project, "bad json");
         assert_eq!(problems.take_unannounced().len(), 1);
+    }
+
+    #[test]
+    fn a_preview_error_gets_no_toast() {
+        let mut problems = Problems::default();
+        problems.fail(Source::Preview, "node exited");
+        assert!(problems.take_unannounced().is_empty());
+    }
+
+    #[test]
+    fn an_export_error_gets_a_toast() {
+        let mut problems = Problems::default();
+        problems.fail(Source::Export, "disk full");
+        let announced = problems.take_unannounced();
+        assert_eq!(announced.len(), 1);
+        assert_eq!(announced[0].source, Source::Export);
+    }
+
+    #[test]
+    fn a_preview_error_is_still_logged_and_counted() {
+        let mut problems = Problems::default();
+        problems.fail(Source::Preview, "node exited");
+        assert_eq!(problems.history().count(), 1);
+        assert_eq!(problems.history().next().unwrap().severity, Severity::Error);
+        assert!(problems.active(Source::Preview).is_some());
+        assert_eq!(problems.error_count(), 1);
     }
 
     #[test]
