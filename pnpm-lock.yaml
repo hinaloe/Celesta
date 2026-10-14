@@ -472,12 +472,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shapes
       react:
-        specifier: ^18.3.1
-        version: 18.3.1
+        specifier: ^19.3.0
+        version: 19.3.0
     devDependencies:
       '@types/react':
-        specifier: ^18.3.31
-        version: 18.3.31
+        specifier: ^19.3.0
+        version: 19.3.0
 
   examples/shorts-tips:
     dependencies:
