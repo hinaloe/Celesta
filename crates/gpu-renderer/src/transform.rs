@@ -1,3 +1,4 @@
+use crate::hit::HitClip;
 use celesta_composition::{Clip, EvaluatedTransform};
 use celesta_renderer::PathTransform;
 
@@ -101,6 +102,15 @@ impl ClipEntry {
             self.parent.map_or(-1.0, |parent| parent as f32),
             0.0,
         ]
+    }
+
+    /// The clip's shape for `hit_test`.
+    pub(crate) const fn hit_clip(&self) -> HitClip {
+        HitClip {
+            inverse: self.inverse,
+            half: self.half,
+            radius: self.radius,
+        }
     }
 }
 

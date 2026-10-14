@@ -1,4 +1,5 @@
 use crate::error::GpuRenderError;
+use crate::hit::{HitRegion, hit_test};
 use crate::layer::{PreparedContent, PreparedItem, PreparedLayer};
 use crate::path::{
     MAX_PATH_TILE_EDGES, ShadedPath, bin_tiles, count_pieces_into_rows, path_entry_limit,
@@ -4231,6 +4232,127 @@ fn lists_text_layers_with_characters_their_family_has_no_glyph_for() {
     scene.layers.clear();
     renderer.render(&scene).unwrap();
     assert!(renderer.missing_glyphs().is_empty());
+}
+
+fn assert_corners(region: &HitRegion, expected: [(f64, f64); 4]) {
+    for (corner, (x, y)) in region.corners.iter().zip(expected) {
+        assert!(
+            (corner.x - x).abs() <= 0.01 && (corner.y - y).abs() <= 0.01,
+            "{}: {:?} is not ({x}, {y})",
+            region.layer_id,
+            region.corners
+        );
+    }
+}
+
+#[test]
+fn records_where_each_leaf_layer_was_drawn() {
+    let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+        return;
+    };
+    let mut scene = empty_scene(400, 200);
+    let mut hidden = corner_rect("z", 50.0, 50.0, 10.0, 10.0, "#ff0000");
+    hidden.opacity = 0.0;
+    let mut text = text_layer("t", Point { x: 300.0, y: 20.0 }, 1.0, 24.0);
+    text.transform.rotation = 90.0;
+    scene.layers = vec![
+        corner_rect("a", 5.0, 5.0, 10.0, 10.0, "#ff0000"),
+        hidden,
+        group(
+            EvaluatedTransform {
+                position: Point { x: 100.0, y: 0.0 },
+                ..EvaluatedTransform::default()
+            },
+            vec![corner_rect("b", 5.0, 5.0, 10.0, 10.0, "#00ff00")],
+        ),
+        text,
+        clipped_group(
+            EvaluatedTransform {
+                position: Point { x: 0.0, y: 100.0 },
+                ..EvaluatedTransform::default()
+            },
+            Clip {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+                corner_radius: 0.0,
+            },
+            vec![corner_rect("c", 0.0, 0.0, 40.0, 40.0, "#0000ff")],
+        ),
+    ];
+
+    // Off by default.
+    renderer.render(&scene).unwrap();
+    assert!(renderer.hit_regions().is_empty());
+
+    renderer.set_record_hit_regions(true);
+    renderer.render(&scene).unwrap();
+    let regions = renderer.hit_regions();
+    let ids = regions
+        .iter()
+        .map(|region| region.layer_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["a", "b", "t", "c"]);
+    assert_corners(
+        &regions[0],
+        [(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)],
+    );
+    assert_corners(
+        &regions[1],
+        [(105.0, 5.0), (115.0, 5.0), (115.0, 15.0), (105.0, 15.0)],
+    );
+    // Turned 90°: the text's top edge runs down the scene.
+    let [first, second, ..] = regions[2].corners;
+    assert!(
+        (second.x - first.x).abs() <= 0.01,
+        "{:?}",
+        regions[2].corners
+    );
+    assert!(second.y - first.y > 1.0, "{:?}", regions[2].corners);
+    assert!(regions[0].clips.is_empty());
+    assert_eq!(regions[3].clips.len(), 1);
+    assert_eq!(hit_test(regions, Point { x: 5.0, y: 105.0 }), Some("c"));
+    // Inside the rect, outside its group's clip.
+    assert_eq!(hit_test(regions, Point { x: 30.0, y: 130.0 }), None);
+
+    renderer.set_record_hit_regions(false);
+    renderer.render(&scene).unwrap();
+    assert!(renderer.hit_regions().is_empty());
+}
+
+#[test]
+fn records_a_paths_shape_box_and_nothing_for_a_path_it_drops() {
+    let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+        return;
+    };
+    renderer.set_record_hit_regions(true);
+    let mut scene = empty_scene(200, 100);
+    let square = |id: &str, from: f64, to: f64| {
+        path_layer(
+            id,
+            polyline(&[(from, from), (to, from), (to, to), (from, to)], true),
+            Some(solid("#ffffff")),
+            None,
+        )
+    };
+    scene.layers = vec![
+        // Wholly outside the scene, so it covers no pixel.
+        square("outside", 300.0, 340.0),
+        square("p", 20.0, 40.0),
+        corner_rect("after", 60.0, 10.0, 10.0, 10.0, "#ff0000"),
+    ];
+    renderer.render(&scene).unwrap();
+    let regions = renderer.hit_regions();
+    let ids = regions
+        .iter()
+        .map(|region| region.layer_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["p", "after"]);
+    assert_corners(
+        &regions[0],
+        [(20.0, 20.0), (40.0, 20.0), (40.0, 40.0), (20.0, 40.0)],
+    );
 }
 
 #[test]
