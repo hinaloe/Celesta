@@ -96,6 +96,10 @@ pub struct ReactAudioClipDescriptor {
     /// when set.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub r#loop: bool,
+    /// The soundtrack of a `<Video>`, not an `<Audio>`. Reported only when
+    /// set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub video: bool,
 }
 
 /// One subtitle a frame shows, from `<Subtitles>` or a `<Dialogue>` line:

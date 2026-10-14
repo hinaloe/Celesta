@@ -30,6 +30,17 @@ pub fn merge_react_audio_clips(
     merged
 }
 
+/// Ids of the clips [`react_audio_clips`] builds that play a `<Video>`'s
+/// soundtrack, in the same order.
+pub fn react_video_clip_ids(clips: &[ReactAudioClipDescriptor]) -> Vec<String> {
+    merge_react_audio_clips(clips)
+        .into_iter()
+        .enumerate()
+        .filter(|(_, (clip, _))| clip.video)
+        .map(|(index, _)| format!("react-audio:{index}"))
+        .collect()
+}
+
 /// Turns merged `<Audio>` reports into `AudioClip`s, resolving relative `src`
 /// paths against `entry_dir` and keeping `http`/`https` URLs as URLs.
 /// Generated ids are `react-audio:{n}` in first-seen order.

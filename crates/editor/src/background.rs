@@ -5,6 +5,7 @@ use crate::preview::AudioPreview;
 use crate::problems::{Source, error_chain};
 use crate::view::EditorView;
 use celesta_exporter::ExportProgress;
+use std::collections::HashMap;
 use std::sync::mpsc;
 
 impl EditorView {
@@ -115,20 +116,20 @@ impl EditorView {
                     if result.generation != self.audio_generation {
                         continue;
                     }
-                    match result.graph {
-                        Ok(graph) if graph.clips.is_empty() => {
+                    match result.media {
+                        Ok(media) if media.graph.clips.is_empty() => {
                             self.audio_pending = false;
                             self.audio_preview = None;
                             self.clip_waveforms.clear();
                             self.clip_levels.clear();
-                            self.set_react_audio_clips(Vec::new());
+                            self.set_react_audio_clips(Vec::new(), &HashMap::new());
                             self.problems.clear(Source::Audio);
                         }
-                        Ok(graph) => {
-                            self.set_react_audio_clips(graph.clips.clone());
+                        Ok(media) => {
+                            self.set_react_audio_clips(media.graph.clips.clone(), &media.videos);
                             if let Err(error) = self.audio_mix_worker.request(AudioMixRequest {
                                 generation: self.audio_generation,
-                                graph,
+                                graph: media.graph,
                                 asset_root: self.document.asset_root().to_owned(),
                                 duration: self.document.duration(),
                             }) {
@@ -141,7 +142,7 @@ impl EditorView {
                             self.audio_preview = None;
                             self.clip_waveforms.clear();
                             self.clip_levels.clear();
-                            self.set_react_audio_clips(Vec::new());
+                            self.set_react_audio_clips(Vec::new(), &HashMap::new());
                             self.problems.fail(Source::Audio, error);
                         }
                     }

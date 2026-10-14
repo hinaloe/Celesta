@@ -77,9 +77,9 @@ pub(crate) struct EditorView {
     pub(crate) react_preview: Option<ReactPreview>,
     pub(crate) react_audio_worker: ReactAudioWorker,
     /// The standalone React composition's audio clips, from its last audio
-    /// sweep, and the timeline tracks they are laid out on.
+    /// sweep, and the timeline tracks they and its videos are laid out on.
     pub(crate) react_audio_clips: Vec<AudioClip>,
-    pub(crate) react_audio_tracks: Vec<TrackSummary>,
+    pub(crate) react_tracks: Vec<TrackSummary>,
     /// Bumped on every reload of the React entry (watcher or manual button);
     /// threaded into `PreviewRequest::react_reload` so the preview worker
     /// respawns Node against the freshly re-bundled code.
@@ -281,7 +281,7 @@ impl EditorView {
             react_preview,
             react_audio_worker,
             react_audio_clips: Vec::new(),
-            react_audio_tracks: Vec::new(),
+            react_tracks: Vec::new(),
             react_reload_generation: 0,
             react_reloads: ReloadOrder::default(),
             watched_since: 0,

@@ -1,4 +1,4 @@
-use crate::audio::{merge_react_audio_clips, react_audio_clips};
+use crate::audio::{merge_react_audio_clips, react_audio_clips, react_video_clip_ids};
 use crate::bridge::ReactBridge;
 use crate::error::ReactBridgeError;
 use crate::properties::{
@@ -277,6 +277,7 @@ fn deserializes_audio_clips_from_a_frame_response() {
             start: 2.0,
             duration: 3.0,
             r#loop: false,
+            video: false,
         }]
     );
 }
@@ -461,6 +462,7 @@ fn audio_descriptor(src: &str, start: f64) -> ReactAudioClipDescriptor {
         start,
         duration: 2.0,
         r#loop: false,
+        video: false,
     }
 }
 
@@ -510,6 +512,46 @@ fn react_audio_clips_resolve_relative_paths_and_carry_ranges() {
         },
         "URL src kept as a URL"
     );
+}
+
+#[test]
+fn a_video_s_sound_is_reported_with_the_id_of_its_audio_clip() {
+    let video = |src: &str, start: f64| ReactAudioClipDescriptor {
+        video: true,
+        ..audio_descriptor(src, start)
+    };
+    let clips = vec![
+        audio_descriptor("./music.wav", 0.0),
+        video("./clip.mp4", 0.0),
+        video("./clip.mp4", 0.0),
+        // The same file from an <Audio> is a separate, non-video clip.
+        audio_descriptor("./clip.mp4", 0.0),
+        video("./clip.mp4", 1.0),
+    ];
+    let built = react_audio_clips(&clips, Path::new("/entry"));
+    assert_eq!(built.len(), 4);
+    assert_eq!(
+        react_video_clip_ids(&clips),
+        vec!["react-audio:1".to_owned(), "react-audio:3".to_owned()]
+    );
+    assert_eq!(built[1].asset.id, "./clip.mp4");
+    assert_eq!(built[3].range.start.as_seconds().unwrap(), 1.0);
+}
+
+#[test]
+fn deserializes_the_video_flag_of_an_audio_clip() {
+    let clip: ReactAudioClipDescriptor = serde_json::from_value(serde_json::json!({
+        "src": "./clip.mp4",
+        "sourceStart": 0.0,
+        "playbackRate": 1.0,
+        "volume": 1.0,
+        "muted": false,
+        "start": 0.0,
+        "duration": 1.0,
+        "video": true
+    }))
+    .unwrap();
+    assert!(clip.video);
 }
 
 #[test]
