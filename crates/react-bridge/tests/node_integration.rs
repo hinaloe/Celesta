@@ -8,7 +8,7 @@ use celesta_composition::{
 };
 use celesta_react_bridge::{
     ComponentPropertyField, ComponentResolutionRequest, ProjectFrame, PropertyInputs, ReactBridge,
-    ReactBridgeError, react_audio_clips,
+    ReactBridgeError, SpawnOptions, react_audio_clips,
 };
 
 fn no_tracks() -> BTreeMap<String, Vec<Layer>> {
@@ -1674,4 +1674,70 @@ fn pipelined_static_frames_match_serial_ones_when_node_is_available() {
             "frame {frame}"
         );
     }
+}
+
+#[test]
+fn layer_source_names_the_jsx_of_a_layer_when_node_is_available() {
+    let Some((node, cli_script, _)) = live_react_runtime() else {
+        return;
+    };
+    let dir = std::env::temp_dir().join(format!("celesta-layer-source-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // The Rect is on line 3, column 10 of title.tsx.
+    std::fs::write(
+        dir.join("title.tsx"),
+        "import { Rect } from '@celesta/react';\n\
+         export function Title() {\n\
+         \x20 return <Rect id=\"title-rect\" width={4} height={4} fill=\"#ffffff\" />;\n\
+         }\n",
+    )
+    .unwrap();
+    let entry = dir.join("entry.tsx");
+    std::fs::write(
+        &entry,
+        "import { Composition } from '@celesta/react';\n\
+         import { Title } from './title';\n\
+         export default function Film() {\n\
+         \x20 return <Composition width={64} height={64} fps={30} durationInFrames={3}><Title /></Composition>;\n\
+         }\n",
+    )
+    .unwrap();
+
+    let mut bridge = ReactBridge::spawn_with_options(
+        &node,
+        &cli_script,
+        &entry,
+        &PropertyInputs::default(),
+        SpawnOptions {
+            source_locations: true,
+        },
+    )
+    .unwrap();
+    bridge.set_preview(true);
+    let scene = bridge.scene_at(Time::ZERO).unwrap();
+    let id = all_layers(&scene.layers)
+        .into_iter()
+        .map(|layer| layer.id.clone())
+        .find(|id| id.ends_with("title-rect"))
+        .expect("the Rect is in the frame");
+
+    let chain = bridge
+        .layer_source(Time::ZERO, &id)
+        .unwrap()
+        .expect("layer is in the frame");
+    assert_eq!(chain[0].name, "Rect");
+    // The runtime reports real paths; the temp directory may be a symlink.
+    assert_eq!(
+        chain[0].file.canonicalize().unwrap(),
+        dir.join("title.tsx").canonicalize().unwrap()
+    );
+    assert_eq!((chain[0].line, chain[0].column), (3, 10));
+    assert_eq!(bridge.layer_source(Time::ZERO, "nope").unwrap(), None);
+
+    // Without the option the runtime knows no positions.
+    let mut plain = ReactBridge::spawn(&node, &cli_script, &entry).unwrap();
+    plain.set_preview(true);
+    assert_eq!(plain.layer_source(Time::ZERO, &id).unwrap(), Some(vec![]));
+
+    let _ = std::fs::remove_dir_all(&dir);
 }

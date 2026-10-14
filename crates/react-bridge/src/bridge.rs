@@ -11,8 +11,8 @@ use crate::protocol::{
 use crate::statics::StaticCache;
 use crate::stderr::StderrCapture;
 use crate::types::{
-    ComponentResolutionRequest, ComponentResolutions, FrameEvaluation, ProjectFrame,
-    ReactCompositionMetadata,
+    ComponentResolutionRequest, ComponentResolutions, FrameEvaluation, LayerSource, ProjectFrame,
+    ReactCompositionMetadata, SpawnOptions,
 };
 use celesta_composition::{AudioGraph, Scene, Time};
 use celesta_media::FfmpegBackend;
@@ -77,6 +77,18 @@ impl ReactBridge {
         entry: impl AsRef<Path>,
         properties: &PropertyInputs,
     ) -> Result<Self, ReactBridgeError> {
+        Self::spawn_with_options(node, cli_script, entry, properties, SpawnOptions::default())
+    }
+
+    /// Same as [`Self::spawn_with_properties`], also giving the runtime
+    /// `options` (see [`SpawnOptions`]).
+    pub fn spawn_with_options(
+        node: impl AsRef<Path>,
+        cli_script: impl AsRef<Path>,
+        entry: impl AsRef<Path>,
+        properties: &PropertyInputs,
+        options: SpawnOptions,
+    ) -> Result<Self, ReactBridgeError> {
         let node = node.as_ref();
         // Relative asset paths in a scene resolve against the entry's directory.
         let asset_root = entry.as_ref().parent().unwrap_or(Path::new("")).to_owned();
@@ -103,6 +115,9 @@ impl ReactBridge {
             .map_err(ReactBridgeError::Protocol)?;
             Some(payload)
         };
+        if options.source_locations {
+            command.arg("--source-locations");
+        }
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -472,6 +487,30 @@ impl ReactBridge {
             Response::CollectedAudio { .. } => Err(ReactBridgeError::UnexpectedResponse),
             Response::Err { error } => Err(ReactBridgeError::Render(error)),
             Response::MeasureText { .. } => Err(ReactBridgeError::UnexpectedResponse),
+            Response::LayerSource { .. } => Err(ReactBridgeError::UnexpectedResponse),
+        }
+    }
+
+    /// The JSX that produced the layer `id` in the frame at `time`, innermost
+    /// element first: its own element, then each enclosing component. `None`
+    /// when no layer of the frame has that id. The chain is empty unless the
+    /// bridge was spawned with [`SpawnOptions::source_locations`]. The frame
+    /// is evaluated as [`Self::set_preview`] says, so it matches the layers
+    /// the preview shows.
+    pub fn layer_source(
+        &mut self,
+        time: Time,
+        id: &str,
+    ) -> Result<Option<Vec<LayerSource>>, ReactBridgeError> {
+        let request = serde_json::json!({
+            "layerSource": id,
+            "time": time,
+            "preview": self.preview,
+        });
+        match self.request_response(request)? {
+            Response::LayerSource { chain } => Ok(chain),
+            Response::Err { error } => Err(ReactBridgeError::Render(error)),
+            _ => Err(ReactBridgeError::UnexpectedResponse),
         }
     }
 

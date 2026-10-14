@@ -4,7 +4,7 @@ use crate::properties::{PropertyIssue, PropertyLayer};
 use crate::props_edit::OrderedObject;
 use crate::statics::StaticDefinition;
 use crate::types::{
-    ComponentPropertyField, ComponentPropertySchema, ReactAudioClipDescriptor,
+    ComponentPropertyField, ComponentPropertySchema, LayerSource, ReactAudioClipDescriptor,
     ReactCompositionConfig,
 };
 use celesta_composition::{Layer, Scene, ShaderSource, Time};
@@ -121,9 +121,19 @@ pub(crate) enum Response {
         /// Absent from older runtimes, whose resolutions never used shaders.
         shaders: Vec<ShaderSource>,
     },
+    LayerSource {
+        /// `None` when no layer of the frame has the requested id.
+        chain: Option<Vec<LayerSource>>,
+    },
     Err {
         error: String,
     },
+}
+
+/// The body of a `layerSource` reply.
+#[derive(Deserialize)]
+pub(crate) struct LayerSourceReply {
+    pub(crate) chain: Option<Vec<LayerSource>>,
 }
 
 /// Every key a [`Response`] can carry, read in one pass. An untagged enum
@@ -138,6 +148,7 @@ pub(crate) struct RawResponse {
     #[serde(default)]
     pub(crate) audio: Vec<ReactAudioClipDescriptor>,
     pub(crate) components: Option<Vec<Option<Vec<Layer>>>>,
+    pub(crate) layer_source: Option<LayerSourceReply>,
     #[serde(default)]
     pub(crate) shaders: Vec<ShaderSource>,
     pub(crate) error: Option<String>,
@@ -173,10 +184,14 @@ impl TryFrom<RawResponse> for Response {
                 components,
                 shaders: raw.shaders,
             })
+        } else if let Some(reply) = raw.layer_source {
+            Ok(Self::LayerSource { chain: reply.chain })
         } else if let Some(error) = raw.error {
             Ok(Self::Err { error })
         } else {
-            Err("response has none of collectedAudio, measureText, scene, components or error")
+            Err(
+                "response has none of collectedAudio, measureText, scene, components, layerSource or error",
+            )
         }
     }
 }
