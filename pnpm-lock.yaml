@@ -640,6 +640,9 @@ importers:
       '@twinkleplop/bash':
         specifier: ^0.1.5
         version: 0.1.5
+      '@twinkleplop/core':
+        specifier: 0.2.2
+        version: 0.2.2
       '@twinkleplop/json':
         specifier: ^0.1.5
         version: 0.1.5

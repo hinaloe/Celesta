@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@twinkleplop/bash": "^0.1.5",
+    "@twinkleplop/core": "0.2.2",
     "@twinkleplop/json": "^0.1.5",
     "@twinkleplop/tsx": "^0.1.5",
     "@twinkleplop/typescript": "^0.1.5"

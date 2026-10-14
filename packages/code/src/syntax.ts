@@ -1,4 +1,7 @@
-import { tokenize as bash } from '@twinkleplop/bash';
+import { raw_grammar as bashGrammar, reclassifiers as bashReclassifiers } from '@twinkleplop/bash';
+import { create_language } from '@twinkleplop/core';
+import { compile, define_grammar } from '@twinkleplop/core/compile';
+import type { GrammarRule } from '@twinkleplop/core/compile';
 import { tokenize as json } from '@twinkleplop/json';
 import { tokenize as tsx } from '@twinkleplop/tsx';
 import { tokenize as ts } from '@twinkleplop/typescript';
@@ -14,6 +17,44 @@ export interface CodeToken {
   start: number;
   end: number;
 }
+
+// twinkleplop's bash grammar splits a word at `-`, `.`, `/` and `#`, so
+// `Celesta-export` became `Celesta`, `-`, then the builtin `export`, and
+// `file#1` started a comment. A bash word only ends at a metacharacter, so once
+// a word starts, stay in it: the word is one token, and the keyword/builtin
+// reclassifier only ever sees whole words. A word starting with `-` is a flag,
+// one `parameter` token. `$((...))` and `${...}` keep upstream's rules, where
+// these characters are operators.
+const bashWordCharacters = ['_', '-', '.', '/', ',', '~', '@', '%', ':', '#'];
+const bashWordRange: GrammarRule['range'] = [['a', 'z'], ['A', 'Z'], ['0', '9']];
+
+function wordBash(state: 'main' | 'cmd_sub' | 'conditional'): GrammarRule[] {
+  const rules = bashGrammar.states[state].rules ?? [];
+  const word = rules.findIndex(rule => rule.token === 'identifier' && rule.range);
+  if (word < 0) throw new Error(`Unexpected twinkleplop bash grammar in ${state}`);
+  const result = rules.slice();
+  result[word] = { ...rules[word], state: 'word' };
+  // Inside `[[ ]]`, `-f`, `-eq` and the like are test operators; leave them.
+  if (state === 'conditional') return result;
+  const dash = rules.findIndex(rule => Array.isArray(rule.match) && rule.match.includes('-'));
+  if (dash < 0 || rules[dash].token !== 'operator') throw new Error(`Unexpected twinkleplop bash grammar in ${state}`);
+  result.splice(dash, 1,
+    { token: 'parameter', match: '-', state: 'flag' },
+    { ...rules[dash], match: (rules[dash].match as string[]).filter(match => match !== '-') });
+  return result;
+}
+
+const bash = create_language(compile(define_grammar({
+  ...bashGrammar,
+  states: {
+    ...bashGrammar.states,
+    main: { rules: wordBash('main') },
+    cmd_sub: { rules: wordBash('cmd_sub') },
+    conditional: { rules: wordBash('conditional') },
+    word: { rules: [{ token: 'identifier', match: bashWordCharacters, range: bashWordRange }, { any: true, exit: true }] },
+    flag: { rules: [{ token: 'parameter', match: bashWordCharacters, range: bashWordRange }, { any: true, exit: true }] },
+  },
+})), bashReclassifiers);
 
 const tokenizers = new Map([
   ['tsx', tsx()], ['ts', ts()], ['json', json()], ['bash', bash()],

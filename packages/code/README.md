@@ -114,6 +114,9 @@ const theme = {
 Token names are twinkleplop's names, such as `keyword`, `string`, `comment`,
 `number`, `tag_name`, and `attr_name`. JSON object keys use `property`, including
 their escaped fragments; string values retain `string` and `string_escape`.
+In bash, hyphens, dots, and slashes inside a word stay in its `identifier`
+(`Celesta-export`, `scripts/migrate-packages.mjs`), so `keyword` and `builtin`
+only mark whole words, and a flag such as `--bit-depth` is one `parameter`.
 Unspecified names use `foreground`.
 
 ## Carets and annotations

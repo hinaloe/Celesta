@@ -63,7 +63,7 @@ test('all supported grammars preserve whitespace and UTF-16 source offsets', () 
     tsx: '<Text label="😀あ">{value}</Text>\r\n',
     ts: 'const value: string = "😀あ";\n/* first\n second */\n',
     json: '{\n\t"value": "😀あ", "count": 42\n}\n',
-    bash: '# comment\n\techo "😀あ"\n',
+    bash: '# comment\n\techo "😀あ" a-b.c --x-y=1 file#1 -\n',
     text: '  😀あ\t é\r\n\n',
   };
   for (const [language, source] of Object.entries(samples)) {
@@ -81,6 +81,44 @@ test('all supported grammars preserve whitespace and UTF-16 source offsets', () 
   }
   assert.deepEqual(tokenizeCode('', 'tsx'), []);
   assert.throws(() => tokenizeCode('hello', 'ruby'), /Unsupported code language/);
+});
+
+test('bash keeps hyphenated words whole and recognizes builtins only as whole words', () => {
+  const tokens = source => tokenizeCode(source, 'bash').filter(token => token.type !== 'plain').map(token => [token.text, token.type]);
+  assert.deepEqual(tokens('Celesta-export --react film.tsx out.mp4 \\\n  --bit-depth 10'), [
+    ['Celesta-export', 'identifier'], ['--react', 'parameter'], ['film.tsx', 'identifier'], ['out.mp4', 'identifier'],
+    ['\\\n', 'operator'], ['--bit-depth', 'parameter'], ['10', 'identifier'],
+  ]);
+  assert.deepEqual(tokens('celesta-exporter --props=props.json'), [
+    ['celesta-exporter', 'identifier'], ['--props', 'parameter'], ['=', 'operator'], ['props.json', 'identifier'],
+  ]);
+  assert.deepEqual(tokens('node scripts/migrate-packages.mjs'), [['node', 'identifier'], ['scripts/migrate-packages.mjs', 'identifier']]);
+  // Keywords and builtins inside a word stay part of it.
+  assert.deepEqual(tokens('ls ./test.sh in.mp4 /usr/local-bin -c:v'), [
+    ['ls', 'identifier'], ['.', 'punctuation'], ['/', 'operator'], ['test.sh', 'identifier'], ['in.mp4', 'identifier'],
+    ['/', 'operator'], ['usr/local-bin', 'identifier'], ['-c:v', 'parameter'],
+  ]);
+  assert.deepEqual(tokens('echo hi; export FOO=1; cd -'), [
+    ['echo', 'builtin'], ['hi', 'identifier'], [';', 'punctuation'], ['export', 'builtin'], ['FOO', 'identifier'],
+    ['=', 'operator'], ['1', 'identifier'], [';', 'punctuation'], ['cd', 'builtin'], ['-', 'parameter'],
+  ]);
+  assert.deepEqual(tokens('for f in a-b; do :; done'), [
+    ['for', 'keyword'], ['f', 'identifier'], ['in', 'keyword'], ['a-b', 'identifier'], [';', 'punctuation'],
+    ['do', 'keyword'], [':', 'builtin'], [';', 'punctuation'], ['done', 'keyword'],
+  ]);
+  assert.deepEqual(tokens('foo-bar() { true; }').slice(0, 2), [['foo-bar', 'function'], ['()', 'punctuation']]);
+  // A `#` inside a word does not start a comment.
+  assert.deepEqual(tokens('echo out#1 # note'), [['echo', 'builtin'], ['out#1', 'identifier'], ['# note', 'comment']]);
+  assert.deepEqual(tokens('x=$(cmd -v a-b)'), [
+    ['x', 'identifier'], ['=', 'operator'], ['$(', 'punctuation'], ['cmd', 'identifier'], ['-v', 'parameter'],
+    ['a-b', 'identifier'], [')', 'punctuation'],
+  ]);
+  assert.deepEqual(tokens('[[ -f foo-bar.txt ]]'), [['[[', 'keyword'], ['-f', 'operator'], ['foo-bar.txt', 'identifier'], [']]', 'keyword']]);
+  // In arithmetic and parameter expansion, `-` is still an operator.
+  assert.deepEqual(tokens('$((a-b)) ${A:-x-y}'), [
+    ['$((', 'punctuation'], ['a', 'identifier'], ['-', 'operator'], ['b', 'identifier'], ['))', 'punctuation'],
+    ['${', 'punctuation'], ['A', 'identifier'], [':-', 'operator'], ['x', 'identifier'], ['-', 'operator'], ['y', 'identifier'], ['}', 'punctuation'],
+  ]);
 });
 
 test('typing, seeking and line highlights reuse full-source measurements and keep emoji intact', () => {
@@ -416,6 +454,7 @@ const highlightCases = [
   ['ts', 'a\tb\t\tc\r\n\r\n\tx = 1;\rlet y\t= "\t";\n\n', 4],
   ['tsx', 'const 名前 = "👨‍👩‍👧‍👦";\r// 絵文字 🇯🇵\n', 3],
   ['bash', '\r\n\r\recho ok', 2],
+  ['bash', 'Celesta-export --react film.tsx out.mp4 \\\n\t--bit-depth 10\n', 2],
   ['text', '', 2],
   ['text', '\n', 2],
 ];
