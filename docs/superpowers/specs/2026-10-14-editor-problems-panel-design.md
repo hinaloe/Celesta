@@ -116,8 +116,8 @@ prefixed string.
 ### Right dock tabs
 
 The right dock gets an underline `TabBar` with two tabs. The left tab is
-`Inspector`, or `Composition` in React-preview mode, and shows the panel it
-shows today. The right tab is `Problems`, with a badge holding the active
+`Inspector`, or `React Preview` in React-preview mode, and shows the panel
+it shows today. The tab bar replaces those panels' own headers. The right tab is `Problems`, with a badge holding the active
 error and warning count. `EditorView` stores the selected tab in a new
 `right_tab` field.
 
@@ -225,8 +225,10 @@ by running the editor.
 
 Screenshots of the same scenes before and after the change:
 
-1. Open a project that references a missing file, to raise a media error.
-2. Export to a location that cannot be written, to raise an export error.
+1. Create a blank React project and make its `film.tsx` throw a long
+   error, to raise a preview error. (A missing media file does not raise
+   one: the asset list marks it `File not found` instead.)
+2. Export to a folder that cannot be written, to raise an export error.
 3. Before: the truncated title bar messages.
 4. After: the status bar indicator with a toast, the Problems tab with
    active problems and history, the preview error panel, and a selected
