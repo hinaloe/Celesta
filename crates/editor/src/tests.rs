@@ -731,7 +731,9 @@ fn layer_select_reads_each_lookup_outcome() {
 #[test]
 fn layer_select_shows_a_file_inside_the_entry_directory_relative_to_it() {
     let entry_dir = Path::new("/project/src");
-    let source = layer_source_at("/project/src/components/title.tsx", 12, 5);
+    // Joined, so the separators are the platform's, as the runtime's are.
+    let file = entry_dir.join("components").join("title.tsx");
+    let source = layer_source_at(file.to_str().expect("an ASCII path"), 12, 5);
 
     assert_eq!(
         display_path(&source.file, entry_dir),
