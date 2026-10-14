@@ -11,7 +11,7 @@ use crate::react_audio::ReactAudioWorker;
 use crate::refresh::ReloadOrder;
 use crate::source::{PropertyArgs, load_source};
 use crate::timeline::LaneGesture;
-use celesta_composition::Rational;
+use celesta_composition::{AudioClip, Rational};
 use celesta_editor_core::{AssetSummary, EditorDocument, TimelineClock, TrackSummary};
 use celesta_exporter::{ExportCancellation, ExportProgress};
 use celesta_gpu_renderer::{GpuDriver, GpuRenderOptions, GpuRenderer, HitRegion};
@@ -76,6 +76,10 @@ pub(crate) struct EditorView {
     /// show.
     pub(crate) react_preview: Option<ReactPreview>,
     pub(crate) react_audio_worker: ReactAudioWorker,
+    /// The standalone React composition's audio clips, from its last audio
+    /// sweep, and the timeline tracks they are laid out on.
+    pub(crate) react_audio_clips: Vec<AudioClip>,
+    pub(crate) react_audio_tracks: Vec<TrackSummary>,
     /// Bumped on every reload of the React entry (watcher or manual button);
     /// threaded into `PreviewRequest::react_reload` so the preview worker
     /// respawns Node against the freshly re-bundled code.
@@ -276,6 +280,8 @@ impl EditorView {
             document,
             react_preview,
             react_audio_worker,
+            react_audio_clips: Vec::new(),
+            react_audio_tracks: Vec::new(),
             react_reload_generation: 0,
             react_reloads: ReloadOrder::default(),
             watched_since: 0,

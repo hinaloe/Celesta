@@ -13,6 +13,7 @@ use crate::layer_select::{
     SourceLookup, display_path, launch_outcome_applies, letterbox, scene_point, source_lookup,
     source_lookup_target, source_position,
 };
+use crate::react_audio::react_audio_tracks;
 use crate::source::is_react_entry;
 use crate::waveform::{
     clip_level_envelope, level_at_time, map_clip_waveform, master_volume_from_drag, waveform_peaks,
@@ -205,6 +206,74 @@ fn clip_waveforms_follow_source_ranges_and_playback_rate() {
     assert_eq!(
         clip_level_envelope(&[0.4, 0.6, 0.8, 0.0], &clip),
         vec![0.2, 0.3, 0.4, 0.0]
+    );
+}
+
+#[test]
+fn react_audio_clips_take_one_track_per_file_and_more_only_to_overlap() {
+    let clip = |index: usize, src: &str, start: i64, end: i64, muted: bool| AudioClip {
+        id: format!("react-audio:{index}"),
+        asset: ResolvedAsset {
+            id: src.to_owned(),
+            location: AssetLocation::File {
+                path: format!("/project/{src}"),
+            },
+        },
+        range: TimeRange {
+            start: Time::new(start, 1),
+            duration: Time::new(end - start, 1),
+        },
+        source_start: Time::ZERO,
+        source_duration: None,
+        playback_rate: Animatable::Static(1.0),
+        volume: Animatable::Static(0.5),
+        muted,
+        r#loop: false,
+    };
+    let tracks = react_audio_tracks(&[
+        clip(0, "./voice.wav", 2, 4, false),
+        clip(1, "https://example.com/clip.mp4", 0, 6, false),
+        clip(2, "./voice.wav", 3, 5, false),
+        clip(3, "./voice.wav", 0, 2, true),
+    ]);
+
+    let layout = tracks
+        .iter()
+        .map(|track| {
+            let clips = track
+                .clips
+                .iter()
+                .map(|clip| clip.id.as_str())
+                .collect::<Vec<_>>();
+            (
+                track.id.as_str(),
+                track.name.as_str(),
+                track.item_count,
+                clips,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        layout,
+        vec![
+            // The two voice clips that overlap take a track each; the muted
+            // one before them shares the first.
+            (
+                "react-audio-track:0",
+                "voice.wav",
+                2,
+                vec!["react-audio:3", "react-audio:0"]
+            ),
+            ("react-audio-track:1", "voice.wav", 1, vec!["react-audio:2"]),
+            ("react-audio-track:2", "clip.mp4", 1, vec!["react-audio:1"]),
+        ]
+    );
+    let muted = &tracks[0].clips[0];
+    assert_eq!((muted.kind, muted.enabled), (ClipKind::Audio, false));
+    assert_eq!(muted.volume, Some(Animatable::Static(0.5)));
+    assert_eq!(
+        (muted.start, muted.duration),
+        (Time::new(0, 1), Time::new(2, 1))
     );
 }
 

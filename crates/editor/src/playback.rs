@@ -145,7 +145,7 @@ impl EditorView {
     pub(crate) fn adjacent_edit_point(&self, forward: bool) -> Option<i64> {
         let clock = self.clock;
         let points = timeline::edit_points(
-            &self.tracks,
+            self.timeline_tracks(),
             |time| clock.frame_for_time(time).ok(),
             clock.end_frame(),
         );
