@@ -146,6 +146,10 @@ must be static: mounting first renders with placeholder runtime context and
 empty companion layers to discover them, discarding that pass's scene output.
 Layer IDs are derived from the tree path unless an explicit `id` is supplied.
 
+The editor's preview bridge passes `--source-locations`, which bundles with the
+JSX dev runtime so a `layerSource` request can answer where a layer was
+written; see [Open a layer's source](docs/handoff/2026-10-14-open-layer-source.md).
+
 The CLI bundles entries with esbuild without type-checking user source. It
 keeps `react`, its JSX runtimes, and every `@celesta/*` package external,
 resolved from the CLI itself, so hooks, contexts, and registries use the same
