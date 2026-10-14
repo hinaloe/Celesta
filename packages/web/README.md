@@ -57,10 +57,25 @@ The source string accepts runtime imports from `react`, `@celesta/react`,
 `noise`, and `chromaKey`, as props or from `@celesta/shader`) run in the
 browser; a frame that draws a custom WGSL shader from `defineShader()` fails.
 Paths, motion helpers, Canvas text measurement, and custom OpenType fonts or
-font CSS URLs are supported. An async `prepare()` may use browser APIs and
-`measureText()`; filesystem helpers (`preloadMedia`, `loadLipSync`,
-`loadPsdPreset`), `@celesta/project`, PSD portraits, and arbitrary npm imports
-still require the native runtime.
+font CSS URLs are supported. An async `prepare()` may use browser APIs,
+`measureText()`, and `loadAudioSpectrum()`; filesystem helpers (`preloadMedia`,
+`loadLipSync`, `loadPsdPreset`), `@celesta/project`, PSD portraits, and
+arbitrary npm imports still require the native runtime.
+
+`loadAudioSpectrum()` reads the file from `assets` in the compile options
+(the uploaded files you give `SceneCanvas`, by name), then `baseURL`, then an
+http(s) URL, and decodes it in the Worker with Mediabunny: WAV and other PCM
+always, compressed codecs where the browser's WebCodecs can decode them. As in
+the native runtime, the channels are averaged at the file's own sample rate,
+so the same WAV gives the same values in both. A compressed file can differ
+slightly, since each runtime has its own decoder. Decoding counts toward
+`compile`'s 30-second limit, so analyze a long compressed file as WAV.
+
+```ts
+const assets = new Map([['score.mp3', file]]);
+await engine.compile(source, { assets });
+const renderer = new SceneCanvas(assets);
+```
 
 For a multi-file project, pass virtual sources keyed by relative path:
 

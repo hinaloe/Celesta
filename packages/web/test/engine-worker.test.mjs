@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { build } from 'esbuild-wasm';
 import { createRequire } from 'node:module';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -40,7 +40,9 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
   };
   const requested = [];
   const fetched = Promise.withResolvers(), unblock = Promise.withResolvers();
+  const voice = readFileSync(fileURLToPath(new URL('../../../examples/assets/voices/001.wav', import.meta.url)));
   t.mock.method(globalThis, 'fetch', async url => {
+    if (url.startsWith('https://audio.test/')) return new Response(voice);
     requested.push(url);
     if (url.startsWith('https://first.test/')) { fetched.resolve(); await unblock.promise; }
     return new Response(`@font-face { font-family: Demo; src: url(${new URL('demo.woff', url).href}); }`, { headers: { 'content-type': 'text/css' } });
@@ -127,4 +129,51 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
     { type: 'grayscale', amount: 1 },
     { type: 'brightness', amount: 1.5 },
   ]);
+
+  // prepare() decodes an uploaded file with mediabunny, to the same samples
+  // as the WAV parser reads from the same bytes.
+  const spectrum = await send({ id: 14, type: 'compile', options: { assets: new Map([['voice.wav', new File([voice], 'voice.wav')]]) }, source: `import { Composition, Rect } from '@celesta/react';
+    import { analyzeAudioSpectrum, loadAudioSpectrum, useAudioSpectrum } from '@celesta/media-utils';
+    import { decodeWav } from '@celesta/character';
+    let music, reference;
+    export async function prepare() {
+      music = await loadAudioSpectrum('./voice.wav', { bands: 4 });
+      const bytes = new Uint8Array(await (await fetch('https://audio.test/voice.wav')).arrayBuffer());
+      reference = analyzeAudioSpectrum(decodeWav(bytes), { bands: 4 });
+    }
+    function Meter({ spectrum }) {
+      const { bands, rms } = useAudioSpectrum(spectrum);
+      return <Rect width={rms} height={bands[2]} />;
+    }
+    export default function Scene() {
+      return <Composition width={100} height={100} fps={30} durationInFrames={60}>
+        <Meter spectrum={music} /><Meter spectrum={reference} />
+      </Composition>;
+    }` });
+  assert.equal(spectrum.error, undefined);
+  const metered = await send({ id: 15, type: 'frame', frame: 30 });
+  const [decoded, parsed] = metered.value.scene.layers.map(layer => layer.content);
+  assert.ok(decoded.width > 0.01 && decoded.height > 0);
+  assert.equal(decoded.width, parsed.width);
+  assert.equal(decoded.height, parsed.height);
+  // A recompile reads the file uploaded under that name now, not the last one.
+  const silence = Buffer.alloc(44 + 2 * 44100);
+  silence.write('RIFF', 0); silence.writeUInt32LE(silence.length - 8, 4); silence.write('WAVEfmt ', 8);
+  silence.writeUInt32LE(16, 16); silence.writeUInt16LE(1, 20); silence.writeUInt16LE(1, 22);
+  silence.writeUInt32LE(44100, 24); silence.writeUInt32LE(88200, 28); silence.writeUInt16LE(2, 32); silence.writeUInt16LE(16, 34);
+  silence.write('data', 36); silence.writeUInt32LE(2 * 44100, 40);
+  const recompiled = await send({ id: 17, type: 'compile', options: { assets: new Map([['voice.wav', new File([silence], 'voice.wav')]]) }, source: `import { Composition, Rect } from '@celesta/react';
+    import { loadAudioSpectrum, useAudioSpectrum } from '@celesta/media-utils';
+    let music;
+    export async function prepare() { music = await loadAudioSpectrum('./voice.wav', { bands: 4 }); }
+    function Meter() { const { rms } = useAudioSpectrum(music); return <Rect width={rms} height={1} />; }
+    export default function Scene() { return <Composition width={100} height={100} fps={30} durationInFrames={30}><Meter /></Composition>; }` });
+  assert.equal(recompiled.error, undefined);
+  const quiet = await send({ id: 18, type: 'frame', frame: 15 });
+  assert.equal(quiet.value.scene.layers[0].content.width, 0);
+  const missingAudio = await send({ id: 19, type: 'compile', source: `import { Composition } from '@celesta/react';
+    import { loadAudioSpectrum } from '@celesta/media-utils';
+    export async function prepare() { await loadAudioSpectrum('nowhere.wav'); }
+    export default function Scene() { return <Composition width={10} height={10} fps={30} durationInFrames={1} />; }` });
+  assert.match(missingAudio.error, /Missing audio file: nowhere\.wav/);
 });

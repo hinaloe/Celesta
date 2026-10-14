@@ -5,6 +5,11 @@ export interface CompileOptions {
   entry?: string;
   /** Absolute URL of the entry's media directory. */
   baseURL?: string;
+  /**
+   * Uploaded media by file name, as given to `SceneCanvas`, for audio that
+   * `prepare()` analyzes with `loadAudioSpectrum()`.
+   */
+  assets?: Map<string, File>;
   /** For sample editions whose generated soundtrack is not distributed. */
   silent?: boolean;
 }
