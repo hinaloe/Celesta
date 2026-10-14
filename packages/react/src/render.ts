@@ -441,6 +441,38 @@ function shiftAnimated(value: AnimatedNumber, deltaSeconds: number): AnimatedNum
   };
 }
 
+/**
+ * Records the host node behind a layer id for `layerSource`. Only nodes React
+ * created have a fiber to walk; a node a host element makes up (such as
+ * `<Dialogue>`'s default subtitle) is left out, and `recordBuiltLayers` maps
+ * its layers to the host element instead.
+ */
+function recordLayerNode(context: WalkContext, id: string, node: HostNode): void {
+  if (node.fiber != null) {
+    context.layerNodes?.set(id, node);
+  }
+}
+
+/**
+ * Maps every layer a host element or `rawLayers` built itself, group
+ * children included, that has no node yet to `node`, the nearest node with
+ * a fiber.
+ */
+function recordBuiltLayers(context: WalkContext, layers: readonly Layer[], node: HostNode): void {
+  const { layerNodes } = context;
+  if (!layerNodes || node.fiber == null) {
+    return;
+  }
+  for (const layer of layers) {
+    if (!layerNodes.has(layer.id)) {
+      layerNodes.set(layer.id, node);
+    }
+    if (layer.content.type === 'group') {
+      recordBuiltLayers(context, layer.content.layers, node);
+    }
+  }
+}
+
 function buildLayer(
   node: HostNode,
   path: string,
@@ -449,7 +481,7 @@ function buildLayer(
 ): Layer {
   const { props } = node;
   const id = typeof props.id === 'string' && props.id.length > 0 ? flatString(`${context.idPrefix}${props.id}`) : path;
-  context.layerNodes?.set(id, node);
+  recordLayerNode(context, id, node);
   // An `<Instances>`'s x, y, and rotation are its particles', not its own.
   const fullTransform = extractTransform(
     node.type === 'instances'
@@ -505,6 +537,9 @@ function buildLayer(
     };
   } else if (hostElement(node.type)?.content) {
     content = hostElement(node.type)!.content!(node, hostWalk(id, context, audio));
+    if (content.type === 'group') {
+      recordBuiltLayers(context, content.layers, node);
+    }
   } else if (node.type === 'text') {
     const maxWidth = props.maxWidth;
     const flat = flattenTextContent(props.children as React.ReactNode, '<Text> children');
@@ -894,7 +929,12 @@ function walkNode(
     context = { ...context, lang: resolveTextLanguage(node.props.lang, context.lang) };
   }
   if (node.type === 'rawLayers') {
-    return audioOnly ? [] : inheritTextLanguage((node.props.layers as Layer[] | undefined) ?? [], context.lang);
+    if (audioOnly) {
+      return [];
+    }
+    const layers = inheritTextLanguage((node.props.layers as Layer[] | undefined) ?? [], context.lang);
+    recordBuiltLayers(context, layers, node);
+    return layers;
   }
   if (
     node.type === 'assets' ||
@@ -969,7 +1009,7 @@ function sameLocation(left: ResolvedAsset, right: ResolvedAsset): boolean {
  */
 function staticLayer(node: HostNode, path: string, context: WalkContext, audio: AudioClipDescriptor[]): Layer {
   const { statics } = context;
-  context.layerNodes?.set(path, node);
+  recordLayerNode(context, path, node);
   const key = { path, lang: context.lang, idPrefix: context.idPrefix, compact: context.compact };
   // The children are walked with a frame state of their own, so the custom
   // shaders they use are known and can be listed again on frames that reuse

@@ -100,3 +100,54 @@ test('rejects unknown options', () => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /^usage: .*\[--source-locations\]/);
 });
+
+// Host elements such as <CharacterView> and <Dialogue> build their child
+// layers themselves; those ids map to the host element's JSX.
+function runCharacter(requests) {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'celesta-layer-source-character-')));
+  const entry = join(dir, 'entry.tsx');
+  // The <CharacterView> is on line 9, column 7; the <Dialogue> on line 10, column 7.
+  writeFileSync(entry, [
+    "import React from 'react';",
+    "import { Assets, Composition } from '@celesta/react';",
+    "import { Character, CharacterView, Dialogue } from '@celesta/character';",
+    'const character = React.createRef();',
+    'const view = React.createRef();',
+    'export default function Film() {',
+    '  return <Composition width={64} height={64} fps={30} durationInFrames={3}>',
+    "    <Assets><Character ref={character} name=\"Hana\" portrait={{ expressions: { normal: './portrait.png' }, defaultExpression: 'normal' }} /></Assets>",
+    '      <CharacterView id="hero-view" ref={view} character={character} />',
+    '      <Dialogue id="hero-line" character={view}>hello</Dialogue>',
+    '  </Composition>;',
+    '}',
+    '',
+  ].join('\n'));
+  try {
+    const result = spawnSync(process.execPath, [cli, entry, '--source-locations'], {
+      input: requests.map((request) => `${JSON.stringify(request)}\n`).join(''),
+      encoding: 'utf8',
+    });
+    return { entry, result, responses: result.stdout.trim().split('\n').slice(1).map((line) => JSON.parse(line)) };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('finds the JSX of a layer a host element builds', () => {
+  const { responses, entry, result } = runCharacter([
+    { layerSource: 'hero-view.portrait', time, preview: true },
+    { layerSource: 'hero-line.subtitle', time, preview: true },
+    { layerSource: 'hero-view.nope', time, preview: true },
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const [portrait, subtitle, unknown] = responses.map((response) => response.layerSource.chain);
+  assert.ok(portrait, JSON.stringify(responses));
+  assert.equal(portrait[0].name, 'CharacterView');
+  assert.equal(portrait[0].file, entry);
+  assert.equal(portrait[0].line, 9);
+  assert.equal(portrait[0].column, 7);
+  assert.ok(subtitle, JSON.stringify(responses));
+  assert.equal(subtitle[0].name, 'Dialogue');
+  assert.equal(subtitle[0].line, 10);
+  assert.equal(unknown, null);
+});
