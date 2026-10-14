@@ -1,7 +1,7 @@
 use crate::audio::take_latest;
 use crate::helpers::prepare_preview_frame;
-use crate::problems::error_chain;
 use crate::layer_select::LookupResult;
+use crate::problems::error_chain;
 use crate::source::PropertyArgs;
 use celesta_composition::{Layer, LayerContent, Scene, ShaderSource, Time};
 use celesta_gpu_renderer::{GpuRenderer, HitRegion, RenderQuality};
@@ -60,7 +60,8 @@ pub(crate) struct PreviewResult {
     /// names (hidden from the preview) and React runtime failures.
     pub(crate) warnings: Vec<String>,
     /// Where each leaf layer was drawn, for selecting layers by clicking the
-    /// preview. Recorded in `WholeScene` mode only; empty otherwise.
+    /// preview. Recorded in interactive `WholeScene` frames only; empty
+    /// otherwise.
     pub(crate) hit_regions: Vec<HitRegion>,
     /// The request's `source_of` and what looking it up returned: `Ok(None)`
     /// when the frame has no layer with that id. `None` when nothing was
@@ -77,6 +78,21 @@ pub(crate) struct ReactPreviewContext {
     pub(crate) entry: PathBuf,
     /// Project property values; changed values respawn the bridge.
     pub(crate) properties: PropertyInputs,
+    /// Whether the runtime records where each JSX element was written, so
+    /// layers can be picked and their source looked up (the React preview's
+    /// interactive mode). Switching respawns the bridge: the plain preview
+    /// pays nothing for it.
+    pub(crate) source_locations: bool,
+}
+
+/// Whether the renderer records where each leaf layer was drawn for this
+/// frame: only for a whole React scene in interactive mode, the only frames
+/// the viewer picks layers from.
+pub(crate) fn records_hit_regions(
+    mode: ReactPreviewMode,
+    react: Option<&ReactPreviewContext>,
+) -> bool {
+    mode == ReactPreviewMode::WholeScene && react.is_some_and(|react| react.source_locations)
 }
 
 /// How the preview worker should treat this frame's React entry: resolve just
@@ -184,7 +200,10 @@ impl PreviewWorker {
                         react_bridge = None;
                     }
                     let whole_scene = request.react_mode == ReactPreviewMode::WholeScene;
-                    renderer.set_record_hit_regions(whole_scene);
+                    renderer.set_record_hit_regions(records_hit_regions(
+                        request.react_mode,
+                        request.react.as_ref(),
+                    ));
                     let mut scene = request.scene;
                     let mut warnings = Vec::new();
                     // In `.tsx` preview mode the React entry is the whole
@@ -289,7 +308,7 @@ pub(crate) fn ensure_react_bridge<'a>(
                 // `layer_source` answers only when the runtime recorded
                 // where each JSX element was written.
                 SpawnOptions {
-                    source_locations: true,
+                    source_locations: react.source_locations,
                 },
             ) {
                 Ok(mut bridge) => {

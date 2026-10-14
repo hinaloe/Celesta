@@ -1,6 +1,6 @@
 use crate::component_schema::ComponentSchemaRequest;
 use crate::helpers::format_time;
-use crate::layer_select::SourceLookup;
+use crate::layer_select::source_lookup_target;
 use crate::media_probe::{MediaProbeRequest, ProbeAsset};
 use crate::preview::{
     KeptSchema, PreviewRequest, ReactPreview, ReactPreviewContext, ReactPreviewMode,
@@ -152,6 +152,12 @@ impl EditorView {
         self.react_preview.is_some()
     }
 
+    /// Whether clicking the viewer picks layers: the React preview in
+    /// interactive mode.
+    pub(crate) fn picks_layers(&self) -> bool {
+        self.interactive && self.is_react_preview()
+    }
+
     pub(crate) fn current_time(&self) -> Time {
         self.clock.time().unwrap_or(Time::ZERO)
     }
@@ -178,6 +184,7 @@ impl EditorView {
                         self.document.asset_root(),
                     ),
                 },
+                source_locations: self.picks_layers(),
             }
         });
         let react_mode = if self.is_react_preview() {
@@ -185,13 +192,12 @@ impl EditorView {
         } else {
             ReactPreviewMode::ResolveComponents
         };
-        // The selected layer's source follows the paused frame. During
-        // playback the panel keeps the last answer, unless the selection
-        // changed and its lookup has not been answered yet.
-        let source_of = self.selected_layer.clone().filter(|_| {
-            self.is_react_preview()
-                && (!self.playing || self.source_lookup == Some(SourceLookup::Pending))
-        });
+        let source_of = source_lookup_target(
+            self.selected_layer.as_deref(),
+            self.picks_layers(),
+            self.playing,
+            self.source_lookup.as_ref(),
+        );
         match self.document.scene_at(self.current_time()) {
             // The warnings stay until the result replaces them, so their
             // counts don't flicker while frames are in flight.

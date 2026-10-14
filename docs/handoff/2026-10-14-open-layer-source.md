@@ -109,6 +109,18 @@ the gaps between glyphs.
 
 ## Editor
 
+- Modes (`view.rs` `interactive`, `viewer.rs` `toggle_interactive`): the
+  React preview starts in its plain mode. **Select layers** (transport
+  button, View menu, `V`; React preview only) turns on interactive
+  mode. `ReactPreviewContext.source_locations` follows it, so switching
+  respawns the bridge with or without `--source-locations`;
+  `records_hit_regions` records only for interactive `WholeScene` frames;
+  `source_lookup_target` sends lookups only while picking. Leaving
+  interactive mode clears the selection and the regions. Measured on
+  `examples/afterimage` frame 430 (3,032 leaf layers): Node frames take
+  10.4 ms without source locations and about 12.8 ms with them; a lookup adds
+  8–10 ms per frame change while paused; recording hit regions adds about
+  0.1 ms to a 1.3 ms render. The plain mode pays none of it.
 - Selection (`crates/editor/src/layer_select.rs`, `viewer.rs`): a left
   mouse-down on the canvas in the React preview maps the position to scene
   pixels through the viewer's letterbox (the safe-area overlay shares it),

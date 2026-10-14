@@ -20,6 +20,7 @@ Compositions reload when you save. You can also choose **File → Reload** to re
 | Go to the start / end | `Home` / `End` | `Home` / `End` |
 | Loop playback (the marked range if set) | `⌘ /` | `Ctrl /` |
 | Toggle safe areas | `'` | `'` |
+| Select layers (React compositions) | `V` | `V` |
 | Zoom in / out / fit the timeline | `=` / `-` / `Shift Z` | `=` / `-` / `Shift Z` |
 | Clear the export range | `Shift X` | `Shift X` |
 | Mark export start / end | `I` / `O` | `I` / `O` |
@@ -34,9 +35,11 @@ Playback synchronizes the picture and audio. Use waveforms and track levels to c
 
 ## Find a layer's source
 
-Click a layer in the preview to select it. An orange outline marks it, and the **React Preview** panel shows a **Layer** section with its ID and where it was written. **Source** gives the element nearest the layer, such as a `<Rect>` in `Title.tsx`, as its name and `file:line:column`. **Called from** lists the elements around it, from the nearest outward, such as the `<Title>` that renders it and the `<Sequence>` it sits in. Click any row to open that position in your text editor. Click an empty part of the canvas to clear the selection.
+Turn on **Select layers** with the pointer button next to **Safe areas** below the viewer, **View → Select Layers**, or `V`. This interactive mode is available when you open a React composition. It records where each element was written and where each layer is drawn, which slows down scenes with thousands of layers, so the preview starts without it; turn it off again to play such scenes at full speed. Switching restarts the composition's runtime, which takes a moment.
 
-A layer is hit anywhere inside the box it is drawn in, including transparent pixels of an image and the gaps between glyphs. A `<Rect>` with a stroke and no fill is hit only on its stroke, so you can select what is inside an outline. Where layers overlap, the one drawn last wins. Selection is available when you open a React composition; a layer that is not in the frame being shown reads **Not in this frame**. Reloading the composition clears the selection.
+In interactive mode, click a layer in the preview to select it. An orange outline marks it, and the **React Preview** panel shows a **Layer** section with its ID and where it was written. **Source** gives the element nearest the layer, such as a `<Rect>` in `Title.tsx`, as its name and `file:line:column`. **Called from** lists the elements around it, from the nearest outward, such as the `<Title>` that renders it and the `<Sequence>` it sits in. Click any row to open that position in your text editor. Click an empty part of the canvas to clear the selection.
+
+A layer is hit anywhere inside the box it is drawn in, including transparent pixels of an image and the gaps between glyphs. A `<Rect>` with a stroke and no fill is hit only on its stroke, so you can select what is inside an outline. Where layers overlap, the one drawn last wins. A layer that is not in the frame being shown reads **Not in this frame**. Reloading the composition, or turning interactive mode off, clears the selection.
 
 Celesta opens the position in the editor named by the `VISUAL` environment variable, then `EDITOR`. It can include arguments, such as `code -n`. On macOS and Linux, Celesta also asks your login shell for them when the app does not have them, such as when it was started from the Dock or Finder, so variables set in your shell profile still apply. VS Code (`code`), Cursor, Windsurf, Zed, Sublime Text, JetBrains IDEs, and TextMate open at the line and column; other editors are passed `+line file`. With neither variable set, the file opens in your system's default application, without a position.
 

@@ -122,6 +122,10 @@ pub(crate) struct EditorView {
     pub(crate) play_when_audio_ready: bool,
     /// Draws action-safe and title-safe frames over the viewer.
     pub(crate) show_safe_areas: bool,
+    /// The React preview's interactive mode: clicking the viewer selects a
+    /// layer and shows its JSX source. Off, the preview skips recording
+    /// source positions and hit regions, which large scenes pay for.
+    pub(crate) interactive: bool,
     pub(crate) scrubbing: bool,
     /// Playback gain for the preview only (0..=2). It scales the mixed
     /// buffer at the output device and never touches the project, so it has
@@ -291,6 +295,7 @@ impl EditorView {
             loop_playback: false,
             play_when_audio_ready: false,
             show_safe_areas: false,
+            interactive: false,
             scrubbing: false,
             monitor_volume: 1.0,
             master_volume_drag: None,

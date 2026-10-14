@@ -11,7 +11,7 @@ use crate::helpers::{
 };
 use crate::layer_select::{
     SourceLookup, display_path, launch_outcome_applies, letterbox, scene_point, source_lookup,
-    source_position,
+    source_lookup_target, source_position,
 };
 use crate::source::is_react_entry;
 use crate::waveform::{
@@ -22,7 +22,8 @@ use celesta_editor_core::ClipKind;
 use celesta_gpu_renderer::GpuDriver;
 
 use crate::preview::{
-    collect_component_requests, splice_component_resolutions, strip_missing_components,
+    ReactPreviewContext, ReactPreviewMode, collect_component_requests, records_hit_regions,
+    splice_component_resolutions, strip_missing_components,
 };
 use celesta_composition::{
     Animatable, AssetLocation, AudioClip, EvaluatedTransform, GroupMask, Layer, LayerContent,
@@ -767,4 +768,65 @@ fn layer_select_shows_a_file_outside_the_entry_directory_in_full() {
     let file = Path::new("/project/shared/title.tsx");
 
     assert_eq!(display_path(file, entry_dir), file.display().to_string());
+}
+
+fn react_context(source_locations: bool) -> ReactPreviewContext {
+    ReactPreviewContext {
+        node: PathBuf::from("node"),
+        cli_script: PathBuf::from("cli.js"),
+        entry: PathBuf::from("entry.tsx"),
+        properties: celesta_react_bridge::PropertyInputs::default(),
+        source_locations,
+    }
+}
+
+#[test]
+fn layer_select_respawns_the_bridge_when_the_mode_changes() {
+    // `ensure_react_bridge` respawns Node whenever the context differs.
+    assert_ne!(react_context(true), react_context(false));
+}
+
+#[test]
+fn layer_select_records_hit_regions_only_in_interactive_mode() {
+    let interactive = react_context(true);
+    let preview = react_context(false);
+
+    assert!(records_hit_regions(
+        ReactPreviewMode::WholeScene,
+        Some(&interactive)
+    ));
+    assert!(!records_hit_regions(
+        ReactPreviewMode::WholeScene,
+        Some(&preview)
+    ));
+    assert!(!records_hit_regions(
+        ReactPreviewMode::ResolveComponents,
+        Some(&interactive)
+    ));
+    assert!(!records_hit_regions(ReactPreviewMode::WholeScene, None));
+}
+
+#[test]
+fn layer_select_looks_up_sources_only_in_interactive_mode() {
+    let found = SourceLookup::Found(Vec::new());
+
+    // Paused with a selection: looked up while picking, never otherwise.
+    assert_eq!(
+        source_lookup_target(Some("root.2"), true, false, Some(&found)),
+        Some("root.2".to_string())
+    );
+    assert_eq!(
+        source_lookup_target(Some("root.2"), false, false, Some(&found)),
+        None
+    );
+    // Playing: only a selection still waiting for its first answer.
+    assert_eq!(
+        source_lookup_target(Some("root.2"), true, true, Some(&SourceLookup::Pending)),
+        Some("root.2".to_string())
+    );
+    assert_eq!(
+        source_lookup_target(Some("root.2"), true, true, Some(&found)),
+        None
+    );
+    assert_eq!(source_lookup_target(None, true, false, None), None);
 }

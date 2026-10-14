@@ -18,7 +18,7 @@ use gpui_kit::{
 
 use crate::actions::{
     ClearExportRange, GoToEnd, GoToStart, NextFrame, PreviousFrame, SetExportIn, SetExportOut,
-    ToggleLoop, TogglePlayback, ToggleSafeAreas,
+    ToggleInteractive, ToggleLoop, TogglePlayback, ToggleSafeAreas,
 };
 use crate::icons::CelestaIcon;
 use crate::layer_select::{SourceLookup, letterbox, scene_point};
@@ -103,7 +103,7 @@ impl EditorView {
                 .left_0()
                 .size_full(),
             )
-            .when(self.is_react_preview(), |area| {
+            .when(self.picks_layers(), |area| {
                 area.on_mouse_down(MouseButton::Left, cx.listener(Self::select_layer_at))
             })
             // One column over the frame: the error panel takes the space the
@@ -456,7 +456,18 @@ impl EditorView {
                     .selected(self.show_safe_areas)
                     .tooltip_with_action("Safe areas", &ToggleSafeAreas, KEY_CONTEXT)
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_safe_areas(cx))),
-            );
+            )
+            .when(self.is_react_preview(), |bar| {
+                bar.child(
+                    Button::new("toggle-interactive")
+                        .small()
+                        .ghost()
+                        .icon(CelestaIcon::MousePointerClick)
+                        .selected(self.interactive)
+                        .tooltip_with_action("Select layers", &ToggleInteractive, KEY_CONTEXT)
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_interactive(cx))),
+                )
+            });
         div()
             .relative()
             .flex()
@@ -619,6 +630,23 @@ impl EditorView {
 
     pub(crate) fn toggle_safe_areas(&mut self, cx: &mut Context<Self>) {
         self.show_safe_areas = !self.show_safe_areas;
+        cx.notify();
+    }
+
+    /// Switches the React preview between its plain mode and the
+    /// interactive mode that picks layers. The bridge respawns with or
+    /// without source positions; leaving interactive mode drops the
+    /// selection.
+    pub(crate) fn toggle_interactive(&mut self, cx: &mut Context<Self>) {
+        if !self.is_react_preview() {
+            return;
+        }
+        self.interactive = !self.interactive;
+        if !self.interactive {
+            self.clear_layer_selection();
+            self.hit_regions.clear();
+        }
+        self.refresh_preview();
         cx.notify();
     }
 

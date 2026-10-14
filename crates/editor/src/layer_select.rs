@@ -62,6 +62,21 @@ pub(crate) fn source_lookup(result: LookupResult) -> SourceLookup {
     }
 }
 
+/// The selected layer to look up the source of in the next frame, if any.
+/// Only while picking layers (interactive mode); the source follows the
+/// paused frame, and during playback the panel keeps the last answer unless
+/// the selection changed and its lookup has not been answered yet.
+pub(crate) fn source_lookup_target(
+    selected: Option<&str>,
+    picking: bool,
+    playing: bool,
+    lookup: Option<&SourceLookup>,
+) -> Option<String> {
+    selected
+        .filter(|_| picking && (!playing || lookup == Some(&SourceLookup::Pending)))
+        .map(str::to_owned)
+}
+
 /// Whether the outcome of opening a source belongs in the panel: `started`
 /// is the session and selected layer when the open began, `now` the ones the
 /// panel shows. A late error must not appear under another layer.
