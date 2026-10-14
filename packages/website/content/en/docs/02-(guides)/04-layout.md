@@ -29,7 +29,7 @@ Visual layers and groups accept blur, shadow, and glow, which can change every f
 
 ## Color correction
 
-Visual layers and groups also take color filters, which can change every frame: `brightness`, `contrast`, and `saturation` (1 keeps the color), `hue` (degrees to rotate the hue), `grayscale` and `invert` (0 to 1), `tint` (a color laid over the pixels, `{ color, amount }`), and `vignette` (0 to 1, or `{ amount, radius, softness }`; it darkens toward the edges of the layer’s box). Each works on the straight sRGB color, keeps alpha, and clamps its result, as CSS `filter` functions do. They apply after `shader`, in the order listed here, and before blur, shadow, and glow. They run in preview, export, and the browser editor.
+Visual layers and groups also take color filters, which can change every frame: `brightness`, `contrast`, and `saturation` (1 keeps the color), `hue` (degrees to rotate the hue), `grayscale` and `invert` (0 to 1), `tint` (a color laid over the pixels, `{ color, amount }`), and `vignette` (0 to 1, or `{ amount, radius, softness }`; it darkens toward the edges of the layer’s box). Each works on the straight sRGB color, keeps alpha, and clamps its result, as CSS `filter` functions do. They apply after `shader`, in the order listed here, and before blur, shadow, and glow; the stylize effects below go around them. They run in preview, export, and the browser editor.
 
 ```tsx title="An old photograph"
 <Image src="street.jpg" grayscale={1} tint={{ color: "#704214", amount: 0.35 }}
@@ -37,6 +37,40 @@ Visual layers and groups also take color filters, which can change every frame: 
 ```
 
 To apply them in another order, or between custom shaders, pass their functions from `@celesta/shader` to `shader` as an array: `shader={[ripple({ time }), grayscale(), vignette(0.6)]}`.
+
+## Stylize effects
+
+Visual layers and groups also take built-in stylize effects, whose values can change every frame. Sizes and distances are output pixels, angles degrees, and grids and centres follow the layer’s box.
+
+- `pixelate` averages square cells. A number is the cells’ size.
+- `halftone` draws a dot of each cell’s color whose area follows the cell’s brightness, transparent between the dots. A number is the grid’s size; `{ size, angle }` turns the grid (45 by default).
+- `chromaticAberration` moves red and blue apart. A number is the offset; `{ offset, angle }` gives its direction.
+- `wave` sways the pixels along a sine: `{ amplitude, wavelength, phase, angle }`. Animate `phase` to make it travel.
+- `noise` adds grain, 0 to 1, or `{ amount, seed, monochrome }`. Without a `seed` the grain changes every frame, following the layer’s `useCurrentFrame()`, yet a frame always renders the same; give a `seed` to hold it still.
+- `scanlines` darkens horizontal bands, 0 to 1, or `{ amount, spacing, thickness, offset }`.
+- `zoomBlur` blurs toward a centre as a fast zoom would, 0 to 1, or `{ amount, centerX, centerY }`.
+
+The props apply in this order: `chromaKey`, `pixelate`, `wave`, `zoomBlur`, `chromaticAberration`, the color filters, `halftone`, `noise`, then `scanlines`; all after `shader` and before blur, shadow, and glow. `@celesta/shader` exports functions of the same names for the `shader` array, for another order. They run in preview, export, and the browser editor.
+
+```tsx title="A worn videotape"
+<Group chromaticAberration={3} noise={0.12} scanlines={{ amount: 0.4, offset: frame / 4 }}>
+  …
+</Group>
+```
+
+## Chroma key
+
+`chromaKey` makes the colors near a key color transparent, to composite green-screen footage from a `<Video>` or an `<Image>` (or any other layer). A string is the key color; `{ color, tolerance, softness, spill }` tunes it:
+
+- `tolerance` (0.2 by default): how near a color’s chroma (its BT.709 CbCr) must be to the key’s to become transparent. Brightness does not count, so the screen’s shadows key with the rest of it.
+- `softness` (0.1): how far beyond `tolerance` colors fade back in, which softens the edges.
+- `spill` (0.5), 0 to 1: how much of the key’s color cast to take out of what remains, keeping its brightness.
+
+Neutral colors lie as far from the key as the key’s own chroma: 0.36 for `#00b140`, 0.60 for `#00ff00`. Keep `tolerance + softness` below that, or grays turn translucent too. The values can change every frame. `examples/greenscreen` keys footage Celesta draws itself.
+
+```tsx title="Key a green screen"
+<Video src="presenter.mp4" chromaKey={{ color: "#00b140", spill: 0.8 }} />
+```
 
 ## Custom shaders
 

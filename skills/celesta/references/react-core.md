@@ -107,6 +107,14 @@ Every visual layer (`Rect`, `Circle`, `Ellipse`, `Text`, `Group`, `Image`, `Vide
 | `invert` | `0` | `0`–`1`; `1` inverts the color. |
 | `tint` | none | `{ color, amount? }`; lays a hex color over the pixels at `amount` (0–1, default 1) times the color's alpha, keeping their alpha. |
 | `vignette` | none | `0`–`1`, or `{ amount, radius?, softness? }`; darkens toward the edges of the layer's box. Darkening starts at `radius` (0 centre, 1 corners; default 0.5) and reaches `amount` `softness` further (default 0.5). |
+| `chromaKey` | none | `'#RRGGBB'`, or `{ color, tolerance?, softness?, spill? }`; makes colors near the key transparent (green-screen `<Video>`/`<Image>`). `tolerance` (default 0.2) is the BT.709 CbCr distance keyed fully, `softness` (0.1) the fade beyond it, `spill` (0–1, 0.5) how much key-colored cast to remove. Keep `tolerance + softness` below the key's chroma (0.36 for `#00b140`), or grays turn translucent. |
+| `pixelate` | none | Cell size in px, or `{ size }`; `1` or less does nothing. |
+| `wave` | none | `{ amplitude, wavelength, phase?, angle? }`; px, px, degrees, degrees. Animate `phase` to make it travel. |
+| `zoomBlur` | none | `0`–`1`, or `{ amount, centerX?, centerY? }` (centre in the box, default 0.5). |
+| `chromaticAberration` | none | Offset in px, or `{ offset, angle? }`; red moves toward `angle`, blue away. |
+| `halftone` | none | Grid size in px, or `{ size, angle? }` (default 45°); dots of each cell's color, area by brightness, transparent between. |
+| `noise` | none | `0`–`1`, or `{ amount, seed?, monochrome? }`. Without `seed` the grain follows `useCurrentFrame()`; a `<Static>` needs a `seed`. |
+| `scanlines` | none | `0`–`1`, or `{ amount, spacing?, thickness?, offset? }` (4 px, 0.5, 0 px). |
 | `id` | generated | Optional stable layer id. |
 
 To center something at a point, set `anchorX={0.5} anchorY={0.5}` and put
@@ -114,14 +122,17 @@ the point in `x`/`y`.
 
 Effects apply to the composited pixels of the layer; on a `Group` they apply
 to all children together. They combine with `opacity` and `blendMode`.
-They run in this order: `shader` (see [shader.md](shader.md)), then the
+They run in this order: `shader` (see [shader.md](shader.md)), then
+`chromaKey`, `pixelate`, `wave`, `zoomBlur`, `chromaticAberration`, the
 color filters in the order of the table (`brightness` first, `vignette`
-last), then `shadow` and `glow` from the result, with `blur` on top. Each
-color filter works on the straight sRGB color, keeps alpha, and clamps its
-result to 0–1; values that change nothing (`brightness={1}`,
-`grayscale={0}`) add no work. For another order, pass the filters to
-`shader` as an array: `shader={[grayscale(), tint({ color: '#704214', amount: 0.4 })]}`.
-Color filters also run in the browser editor.
+last), `halftone`, `noise`, `scanlines`, then `shadow` and `glow` from the
+result, with `blur` on top. Each color filter works on the straight sRGB
+color, keeps alpha, and clamps its result to 0–1; values that change
+nothing (`brightness={1}`, `grayscale={0}`, `pixelate={1}`, `noise={0}`)
+add no work. Spatial values are output pixels, and grids and centres
+follow the layer's box. For another order, pass the filters to `shader` as
+an array: `shader={[grayscale(), tint({ color: '#704214', amount: 0.4 })]}`.
+All of these built-in filters also run in the browser editor.
 Compute any prop from `useCurrentFrame()` to animate it. Visual props do not
 take keyframe objects in React. Effects and blend modes cost GPU passes; see
 [performance.md](performance.md) before putting them on many layers.

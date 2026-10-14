@@ -11,6 +11,7 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | `Image` / `Video` / `Audio` | `@celesta/react` | Local files or HTTP(S) media through `src`. See [Images, video & sound](/en/docs/media/). |
 | `defineShader` | `@celesta/shader` | Define a custom WGSL filter; call it with its parameters and pass the result to `shader`. |
 | `brightness`, `contrast`, `saturation`, `hue`, `grayscale`, `invert`, `tint`, `vignette` | `@celesta/shader` | Color filters to place in a `shader` array among custom shaders. Every layer also takes them as props of the same names; see [Shapes & layout](/en/docs/layout/). |
+| `pixelate`, `halftone`, `chromaticAberration`, `wave`, `noise`, `scanlines`, `zoomBlur`, `chromaKey` | `@celesta/shader` | Stylize effects and a chroma key to place in a `shader` array. Every layer also takes them as props of the same names; see [Shapes & layout](/en/docs/layout/). |
 | `Font` | `@celesta/react` | Loads a font file or web-font stylesheet through `src` so `Text` can use the family. See [Text & fonts](/en/docs/text-fonts/). |
 
 **Time and motion**

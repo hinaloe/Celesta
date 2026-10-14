@@ -7,13 +7,15 @@ import rippleSource from './ripple.wgsl';
 
 A custom shader filters a layer's pixels with WGSL code you write. Use it
 for what `blur`, `shadow`, `glow`, `blendMode`, masks, and the built-in
-color filters cannot do: ripples, RGB splits, pixelation, glitches.
+filters cannot do: ripples, glitches, displacement maps. Check the
+[built-in filters](#built-in-filters) first: pixelation, halftone, RGB
+splits, waves, grain, scanlines, zoom blur, and chroma keys need no WGSL.
 Celesta's runtime supplies the package; never install it from npm.
 
 Shaders run in the desktop preview and in export (on the GPU), including
 in components placed on project timelines (`registerComponent` resolved
 into a `.celesta.json`). The browser editor (`@celesta/web`) cannot run
-them; it runs the built-in color filters.
+them; it runs the built-in filters.
 
 ## Contents
 
@@ -21,7 +23,7 @@ them; it runs the built-in color filters.
 - [What the shader sees](#what-the-shader-sees)
 - [Parameters](#parameters)
 - [Padding](#padding)
-- [Built-in color filters](#built-in-color-filters)
+- [Built-in filters](#built-in-filters)
 - [Errors](#errors)
 
 ## Define and use
@@ -125,14 +127,16 @@ In an array, each shader writes what the one before it wrote, grown by
 its own padding, so the paddings add up: two shaders that each push
 pixels 8px outward reach 16px past the box.
 
-## Built-in color filters
+## Built-in filters
 
-For brightness, contrast, saturation, hue, grayscale, invert, tint, or a
-vignette, write no WGSL: each layer and `Group` takes them as props
-(`<Image src="a.png" saturation={0.4} vignette={0.5} />`; see the layer
-props in [react-core.md](react-core.md)). The props run after `shader`,
-in a fixed order. To place a color filter elsewhere among custom shaders,
-use its function from `@celesta/shader` in the `shader` array:
+For brightness, contrast, saturation, hue, grayscale, invert, tint, a
+vignette, pixelation, halftone, chromatic aberration, a wave, grain,
+scanlines, a zoom blur, or a chroma key, write no WGSL: each layer and
+`Group` takes them as props (`<Image src="a.png" saturation={0.4}
+vignette={0.5} />`; see the layer props in [react-core.md](react-core.md)).
+The props run after `shader`, in a fixed order. To place a built-in filter
+elsewhere among custom shaders, use its function from `@celesta/shader` in
+the `shader` array:
 
 ```tsx
 import { brightness, contrast, grayscale, hue, invert, saturation, tint, vignette } from '@celesta/shader';
@@ -153,6 +157,27 @@ the straight sRGB color, keep alpha, and clamp to 0–1, as CSS `filter`
 functions do (`saturation` and `hue` use CSS's matrices). `vignette`
 follows the same box as `uv`.
 
+The stylize effects and the chroma key take the values of their props:
+
+| Function | Takes |
+| --- | --- |
+| `pixelate(size)` or `pixelate({ size })` | cell size in px |
+| `halftone(size)` or `halftone({ size, angle? })` | grid size in px, angle in degrees (45) |
+| `chromaticAberration(offset)` or `chromaticAberration({ offset, angle? })` | px, degrees (0) |
+| `wave({ amplitude, wavelength, phase?, angle? })` | px, px, degrees, degrees |
+| `noise(amount)` or `noise({ amount, seed?, monochrome? })` | `0`–`1`; an integer seed, else the current frame |
+| `scanlines(amount)` or `scanlines({ amount, spacing?, thickness?, offset? })` | `0`–`1`, px, `0`–`1`, px |
+| `zoomBlur(amount)` or `zoomBlur({ amount, centerX?, centerY? })` | `0`–`1`, centre in the box |
+| `chromaKey(color)` or `chromaKey({ color, tolerance?, softness?, spill? })` | `'#RRGGBB'`, CbCr distances, `0`–`1` |
+
+Each runs as one pass. Their grids (pixelate, halftone, scanlines), wave,
+and zoom centre follow the same box as `uv`; noise hashes the scene pixel,
+so it does not move with the layer. Pixelate, halftone, chromatic
+aberration, and wave write as far past the box as they reach; a zoom blur
+up to 512 px. A noise without a seed takes the frame where the layer is
+walked (local inside a `<Sequence>`, held inside a `<FreezeFrame>`), so a
+frame always renders the same grain.
+
 ## Errors
 
 A shader that does not compile fails the frame with its line and column in
@@ -163,8 +188,8 @@ invalid custom shader ripple: 3:17: no definition in scope for identifier: `ampl
 ```
 
 A missing or misdeclared `effect` names the signature it expects:
-`fn effect(input: EffectInput) -> vec4f`. A color filter with a value out
-of range throws, naming the prop: `grayscale must be a finite number
-between 0 and 1`. The CPU reference renderer does not run shaders or color
-filters; check the output with PNG frames from the exporter
-([verify.md](verify.md)).
+`fn effect(input: EffectInput) -> vec4f`. A built-in filter with a value
+out of range throws, naming the prop: `grayscale must be a finite number
+between 0 and 1`, `wave.wavelength must be a finite number above 0`. The
+CPU reference renderer does not run shaders or built-in filters; check the
+output with PNG frames from the exporter ([verify.md](verify.md)).
