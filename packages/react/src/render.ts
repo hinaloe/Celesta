@@ -757,8 +757,9 @@ function sameShaderSource(a: ShaderSource, b: ShaderSource): boolean {
 function extractFilters(props: Record<string, unknown>, context: WalkContext): LayerFilter[] {
   const value = props.shader;
   // A noise filter without a seed takes the frame `useCurrentFrame()` reads
-  // here; a <Static> subtree cannot depend on it.
-  const frame = context.insideStatic ? null : Math.round(secondsFromTime(context.time) * context.fps);
+  // here, at the frame's moment as media is: every <MotionBlur> sample and
+  // <Trail> copy gets the frame's grain. A <Static> subtree cannot depend on it.
+  const frame = context.insideStatic ? null : Math.round(secondsFromTime(context.mediaTime) * context.fps);
   // A dense copy: a hole is refused like any other value that is not a shader.
   const effects = value === undefined ? [] : Array.isArray(value) ? Array.from(value as unknown[]) : [value];
   const filters = effects.map((effect) => {
