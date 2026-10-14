@@ -2,7 +2,8 @@
 
 Celesta is a code-first video tool. Build animated scenes with React and
 TypeScript, combining video, images, text, shapes, and audio. Preview your work
-in the Celesta desktop app and export it as an MP4 or PNG frames.
+in the Celesta desktop app and export it as a video (MP4, or transparent MOV
+or WebM) or PNG frames.
 
 Celesta is under active development. Packaged desktop apps include the React
 runtime and Node.js; the instructions below also cover running from source.
@@ -38,8 +39,9 @@ for more examples, see the [examples directory](examples) and the [gallery](docs
 - **Create character dialogue:** combine image or PSD portraits, expressions,
   subtitles, voice recordings, lip-sync cues, and blinking. Use
   `<DialogueSeries>` to sequence conversations.
-- **Export MP4:** render H.264 video with AAC audio, either from the app or
-  the command line. Export the whole composition or a selected time range.
+- **Export video:** render H.264 MP4 with AAC audio, or transparent MOV
+  (ProRes 4444) and WebM (VP9), either from the app or the command line.
+  Export the whole composition or a selected time range.
 - **Inspect frames:** export selected frames as PNG files or a labelled
   contact sheet, and request machine-readable export results for scripts.
 
@@ -49,7 +51,7 @@ Download a macOS or Windows package from the
 [GitHub releases](https://github.com/mika-f/celesta/releases/latest).
 Choose **File › Create New Project…**, select a folder, and edit the generated
 `film.tsx` in your text editor. Celesta opens it for preview and reloads it
-when you save. Choose **Export…** to write an MP4.
+when you save. Choose **Export…** to write a video.
 
 Preview and export use the bundled runtime. Install Node.js and a package
 manager separately when you need TypeScript checking or external npm packages;
@@ -68,7 +70,7 @@ Celesta links to FFmpeg libraries; installing only the `ffmpeg` command-line
 executable is not sufficient.
 
 - **Windows:** install the MSVC C++ build tools and vcpkg, run
-  `vcpkg install ffmpeg[x264]:x64-windows-static-md`, and set `VCPKG_ROOT` to
+  `vcpkg install ffmpeg[x264,vpx,opus]:x64-windows-static-md`, and set `VCPKG_ROOT` to
   your vcpkg directory. Use a vcpkg release whose `ffmpeg` port is 8.1.x, such
   as `2026.07.29`; newer releases provide FFmpeg 9.
 - **macOS:** install the Xcode Command Line Tools, then run
@@ -81,16 +83,17 @@ executable is not sufficient.
   cloning the repository (step 2). On Debian and Ubuntu:
 
   ```sh
-  sudo apt-get install -y build-essential nasm pkg-config curl xz-utils zlib1g-dev libx264-dev libclang-dev
+  sudo apt-get install -y build-essential nasm pkg-config curl xz-utils zlib1g-dev libx264-dev libvpx-dev libopus-dev libclang-dev
   sudo scripts/build-ffmpeg-linux.sh /opt/ffmpeg8
   export PKG_CONFIG_PATH=/opt/ffmpeg8/lib/pkgconfig
   ```
 
   The script downloads the FFmpeg source from ffmpeg.org and builds static
-  libraries with `libx264` into `/opt/ffmpeg8` (about 5 minutes on 4 cores).
+  libraries with `libx264`, `libvpx`, and `libopus` into `/opt/ffmpeg8` (about 5 minutes on 4 cores).
   Celesta links them into its executables, so `LD_LIBRARY_PATH` is not needed;
-  only `libx264` stays a shared library. With `libx264` the FFmpeg build is
-  GPL-licensed (see [License](#license)). `libclang-dev` is for Cargo, which
+  only `libx264`, `libvpx`, and `libopus` stay shared libraries. With `libx264`
+  the FFmpeg build is GPL-licensed; `libvpx` and `libopus` are BSD-licensed
+  (see [License](#license)). `libclang-dev` is for Cargo, which
   generates the FFmpeg bindings with it. Set `PKG_CONFIG_PATH` in every shell
   where you run Cargo. If your distribution does provide FFmpeg 8.1.x, install
   `pkg-config` and its `libavcodec`, `libavformat`, `libavfilter`,
@@ -149,7 +152,7 @@ cargo run -p celesta-editor --release -- examples/reel/film.tsx
    ' shows safe areas over the viewer. The Master meter beside the timeline
    shows the preview's audio levels. Select an asset, track, or clip to see its
    details in the Inspector.
-4. **Export.** Choose **Export…** and an MP4 destination. To export a section,
+4. **Export.** Choose **Export…** and a video destination (.mp4, .mov or .webm). To export a section,
    press I and O to mark its start and end. Progress appears in the status
    bar; **Cancel export** stops the job.
 
@@ -393,7 +396,7 @@ dashboard with a timed pipeline, rendered-frame progress, a throughput history
 graph, FPS, elapsed time, estimated rendering time remaining, export settings,
 and warnings. Smaller terminals use a compact layout. The dashboard stays
 in your terminal's scrollback after the export finishes. The rendering bar
-can reach 100% while audio mixing and MP4 muxing are still running.
+can reach 100% while audio mixing and muxing are still running.
 
 Use `--no-ui` for text progress. Redirected output, CI without a terminal,
 and `TERM=dumb` automatically use text progress without terminal control codes.
@@ -436,6 +439,17 @@ play it: many phones, browsers, and editing tools decode only 8-bit H.264, so
 
 ```sh
 cargo run -p celesta-exporter --release -- --react --bit-depth 10 packages/cli/examples/title.tsx smooth.mp4
+```
+
+The output extension picks the video format. `.mov` writes ProRes 4444 with
+24-bit PCM audio and `.webm` writes VP9 with Opus audio; both keep
+transparency where nothing is drawn (straight alpha, BT.709), so a full-frame
+background layer makes them opaque. `--preset`, `--crf`, `--bit-depth`, and
+`--color-conversion` apply to MP4 only, and are usage errors with `.mov` or
+`.webm`:
+
+```sh
+cargo run -p celesta-exporter --release -- --react packages/cli/examples/title.tsx overlay.mov
 ```
 
 To check frames as PNG instead of encoding a video, select zero-based frames
@@ -545,7 +559,7 @@ build it with `cargo build -p celesta-mcp --release`.
 
 - Remote media is cached by URL without revalidation. Use a new URL or clear
   the cache when the remote file changes.
-- MP4 export requires non-zero, even-numbered width and height.
+- Video export requires non-zero, even-numbered width and height.
 - The Celesta app previews and exports compositions; edit their source files
   in a text editor.
 
@@ -595,6 +609,7 @@ Distributing that FFmpeg build makes the binary package as a whole subject to
 GPL-2.0-or-later, in addition to Celesta's own MIT/Apache-2.0 source license.
 See [`LICENSE-GPL-2.0`](LICENSE-GPL-2.0) for the license text and
 [`packaging/GPL-SOURCE-OFFER.md`](packaging/GPL-SOURCE-OFFER.md) for the
-corresponding-source offer that accompanies each release. Building Celesta
-yourself from source, or building it with an LGPL-only FFmpeg configuration,
-is not affected.
+corresponding-source offer that accompanies each release. The same FFmpeg
+build also links `libvpx` and `libopus` (BSD-3-Clause), the WebM encoders.
+Building Celesta yourself from source, or building it with an LGPL-only FFmpeg
+configuration, is not affected.

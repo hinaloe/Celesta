@@ -1,4 +1,4 @@
-use crate::options::VideoEncoding;
+use crate::options::{VideoEncoding, VideoFormat};
 use celesta_composition::TimeError;
 use celesta_evaluator::EvaluationError;
 use celesta_gpu_renderer::GpuRenderError;
@@ -31,7 +31,16 @@ pub enum ExportError {
     /// The PNG frame selection, its output name, or its contact sheet
     /// layout cannot be exported.
     InvalidSelection(String),
-    UnsupportedOutput(PathBuf),
+    /// The output path's extension is not the one `format` writes.
+    UnsupportedOutput {
+        path: PathBuf,
+        format: VideoFormat,
+    },
+    /// The linked FFmpeg build lacks an encoder `format` needs.
+    EncoderUnavailable {
+        format: VideoFormat,
+        encoder: &'static str,
+    },
     UnsupportedDimensions {
         width: u32,
         height: u32,
@@ -68,14 +77,18 @@ impl fmt::Display for ExportError {
             Self::InvalidSelection(message) => {
                 write!(formatter, "could not export PNG frames: {message}")
             }
-            Self::UnsupportedOutput(path) => write!(
+            Self::UnsupportedOutput { path, format } => write!(
                 formatter,
-                "export output must use the .mp4 extension: {}",
+                "export output must use the .{format} extension: {}",
                 path.display()
+            ),
+            Self::EncoderUnavailable { format, encoder } => write!(
+                formatter,
+                "this FFmpeg build has no {encoder} encoder, which {format} export needs"
             ),
             Self::UnsupportedDimensions { width, height } => write!(
                 formatter,
-                "H.264 MP4 export requires non-zero even dimensions, got {width}x{height}"
+                "video export requires non-zero even dimensions, got {width}x{height}"
             ),
             Self::InvalidCrf(crf) => write!(
                 formatter,
@@ -106,7 +119,8 @@ impl Error for ExportError {
             Self::Ffmpeg { source, .. } => Some(source),
             Self::OutputExists(_)
             | Self::InvalidSelection(_)
-            | Self::UnsupportedOutput(_)
+            | Self::UnsupportedOutput { .. }
+            | Self::EncoderUnavailable { .. }
             | Self::UnsupportedDimensions { .. }
             | Self::InvalidCrf(_)
             | Self::EmptyTimeline

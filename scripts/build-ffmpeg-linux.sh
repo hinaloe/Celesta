@@ -5,10 +5,10 @@
 #
 #   scripts/build-ffmpeg-linux.sh [PREFIX]    # PREFIX defaults to /opt/ffmpeg8
 #
-# Needs a C toolchain, nasm, pkg-config, curl, xz, and the zlib and x264
-# development files; on Debian and Ubuntu:
+# Needs a C toolchain, nasm, pkg-config, curl, xz, and the zlib, x264, libvpx,
+# and libopus development files; on Debian and Ubuntu:
 #
-#   sudo apt-get install -y build-essential nasm pkg-config curl xz-utils zlib1g-dev libx264-dev
+#   sudo apt-get install -y build-essential nasm pkg-config curl xz-utils zlib1g-dev libx264-dev libvpx-dev libopus-dev
 #
 # Run it as a user that can write to PREFIX (for /opt/ffmpeg8, use sudo), then
 # build Celesta with PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig".
@@ -35,11 +35,14 @@ cd "$work/src"
 # the extra libraries to link. --disable-autodetect keeps the build from
 # picking up whatever optional libraries (X11, ALSA, VA-API, ...) happen to be
 # installed; zlib is enabled explicitly because the PNG decoder needs it.
-# libx264 is GPL, which makes the build GPL as a whole.
+# libx264 is GPL, which makes the build GPL as a whole. libvpx and libopus
+# (the WebM encoders) are BSD-licensed and add no further terms.
 ./configure \
   --prefix="$prefix" \
   --enable-gpl \
   --enable-libx264 \
+  --enable-libvpx \
+  --enable-libopus \
   --enable-zlib \
   --enable-pic \
   --disable-autodetect \

@@ -2,13 +2,24 @@ use crate::compositor::begin_pass;
 use crate::texture::CanvasTexture;
 use std::collections::HashMap;
 
+/// What a quantized frame holds in its color channels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum QuantizeOutput {
+    /// The composited color as it is, premultiplied by alpha.
+    Premultiplied,
+    /// The color divided by alpha (zero where alpha is); only for
+    /// `Rgba16Uint` targets.
+    Straight,
+}
+
 /// The pass that quantizes a frame composited in `canvas_format` to 8-bit
 /// code values, with a dither (`quantize.wgsl`), onto a target of any 8-bit
-/// format, or to 16-bit codes onto an `Rgba16Uint` one.
+/// format, or to 16-bit codes, premultiplied or straight, onto an
+/// `Rgba16Uint` one.
 pub(crate) struct Quantizer {
     layout: wgpu::PipelineLayout,
     shader: wgpu::ShaderModule,
-    pipelines: HashMap<wgpu::TextureFormat, wgpu::RenderPipeline>,
+    pipelines: HashMap<(wgpu::TextureFormat, QuantizeOutput), wgpu::RenderPipeline>,
 }
 
 impl Quantizer {
@@ -31,17 +42,26 @@ impl Quantizer {
             shader,
             pipelines: HashMap::new(),
         };
-        quantizer.ensure_pipeline(device, wgpu::TextureFormat::Rgba8Unorm);
+        quantizer.ensure_pipeline(
+            device,
+            wgpu::TextureFormat::Rgba8Unorm,
+            QuantizeOutput::Premultiplied,
+        );
         quantizer
     }
 
-    pub(crate) fn ensure_pipeline(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
-        let entry_point = if format == wgpu::TextureFormat::Rgba16Uint {
-            "rgba16"
-        } else {
-            "fragment"
+    pub(crate) fn ensure_pipeline(
+        &mut self,
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        output: QuantizeOutput,
+    ) {
+        let entry_point = match (format, output) {
+            (wgpu::TextureFormat::Rgba16Uint, QuantizeOutput::Straight) => "rgba16_straight",
+            (wgpu::TextureFormat::Rgba16Uint, QuantizeOutput::Premultiplied) => "rgba16",
+            _ => "fragment",
         };
-        self.pipelines.entry(format).or_insert_with(|| {
+        self.pipelines.entry((format, output)).or_insert_with(|| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Celesta quantize pipeline"),
                 layout: Some(&self.layout),
@@ -71,16 +91,17 @@ impl Quantizer {
     }
 
     /// Quantizes `frame` onto `target`, a texture of the same size whose
-    /// `format` has a pipeline (`ensure_pipeline`).
+    /// `format` and `output` have a pipeline (`ensure_pipeline`).
     pub(crate) fn encode(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         frame: &CanvasTexture,
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
+        output: QuantizeOutput,
     ) {
         let mut pass = begin_pass(encoder, target, wgpu::LoadOp::Clear(wgpu::Color::BLACK));
-        pass.set_pipeline(&self.pipelines[&format]);
+        pass.set_pipeline(&self.pipelines[&(format, output)]);
         pass.set_bind_group(0, &frame.bind_group, &[]);
         pass.draw(0..3, 0..1);
     }

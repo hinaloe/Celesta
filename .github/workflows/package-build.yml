@@ -28,7 +28,7 @@ jobs:
   windows:
     name: Windows x64
     runs-on: windows-latest
-    # The first run builds FFmpeg and x264 with vcpkg before the cache exists.
+    # The first run builds FFmpeg and its encoders with vcpkg before the cache exists.
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -48,7 +48,7 @@ jobs:
       # Only main's cache is visible to the next release tag.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          env-vars: FFMPEG_VERSION
+          env-vars: FFMPEG_VERSION FFMPEG_FEATURES
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # The pnpm version comes from package.json's `packageManager`.
@@ -118,7 +118,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          env-vars: FFMPEG_VERSION
+          env-vars: FFMPEG_VERSION FFMPEG_FEATURES
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # The pnpm version comes from package.json's `packageManager`.

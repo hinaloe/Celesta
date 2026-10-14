@@ -1,6 +1,6 @@
 use celesta_exporter::{
     ExportCancellation, ExportError, ExportOptions, ExportProgress, ExportRange, Exporter,
-    GpuDriver, ReactRuntimeOptions,
+    GpuDriver, ReactRuntimeOptions, VideoFormat,
 };
 use celesta_project::Project;
 use celesta_react_bridge::PropertyInputs;
@@ -13,6 +13,7 @@ pub(crate) struct ExportRequest {
     pub(crate) source: ExportSource,
     pub(crate) asset_root: PathBuf,
     pub(crate) output: PathBuf,
+    pub(crate) format: VideoFormat,
     pub(crate) range: Option<ExportRange>,
     pub(crate) cancellation: ExportCancellation,
     pub(crate) driver: GpuDriver,
@@ -57,6 +58,7 @@ impl ExportWorker {
                     let exporter = Exporter::new(ExportOptions {
                         overwrite: true,
                         range: request.range,
+                        video_format: request.format,
                         driver: request.driver,
                         ..ExportOptions::default()
                     });

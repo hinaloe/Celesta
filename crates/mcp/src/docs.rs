@@ -65,7 +65,7 @@ pub static TOPICS: &[Topic] = &[
     ),
     reference!(
         "export",
-        "MP4 export options, JSON results and error codes, exporting without a GPU"
+        "Video export options (MP4, MOV, WebM), JSON results and error codes, exporting without a GPU"
     ),
     reference!("performance", "What is slow to render and how to find it"),
     reference!(

@@ -148,6 +148,11 @@ pub enum ReadbackFormat {
     /// 8 bits itself. Not dithered; 16 bits are finer than the half floats
     /// it is composited in.
     Rgba16,
+    /// [`Rgba16`](Self::Rgba16) with straight alpha, for an encoder that
+    /// expects it (ProRes 4444, VP9 with alpha): the color divided by
+    /// alpha, and `(0, 0, 0, 0)` where nothing is drawn. The division is
+    /// done on the GPU at 16 bits, so a translucent edge keeps its color.
+    Rgba16Straight,
     /// Planar I420 converted on the GPU: the full-size Y plane followed by
     /// the quarter-size U and V planes, 1.5 bytes per pixel. BT.601 limited
     /// range with 2x2-averaged chroma, the same matrix libswscale applies to

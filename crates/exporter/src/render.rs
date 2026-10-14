@@ -2,19 +2,18 @@ use crate::RenderQuality;
 use crate::control::{ExportCancellation, ExportProgress};
 use crate::error::ExportError;
 use crate::exporter::Exporter;
-use crate::options::{BitDepth, ColorConversion, VideoEncoding};
+use crate::options::{BitDepth, ColorConversion, VideoEncoding, VideoFormat};
 use crate::project::{absolutize_fonts, absolutize_layers, visual_only_project};
 use crate::range::ExportWindow;
 use crate::react::ReactVideoRequest;
 use celesta_composition::{Rational, Time, TimeError};
 use celesta_evaluator::{EvaluationError, Evaluator};
-use celesta_gpu_renderer::{GpuDriver, GpuRenderOptions, GpuRenderer, ReadbackFormat};
+use celesta_gpu_renderer::{Color, GpuDriver, GpuRenderOptions, GpuRenderer, ReadbackFormat};
 use celesta_media::FfmpegBackend;
 use celesta_project::Project;
 use celesta_react_bridge::{ProjectFrame, ReactBridge};
-use ez_ffmpeg::{FfmpegContext, Input, Output, VideoWriter};
+use ez_ffmpeg::{FfmpegContext, Input, Output, VideoWriter, capabilities};
 use std::collections::{BTreeMap, HashSet};
-use std::ffi::OsStr;
 use std::io::Write;
 use std::path::Path;
 use std::sync::mpsc;
@@ -39,6 +38,7 @@ impl Exporter {
         let mut renderer = export_renderer(
             asset_root,
             frame_rate,
+            self.options.video_format,
             self.options.video.color_conversion,
             self.options.video.bit_depth,
             self.options.render_quality,
@@ -48,6 +48,7 @@ impl Exporter {
             project.settings.width,
             project.settings.height,
             frame_rate,
+            self.options.video_format,
             self.options.video,
             renderer.readback_format(),
             output,
@@ -131,6 +132,7 @@ impl Exporter {
         let mut renderer = export_renderer(
             asset_root,
             metadata.frame_rate,
+            self.options.video_format,
             self.options.video.color_conversion,
             self.options.video.bit_depth,
             self.options.render_quality,
@@ -140,6 +142,7 @@ impl Exporter {
             metadata.width,
             metadata.height,
             metadata.frame_rate,
+            self.options.video_format,
             self.options.video,
             renderer.readback_format(),
             output,
@@ -252,8 +255,10 @@ impl Exporter {
 
     /// Muxes the encoded, audio-less `video` with the mixed `audio` (staged as
     /// a raw `f32le` PCM sidecar file) into `output`, stream-copying the video
-    /// and encoding AAC — the library-linked equivalent of a second
-    /// `ffmpeg -i video -f f32le -i pcm -c:v copy -c:a aac` pass.
+    /// and encoding the format's audio codec — the library-linked equivalent
+    /// of a second `ffmpeg -i video -f f32le -i pcm -c:v copy -c:a <codec>`
+    /// pass: AAC 192k for MP4, 24-bit PCM for MOV, and Opus 192k at 48 kHz
+    /// for WebM.
     pub(crate) fn mux_audio(
         &self,
         video: &Path,
@@ -289,6 +294,10 @@ impl Exporter {
             })?;
         ensure_not_cancelled(cancellation)?;
 
+        let muxed = Output::from(path_to_url(output))
+            .add_stream_map_with_copy("0:v:0")
+            .add_stream_map("1:a:0")
+            .set_shortest(true);
         let context = FfmpegContext::builder()
             .input(Input::from(path_to_url(video)))
             .input(
@@ -297,15 +306,21 @@ impl Exporter {
                     .set_format_opt("sample_rate", audio.sample_rate.to_string())
                     .set_format_opt("ch_layout", format!("{}c", audio.channels)),
             )
-            .output(
-                Output::from(path_to_url(output))
-                    .add_stream_map_with_copy("0:v:0")
-                    .add_stream_map("1:a:0")
+            .output(match self.options.video_format {
+                VideoFormat::Mp4 => muxed
                     .set_audio_codec("aac")
                     .set_audio_codec_opt("b", "192k")
-                    .set_shortest(true)
                     .set_format_opt("movflags", "+faststart"),
-            )
+                VideoFormat::Mov => muxed
+                    .set_audio_codec("pcm_s24le")
+                    .set_format_opt("movflags", "+faststart"),
+                // libopus takes 48, 24, 16, 12 or 8 kHz only, so a 44.1 kHz
+                // mix is resampled.
+                VideoFormat::Webm => muxed
+                    .set_audio_codec("libopus")
+                    .set_audio_codec_opt("b", "192k")
+                    .set_audio_sample_rate(48_000),
+            })
             .build()
             .map_err(|source| ExportError::Ffmpeg {
                 stage: "audio muxing",
@@ -323,9 +338,16 @@ impl Exporter {
     }
 }
 
-pub(crate) fn validate_output(output: &Path, overwrite: bool) -> Result<(), ExportError> {
-    if output.extension() != Some(OsStr::new("mp4")) {
-        return Err(ExportError::UnsupportedOutput(output.to_owned()));
+pub(crate) fn validate_output(
+    output: &Path,
+    format: VideoFormat,
+    overwrite: bool,
+) -> Result<(), ExportError> {
+    if VideoFormat::from_extension(output) != Some(format) {
+        return Err(ExportError::UnsupportedOutput {
+            path: output.to_owned(),
+            format,
+        });
     }
     if !overwrite && output.exists() {
         return Err(ExportError::OutputExists(output.to_owned()));
@@ -333,39 +355,64 @@ pub(crate) fn validate_output(output: &Path, overwrite: bool) -> Result<(), Expo
     Ok(())
 }
 
+/// Fails when the linked FFmpeg lacks an encoder `format` needs, before any
+/// frame is rendered.
+pub(crate) fn ensure_encoders(format: VideoFormat) -> Result<(), ExportError> {
+    match format
+        .encoders()
+        .into_iter()
+        .find(|encoder| !capabilities::is_encoder_available(encoder))
+    {
+        Some(encoder) => Err(ExportError::EncoderUnavailable { format, encoder }),
+        None => Ok(()),
+    }
+}
+
 pub(crate) fn path_to_url(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// The renderer an export draws its frames with, reading them back as
-/// yuv420p (or yuv420p10le for `bit_depth` 10) when `color_conversion` puts
-/// that conversion on the GPU, else as RGBA of enough bits for `bit_depth`.
+/// The renderer an export draws its frames with. For an alpha `format` it
+/// clears to transparent and reads back straight-alpha 16-bit RGBA, which the
+/// encoder converts; for MP4 it clears to the default opaque background and
+/// reads back yuv420p (or yuv420p10le for `bit_depth` 10) when
+/// `color_conversion` puts that conversion on the GPU, else RGBA of enough
+/// bits for `bit_depth`.
 pub(crate) fn export_renderer(
     asset_root: &Path,
     frame_rate: Rational,
+    format: VideoFormat,
     color_conversion: ColorConversion,
     bit_depth: BitDepth,
     render_quality: RenderQuality,
     driver: GpuDriver,
 ) -> Result<GpuRenderer, ExportError> {
-    let mut renderer = GpuRenderer::new(GpuRenderOptions {
-        driver,
-        ..GpuRenderOptions::default()
-    })
-    .map_err(ExportError::Render)?
-    .with_render_quality(render_quality)
-    .with_asset_root(asset_root)
-    .with_video_decoder(FfmpegBackend::new().with_sequential_video(frame_rate));
-    let on_gpu = match color_conversion {
-        ColorConversion::Auto => renderer.supports_yuv420p_readback() && !renderer.is_software(),
-        ColorConversion::Gpu => true,
-        ColorConversion::Encoder => false,
+    let background = if format.has_alpha() {
+        Color::TRANSPARENT
+    } else {
+        GpuRenderOptions::default().background
     };
-    let readback = match (on_gpu, bit_depth) {
-        (true, BitDepth::Eight) => ReadbackFormat::Yuv420p,
-        (true, BitDepth::Ten) => ReadbackFormat::Yuv420p10,
-        (false, BitDepth::Eight) => ReadbackFormat::Rgba8,
-        (false, BitDepth::Ten) => ReadbackFormat::Rgba16,
+    let mut renderer = GpuRenderer::new(GpuRenderOptions { background, driver })
+        .map_err(ExportError::Render)?
+        .with_render_quality(render_quality)
+        .with_asset_root(asset_root)
+        .with_video_decoder(FfmpegBackend::new().with_sequential_video(frame_rate));
+    let readback = if format.has_alpha() {
+        ReadbackFormat::Rgba16Straight
+    } else {
+        let on_gpu = match color_conversion {
+            ColorConversion::Auto => {
+                renderer.supports_yuv420p_readback() && !renderer.is_software()
+            }
+            ColorConversion::Gpu => true,
+            ColorConversion::Encoder => false,
+        };
+        match (on_gpu, bit_depth) {
+            (true, BitDepth::Eight) => ReadbackFormat::Yuv420p,
+            (true, BitDepth::Ten) => ReadbackFormat::Yuv420p10,
+            (false, BitDepth::Eight) => ReadbackFormat::Rgba8,
+            (false, BitDepth::Ten) => ReadbackFormat::Rgba16,
+        }
     };
     renderer
         .set_readback_format(readback)
@@ -373,47 +420,83 @@ pub(crate) fn export_renderer(
     Ok(renderer)
 }
 
-/// Opens a constant-frame-rate H.264 `VideoWriter` for pushed frames in
-/// `input` layout — the library-linked equivalent of piping `rawvideo` into
-/// `ffmpeg -c:v libx264 -preset <preset> -crf <crf> -pix_fmt yuv420p -movflags +faststart`
-/// (`-preset medium -crf 18` by default), with `-pix_fmt yuv420p10le` (High
-/// 10) for 10-bit output. Input already in the output's pixel format reaches
-/// the encoder without a conversion.
+/// Opens a constant-frame-rate `VideoWriter` for pushed frames in `input`
+/// layout — the library-linked equivalent of piping `rawvideo` into
+///
+/// - `Mp4`: `ffmpeg -c:v libx264 -preset <preset> -crf <crf> -pix_fmt yuv420p -movflags +faststart`
+///   (`-preset medium -crf 18` by default), with `-pix_fmt yuv420p10le`
+///   (High 10) for 10-bit output. Input already in the output's pixel format
+///   reaches the encoder without a conversion.
+/// - `Mov`: `ffmpeg -vf <BT709_FILTER> -c:v prores_ks -profile:v 4444 -alpha_bits 16 -vendor apl0 -pix_fmt yuva444p10le`
+/// - `Webm`: `ffmpeg -vf <BT709_FILTER> -c:v libvpx-vp9 -crf 20 -b:v 0 -row-mt 1 -pix_fmt yuva420p`
+///
+/// The alpha formats take straight-alpha `rgba64le`, which libswscale
+/// converts with the BT.709 matrix in limited range (see [`BT709_FILTER`]);
+/// `encoding` applies to `Mp4` only.
 pub(crate) fn open_video_writer(
     width: u32,
     height: u32,
     frame_rate: Rational,
+    format: VideoFormat,
     encoding: VideoEncoding,
     input: ReadbackFormat,
     output: &Path,
 ) -> Result<VideoWriter, ExportError> {
-    if encoding.crf > VideoEncoding::MAX_CRF {
+    if format == VideoFormat::Mp4 && encoding.crf > VideoEncoding::MAX_CRF {
         return Err(ExportError::InvalidCrf(encoding.crf));
     }
     let fps_num = i32::try_from(frame_rate.numerator).map_err(|_| ExportError::TimelineTooLong)?;
     let fps_den =
         i32::try_from(frame_rate.denominator).map_err(|_| ExportError::TimelineTooLong)?;
+    let output = Output::from(path_to_url(output));
+    let output = match format {
+        VideoFormat::Mp4 => output
+            .set_video_codec("libx264")
+            .set_video_codec_opt("preset", encoding.preset.as_str())
+            .set_video_codec_opt("crf", encoding.crf.to_string())
+            .set_pix_fmt(encoding.bit_depth.pixel_format())
+            .set_format_opt("movflags", "+faststart"),
+        // No faststart here: this is the video-only intermediate, and `mux_audio`
+        // sets it on the final file.
+        VideoFormat::Mov => output
+            .set_video_codec("prores_ks")
+            .set_video_codec_opt("profile", "4444")
+            .set_video_codec_opt("alpha_bits", "16")
+            .set_video_codec_opt("vendor", "apl0")
+            .set_pix_fmt("yuva444p10le")
+            .set_video_filter(BT709_FILTER),
+        VideoFormat::Webm => output
+            .set_video_codec("libvpx-vp9")
+            .set_video_codec_opt("crf", "20")
+            .set_video_codec_opt("b", "0")
+            .set_video_codec_opt("row-mt", "1")
+            .set_pix_fmt("yuva420p")
+            .set_video_filter(BT709_FILTER),
+    };
     VideoWriter::builder(width, height)
         .pixel_format(match input {
             ReadbackFormat::Rgba8 => "rgba",
             ReadbackFormat::Rgba16 => "rgba64le",
+            ReadbackFormat::Rgba16Straight => "rgba64le",
             ReadbackFormat::Yuv420p => "yuv420p",
             ReadbackFormat::Yuv420p10 => "yuv420p10le",
         })
         .fps(fps_num, fps_den)
-        .open(
-            Output::from(path_to_url(output))
-                .set_video_codec("libx264")
-                .set_video_codec_opt("preset", encoding.preset.as_str())
-                .set_video_codec_opt("crf", encoding.crf.to_string())
-                .set_pix_fmt(encoding.bit_depth.pixel_format())
-                .set_format_opt("movflags", "+faststart"),
-        )
+        .open(output)
         .map_err(|source| ExportError::Ffmpeg {
             stage: "video encoding",
             source,
         })
 }
+
+/// Converts RGB to YUV with the BT.709 matrix in limited range and tags the
+/// frames BT.709 (matrix, range, primaries and transfer), since editing
+/// software assumes BT.709 for untagged HD material. The tags go on the
+/// frames because the encoder copies its color properties from the first
+/// frame after applying its options, so `colorspace`, `color_primaries` and
+/// `color_trc` encoder options would not take effect.
+const BT709_FILTER: &str =
+    "scale=out_color_matrix=bt709:out_range=tv,setparams=color_primaries=bt709:color_trc=bt709";
 
 /// The font warnings an export has already reported, so a warning that holds
 /// on every frame is reported once.

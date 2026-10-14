@@ -63,6 +63,14 @@ async fn export_video_writes_an_mp4_with_progress() {
             .all(|pair| pair[0].progress < pair[1].progress),
         "progress must increase: {notifications:?}"
     );
+    // The container follows the output extension, so no message names one.
+    assert!(
+        notifications
+            .iter()
+            .filter_map(|n| n.message.as_deref())
+            .all(|message| !message.contains("MP4")),
+        "{notifications:?}"
+    );
 }
 
 #[tokio::test]

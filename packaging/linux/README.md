@@ -64,3 +64,8 @@ The image contains an FFmpeg build with `libx264` enabled, which is
 GPL-2.0-or-later licensed. Distributing the image (for example, pushing it to a
 public registry) makes it subject to the GPL as a whole; see
 [License](../../README.md#license).
+
+The same FFmpeg build links `libvpx` and `libopus` (BSD-3-Clause), the WebM
+encoders, as shared libraries from the Debian packages `libvpx9` and
+`libopus0`. Their copyright files ship in the image under
+`/usr/share/doc/libvpx9` and `/usr/share/doc/libopus0`.

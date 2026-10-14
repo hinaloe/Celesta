@@ -139,7 +139,7 @@ impl Inspection {
         let mut warnings = Vec::new();
         if !metadata.width.is_multiple_of(2) || !metadata.height.is_multiple_of(2) {
             warnings.push(format!(
-                "width/height {}×{} must be even for MP4 export",
+                "width/height {}×{} must be even for video export",
                 metadata.width, metadata.height
             ));
         }

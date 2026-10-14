@@ -21,7 +21,7 @@ pub use exporter::Exporter;
 pub use job::ExportJob;
 pub use options::{
     BitDepth, ColorConversion, EncoderPreset, ExportOptions, UnknownBitDepth,
-    UnknownColorConversion, UnknownEncoderPreset, VideoEncoding,
+    UnknownColorConversion, UnknownEncoderPreset, UnknownVideoFormat, VideoEncoding, VideoFormat,
 };
 pub use range::ExportRange;
 pub use react::{CompanionProject, ReactRuntimeOptions};

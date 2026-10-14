@@ -1,7 +1,7 @@
 use crate::control::{CompositionInfo, ExportProgress, ExportedFile};
 use crate::error::ExportError;
 use crate::exporter::Exporter;
-use crate::options::{BitDepth, ColorConversion};
+use crate::options::{BitDepth, ColorConversion, VideoFormat};
 use crate::project::{absolutize_fonts, absolutize_layers, visual_only_project};
 use crate::range::{ExportRange, resolve_window};
 use crate::react::{CompanionProject, ReactRuntimeOptions};
@@ -452,9 +452,12 @@ impl Exporter {
             self.options.overwrite,
         )?;
         let evaluator = Evaluator::new(project).map_err(ExportError::Evaluation)?;
+        // PNG frames keep an MP4 export's opaque background, read back as
+        // 8-bit RGBA.
         let mut renderer = export_renderer(
             asset_root,
             frame_rate,
+            VideoFormat::Mp4,
             ColorConversion::Encoder,
             BitDepth::Eight,
             self.options.render_quality,
@@ -577,9 +580,12 @@ impl Exporter {
             .map_err(ExportError::Evaluation)?
             .unwrap_or_default();
 
+        // PNG frames keep an MP4 export's opaque background, read back as
+        // 8-bit RGBA.
         let mut renderer = export_renderer(
             asset_root,
             metadata.frame_rate,
+            VideoFormat::Mp4,
             ColorConversion::Encoder,
             BitDepth::Eight,
             self.options.render_quality,

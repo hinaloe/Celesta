@@ -1,11 +1,10 @@
 use crate::actions::{ClearExportRange, ExportProject, SetExportIn, SetExportOut};
 use crate::export_worker::{ExportRequest, ExportSource};
-use crate::helpers::{export_range_for, export_suggested_name};
+use crate::helpers::{export_output, export_range_for, export_suggested_name};
 use crate::view::EditorView;
-use celesta_exporter::{ExportCancellation, ExportProgress};
+use celesta_exporter::{ExportCancellation, ExportProgress, VideoFormat};
 use celesta_react_bridge::runtime_paths as react_runtime_paths;
 use gpui_kit::{ClickEvent, Context, Window};
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 impl EditorView {
@@ -67,14 +66,12 @@ impl EditorView {
             };
             view.update_in(cx, |this, _, cx| {
                 this.choosing_export_path = false;
-                let Some(mut output) = selected_path else {
+                let Some(selected_path) = selected_path else {
                     cx.notify();
                     return;
                 };
-                if output.extension() != Some(OsStr::new("mp4")) {
-                    output.set_extension("mp4");
-                }
-                this.start_export(output);
+                let (output, format) = export_output(selected_path);
+                this.start_export(output, format);
                 cx.notify();
             })
             .ok();
@@ -83,7 +80,7 @@ impl EditorView {
         cx.notify();
     }
 
-    pub(crate) fn start_export(&mut self, output: PathBuf) {
+    pub(crate) fn start_export(&mut self, output: PathBuf, format: VideoFormat) {
         let cancellation = ExportCancellation::default();
         let (source, range) = match &self.react_preview {
             Some(react) => {
@@ -111,6 +108,7 @@ impl EditorView {
             source,
             asset_root: self.document.asset_root().to_owned(),
             output: output.clone(),
+            format,
             range,
             cancellation: cancellation.clone(),
             driver: self.driver,

@@ -112,7 +112,7 @@ async fn forward_progress(
             ExportProgress::Muxing => {
                 ProgressNotificationParam::new(token.clone(), (frames + 2) as f64)
                     .with_total((frames + 2) as f64)
-                    .with_message("writing the MP4")
+                    .with_message("writing the video")
             }
             _ => continue,
         };

@@ -4,7 +4,7 @@ Open the [web editor](/en/#playground), change or open a TSX composition, and ch
 
 ## From the app
 
-Choose **Export…** and select an MP4 destination. For a section of the composition, press `I` and `O` to mark the start and end. The status bar shows progress; **Cancel export** stops the job.
+Choose **Export…** and select a destination. Name it `.mp4` for H.264 video, or `.mov` or `.webm` for transparent video (see Transparent video below); any other extension becomes `.mp4`. For a section of the composition, press `I` and `O` to mark the start and end. The status bar shows progress; **Cancel export** stops the job.
 
 ## From the command line
 
@@ -70,6 +70,14 @@ MP4 uses libx264 with --preset medium and --crf 18 by default. Faster presets su
 
 :::
 ::::
+
+## Transparent video
+
+The file extension picks the video format. A `.mp4` file is H.264 with AAC audio, as above. A `.mov` file is ProRes 4444 (`yuva444p10le`) with 24-bit PCM audio, and a `.webm` file is VP9 with alpha (`yuva420p`, CRF 20) with 48 kHz Opus audio. In the app, choose the extension in the save dialog; there is no separate format menu. On the command line, run the same command as above with an output such as `overlay.mov` or `overlay.webm`. `--output-format mp4|mov|webm` states the format explicitly; one that disagrees with the extension is a usage error.
+
+Only areas nothing draws on are transparent, so a layer that fills the whole frame, such as a full-frame background, makes the output opaque. The alpha is straight (unassociated), and colors are converted and tagged as BT.709 (limited range). `--preset`, `--crf`, `--bit-depth`, and `--color-conversion` apply to MP4 only and are usage errors with `.mov` or `.webm`.
+
+If your FFmpeg build lacks the encoder for the chosen format, the export fails with the error code `encoder_unavailable`.
 
 ## PNG frames and contact sheets
 
@@ -140,7 +148,7 @@ Both the editor and exporter accept --driver auto (default), vulkan, dx12 (Windo
 :::
 ::::
 
-For scripts and AI agents, add `--json`. The exporter then prints no progress, only one line of JSON when it finishes: the status, every file it wrote, warnings, the composition's size, fps and frame count once the exporter has loaded it, and on failure an error code and message. When the arguments are rejected, the JSON has only the status and the error.
+For scripts and AI agents, add `--json`. The exporter then prints no progress, only one line of JSON when it finishes: the status, every file it wrote, warnings, the composition's size, fps and frame count once the exporter has loaded it, and on failure an error code and message. Each video entry in the list of written files has `"format"` (`mp4`, `mov`, or `webm`) and `"alpha"` (`true` or `false`). When the arguments are rejected, the JSON has only the status and the error.
 
 Using a source build? The [developer instructions](/en/docs/build-from-source/) include the equivalent Cargo command.
 
@@ -174,4 +182,4 @@ docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" celesta-exporter --re
 
 > [!NOTE]
 > **Before you render**
-> MP4 output uses H.264 video and AAC audio. Width and height must be non-zero, even numbers. Keep every referenced local media file available during export.
+> MP4 output uses H.264 video and AAC audio; MOV and WebM are described under Transparent video. Width and height must be non-zero, even numbers. Keep every referenced local media file available during export.

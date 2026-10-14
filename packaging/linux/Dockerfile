@@ -17,7 +17,7 @@ FROM ubuntu:24.04 AS build
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-    build-essential ca-certificates curl nasm pkg-config xz-utils zlib1g-dev libx264-dev libclang-dev \
+    build-essential ca-certificates curl nasm pkg-config xz-utils zlib1g-dev libx264-dev libvpx-dev libopus-dev libclang-dev \
   && rm -rf /var/lib/apt/lists/*
 
 # Override with --build-arg to pick another 8.1.x release or source mirror.
@@ -58,14 +58,14 @@ RUN mkdir -p /out/runtime \
 # --- Runtime stage ----------------------------------------------------------
 FROM ubuntu:24.04
 
-# libx264 is linked dynamically; FFmpeg itself is linked into the executable.
+# libx264, libvpx, and libopus are linked dynamically; FFmpeg itself is linked into the executable.
 # mesa-vulkan-drivers provides lavapipe, a CPU implementation of Vulkan. Text
 # needs at least one installed font: DejaVu for Latin text and Noto CJK for
 # Japanese, Chinese, and Korean. Load other fonts with <Font>.
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-    ca-certificates libx264-164 libvulkan1 mesa-vulkan-drivers fonts-dejavu-core fonts-noto-cjk \
+    ca-certificates libx264-164 libvpx9 libopus0 libvulkan1 mesa-vulkan-drivers fonts-dejavu-core fonts-noto-cjk \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /out /opt/celesta

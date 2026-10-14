@@ -2,7 +2,9 @@ use crate::control::{CompositionInfo, ExportCancellation, ExportProgress, Export
 use crate::error::ExportError;
 use crate::options::ExportOptions;
 use crate::range::{ExportWindow, resolve_window, shifted_audio_graph};
-use crate::render::{ensure_not_cancelled, frame_count, validate_dimensions, validate_output};
+use crate::render::{
+    ensure_encoders, ensure_not_cancelled, frame_count, validate_dimensions, validate_output,
+};
 use celesta_composition::Time;
 use celesta_evaluator::Evaluator;
 use celesta_media::{AudioMixError, FfmpegBackend, mix_audio_graph_cancellable};
@@ -76,7 +78,12 @@ impl Exporter {
         let asset_root = asset_root.as_ref();
         let output_path = output_path.as_ref();
         ensure_not_cancelled(cancellation)?;
-        validate_output(output_path, self.options.overwrite)?;
+        validate_output(
+            output_path,
+            self.options.video_format,
+            self.options.overwrite,
+        )?;
+        ensure_encoders(self.options.video_format)?;
         let duration = project.effective_duration().map_err(ExportError::Time)?;
         let full_frame_count = frame_count(duration, project.settings.frame_rate)?;
         progress(ExportProgress::Composition(CompositionInfo {
@@ -114,10 +121,12 @@ impl Exporter {
                 operation: "create export workspace",
                 source,
             })?;
-        let video_path = temporary.path().join("video.mp4");
+        let video_path = temporary
+            .path()
+            .join(format!("video.{}", self.options.video_format.as_str()));
         let final_file = tempfile::Builder::new()
             .prefix(".celesta-export-")
-            .suffix(".mp4")
+            .suffix(&format!(".{}", self.options.video_format.as_str()))
             .tempfile_in(parent)
             .map_err(|source| ExportError::Io {
                 operation: "create temporary output",
@@ -198,6 +207,7 @@ impl Exporter {
                 .map_err(|_| ExportError::TimelineTooLong)?,
             frames: window.frames,
             audio: true,
+            format: self.options.video_format,
         }));
         Ok(())
     }

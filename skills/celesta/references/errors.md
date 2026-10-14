@@ -54,7 +54,7 @@ or `ERROR:` per frame (`UNSUPPORTED inspection:` for text it cannot measure). Di
 
 | Message | Cause and fix |
 | --- | --- |
-| `H.264 MP4 export requires non-zero even dimensions, got 1921x1080` | Make width and height even. |
+| `video export requires non-zero even dimensions, got 1921x1080` | Make width and height even. |
 | `output already exists: …` | Choose another path, or add `--overwrite` if replacing it is intended. |
 | `PNG output requires --frame, --frames or --every` | Add a frame selection, or drop `--output-format png` / `--contact-sheet`. |
 | `unexpected argument '--every'` (or `--contact-sheet`, `--no-ui`, `--json`), or the exporter prints its usage text | The installed Celesta is older than this skill; ask the user to update, or use only the options its usage lists (without `--json`, use `--no-ui`). |

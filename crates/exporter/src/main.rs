@@ -4,7 +4,8 @@ use std::process::ExitCode;
 
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::error::ErrorKind;
-use clap::{CommandFactory, Parser, ValueEnum};
+use clap::parser::ValueSource;
+use clap::{CommandFactory, FromArgMatches, Parser, ValueEnum};
 
 mod inspect;
 mod json;
@@ -14,7 +15,7 @@ use celesta_composition::Time;
 use celesta_exporter::{
     BitDepth, ColorConversion, ContactSheet, EncoderPreset, ExportCancellation, ExportError,
     ExportJob, ExportOptions, ExportProgress, ExportRange, FrameSelection, GpuDriver, PngExport,
-    ReactRuntimeOptions, RenderQuality, VideoEncoding, parse_timecode,
+    ReactRuntimeOptions, RenderQuality, VideoEncoding, VideoFormat, parse_timecode,
 };
 use celesta_react_bridge::{PropsFileChoice, resolve_props_file};
 
@@ -34,6 +35,10 @@ defineProjectProperties(). Highest precedence first: --props, --props-file,
 the --project file's properties, the declared defaults. Every value is
 checked against the declaration before anything renders.
 
+A .mov output is ProRes 4444 with 24-bit PCM audio and a .webm output VP9
+with Opus; both keep transparency where nothing is drawn (straight alpha,
+BT.709). --preset, --crf, --bit-depth and --color-conversion apply to MP4 only.
+
 --json prints one line of JSON on stdout when the export ends, and nothing
 else: status, the composition's size, fps and frame count, every written
 file with its frame numbers, warnings, and on failure an error code and
@@ -45,7 +50,7 @@ request per stdin line, each a composition time (with openEnd, a time past
 the end, evaluated as if the video went on), and answers each with one JSON
 line on stdout; skills/celesta/scripts/inspect.mjs --native drives it.";
 
-/// Exports a Celesta project or React composition to MP4 video or PNG stills.
+/// Exports a Celesta project or React composition to MP4, MOV or WebM video or PNG stills.
 #[derive(Parser)]
 #[command(
     name = "celesta-exporter",
@@ -56,7 +61,8 @@ line on stdout; skills/celesta/scripts/inspect.mjs --native drives it.";
 struct Cli {
     /// The project (.celesta.json), or with --react the entry (.tsx), to export.
     source: PathBuf,
-    /// The .mp4 file to write, or the .png file for frame exports.
+    /// The .mp4, .mov (ProRes 4444 with alpha) or .webm (VP9 with alpha) file to
+    /// write, or the .png file for frame exports.
     #[arg(required_unless_present = "inspect")]
     output: Option<PathBuf>,
     /// Evaluate frames requested on stdin as JSON lines instead of exporting.
@@ -115,7 +121,7 @@ struct Cli {
     #[arg(long)]
     contact_sheet: bool,
     /// Draw the entry's debug guides (<DebugOverlay>, <DebugBounds>) into
-    /// PNG frames and contact sheets; never into an MP4.
+    /// PNG frames and contact sheets; never into a video.
     #[arg(long, requires = "react")]
     debug_guides: bool,
     /// Contact sheet columns.
@@ -134,7 +140,8 @@ struct Cli {
         default_value_t = non_zero(ContactSheet::DEFAULT_TILE_WIDTH)
     )]
     tile_width: NonZeroU32,
-    /// Output format; PNG is implied by a frame selection.
+    /// Output format; PNG is implied by a frame selection, video formats by the
+    /// extension.
     #[arg(long, value_enum)]
     output_format: Option<OutputFormat>,
     /// libx264 preset: faster presets encode faster but produce larger files.
@@ -213,6 +220,20 @@ impl Cli {
 enum OutputFormat {
     Png,
     Mp4,
+    Mov,
+    Webm,
+}
+
+impl OutputFormat {
+    /// The video format this names, or `None` for PNG.
+    fn video(self) -> Option<VideoFormat> {
+        match self {
+            Self::Png => None,
+            Self::Mp4 => Some(VideoFormat::Mp4),
+            Self::Mov => Some(VideoFormat::Mov),
+            Self::Webm => Some(VideoFormat::Webm),
+        }
+    }
 }
 
 /// A parser accepting exactly `name` of each of `all`, listed in `--help`.
@@ -233,14 +254,10 @@ fn non_zero(value: u32) -> NonZeroU32 {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::try_parse().unwrap_or_else(|error| {
-        // Help and version requests are not failures.
-        if error.use_stderr() && std::env::args_os().any(|arg| arg == "--json") {
-            json::usage_error(&error.to_string());
-            std::process::exit(error.exit_code());
-        }
-        error.exit()
-    });
+    let matches = Cli::command()
+        .try_get_matches()
+        .unwrap_or_else(|error| parse_failed(error));
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| parse_failed(error));
     if cli.inspect {
         return inspect(&cli);
     }
@@ -253,12 +270,14 @@ fn main() -> ExitCode {
             "--runtime and --node require --inspect",
         );
     }
-    let png = png_output(&cli)
-        .unwrap_or_else(|error| usage_error(cli.json, ErrorKind::ArgumentConflict, error));
+    let format = output_choice(&cli, &|id| {
+        matches.value_source(id) == Some(ValueSource::CommandLine)
+    })
+    .unwrap_or_else(|error| usage_error(cli.json, ErrorKind::ArgumentConflict, &error));
     let range = export_range(cli.from, cli.to)
         .unwrap_or_else(|error| usage_error(cli.json, ErrorKind::ValueValidation, &error));
     let export =
-        |on_progress: &mut dyn FnMut(ExportProgress)| export(&cli, png, range, on_progress);
+        |on_progress: &mut dyn FnMut(ExportProgress)| export(&cli, format, range, on_progress);
     // JSON projects carry their own properties, so only React exports have a props file.
     let props_file = cli
         .react
@@ -275,7 +294,8 @@ fn main() -> ExitCode {
         source: &cli.source,
         output: cli.output(),
         react: cli.react,
-        png,
+        png: format.is_none(),
+        format: format.unwrap_or_default(),
         video: cli.video(),
         render_quality: cli.render_quality,
         props: props_file.as_ref().map(props_label),
@@ -333,6 +353,15 @@ fn props_label(choice: &PropsFileChoice) -> String {
     }
 }
 
+/// Exits on a command line clap rejected; help and version requests are not failures.
+fn parse_failed(error: clap::Error) -> ! {
+    if error.use_stderr() && std::env::args_os().any(|arg| arg == "--json") {
+        json::usage_error(&error.to_string());
+        std::process::exit(error.exit_code());
+    }
+    error.exit()
+}
+
 /// Exits with a usage error, as JSON with `--json`.
 fn usage_error(json: bool, kind: ErrorKind, message: &str) -> ! {
     let error = Cli::command().error(kind, message);
@@ -343,29 +372,67 @@ fn usage_error(json: bool, kind: ErrorKind, message: &str) -> ! {
     error.exit()
 }
 
-/// Whether `cli` asks for PNG stills rather than a video, checking the
-/// combinations of selection and format flags clap cannot express.
-fn png_output(cli: &Cli) -> Result<bool, &'static str> {
+/// The video format `cli` exports, or `None` for PNG stills, checking the
+/// combinations of selection, format and encoder flags clap cannot express.
+/// `explicit` tells whether the argument with that id was given on the command line.
+fn output_choice(
+    cli: &Cli,
+    explicit: &dyn Fn(&str) -> bool,
+) -> Result<Option<VideoFormat>, String> {
     let selected = !cli.frames.is_empty() || cli.every.is_some();
-    if (selected || cli.contact_sheet) && cli.output_format == Some(OutputFormat::Mp4) {
-        return Err("--frame/--frames/--every/--contact-sheet require PNG output");
+    let named = cli.output_format.and_then(OutputFormat::video);
+    if (selected || cli.contact_sheet) && named.is_some() {
+        return Err("--frame/--frames/--every/--contact-sheet require PNG output".into());
     }
     let png = selected || cli.contact_sheet || cli.output_format == Some(OutputFormat::Png);
     if png && !selected {
-        return Err("PNG output requires --frame, --frames or --every");
+        return Err("PNG output requires --frame, --frames or --every".into());
     }
-    if cli.debug_guides && !png {
-        return Err("--debug-guides applies to PNG output; MP4 exports never draw debug guides");
+    if png {
+        if cli.bit_depth != BitDepth::Eight {
+            return Err("--bit-depth applies to MP4 output; PNG stills are 8-bit".into());
+        }
+        return Ok(None);
     }
-    if png && cli.bit_depth != BitDepth::Eight {
-        return Err("--bit-depth applies to MP4 output; PNG stills are 8-bit");
+    if cli.debug_guides {
+        return Err(
+            "--debug-guides applies to PNG output; video exports never draw debug guides".into(),
+        );
     }
-    Ok(png)
+    // An output with no video extension is left to the exporter, which reports
+    // it as `unsupported_output`; only a video extension that contradicts
+    // `--output-format` is a usage error.
+    let format = match VideoFormat::from_extension(cli.output()) {
+        Some(format) => {
+            if let Some(named) = named.filter(|&named| named != format) {
+                return Err(format!(
+                    "--output-format {named} does not match the .{format} output"
+                ));
+            }
+            format
+        }
+        None => named.unwrap_or_default(),
+    };
+    if format.has_alpha() {
+        for (id, flag) in [
+            ("preset", "--preset"),
+            ("crf", "--crf"),
+            ("bit_depth", "--bit-depth"),
+            ("color_conversion", "--color-conversion"),
+        ] {
+            if explicit(id) {
+                return Err(format!(
+                    "{flag} applies to H.264 (MP4) output; .{format} output does not use it"
+                ));
+            }
+        }
+    }
+    Ok(Some(format))
 }
 
 fn export(
     cli: &Cli,
-    png: bool,
+    format: Option<VideoFormat>,
     range: Option<ExportRange>,
     on_progress: &mut dyn FnMut(ExportProgress),
 ) -> Result<(), ExportError> {
@@ -376,7 +443,7 @@ fn export(
         props_file: cli.props_file.clone(),
         props: cli.props.clone(),
         output: cli.output().to_owned(),
-        png: png.then(|| PngExport {
+        png: format.is_none().then(|| PngExport {
             frames: match cli.every {
                 Some(step) => FrameSelection::Every(step.get()),
                 None => FrameSelection::Frames(cli.frames.clone()),
@@ -390,6 +457,7 @@ fn export(
         options: ExportOptions {
             overwrite: cli.overwrite,
             range,
+            video_format: format.unwrap_or_default(),
             video: cli.video(),
             render_quality: cli.render_quality,
             driver: cli.driver,
@@ -419,4 +487,99 @@ fn export_range(start: Option<Time>, end: Option<Time>) -> Result<Option<ExportR
         start: start.unwrap_or(Time::ZERO),
         end,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn choice(args: &[&str]) -> Result<Option<VideoFormat>, String> {
+        let matches = Cli::command()
+            .try_get_matches_from(
+                ["celesta-exporter", "project.celesta.json"]
+                    .into_iter()
+                    .chain(args.iter().copied()),
+            )
+            .unwrap();
+        let cli = Cli::from_arg_matches(&matches).unwrap();
+        output_choice(&cli, &|id| {
+            matches.value_source(id) == Some(ValueSource::CommandLine)
+        })
+    }
+
+    fn error(args: &[&str]) -> String {
+        choice(args).expect_err("the arguments should be rejected")
+    }
+
+    #[test]
+    fn the_output_extension_selects_the_video_format() {
+        assert_eq!(choice(&["out.mov"]), Ok(Some(VideoFormat::Mov)));
+        assert_eq!(choice(&["out.WEBM"]), Ok(Some(VideoFormat::Webm)));
+        assert_eq!(choice(&["out.mp4"]), Ok(Some(VideoFormat::Mp4)));
+        assert_eq!(
+            choice(&["--output-format", "webm", "out.webm"]),
+            Ok(Some(VideoFormat::Webm))
+        );
+    }
+
+    #[test]
+    fn an_output_format_must_match_the_extension() {
+        assert!(error(&["--output-format", "mp4", "out.mov"]).contains("does not match"));
+    }
+
+    #[test]
+    fn an_unknown_extension_is_left_to_the_exporter() {
+        // The library reports it as `unsupported_output`, with its PNG hint.
+        assert_eq!(choice(&["out.gif"]), Ok(Some(VideoFormat::Mp4)));
+        assert_eq!(choice(&["out.png"]), Ok(Some(VideoFormat::Mp4)));
+        assert_eq!(
+            choice(&["--output-format", "webm", "out.gif"]),
+            Ok(Some(VideoFormat::Webm))
+        );
+    }
+
+    #[test]
+    fn h264_flags_are_rejected_for_alpha_formats() {
+        for (args, flag) in [
+            (["out.mov", "--crf", "20"], "--crf"),
+            (["out.webm", "--preset", "fast"], "--preset"),
+            (["out.mov", "--bit-depth", "10"], "--bit-depth"),
+            (
+                ["out.webm", "--color-conversion", "gpu"],
+                "--color-conversion",
+            ),
+        ] {
+            let message = error(&args);
+            assert!(message.contains(flag), "{message}");
+            assert!(message.contains("H.264"), "{message}");
+        }
+        assert_eq!(
+            choice(&["out.mp4", "--crf", "20"]),
+            Ok(Some(VideoFormat::Mp4))
+        );
+    }
+
+    #[test]
+    fn video_formats_conflict_with_frame_selections() {
+        for args in [
+            ["--output-format", "webm", "--frame", "0", "out.png"].as_slice(),
+            &[
+                "--output-format",
+                "mov",
+                "--contact-sheet",
+                "--every",
+                "5",
+                "out.png",
+            ],
+        ] {
+            assert!(error(args).contains("require PNG output"));
+        }
+    }
+
+    #[test]
+    fn png_selections_keep_their_rules() {
+        assert_eq!(choice(&["--frame", "0", "out.png"]), Ok(None));
+        assert!(error(&["--output-format", "png", "out.png"]).contains("requires --frame"));
+        assert!(error(&["--frame", "0", "--bit-depth", "10", "out.png"]).contains("--bit-depth"));
+    }
 }
