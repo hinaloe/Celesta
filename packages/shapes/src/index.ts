@@ -3,7 +3,20 @@ import * as React from 'react';
 import { Group, Rect } from '@celesta/react';
 import type { CommonProps, LineCap, LineJoin, Paint, PathCommand } from '@celesta/react';
 
+import { trimCommands, trimStartIntoSubpath } from './path-geometry';
+
 export type { LineCap, LineJoin, PathCommand };
+export {
+  getLength,
+  getPointAtLength,
+  getTangentAtLength,
+  measurePath,
+  pointOnPath,
+  tangentOnPath,
+} from './path-geometry';
+export type { PathMeasure, PathPoint, PathTangent } from './path-geometry';
+export { interpolatePath } from './path-morph';
+export { parseSvgPath, toSvgPath } from './path-svg';
 
 /** A point as `[x, y]`, in the path's own coordinates. */
 export type PolylinePoint = readonly [number, number];
@@ -34,7 +47,8 @@ interface StrokeProps extends PathLayerProps {
    * between them, in turn, in pixels, starting over at each `moveTo`, like
    * SVG's `stroke-dasharray`. An odd count repeats once more. With `cap`
    * `'round'`, `[0, gap]` draws dots. The pattern is anchored at the start
-   * of the path, so it stays put while `progress` draws the line on.
+   * of the path, so it stays put while `progress` or `progressStart` trims
+   * the line.
    */
   dash?: readonly number[];
   /** How far into `dash` the stroke starts; animate it to make the dashes flow. */
@@ -73,6 +87,22 @@ export interface PathProps extends StrokeProps {
    * `Paint` in the path's own coordinates. Omit for no fill.
    */
   fill?: string | Paint;
+  /**
+   * Where the stroke ends, 0–1 of the path's length (every subpath in turn,
+   * curves measured along their length). Animate it for a path that draws
+   * itself on; `pointOnPath(commands, progress)` is its tip. Defaults to 1.
+   */
+  progress?: number;
+  /**
+   * Where the stroke starts, 0–1 of the path's length. Defaults to 0. A
+   * closed subpath drawn only in part ends open, with caps. A `fill` is
+   * always the whole shape: with `progress < 1` or `progressStart > 0` it is
+   * drawn as a separate layer under the stroke, in a `<Group>` that takes
+   * the transform, `opacity`, and effects. So is a dashed stroke whose start
+   * is partway along a subpath with more subpaths after it: that first part
+   * is a layer of its own, to keep its dashes in place.
+   */
+  progressStart?: number;
 }
 
 export interface LineProps extends StrokeProps {
@@ -91,6 +121,8 @@ export interface PolylineProps extends StrokeProps {
    * Animate it for a line that draws itself on. Defaults to 1.
    */
   progress?: number;
+  /** Where the drawn part starts, 0–1 of the length. Defaults to 0. */
+  progressStart?: number;
 }
 
 function strokeWidthOf(value: number | undefined, component: string): number {
@@ -124,17 +156,69 @@ export function Path({
   closed = false,
   stroke,
   strokeWidth,
+  progress = 1,
+  progressStart = 0,
   ...props
 }: PathProps): ReturnType<typeof React.createElement> {
   if (commands === undefined && points === undefined) {
     throw new Error('<Path> requires `commands` or `points`');
   }
-  return React.createElement('path', {
-    ...props,
-    commands: commands ?? commandsThrough(points ?? [], closed),
+  for (const [name, value] of [['progress', progress], ['progressStart', progressStart]] as const) {
+    if (Number.isNaN(value)) {
+      throw new Error(`<Path> requires a number for \`${name}\`, got NaN`);
+    }
+  }
+  const whole = commands ?? commandsThrough(points ?? [], closed);
+  const strokeStyle = {
     stroke,
     ...(stroke === undefined ? {} : { strokeWidth: strokeWidthOf(strokeWidth, 'Path') }),
-  });
+  };
+  // `progress` trims only the stroke; a fill alone is always whole.
+  const trimmed = stroke === undefined ? whole : trimCommands(whole, progressStart, progress);
+  if (trimmed === whole) {
+    return React.createElement('path', { ...props, commands: whole, ...strokeStyle });
+  }
+  const { fill, cap, join, miterLimit, dash, dashOffset, ...layer } = props;
+  const strokes = dashedFromStart(whole, trimmed, progressStart, dash, dashOffset);
+  const lineStyle = { cap, join, miterLimit, dash, ...strokeStyle };
+  if (fill === undefined && strokes.length === 1) {
+    return React.createElement('path', { ...layer, ...lineStyle, ...strokes[0] });
+  }
+  // The fill keeps the whole shape, so it and the trimmed stroke are separate layers.
+  return React.createElement(
+    Group,
+    layer,
+    ...(fill === undefined ? [] : [React.createElement('path', { key: 'fill', commands: whole, fill })]),
+    ...strokes.map((part, i) => React.createElement('path', { key: i, ...lineStyle, ...part })),
+  );
+}
+
+/**
+ * The trimmed stroke's commands and dash offsets, so each dash falls where
+ * it does on the whole path. A dash pattern starts over at each `moveTo`, so
+ * only a first subpath that starts partway along needs its offset moved on;
+ * with later subpaths after it, it is drawn as a layer of its own.
+ */
+function dashedFromStart(
+  whole: readonly PathCommand[],
+  trimmed: readonly PathCommand[],
+  start: number,
+  dash: readonly number[] | undefined,
+  dashOffset: number | undefined,
+): Array<{ commands: readonly PathCommand[]; dashOffset?: number }> {
+  const into = isDashed(dash) && start > 0 ? trimStartIntoSubpath(whole, start) : 0;
+  if (into < 1e-9) {
+    return [{ commands: trimmed, dashOffset }];
+  }
+  const moved = (dashOffset ?? 0) + into;
+  const next = trimmed.findIndex((command, i) => i > 0 && command.type === 'moveTo');
+  if (next < 0) {
+    return [{ commands: trimmed, dashOffset: moved }];
+  }
+  return [
+    { commands: trimmed.slice(0, next), dashOffset: moved },
+    { commands: trimmed.slice(next), dashOffset },
+  ];
 }
 
 /** A straight line segment between two points. */
@@ -191,21 +275,6 @@ export function pointOnPolyline(points: readonly PolylinePoint[], t: number): [n
   return [x, y];
 }
 
-/** The first `progress` (0–1) of a polyline, by length. */
-function polylinePrefix(points: readonly PolylinePoint[], progress: number): PolylinePoint[] {
-  const lengths = segmentLengths(points);
-  let remaining = lengths.reduce((sum, n) => sum + n, 0) * Math.min(1, Math.max(0, progress));
-  const prefix: PolylinePoint[] = points.slice(0, 1);
-  for (let i = 0; i < lengths.length && remaining > 0; i += 1) {
-    const u = Math.min(1, remaining / lengths[i]);
-    const [x1, y1] = points[i];
-    const [x2, y2] = points[i + 1];
-    prefix.push([x1 + (x2 - x1) * u, y1 + (y2 - y1) * u]);
-    remaining -= lengths[i];
-  }
-  return prefix.length > 1 ? prefix : [];
-}
-
 /**
  * Connected line segments through `points`, such as a line chart or a route,
  * drawn as one `<Path>`. With round caps (the default) the corners are
@@ -214,7 +283,6 @@ function polylinePrefix(points: readonly PolylinePoint[], progress: number): Pol
 export function Polyline({
   points,
   closed = false,
-  progress = 1,
   stroke = '#FFFFFF',
   strokeWidth,
   cap = 'round',
@@ -222,14 +290,10 @@ export function Polyline({
   ...props
 }: PolylineProps): ReturnType<typeof React.createElement> {
   const width = strokeWidthOf(strokeWidth, 'Polyline');
-  const whole = progress >= 1;
-  const drawn = whole
-    ? points
-    : polylinePrefix(closed && points.length > 0 ? [...points, points[0]] : points, progress);
   return React.createElement(Path, {
     ...props,
-    points: drawn,
-    closed: closed && whole,
+    points,
+    closed,
     stroke,
     strokeWidth: width,
     cap,

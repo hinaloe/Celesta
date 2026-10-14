@@ -83,6 +83,70 @@ test('drawing a dashed polyline on keeps its dashes anchored at the start', () =
   assert.deepEqual(part.commands.at(-1), { type: 'lineTo', x: 60, y: 0 });
 });
 
+/** Whether the dash pattern is on (a dash, not a gap) `s` pixels along a subpath. */
+function dashOn(lineDash, s) {
+  const pattern = lineDash.pattern.length % 2 ? [...lineDash.pattern, ...lineDash.pattern] : lineDash.pattern;
+  const period = pattern.reduce((sum, n) => sum + n, 0);
+  let at = ((s + (lineDash.offset ?? 0)) % period + period) % period;
+  for (let i = 0; i < pattern.length; i += 1) {
+    if (at < pattern[i]) {
+      return i % 2 === 0;
+    }
+    at -= pattern[i];
+  }
+  return false;
+}
+
+test('trimming the start of a dashed path keeps each dash where the whole path has it', () => {
+  const [, frame] = render(
+    `<Path points={[[0, 0], [100, 0], [100, 50]]} stroke="#FFFFFF" dash={[12, 6]} dashOffset={4} progressStart={0.4} />
+     <Path points={[[0, 0], [100, 0], [100, 50]]} stroke="#FFFFFF" dash={[12, 6]} dashOffset={4} />`,
+  );
+  const [part, whole] = frame.scene.layers.map((layer) => layer.content);
+  // The part starts 60 px along, so its pattern starts 60 px further in.
+  assert.deepEqual(part.commands[0], { type: 'moveTo', x: 60, y: 0 });
+  assert.deepEqual(part.lineDash, { pattern: [12, 6], offset: 64 });
+  for (let s = 60; s < 150; s += 0.5) {
+    assert.equal(dashOn(part.lineDash, s - 60), dashOn(whole.lineDash, s), `at ${s} px`);
+  }
+});
+
+test('a trimmed dashed path moves the pattern only for the subpath it starts partway along', () => {
+  const twoLines = `[{ type: 'moveTo', x: 0, y: 0 }, { type: 'lineTo', x: 100, y: 0 },
+    { type: 'moveTo', x: 0, y: 50 }, { type: 'lineTo', x: 100, y: 50 }]`;
+  const [, frame] = render(
+    `<Path commands={${twoLines}} stroke="#FFFFFF" dash={[12, 6]} progressStart={0.25} opacity={0.5} />
+     <Path commands={${twoLines}} stroke="#FFFFFF" dash={[12, 6]} progressStart={0.75} />`,
+  );
+  const [split, single] = frame.scene.layers;
+  // Each dash pattern starts over at a moveTo, so the first line (started
+  // 50 px in) and the second (whole) need different offsets: two layers.
+  assert.equal(split.content.type, 'group');
+  assert.equal(split.opacity, 0.5);
+  const [first, second] = split.content.layers.map((layer) => layer.content);
+  assert.deepEqual(first.commands, [{ type: 'moveTo', x: 50, y: 0 }, { type: 'lineTo', x: 100, y: 0 }]);
+  assert.deepEqual(first.lineDash, { pattern: [12, 6], offset: 50 });
+  assert.deepEqual(second.commands, [{ type: 'moveTo', x: 0, y: 50 }, { type: 'lineTo', x: 100, y: 50 }]);
+  assert.deepEqual(second.lineDash, { pattern: [12, 6] });
+  // Starting in the last subpath, one layer is enough.
+  assert.deepEqual(single.content.commands, [{ type: 'moveTo', x: 50, y: 50 }, { type: 'lineTo', x: 100, y: 50 }]);
+  assert.deepEqual(single.content.lineDash, { pattern: [12, 6], offset: 50 });
+});
+
+test('a filled path with a trimmed dashed stroke dashes only the stroke layer', () => {
+  const [, frame] = render(
+    `<Path points={[[0, 0], [100, 0], [100, 100], [0, 100]]} closed fill="#112233" stroke="#FFFFFF"
+       dash={[10, 5]} dashOffset={2} progressStart={0.5} />`,
+  );
+  const [group] = frame.scene.layers;
+  assert.equal(group.content.type, 'group');
+  const [fill, stroke] = group.content.layers.map((layer) => layer.content);
+  assert.equal(fill.lineDash, undefined);
+  assert.equal(fill.commands.length, 5);
+  assert.deepEqual(stroke.lineDash, { pattern: [10, 5], offset: 202 });
+  assert.equal(stroke.fill, undefined);
+});
+
 test('a dashed ellipse or circle runs its dashes clockwise from its rightmost point', () => {
   const [, frame] = render(
     `<Ellipse x={10} y={20} width={100} height={60} stroke="#FFFFFF" strokeWidth={4} dash={[0, 9]} dashOffset={2} cap="round" />

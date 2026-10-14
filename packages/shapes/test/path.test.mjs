@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 
+import { pointOnPath } from '../dist/index.js';
+
 const cli = fileURLToPath(new URL('../../cli/bin/celesta-react-render.js', import.meta.url));
 
 /**
@@ -104,6 +106,55 @@ test('a polyline draws the first part of its length, including a closing side', 
     { type: 'lineTo', x: 10, y: 10 },
     { type: 'lineTo', x: 0, y: 10 },
     { type: 'lineTo', x: 0, y: 5 },
+  ]);
+});
+
+test('a path draws the part of its stroke between progressStart and progress, curves split exactly', () => {
+  const curve = [
+    { type: 'moveTo', x: 0, y: 0 },
+    { type: 'quadTo', x1: 50, y1: 0, x: 100, y: 100 },
+  ];
+  const commands = JSON.stringify(curve);
+  const [, frame] = render(
+    `<Path commands={${commands}} stroke="#FFFFFF" progress={0.5} />` +
+      `<Path commands={${commands}} stroke="#FFFFFF" progressStart={0.5} />` +
+      `<Path commands={${commands}} stroke="#FFFFFF" progressStart={0.6} progress={0.4} />`,
+  );
+  const [first, second, empty] = frame.scene.layers.map((layer) => layer.content.commands);
+  assert.deepEqual(first.map((c) => c.type), ['moveTo', 'quadTo']);
+  assert.deepEqual(second.map((c) => c.type), ['moveTo', 'quadTo']);
+  // The halves meet where pointOnPath puts the tip, half the length along.
+  const tip = pointOnPath(curve, 0.5);
+  for (const point of [first[1], second[0]]) {
+    assert.ok(Math.abs(point.x - tip.x) < 1e-9 && Math.abs(point.y - tip.y) < 1e-9, JSON.stringify(point));
+  }
+  // Both halves stay on the parabola y = x² / 100.
+  for (const c of [first[1], second[1]]) {
+    assert.ok(Math.abs(c.y - (c.x * c.x) / 100) < 1e-9);
+  }
+  assert.deepEqual(empty, []);
+});
+
+test('a trimmed closed path ends open, and its fill stays whole under the stroke', () => {
+  const [, frame] = render(
+    `<Path x={5} opacity={0.5} points={[[0, 0], [10, 0], [10, 10], [0, 10]]} closed fill="#112233"
+       stroke="#FFFFFF" cap="round" progressStart={0.25} />`,
+  );
+  const [group] = frame.scene.layers;
+  assert.equal(group.content.type, 'group');
+  assert.deepEqual(group.transform.position, { x: 5, y: 0 });
+  assert.equal(group.opacity, 0.5);
+  const [fill, stroke] = group.content.layers.map((layer) => layer.content);
+  assert.deepEqual(fill.fill, { type: 'solid', color: '#112233' });
+  assert.equal(fill.stroke, undefined);
+  assert.equal(fill.commands.length, 5);
+  assert.equal(stroke.fill, undefined);
+  assert.equal(stroke.lineCap, 'round');
+  assert.deepEqual(stroke.commands, [
+    { type: 'moveTo', x: 10, y: 0 },
+    { type: 'lineTo', x: 10, y: 10 },
+    { type: 'lineTo', x: 0, y: 10 },
+    { type: 'lineTo', x: 0, y: 0 },
   ]);
 });
 

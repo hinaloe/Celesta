@@ -39,6 +39,27 @@
 
 線や図形の stroke は、線と隙間の長さを交互に並べた `dash`（SVG の `stroke-dasharray` と同じ）と、模様を線に沿ってずらす `dashOffset` を取ります。`dash={[0, 12]}` と `cap="round"` で点線になり、`dashOffset={-frame}` で破線が終点へ向かって流れます。模様は最初の点を基準にするので、`progress` で描いていく破線の折れ線でも、描かれた破線は動きません。閉じた図形の破線は時計回りに並び、円・楕円は右端から、`Rect` は左上の角丸の終わりから始まります。`<Arrow>` は軸だけを破線にします。
 
+`<Path>` も `progress` と `progressStart`（経路長に対する 0〜1）で線の一部だけを描けます。曲線も長さに沿って正確に切り出します。どの部分を描いても、破線は全体の線と同じ位置に並びます。`fill` は常に形全体を塗ります。
+
+## パスに沿って動かす・形を変える
+
+`commands` を受け取る関数は、コマンドと同じ `{ x, y }` の形で点を返します（`pointOnPolyline` は `points` と同じ `[x, y]`）。
+
+- `pointOnPath(commands, t)` と `tangentOnPath(commands, t)` は、経路の `t`（0〜1）の位置と向きを返します。`pointOnPath(commands, progress)` は `<Path progress>` の先端と一致します。接線の `angle` は時計回りの度数なので、そのまま `rotation` に渡せます。
+- `getLength`、`getPointAtLength`、`getTangentAtLength` は同じことをピクセル単位の長さで行います。`measurePath(commands)` は一度測ったものを使い回します。
+- `interpolatePath(a, b, t)` は 2 つのパスの中間の形を返します。コマンドの数や種類が違っても、輪郭の長さの割合で角を対応させて補間します。
+- `parseSvgPath(d)` は SVG の `d` 文字列（円弧 `A` を含む全コマンド）をコマンドに、`toSvgPath(commands)` はその逆に変換します。
+
+```tsx
+const ROUTE = parseSvgPath('M0 0 C 100 -80 200 80 300 0');
+const t = progress(frame, 0, 90);
+const tip = pointOnPath(ROUTE, t);
+
+<Path commands={ROUTE} stroke="#4DD6FF" strokeWidth={4} progress={t} />
+<Path x={tip.x} y={tip.y} rotation={tangentOnPath(ROUTE, t).angle} fill="#FFFFFF"
+  points={[[12, 0], [-8, -7], [-8, 7]]} closed />
+```
+
 ## 円・楕円・矢印
 
 `<Circle radius>` と `<Ellipse width height>` は `Rect` と同じように配置します。`x` / `y` でボックスのアンカー（既定は左上）を置き、`fill` のグラデーションは左上を基準とし、`stroke` はボックス内に収まります。`<Arrow x1 y1 x2 y2>` は先端を `x2` / `y2` に向けます。`strokeWidth`、`headLength`、`headWidth`、`heads`（`end`、`start`、`both`）を指定できます。矢印が短いと頭も縮むので、長さ 0 から伸ばせます。長さ 0 では何も描きません。円は丸い `Rect`、ほかの 2 つはパスで描きます。いずれもグラデーション・変換・効果を使えます。
