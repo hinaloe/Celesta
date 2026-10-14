@@ -62,7 +62,7 @@ impl EditorView {
                         this.problems.report(
                             Source::Export,
                             "Export dialog was interrupted",
-                            error.to_string(),
+                            error_chain(&error),
                         );
                         cx.notify();
                     })

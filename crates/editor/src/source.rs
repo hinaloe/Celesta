@@ -1,5 +1,6 @@
 use crate::EDITOR_DEMO_PROJECT;
 use crate::preview::{KeptSchema, ReactPreview};
+use crate::problems::error_chain;
 use celesta_editor_core::EditorDocument;
 use celesta_react_bridge::{
     PropertyInputs, ReactBridge, project_types_template, refresh_project_types,
@@ -50,7 +51,7 @@ impl PropertyArgs {
 
     pub(crate) fn load(&self, entry: &Path) -> Result<PropertyInputs, String> {
         PropertyInputs::load_for_entry(entry, self.props_file.as_deref(), self.props.as_deref())
-            .map_err(|error| error.to_string())
+            .map_err(|error| error_chain(&error))
     }
 }
 
@@ -73,7 +74,7 @@ pub(crate) fn load_source(
             let properties = property_args.load(path)?;
             let metadata =
                 ReactBridge::spawn_with_properties(&node, &cli_script, path, &properties)
-                    .map_err(|error| error.to_string())?
+                    .map_err(|error| error_chain(&error))?
                     .metadata()
                     .clone();
             // A failed first load never opens, so there is no schema to keep.
@@ -86,7 +87,7 @@ pub(crate) fn load_source(
                 REACT_PREVIEW_SAMPLE_RATE,
                 metadata.duration_in_frames,
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| error_chain(&error))?;
             let entry = document
                 .react_entry_absolute_path()
                 .unwrap_or_else(|| path.to_owned());
@@ -107,10 +108,10 @@ pub(crate) fn load_source(
         }
         Some(path) => EditorDocument::load(path)
             .map(|document| (document, None))
-            .map_err(|error| error.to_string()),
+            .map_err(|error| error_chain(&error)),
         None => EditorDocument::from_json(EDITOR_DEMO_PROJECT, "examples")
             .map(|document| (document, None))
-            .map_err(|error| error.to_string()),
+            .map_err(|error| error_chain(&error)),
     };
     if let Ok((document, _)) = &loaded {
         refresh_typescript_support(document);

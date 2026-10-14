@@ -159,7 +159,7 @@ impl EditorView {
                         self.clip_levels = output.clip_levels;
                         self.master_levels = Some(output.master_levels);
                         AudioPreview::from_buffer(output.buffer, self.monitor_volume)
-                            .map_err(|error| error.to_string())
+                            .map_err(|error| error_chain(error.as_ref()))
                     }) {
                         Ok(mut preview) => {
                             if let Err(error) = preview.seek(self.current_time(), self.playing) {

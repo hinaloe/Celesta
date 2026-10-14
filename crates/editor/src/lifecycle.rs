@@ -505,7 +505,7 @@ impl EditorView {
                 let driver = this.driver;
                 let result = loaded.and_then(|(document, react_preview)| {
                     EditorView::from_document(path, document, react_preview, driver)
-                        .map_err(|error| error.to_string())
+                        .map_err(|error| error_chain(error.as_ref()))
                 });
                 match result {
                     Ok(next) => this.replace_contents(next, cx),

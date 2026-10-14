@@ -38,7 +38,7 @@ pub(crate) struct PreviewLoadError {
 
 impl PreviewLoadError {
     pub(crate) fn from_bridge(error: ReactBridgeError) -> Self {
-        let message = error.to_string();
+        let message = error_chain(&error);
         let property_issues = match error {
             ReactBridgeError::InvalidProperties(issues) => issues,
             _ => Vec::new(),
@@ -185,9 +185,10 @@ impl EditorView {
             ReactPreviewMode::ResolveComponents
         };
         match self.document.scene_at(self.current_time()) {
+            // The warnings stay until the result replaces them, so their
+            // counts don't flicker while frames are in flight.
             Ok(scene) => {
                 self.preview_pending = true;
-                self.problems.set_preview_warnings(Vec::new());
                 if let Err(error) = self.preview_worker.request(PreviewRequest {
                     generation,
                     scene,
@@ -202,11 +203,13 @@ impl EditorView {
                     },
                 }) {
                     self.preview_pending = false;
+                    self.problems.set_preview_warnings(Vec::new());
                     self.problems.fail(Source::Preview, error);
                 }
             }
             Err(error) => {
                 self.preview_pending = false;
+                self.problems.set_preview_warnings(Vec::new());
                 self.problems.fail(Source::Preview, error_chain(&error));
             }
         }
