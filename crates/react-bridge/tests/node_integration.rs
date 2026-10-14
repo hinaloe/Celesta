@@ -1452,6 +1452,80 @@ fn embeds_per_track_layers_for_use_project_track_when_node_is_available() {
     assert!(!scene.layers.iter().any(|layer| layer.id == "title-1"));
 }
 
+/// A temp directory holding `script` as `runtime.mjs`, to stand in for the
+/// CLI. Returns the directory and the script.
+fn fake_runtime(name: &str, script: &str) -> (PathBuf, PathBuf) {
+    let dir = std::env::temp_dir().join(format!("celesta-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let runtime = dir.join("runtime.mjs");
+    std::fs::write(&runtime, script).unwrap();
+    (dir, runtime)
+}
+
+fn assert_exit_shows(error: &ReactBridgeError, lines: &[&str]) {
+    assert!(
+        matches!(error, ReactBridgeError::UnexpectedExit { .. }),
+        "expected an unexpected exit, got {error:?}"
+    );
+    let message = error.to_string();
+    for line in lines {
+        assert!(
+            message.contains(&format!("\n  {line}")),
+            "{line:?} missing from {message:?}"
+        );
+    }
+}
+
+#[test]
+fn a_runtime_that_dies_before_the_handshake_shows_its_last_output() {
+    let Some(node) = find_executable("CELESTA_NODE", "node") else {
+        eprintln!("skipping live Node.js test: node was not found");
+        return;
+    };
+    let (dir, runtime) = fake_runtime(
+        "stderr-handshake",
+        "console.error('Error: first line');\nconsole.error('second line');\nprocess.exit(3);\n",
+    );
+    let error = ReactBridge::spawn(&node, &runtime, dir.join("film.tsx"))
+        .err()
+        .expect("the runtime exits before the handshake");
+    assert_exit_shows(&error, &["Error: first line", "second line"]);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_runtime_that_dies_on_a_request_shows_its_last_output() {
+    let Some(node) = find_executable("CELESTA_NODE", "node") else {
+        eprintln!("skipping live Node.js test: node was not found");
+        return;
+    };
+    // Sends a valid handshake, then dies on the first request.
+    let (dir, runtime) = fake_runtime(
+        "stderr-request",
+        r#"const ready = Buffer.from(JSON.stringify({
+  config: { width: 16, height: 9, frameRate: { numerator: 30, denominator: 1 }, durationInFrames: 30 },
+}));
+const length = Buffer.alloc(4);
+length.writeUInt32LE(ready.length);
+process.stdout.write(Buffer.concat([length, ready]));
+process.stdin.once('data', () => {
+  console.error('Error: request failed');
+  console.error('    at render');
+  process.exit(1);
+});
+"#,
+    );
+    let mut bridge = ReactBridge::spawn(&node, &runtime, dir.join("film.tsx")).unwrap();
+    let error = bridge.scene_at(Time::new(0, 30)).unwrap_err();
+    assert_exit_shows(&error, &["Error: request failed", "    at render"]);
+    // The next request finds the pipe closed and still says why.
+    let error = bridge.scene_at(Time::new(1, 30)).unwrap_err();
+    assert_exit_shows(&error, &["Error: request failed", "    at render"]);
+    drop(bridge);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 fn live_react_runtime() -> Option<(PathBuf, PathBuf, PathBuf)> {
     let Some(node) = find_executable("CELESTA_NODE", "node") else {
         eprintln!("skipping live Node.js test: node was not found");
