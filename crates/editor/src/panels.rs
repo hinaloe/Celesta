@@ -384,7 +384,6 @@ impl EditorView {
             .min_h_0()
             .w_full()
             .bg(cx.theme().sidebar)
-            .child(panel_header("Inspector", 0, cx))
             .child(contents)
     }
 
@@ -590,7 +589,6 @@ impl EditorView {
             .w_full()
             .flex_col()
             .bg(cx.theme().sidebar)
-            .child(panel_header("React Preview", 0, cx))
             .child(
                 div()
                     .id("react-preview-scroll")

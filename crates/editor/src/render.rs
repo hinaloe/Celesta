@@ -133,11 +133,7 @@ impl EditorView {
                             .overflow_hidden()
                             .border_l_1()
                             .border_color(border)
-                            .child(if react {
-                                self.react_preview_panel(cx).into_any_element()
-                            } else {
-                                self.inspector_panel(cx).into_any_element()
-                            }),
+                            .child(self.right_dock(cx)),
                     ),
             );
         div()

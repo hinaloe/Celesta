@@ -535,6 +535,7 @@ impl EditorView {
         next.monitor_volume = self.monitor_volume;
         next.loop_playback = self.loop_playback;
         next.show_safe_areas = self.show_safe_areas;
+        next.right_tab = self.right_tab;
         *self = next;
         if self.is_react_preview() {
             self.watch_react_entry(cx);

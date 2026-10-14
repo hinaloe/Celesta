@@ -20,11 +20,20 @@ use gpui_kit::component::menu::AppMenuBar;
 use gpui_kit::component::resizable::ResizableState;
 use gpui_kit::{Bounds, Entity, FocusHandle, Pixels, SharedString};
 use std::cell::Cell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Instant;
+
+/// Which tab the right dock shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum RightTab {
+    /// The inspector, or the React Preview panel in React-preview mode.
+    #[default]
+    Details,
+    Problems,
+}
 
 pub(crate) struct EditorView {
     /// The file this view was opened from (`None` for the built-in demo);
@@ -37,6 +46,9 @@ pub(crate) struct EditorView {
     pub(crate) opening: bool,
     /// Every error and warning, and the log since this project opened.
     pub(crate) problems: Problems,
+    pub(crate) right_tab: RightTab,
+    /// History rows the user expanded, by `LogEntry::id`.
+    pub(crate) expanded_log_entries: HashSet<u64>,
     /// The in-window menu bar. macOS shows the same menus natively instead.
     #[cfg(not(target_os = "macos"))]
     pub(crate) app_menu_bar: Option<Entity<AppMenuBar>>,
@@ -212,6 +224,8 @@ impl EditorView {
             session: 0,
             opening: false,
             problems: Problems::default(),
+            right_tab: RightTab::Details,
+            expanded_log_entries: HashSet::new(),
             #[cfg(not(target_os = "macos"))]
             app_menu_bar: None,
             document,
