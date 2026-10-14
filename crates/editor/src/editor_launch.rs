@@ -3,6 +3,7 @@
 
 use celesta_react_bridge::LayerSource;
 use std::fmt;
+use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
@@ -56,15 +57,39 @@ pub(crate) fn editor_value(env: impl Fn(&str) -> Option<String>) -> Option<Strin
         .find(|value| !value.trim().is_empty())
 }
 
+/// The text between the first two login shell markers, once both are present.
+fn marked_values(output: &str) -> Option<&str> {
+    let start = output.find(LOGIN_SHELL_MARKER)? + LOGIN_SHELL_MARKER.len();
+    let len = output[start..].find(LOGIN_SHELL_MARKER)?;
+    Some(&output[start..start + len])
+}
+
 /// The first non-empty of the two values printed between the login shell
 /// markers (`VISUAL`, then `EDITOR`, separated by a NUL).
 pub(crate) fn parse_login_shell_output(output: &str) -> Option<String> {
-    let start = output.find(LOGIN_SHELL_MARKER)? + LOGIN_SHELL_MARKER.len();
-    let len = output[start..].find(LOGIN_SHELL_MARKER)?;
-    output[start..start + len]
+    marked_values(output)?
         .split('\0')
         .find(|value| !value.trim().is_empty())
         .map(str::to_string)
+}
+
+/// Reads until the closing marker has arrived, or `reader` ends. Stopping at
+/// the marker matters because a daemon an rc file starts can keep the pipe
+/// open long after the shell has printed its answer and exited.
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(crate) fn read_until_closing_marker(mut reader: impl Read) -> String {
+    let mut bytes = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(read) => bytes.extend_from_slice(&chunk[..read]),
+        }
+        if marked_values(&String::from_utf8_lossy(&bytes)).is_some() {
+            break;
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 /// Asks the login shell for `VISUAL`/`EDITOR` once per session, caching the
@@ -78,7 +103,6 @@ pub(crate) fn login_shell_editor() -> Option<String> {
 
 #[cfg(unix)]
 fn read_login_shell_editor() -> Option<String> {
-    use std::io::Read;
     use std::sync::mpsc;
     use std::thread;
     use std::time::Duration;
@@ -96,19 +120,17 @@ fn read_login_shell_editor() -> Option<String> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let mut stdout = child.stdout.take()?;
+    let stdout = child.stdout.take()?;
     let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = stdout.read_to_end(&mut bytes);
-        let _ = sender.send(bytes);
+        let _ = sender.send(read_until_closing_marker(stdout));
     });
     let output = receiver.recv_timeout(Duration::from_secs(3)).ok();
     // A shell that already exited is unaffected; one stuck in an rc file is
     // stopped here so the caller never waits beyond the timeout.
     let _ = child.kill();
     let _ = child.wait();
-    parse_login_shell_output(&String::from_utf8_lossy(&output?))
+    parse_login_shell_output(&output?)
 }
 
 #[cfg(not(unix))]

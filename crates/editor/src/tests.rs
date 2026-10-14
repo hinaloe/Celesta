@@ -3,7 +3,7 @@ use crate::audio::{AudioCacheKey, CachedAudioDecoder, take_latest};
 use crate::audio_cache::DiskAudioCache;
 use crate::editor_launch::{
     Invocation, LaunchError, default_opener, editor_invocation, editor_value,
-    parse_login_shell_output, split_command,
+    parse_login_shell_output, read_until_closing_marker, split_command,
 };
 use crate::export_worker::{ExportEvent, ExportRequest, ExportSource, ExportWorker};
 use crate::helpers::{
@@ -619,4 +619,41 @@ fn launch_error_displays_the_panel_copy() {
         LaunchError::Spawn("No such file or directory".to_string()).to_string(),
         "Could not open the editor: No such file or directory"
     );
+}
+
+/// Yields `chunks`, then panics: a read past them means the caller waited for
+/// an end of stream that a daemon holding the pipe would never deliver.
+struct ChunksThenForever {
+    chunks: std::vec::IntoIter<&'static [u8]>,
+}
+
+impl std::io::Read for ChunksThenForever {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let chunk = self.chunks.next().expect("read past the closing marker");
+        buf[..chunk.len()].copy_from_slice(chunk);
+        Ok(chunk.len())
+    }
+}
+
+#[test]
+fn reading_login_shell_output_stops_at_the_closing_marker_without_eof() {
+    let reader = ChunksThenForever {
+        chunks: vec![
+            b"noise\n__CELESTA_EDI".as_slice(),
+            b"TOR__code\0vim__CELESTA_EDITOR__\n".as_slice(),
+        ]
+        .into_iter(),
+    };
+
+    let output = read_until_closing_marker(reader);
+
+    assert_eq!(parse_login_shell_output(&output), Some("code".to_string()));
+}
+
+#[test]
+fn reading_login_shell_output_returns_what_it_got_at_eof() {
+    let output = read_until_closing_marker(&b"only noise"[..]);
+
+    assert_eq!(output, "only noise");
+    assert_eq!(parse_login_shell_output(&output), None);
 }
