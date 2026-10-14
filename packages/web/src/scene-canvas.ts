@@ -33,6 +33,24 @@ function commandBox(commands: PathCommand[]): Box {
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 }
 
+/**
+ * Whether a group draws its children onto a canvas of its own first, which
+ * then blends onto its parent as one layer: as `Layer::isolates_group` in the
+ * native renderers, a group with a mask, a blend mode other than normal, or
+ * an opacity below 1, unless its only child is one shape (not a group)
+ * blended normally.
+ */
+function isolatesGroup(layer: WebLayer): boolean {
+  const content = layer.content;
+  if (content.type !== 'group') return false;
+  if (content.mask || (layer.blendMode ?? 'normal') !== 'normal') return true;
+  if (layer.opacity >= 1) return false;
+  const [child, ...rest] = content.layers;
+  if (!child) return false;
+  if (rest.length > 0) return true;
+  return (child.blendMode ?? 'normal') !== 'normal' || child.content.type === 'group';
+}
+
 const grow = ([left, top, right, bottom]: Box, by: number): Box => [left - by, top - by, right + by, bottom + by];
 
 /**
@@ -525,7 +543,7 @@ export class SceneCanvas {
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = alpha;
-      ctx.globalCompositeOperation = mode;
+      ctx.globalCompositeOperation = 'source-over';
       ctx.filter = 'none';
       ctx.drawImage(shown.canvas, 0, 0);
       ctx.restore();
@@ -567,10 +585,23 @@ export class SceneCanvas {
         result.canvas.width = 0;
         return;
       }
-      ctx.save();
-      clipTo(ctx);
-      for (const child of content.layers) await this.layer(ctx, child as WebLayer, matrix, alpha);
-      ctx.restore();
+      let target = ctx;
+      if (isolatesGroup(layer)) target = this.surface(ctx);
+      target.save();
+      clipTo(target);
+      for (const child of content.layers) {
+        await this.layer(target, child as WebLayer, matrix, target === ctx ? alpha : 1);
+      }
+      target.restore();
+      if (target !== ctx) {
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = alpha;
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.filter = 'none';
+        ctx.drawImage(target.canvas, 0, 0);
+        ctx.restore();
+      }
       return;
     }
 
