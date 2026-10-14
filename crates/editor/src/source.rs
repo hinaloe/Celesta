@@ -191,7 +191,19 @@ pub(crate) fn newest_source_mtime(dir: &Path) -> Option<SystemTime> {
                 }
             } else if matches!(
                 path.extension().and_then(OsStr::to_str),
-                Some("tsx" | "ts" | "jsx" | "js" | "mjs" | "cjs" | "json" | "css" | "wgsl")
+                Some(
+                    "tsx"
+                        | "ts"
+                        | "jsx"
+                        | "js"
+                        | "mjs"
+                        | "cjs"
+                        | "json"
+                        | "css"
+                        | "wgsl"
+                        | "srt"
+                        | "vtt"
+                )
             ) && let Ok(modified) = entry.metadata().and_then(|meta| meta.modified())
             {
                 *newest = Some(newest.map_or(modified, |current| current.max(modified)));

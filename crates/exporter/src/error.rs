@@ -36,6 +36,8 @@ pub enum ExportError {
         path: PathBuf,
         format: VideoFormat,
     },
+    /// The subtitle file's extension is neither `.srt` nor `.vtt`.
+    UnsupportedSubtitles(PathBuf),
     /// The linked FFmpeg build lacks an encoder `format` needs.
     EncoderUnavailable {
         format: VideoFormat,
@@ -82,6 +84,11 @@ impl fmt::Display for ExportError {
                 "export output must use the .{format} extension: {}",
                 path.display()
             ),
+            Self::UnsupportedSubtitles(path) => write!(
+                formatter,
+                "subtitles must use the .srt or .vtt extension: {}",
+                path.display()
+            ),
             Self::EncoderUnavailable { format, encoder } => write!(
                 formatter,
                 "this FFmpeg build has no {encoder} encoder, which {format} export needs"
@@ -120,6 +127,7 @@ impl Error for ExportError {
             Self::OutputExists(_)
             | Self::InvalidSelection(_)
             | Self::UnsupportedOutput { .. }
+            | Self::UnsupportedSubtitles(_)
             | Self::EncoderUnavailable { .. }
             | Self::UnsupportedDimensions { .. }
             | Self::InvalidCrf(_)

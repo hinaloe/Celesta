@@ -3,7 +3,7 @@ use crate::{GpuDriver, RenderQuality};
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -24,6 +24,10 @@ pub struct ExportOptions {
     pub render_quality: RenderQuality,
     /// The graphics API frames are rendered through.
     pub driver: GpuDriver,
+    /// A video export also writes its subtitles here, as SRT or WebVTT by
+    /// the extension, timed like the video: a React entry's `<Subtitles>`
+    /// cues and `<Dialogue>` lines, or a project's dialogue items.
+    pub subtitles: Option<PathBuf>,
 }
 
 /// The container (and, with it, the codecs) an exported video is written in.

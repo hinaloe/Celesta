@@ -35,3 +35,15 @@ test('directory imports resolve JSX, JavaScript and JSON index files', async () 
   new Function('module', 'exports', 'React', result.outputFiles[0].text)(module, module.exports, { createElement: (type, props) => ({ type, props }) });
   assert.deepEqual(module.exports.default(), { type: 'rect', props: { width: 320 } });
 });
+
+test('subtitle files import as their text', async () => {
+  const files = {
+    'film.tsx': "import srt from './captions.srt'; import vtt from './captions.vtt'; export default [srt, vtt];",
+    'captions.srt': '1\n00:00:00,000 --> 00:00:01,000\nHi\n',
+    'captions.vtt': 'WEBVTT\n',
+  };
+  const result = await build({ entryPoints: ['film.tsx'], bundle: true, write: false, format: 'cjs', plugins: [projectFiles(files, 'film.tsx')] });
+  const module = { exports: {} };
+  new Function('module', 'exports', result.outputFiles[0].text)(module, module.exports);
+  assert.deepEqual(module.exports.default, [files['captions.srt'], files['captions.vtt']]);
+});

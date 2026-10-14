@@ -5,6 +5,7 @@ use crate::project::build_audio_graph;
 use crate::range::{resolve_window, shifted_audio_graph};
 use crate::react::{CompanionProject, ReactRuntimeOptions, ReactVideoRequest};
 use crate::render::{ensure_encoders, ensure_not_cancelled, validate_dimensions, validate_output};
+use crate::subtitles;
 use celesta_composition::Time;
 use celesta_media::{AudioMixError, FfmpegBackend, mix_audio_graph_cancellable};
 use celesta_project::Project;
@@ -136,6 +137,9 @@ impl Exporter {
             self.options.overwrite,
         )?;
         ensure_encoders(self.options.video_format)?;
+        if let Some(path) = &self.options.subtitles {
+            subtitles::check_output(path, self.options.overwrite)?;
+        }
 
         // Absolutize the asset roots up front: `absolutize_layers` and
         // `build_audio_graph` rewrite relative asset paths into absolute ones
@@ -210,6 +214,7 @@ impl Exporter {
                 source,
             })?;
         let mut react_audio = Vec::new();
+        let mut react_subtitles = Vec::new();
         let project_refs = project
             .as_ref()
             .map(|(project, root)| (*project, root.as_path()));
@@ -222,6 +227,7 @@ impl Exporter {
                 asset_root,
                 project: project_refs,
                 audio: &mut react_audio,
+                subtitles: &mut react_subtitles,
             },
             final_file.path(),
             cancellation,
@@ -229,17 +235,17 @@ impl Exporter {
         )?;
         ensure_not_cancelled(cancellation)?;
 
+        let duration = Time::frames(
+            i64::try_from(frame_count).map_err(|_| ExportError::TimelineTooLong)?,
+            metadata.frame_rate,
+        )
+        .map_err(ExportError::Time)?;
         let graph = build_audio_graph(&react_audio, asset_root, project_refs)?;
         let audio = !graph.clips.is_empty();
         let output_file = if !audio {
             final_file
         } else {
             progress(ExportProgress::MixingAudio);
-            let duration = Time::frames(
-                i64::try_from(frame_count).map_err(|_| ExportError::TimelineTooLong)?,
-                metadata.frame_rate,
-            )
-            .map_err(ExportError::Time)?;
             let graph = shifted_audio_graph(&graph, window_start).map_err(ExportError::Time)?;
             let mut audio_decoder = FfmpegBackend::new();
             let audio = mix_audio_graph_cancellable(
@@ -290,6 +296,17 @@ impl Exporter {
             audio,
             format: self.options.video_format,
         }));
+        if let Some(path) = &self.options.subtitles {
+            let window = subtitles::Window {
+                start: window_start.as_seconds().map_err(ExportError::Time)?,
+                duration: duration.as_seconds().map_err(ExportError::Time)?,
+            };
+            self.write_subtitles(
+                path,
+                &subtitles::react_cues(&react_subtitles, window),
+                &mut progress,
+            )?;
+        }
         Ok(())
     }
 }

@@ -19,6 +19,7 @@ import { type StaticsFrame, StaticSubtrees } from './static';
 import { resolveComponent } from './registry';
 import { type HostNode, type RootContainer, HostReconciler, createRoot } from './reconciler';
 import { type LayerSourceEntry, sourceChain } from './source-chain';
+import { checkCue } from './subtitles';
 import type {
   BlendMode,
   Clip,
@@ -62,6 +63,7 @@ const HOST_TYPES = new Set([
   'sequence',
   'freeze-frame',
   'rawLayers',
+  'subtitles',
 ]);
 const ZERO_TIME: Time = { value: 0, timescale: 1 };
 
@@ -116,6 +118,18 @@ export interface AudioClipDescriptor {
 }
 
 /**
+ * One subtitle shown at a requested frame, from `<Subtitles>` or a
+ * `<Dialogue>` line: its text and the composition seconds it is shown for,
+ * cut to the enclosing `<Sequence>`s. Each frame reports the subtitles it
+ * shows; the exporter merges the reports into its subtitle file.
+ */
+export interface SubtitleDescriptor {
+  text: string;
+  start: number;
+  end: number;
+}
+
+/**
  * Where the walker is inside the composition's timeline. `time` is local to
  * the enclosing `<Sequence>` chain; `originSec` converts local time back to
  * composition seconds (`local + originSec`); `rangeStartSec`/`rangeEndSec`
@@ -150,6 +164,8 @@ interface WalkContext {
   insideStatic: boolean;
   /** Filled with the host node behind each layer id, for `layerSource`; `null` otherwise. */
   layerNodes: Map<string, HostNode> | null;
+  /** Collects the frame's subtitles; `null` where none are shown, as inside a `<FreezeFrame>`. */
+  subtitles: SubtitleDescriptor[] | null;
 }
 
 interface StaticWalk {
@@ -161,7 +177,7 @@ interface StaticWalk {
 }
 
 /** Host types whose layers depend on the time, which `<Static>` cannot hold. */
-const TIME_DEPENDENT_TYPES = new Set(['video', 'audio', 'sequence', 'freeze-frame', 'rawLayers']);
+const TIME_DEPENDENT_TYPES = new Set(['video', 'audio', 'sequence', 'freeze-frame', 'rawLayers', 'subtitles']);
 
 export interface MountedComposition {
   /** Unmounts the persistent React root and runs effect cleanup. */
@@ -200,7 +216,7 @@ export interface MountedComposition {
       /** Evaluate as the editor preview, where `useIsPreview()` is true. Exports never set it. */
       preview?: boolean;
     },
-  ): { scene: Scene; audio: AudioClipDescriptor[]; statics?: StaticsFrame };
+  ): { scene: Scene; audio: AudioClipDescriptor[]; subtitles: SubtitleDescriptor[]; statics?: StaticsFrame };
   /** Sweeps every frame without constructing visual layers; hooks and font measurements still run. */
   collectAudio(): AudioClipDescriptor[];
   /**
@@ -260,6 +276,7 @@ function rootWalkContext(
   compact = false,
   statics: StaticWalk | null = null,
   layerNodes: Map<string, HostNode> | null = null,
+  subtitles: SubtitleDescriptor[] | null = null,
 ): WalkContext {
   const endSec = durationInFrames / fps;
   return {
@@ -279,6 +296,7 @@ function rootWalkContext(
     statics,
     insideStatic: false,
     layerNodes,
+    subtitles,
   };
 }
 
@@ -389,6 +407,7 @@ function hostWalk(id: string, context: WalkContext, audio: AudioClipDescriptor[]
     resolveAsset,
     layers: (node, path) => walkNode(node, path, context, audio),
     collectAudio: (props) => collectAudioClip(props, context, audio),
+    collectSubtitle: (text) => collectSubtitle(text, 0, Infinity, context),
   };
 }
 
@@ -835,6 +854,7 @@ function childSequenceContext(node: HostNode, context: WalkContext): WalkContext
     statics: context.statics,
     insideStatic: context.insideStatic,
     layerNodes: context.layerNodes,
+    subtitles: context.subtitles,
   };
 }
 
@@ -862,6 +882,8 @@ function childFreezeContext(node: HostNode, context: WalkContext, layerId: strin
     statics: context.statics,
     insideStatic: context.insideStatic,
     layerNodes: context.layerNodes,
+    // A frozen picture shows no subtitles of its own, as it plays no audio.
+    subtitles: null,
   };
 }
 
@@ -911,6 +933,41 @@ function collectAudioClip(props: Record<string, unknown>, context: WalkContext, 
   });
 }
 
+/**
+ * Reports `text` as shown from local second `startLocalSec` to `endLocalSec`
+ * of the enclosing `<Sequence>`, cut to its window.
+ */
+function collectSubtitle(text: string, startLocalSec: number, endLocalSec: number, context: WalkContext): void {
+  if (!context.subtitles || text.trim() === '') {
+    return;
+  }
+  const start = Math.max(context.rangeStartSec, context.originSec + startLocalSec);
+  const end = Math.min(context.rangeEndSec, context.originSec + endLocalSec);
+  if (end > start) {
+    context.subtitles.push({ text, start, end });
+  }
+}
+
+/** Reports the `<Subtitles>` cues shown at this frame. */
+function collectSubtitleCues(props: Record<string, unknown>, context: WalkContext): void {
+  if (!context.subtitles) {
+    return;
+  }
+  const { cues } = props;
+  if (!Array.isArray(cues)) {
+    throw new Error('<Subtitles> requires a `cues` array');
+  }
+  const localSec = secondsFromTime(context.time);
+  cues.forEach((cue: unknown, index) => {
+    checkCue(cue, index, '<Subtitles>');
+    const startLocalSec = cue.from / context.fps;
+    const endLocalSec = (cue.from + cue.durationInFrames) / context.fps;
+    if (localSec >= startLocalSec && localSec < endLocalSec) {
+      collectSubtitle(cue.text, startLocalSec, endLocalSec, context);
+    }
+  });
+}
+
 function walkNode(
   node: HostNode,
   path: string,
@@ -926,7 +983,11 @@ function walkNode(
     return audioOnly ? [] : [staticLayer(node, path, context, audio)];
   }
   if (element) {
-    element.audio?.(node, hostWalk(path, context, audio));
+    if (element.audio || element.subtitles) {
+      const walk = hostWalk(path, context, audio);
+      element.audio?.(node, walk);
+      element.subtitles?.(node, walk);
+    }
     return audioOnly || !element.content ? [] : [buildLayer(node, path, context, audio)];
   }
   if (!HOST_TYPES.has(node.type)) {
@@ -950,6 +1011,10 @@ function walkNode(
     node.type === 'asset-audio' ||
     node.type === 'asset-font'
   ) {
+    return [];
+  }
+  if (node.type === 'subtitles') {
+    collectSubtitleCues(node.props, context);
     return [];
   }
   if (node.type === 'audio') {
@@ -1218,6 +1283,7 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
   ) => {
     const instance = settleTree(time, project, openEnd, debugGuides, preview);
     const audio: AudioClipDescriptor[] = [];
+    const subtitles: SubtitleDescriptor[] = [];
     const context = rootWalkContext(
       config.frameRate.numerator,
       config.durationInFrames,
@@ -1226,6 +1292,8 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
       openEnd,
       compact,
       audioOnly ? null : { cache: staticSubtrees, refer: statics !== undefined, referenced: new Set() },
+      null,
+      audioOnly ? null : subtitles,
     );
     if (!audioOnly && hasHostElementPreparation()) {
       for (const child of instance.children) {
@@ -1256,6 +1324,7 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
         layers,
       },
       audio,
+      subtitles,
     };
   };
 

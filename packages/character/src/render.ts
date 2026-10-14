@@ -2,8 +2,10 @@
 // components.ts render. Importing this module registers them with the core
 // renderer, which otherwise rejects these element types.
 
+import type { ReactNode } from 'react';
+
 import type { EvaluatedTransform, Layer, LayerContent } from '@celesta/react';
-import { registerHostElement } from '@celesta/react/internal';
+import { flattenTextContent, registerHostElement } from '@celesta/react/internal';
 import type { HostNode, HostVisit, HostWalk } from '@celesta/react/internal';
 
 import { type BlinkPhase, type BlinkTiming, blinkPhase } from './blink';
@@ -267,6 +269,12 @@ registerHostElement('dialogue', {
   audio(node, walk) {
     if (node.props.audio !== undefined) {
       walk.collectAudio({ ...node.props, src: node.props.audio });
+    }
+  },
+  // The line is the subtitle for as long as it is up; a held line is not.
+  subtitles(node, walk) {
+    if (node.props.held !== true) {
+      walk.collectSubtitle(flattenTextContent(node.props.text as ReactNode, '<Dialogue> children').text);
     }
   },
   content: dialogueContent,

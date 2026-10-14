@@ -5,7 +5,7 @@ use crate::props_edit::OrderedObject;
 use crate::statics::StaticDefinition;
 use crate::types::{
     ComponentPropertyField, ComponentPropertySchema, LayerSource, ReactAudioClipDescriptor,
-    ReactCompositionConfig, ReactCompositionInfo,
+    ReactCompositionConfig, ReactCompositionInfo, ReactSubtitleDescriptor,
 };
 use celesta_composition::{Layer, Scene, ShaderSource, Time};
 use serde::{Deserialize, Serialize};
@@ -104,6 +104,9 @@ pub(crate) enum Response {
         scene: Scene,
         #[serde(default)]
         audio: Vec<ReactAudioClipDescriptor>,
+        /// Absent when the frame shows none.
+        #[serde(default)]
+        subtitles: Vec<ReactSubtitleDescriptor>,
         /// The runtime's echo of an `openEnd` request; an older runtime
         /// ignores the request and leaves it out.
         #[serde(default, rename = "openEnd")]
@@ -147,6 +150,8 @@ pub(crate) struct RawResponse {
     pub(crate) scene: Option<Scene>,
     #[serde(default)]
     pub(crate) audio: Vec<ReactAudioClipDescriptor>,
+    #[serde(default)]
+    pub(crate) subtitles: Vec<ReactSubtitleDescriptor>,
     pub(crate) components: Option<Vec<Option<Vec<Layer>>>>,
     pub(crate) layer_source: Option<LayerSourceReply>,
     #[serde(default)]
@@ -174,6 +179,7 @@ impl TryFrom<RawResponse> for Response {
             Ok(Self::Ok {
                 scene,
                 audio: raw.audio,
+                subtitles: raw.subtitles,
                 open_end: raw.open_end,
                 seq: raw.seq,
                 statics: raw.statics,

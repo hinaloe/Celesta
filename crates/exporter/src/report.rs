@@ -113,6 +113,11 @@ enum Output {
         frame: u64,
         time: f64,
     },
+    Subtitles {
+        path: PathBuf,
+        format: &'static str,
+        cues: usize,
+    },
     ContactSheet {
         path: PathBuf,
         columns: u32,
@@ -315,6 +320,11 @@ fn output(file: ExportedFile, frame_rate: Option<Rational>) -> Output {
             frame,
             time: seconds(frame, rate),
         },
+        ExportedFile::Subtitles { path, format, cues } => Output::Subtitles {
+            path: absolute(&path),
+            format: format.as_str(),
+            cues,
+        },
         ExportedFile::ContactSheet {
             path,
             frames,
@@ -381,6 +391,10 @@ fn error_report(error: &ExportError, hints: HintStyle) -> ErrorReport {
             } else {
                 "write video to a .mp4, .mov or .webm path with export_video, or render PNG frames with render_frames"
             }),
+        ),
+        ExportError::UnsupportedSubtitles(_) => (
+            "unsupported_subtitles",
+            Some("write subtitles to a .srt or .vtt path"),
         ),
         ExportError::EncoderUnavailable { .. } => ("encoder_unavailable", None),
         ExportError::UnsupportedDimensions { .. } => (

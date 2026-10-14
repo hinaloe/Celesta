@@ -1,8 +1,8 @@
 // Host element types defined outside the core components. A package such as
 // `@celesta/character` renders its own lowercase host elements and registers
-// here how render.ts turns them into layers and audio, so the walker needs no
-// knowledge of them. Registration happens when the package's module loads,
-// before any element of that type can be rendered.
+// here how render.ts turns them into layers, audio, and subtitles, so the
+// walker needs no knowledge of them. Registration happens when the package's
+// module loads, before any element of that type can be rendered.
 
 import type { HostNode } from './reconciler';
 import type { Layer, LayerContent, ResolvedAsset } from './scene';
@@ -32,6 +32,11 @@ export interface HostWalk extends HostVisit {
   layers(node: HostNode, path: string): Layer[];
   /** Plays `props` (`src`, `startFrom`, `playbackRate`, `volume`, `muted`) as `<Audio>` would here. */
   collectAudio(props: Record<string, unknown>): void;
+  /**
+   * Reports `text` as a subtitle shown for the whole enclosing `<Sequence>`,
+   * for the export's subtitle file. Ignored inside a `<FreezeFrame>`.
+   */
+  collectSubtitle(text: string): void;
 }
 
 export interface HostElement {
@@ -43,6 +48,8 @@ export interface HostElement {
   prepare?(node: HostNode, visit: HostVisit): void;
   /** Collects the element's audio; runs for audio-only sweeps too, without `prepare`. */
   audio?(node: HostNode, walk: HostWalk): void;
+  /** Reports the subtitles the element shows; runs for audio-only sweeps too, without `prepare`. */
+  subtitles?(node: HostNode, walk: HostWalk): void;
   /**
    * The element's layer content; its transform, opacity, blend mode, and
    * effects come from the common props. Without `content` it draws nothing.

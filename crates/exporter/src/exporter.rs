@@ -5,6 +5,7 @@ use crate::range::{ExportWindow, resolve_window, shifted_audio_graph};
 use crate::render::{
     ensure_encoders, ensure_not_cancelled, frame_count, validate_dimensions, validate_output,
 };
+use crate::subtitles;
 use celesta_composition::Time;
 use celesta_evaluator::Evaluator;
 use celesta_media::{AudioMixError, FfmpegBackend, mix_audio_graph_cancellable};
@@ -84,6 +85,9 @@ impl Exporter {
             self.options.overwrite,
         )?;
         ensure_encoders(self.options.video_format)?;
+        if let Some(path) = &self.options.subtitles {
+            subtitles::check_output(path, self.options.overwrite)?;
+        }
         let duration = project.effective_duration().map_err(ExportError::Time)?;
         let full_frame_count = frame_count(duration, project.settings.frame_rate)?;
         progress(ExportProgress::Composition(CompositionInfo {
@@ -208,6 +212,30 @@ impl Exporter {
             frames: window.frames,
             audio: true,
             format: self.options.video_format,
+        }));
+        if let Some(path) = &self.options.subtitles {
+            let window = subtitles::Window {
+                start: window.start.as_seconds().map_err(ExportError::Time)?,
+                duration: window.duration.as_seconds().map_err(ExportError::Time)?,
+            };
+            let cues = subtitles::project_cues(project, window).map_err(ExportError::Time)?;
+            self.write_subtitles(path, &cues, &mut progress)?;
+        }
+        Ok(())
+    }
+
+    /// Writes the subtitle file of a finished video export and reports it.
+    pub(crate) fn write_subtitles(
+        &self,
+        path: &Path,
+        cues: &[subtitles::Cue],
+        progress: &mut impl FnMut(ExportProgress),
+    ) -> Result<(), ExportError> {
+        let format = subtitles::write(path, cues, self.options.overwrite)?;
+        progress(ExportProgress::Wrote(ExportedFile::Subtitles {
+            path: path.to_owned(),
+            format,
+            cues: cues.len(),
         }));
         Ok(())
     }

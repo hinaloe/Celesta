@@ -316,6 +316,10 @@ portrait is drawn at its natural size; use `scale` for large artwork.
 | `x`, `y`, `opacity`, … | Move or fade the **subtitle**, useful inside a `<Transition>`. |
 | `held` | Keep the subtitle up after its line: `subtitle.render` gets `held: true`; a plain subtitle draws nothing. Give it no `audio` or `expression`. |
 
+An export with `--subtitles film.srt` writes every line that is not `held`
+into an SRT or WebVTT file, for as long as its sequence shows it
+([subtitles.md](subtitles.md#write-the-subtitle-file-on-export)).
+
 ## Automatic lip sync
 
 `loadLipSync({ src, text, hopHz? })` reads a voice recording and spreads the

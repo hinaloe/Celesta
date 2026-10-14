@@ -1,6 +1,6 @@
 ---
 name: celesta
-description: Write, edit, check, and export Celesta videos. Covers React compositions (.tsx/.jsx files that import @celesta/react or another @celesta/* package), .celesta.json project timelines, starting a project (--init), animation, shapes and diagrams, text and fonts (measuring, fitting, language, Japanese line breaking), syntax-highlighted code, images/video/audio, character dialogue with subtitles, lip sync, and blinking (image or PSD portraits, custom subtitle bands), project properties, registered components, seamless loops for Shorts and TikTok, PNG frame and contact-sheet checks, and MP4 export with the Celesta command-line exporter. Use whenever a file imports @celesta/*, a *.celesta.json file is involved, or the user asks to make, change, preview, debug, or render a video with Celesta, even if they only say "the video" or "the scene".
+description: Write, edit, check, and export Celesta videos. Covers React compositions (.tsx/.jsx files that import @celesta/react or another @celesta/* package), .celesta.json project timelines, starting a project (--init), animation, shapes and diagrams, text and fonts (measuring, fitting, language, Japanese line breaking), syntax-highlighted code, images/video/audio, character dialogue with subtitles, lip sync, and blinking, SRT/WebVTT subtitle files in and out (image or PSD portraits, custom subtitle bands), project properties, registered components, seamless loops for Shorts and TikTok, PNG frame and contact-sheet checks, and MP4 export with the Celesta command-line exporter. Use whenever a file imports @celesta/*, a *.celesta.json file is involved, or the user asks to make, change, preview, debug, or render a video with Celesta, even if they only say "the video" or "the scene".
 ---
 
 # Celesta
@@ -135,7 +135,8 @@ produces a video that differs between preview and export.
    row, staggered entrances, beats, cues, camera), and
    [text.md](references/text.md) (measuring, fitting text into a box,
    Japanese `lineBreak: 'phrase'`, `<Composition lang="ja-JP">` so CJK text
-   uses the right fallback fonts). Draw diagrams with `Path`, `Circle`,
+   uses the right fallback fonts), and [subtitles.md](references/subtitles.md)
+   (captions from an SRT/WebVTT file, `--subtitles` on export). Draw diagrams with `Path`, `Circle`,
    `Ellipse`, and `Arrow`, not with many thin `Rect`s. Effects and blend modes cost GPU passes
    per layer: put one effect on a `Group` rather than on each of dozens of
    layers ([performance.md](references/performance.md)).
@@ -177,7 +178,7 @@ layers sit; it does not prove the rendered pixels.
 
 | Package | Provides |
 | --- | --- |
-| `@celesta/react` | `Composition`, `Sequence`, `Series`, `Stagger`, `FreezeFrame`, `Group`, `Rect`, `Text`, `Span`, `Image`, `Video`, `Audio`, `Font`, `Assets`, `useCurrentFrame`/`useCurrentTime`/`useVideoConfig`/`useIsPreview`/`useDebugGuides`, `interpolate`, `interpolateColor`, `Easings`, `spring`, `progress`, `frameKeyframes`, `useBeat`/`useCue`, timecodes, `measureText`/`useTextMetrics`/`textCaret`, `registerComponent`, `defineProjectProperties`/`getProjectProperty`, and the scene types |
+| `@celesta/react` | `Composition`, `Sequence`, `Series`, `Stagger`, `FreezeFrame`, `Group`, `Rect`, `Text`, `Span`, `Image`, `Video`, `Audio`, `Font`, `Assets`, `useCurrentFrame`/`useCurrentTime`/`useVideoConfig`/`useIsPreview`/`useDebugGuides`, `interpolate`, `interpolateColor`, `Easings`, `spring`, `progress`, `frameKeyframes`, `useBeat`/`useCue`, timecodes, `parseSubtitles`/`formatSubtitles`/`Subtitles`, `measureText`/`useTextMetrics`/`textCaret`, `registerComponent`, `defineProjectProperties`/`getProjectProperty`, and the scene types |
 | `@celesta/shapes` | `Line`, `Polyline`, `Path`, `Circle`, `Ellipse`, `Arrow`, `pointOnPolyline` |
 | `@celesta/shader` | `defineShader` (custom WGSL filters for the `shader` prop), and the color filters `brightness`, `contrast`, `saturation`, `hue`, `grayscale`, `invert`, `tint`, `vignette` for the same array |
 | `@celesta/layout` | `Center`, `Stack`, `Grid`, `Fit`, `SafeArea`, `safeAreaInsets`, `useLayoutBounds`, `Camera` |
@@ -210,6 +211,7 @@ Load only the one you need; each is self-contained.
 | Entry file and `prepare()`, layer props (incl. effects and color filters: `brightness`, `saturation`, `tint`, `vignette`, …), `Rect`/gradients, `Path`/`Line`/`Polyline`, `Circle`/`Ellipse`/`Arrow`, `Group` clip, `Image`, `Video`, `Audio`, `Font`/`Assets`, layout helpers (`Center`, `SafeArea`, `Stack`, `Grid`, `Fit`), vertical video and platform UI safe areas, `preloadMedia`, audio keyframes and `frameKeyframes`, debug guides | [react-core.md](references/react-core.md) |
 | Frame hooks, `interpolate`, `interpolateColor`, `Easings`, `spring`, `progress`, `Sequence`, `Series`, `TransitionSeries`, `Stagger`, `Transition`, `useBeat`, `useCue`, `Camera`, timecodes | [animation.md](references/animation.md) |
 | `Text`, `TextStyle`, fonts and fallback, font stacks (和欧混植), text language (`lang`), emoji, line breaking, `TextReveal`, `useTypewriter`, `useCountUp`, `useTextMetrics`/`measureText`, `TextBox`/`useFitText`/`fitText` | [text.md](references/text.md) |
+| Subtitle files: reading SRT/WebVTT (`parseSubtitles`), `<Subtitles>`, writing them with `formatSubtitles` or `--subtitles` on export | [subtitles.md](references/subtitles.md) |
 | Syntax-highlighted code, typing code, highlighted lines, carets, drawing code lines yourself (`@celesta/code`) | [code.md](references/code.md) |
 | Seeded random, noise, clamp/lerp/remap, waves, angles, points (`@celesta/math`) | [math.md](references/math.md) |
 | A seamless loop (Shorts, TikTok): loop length from beats and bars, periodic motion, looping noise, folding the music's tail back, `inspect.mjs --loop` | [loops.md](references/loops.md) |

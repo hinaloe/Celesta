@@ -36,6 +36,7 @@ import type {
   ProjectFrame,
   ResolutionRuntime,
   Resolver,
+  SubtitleDescriptor,
 } from '@celesta/react/internal';
 
 import { resolvePropertyInputs } from './property-inputs';
@@ -263,7 +264,7 @@ async function main(): Promise<void> {
         const openEnd = request.openEnd === true;
         // Compact frames leave out what Rust reads back by default, which
         // shrinks a NEBULA frame (1,500 particles) from 554 KiB to 458 KiB.
-        const { scene, audio, statics } = mounted.renderAt(request.time, request.project ?? null, {
+        const { scene, audio, subtitles, statics } = mounted.renderAt(request.time, request.project ?? null, {
           openEnd,
           compact: request.compactTransforms === true,
           statics: request.statics,
@@ -273,6 +274,7 @@ async function main(): Promise<void> {
         writeLine({
           scene,
           audio,
+          ...(subtitles.length > 0 ? { subtitles } : {}),
           ...(statics
             ? {
               seq: statics.seq,
@@ -399,6 +401,7 @@ function writeLine(
     | {
         scene: Scene;
         audio: AudioClipDescriptor[];
+        subtitles?: SubtitleDescriptor[];
         seq?: number;
         statics?: { key: number; layers: Layer[] }[];
         droppedStatics?: number[];
@@ -487,8 +490,8 @@ async function loadEntry(entryPath: string, sourceLocations: boolean): Promise<L
     // `jsxDEV(type, props, key, isStatic, { fileName, lineNumber, columnNumber })`
     // for every JSX element in the entry's own files.
     ...(sourceLocations ? { jsxDev: true } : {}),
-    // `@celesta/shader` sources, imported as their text.
-    loader: { '.wgsl': 'text' },
+    // `@celesta/shader` sources and subtitle files, imported as their text.
+    loader: { '.wgsl': 'text', '.srt': 'text', '.vtt': 'text' },
     absWorkingDir: path.dirname(entryPath),
     logLevel: 'silent',
     define: {

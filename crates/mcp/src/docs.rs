@@ -43,6 +43,10 @@ pub static TOPICS: &[Topic] = &[
         "text",
         "Text and TextStyle, fonts and fallback, language, line breaking, measuring and fitting text"
     ),
+    reference!(
+        "subtitles",
+        "SRT/WebVTT subtitle files: reading them into cues, Subtitles, writing them on export"
+    ),
     reference!("code", "Syntax-highlighted and typed code (@celesta/code)"),
     reference!(
         "math",

@@ -101,6 +101,7 @@ impl Exporter {
             asset_root,
             project,
             audio: react_audio,
+            subtitles: react_subtitles,
         } = request;
 
         let filtered_project = project.map(|(project, _)| visual_only_project(project));
@@ -216,6 +217,7 @@ impl Exporter {
                         }
                         let evaluation = bridge.decode_frame(frame).map_err(ExportError::React)?;
                         react_audio.extend(evaluation.audio);
+                        react_subtitles.extend(evaluation.subtitles);
                         let mut scene = evaluation.scene;
                         scene.fonts.extend(project_fonts.iter().cloned());
                         Ok(scene)

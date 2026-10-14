@@ -11,6 +11,7 @@ mod react;
 mod react_entry;
 mod render;
 pub mod report;
+mod subtitles;
 #[cfg(test)]
 mod tests;
 mod timecode;
@@ -25,6 +26,7 @@ pub use options::{
 };
 pub use range::ExportRange;
 pub use react::{CompanionProject, ReactRuntimeOptions};
+pub use subtitles::SubtitleFormat;
 pub use timecode::{TimecodeError, parse_timecode};
 
 mod contact_sheet;

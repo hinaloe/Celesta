@@ -56,6 +56,7 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | `TextBox` / `fitText` / `useFitText` / `measureText` / `useTextMetrics` | `@celesta/text` `@celesta/react` | Measure shaped text or choose a font size for a box; see [Text & fonts](/en/docs/text-fonts/). |
 | `Center`, `SafeArea`, `Stack`, `Grid`, `Fit` | `@celesta/layout` | Arrange child layers. See [layout helpers](/en/docs/layout/). |
 | `preloadMedia` / `mediaDurationInFrames` | `@celesta/media-utils` | Read a media file’s length and size in `prepare()`. |
+| `parseSubtitles` / `formatSubtitles` / `Subtitles` | `@celesta/react` | Read SRT and WebVTT files into frame-timed cues and write them out. `Subtitles` declares the cues `--subtitles` writes. See [Export](/en/docs/export/). |
 | `DebugOverlay` / `DebugBounds` / `useDebugGuides()` / `useIsPreview()` | `@celesta/debug` `@celesta/react` | Debug guides drawn in the preview and in PNG exports with --debug-guides, never in a video. |
 
 ## Legacy JSON project APIs

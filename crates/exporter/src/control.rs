@@ -1,4 +1,5 @@
 use crate::options::VideoFormat;
+use crate::subtitles::SubtitleFormat;
 use celesta_composition::Rational;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -48,6 +49,12 @@ pub enum ExportedFile {
         /// Whether the file has an audio stream.
         audio: bool,
         format: VideoFormat,
+    },
+    /// The subtitle file beside a video, with its number of cues.
+    Subtitles {
+        path: PathBuf,
+        format: SubtitleFormat,
+        cues: usize,
     },
     /// One PNG of composition frame `frame`.
     Frame { path: PathBuf, frame: u64 },
