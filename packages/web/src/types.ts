@@ -40,7 +40,7 @@ export type TextStyle = {
   lineBreak?: 'normal' | 'phrase' | null;
 };
 export type LayerContent =
-  | { type: 'group'; layers: Layer[]; clip?: { x: number; y: number; width: number; height: number; cornerRadius: number } | null }
+  | { type: 'group'; layers: Layer[]; clip?: { x: number; y: number; width: number; height: number; cornerRadius: number } | null; motionBlur?: boolean }
   | { type: 'rect'; width: number; height: number; fill?: Paint | null; stroke?: Stroke | null; cornerRadius: number }
   | { type: 'path'; commands: PathCommand[]; fill?: Paint | null; stroke?: Stroke | null; lineCap?: 'butt' | 'round' | 'square'; lineJoin?: 'miter' | 'round' | 'bevel'; miterLimit?: number; lineDash?: LineDash | null }
   | { type: 'text'; text: string; style: TextStyle; maxWidth?: number | null; baselineAnchor?: boolean }

@@ -139,7 +139,9 @@ export function motionBlurFrames(
  * function `{(frame) => …}` to compute them per moment. The result is the
  * same for any frame drawn in any order. `<Video>` and animated images
  * inside keep the frame's picture in every moment, as do lip sync and
- * blinking. Audio inside plays once.
+ * blinking. Audio inside plays once. Every moment is a copy, like a
+ * `<FreezeFrame>`'s: a `<CharacterView>` inside never attaches its ref, so a
+ * `<Dialogue>` must be inside too.
  */
 export function MotionBlur(props: MotionBlurProps): ReturnType<typeof React.createElement> {
   const context = requireRuntime('MotionBlur');
@@ -168,7 +170,8 @@ export function MotionBlur(props: MotionBlurProps): ReturnType<typeof React.crea
  * reports that copy's frame; as with `<MotionBlur>`, pass a function
  * `{(frame) => …}` for props computed here. `<Video>` and animated images
  * keep the frame's picture in every copy. Audio plays from the children
- * only.
+ * only. A copy fades as a `<Group>` with that opacity does: overlapping
+ * layers within it show through each other.
  */
 export function Trail(props: TrailProps): ReturnType<typeof React.createElement> {
   const context = requireRuntime('Trail');

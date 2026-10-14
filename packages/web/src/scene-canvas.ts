@@ -1,6 +1,7 @@
 import type { Scene, Layer, Asset, ColorFilter, FontRun, LineDash, Paint, PathCommand, TextStyle } from './types';
 import { applyColorFilters } from './color-filters';
 import { canvasDrawsAlike, gradientPixels } from './gradients';
+import { SampleAverage } from './motion-blur';
 import { loadFonts, releaseFonts } from './fonts';
 import { checkFontRuns, cssFont, letterSpacingPx, measureLine, runPieces, textLineRanges, textStyle } from './text-layout';
 import type { RunPiece } from './text-layout';
@@ -469,16 +470,44 @@ export class SceneCanvas {
       return;
     }
     if (content.type === 'group') {
-      let target = ctx;
-      if (mode !== 'source-over') target = this.surface(ctx);
-      target.save();
       const clip = content.clip;
-      if (clip) {
+      const clipTo = (target: Context) => {
+        if (!clip) return;
         target.setTransform(matrix);
         target.beginPath();
         target.roundRect(clip.x, clip.y, clip.width, clip.height, clip.cornerRadius ?? 0);
         target.clip();
+      };
+      if (content.motionBlur) {
+        // Each child is one sample: drawn onto a surface of its own, then
+        // averaged into one layer that composites like an isolated group.
+        const { width, height } = ctx.canvas;
+        const average = new SampleAverage(width * height * 4);
+        for (const sample of content.layers) {
+          const surface = this.surface(ctx);
+          clipTo(surface);
+          await this.layer(surface, sample as WebLayer, matrix, 1);
+          average.add(surface.getImageData(0, 0, width, height).data);
+          surface.canvas.width = 0;
+        }
+        const result = this.surface(ctx);
+        const pixels = result.createImageData(width, height);
+        average.write(pixels.data);
+        result.putImageData(pixels, 0, 0);
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = alpha;
+        ctx.globalCompositeOperation = mode;
+        ctx.filter = 'none';
+        ctx.drawImage(result.canvas, 0, 0);
+        ctx.restore();
+        result.canvas.width = 0;
+        return;
       }
+      let target = ctx;
+      if (mode !== 'source-over') target = this.surface(ctx);
+      target.save();
+      clipTo(target);
       for (const child of content.layers) {
         await this.layer(target, child as WebLayer, matrix, target === ctx ? alpha : 1);
       }
