@@ -202,17 +202,22 @@ covered by the dated handoff notes.
   advance width, including leading/trailing spaces. Multiline text retains
   its layout box. Baseline anchoring uses the first line's baseline.
 - Blend modes operate on non-premultiplied color values. Groups with a
-  non-normal blend mode are isolated, and their opacity applies to the
-  composited group. GPU isolation uses pooled canvases bounded to the affected
+  non-normal blend mode or an opacity below 1 are isolated, and their opacity
+  applies to the composited group, as CSS `opacity` does; a group whose only
+  child is one non-group, non-instances shape blended normally passes its
+  opacity down instead (`Layer::isolates_group`, mirrored in `@celesta/web`).
+  GPU isolation uses pooled canvases bounded to the affected
   region, with a scene-sized root canvas for blending/effects.
 - Consecutive layers sharing a texture can batch into an instanced draw.
   Textures are cached across frames by their inputs; unused entries are
   dropped. Text cache keys include the loaded-font count. React host child
   insertion must move existing children rather than duplicate them.
 - Group clips follow the group's transform and intersect through nested
-  clips. GPU clip nesting is limited to eight levels. General group masks
-  are not implemented. Distance scaling is exact for uniform scales and
-  approximate for non-uniform scales.
+  clips. GPU clip nesting is limited to eight levels. Distance scaling is
+  exact for uniform scales and approximate for non-uniform scales.
+- `<Group mask>` / `<Mask>` show a group's children where another subtree
+  draws, by alpha or luminance, optionally inverted. Masked groups are
+  always isolated, in the GPU and CPU renderers and in `@celesta/web`.
 - Paths use SVG-style absolute commands with non-zero fill and stroked
   outlines. Their position is the origin; anchors are ignored. Ordinary GPU
   paths use tiled coverage; tiles exceeding 64 edges or paths exceeding the

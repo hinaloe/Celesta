@@ -7,7 +7,8 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | `Composition` | `@celesta/react` | Set `width`, `height`, `fps`, and `durationInFrames`. Optional `lang` supplies the default text language. Return exactly one from your default export. |
 | `Rect` | `@celesta/react` | A rectangle with `width`, `height`, and optional `fill`, `stroke`, `strokeWidth`, `cornerRadius`, and a dashed stroke with `dash`, `dashOffset`, and `cap`. |
 | `Text` | `@celesta/react` | Text from string or number children, styled with `style` and wrapped with `maxWidth`. Optional `lang` selects its language; `style.lang` takes priority. See [Text & fonts](/en/docs/text-fonts/). |
-| `Group` | `@celesta/react` | Applies a shared position, scale, rotation, and opacity to child layers. Optional `lang` sets their default text language. |
+| `Group` | `@celesta/react` | Applies a shared position, scale, rotation, and opacity to child layers. Optional `lang` sets their default text language, `clip` a rectangle and `mask` any drawing to show them through. See [Shapes & layout](/en/docs/layout/). |
+| `Mask` | `@celesta/react` | Sets how a `Group`’s mask is read: `mode="luminance"` and `invert`. |
 | `Image` / `Video` / `Audio` | `@celesta/react` | Local files or HTTP(S) media through `src`. See [Images, video & sound](/en/docs/media/). |
 | `defineShader` | `@celesta/shader` | Define a custom WGSL filter; call it with its parameters and pass the result to `shader`. |
 | `brightness`, `contrast`, `saturation`, `hue`, `grayscale`, `invert`, `tint`, `vignette` | `@celesta/shader` | Color filters to place in a `shader` array among custom shaders. Every layer also takes them as props of the same names; see [Shapes & layout](/en/docs/layout/). |
@@ -24,7 +25,8 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | `Trail` | `@celesta/react` | Draws `copies` earlier, fainter copies of its children beneath them, each `lagInFrames` older. |
 | `Transition` | `@celesta/transitions` | A fade, slide, or scale (or several at once) at the start or end of the enclosing sequence. |
 | `Series` / `computeSeries` | `@celesta/react` | Scenes back to back, by length. See [Scenes, cues & beats](/en/docs/motion-toolkit/). |
-| `TransitionSeries` / `computeTransitionSeries` | `@celesta/transitions` | Scenes joined by cuts, cross-fades, slides, or wipes, with the overlaps and total length computed. See [Scenes, cues & beats](/en/docs/motion-toolkit/). |
+| `TransitionSeries` / `computeTransitionSeries` | `@celesta/transitions` | Scenes joined by cuts, cross-fades, slides, wipes, irises, clock wipes, zooms, dissolves, blurs, flips, or cubes, with the overlaps and total length computed. See [Scenes, cues & beats](/en/docs/motion-toolkit/). |
+| `defineTransition` / `iris`, `clockWipe`, `zoom`, `dissolve`, `blur`, `flip`, `cube`, `crossfade`, `slide`, `wipe` | `@celesta/transitions` | Define a transition for `TransitionSeries` from a function, or set a built-in one’s options. |
 | `Stagger` | `@celesta/react` | Starts each child a fixed number of frames after the previous one. |
 | `progress` | `@celesta/react` | A clamped, eased 0–1 value for a span of frames. |
 | `useBeat()` / `beatAt` | `@celesta/react` | Beats, bars, and a pulse for a tempo in BPM. |

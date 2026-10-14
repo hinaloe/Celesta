@@ -8,7 +8,7 @@
   rotation={12} scale={0.8} opacity={0.9} fill="#a68bbf" />
 ```
 
-`scaleX` と `scaleY` は各軸の `scale` を上書きします。`opacity` はグループを通じて乗算されます。
+`scaleX` と `scaleY` は各軸の `scale` を上書きします。`opacity` はグループを通じて乗算されます。1 未満の `Group` は、CSS の `opacity` と同じく子をまとめて一枚の絵として半透明にするため、重なった子どうしが透けて見えることはありません。
 
 ## 図形
 
@@ -171,5 +171,20 @@ const ripple = defineShader({
     style={{ fontSize: 88, fill: { type: 'solid', color: '#332f3b' } }}>
     Layer it.
   </Text>
+</Group>
+```
+
+## グループをマスクする
+
+`Group` に `mask` を指定すると、別に描いたもの（テキスト、パス、画像、部分木全体）がある場所にだけ子を表示します。マスクはグループの座標系に置かれ、それ自体は表示されません。`<Mask mode="luminance" invert>` で包むと、alpha の代わりに明るさで表示したり、マスクのない場所に表示したりできます。マスクしたグループは分離されるため、子の描画モードは子どうしでだけ混ざり、ぼかし・影・光彩は切り抜いた形に付きます。マスクはプレビュー、書き出し、ブラウザのエディタで同じように描かれます。
+
+```tsx title="文字の中のストライプ"
+<Group mask={
+  <Text x={960} y={540} anchorX={0.5} anchorY={0.5}
+    style={{ fontSize: 360, fontWeight: 900 }}>
+    CELESTA
+  </Text>
+}>
+  <Stripes />
 </Group>
 ```

@@ -8,7 +8,7 @@ The canvas origin is the top-left corner, measured in pixels. A layer’s `x` an
   rotation={12} scale={0.8} opacity={0.9} fill="#a68bbf" />
 ```
 
-`scaleX` and `scaleY` override `scale` on one axis. `opacity` multiplies down through groups.
+`scaleX` and `scaleY` override `scale` on one axis. `opacity` multiplies down through groups. A `Group` below 1 fades its children together as one picture, as CSS `opacity` does, so overlapping children do not show through one another.
 
 ## Shapes
 
@@ -171,5 +171,20 @@ Give a `Group` a `clip` to draw its children only inside a rectangle, `{ x, y, w
     style={{ fontSize: 88, fill: { type: 'solid', color: '#332f3b' } }}>
     Layer it.
   </Text>
+</Group>
+```
+
+## Mask a group
+
+Give a `Group` a `mask` to show its children only where another drawing is: text, a path, an image, or a whole subtree, in the group’s own coordinates. The mask is never shown itself. Wrap it in `<Mask mode="luminance" invert>` to use its brightness instead of its alpha, or to show the children where the mask is not drawn. A masked group is isolated, so its children’s blend modes mix only with each other, and its blur, shadow, and glow follow the cut-out shape. Masks draw the same in preview, export, and the browser editor.
+
+```tsx title="Stripes inside letters"
+<Group mask={
+  <Text x={960} y={540} anchorX={0.5} anchorY={0.5}
+    style={{ fontSize: 360, fontWeight: 900 }}>
+    CELESTA
+  </Text>
+}>
+  <Stripes />
 </Group>
 ```

@@ -91,7 +91,11 @@ test('computeTransitionSeries rejects layouts that would leave a gap or show thr
       { durationInFrames: 20 }, { type: 'wipe', durationInFrames: 6 }, { durationInFrames: 10 },
       { type: 'wipe', durationInFrames: 5 }, { durationInFrames: 20 },
     ], /scene 1 lasts 10 frames, too short for its transitions in \(6\) and out \(5\)/],
-    [[{ durationInFrames: 10 }, { type: 'dissolve', durationInFrames: 5 }, { durationInFrames: 10 }], /unknown type "dissolve"/],
+    [[{ durationInFrames: 10 }, { type: 'spin', durationInFrames: 5 }, { durationInFrames: 10 }], /unknown type "spin"; expected cut, crossfade, .*, or a transition from defineTransition\(\)/],
+    // An arrow function in an array element has no name to suggest.
+    [[{ durationInFrames: 10 }, { type: [() => ({})][0], durationInFrames: 5 }, { durationInFrames: 10 }], /unknown type a function;/],
+    [[{ durationInFrames: 10 }, { type: function iris() {}, durationInFrames: 5 }, { durationInFrames: 10 }], /unknown type a function \(call it: iris\(\)\)/],
+    [[{ durationInFrames: 10 }, { type: { name: 'spin' }, durationInFrames: 5 }, { durationInFrames: 10 }], /unknown type \[object Object\]/],
     [[{ durationInFrames: 10 }, { type: 'cut', durationInFrames: 3 }, { durationInFrames: 10 }], /cut, which takes no frames/],
     [[{ durationInFrames: 10 }, { type: 'slide' }, { durationInFrames: 10 }], /item 1 \(slide\) requires a positive integer/],
     [[{ durationInFrames: 10 }, { type: 'slide', durationInFrames: 2.5 }, { durationInFrames: 10 }], /positive integer/],
