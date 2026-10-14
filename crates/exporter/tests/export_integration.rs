@@ -711,3 +711,83 @@ export default function Root() {
         "{written:?}"
     );
 }
+
+#[test]
+fn writes_a_react_entrys_subtitles_shifted_to_the_exported_range() {
+    let runtime_path = workspace_root().join("packages/cli/dist/cli.js");
+    if !runtime_path.exists() {
+        eprintln!("skipping React subtitle test: build packages/cli first");
+        return;
+    }
+    let directory = tempfile::tempdir_in(workspace_root().join("packages/cli")).unwrap();
+    let entry = directory.path().join("film.tsx");
+    std::fs::write(
+        directory.path().join("captions.srt"),
+        "\u{feff}1\r\n00:00:00,000 --> 00:00:01,000\r\nBefore\r\n\r\n\
+         2\r\n00:00:01,000 --> 00:00:02,000\r\nAcross <i>start</i>\r\n\r\n\
+         3\r\n00:00:02,000 --> 00:00:02,500\r\nInside\r\n\r\n\
+         4\r\n00:00:02,500 --> 00:00:04,000\r\nAcross end\r\n",
+    )
+    .unwrap();
+    std::fs::write(
+        &entry,
+        r##"
+import { Composition, Rect, Sequence, Subtitles, parseSubtitles } from '@celesta/react';
+import captions from './captions.srt';
+const cues = parseSubtitles(captions, { fps: 10 });
+export default function Root() {
+  return <Composition width={64} height={64} fps={10} durationInFrames={40}>
+    <Rect width={32} height={32} fill="#ff0000" />
+    <Sequence from={5}><Subtitles cues={cues} /></Sequence>
+  </Composition>;
+}
+"##,
+    )
+    .unwrap();
+    let output = directory.path().join("film.mp4");
+    let subtitles = directory.path().join("film.vtt");
+    let mut written = Vec::new();
+    match Exporter::new(ExportOptions {
+        range: Some(ExportRange::new(Time::new(2, 1), Time::new(7, 2))),
+        subtitles: Some(subtitles.clone()),
+        ..ExportOptions::default()
+    })
+    .export_react_entry_with_progress(
+        &entry,
+        &ReactRuntimeOptions::new("node", runtime_path),
+        &output,
+        |event| {
+            if let ExportProgress::Wrote(file) = event {
+                written.push(file);
+            }
+        },
+    ) {
+        Ok(()) => {}
+        Err(ExportError::Render(GpuRenderError::RequestAdapter(error))) => {
+            eprintln!("skipping live export test: no GPU adapter is available: {error}");
+            return;
+        }
+        Err(error) => panic!("React subtitle export failed: {error}"),
+    }
+
+    // The sequence shifts the cues by 0.5 s; the range starts the file at
+    // 2 s and ends it at 3.5 s, so "Before" is never shown and the cues on
+    // either edge are cut.
+    assert_eq!(
+        std::fs::read_to_string(&subtitles).unwrap(),
+        "WEBVTT\n\n\
+         00:00:00.000 --> 00:00:00.500\nAcross start\n\n\
+         00:00:00.500 --> 00:00:01.000\nInside\n\n\
+         00:00:01.000 --> 00:00:01.500\nAcross end\n"
+    );
+    assert!(
+        matches!(
+            &written[..],
+            [
+                ExportedFile::Video { frames: 15, .. },
+                ExportedFile::Subtitles { cues: 3, .. }
+            ]
+        ),
+        "{written:?}"
+    );
+}

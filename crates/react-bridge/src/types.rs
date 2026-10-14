@@ -98,6 +98,16 @@ pub struct ReactAudioClipDescriptor {
     pub r#loop: bool,
 }
 
+/// One subtitle a frame shows, from `<Subtitles>` or a `<Dialogue>` line:
+/// its text and the composition seconds it is shown for, already cut to the
+/// enclosing sequences. Every frame showing it reports it again.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct ReactSubtitleDescriptor {
+    pub text: String,
+    pub start: f64,
+    pub end: f64,
+}
+
 /// One field of a `ComponentPropertySchema` declared on the TypeScript side
 /// (`packages/react/src/registry.ts`). Mirrors `ComponentPropertyField`
 /// there field-for-field; kept as a real enum here (rather than opaque JSON)
@@ -193,11 +203,13 @@ pub struct ComponentResolutions {
 }
 
 /// One frame's evaluation: the visual scene plus every `<Audio>` declaration
-/// audible at that frame (see [`ReactAudioClipDescriptor`]).
+/// audible at that frame (see [`ReactAudioClipDescriptor`]) and every
+/// subtitle it shows (see [`ReactSubtitleDescriptor`]).
 #[derive(Clone, Debug)]
 pub struct FrameEvaluation {
     pub scene: Scene,
     pub audio: Vec<ReactAudioClipDescriptor>,
+    pub subtitles: Vec<ReactSubtitleDescriptor>,
 }
 
 #[derive(Deserialize)]

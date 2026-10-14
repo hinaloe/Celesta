@@ -38,7 +38,8 @@ export function projectFiles(files: Record<string, string>, entry: string): Plug
         return resolved ? { path: resolved, namespace: 'composition' } : { errors: [{ text: `Missing project source: ${path}` }] };
       });
       build.onLoad({ filter: /.*/, namespace: 'composition' }, args => ({
-        contents: files[args.path], loader: args.path.endsWith('.json') ? 'json' : 'tsx',
+        contents: files[args.path],
+        loader: args.path.endsWith('.json') ? 'json' : /\.(?:srt|vtt)$/.test(args.path) ? 'text' : 'tsx',
       }));
     },
   };

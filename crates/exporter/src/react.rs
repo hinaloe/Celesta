@@ -1,7 +1,8 @@
 use crate::error::ExportError;
 use celesta_project::Project;
 use celesta_react_bridge::{
-    PropertyInputs, ReactAudioClipDescriptor, ReactBridge, ReactCompositionMetadata, SpawnOptions,
+    PropertyInputs, ReactAudioClipDescriptor, ReactBridge, ReactCompositionMetadata,
+    ReactSubtitleDescriptor, SpawnOptions,
 };
 use std::path::{Path, PathBuf};
 
@@ -103,4 +104,7 @@ pub(crate) struct ReactVideoRequest<'a> {
     /// clip per frame; duplicates are merged afterwards — see
     /// `merge_react_audio_clips`).
     pub(crate) audio: &'a mut Vec<ReactAudioClipDescriptor>,
+    /// Every frame's reported subtitles accumulate here, repeated per frame
+    /// like `audio`; `subtitles::react_cues` merges them.
+    pub(crate) subtitles: &'a mut Vec<ReactSubtitleDescriptor>,
 }

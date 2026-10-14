@@ -23,6 +23,11 @@ const AFTER_HELP: &str = "\
 Timecodes are HH:MM:SS(.mmm), MM:SS(.mmm) or SS(.mmm); --from/--to select a
 span of the composition to export (the output starts at its own 00:00).
 
+--subtitles writes a video's subtitles beside it as SRT (.srt) or WebVTT
+(.vtt): a React entry's <Subtitles> cues and <Dialogue> lines, or a
+project's dialogue items, each for as long as it is shown. With --from/--to
+the times start at the span's start, and cues are cut to the span.
+
 PNG output is selected by --frame/--frames or --every. Multiple frames use
 output-000090.png names; frame numbers are zero-based. --every <n> picks
 frames 0, n, 2n, ... of the --from/--to span (or the whole composition) plus
@@ -73,7 +78,7 @@ struct Cli {
             "output", "project", "overwrite", "from", "to", "frames", "every",
             "contact_sheet", "columns", "tile_width", "output_format", "preset",
             "crf", "color_conversion", "bit_depth", "render_quality", "driver", "no_ui",
-            "json", "debug_guides",
+            "json", "debug_guides", "subtitles",
         ]
     )]
     inspect: bool,
@@ -108,6 +113,9 @@ struct Cli {
     /// Export up to (excluding) this timecode.
     #[arg(long, value_name = "TIMECODE", value_parser = parse_timecode)]
     to: Option<Time>,
+    /// Also write the video's subtitles to this .srt or .vtt file.
+    #[arg(long, value_name = "FILE")]
+    subtitles: Option<PathBuf>,
     /// Export these zero-based frames as PNG; repeatable and comma-separated.
     #[arg(
         long = "frame",
@@ -393,6 +401,9 @@ fn output_choice(
         return Err("PNG output requires --frame, --frames or --every".into());
     }
     if png {
+        if cli.subtitles.is_some() {
+            return Err("--subtitles applies to video output, not PNG frames".into());
+        }
         if cli.bit_depth != BitDepth::Eight {
             return Err("--bit-depth applies to MP4 output; PNG stills are 8-bit".into());
         }
@@ -466,6 +477,7 @@ fn export(
             video: cli.video(),
             render_quality: cli.render_quality,
             driver: cli.driver,
+            subtitles: cli.subtitles.clone(),
         },
     };
     job.run(&ExportCancellation::default(), on_progress)
@@ -586,5 +598,16 @@ mod tests {
         assert_eq!(choice(&["--frame", "0", "out.png"]), Ok(None));
         assert!(error(&["--output-format", "png", "out.png"]).contains("requires --frame"));
         assert!(error(&["--frame", "0", "--bit-depth", "10", "out.png"]).contains("--bit-depth"));
+    }
+
+    #[test]
+    fn subtitles_go_with_video_only() {
+        assert_eq!(
+            choice(&["out.mp4", "--subtitles", "out.srt"]),
+            Ok(Some(VideoFormat::Mp4))
+        );
+        assert!(
+            error(&["--frame", "0", "--subtitles", "out.srt", "out.png"]).contains("--subtitles")
+        );
     }
 }

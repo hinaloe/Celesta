@@ -101,6 +101,10 @@ pub struct ExportVideoArgs {
     /// 8 (default, plays everywhere) or 10 (smoother gradients, fewer
     /// hardware decoders).
     bit_depth: Option<u8>,
+    /// Also write the subtitles (`<Subtitles>` cues, `<Dialogue>` lines, or
+    /// a project's dialogue items) to this .srt or .vtt file, timed like
+    /// the video.
+    subtitles: Option<PathBuf>,
     /// Arguments no field above takes; any are a usage error.
     #[serde(flatten)]
     #[schemars(skip)]
@@ -352,6 +356,7 @@ impl ExportVideoArgs {
                 bit_depth,
                 ..defaults
             },
+            subtitles: self.subtitles.as_deref().map(absolute),
             ..ExportOptions::default()
         };
         Ok(job(source, absolute(&self.output), None, options))
@@ -513,6 +518,12 @@ mod tests {
         assert_eq!(job.options.video.crf, 20);
         assert_eq!(job.options.video.bit_depth, BitDepth::Ten);
         assert!(job.png.is_none());
+        assert_eq!(job.options.subtitles, None);
+        let job = video_job(json!({
+            "source": "a.tsx", "output": "a.mp4", "subtitles": "a.srt"
+        }))
+        .unwrap();
+        assert!(job.options.subtitles.unwrap().is_absolute());
     }
 
     #[test]

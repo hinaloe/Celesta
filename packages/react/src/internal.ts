@@ -12,6 +12,7 @@ export type {
   ProjectFrame,
   ResolutionRuntime,
   Resolver,
+  SubtitleDescriptor,
 } from './render';
 export type { HostNode } from './reconciler';
 export { sourceChain } from './source-chain';

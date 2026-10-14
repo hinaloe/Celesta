@@ -14,5 +14,6 @@ export { Series, Stagger, computeSeries } from './series';
 export { frameKeyframes } from './keyframes';
 export { measureText, textCaret, useTextMetrics } from './text-measure';
 export { Span } from './rich-text';
+export { Subtitles, formatSubtitles, parseSubtitles } from './subtitles';
 export { registerComponent, getComponentSchema } from './registry';
 export { defineProjectProperties, getProjectProperty, listProjectProperties } from './properties';

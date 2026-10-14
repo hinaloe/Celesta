@@ -50,6 +50,46 @@ PowerShell を使います。`C:\path\to\Celesta` を Celesta のインストー
 :::
 ::::
 
+## 字幕ファイル
+
+SRT や WebVTT の字幕ファイルは、`import` してから `parseSubtitles()` で読み込みます。結果は `{ from, durationInFrames, text }` の配列で、`Sequence` にそのまま渡せる形です。BOM、CRLF、複数行の字幕、`,` と `.` のどちらで区切ったミリ秒にも対応し、`<i>` などのタグは取り除きます。
+
+```tsx title="SRT の字幕を描く"
+import { Sequence, Subtitles, Text, parseSubtitles } from '@celesta/react';
+import captions from './captions.srt';
+
+const cues = parseSubtitles(captions, { fps: 30 });
+
+// コンポジションの中で
+<Subtitles cues={cues} />
+{cues.map((cue, index) => (
+  <Sequence key={index} from={cue.from} durationInFrames={cue.durationInFrames}>
+    <Text x={960} y={960} anchorX={0.5} anchorY={0.5}>{cue.text}</Text>
+  </Sequence>
+))}
+```
+
+`--subtitles` を付けると、動画と一緒に字幕ファイルを書き出します。拡張子が `.srt` なら SRT、`.vtt` なら WebVTT です。`<Subtitles>` で宣言した字幕と `<Dialogue>` の台詞が、表示されている間の時刻で入ります。`--from` / `--to` と組み合わせると、字幕の時刻も区間の開始を 0 として詰め、区間の外にはみ出す部分は切ります。
+
+::::tabs[書き出しを行う OS]{default="macOS"}
+:::tab[macOS]
+
+```sh title="字幕ファイルも書き出す"
+"/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react first-scene.tsx output.mp4 --subtitles output.srt
+```
+
+:::
+:::tab[Windows]
+
+```sh title="字幕ファイルも書き出す"
+& "C:\path\to\Celesta\Celesta-export.exe" --react first-scene.tsx output.mp4 --subtitles output.srt
+```
+
+:::
+::::
+
+時刻付きのデータを自分で書き出すときは `formatSubtitles(cues, { fps, format: 'srt' })` を使います。
+
 ## 画質と書き出し速度
 
 MP4 は libx264 を使い、既定では --preset medium、--crf 18 で書き出します。veryfast などの速いプリセットは、画質をほぼ保ちながらエンコード時間を短縮しますが、ファイルは大きくなる傾向があります。CRF は 0〜51 で、小さいほど高画質・大容量になります。--color-conversion は auto、gpu、encoder を指定できます。--render-quality draft は拡大した文字の再描画を省略して動きの確認を速くします。仕上がりの確認には既定の final を使ってください。--bit-depth 10 は 10 bit の H.264（High 10）で書き出し、暗いグラデーションをより滑らかに保てますが、再生できる環境は限られます。既定は 8 です。

@@ -50,6 +50,46 @@ Add `--overwrite` to replace an existing output file. Use `--from` and `--to` to
 :::
 ::::
 
+## Subtitle files
+
+Import an SRT or WebVTT file and read it with `parseSubtitles()`. It returns `{ from, durationInFrames, text }` cues, the shape `Sequence` takes. A byte order mark, CRLF line ends, cues of several lines, and milliseconds after `,` or `.` all work, and tags such as `<i>` are removed.
+
+```tsx title="Draw the cues of an SRT file"
+import { Sequence, Subtitles, Text, parseSubtitles } from '@celesta/react';
+import captions from './captions.srt';
+
+const cues = parseSubtitles(captions, { fps: 30 });
+
+// Inside the composition
+<Subtitles cues={cues} />
+{cues.map((cue, index) => (
+  <Sequence key={index} from={cue.from} durationInFrames={cue.durationInFrames}>
+    <Text x={960} y={960} anchorX={0.5} anchorY={0.5}>{cue.text}</Text>
+  </Sequence>
+))}
+```
+
+`--subtitles` writes a subtitle file beside the video: SRT for a `.srt` path, WebVTT for `.vtt`. It holds the cues `<Subtitles>` declares and the `<Dialogue>` lines, each for as long as it is shown. With `--from` and `--to`, the times start at the span's start and cues are cut to the span.
+
+::::tabs[Exporter platform]{default="macOS"}
+:::tab[macOS]
+
+```sh title="Export the subtitles too"
+"/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react first-scene.tsx output.mp4 --subtitles output.srt
+```
+
+:::
+:::tab[Windows]
+
+```sh title="Export the subtitles too"
+& "C:\path\to\Celesta\Celesta-export.exe" --react first-scene.tsx output.mp4 --subtitles output.srt
+```
+
+:::
+::::
+
+To write timed data of your own, use `formatSubtitles(cues, { fps, format: 'srt' })`.
+
 ## Encoding quality and speed
 
 MP4 uses libx264 with --preset medium and --crf 18 by default. Faster presets such as veryfast reduce encoding time but usually increase file size at similar quality. CRF accepts 0–51; lower values give higher quality and larger files. --color-conversion accepts auto, gpu, or encoder. --render-quality draft speeds up timing checks by skipping scaled-text re-rasterization; use final (the default) to judge the finished image. --bit-depth 10 encodes 10-bit H.264 (High 10), which keeps dark gradients smoother but plays on fewer devices; the default is 8.

@@ -356,9 +356,14 @@ impl ReactBridge {
             Response::Ok {
                 scene,
                 audio,
+                subtitles,
                 open_end: true,
                 ..
-            } => Ok(FrameEvaluation { scene, audio }),
+            } => Ok(FrameEvaluation {
+                scene,
+                audio,
+                subtitles,
+            }),
             Response::Ok { .. } => Err(ReactBridgeError::OpenEndUnsupported),
             response => Err(Self::unexpected_frame_response(response)),
         }
@@ -408,7 +413,16 @@ impl ReactBridge {
         frame: PendingFrame,
     ) -> Result<FrameEvaluation, ReactBridgeError> {
         match self.decode_response(frame)? {
-            Response::Ok { scene, audio, .. } => Ok(FrameEvaluation { scene, audio }),
+            Response::Ok {
+                scene,
+                audio,
+                subtitles,
+                ..
+            } => Ok(FrameEvaluation {
+                scene,
+                audio,
+                subtitles,
+            }),
             response => Err(Self::unexpected_frame_response(response)),
         }
     }

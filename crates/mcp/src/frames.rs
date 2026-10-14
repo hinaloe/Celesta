@@ -61,7 +61,7 @@ pub fn image_blocks(files: &[ExportedFile]) -> io::Result<Vec<ContentBlock>> {
                 format!("contact sheet of frames {frames:?}: {}", path.display()),
                 path,
             ),
-            ExportedFile::Video { .. } => continue,
+            ExportedFile::Video { .. } | ExportedFile::Subtitles { .. } => continue,
         };
         let (png, shown) = inline_png(path)?;
         let label = match shown {

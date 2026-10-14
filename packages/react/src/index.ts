@@ -1,3 +1,5 @@
+/// <reference path="../subtitle-files.d.ts" preserve="true" />
+
 export {
   Audio,
   Assets,
@@ -104,6 +106,15 @@ export type { GlyphMetrics, MeasureTextOptions, TextMetrics } from './text-measu
 
 export { Span } from './rich-text';
 export type { SpanProps, SpanStyle } from './rich-text';
+
+export { Subtitles, formatSubtitles, parseSubtitles } from './subtitles';
+export type {
+  FormatSubtitlesOptions,
+  ParseSubtitlesOptions,
+  SubtitleCue,
+  SubtitleFormat,
+  SubtitlesProps,
+} from './subtitles';
 
 export { getComponentSchema, registerComponent } from './registry';
 export type { ComponentDefinition, ComponentPropertyField, ComponentPropertySchema } from './registry';
