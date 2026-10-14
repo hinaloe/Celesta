@@ -1,6 +1,7 @@
 import { Group, Rect, Text, useTextMetrics } from '@celesta/react';
-import { codeThemes, highlightCode } from '@celesta/code';
+import { highlightCode } from '@celesta/code';
 import type { CodeLanguage } from '@celesta/code';
+import { codeTheme } from './codeTheme';
 import { C, FONT, solid } from './theme';
 
 // A "+ only" diff of the file a feature is used from, typed in. The lines
@@ -10,7 +11,7 @@ const CODE = { fontFamily: FONT.mono, fontSize: 23, lineHeight: 46 } as const;
 const ADVANCE = 0.6 * CODE.fontSize; // JetBrains Mono is 600/1000 em wide
 const HEAD = 46;
 const PAD = 18;
-const theme = codeThemes.dark;
+const theme = codeTheme;
 
 export function DiffPanel({ x, y, width, file, code, language = 'tsx', typed }: {
   x: number; y: number; width: number; file: string; code: string;

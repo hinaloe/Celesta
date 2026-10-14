@@ -1,5 +1,6 @@
 import { Group, Rect, Text, useTextMetrics } from '@celesta/react';
-import { codeThemes, highlightCode } from '@celesta/code';
+import { highlightCode } from '@celesta/code';
+import { codeTheme } from '../../components/codeTheme';
 import { STAGE, enter } from '../../components/ChapterShell';
 import type { DemoProps } from '../../components/ChapterShell';
 import { C, FONT, solid } from '../../components/theme';
@@ -20,7 +21,7 @@ lines.map((line, i) => (
     {line.text}
   </Text>
 ));`;
-const theme = codeThemes.dark;
+const theme = codeTheme;
 const LINES = highlightCode(SOURCE, { language: 'tsx', theme });
 const STYLE = { fontFamily: FONT.mono, fontSize: 22, lineHeight: 36 } as const;
 const STEP = 7;
@@ -29,9 +30,9 @@ const tokens = (i: number) => LINES[i].runs.filter((run) => LINES[i].text.slice(
 
 export function CodeDemo({ frame }: DemoProps) {
   const { ascent } = useTextMetrics('M', STYLE);
-  // The inspector follows the newest line with a few tokens on it.
+  // The inspector follows the newest line with at least three colours on it.
   const shown = LINES.filter((_, i) => frame >= 4 + i * STEP);
-  const newest = [...shown.keys()].reverse().find((i) => tokens(i).length >= 3) ?? 0;
+  const newest = [...shown.keys()].reverse().find((i) => new Set(tokens(i).map((run) => run.color)).size >= 3) ?? 0;
   const mono = { fontFamily: FONT.mono, fontSize: 18 };
   const runs = tokens(newest).slice(0, 6);
   return (
@@ -65,7 +66,7 @@ export function CodeDemo({ frame }: DemoProps) {
         <Group key={`${newest}-${i}`} x={30 + (i % 3) * 270} y={580 + Math.floor(i / 3) * 62} opacity={enter(frame, 4 + newest * STEP + i * 2, 10)}>
           <Rect width={250} height={48} cornerRadius={8} fill={C.raised} stroke={C.line} strokeWidth={2} />
           <Rect x={14} y={16} width={16} height={16} cornerRadius={4} fill={run.color} />
-          <Text x={42} y={24} anchorY={0.5} style={{ ...mono, fill: solid(C.paper) }}>{run.type}</Text>
+          <Text x={42} y={24} anchorY={0.5} style={{ ...mono, fill: solid(run.color) }}>{run.type}</Text>
           <Text x={236} y={24} anchorX={1} anchorY={0.5} style={{ ...mono, fill: solid(C.dim) }}>{`${run.start}–${run.end}`}</Text>
         </Group>
       ))}
