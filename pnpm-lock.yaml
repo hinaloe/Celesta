@@ -337,6 +337,19 @@ importers:
         specifier: ^19.3.0
         version: 19.3.0
 
+  examples/greenscreen:
+    dependencies:
+      '@celesta/react':
+        specifier: workspace:*
+        version: link:../../packages/react
+      react:
+        specifier: ^19.3.0
+        version: 19.3.0
+    devDependencies:
+      '@types/react':
+        specifier: ^19.3.0
+        version: 19.3.0
+
   examples/path-motion:
     dependencies:
       '@celesta/react':
