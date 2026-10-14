@@ -181,8 +181,8 @@ interface CastMember {
   portrait: ImageCharacterPortrait;
   // The size of the portrait images, in pixels.
   size: { width: number; height: number };
-  asset: React.RefObject<AssetReference>;
-  view: React.RefObject<CharacterViewReference>;
+  asset: React.RefObject<AssetReference | null>;
+  view: React.RefObject<CharacterViewReference | null>;
 }
 
 type Line = DialogueLine & { speaker: string };

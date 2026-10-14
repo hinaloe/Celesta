@@ -306,7 +306,7 @@ export interface AssetReference {
   readonly src?: string;
 }
 
-export type AssetInput = string | AssetReference | React.RefObject<AssetReference>;
+export type AssetInput = string | AssetReference | React.RefObject<AssetReference | null>;
 
 export interface AssetsProps {
   children?: ReactNode;

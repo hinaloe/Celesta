@@ -24,7 +24,7 @@
   },
   "peerDependencies": {
     "@celesta/react": "0.0.0",
-    "react": "^18.3.1"
+    "react": "^19.3.0"
   },
   "dependencies": {
     "@twinkleplop/bash": "^0.1.5",
@@ -37,8 +37,8 @@
     "@celesta/react": "workspace:*",
     "@celesta/text": "workspace:*",
     "@types/node": "^24.13.6",
-    "@types/react": "^18.3.18",
-    "react": "^18.3.1",
+    "@types/react": "^19.3.0",
+    "react": "^19.3.0",
     "typescript": "^5.7.3"
   }
 }

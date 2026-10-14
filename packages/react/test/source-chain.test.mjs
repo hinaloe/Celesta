@@ -8,16 +8,15 @@ import { test } from 'vitest';
 
 import { sourceChain } from '../dist/internal.js';
 import { jsxDEV } from '../dist/jsx-dev-runtime.js';
-import { HostReconciler, createRoot } from '../dist/reconciler.js';
+import { createRoot } from '../dist/reconciler.js';
 
 const at = (fileName, lineNumber, columnNumber) => ({ fileName, lineNumber, columnNumber });
 const resolve = (file) => `/abs/${file}`;
 
 function mount(element) {
-  const { container, root } = createRoot();
-  const render = (next) => HostReconciler.flushSync(() => HostReconciler.updateContainer(next, root, null, null));
-  render(element);
-  return { container, render };
+  const root = createRoot();
+  root.render(element);
+  return { container: root.container, render: (next) => root.render(next) };
 }
 
 function Title() {

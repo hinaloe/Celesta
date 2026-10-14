@@ -46,8 +46,14 @@ import type { PropertyInputLayer, PropertyIssue } from './property-inputs';
 // there corrupts the protocol and fails the export. Route every `console`
 // method to stderr — which the bridge inherits straight to the user's
 // terminal — so a `console.log` left in a composition is evaluated and
-// printed to the console instead of breaking the run.
-globalThis.console = new Console({ stdout: process.stderr, stderr: process.stderr });
+// printed to the console instead of breaking the run. A `Console` lacks the
+// global console's inspector-only methods (`timeStamp`, `createTask`, ...),
+// which write nothing to either stream; React's development build calls
+// `console.timeStamp` on every render, so those are kept.
+globalThis.console = Object.assign(
+  Object.create(console) as Console,
+  new Console({ stdout: process.stderr, stderr: process.stderr }),
+);
 
 interface FrameRequest {
   time: Time;
