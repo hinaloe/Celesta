@@ -12,6 +12,7 @@ impl Render for EditorView {
         self.poll_background_work();
         self.update_playback(window);
         self.sync_property_panel(window, cx);
+        self.announce_problems(window, cx);
         if self.preview_pending
             || self.media_pending
             || self.audio_pending

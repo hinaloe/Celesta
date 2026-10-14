@@ -1,13 +1,15 @@
 //! The right dock's tab bar, the Problems tab, and its entry points.
 
 use crate::actions::ShowProblems;
+use crate::problems::first_line;
 use crate::problems::{ActiveProblem, LogEntry, Severity, Source, fenced};
 use crate::view::{EditorView, RightTab};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::clipboard::Clipboard;
+use gpui_kit::component::notification::{Notification, NotificationType};
 use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::component::text::TextView;
-use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _};
+use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, WindowExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::{App, ClipboardItem, Context, Hsla, SharedString, Window, div};
 
@@ -270,6 +272,47 @@ impl EditorView {
             )
             .on_click(cx.listener(|this, _, _, cx| this.show_problems(cx)))
     }
+
+    /// Toasts for the entries logged since the last render: errors stay
+    /// until closed and link to Problems; finished operations fade out;
+    /// warnings only count in the status bar. `push_notification` needs the
+    /// window, which most code that records a problem does not have, so
+    /// render announces them.
+    pub(crate) fn announce_problems(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let view = cx.entity().downgrade();
+        for entry in self.problems.take_unannounced() {
+            let key = entry.source.label();
+            let note = match entry.severity {
+                Severity::Warning => continue,
+                Severity::Done => Notification::new()
+                    .with_type(NotificationType::Success)
+                    .title(entry.problem.title),
+                Severity::Error => {
+                    let view = view.clone();
+                    let note = Notification::new()
+                        .with_type(NotificationType::Error)
+                        .title(entry.problem.title.clone());
+                    let message = first_line(&entry.problem.detail);
+                    let note = if message.is_empty() {
+                        note
+                    } else {
+                        note.message(message.to_owned())
+                    };
+                    note.action(move |_, _, _| {
+                        let view = view.clone();
+                        Button::new("show-in-problems")
+                            .xsmall()
+                            .outline()
+                            .label("Show in Problems")
+                            .on_click(move |_, _, cx| {
+                                view.update(cx, |this, cx| this.show_problems(cx)).ok();
+                            })
+                    })
+                }
+            };
+            window.push_notification(note.id1::<ProblemToast>(key), cx);
+        }
+    }
 }
 
 fn section_heading(title: &'static str, cx: &App) -> impl IntoElement {
@@ -327,3 +370,6 @@ pub(crate) fn detail_block(id: SharedString, detail: &str, _cx: &App) -> impl In
         .selectable(true)
         .code_block_actions(move |_, _, _| Clipboard::new(copy_id.clone()).value(value.clone()))
 }
+
+/// Keys toasts by source, so a repeated problem replaces its toast.
+struct ProblemToast;
