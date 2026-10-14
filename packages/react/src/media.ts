@@ -16,11 +16,20 @@ export interface MediaAudioInfo {
   durationSeconds?: number;
 }
 
+/** An animated GIF, APNG, or WebP, as `<Image>` plays it. */
+export interface MediaAnimationInfo {
+  frameCount: number;
+  /** One pass through every frame. */
+  durationSeconds: number;
+}
+
 export interface MediaInfo {
   src: string;
   durationSeconds?: number;
   video?: MediaVideoInfo;
   audio: MediaAudioInfo[];
+  /** Present for an animated image; `durationSeconds` is then its length too. */
+  animation?: MediaAnimationInfo;
 }
 
 export type ProbedMediaInfo = Omit<MediaInfo, 'src'>;

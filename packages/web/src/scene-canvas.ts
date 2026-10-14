@@ -3,6 +3,8 @@ import { applyColorFilters } from './color-filters';
 import { loadFonts, releaseFonts } from './fonts';
 import { checkFontRuns, cssFont, letterSpacingPx, measureLine, runPieces, textLineRanges, textStyle } from './text-layout';
 import type { RunPiece } from './text-layout';
+import { animationFrame, decodeAnimatedImage } from './animated-image';
+import type { AnimatedImage } from './animated-image';
 
 type Canvas = HTMLCanvasElement;
 type Context = CanvasRenderingContext2D;
@@ -88,6 +90,7 @@ function runSegments(text: string, pieces: RunPiece[], regions: Region[], tolera
 
 export class SceneCanvas {
   private images = new Map<string, Promise<HTMLImageElement>>();
+  private animations = new Map<string, Promise<AnimatedImage | undefined>>();
   private videos = new Map<string, Promise<HTMLVideoElement>>();
   private urls = new Map<File, string>();
   private styledText = new Map<string, HTMLCanvasElement>();
@@ -109,6 +112,8 @@ export class SceneCanvas {
     for (const url of this.urls.values()) URL.revokeObjectURL(url);
     this.urls.clear();
     for (const video of this.videos.values()) void video.then(v => { v.pause(); v.removeAttribute('src'); v.load(); });
+    for (const animation of this.animations.values()) void animation.then(a => a?.frames.forEach(frame => frame.close()), () => {});
+    this.animations.clear();
     this.strokeCanvas = undefined;
   }
 
@@ -147,6 +152,22 @@ export class SceneCanvas {
         image.src = this.src(asset);
       });
       this.images.set(key, pending);
+    }
+    return pending;
+  }
+
+  /** An animated image's frames, or `undefined` for a still one, which `image` loads. */
+  private animation(asset: Asset): Promise<AnimatedImage | undefined> {
+    const key = JSON.stringify(asset.location);
+    let pending = this.animations.get(key);
+    if (!pending) {
+      pending = fetch(this.src(asset))
+        .then(response => {
+          if (!response.ok) throw new Error(`Could not load image: ${asset.id} (${response.status}).`);
+          return response.arrayBuffer();
+        })
+        .then(decodeAnimatedImage);
+      this.animations.set(key, pending);
     }
     return pending;
   }
@@ -572,8 +593,11 @@ export class SceneCanvas {
         ctx.restore();
       }
     } else if (content.type === 'image' || content.type === 'video') {
-      let image: HTMLImageElement | HTMLVideoElement;
-      if (content.type === 'image') image = await this.image(content.asset);
+      let image: HTMLImageElement | HTMLVideoElement | ImageBitmap;
+      const animation = content.type === 'image' && content.animation;
+      const frames = animation ? await this.animation(content.asset) : undefined;
+      if (animation && frames) image = frames.frames[animationFrame(frames.ends, animation.sourceTimeSeconds, animation.loop)];
+      else if (content.type === 'image') image = await this.image(content.asset);
       else {
         const video = await this.video(content.asset);
         image = video;
@@ -588,8 +612,8 @@ export class SceneCanvas {
           });
         }
       }
-      const width = image instanceof HTMLVideoElement ? image.videoWidth : image.naturalWidth;
-      const height = image instanceof HTMLVideoElement ? image.videoHeight : image.naturalHeight;
+      const width = 'videoWidth' in image ? image.videoWidth : 'naturalWidth' in image ? image.naturalWidth : image.width;
+      const height = 'videoHeight' in image ? image.videoHeight : 'naturalHeight' in image ? image.naturalHeight : image.height;
       const w = content.type === 'image' ? content.width ?? (content.height === undefined ? width : content.height * width / height) : width;
       const h = content.type === 'image' ? content.height ?? w * height / width : height;
       ctx.setTransform(matrix.translate(-t.anchor.x * w, -t.anchor.y * h));

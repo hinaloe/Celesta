@@ -1,7 +1,8 @@
+use crate::animated_images::AnimatedImages;
 use crate::audio::react_audio_clips;
 use crate::error::ReactBridgeError;
 use crate::measure::measure_text_response;
-use crate::probe::{MediaProbeResponse, media_probe_payload};
+use crate::probe::{MediaProbeResponse, animation_probe_payload, media_probe_payload};
 use crate::properties::PropertyInputs;
 use crate::protocol::{
     ComponentRequest, ProjectPayload, PropertyInputsMessage, ReadyMessage, Request,
@@ -16,6 +17,7 @@ use celesta_composition::{AudioGraph, Scene, Time};
 use celesta_media::FfmpegBackend;
 use celesta_remote::{RemoteAssetCache, is_remote_url};
 use celesta_renderer::TextRasterizer;
+use celesta_renderer::image_source::probe_animation;
 use serde::Serialize;
 use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -32,6 +34,7 @@ pub struct ReactBridge {
     pub(crate) text_measurer: Option<TextRasterizer>,
     /// The `<Static>` subtrees the runtime has sent.
     pub(crate) statics: StaticCache,
+    pub(crate) animated_images: AnimatedImages,
     /// Whether frame requests ask for debug guides.
     pub(crate) debug_guides: bool,
     /// Whether frame requests are evaluated as the editor preview.
@@ -71,6 +74,8 @@ impl ReactBridge {
         properties: &PropertyInputs,
     ) -> Result<Self, ReactBridgeError> {
         let node = node.as_ref();
+        // Relative asset paths in a scene resolve against the entry's directory.
+        let asset_root = entry.as_ref().parent().unwrap_or(Path::new("")).to_owned();
         let mut command = Command::new(node);
         if !cfg!(debug_assertions) && std::env::var_os("NODE_ENV").is_none() {
             command.env("NODE_ENV", "production");
@@ -147,17 +152,31 @@ impl ReactBridge {
                 }
                 ReadyMessage::ProbeMedia { probe_media } => {
                     let path = probe_media.path;
-                    let probed = if is_remote_url(&path) {
+                    let local = if is_remote_url(&path) {
                         RemoteAssetCache::standard()
                             .fetch(&path)
                             .map_err(|error| error.to_string())
                     } else {
                         Ok(PathBuf::from(&path))
-                    }
-                    .and_then(|local| media.probe(local).map_err(|error| error.to_string()));
+                    };
+                    // `<Image>` plays an animated image itself; FFmpeg reads
+                    // some of them as one frame, or not at all.
+                    let animation = local
+                        .as_ref()
+                        .ok()
+                        .and_then(|local| probe_animation(local).ok().flatten());
+                    let probed = match &animation {
+                        Some(animation) => Ok(animation_probe_payload(animation)),
+                        None => local.and_then(|local| {
+                            media
+                                .probe(local)
+                                .map(media_probe_payload)
+                                .map_err(|error| error.to_string())
+                        }),
+                    };
                     let response = match probed {
-                        Ok(probe) => MediaProbeResponse {
-                            media: Some(media_probe_payload(probe)),
+                        Ok(media) => MediaProbeResponse {
+                            media: Some(media),
                             error: None,
                         },
                         Err(error) => MediaProbeResponse {
@@ -199,6 +218,7 @@ impl ReactBridge {
             metadata,
             text_measurer,
             statics: StaticCache::default(),
+            animated_images: AnimatedImages::new(asset_root),
             debug_guides: false,
             preview: false,
         })
@@ -361,6 +381,7 @@ impl ReactBridge {
                 std::mem::take(dropped_statics),
                 scene,
             )?;
+            self.animated_images.apply(&mut scene.layers);
         }
         Ok(response)
     }

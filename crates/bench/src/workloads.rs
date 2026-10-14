@@ -703,6 +703,7 @@ fn images(canvas: &Canvas, frame: usize) -> Vec<Layer> {
                     } else {
                         ImageFit::Contain
                     }),
+                    animation: None,
                 },
             );
             image.opacity = 0.85;
@@ -881,6 +882,7 @@ fn backdrop_image(canvas: &Canvas) -> Layer {
             width: Some(canvas.len(1920.0)),
             height: Some(canvas.len(1080.0)),
             fit: Some(ImageFit::Cover),
+            animation: None,
         },
     )
 }

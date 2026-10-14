@@ -797,6 +797,7 @@ fn uv_follows_a_texture_moved_onto_whole_pixels() {
             width: None,
             height: None,
             fit: None,
+            animation: None,
             asset: ResolvedAsset {
                 id: "square".to_owned(),
                 location: AssetLocation::File {

@@ -1,7 +1,7 @@
 import { probeMedia } from '@celesta/react/internal';
 import type { MediaInfo } from '@celesta/react/internal';
 
-export type { MediaAudioInfo, MediaInfo, MediaVideoInfo } from '@celesta/react/internal';
+export type { MediaAnimationInfo, MediaAudioInfo, MediaInfo, MediaVideoInfo } from '@celesta/react/internal';
 
 /**
  * Probes and caches media metadata during an entry's async `prepare()`.

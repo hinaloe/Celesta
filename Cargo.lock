@@ -1191,6 +1191,7 @@ dependencies = [
  "celesta-remote",
  "cosmic-text 0.18.2",
  "dwrote",
+ "gif 0.14.2",
  "image",
  "png 0.18.1",
  "psd",

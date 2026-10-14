@@ -349,6 +349,11 @@ pub enum LayerContent {
         height: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fit: Option<ImageFit>,
+        /// Where an animated image (GIF, APNG, animated WebP) is in its own
+        /// timeline. Absent, it draws its first frame; a still image ignores
+        /// it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        animation: Option<ImageAnimation>,
     },
     Psd {
         asset: ResolvedAsset,
@@ -552,6 +557,8 @@ enum LayerContentDef {
         height: Option<f64>,
         #[serde(default)]
         fit: Option<ImageFit>,
+        #[serde(default)]
+        animation: Option<ImageAnimation>,
     },
     Psd {
         asset: ResolvedAsset,
@@ -877,7 +884,7 @@ pub struct ResolvedAsset {
 }
 
 // Deserialized through `AssetLocationDef`, which keeps the same serde field attributes.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
 #[cfg_attr(feature = "codegen", ts(export))]
 #[serde(
@@ -958,6 +965,20 @@ pub struct AudioClip {
     pub playback_rate: Animatable<f64>,
     pub volume: Animatable<f64>,
     pub muted: bool,
+}
+
+/// The frame of an animated image to draw.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct ImageAnimation {
+    /// Seconds into the animation; the frame showing at that time is drawn.
+    pub source_time_seconds: f64,
+    /// Past the end, start over from the first frame instead of holding the
+    /// last one.
+    #[serde(default)]
+    pub r#loop: bool,
 }
 
 /// Aspect-ratio policy inside an image's display box.

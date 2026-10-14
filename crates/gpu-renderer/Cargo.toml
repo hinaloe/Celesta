@@ -8,7 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 bytemuck = "1.25.2"
-image = { version = "0.25.8", default-features = false, features = ["jpeg", "png", "pnm", "webp"] }
+image = { version = "0.25.8", default-features = false, features = ["gif", "jpeg", "png", "pnm", "webp"] }
 celesta-composition = { path = "../composition" }
 celesta-remote = { path = "../remote" }
 celesta-media = { path = "../media" }

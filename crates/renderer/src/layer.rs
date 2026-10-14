@@ -124,6 +124,7 @@ impl CpuRenderer {
                 width,
                 height,
                 fit,
+                animation,
             } => {
                 let path = self.local_asset_path(asset)?;
                 let display = self
@@ -134,6 +135,7 @@ impl CpuRenderer {
                         *width,
                         *height,
                         *fit,
+                        *animation,
                         state.scale.x.abs().max(state.scale.y.abs()),
                     )
                     .map_err(|source| RenderError::ImageDecode {

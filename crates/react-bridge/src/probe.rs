@@ -1,5 +1,6 @@
 use celesta_composition::{Rational, Time};
 use celesta_media::{AudioStream, MediaProbe, VideoStream};
+use celesta_renderer::image_source::AnimationInfo;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -24,6 +25,17 @@ pub(crate) struct MediaProbePayload<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) video: Option<VideoProbePayload<'a>>,
     pub(crate) audio: Vec<AudioProbePayload<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) animation: Option<AnimationProbePayload>,
+}
+
+/// An animated GIF, APNG, or WebP, which FFmpeg does not read the way
+/// `<Image>` draws it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AnimationProbePayload {
+    pub(crate) frame_count: usize,
+    pub(crate) duration_seconds: f64,
 }
 
 #[derive(Serialize)]
@@ -57,6 +69,25 @@ pub(crate) fn media_probe_payload(probe: &MediaProbe) -> MediaProbePayload<'_> {
         duration_seconds: seconds(probe.duration),
         video: probe.video.as_ref().map(video_probe_payload),
         audio: probe.audio.iter().map(audio_probe_payload).collect(),
+        animation: None,
+    }
+}
+
+pub(crate) fn animation_probe_payload(animation: &AnimationInfo) -> MediaProbePayload<'static> {
+    MediaProbePayload {
+        duration_seconds: Some(animation.duration_seconds),
+        video: Some(VideoProbePayload {
+            codec: None,
+            width: animation.width,
+            height: animation.height,
+            frame_rate: None,
+            duration_seconds: Some(animation.duration_seconds),
+        }),
+        audio: Vec::new(),
+        animation: Some(AnimationProbePayload {
+            frame_count: animation.frame_count,
+            duration_seconds: animation.duration_seconds,
+        }),
     }
 }
 

@@ -185,8 +185,9 @@ Same fields as `video`, referencing an `audio` asset. No picture.
 { "type": "image", "asset": "photo", "width": 800, "height": 450, "fit": "cover" }
 ```
 
-Centered on `transform.position`. Image assets may be PNG, JPEG, WebP, PNM,
-or SVG. Without `width`/`height` (finite, positive) the image is drawn at its
+Centered on `transform.position`. Image assets may be PNG, JPEG, WebP, GIF,
+PNM, or SVG. An animated GIF, APNG, or WebP plays from the item's start,
+looping, each frame for its own delay. Without `width`/`height` (finite, positive) the image is drawn at its
 natural size; one of them preserves the aspect ratio; both stretch to that
 box unless `fit` is `"contain"` (centered, transparent letterboxing) or
 `"cover"` (centered, cropped). SVGs rasterize at their drawn size, use

@@ -46,7 +46,7 @@ try {
 }
 ```
 
-Pass local media as `new SceneCanvas(new Map<string, File>([['clip.mp4', file]]))`. Use the same file name in a composition's `src`. Remote media must allow CORS. `exportMp4` returns a `video/mp4` Blob and reports completed frames. Abort its signal to cancel.
+Pass local media as `new SceneCanvas(new Map<string, File>([['clip.mp4', file]]))`. Use the same file name in a composition's `src`. Remote media must allow CORS. Animated GIF, APNG, and WebP images play frame by frame where the browser has WebCodecs' `ImageDecoder`, picking the same frames as the desktop app; elsewhere they draw their first frame. `exportMp4` returns a `video/mp4` Blob and reports completed frames. Abort its signal to cancel.
 
 The source string accepts runtime imports from `react`, `@celesta/react`,
 `@celesta/math`, `@celesta/shapes`, `@celesta/layout`, `@celesta/transitions`,

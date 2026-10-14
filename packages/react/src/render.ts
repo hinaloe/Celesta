@@ -463,10 +463,27 @@ function buildLayer(
     if (props.fit !== undefined && props.fit !== 'contain' && props.fit !== 'cover') {
       throw new Error('Image fit must be contain or cover');
     }
+    for (const key of ['startFrom', 'playbackRate']) {
+      if (props[key] !== undefined && (typeof props[key] !== 'number' || !Number.isFinite(props[key]))) {
+        throw new Error(`Image ${key} must be a finite number`);
+      }
+    }
+    if (props.loop !== undefined && typeof props.loop !== 'boolean') {
+      throw new Error('Image loop must be a boolean');
+    }
     content = { type: 'image', asset: resolveAsset(props.src),
       ...(props.width === undefined ? {} : { width: props.width as number }),
       ...(props.height === undefined ? {} : { height: props.height as number }),
       ...(props.fit === undefined ? {} : { fit: props.fit as 'contain' | 'cover' }),
+      // Whether the file is animated is not known here, so every image
+      // carries the time, as a <Video> does; Rust drops it from still
+      // images. A <Static> subtree cannot depend on the time.
+      ...(context.insideStatic ? {} : {
+        animation: {
+          sourceTimeSeconds: numberOr(props.startFrom, 0) + secondsFromTime(context.time) * numberOr(props.playbackRate, 1),
+          loop: props.loop !== false,
+        },
+      }),
     };
   } else if (hostElement(node.type)?.content) {
     content = hostElement(node.type)!.content!(node, hostWalk(id, context, audio));
