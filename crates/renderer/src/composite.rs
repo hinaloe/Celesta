@@ -101,58 +101,36 @@ pub(crate) fn mask_value(mode: MaskMode, invert: bool, matte: &[u8]) -> f64 {
     if invert { 1.0 - value } else { value }
 }
 
-/// The per-channel mixing function `B(backdrop, source)` of a PSD layer's
-/// blend mode, all in 0–1, for the modes that blend each channel on its own.
-/// `None` for normal, and for the modes drawn as normal because they mix
-/// whole colors (hue, saturation, color, luminosity, darker and lighter
-/// color) or noise (dissolve).
-pub(crate) fn psd_blend_channel(mode: &str) -> Option<fn(f64, f64) -> f64> {
-    fn screen(b: f64, s: f64) -> f64 {
-        b + s - b * s
-    }
-    fn color_burn(b: f64, s: f64) -> f64 {
-        if b >= 1.0 {
-            1.0
-        } else if s <= 0.0 {
-            0.0
-        } else {
-            1.0 - ((1.0 - b) / s).min(1.0)
+/// How a PSD layer's blend mode mixes `B(backdrop, source)`, all in 0–1.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum PsdBlend {
+    /// A mode Celesta's layers also have, as `BlendMode` computes it.
+    Mode(BlendMode),
+    /// One of Photoshop's other modes, which blend each channel on its own.
+    Channel(fn(f64, f64) -> f64),
+}
+
+impl PsdBlend {
+    pub(crate) fn mix(self, backdrop: [f64; 3], source: [f64; 3]) -> [f64; 3] {
+        match self {
+            Self::Mode(mode) => mode.blend(backdrop, source),
+            Self::Channel(mix) => [0, 1, 2].map(|channel| mix(backdrop[channel], source[channel])),
         }
     }
-    fn color_dodge(b: f64, s: f64) -> f64 {
-        if b <= 0.0 {
-            0.0
-        } else if s >= 1.0 {
-            1.0
-        } else {
-            (b / (1.0 - s)).min(1.0)
-        }
-    }
-    fn hard_light(b: f64, s: f64) -> f64 {
-        if s <= 0.5 {
-            b * 2.0 * s
-        } else {
-            screen(b, 2.0 * s - 1.0)
-        }
-    }
-    fn soft_light(b: f64, s: f64) -> f64 {
-        if s <= 0.5 {
-            b - (1.0 - 2.0 * s) * b * (1.0 - b)
-        } else {
-            let d = if b <= 0.25 {
-                ((16.0 * b - 12.0) * b + 4.0) * b
-            } else {
-                b.sqrt()
-            };
-            b + (2.0 * s - 1.0) * (d - b)
-        }
-    }
+}
+
+/// The mixing of a PSD layer's blend mode, named as the `psd` crate's
+/// `Debug` prints it. `None` for normal, and for the modes drawn as normal
+/// because they pick whole colors (darker and lighter color) or noise
+/// (dissolve).
+pub(crate) fn psd_blend(mode: &str) -> Option<PsdBlend> {
     fn vivid_light(b: f64, s: f64) -> f64 {
-        if s <= 0.5 {
-            color_burn(b, 2.0 * s)
+        let (mode, s) = if s <= 0.5 {
+            (BlendMode::ColorBurn, 2.0 * s)
         } else {
-            color_dodge(b, 2.0 * s - 1.0)
-        }
+            (BlendMode::ColorDodge, 2.0 * s - 1.0)
+        };
+        mode.separable().expect("dodge and burn are separable")(b, s)
     }
     fn pin_light(b: f64, s: f64) -> f64 {
         if s <= 0.5 {
@@ -162,36 +140,44 @@ pub(crate) fn psd_blend_channel(mode: &str) -> Option<fn(f64, f64) -> f64> {
         }
     }
 
-    Some(match mode {
-        "Darken" => f64::min,
-        "Multiply" => |b, s| b * s,
-        "ColorBurn" => color_burn,
-        "LinearBurn" => |b, s| (b + s - 1.0).max(0.0),
-        "Lighten" => f64::max,
-        "Screen" => screen,
-        "ColorDodge" => color_dodge,
-        "LinearDodge" => |b, s| (b + s).min(1.0),
-        "Overlay" => |b, s| hard_light(s, b),
-        "SoftLight" => soft_light,
-        "HardLight" => hard_light,
-        "VividLight" => vivid_light,
-        "LinearLight" => |b, s| (b + 2.0 * s - 1.0).clamp(0.0, 1.0),
-        "PinLight" => pin_light,
-        "HardMix" => |b, s| if b + s >= 1.0 { 1.0 } else { 0.0 },
-        "Difference" => |b, s| (b - s).abs(),
-        "Exclusion" => |b, s| b + s - 2.0 * b * s,
-        "Subtract" => |b, s| (b - s).max(0.0),
-        "Divide" => |b, s| {
-            if s <= 0.0 {
-                if b <= 0.0 { 0.0 } else { 1.0 }
-            } else {
-                (b / s).min(1.0)
-            }
-        },
-        // PassThrough, Normal, Dissolve, DarkerColor, LighterColor, Hue,
-        // Saturation, Color, Luminosity.
-        _ => return None,
-    })
+    let shared = match mode {
+        "Darken" => BlendMode::Darken,
+        "Multiply" => BlendMode::Multiply,
+        "ColorBurn" => BlendMode::ColorBurn,
+        "Lighten" => BlendMode::Lighten,
+        "Screen" => BlendMode::Screen,
+        "ColorDodge" => BlendMode::ColorDodge,
+        "LinearDodge" => BlendMode::Add,
+        "Overlay" => BlendMode::Overlay,
+        "SoftLight" => BlendMode::SoftLight,
+        "HardLight" => BlendMode::HardLight,
+        "Difference" => BlendMode::Difference,
+        "Exclusion" => BlendMode::Exclusion,
+        "Hue" => BlendMode::Hue,
+        "Saturation" => BlendMode::Saturation,
+        "Color" => BlendMode::Color,
+        "Luminosity" => BlendMode::Luminosity,
+        _ => {
+            return Some(PsdBlend::Channel(match mode {
+                "LinearBurn" => |b, s| (b + s - 1.0).max(0.0),
+                "VividLight" => vivid_light,
+                "LinearLight" => |b, s| (b + 2.0 * s - 1.0).clamp(0.0, 1.0),
+                "PinLight" => pin_light,
+                "HardMix" => |b, s| if b + s >= 1.0 { 1.0 } else { 0.0 },
+                "Subtract" => |b, s| (b - s).max(0.0),
+                "Divide" => |b, s| {
+                    if s <= 0.0 {
+                        if b <= 0.0 { 0.0 } else { 1.0 }
+                    } else {
+                        (b / s).min(1.0)
+                    }
+                },
+                // PassThrough, Normal, Dissolve, DarkerColor, LighterColor.
+                _ => return None,
+            }));
+        }
+    };
+    Some(PsdBlend::Mode(shared))
 }
 
 #[cfg(test)]
