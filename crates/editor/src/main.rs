@@ -104,7 +104,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let path = args.path;
-    let property_args = PropertyArgs::new(args.props_file, args.props);
+    let mut property_args = PropertyArgs::new(args.props_file, args.props);
+    property_args.composition = args.composition;
     let mut editor = EditorView::open(path.as_deref(), property_args, args.driver)?;
 
     let app = gpui_kit::application().with_assets(CelestaAssets);

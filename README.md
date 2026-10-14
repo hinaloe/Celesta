@@ -393,6 +393,16 @@ Export a React composition after completing the source-build setup:
 cargo run -p celesta-exporter --release -- --react packages/cli/examples/title.tsx output.mp4
 ```
 
+An entry can return multiple root `<Composition id="…">` elements in a fragment.
+IDs must be unique and non-empty; multiple roots each require an ID. An unnamed
+single root keeps working as `default`. The first root is selected unless you
+pass `--composition ID` to the editor, exporter, or `skills/celesta/scripts/inspect.mjs`.
+The editor's title-bar composition menu switches both preview and export.
+`defineProjectProperties()` and `prepare()` are shared by the entry. Exporter
+`--json` includes `compositionId` and `compositions`; inspection includes them
+in `ready`. See [the two-format example](packages/cli/examples/multiple-compositions.tsx).
+
+
 In a terminal, exports show a [Ratatui](https://github.com/ratatui/ratatui)
 dashboard with a timed pipeline, rendered-frame progress, a throughput history
 graph, FPS, elapsed time, estimated rendering time remaining, export settings,

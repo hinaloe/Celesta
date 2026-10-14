@@ -54,3 +54,8 @@ export interface CompositionConfig {
   durationInFrames: number;
   lang?: string;
 }
+
+/** One registered root; an unnamed single root uses "default". */
+export interface CompositionInfo extends CompositionConfig {
+  id: string;
+}

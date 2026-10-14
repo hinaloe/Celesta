@@ -13,10 +13,36 @@ Celesta の **File → Open…** で `first-scene.tsx` を選び、`Space` で�
 
 ## コンポジションの構成
 
-- ファイルの **default export** は、サイズ・フレームレート・長さを持つ単一の `<Composition>` を返します。
+- ファイルの **default export** は、サイズ・フレームレート・長さを持つ1つ以上のルート `<Composition>` を返します。
 - 内側は順番に描画され、後のレイヤーが前のレイヤーの上に重なります。
 - 自作コンポーネントは通常の React 関数コンポーネントです。props、`.map()`、条件分岐もいつもどおり使えます。
 - 任意の名前付きエクスポート `prepare()` は、最初のフレームの前に一度だけ実行されます。[データ・プロパティ・コンポーネント](/ja/docs/data/)をご覧ください。
+
+## 複数のコンポジションを登録する
+
+各ルートに空でない一意の `id` を付け、フラグメントで返します。サイズ・fps・尺はそれぞれ設定できます。既存の単一コンポジションは `id` を省略したまま使え、その ID は `default` です。選択しない場合は宣言順の先頭を使い、存在しない ID を指定した場合はエラーになります。
+
+```tsx
+import { Composition, Text } from '@celesta/react';
+
+export default () => <>
+  <Composition id="landscape" width={1920} height={1080} fps={30} durationInFrames={150}>
+    <Text>Landscape</Text>
+  </Composition>
+  <Composition id="portrait" width={1080} height={1920} fps={30} durationInFrames={150}>
+    <Text>Portrait</Text>
+  </Composition>
+</>;
+```
+
+アプリのタイトルバーにある **Composition: landscape** で、プレビューと **Export…** の書き出し対象を切り替えます。`Celesta film.tsx --composition portrait` で特定の ID を開くこともできます。
+
+```sh
+Celesta-export --react film.tsx --composition portrait output.mp4 --json
+node skills/celesta/scripts/inspect.mjs film.tsx --composition portrait --json
+```
+
+両方の JSON 出力に `compositionId` と `compositions` が含まれます（inspect では `ready` の中）。一覧には各ルートの ID・サイズ・フレームレート・フレーム数が入ります。`defineProjectProperties`、`props.json`、`--props`、`prepare()` はエントリ全体で共有し、選択されたコンポジションの子だけをマウントします。
 
 ## エディタの TypeScript 設定
 

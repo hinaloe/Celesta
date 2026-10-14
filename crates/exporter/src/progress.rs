@@ -130,7 +130,9 @@ impl State {
             ExportProgress::MixingAudio => self.end_rendering(Stage::Mixing),
             ExportProgress::Muxing => self.end_rendering(Stage::Muxing),
             ExportProgress::Warning(warning) => self.warnings.push(warning),
-            ExportProgress::Composition(_) | ExportProgress::Wrote(_) => {}
+            ExportProgress::Composition(_)
+            | ExportProgress::ReactCompositions { .. }
+            | ExportProgress::Wrote(_) => {}
         }
     }
 
@@ -748,7 +750,9 @@ impl PlainProgress {
                 self.state.update(event);
                 eprintln!("muxing");
             }
-            ExportProgress::Composition(_) | ExportProgress::Wrote(_) => {}
+            ExportProgress::Composition(_)
+            | ExportProgress::ReactCompositions { .. }
+            | ExportProgress::Wrote(_) => {}
             ExportProgress::Warning(warning) => {
                 if self.terminal {
                     eprintln!("\rwarning: {warning}");

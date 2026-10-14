@@ -41,6 +41,7 @@ export type {
   BlendMode,
   Clip,
   CompositionConfig,
+  CompositionInfo,
   EvaluatedTransform,
   FontFamily,
   GradientStop,

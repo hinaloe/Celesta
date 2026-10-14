@@ -533,6 +533,10 @@ impl Exporter {
         let mut bridge = runtime.spawn(entry, project)?;
         bridge.set_debug_guides(request.debug_guides);
         let metadata = bridge.metadata().clone();
+        progress(ExportProgress::ReactCompositions {
+            selected: metadata.composition_id.clone(),
+            compositions: metadata.compositions.clone(),
+        });
         progress(ExportProgress::Composition(CompositionInfo {
             width: metadata.width,
             height: metadata.height,

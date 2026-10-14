@@ -86,6 +86,9 @@ struct Cli {
     /// Export a React composition instead of a JSON project.
     #[arg(long)]
     react: bool,
+    /// Root composition ID; defaults to the first declared composition.
+    #[arg(long, value_name = "ID", requires = "react")]
+    composition: Option<String>,
     /// Companion JSON project for <ProjectTimeline />/<ProjectTrack />.
     #[arg(long, value_name = "PROJECT", requires = "react")]
     project: Option<PathBuf>,
@@ -324,6 +327,7 @@ fn inspect(cli: &Cli) -> ExitCode {
                 node: cli.node.clone().unwrap_or(runtime.node),
                 cli_script: cli.runtime.clone().unwrap_or(runtime.cli_script),
                 properties: runtime.properties,
+                composition_id: cli.composition.clone(),
             },
         ),
         Err(error) => inspect::startup_failed(&error.to_string()),
@@ -439,6 +443,7 @@ fn export(
     let job = ExportJob {
         source: cli.source.clone(),
         react: cli.react,
+        composition_id: cli.composition.clone(),
         companion: cli.project.clone(),
         props_file: cli.props_file.clone(),
         props: cli.props.clone(),

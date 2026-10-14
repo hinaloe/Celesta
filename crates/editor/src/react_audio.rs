@@ -3,7 +3,7 @@ use crate::problems::error_chain;
 use celesta_composition::{AudioClip, AudioGraph};
 use celesta_editor_core::{ClipKind, ClipSummary, TrackSummary};
 use celesta_project::TrackKind;
-use celesta_react_bridge::{PropertyInputs, ReactBridge};
+use celesta_react_bridge::{PropertyInputs, ReactBridge, SpawnOptions};
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -15,6 +15,7 @@ pub(crate) struct ReactAudioRequest {
     pub(crate) cli_script: PathBuf,
     pub(crate) entry: PathBuf,
     pub(crate) properties: PropertyInputs,
+    pub(crate) composition_id: String,
     pub(crate) sample_rate: u32,
     pub(crate) master_volume: f64,
 }
@@ -47,11 +48,15 @@ impl ReactAudioWorker {
                         .entry
                         .parent()
                         .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
-                    let graph = ReactBridge::spawn_with_properties(
+                    let graph = ReactBridge::spawn_with_options(
                         &request.node,
                         &request.cli_script,
                         &request.entry,
                         &request.properties,
+                        SpawnOptions {
+                            composition_id: Some(request.composition_id),
+                            ..SpawnOptions::default()
+                        },
                     )
                     .map_err(|error| error_chain(&error))
                     .and_then(|mut bridge| {

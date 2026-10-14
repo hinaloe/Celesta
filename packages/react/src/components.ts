@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 
 import {
   CompositionRuntimeContext,
+  CompositionSelectionContext,
   FreezeFrameContext,
   RootRuntimeContext,
   resolveTextLanguage,
@@ -87,6 +88,8 @@ export interface CommonProps {
 }
 
 export interface CompositionProps {
+  /** Unique within the entry. Required when registering multiple compositions. */
+  id?: string;
   width: number;
   height: number;
   fps: number;
@@ -357,9 +360,12 @@ function assignAssetRef(ref: React.ForwardedRef<AssetReference>, value: AssetRef
   }
 }
 
-export function Composition(props: CompositionProps): ReturnType<typeof React.createElement> {
+export function Composition(props: CompositionProps): ReturnType<typeof React.createElement> | null {
   const runtime = React.useContext(CompositionRuntimeContext);
+  const selection = React.useContext(CompositionSelectionContext);
   const lang = resolveTextLanguage(props.lang);
+  if (selection === null) return React.createElement('composition', { ...props, children: undefined });
+  if (selection !== undefined && selection !== (props.id ?? 'default')) return null;
   return React.createElement(
     CompositionRuntimeContext.Provider,
     { value: runtime ? { ...runtime, lang } : null },

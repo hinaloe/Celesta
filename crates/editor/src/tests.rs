@@ -850,6 +850,7 @@ fn layer_select_shows_a_file_outside_the_entry_directory_in_full() {
 
 fn react_context(source_locations: bool) -> ReactPreviewContext {
     ReactPreviewContext {
+        composition_id: None,
         node: PathBuf::from("node"),
         cli_script: PathBuf::from("cli.js"),
         entry: PathBuf::from("entry.tsx"),

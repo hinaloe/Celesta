@@ -37,7 +37,7 @@ import * as path from 'node:path';
 import * as readline from 'node:readline';
 
 const USAGE = `usage: node inspect.mjs <entry.tsx> [--frames 0,45,-1] [--every N] [--json]
-                         [--props-file <file.json>] [--props <json>]
+                         [--composition <id>] [--props-file <file.json>] [--props <json>]
        node inspect.mjs <entry.tsx> --loop [--json]
        node inspect.mjs --psd-layers <file.psd>
 options: --native <Celesta-export>  --no-native  --runtime <cli.js>  --node <node>  --timeout <seconds>`;
@@ -52,7 +52,7 @@ const TEXT_UNSUPPORTED =
 function parseArgs(argv) {
   const options = {
     frames: null, every: null, loop: false, json: false, psd: null, native: null, runtime: null, node: null, timeout: 180, entry: null,
-    props: null, propsFile: null,
+    props: null, propsFile: null, composition: null,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -70,6 +70,7 @@ function parseArgs(argv) {
     else if (arg === '--no-native') options.native = false;
     else if (arg === '--node') options.node = value();
     else if (arg === '--timeout') options.timeout = Number(value());
+    else if (arg === '--composition') options.composition = value();
     else if (arg === '--props') options.props = value();
     else if (arg === '--props-file') options.propsFile = value();
     else if (arg === '-h' || arg === '--help') { console.log(USAGE); process.exit(0); }
@@ -260,6 +261,7 @@ async function inspectEntry(options) {
     if (node) args.push('--node', node);
     if (options.propsFile !== null) args.push('--props-file', options.propsFile);
     if (options.props !== null) args.push('--props', options.props);
+    if (options.composition !== null) args.push('--composition', options.composition);
     if (!options.json) console.log(`native:  ${options.native}${found ? ' (found)' : ''}\nentry:   ${entry}\n`);
     // Its own process group, so a timeout also ends the Node runtime it starts.
     child = spawn(options.native, args, { stdio: ['pipe', 'pipe', 'inherit'], detached: process.platform !== 'win32' });
@@ -277,6 +279,7 @@ async function inspectEntry(options) {
     if (!options.json) console.log(`runtime: ${cli}\nnode:    ${node}\nentry:   ${entry}\n`);
     const propertyInputs = readPropertyInputs(options, entry);
     const args = propertyInputs.length > 0 ? [cli, entry, '--properties-stdin'] : [cli, entry];
+    if (options.composition !== null) args.push('--composition', options.composition);
     child = spawn(node, args, { stdio: ['pipe', 'pipe', 'inherit'] });
     if (propertyInputs.length > 0) child.stdin.write(`${JSON.stringify({ propertyInputs })}\n`);
   }
@@ -390,6 +393,7 @@ async function inspectEntry(options) {
     problems += results.filter((result) => result.error && result.status !== 'unsupported').length;
     unsupported += results.filter((result) => result.status === 'unsupported').length;
   } else {
+    console.log(`compositions: ${(ready.compositions ?? []).map((item) => item.id).join(', ')} (selected: ${ready.compositionId ?? 'default'})`);
     console.log(`composition: ${config.width}×${config.height} @ ${fmt(fps)} fps, ${total} frames (${fmt(total / fps)} s)`);
     const schemas = Object.keys(ready.componentSchemas ?? {});
     if (schemas.length) console.log(`registered components with schemas: ${schemas.join(', ')}`);

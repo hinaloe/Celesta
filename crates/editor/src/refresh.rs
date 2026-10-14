@@ -15,7 +15,7 @@ use celesta_gpu_renderer::RenderQuality;
 use celesta_project::AssetKind;
 use celesta_react_bridge::{
     PropertyInputs, PropertyIssue, ReactBridge, ReactBridgeError, ReactCompositionMetadata,
-    runtime_paths as react_runtime_paths,
+    SpawnOptions, runtime_paths as react_runtime_paths,
 };
 use gpui_kit::Context;
 use std::path::PathBuf;
@@ -185,6 +185,10 @@ impl EditorView {
                     ),
                 },
                 source_locations: self.picks_layers(),
+                composition_id: self
+                    .react_preview
+                    .as_ref()
+                    .map(|react| react.composition_id.clone()),
             }
         });
         let react_mode = if self.is_react_preview() {
@@ -236,13 +240,40 @@ impl EditorView {
     /// against the freshly re-bundled code. Used by the reload watcher and the
     /// manual Reload button.
     pub(crate) fn request_react_reload(&mut self, cx: &mut Context<Self>) {
+        let id = self
+            .react_preview
+            .as_ref()
+            .map(|react| react.composition_id.clone());
+        self.reload_composition(id, cx);
+    }
+
+    pub(crate) fn select_composition(&mut self, id: String, cx: &mut Context<Self>) {
+        if self.react_reloads.is_running()
+            || self.export_cancellation.is_some()
+            || self
+                .react_preview
+                .as_ref()
+                .is_none_or(|react| react.composition_id == id)
+        {
+            return;
+        }
+        self.pause();
+        self.reload_composition(Some(id), cx);
+        cx.notify();
+    }
+
+    fn reload_composition(&mut self, composition_id: Option<String>, cx: &mut Context<Self>) {
         let Some(react) = self.react_preview.as_ref() else {
             return;
         };
         let entry = react.entry.clone();
         let property_args = react.property_args.clone();
         let (node, cli_script) = react_runtime_paths();
-        let frame = self.clock.frame();
+        let frame = if composition_id.as_deref() == Some(react.composition_id.as_str()) {
+            self.clock.frame()
+        } else {
+            0
+        };
         // The reloaded code may not produce the same layers.
         self.clear_layer_selection();
         let session = self.session;
@@ -257,11 +288,15 @@ impl EditorView {
                     // Re-read --props-file so edits to a variant show up too.
                     match property_args.load(&entry) {
                         Ok(properties) => {
-                            let result = ReactBridge::spawn_with_properties(
+                            let result = ReactBridge::spawn_with_options(
                                 &node,
                                 &cli_script,
                                 &entry,
                                 &properties,
+                                SpawnOptions {
+                                    composition_id,
+                                    ..SpawnOptions::default()
+                                },
                             )
                             .map(|bridge| (entry, bridge.metadata().clone()))
                             .map_err(PreviewLoadError::from_bridge);
@@ -313,6 +348,19 @@ impl EditorView {
         }
         match reload.result {
             Ok((entry, metadata)) => {
+                if self
+                    .react_preview
+                    .as_ref()
+                    .is_some_and(|react| react.composition_id != metadata.composition_id)
+                {
+                    self.export_in_frame = None;
+                    self.export_out_frame = None;
+                    self.set_react_audio_clips(Vec::new());
+                }
+                if let Some(react) = self.react_preview.as_mut() {
+                    react.composition_id = metadata.composition_id.clone();
+                    react.compositions = metadata.compositions.clone();
+                }
                 if let Ok(document) = EditorDocument::react_preview(
                     &entry,
                     metadata.width,
@@ -380,7 +428,11 @@ impl EditorView {
                     .await;
                 let changed = view
                     .update(cx, |this, _| match this.react_preview.as_ref() {
-                        Some(react) => latest.is_some() && latest != react.watched_mtime,
+                        Some(react) => {
+                            !this.react_reloads.is_running()
+                                && latest.is_some()
+                                && latest != react.watched_mtime
+                        }
                         None => false,
                     })
                     .unwrap_or(false);
@@ -491,6 +543,8 @@ mod property_outcome {
 
     fn preview(schema: Option<KeptSchema>) -> ReactPreview {
         ReactPreview {
+            composition_id: "default".to_owned(),
+            compositions: Vec::new(),
             entry: PathBuf::from("film.tsx"),
             watched_mtime: None,
             property_args: PropertyArgs::default(),
@@ -510,6 +564,8 @@ mod property_outcome {
     fn metadata(keys: &[&str]) -> ReactCompositionMetadata {
         let declared = kept(keys);
         ReactCompositionMetadata {
+            composition_id: "default".to_owned(),
+            compositions: Vec::new(),
             width: 1920,
             height: 1080,
             frame_rate: Rational {

@@ -36,6 +36,10 @@ pub struct Report {
     #[serde(skip_serializing_if = "Option::is_none")]
     composition: Option<Composition>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    composition_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compositions: Option<Vec<celesta_react_bridge::ReactCompositionInfo>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     outputs: Option<Vec<Output>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     warnings: Option<Vec<String>>,
@@ -136,11 +140,20 @@ pub fn build(
 ) -> (Report, bool) {
     let mut timing = Timing::new();
     let mut composition = None;
+    let mut composition_id = None;
+    let mut compositions = None;
     let mut files = Vec::new();
     let mut warnings = Vec::new();
     let result = export(&mut |event| {
         match &event {
             ExportProgress::Composition(info) => composition = Some(*info),
+            ExportProgress::ReactCompositions {
+                selected,
+                compositions: roots,
+            } => {
+                composition_id = Some(selected.clone());
+                compositions = Some(roots.clone());
+            }
             ExportProgress::Wrote(file) => files.push(file.clone()),
             ExportProgress::Warning(warning) => warnings.push(warning.clone()),
             _ => {}
@@ -150,6 +163,8 @@ pub fn build(
     timing.finish(result.is_ok());
     let frame_rate = composition.map(|info: CompositionInfo| info.frame_rate);
     let report = Report {
+        composition_id,
+        compositions,
         status: if result.is_ok() {
             Status::Ok
         } else {
@@ -267,6 +282,8 @@ pub fn usage(message: &str) -> Report {
         props_file: None,
         props_file_auto: None,
         composition: None,
+        composition_id: None,
+        compositions: None,
         outputs: None,
         warnings: None,
         stats: None,

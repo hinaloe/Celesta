@@ -389,3 +389,94 @@ export default function Film() {{
         "{stdout}"
     );
 }
+
+#[test]
+fn selects_compositions_for_native_inspection_and_json_exports() {
+    let Some(cli) = runtime() else { return };
+    let (dir, entry) = entry(
+        r##"
+import { Composition, Rect, useCurrentFrame, useVideoConfig } from '@celesta/react';
+function Scene() {
+  const { width, height, fps } = useVideoConfig();
+  if (width === 2 && (height !== 4 || fps !== 24)) throw new Error('wrong selected config');
+  return <Rect id={`frame-${useCurrentFrame()}`} width={width} height={height} fill="#ff0000" />;
+}
+export default () => <>
+  <Composition id="wide" width={4} height={2} fps={30} durationInFrames={3}><Scene /></Composition>
+  <Composition id="tall" width={2} height={4} fps={24} durationInFrames={2}><Scene /></Composition>
+</>;
+"##,
+    );
+    let result = inspect_mjs(
+        &entry,
+        &["--composition", "tall", "--frames", "0,-1", "--json"],
+    );
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let result: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(result["ready"]["compositionId"], "tall");
+    assert_eq!(result["ready"]["compositions"][0]["id"], "wide");
+    assert_eq!(result["ready"]["compositions"][1]["id"], "tall");
+    assert_eq!(result["frames"][1]["scene"]["layers"][0]["id"], "frame-1");
+    assert_eq!(result["frames"][1]["scene"]["width"], 2);
+
+    for (id, width, height) in [("wide", 4, 2), ("tall", 2, 4)] {
+        let output = dir.path().join(format!("{id}.png"));
+        let result = Command::new(env!("CARGO_BIN_EXE_celesta-exporter"))
+            .args(["--react", "--json", "--composition", id, "--frame", "0"])
+            .arg(&entry)
+            .arg(&output)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stdout)
+        );
+        let report: Value = serde_json::from_slice(&result.stdout).unwrap();
+        assert_eq!(report["compositionId"], id);
+        assert_eq!(report["compositions"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            (
+                report["composition"]["width"].as_u64(),
+                report["composition"]["height"].as_u64()
+            ),
+            (Some(width), Some(height))
+        );
+        let image = png::Decoder::new(std::io::BufReader::new(
+            std::fs::File::open(output).unwrap(),
+        ))
+        .read_info()
+        .unwrap();
+        assert_eq!(
+            (
+                u64::from(image.info().width),
+                u64::from(image.info().height)
+            ),
+            (width, height)
+        );
+    }
+    let (status, ready) = inspect_exporter(&entry, &["--runtime", cli.to_str().unwrap()], "");
+    assert_eq!(status, Some(0));
+    assert_eq!(ready[0]["compositionId"], "wide");
+    let (status, ready) = inspect_exporter(
+        &entry,
+        &[
+            "--composition",
+            "missing",
+            "--runtime",
+            cli.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(status, Some(1));
+    assert!(
+        ready[0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("unknown composition id: missing")
+    );
+}

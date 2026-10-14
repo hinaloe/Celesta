@@ -1710,6 +1710,7 @@ fn layer_source_names_the_jsx_of_a_layer_when_node_is_available() {
         &PropertyInputs::default(),
         SpawnOptions {
             source_locations: true,
+            ..SpawnOptions::default()
         },
     )
     .unwrap();

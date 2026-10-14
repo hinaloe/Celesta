@@ -14,6 +14,8 @@ pub struct ExportJob {
     pub source: PathBuf,
     /// Whether `source` is a React entry rather than a JSON project.
     pub react: bool,
+    /// Root composition ID; absent selects the first root.
+    pub composition_id: Option<String>,
     /// A `.celesta.json` exported alongside a React entry.
     pub companion: Option<PathBuf>,
     /// The React entry's property file; `None` uses its `props.json`.
@@ -50,6 +52,7 @@ impl ExportJob {
                 self.props_file.as_deref(),
                 self.props.as_deref(),
             )
+            .map(|runtime| runtime.with_composition(self.composition_id.clone()))
         };
         match (&self.png, self.react) {
             (Some(png), true) => exporter.export_react_png_with(

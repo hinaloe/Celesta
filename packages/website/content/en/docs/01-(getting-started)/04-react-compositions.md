@@ -13,10 +13,36 @@ Change the text or colors and save. The native preview reloads the composition. 
 
 ## How a composition is put together
 
-- The file’s **default export** returns a single `<Composition>` with its size, frame rate, and length.
+- The file’s **default export** returns one or more root `<Composition>` elements with its size, frame rate, and length.
 - Everything inside it is drawn in order: later layers appear on top of earlier ones.
 - Your own components are ordinary React function components. Use props, `.map()`, and conditionals as you would anywhere else.
 - An optional named export, `prepare()`, runs once before the first frame. See [Data, properties & components](/en/docs/data/).
+
+## Register multiple compositions
+
+Give each root a unique, non-empty `id` and return them in a fragment. Each can have its own dimensions, fps, and duration. A single existing composition can still omit `id` (its ID is `default`). Without a selection, Celesta uses the first root in declaration order; an unknown ID is an error.
+
+```tsx
+import { Composition, Text } from '@celesta/react';
+
+export default () => <>
+  <Composition id="landscape" width={1920} height={1080} fps={30} durationInFrames={150}>
+    <Text>Landscape</Text>
+  </Composition>
+  <Composition id="portrait" width={1080} height={1920} fps={30} durationInFrames={150}>
+    <Text>Portrait</Text>
+  </Composition>
+</>;
+```
+
+Choose **Composition: landscape** in the app's title bar to switch the preview and the composition that **Export…** writes. You can also open a specific ID with `Celesta film.tsx --composition portrait`.
+
+```sh
+Celesta-export --react film.tsx --composition portrait output.mp4 --json
+node skills/celesta/scripts/inspect.mjs film.tsx --composition portrait --json
+```
+
+Both JSON outputs include `compositionId` and `compositions` (the inspector places these inside `ready`). The list includes each root's ID, dimensions, frame rate, and frame count. `defineProjectProperties`, `props.json`, `--props`, and `prepare()` are shared by the entry; only the selected composition's children are mounted.
 
 ## Set up TypeScript in your editor
 

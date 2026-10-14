@@ -16,8 +16,10 @@ pub struct ProjectFrame<'a> {
 }
 
 /// Options for [`ReactBridge::spawn_with_options`](crate::ReactBridge::spawn_with_options).
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct SpawnOptions {
+    /// Root composition ID; absent selects the first root.
+    pub composition_id: Option<String>,
     /// Makes the runtime record the source position of every JSX element so
     /// [`ReactBridge::layer_source`](crate::ReactBridge::layer_source) can
     /// answer. Costs render time, so only the editor preview asks for it.
@@ -41,6 +43,10 @@ pub struct LayerSource {
 /// Static composition facts read once from the entry's `<Composition>` root.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReactCompositionMetadata {
+    /// The selected root ("default" for an unnamed single root).
+    pub composition_id: String,
+    /// Root compositions in declaration order. Properties are shared by the entry.
+    pub compositions: Vec<ReactCompositionInfo>,
     pub width: u32,
     pub height: u32,
     pub frame_rate: Rational,
@@ -201,4 +207,15 @@ pub(crate) struct ReactCompositionConfig {
     pub(crate) height: u32,
     pub(crate) frame_rate: Rational,
     pub(crate) duration_in_frames: u64,
+}
+
+/// A selectable root composition declared by an entry.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReactCompositionInfo {
+    pub id: String,
+    pub width: u32,
+    pub height: u32,
+    pub frame_rate: Rational,
+    pub duration_in_frames: u64,
 }

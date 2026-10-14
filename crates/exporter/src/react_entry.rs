@@ -163,6 +163,10 @@ impl Exporter {
                 .map(|(project, root)| (*project, root.as_path())),
         )?;
         let metadata = bridge.metadata().clone();
+        progress(ExportProgress::ReactCompositions {
+            selected: metadata.composition_id.clone(),
+            compositions: metadata.compositions.clone(),
+        });
         progress(ExportProgress::Composition(CompositionInfo {
             width: metadata.width,
             height: metadata.height,
