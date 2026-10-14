@@ -17,7 +17,7 @@ function renderFrame(source, frame = 0) {
       input: JSON.stringify({ time: { value: frame, timescale: 30 } }) + '\n',
       encoding: 'utf8',
     });
-    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.status, 0, result.stderr + result.stdout);
     const [, response] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
     return response.scene;
   } finally {
@@ -59,4 +59,37 @@ test('a scene without <Font> omits fonts', () => {
       `}\n`,
   );
   assert.equal(scene.fonts, undefined);
+});
+
+test('<Font google> uses the same stylesheet asset as src and googleFont(), including refs', () => {
+  const scene = renderFrame(`
+    import React from 'react';
+    import { Assets, Composition, Font, googleFont } from '@celesta/react';
+    export default function Root() {
+      const font = React.useRef();
+      return <Composition width={100} height={100} fps={30} durationInFrames={1}>
+        <Assets>
+          <Font google="M PLUS Rounded 1c" weights={[700, 400]} subsets={['japanese']} ref={font} name="rounded" />
+          <Font src={font} />
+          <Font src={googleFont('M PLUS Rounded 1c', { weights: [400, 700], subsets: ['japanese'] })} name="rounded" />
+          <Font google="Inter" />
+        </Assets>
+      </Composition>;
+    }
+  `);
+  assert.deepEqual(scene.fonts, [
+    { id: 'rounded', location: { type: 'url', url: 'https://fonts.googleapis.com/css?family=M+PLUS+Rounded+1c:400,700&subset=japanese' } },
+    { id: 'https://fonts.googleapis.com/css?family=Inter:400', location: { type: 'url', url: 'https://fonts.googleapis.com/css?family=Inter:400' } },
+  ]);
+});
+
+test('<Font> rejects mixing a file source with a Google Fonts family', () => {
+  assert.throws(() => renderFrame(`
+    import { Composition, Font } from '@celesta/react';
+    export default function Root() {
+      return <Composition width={100} height={100} fps={30} durationInFrames={1}>
+        <Font src="font.ttf" google="Inter" />
+      </Composition>;
+    }
+  `), /accepts either `src` or `google`, but not both/);
 });

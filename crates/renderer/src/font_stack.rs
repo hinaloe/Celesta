@@ -25,7 +25,7 @@ pub(crate) struct FaceRun {
 struct StackFaces<'a> {
     family: &'a FontFamily,
     weight: u16,
-    faces: Vec<(&'a str, Arc<Font>)>,
+    faces: Vec<(Arc<str>, Arc<Font>)>,
 }
 
 impl TextRasterizer {
@@ -64,18 +64,26 @@ impl TextRasterizer {
 
     /// `style`'s font runs, and the ranges its font stacks (its own and its
     /// runs') draw with a family other than the text's primary one, in
-    /// order. Without a stack these are `style`'s usable font runs as they
-    /// are, so text without one shapes exactly as before stacks existed.
+    /// order. Without a stack or split stylesheet these are `style`'s
+    /// usable font runs as they are.
     pub(crate) fn face_runs(&mut self, text: &str, style: &TextStyle) -> Arc<[FaceRun]> {
         let spans = if style.font_runs.is_empty() {
             Vec::new()
         } else {
             usable_font_runs(style, text.chars().count())
         };
-        let stacked = style.font_family.as_ref().is_some_and(FontFamily::is_stack)
+        let needs_selection = |family: &FontFamily| {
+            family.is_stack()
+                || family.names().iter().any(|name| {
+                    self.stylesheet_faces
+                        .get(name)
+                        .is_some_and(|faces| faces.len() > 1)
+                })
+        };
+        let stacked = style.font_family.as_ref().is_some_and(needs_selection)
             || spans
                 .iter()
-                .any(|run| run.font_family.as_ref().is_some_and(FontFamily::is_stack));
+                .any(|run| run.font_family.as_ref().is_some_and(needs_selection));
         if !stacked {
             return spans
                 .iter()
@@ -191,16 +199,26 @@ impl TextRasterizer {
         runs
     }
 
-    fn stack_faces<'a>(
-        &mut self,
-        family: &'a FontFamily,
-        weight: u16,
-    ) -> Vec<(&'a str, Arc<Font>)> {
-        family
-            .names()
-            .iter()
-            .filter_map(|name| Some((name.as_str(), self.matched_face(name, weight)?)))
-            .collect()
+    fn stack_faces(&mut self, family: &FontFamily, weight: u16) -> Vec<(Arc<str>, Arc<Font>)> {
+        let mut faces = Vec::new();
+        for name in family.names() {
+            let Some(matched) = self.matched_weight(name, weight) else {
+                continue;
+            };
+            let names = self
+                .stylesheet_faces
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| vec![name.as_str().into()]);
+            for name in names {
+                if self.matched_weight(&name, weight) == Some(matched)
+                    && let Some(font) = self.matched_face(&name, weight)
+                {
+                    faces.push((name, font));
+                }
+            }
+        }
+        faces
     }
 }
 
@@ -210,8 +228,8 @@ impl TextRasterizer {
 /// its first character; failing that, the primary family, where the
 /// system's fallback fonts draw it. An emoji takes a color emoji font of
 /// the stack first, if one has it.
-fn cluster_family<'a>(stack: &StackFaces<'a>, cluster: &str, is_emoji: bool) -> &'a str {
-    let Some(&(primary, _)) = stack.faces.first() else {
+fn cluster_family<'a>(stack: &'a StackFaces<'_>, cluster: &str, is_emoji: bool) -> &'a str {
+    let Some((primary, _)) = stack.faces.first() else {
         return stack.family.first();
     };
     if stack.faces.len() == 1 {
@@ -228,7 +246,7 @@ fn cluster_family<'a>(stack: &StackFaces<'a>, cluster: &str, is_emoji: bool) -> 
         && let Some((name, _)) = stack
             .faces
             .iter()
-            .find(|(name, font)| COLOR_EMOJI_FAMILIES.contains(name) && covers(font))
+            .find(|(name, font)| COLOR_EMOJI_FAMILIES.contains(&name.as_ref()) && covers(font))
     {
         return name;
     }
@@ -239,5 +257,5 @@ fn cluster_family<'a>(stack: &StackFaces<'a>, cluster: &str, is_emoji: bool) -> 
         .chars()
         .next()
         .and_then(|first| stack.faces.iter().find(|(_, font)| has(font, first)))
-        .map_or(primary, |(name, _)| *name)
+        .map_or(primary, |(name, _)| name)
 }

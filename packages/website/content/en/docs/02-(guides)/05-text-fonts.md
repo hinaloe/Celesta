@@ -49,12 +49,32 @@ To use a font file that is not installed, declare it with `<Font>`. A relative `
 
 ```tsx title="Load a Google Fonts family"
 <Assets>
-  <Font src="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700" />
+  <Font google="M PLUS Rounded 1c" weights={[400, 700]} subsets={['japanese']} />
 </Assets>
 <Text style={{ fontFamily: 'M PLUS Rounded 1c', fontWeight: 700, fontSize: 96 }}>
   こんにちは
 </Text>
 ```
+
+`google` takes one Google Fonts family name and replaces `src`; choose either one. `weights` defaults to `[400]` and accepts static weights from 100 to 900 in steps of 100. List every weight your text uses. `subsets` accepts Google Fonts script names, such as `latin`, `cyrillic`, or `japanese`; Latin is included when available. These options use the [Google Fonts CSS API](https://developers.google.com/fonts/docs/getting_started). Google may return all Unicode ranges for clients supporting `unicode-range`, regardless of `subsets`. Celesta loads all returned faces, including Japanese fonts split across multiple files. Use a CSS URL in `src` for italic styles or variable weight ranges.
+
+The desktop app and exporter cache both the stylesheet and each font file in the existing remote asset cache. Once a request has loaded successfully, it works offline on later runs, including in a new process. Changing weights or subsets creates a different request; its first use needs network access. Files are not revalidated. The browser preview uses the browser's HTTP cache and does not guarantee offline availability. An unknown family or unavailable weight reports a Google Fonts error; network failures remain download errors.
+
+For measurements in `prepare()`, use the same URL helper:
+
+```tsx
+import { googleFont, measureText } from '@celesta/react';
+
+export async function prepare() {
+  await measureText('こんにちは', { fontFamily: 'Noto Sans JP', fontWeight: 700 }, {
+    fonts: [googleFont('Noto Sans JP', { weights: [700], subsets: ['japanese'] })],
+  });
+}
+```
+
+### Google Fonts licenses
+
+Fonts keep their own licenses; downloading or caching them does not relicense them under Celesta's license. Check the selected family's license on [Google Fonts](https://fonts.google.com) or in the [Google Fonts repository](https://github.com/google/fonts). When redistributing font files with a project or application, include the applicable license and copyright notices and follow its terms, including any reserved font names. Celesta's cache contains the downloaded font files and CSS, and does not automatically fetch license files. Rendered images and videos do not bundle the font files; consult the font's license for permitted uses. See Google's [font licensing guidance](https://github.com/google/fonts/blob/main/cc-by-sa/knowledge/glossary/terms/licensing/content.md).
 
 ## Mix Latin and Japanese fonts
 
@@ -63,8 +83,8 @@ To use a font file that is not installed, declare it with `<Font>`. A relative `
 ```tsx title="A Latin and a Japanese font in one line"
 <Composition width={1920} height={1080} fps={30} durationInFrames={90} lang="ja-JP">
   <Assets>
-    <Font src="https://fonts.googleapis.com/css2?family=Inter:wght@500" />
-    <Font src="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@500" />
+    <Font google="Inter" weights={[500]} />
+    <Font google="Noto Sans JP" weights={[500]} subsets={['japanese']} />
   </Assets>
   <Text style={{ fontFamily: ['Inter', 'Noto Sans JP'], fontWeight: 500, fontSize: 64 }}>
     Celesta 0.5.0 で字幕の組版を改善

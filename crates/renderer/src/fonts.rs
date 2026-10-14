@@ -31,6 +31,9 @@ pub struct TextRasterizer {
     /// `matched_face`'s face by family and matched weight, cleared whenever
     /// a font is loaded. Every locale's system shares the database's ids.
     pub(crate) matched_faces: HashMap<(String, u16), Option<fontdb::ID>>,
+    /// Each stylesheet face has a private family so shaping can select a
+    /// particular Unicode subset instead of only the family's first file.
+    pub(crate) stylesheet_faces: HashMap<String, Vec<Arc<str>>>,
     /// `face_runs` results for text with a font stack, by text and the
     /// style fields they depend on, cleared whenever a font is loaded.
     pub(crate) stacked_runs: HashMap<String, Arc<[FaceRun]>>,
@@ -103,6 +106,7 @@ impl TextRasterizer {
             loaded_fonts: HashSet::new(),
             matched_weights: HashMap::new(),
             matched_faces: HashMap::new(),
+            stylesheet_faces: HashMap::new(),
             stacked_runs: HashMap::new(),
             color_emoji_family: None,
             missing_characters: HashMap::new(),
@@ -126,6 +130,7 @@ impl TextRasterizer {
             loaded_fonts: self.loaded_fonts.clone(),
             matched_weights: HashMap::new(),
             matched_faces: HashMap::new(),
+            stylesheet_faces: self.stylesheet_faces.clone(),
             stacked_runs: HashMap::new(),
             color_emoji_family: None,
             missing_characters: HashMap::new(),
@@ -253,11 +258,17 @@ impl TextRasterizer {
             let Some(mut face) = database.face(id).cloned() else {
                 continue;
             };
-            if face.families.iter().any(|(family, _)| *family == alias) {
-                continue;
-            }
+            let private: Arc<str> = format!("celesta-stylesheet-face-{id:?}").into();
             face.families
-                .push((alias.clone(), fontdb::Language::English_UnitedStates));
+                .push((private.to_string(), fontdb::Language::English_UnitedStates));
+            if !face.families.iter().any(|(family, _)| *family == alias) {
+                face.families
+                    .push((alias.clone(), fontdb::Language::English_UnitedStates));
+            }
+            self.stylesheet_faces
+                .entry(alias.clone())
+                .or_default()
+                .push(private);
             database.remove_face(id);
             database.push_face_info(face);
         }

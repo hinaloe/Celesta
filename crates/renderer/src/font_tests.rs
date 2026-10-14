@@ -185,6 +185,49 @@ fn loads_stylesheet_faces_under_their_css_family() {
     assert!(has_family(&rasterizer, "Brand"));
 }
 
+#[test]
+fn stylesheet_subsets_select_each_file_for_its_glyphs_including_stacks_and_forks() {
+    let directory = tempfile::tempdir().unwrap();
+    let fonts = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/prism/assets/fonts");
+    for name in ["BebasNeue-Regular.ttf", "IBMPlexMono-Regular.ttf"] {
+        fs::copy(fonts.join(name), directory.path().join(name)).unwrap();
+    }
+    fs::write(
+        directory.path().join("split.css"),
+        "@font-face {font-family: 'Celesta Split'; src: url(BebasNeue-Regular.ttf)}
+         @font-face {font-family: 'Celesta Split'; src: url(IBMPlexMono-Regular.ttf)}",
+    )
+    .unwrap();
+    let mut rasterizer = TextRasterizer::new();
+    rasterizer
+        .load_fonts(&[file_font("split.css")], directory.path())
+        .unwrap();
+    // Δ exists only in Bebas Neue, Б only in IBM Plex Mono. One family
+    // must select both files, as a Japanese Unicode-subset stylesheet does.
+    for family in [
+        celesta_composition::FontFamily::Name("Celesta Split".to_owned()),
+        celesta_composition::FontFamily::Stack(vec![
+            "Celesta Split".to_owned(),
+            "Bebas Neue".to_owned(),
+        ]),
+    ] {
+        for lang in ["ja-JP", "en-US"] {
+            let style = TextStyle {
+                font_family: Some(family.clone()),
+                lang: Some(lang.to_owned()),
+                ..TextStyle::default()
+            };
+            assert!(rasterizer.missing_glyphs("split", "ΔБ", &style).is_empty());
+            assert!(
+                rasterizer
+                    .fork()
+                    .missing_glyphs("split", "ΔБ", &style)
+                    .is_empty()
+            );
+        }
+    }
+}
+
 /// A rasterizer with `Bebas Neue`, whose only face is Regular (400).
 fn regular_only_rasterizer() -> TextRasterizer {
     let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/prism");

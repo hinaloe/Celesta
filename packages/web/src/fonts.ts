@@ -58,6 +58,7 @@ export function loadFonts(assets: Asset[], resolve: (asset: Asset) => string): P
     }
     let pending = loaded.get(url);
     if (!pending) {
+      const google = /^https:\/\/fonts\.googleapis\.com\/css2?\?/.test(url);
       const entry: FontLoad = { promise: Promise.resolve(), ready: false, faces: [] };
       loaded.set(url, entry);
       const add = async (face: FontFace) => {
@@ -67,6 +68,10 @@ export function loadFonts(assets: Asset[], resolve: (asset: Asset) => string): P
       entry.promise = (async () => {
         try {
           const response = await fetch(url);
+          if (google && response.status === 400) {
+            const family = new URL(url).searchParams.get('family')?.split(':')[0];
+            throw new Error(`Google Fonts could not find family "${family}" or the requested weights. Check the name and available weights at https://fonts.google.com.`);
+          }
           if (!response.ok) throw new Error(`Could not load font: ${url} (${response.status}).`);
           if (response.headers.get('content-type')?.includes('text/css') || /fonts\.googleapis\.com|\.css(?:\?|$)/.test(url)) {
             const css = await response.text();
@@ -82,13 +87,22 @@ export function loadFonts(assets: Asset[], resolve: (asset: Asset) => string): P
                   weight: property('font-weight') ?? 'normal', style: property('font-style') ?? 'normal',
                   unicodeRange: property('unicode-range') ?? 'U+0-10FFFF',
                 }));
-              } catch (cause) { console.warn(`Could not load a font face from ${url}; using the default font.`, cause); }
+              } catch (cause) {
+                if (google) throw cause;
+                console.warn(`Could not load a font face from ${url}; using the default font.`, cause);
+              }
             }));
           } else {
             const bytes = await response.arrayBuffer();
             await add(new FontFace(fontName(bytes), bytes));
           }
-        } catch (cause) { console.warn(`Could not load font ${url}; using the default font.`, cause); }
+        } catch (cause) {
+          if (google) {
+            if (loaded.get(url) === entry) releaseFonts([url]);
+            throw cause;
+          }
+          console.warn(`Could not load font ${url}; using the default font.`, cause);
+        }
         finally { entry.ready = true; }
       })();
       pending = entry;

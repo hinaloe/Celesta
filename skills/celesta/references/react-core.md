@@ -446,7 +446,7 @@ conditional plays only on frames where it is rendered.
 ```tsx
 <Assets>
   <Font src="./fonts/MPLUSRounded1c-Bold.ttf" />
-  <Font src="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700" />
+  <Font google="M PLUS Rounded 1c" weights={[400, 700]} subsets={['japanese']} />
 </Assets>
 ```
 
@@ -454,6 +454,14 @@ conditional plays only on frames where it is rendered.
   (every `@font-face` in it is loaded). Refer to it by the **family name
   stored inside the font**, not the file name. See
   [text.md](text.md#fonts-fallback-and-emoji) for weights and fallback.
+- `<Font google>` requests a family by name instead of `src`. `weights`
+  defaults to `[400]` (100–900 in steps of 100); `subsets` names scripts.
+  Google may return all subsets; every returned face is loaded. Native
+  rendering caches CSS and files for later offline use. Unknown names or
+  unavailable weights report an error. `googleFont(family, { weights,
+  subsets })` returns the same URL for `measureText`'s `fonts` option.
+  Fonts retain their own licenses; include license and copyright notices
+  when redistributing files. The cache does not fetch license files.
 - `<Assets>` holds declarations that draw nothing: `Font`, `Character`, and
   `Image`/`Video`/`Audio` used only to create refs. Put it outside any
   `<Sequence>` when the font or asset is needed throughout.
