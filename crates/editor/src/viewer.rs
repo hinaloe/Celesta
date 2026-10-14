@@ -20,7 +20,7 @@ use crate::actions::{
 use crate::icons::CelestaIcon;
 use crate::meter::audio_meter;
 use crate::preview::PreviewPresentation;
-use crate::problems::{ActiveProblem, Source, summarize_warnings};
+use crate::problems::{ActiveProblem, Source, flow_line_breaks, summarize_warnings};
 use crate::problems_panel::{detail_block, show_in_problems_row};
 use crate::timecode::format_timecode;
 use crate::view::EditorView;
@@ -216,8 +216,8 @@ impl EditorView {
 
     /// The preview warnings as a summary for a warnings box: the first
     /// [`SUMMARY_WARNING_LIMIT`](crate::problems::SUMMARY_WARNING_LIMIT),
-    /// two lines each, how many more there are, and a way into the Problems
-    /// tab, which has the full text, when the summary may cut something off.
+    /// each flowed into two lines at most, how many more there are, and a
+    /// way into the Problems tab, which has the full text.
     pub(crate) fn preview_warnings_summary(
         &self,
         button_id: &'static str,
@@ -231,7 +231,7 @@ impl EditorView {
                 div()
                     .line_clamp(2)
                     .text_ellipsis()
-                    .child(warning.clone())
+                    .child(flow_line_breaks(warning).into_owned())
                     .into_any_element()
             })
             .collect();
@@ -243,7 +243,7 @@ impl EditorView {
                     .into_any_element(),
             );
         }
-        if summary.cut_off {
+        if !summary.shown.is_empty() {
             lines.push(show_in_problems_row(button_id, cx).into_any_element());
         }
         lines

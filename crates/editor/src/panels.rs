@@ -1,5 +1,5 @@
 use crate::helpers::clip_kind_label;
-use crate::problems::Source;
+use crate::problems::{Source, flow_line_breaks};
 use crate::problems_panel::show_in_problems_row;
 use crate::timecode::format_timecode;
 use crate::view::EditorView;
@@ -264,7 +264,8 @@ impl EditorView {
             .when_some(
                 self.problems.active(Source::Schemas).cloned(),
                 |panel, active| {
-                    // Two lines at most; Problems has the full text.
+                    // Flowed into two lines at most; Problems has the full
+                    // text.
                     panel.child(
                         div()
                             .flex()
@@ -276,7 +277,8 @@ impl EditorView {
                             .text_color(cx.theme().danger)
                             .child(div().line_clamp(2).text_ellipsis().child(format!(
                                 "{}: {}",
-                                active.problem.title, active.problem.detail
+                                active.problem.title,
+                                flow_line_breaks(&active.problem.detail)
                             )))
                             .child(show_in_problems_row("inspector-schemas-show-problems", cx)),
                     )

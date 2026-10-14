@@ -3,6 +3,7 @@
 //! counts, and the toasts all read from here.
 
 use chrono::{DateTime, Local};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, VecDeque};
 use std::error::Error;
 use std::fmt::Write as _;
@@ -330,34 +331,47 @@ pub(crate) fn first_line(detail: &str) -> &str {
     detail.lines().next().unwrap_or_default()
 }
 
+/// `text` as one flowing paragraph, for a summary that wraps it to the
+/// available width: each line break, with the whitespace around it, becomes
+/// one space, and the ends are trimmed. Text without a line break is
+/// borrowed, not copied.
+pub(crate) fn flow_line_breaks(text: &str) -> Cow<'_, str> {
+    if !text.contains(['\n', '\r']) {
+        return Cow::Borrowed(text.trim());
+    }
+    let mut flowed = String::with_capacity(text.len());
+    for line in text.split(['\n', '\r']).map(str::trim) {
+        if line.is_empty() {
+            continue;
+        }
+        if !flowed.is_empty() {
+            flowed.push(' ');
+        }
+        flowed.push_str(line);
+    }
+    Cow::Owned(flowed)
+}
+
 /// How many preview warnings a summary lists before folding the rest into
 /// one "N more" line.
 pub(crate) const SUMMARY_WARNING_LIMIT: usize = 3;
 
-/// What a two-line-per-warning summary of the preview warnings shows.
+/// What a summary of the preview warnings shows. Each warning is flowed
+/// into two lines at most, so the summary can always cut something off and
+/// always points to Problems for the full text.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct WarningsSummary<'a> {
-    /// The warnings listed, each clamped to two lines.
+    /// The warnings listed.
     pub(crate) shown: &'a [String],
     /// How many warnings the summary leaves out.
     pub(crate) hidden: usize,
-    /// Whether the summary may cut something off, so it should point to
-    /// Problems for the full text: a warning is left out, or one has more
-    /// than one line (a single long line that wraps past two lines is not
-    /// detected).
-    pub(crate) cut_off: bool,
 }
 
 pub(crate) fn summarize_warnings(warnings: &[String]) -> WarningsSummary<'_> {
     let shown = &warnings[..warnings.len().min(SUMMARY_WARNING_LIMIT)];
-    let hidden = warnings.len() - shown.len();
     WarningsSummary {
         shown,
-        hidden,
-        cut_off: hidden > 0
-            || shown
-                .iter()
-                .any(|warning| warning.trim_end().contains('\n')),
+        hidden: warnings.len() - shown.len(),
     }
 }
 
@@ -390,12 +404,38 @@ mod tests {
     }
 
     #[test]
+    fn flowing_joins_lines_with_one_space_and_drops_indentation_and_blank_lines() {
+        let text = "React preview unavailable: exited\nIts last output:\n\n    Error: Cannot find module '@celesta/react'\n      at require  \n";
+        assert_eq!(
+            flow_line_breaks(text),
+            "React preview unavailable: exited Its last output: Error: Cannot find module '@celesta/react' at require"
+        );
+    }
+
+    #[test]
+    fn flowing_treats_crlf_as_a_line_break() {
+        assert_eq!(flow_line_breaks("first\r\nsecond\r\n"), "first second");
+    }
+
+    #[test]
+    fn flowing_leaves_a_single_line_as_it_is_without_copying() {
+        let flowed = flow_line_breaks("font fallback: using  Noto Sans");
+        assert_eq!(flowed, "font fallback: using  Noto Sans");
+        assert!(matches!(flowed, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn flowing_an_empty_string_gives_an_empty_string() {
+        assert_eq!(flow_line_breaks(""), "");
+        assert_eq!(flow_line_breaks("\n  \r\n"), "");
+    }
+
+    #[test]
     fn a_few_one_line_warnings_are_summarized_in_full() {
         let warnings = warnings(&["a", "b", "c"]);
         let summary = summarize_warnings(&warnings);
         assert_eq!(summary.shown, &warnings[..]);
         assert_eq!(summary.hidden, 0);
-        assert!(!summary.cut_off);
     }
 
     #[test]
@@ -403,30 +443,14 @@ mod tests {
         let summary = summarize_warnings(&[]);
         assert!(summary.shown.is_empty());
         assert_eq!(summary.hidden, 0);
-        assert!(!summary.cut_off);
     }
 
     #[test]
-    fn warnings_past_the_limit_are_counted_and_cut_off() {
+    fn warnings_past_the_limit_are_counted() {
         let warnings = warnings(&["a", "b", "c", "d", "e"]);
         let summary = summarize_warnings(&warnings);
         assert_eq!(summary.shown, &warnings[..3]);
         assert_eq!(summary.hidden, 2);
-        assert!(summary.cut_off);
-    }
-
-    #[test]
-    fn a_multi_line_warning_is_cut_off() {
-        let warnings = warnings(&["a", "React preview unavailable: exited\nstderr line"]);
-        let summary = summarize_warnings(&warnings);
-        assert_eq!(summary.hidden, 0);
-        assert!(summary.cut_off);
-    }
-
-    #[test]
-    fn a_trailing_newline_does_not_count_as_another_line() {
-        let warnings = warnings(&["font fallback\n"]);
-        assert!(!summarize_warnings(&warnings).cut_off);
     }
 
     #[test]
