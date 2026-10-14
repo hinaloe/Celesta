@@ -40,8 +40,8 @@ import type {
   TextStyle,
   Time,
 } from './scene';
-import { COLOR_FILTERS, ShaderEffect, colorFilter, isIdentityFilter } from './shader';
-import type { ColorFilter } from './shader';
+import { FILTER_PROPS, ShaderEffect, builtinFilter, isIdentityFilter } from './shader';
+import type { BuiltinFilter } from './shader';
 import type { JsonValue } from './generated/serde_json/JsonValue';
 import { SECONDS_TIMESCALE, endsWithComposition, secondsFromTime, secondsToTime } from './time';
 
@@ -731,24 +731,27 @@ function sameShaderSource(a: ShaderSource, b: ShaderSource): boolean {
 
 /**
  * The layer's filters, in the order they run: the `shader` prop's, then the
- * color filter props' in `COLOR_FILTERS` order. Props that leave the pixels
- * as they were add no filter.
+ * built-in filter props' in `FILTER_PROPS` order. Props that leave the
+ * pixels as they were add no filter.
  */
 function extractFilters(props: Record<string, unknown>, context: WalkContext): LayerFilter[] {
   const value = props.shader;
+  // A noise filter without a seed takes the frame `useCurrentFrame()` reads
+  // here; a <Static> subtree cannot depend on it.
+  const frame = context.insideStatic ? null : Math.round(secondsFromTime(context.time) * context.fps);
   // A dense copy: a hole is refused like any other value that is not a shader.
   const effects = value === undefined ? [] : Array.isArray(value) ? Array.from(value as unknown[]) : [value];
   const filters = effects.map((effect) => {
     if (!(effect instanceof ShaderEffect)) {
-      throw new Error("shader must be a value returned by @celesta/shader (defineShader() or a color filter such as brightness()), or an array of them");
+      throw new Error("shader must be a value returned by @celesta/shader (defineShader() or a built-in filter such as brightness()), or an array of them");
     }
     const source = ShaderEffect.source(effect);
     if (source) useShaderSource(source.source, context);
-    return ShaderEffect.serialize(effect);
+    return ShaderEffect.serialize(effect, frame);
   });
-  for (const name of COLOR_FILTERS) {
+  for (const name of FILTER_PROPS) {
     if (props[name] === undefined) continue;
-    const filter = ShaderEffect.serialize(colorFilter(name, props[name] as never)) as ColorFilter;
+    const filter = ShaderEffect.serialize(builtinFilter(name, props[name] as never), frame) as BuiltinFilter;
     if (!isIdentityFilter(filter)) filters.push(filter);
   }
   return filters;

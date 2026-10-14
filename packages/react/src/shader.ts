@@ -1,7 +1,8 @@
 // Filters as the scene walker accepts them: custom shaders, which
 // `@celesta/shader` builds through `@celesta/react/internal`, and the
-// built-in color filters. The walker serializes them into `effects.filters`
-// and lists the custom shaders' sources in the scene's `shaders`.
+// built-in filters (color filters, stylize effects, and the chroma key).
+// The walker serializes them into `effects.filters` and lists the custom
+// shaders' sources in the scene's `shaders`.
 
 import type { LayerFilter } from './generated/LayerFilter';
 import type { ShaderSource } from './generated/ShaderSource';
@@ -26,21 +27,30 @@ export class ShaderSourceHandle {
   }
 }
 
-/** A built-in color filter as the scene lists it. */
-export type ColorFilter = Exclude<LayerFilter, { type: 'shader' }>;
+/** A built-in filter as the scene lists it. */
+export type BuiltinFilter = Exclude<LayerFilter, { type: 'shader' }>;
+
+/**
+ * A built-in filter whose noise seed, when left out, is the frame the
+ * walker serializes it at.
+ */
+type PendingFilter =
+  | Exclude<BuiltinFilter, { type: 'noise' }>
+  | (Omit<Extract<BuiltinFilter, { type: 'noise' }>, 'seed'> & { seed: number | null });
 
 /**
  * A filter with concrete values: a custom shader from `@celesta/shader`'s
- * `defineShader()`, or a built-in color filter such as `brightness(1.2)`.
+ * `defineShader()`, or a built-in filter such as `brightness(1.2)` or
+ * `pixelate(8)`.
  */
 export class ShaderEffect {
   readonly #source: ShaderSourceHandle | null;
   readonly #params: readonly number[];
   readonly #padding: number;
-  readonly #filter: ColorFilter | null;
+  readonly #filter: PendingFilter | null;
 
   /** @internal */
-  constructor(source: ShaderSourceHandle | ColorFilter, params: readonly number[] = [], padding = 0) {
+  constructor(source: ShaderSourceHandle | PendingFilter, params: readonly number[] = [], padding = 0) {
     const custom = source instanceof ShaderSourceHandle;
     this.#source = custom ? source : null;
     this.#filter = custom ? null : source;
@@ -48,14 +58,22 @@ export class ShaderEffect {
     this.#padding = padding;
   }
 
-  /** @internal The custom shader's source; `null` for a color filter. */
+  /** @internal The custom shader's source; `null` for a built-in filter. */
   static source(effect: ShaderEffect): ShaderSourceHandle | null {
     return effect.#source;
   }
 
-  /** @internal */
-  static serialize(effect: ShaderEffect): LayerFilter {
-    if (effect.#filter) return { ...effect.#filter };
+  /**
+   * @internal `frame` is the noise seed of a noise filter that left it
+   * out; `null` where the walker cannot depend on the time.
+   */
+  static serialize(effect: ShaderEffect, frame: number | null = null): LayerFilter {
+    const filter = effect.#filter;
+    if (filter?.type === 'noise' && filter.seed === null) {
+      if (frame === null) throw new Error('noise inside <Static> needs a seed');
+      return { ...filter, seed: frame >>> 0 };
+    }
+    if (filter) return { ...filter } as BuiltinFilter;
     return {
       type: 'shader',
       id: effect.#source!.id,
@@ -169,8 +187,243 @@ export function colorFilter(name: ColorFilterName, value: unknown): ShaderEffect
   }
 }
 
-/** Whether the color filter leaves every pixel as it was. */
-export function isIdentityFilter(filter: ColorFilter): boolean {
+/** `pixelate`: averages square cells. */
+export interface LayerPixelate {
+  /** The cells' side, in output pixels, from the content box's top-left. 1 or less keeps the pixels. */
+  size: number;
+}
+
+/** `halftone`: dots of each cell's color, sized by its brightness. */
+export interface LayerHalftone {
+  /** The grid's spacing, in output pixels. 0 keeps the pixels. */
+  size: number;
+  /** The grid's turn about the content box's top-left, in degrees. Defaults to 45. */
+  angle?: number;
+}
+
+/** `chromaticAberration`: moves red and blue apart. */
+export interface LayerChromaticAberration {
+  /** How far red moves toward `angle`, and blue the other way, in output pixels. */
+  offset: number;
+  /** The direction red moves, in degrees: 0 is right, 90 down. Defaults to 0. */
+  angle?: number;
+}
+
+/** `wave`: sways the pixels along a sine. */
+export interface LayerWave {
+  /** How far the pixels move, in output pixels. */
+  amplitude: number;
+  /** The sine's length across the direction they move, in output pixels. */
+  wavelength: number;
+  /** Shifts the sine, in degrees; animate it to make the wave travel. Defaults to 0. */
+  phase?: number;
+  /** The direction the pixels move, in degrees: 0 sways rows sideways. Defaults to 0. */
+  angle?: number;
+}
+
+/** `noise`: grain over the color. */
+export interface LayerNoise {
+  /** How far each channel can move, 0–1. */
+  amount: number;
+  /**
+   * An integer choosing the grain. Defaults to the layer's current frame
+   * (`useCurrentFrame()`), so the grain changes every frame; give one to
+   * hold it still.
+   */
+  seed?: number;
+  /** One value for all three channels. Defaults to true. */
+  monochrome?: boolean;
+}
+
+/** `scanlines`: darkened horizontal bands. */
+export interface LayerScanlines {
+  /** How dark the bands are: 0 not at all, 1 black. */
+  amount: number;
+  /** The distance from one band to the next, in output pixels. Defaults to 4. */
+  spacing?: number;
+  /** The bands' thickness as a part of `spacing`, 0–1. Defaults to 0.5. */
+  thickness?: number;
+  /** Moves the bands down from the content box's top, in output pixels. Defaults to 0. */
+  offset?: number;
+}
+
+/** `zoomBlur`: blurs toward a centre, as a fast zoom would. */
+export interface LayerZoomBlur {
+  /** How much of each pixel's distance to the centre the blur spans, 0–1. */
+  amount: number;
+  /** The centre across the content box, 0 at its left and 1 at its right. Defaults to 0.5. */
+  centerX?: number;
+  /** The centre down the content box, 0 at its top and 1 at its bottom. Defaults to 0.5. */
+  centerY?: number;
+}
+
+/** `chromaKey`: makes the colors near a key color transparent. */
+export interface LayerChromaKey {
+  /** The key color, `#RRGGBB`. */
+  color: string;
+  /**
+   * How near the key a color's chroma (its BT.709 CbCr) must be to become
+   * fully transparent. Defaults to 0.2.
+   */
+  tolerance?: number;
+  /** How far beyond `tolerance` colors fade from transparent to opaque. Defaults to 0.1. */
+  softness?: number;
+  /** How much of the key's color cast to take out of what remains, 0–1. Defaults to 0.5. */
+  spill?: number;
+}
+
+/** The value each built-in stylize effect, and the chroma key, takes. */
+export interface EffectFilterValues {
+  /** A number is the `size`. */
+  pixelate: number | LayerPixelate;
+  /** A number is the `size`. */
+  halftone: number | LayerHalftone;
+  /** A number is the `offset`. */
+  chromaticAberration: number | LayerChromaticAberration;
+  wave: LayerWave;
+  /** A number is the `amount`. */
+  noise: number | LayerNoise;
+  /** A number is the `amount`. */
+  scanlines: number | LayerScanlines;
+  /** A number is the `amount`. */
+  zoomBlur: number | LayerZoomBlur;
+  /** A string is the `color`. */
+  chromaKey: string | LayerChromaKey;
+}
+
+export type EffectFilterName = keyof EffectFilterValues;
+
+/** Every built-in filter's value. */
+export type BuiltinFilterValues = ColorFilterValues & EffectFilterValues;
+
+export type BuiltinFilterName = keyof BuiltinFilterValues;
+
+/** The built-in filters, in the order their props apply. */
+export const FILTER_PROPS: readonly BuiltinFilterName[] = [
+  'chromaKey', 'pixelate', 'wave', 'zoomBlur', 'chromaticAberration',
+  ...COLOR_FILTERS,
+  'halftone', 'noise', 'scanlines',
+];
+
+const KEY_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * The built-in filter `name` with `value`, checked; throws naming the
+ * filter. Spatial values are output pixels and angles degrees.
+ */
+export function builtinFilter<N extends BuiltinFilterName>(name: N, value: BuiltinFilterValues[N]): ShaderEffect;
+export function builtinFilter(name: BuiltinFilterName, value: unknown): ShaderEffect {
+  if ((COLOR_FILTERS as readonly string[]).includes(name)) return colorFilter(name as ColorFilterName, value as never);
+  // A number or a string stands for the first field.
+  const fields = (first: string): Record<string, unknown> => {
+    if (typeof value === 'number' || typeof value === 'string') return { [first]: value };
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error(`${name} must be an object`);
+    }
+    return value as Record<string, unknown>;
+  };
+  const scalar = typeof value === 'number' || typeof value === 'string';
+  const label = (field: string) => (scalar ? name : `${name}.${field}`);
+  const number = (
+    input: unknown, field: string, fallback?: number, min = -Infinity, max = Infinity, above = false,
+  ): number => {
+    if (input === undefined && fallback !== undefined) return fallback;
+    if (typeof input !== 'number' || !Number.isFinite(input) || input < min || input > max || (above && input <= min)) {
+      const range = max !== Infinity
+        ? ` between ${min} and ${max}`
+        : above ? ` above ${min}` : min !== -Infinity ? ` of at least ${min}` : '';
+      throw new Error(`${label(field)} must be a finite number${range}`);
+    }
+    return input;
+  };
+  switch (name) {
+    case 'pixelate': {
+      const pixelate = fields('size');
+      return new ShaderEffect({ type: 'pixelate', size: number(pixelate.size, 'size', undefined, 0) });
+    }
+    case 'halftone': {
+      const halftone = fields('size');
+      return new ShaderEffect({
+        type: 'halftone',
+        size: number(halftone.size, 'size', undefined, 0),
+        angle: number(halftone.angle, 'angle', 45),
+      });
+    }
+    case 'chromaticAberration': {
+      const shift = fields('offset');
+      return new ShaderEffect({
+        type: 'chromaticAberration',
+        offset: number(shift.offset, 'offset'),
+        angle: number(shift.angle, 'angle', 0),
+      });
+    }
+    case 'wave': {
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error('wave must be an object with amplitude and wavelength');
+      }
+      const wave = value as Record<string, unknown>;
+      return new ShaderEffect({
+        type: 'wave',
+        amplitude: number(wave.amplitude, 'amplitude'),
+        wavelength: number(wave.wavelength, 'wavelength', undefined, 0, Infinity, true),
+        phase: number(wave.phase, 'phase', 0),
+        angle: number(wave.angle, 'angle', 0),
+      });
+    }
+    case 'noise': {
+      const noise = fields('amount');
+      if (noise.seed !== undefined && !Number.isSafeInteger(noise.seed)) {
+        throw new Error('noise.seed must be an integer');
+      }
+      if (noise.monochrome !== undefined && typeof noise.monochrome !== 'boolean') {
+        throw new Error('noise.monochrome must be a boolean');
+      }
+      return new ShaderEffect({
+        type: 'noise',
+        amount: number(noise.amount, 'amount', undefined, 0, 1),
+        seed: noise.seed === undefined ? null : (noise.seed as number) >>> 0,
+        monochrome: noise.monochrome !== false,
+      });
+    }
+    case 'scanlines': {
+      const scanlines = fields('amount');
+      return new ShaderEffect({
+        type: 'scanlines',
+        amount: number(scanlines.amount, 'amount', undefined, 0, 1),
+        spacing: number(scanlines.spacing, 'spacing', 4, 0, Infinity, true),
+        thickness: number(scanlines.thickness, 'thickness', 0.5, 0, 1),
+        offset: number(scanlines.offset, 'offset', 0),
+      });
+    }
+    case 'zoomBlur': {
+      const zoom = fields('amount');
+      return new ShaderEffect({
+        type: 'zoomBlur',
+        amount: number(zoom.amount, 'amount', undefined, 0, 1),
+        centerX: number(zoom.centerX, 'centerX', 0.5),
+        centerY: number(zoom.centerY, 'centerY', 0.5),
+      });
+    }
+    case 'chromaKey': {
+      const key = fields('color');
+      if (typeof key.color !== 'string' || !KEY_COLOR.test(key.color)) {
+        throw new Error(`${label('color')} must be a #RRGGBB color`);
+      }
+      return new ShaderEffect({
+        type: 'chromaKey',
+        color: key.color,
+        tolerance: number(key.tolerance, 'tolerance', 0.2, 0),
+        softness: number(key.softness, 'softness', 0.1, 0),
+        spill: number(key.spill, 'spill', 0.5, 0, 1),
+      });
+    }
+    default:
+      throw new Error(`unknown filter ${JSON.stringify(name)}`);
+  }
+}
+
+/** Whether the built-in filter leaves every pixel as it was. */
+export function isIdentityFilter(filter: BuiltinFilter): boolean {
   switch (filter.type) {
     case 'brightness':
     case 'contrast':
@@ -180,6 +433,16 @@ export function isIdentityFilter(filter: ColorFilter): boolean {
       return filter.degrees % 360 === 0;
     case 'tint':
       return filter.amount === 0 || /^#[0-9a-fA-F]{6}00$/.test(filter.color);
+    case 'pixelate':
+      return filter.size <= 1;
+    case 'halftone':
+      return filter.size === 0;
+    case 'chromaticAberration':
+      return filter.offset === 0;
+    case 'wave':
+      return filter.amplitude === 0;
+    case 'chromaKey':
+      return false;
     default:
       return filter.amount === 0;
   }

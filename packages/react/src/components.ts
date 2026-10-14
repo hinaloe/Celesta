@@ -10,7 +10,10 @@ import {
   resolveTextLanguage,
 } from './hooks';
 import type { Animatable, BlendMode, LineCap, Paint, PathCommand, TextStyle, LayerShadow, LayerGlow } from './scene';
-import type { LayerTint, LayerVignette, ShaderEffect } from './shader';
+import type {
+  LayerChromaKey, LayerChromaticAberration, LayerHalftone, LayerNoise, LayerPixelate, LayerScanlines, LayerTint,
+  LayerVignette, LayerWave, LayerZoomBlur, ShaderEffect,
+} from './shader';
 import { endsWithComposition, secondsFromTime, secondsToTime } from './time';
 
 // Unlike the pre-reconciler tree walker, these are real function components:
@@ -58,17 +61,36 @@ export interface CommonProps {
   glow?: LayerGlow;
   /**
    * Filters from `@celesta/shader` (custom WGSL shaders from
-   * `defineShader()`, or built-in color filters such as `brightness(1.2)`),
-   * applied to the composited layer before the color filter props, `blur`,
-   * `shadow`, and `glow`. An array runs them in order, each filtering the
-   * result of the one before it.
+   * `defineShader()`, or built-in filters such as `brightness(1.2)` and
+   * `pixelate(8)`), applied to the composited layer before the built-in
+   * filter props, `blur`, `shadow`, and `glow`. An array runs them in
+   * order, each filtering the result of the one before it.
    */
   shader?: ShaderEffect | readonly ShaderEffect[];
   /*
-   * The color filters below apply after `shader` and before `blur`,
-   * `shadow`, and `glow`, in the order listed here. Each works on the
-   * straight sRGB color, keeps alpha, and clamps its result to 0–1. For
-   * another order, pass them to `shader` as an array instead.
+   * The built-in filters below apply after `shader` and before `blur`,
+   * `shadow`, and `glow`, in the order listed here: the chroma key, the
+   * distortions, the color filters, then the overlays. For another order,
+   * pass the `@celesta/shader` functions of the same names to `shader` as
+   * an array instead. Spatial values are output pixels; grids and `uv`-like
+   * positions follow the layer's content box.
+   */
+  /**
+   * Makes the colors near a key color transparent, as for green-screen
+   * footage. A string is the key color.
+   */
+  chromaKey?: string | LayerChromaKey;
+  /** Averages square cells of this many pixels. A number is the `size`. */
+  pixelate?: number | LayerPixelate;
+  /** Sways the pixels along a sine. */
+  wave?: LayerWave;
+  /** Blurs toward a centre, as a fast zoom would. A number is the `amount`, 0–1. */
+  zoomBlur?: number | LayerZoomBlur;
+  /** Moves red and blue apart. A number is the `offset` in pixels. */
+  chromaticAberration?: number | LayerChromaticAberration;
+  /*
+   * The color filters work on the straight sRGB color, keep alpha, and
+   * clamp their result to 0–1.
    */
   /** Multiplies the color: 1 keeps it, 0 is black, above 1 brightens. */
   brightness?: number;
@@ -86,6 +108,18 @@ export interface CommonProps {
   tint?: LayerTint;
   /** Darkens toward the edges of the content box. A number is the amount, 0–1. */
   vignette?: number | LayerVignette;
+  /**
+   * Dots of each cell's color whose area follows its brightness, with
+   * transparency between them. A number is the grid's `size` in pixels.
+   */
+  halftone?: number | LayerHalftone;
+  /**
+   * Grain over the color, the same on any render of the same frame. A
+   * number is the `amount`, 0–1; it changes every frame unless given a `seed`.
+   */
+  noise?: number | LayerNoise;
+  /** Darkened horizontal bands. A number is the `amount`, 0–1. */
+  scanlines?: number | LayerScanlines;
 }
 
 export interface CompositionProps {

@@ -1,9 +1,12 @@
 /// <reference path="../wgsl.d.ts" preserve="true" />
 
-import type { ColorFilterValues, LayerTint, LayerVignette, ShaderEffect } from '@celesta/react';
-import { colorFilter, shaderEffect, shaderSource } from '@celesta/react/internal';
+import type { ColorFilterValues, EffectFilterValues, LayerTint, LayerWave, ShaderEffect } from '@celesta/react';
+import { builtinFilter, colorFilter, shaderEffect, shaderSource } from '@celesta/react/internal';
 
-export type { LayerTint, LayerVignette, ShaderEffect } from '@celesta/react';
+export type {
+  LayerChromaKey, LayerChromaticAberration, LayerHalftone, LayerNoise, LayerPixelate, LayerScanlines, LayerTint,
+  LayerVignette, LayerWave, LayerZoomBlur, ShaderEffect,
+} from '@celesta/react';
 
 /** The type of a shader parameter, and the WGSL type it is declared as. */
 export type ShaderParamType = 'f32' | 'vec2' | 'vec3' | 'vec4' | 'color';
@@ -260,4 +263,55 @@ export function tint(value: LayerTint): ShaderEffect {
 /** Darkens toward the edges of the content box. A number is the amount, 0–1. */
 export function vignette(value: ColorFilterValues['vignette']): ShaderEffect {
   return colorFilter('vignette', value);
+}
+
+// The built-in stylize effects and the chroma key, for the same array.
+// Spatial values are output pixels and angles degrees; grids and centres
+// follow the content box. Like the color filters, they run in the browser
+// renderer too.
+
+/** Averages square cells. A number is the cells' `size` in pixels. */
+export function pixelate(value: EffectFilterValues['pixelate']): ShaderEffect {
+  return builtinFilter('pixelate', value);
+}
+
+/**
+ * Dots of each cell's color whose area follows its brightness, transparent
+ * between them. A number is the grid's `size` in pixels.
+ */
+export function halftone(value: EffectFilterValues['halftone']): ShaderEffect {
+  return builtinFilter('halftone', value);
+}
+
+/** Moves red and blue apart. A number is the `offset` in pixels. */
+export function chromaticAberration(value: EffectFilterValues['chromaticAberration']): ShaderEffect {
+  return builtinFilter('chromaticAberration', value);
+}
+
+/** Sways the pixels along a sine; animate `phase` to make it travel. */
+export function wave(value: LayerWave): ShaderEffect {
+  return builtinFilter('wave', value);
+}
+
+/**
+ * Grain over the color. A number is the `amount`, 0–1. Without a `seed`, it
+ * changes every frame, the same on any render of a frame.
+ */
+export function noise(value: EffectFilterValues['noise']): ShaderEffect {
+  return builtinFilter('noise', value);
+}
+
+/** Darkened horizontal bands. A number is the `amount`, 0–1. */
+export function scanlines(value: EffectFilterValues['scanlines']): ShaderEffect {
+  return builtinFilter('scanlines', value);
+}
+
+/** Blurs toward a centre, as a fast zoom would. A number is the `amount`, 0–1. */
+export function zoomBlur(value: EffectFilterValues['zoomBlur']): ShaderEffect {
+  return builtinFilter('zoomBlur', value);
+}
+
+/** Makes the colors near a key color transparent. A string is the key color. */
+export function chromaKey(value: EffectFilterValues['chromaKey']): ShaderEffect {
+  return builtinFilter('chromaKey', value);
 }
