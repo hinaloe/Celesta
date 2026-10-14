@@ -446,6 +446,7 @@ fn image_instances_scale_and_rotate() {
                 layers: Vec::new(),
                 clip: None,
                 mask: None,
+                motion_blur: false,
             },
         )
     }];
@@ -575,6 +576,7 @@ fn one_sprite_dimension_keeps_the_images_aspect_ratio() {
                 layers: Vec::new(),
                 clip: None,
                 mask: None,
+                motion_blur: false,
             },
         )
     }];

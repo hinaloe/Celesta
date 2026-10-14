@@ -385,6 +385,7 @@ fn absolutizes_assets_inside_a_groups_mask() {
                 mode: MaskMode::Alpha,
                 invert: false,
             }),
+            motion_blur: false,
         },
         ..image("group")
     }];

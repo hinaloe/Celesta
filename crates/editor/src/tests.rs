@@ -473,6 +473,7 @@ fn masked_group(children: Vec<Layer>, mask: Vec<Layer>) -> Layer {
                 mode: MaskMode::Alpha,
                 invert: false,
             }),
+            motion_blur: false,
         },
         ..missing("group")
     }
@@ -526,6 +527,7 @@ fn shaded(id: &str) -> Layer {
             layers: Vec::new(),
             clip: None,
             mask: None,
+            motion_blur: false,
         },
         ..missing(id)
     }

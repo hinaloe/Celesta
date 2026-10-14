@@ -23,6 +23,8 @@ mod layer;
 mod linebreak;
 #[cfg(test)]
 mod mask_tests;
+#[cfg(test)]
+mod motion_blur_tests;
 mod paint;
 mod rect;
 mod renderer;

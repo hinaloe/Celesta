@@ -105,6 +105,7 @@ mod tests {
             layers: vec![image("assets/checker.ppm")],
             clip: None,
             mask: None,
+            motion_blur: false,
         };
         let mut layers = vec![
             image("fixtures/two-frames.webp"),

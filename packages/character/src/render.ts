@@ -216,7 +216,7 @@ function dialogueContent(node: HostNode, walk: HostWalk): LayerContent {
   const view = resolveCharacterView(props.character);
   if (!view && walk.frozen) {
     throw new Error(
-      '<Dialogue> inside <FreezeFrame> must refer to a <CharacterView> rendered inside the same <FreezeFrame>',
+      '<Dialogue> inside <FreezeFrame>, <MotionBlur>, or a <Trail> copy must refer to a <CharacterView> rendered inside the same copy',
     );
   }
   const character = resolveReference(view?.props.character) as

@@ -31,6 +31,8 @@ For a quick monospaced caret, use `length × advance` as an estimate. For actual
 </Camera>
 ```
 
+To blur a fast camera move, wrap the camera in a `MotionBlur` and compute its props from the frame the blur passes in, so they change between its moments; see [Animation](/en/docs/animation/).
+
 ## Lines and charts
 
 `<Line x1 y1 x2 y2>` draws a segment and `<Polyline points>` connects several; both take `stroke`, `strokeWidth`, `cap` (`round` by default), and `join`. Animate a polyline’s `progress` from 0 to 1 to draw it on, and use `pointOnPolyline(points, t)` to put a marker on its tip.

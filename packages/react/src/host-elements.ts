@@ -24,7 +24,7 @@ export interface HostWalk extends HostVisit {
   /** The frame on the root composition's clock, the same inside any `<Sequence>`. */
   readonly frame: number;
   readonly fps: number;
-  /** True inside a `<FreezeFrame>`. */
+  /** True inside a `<FreezeFrame>`, a `<MotionBlur>` sample, or a past `<Trail>` copy. */
   readonly frozen: boolean;
   /** An element's `src`-like prop, a path, asset reference, or ref, as a scene asset. */
   resolveAsset(src: unknown): ResolvedAsset;

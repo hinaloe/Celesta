@@ -73,6 +73,7 @@ fn expand(
                     layers: children.clone(),
                     clip: None,
                     mask: None,
+                    motion_blur: false,
                 };
             }
             LayerContent::Group { layers, mask, .. } => {

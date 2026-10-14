@@ -7,6 +7,7 @@ export { googleFont } from './google-font';
 export {
   Audio, Assets, Composition, Font, FreezeFrame, Group, Image, Instances, Rect, Sequence, Static, Text, Video,
 } from './components';
+export { MotionBlur, Trail } from './motion-blur';
 export { useCurrentFrame, useCurrentTime, useDebugGuides, useIsPreview, useVideoConfig } from './hooks';
 export { Easings, interpolate, interpolateColor, progress, spring } from './animation';
 export { frameToTimecode, timecodeToFrame } from './time';

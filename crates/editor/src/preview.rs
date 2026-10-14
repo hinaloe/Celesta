@@ -469,6 +469,7 @@ pub(crate) fn collect_component_requests(
                 layers,
                 clip: _,
                 mask,
+                motion_blur: _,
             } => {
                 collect_component_requests(layers, out);
                 if let Some(mask) = mask {
@@ -488,6 +489,7 @@ pub(crate) fn strip_missing_components(layers: &mut Vec<Layer>) {
                 layers: children,
                 clip: _,
                 mask,
+                motion_blur: _,
             } => {
                 strip_missing_components(children);
                 if let Some(mask) = mask {
@@ -552,6 +554,7 @@ pub(crate) fn splice_resolved_components(
                     layers: children,
                     clip: _,
                     mask,
+                    motion_blur: _,
                 } = &mut layers[index].content
                 {
                     splice_resolved_components(children, resolutions, cursor, unresolved);
@@ -575,6 +578,7 @@ pub(crate) fn splice_resolved_components(
                             layers: children,
                             clip: None,
                             mask: None,
+                            motion_blur: false,
                         };
                         index += 1;
                     }

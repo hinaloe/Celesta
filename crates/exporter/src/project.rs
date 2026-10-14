@@ -148,6 +148,7 @@ pub(crate) fn absolutize_layer_content(content: &mut LayerContent, asset_root: &
             layers,
             clip: _,
             mask,
+            motion_blur: _,
         } => {
             absolutize_layers(layers, asset_root);
             if let Some(mask) = mask {

@@ -36,6 +36,8 @@ export type {
   TextProps,
   VideoProps,
 } from './components';
+export { MotionBlur, Trail } from './motion-blur';
+export type { MomentChildren, MotionBlurProps, TrailProps } from './motion-blur';
 export { googleFont } from './google-font';
 export type { GoogleFontOptions } from './google-font';
 export type {

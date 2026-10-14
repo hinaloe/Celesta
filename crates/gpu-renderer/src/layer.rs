@@ -40,6 +40,14 @@ pub(crate) enum PreparedItem {
     MaskContent,
     /// Draws the children shown through the mask onto the group's parent.
     EndMask(PreparedLayer, Box<MaskSpec>),
+    /// The items up to the matching `EndAverage` are a motion-blurred
+    /// group's samples, separated by `NextSample`s: each draws onto a
+    /// transparent canvas of its own, and the group's canvas holds their
+    /// average.
+    BeginAverage,
+    NextSample,
+    /// Draws the averaged samples' canvas onto the group's parent.
+    EndAverage(PreparedLayer),
     /// A text layer `place_texts` replaces with a `Layer` before anything
     /// else reads the items.
     PendingText,

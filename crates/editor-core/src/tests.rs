@@ -159,7 +159,9 @@ fn react_entry_resolves_relative_to_the_project_file() {
     assert_eq!(document.react_entry(), Some("./react/entry.tsx"));
     assert_eq!(
         document.react_entry_absolute_path().unwrap(),
-        dunce::canonicalize(&root).unwrap().join("./react/entry.tsx")
+        dunce::canonicalize(&root)
+            .unwrap()
+            .join("./react/entry.tsx")
     );
     fs::remove_dir_all(root).unwrap();
 }
@@ -169,11 +171,17 @@ fn react_entry_resolves_relative_to_the_project_file() {
 /// ordinary absolute path like the ones file dialogs return.
 #[test]
 fn react_entry_path_is_not_a_windows_verbatim_path() {
-    let root =
-        std::env::temp_dir().join(format!("celesta-editor-react-verbatim-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!(
+        "celesta-editor-react-verbatim-{}",
+        std::process::id()
+    ));
     fs::create_dir_all(&root).unwrap();
     let entry_path = root.join("film.tsx");
-    fs::write(&entry_path, b"export default function Root() { return null; }").unwrap();
+    fs::write(
+        &entry_path,
+        b"export default function Root() { return null; }",
+    )
+    .unwrap();
 
     let document =
         EditorDocument::react_preview(&entry_path, 1920, 1080, Rational::new(30, 1), 48_000, 150)

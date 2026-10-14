@@ -76,10 +76,16 @@ export function ProjectTimeline(): ReturnType<typeof React.createElement> {
 // no layers is absent from the map; `useProjectTrack` and `<ProjectTrack />`
 // treat "absent" and "empty" the same way, as "nothing to show".
 
-/** Project layers are evaluated at the current frame only, so a frozen copy would show the wrong moment. */
+/**
+ * Project layers are evaluated at the current frame only, so a copy drawn at
+ * another moment (a freeze, a motion blur sample, a trail copy) would show
+ * the wrong one.
+ */
 function useOutsideFreezeFrame(name: string): void {
   if (React.useContext(FreezeFrameContext)) {
-    throw new Error(`${name} cannot be drawn inside <FreezeFrame>: project layers are evaluated at the current frame only`);
+    throw new Error(
+      `${name} cannot be drawn inside <FreezeFrame>, <MotionBlur>, or <Trail>: project layers are evaluated at the current frame only`,
+    );
   }
 }
 

@@ -97,6 +97,7 @@ fn count_layers(layers: &[Layer]) -> usize {
                 layers,
                 clip: _,
                 mask,
+                motion_blur: _,
             } => {
                 1 + count_layers(layers)
                     + mask.as_ref().map_or(0, |mask| count_layers(&mask.layers))
@@ -138,6 +139,7 @@ fn scene(frame: usize, ribbons: usize, strands: usize, geometry: Geometry) -> Sc
                 ),
                 clip: None,
                 mask: None,
+                motion_blur: false,
             },
         });
     }

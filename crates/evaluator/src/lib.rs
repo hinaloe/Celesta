@@ -352,6 +352,7 @@ impl<'project> Evaluator<'project> {
             layers,
             clip: None,
             mask: None,
+            motion_blur: false,
         })
     }
 

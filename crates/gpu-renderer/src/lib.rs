@@ -4,6 +4,7 @@
 //! transforms, opacity, painter ordering, and deterministic RGBA readback.
 //! Unsupported content returns an error instead of silently disappearing.
 
+mod average;
 mod bounds;
 mod compositor;
 mod draw;

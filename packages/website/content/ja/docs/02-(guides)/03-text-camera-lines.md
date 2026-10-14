@@ -31,6 +31,8 @@
 </Camera>
 ```
 
+速いカメラの動きをぼかすには、カメラを `MotionBlur` で包み、ブラーが渡すフレームから props を計算して、各時点で値が変わるようにします。[アニメーション](/ja/docs/animation/)を参照してください。
+
 ## 線とグラフ
 
 `<Line x1 y1 x2 y2>` は線分、`<Polyline points>` は複数の点を結びます。どちらも `stroke`、`strokeWidth`、`cap`（既定 `round`）、`join` を取ります。折れ線の `progress` を 0〜1 に動かすと線が描かれ、`pointOnPolyline(points, t)` で先端にマーカーを置けます。

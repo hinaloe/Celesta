@@ -85,10 +85,13 @@ pub(crate) fn plan_groups(items: &[PreparedItem], scene: CanvasRegion) -> Vec<Gr
             PreparedItem::PendingText | PreparedItem::PendingPath => {
                 unreachable!("pending text and paths are resolved")
             }
-            PreparedItem::BeginGroup | PreparedItem::BeginMask => {
+            PreparedItem::BeginGroup | PreparedItem::BeginMask | PreparedItem::BeginAverage => {
                 open.push((plans.len(), Covered::default()));
                 plans.push(plan(Covered::default(), None));
             }
+            // Every sample draws onto a canvas covering what any of them
+            // covers.
+            PreparedItem::NextSample => {}
             PreparedItem::MaskContent => {
                 let (index, mask) = open.pop().expect("every mask was begun");
                 masks.push(mask);
@@ -110,14 +113,16 @@ pub(crate) fn plan_groups(items: &[PreparedItem], scene: CanvasRegion) -> Vec<Gr
                 plans[index] = plan(shown, shown.content);
                 cover(&mut open, shown);
             }
-            PreparedItem::EndGroup(_) => {
+            PreparedItem::EndGroup(_) | PreparedItem::EndAverage(_) => {
                 let (index, covered) = open.pop().expect("every group was begun");
                 plans[index] = plan(covered, covered.content);
                 cover(&mut open, covered);
             }
             PreparedItem::EndEffect(_, effects) => {
                 let (index, covered) = open.pop().expect("every group was begun");
-                let output = covered.content.map(|content| effects.output_bounds(content));
+                let output = covered
+                    .content
+                    .map(|content| effects.output_bounds(content));
                 plans[index] = plan(covered, output);
                 // A blur or a shadow spreads the pixels, not the shape.
                 cover(
@@ -161,7 +166,9 @@ pub(crate) enum GpuStep {
         area: Option<[u32; 4]>,
     },
     /// Starts drawing onto a fresh transparent canvas covering `canvas`.
-    BeginGroup { canvas: CanvasRegion },
+    BeginGroup {
+        canvas: CanvasRegion,
+    },
     /// Draws the finished group canvas onto its parent with `instance`.
     EndGroup {
         instance: u32,
@@ -187,7 +194,9 @@ pub(crate) enum GpuStep {
     /// Starts drawing a mask onto a fresh transparent canvas covering
     /// `canvas`; the steps from the matching `MaskContent` draw the group's
     /// children onto a second one covering the same region.
-    BeginMask { canvas: CanvasRegion },
+    BeginMask {
+        canvas: CanvasRegion,
+    },
     /// Ends the mask's steps; the children's follow, onto the second canvas.
     MaskContent,
     /// Draws the children shown through the mask onto the parent with
@@ -196,6 +205,21 @@ pub(crate) enum GpuStep {
         instance: u32,
         blend_mode: BlendMode,
         mask: MaskSpec,
+        /// As for `EndGroup`.
+        area: Option<[u32; 4]>,
+    },
+    /// Starts a motion-blurred group: the steps up to the first
+    /// `NextSample`, and those between it and the next, draw each sample
+    /// onto a fresh transparent canvas covering `canvas`, and the group's
+    /// canvas holds their average.
+    BeginAverage {
+        canvas: CanvasRegion,
+    },
+    NextSample,
+    /// Draws the averaged samples onto the parent with `instance`.
+    EndAverage {
+        instance: u32,
+        blend_mode: BlendMode,
         /// As for `EndGroup`.
         area: Option<[u32; 4]>,
     },

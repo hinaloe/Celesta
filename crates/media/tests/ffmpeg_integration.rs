@@ -1,9 +1,9 @@
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use ez_ffmpeg::{FfmpegContext, Input, Output};
 use celesta_composition::Rational;
 use celesta_media::{AudioDecoder, FfmpegBackend, VideoFrameDecoder};
+use ez_ffmpeg::{FfmpegContext, Input, Output};
 
 /// Renders a synthetic `lavfi` source to a lossless fixture through the linked
 /// FFmpeg libraries (`ffv1` in MKV for video, WAV for audio). `fps`, when set,

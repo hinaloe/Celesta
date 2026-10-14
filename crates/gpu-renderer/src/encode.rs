@@ -182,6 +182,7 @@ impl GpuRenderer {
             effects: &mut self.effects,
             shaders: &mut self.shaders,
             masks: &self.masks,
+            averages: &self.averages,
         };
         compositor.draw_canvas(
             encoder,

@@ -21,8 +21,9 @@ for more examples, see the [examples directory](examples) and the [gallery](docs
 - **Compose with React:** use components, hooks, sequences, transitions, and
   layouts to build scenes. Join scenes with cuts, cross-fades, slides, or
   wipes using `<TransitionSeries>`, which works out the overlaps and length.
-  Animate positions, colors, and effects with interpolation and springs, or
-  hold a scene at a chosen frame with `<FreezeFrame>`.
+  Animate positions, colors, and effects with interpolation and springs,
+  hold a scene at a chosen frame with `<FreezeFrame>`, and blur fast motion
+  with `<MotionBlur>` or leave a trail behind it with `<Trail>`.
 - **Draw and lay out content:** combine rectangles, circles, ellipses, arrows,
   and paths with text. Load fonts, measure text, fit it into a box, and wrap
   Japanese text at phrase boundaries. Draw up to hundreds of thousands of
@@ -193,7 +194,7 @@ manner of Remotion; import each piece from the package that provides it:
 
 | Package | Provides |
 | --- | --- |
-| [`@celesta/react`](packages/react) | `<Composition>`, `<Sequence>`, `<Series>`, `<FreezeFrame>`, `<Group>`, `<Rect>`, `<Text>`, `<Span>`, `<Image>`, `<Video>`, `<Audio>`, `<Font>`, `<Assets>`, frame and config hooks, `interpolate`, `spring`, `Easings`, keyframes, beats and cues, text measurement, `registerComponent`, and `defineProjectProperties` |
+| [`@celesta/react`](packages/react) | `<Composition>`, `<Sequence>`, `<Series>`, `<FreezeFrame>`, `<MotionBlur>`, `<Trail>`, `<Group>`, `<Rect>`, `<Text>`, `<Span>`, `<Image>`, `<Video>`, `<Audio>`, `<Font>`, `<Assets>`, frame and config hooks, `interpolate`, `spring`, `Easings`, keyframes, beats and cues, text measurement, `registerComponent`, and `defineProjectProperties` |
 | [`@celesta/shapes`](packages/shapes) | `<Line>`, `<Polyline>`, `<Path>`, `<Circle>`, `<Ellipse>`, `<Arrow>`, `<Triangle>`, `<Polygon>`, `<Star>`, `<Pie>`, `<Heart>`, `pointOnPolyline`, path generators (`starPath`, `piePath`, …), `pointOnPath`, `measurePath`, `interpolatePath`, `parseSvgPath`, `toSvgPath` |
 | [`@celesta/layout`](packages/layout) | `<Center>`, `<Stack>`, `<Grid>`, `<Fit>`, `<SafeArea>`, `safeAreaInsets`, `useLayoutBounds`, `<Camera>` |
 | [`@celesta/transitions`](packages/transitions) | `<Transition>`, `<TransitionSeries>` and its hooks |

@@ -237,6 +237,7 @@ fn fit(mut scene: Scene, width: u32, height: u32) -> Scene {
                 layers,
                 clip: _,
                 mask,
+                motion_blur: _,
             } = &mut layer.content
             {
                 scale_effects(layers, k);
@@ -258,6 +259,7 @@ fn fit(mut scene: Scene, width: u32, height: u32) -> Scene {
             layers,
             clip: None,
             mask: None,
+            motion_blur: false,
         },
     )];
     (scene.width, scene.height) = (width, height);
@@ -528,6 +530,7 @@ fn ribbons(canvas: &Canvas, frame: usize) -> Vec<Layer> {
                     layers: rects,
                     clip: None,
                     mask: None,
+                    motion_blur: false,
                 },
             )
         })
@@ -669,6 +672,7 @@ fn shapes(canvas: &Canvas, frame: usize) -> Vec<Layer> {
                         corner_radius: canvas.len(32.0),
                     }),
                     mask: None,
+                    motion_blur: false,
                 },
             );
             layer.blend_mode = *mode;
@@ -862,6 +866,7 @@ fn shader_nest(canvas: &Canvas, frame: usize) -> Vec<Layer> {
                 layers: vec![backdrop],
                 clip: None,
                 mask: None,
+                motion_blur: false,
             },
         );
         backdrop.effects.filters.push(step);
