@@ -8,9 +8,9 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Selectable as _, Sizable as _};
 use gpui_kit::{
-    BorderStyle, Bounds, Context, Hsla, IntoElement, MouseButton, ObjectFit, ParentElement as _,
-    StyledImage as _, Window, canvas, div, fill, img, outline, point, prelude::*, px, relative,
-    rems, size,
+    AnyElement, BorderStyle, Bounds, Context, Hsla, IntoElement, MouseButton, ObjectFit,
+    ParentElement as _, StyledImage as _, Window, canvas, div, fill, img, outline, point,
+    prelude::*, px, relative, rems, size,
 };
 
 use crate::actions::{
@@ -20,8 +20,8 @@ use crate::actions::{
 use crate::icons::CelestaIcon;
 use crate::meter::audio_meter;
 use crate::preview::PreviewPresentation;
-use crate::problems::{ActiveProblem, Source};
-use crate::problems_panel::detail_block;
+use crate::problems::{ActiveProblem, Source, summarize_warnings};
+use crate::problems_panel::{detail_block, show_in_problems_row};
 use crate::timecode::format_timecode;
 use crate::view::EditorView;
 
@@ -177,15 +177,7 @@ impl EditorView {
                             )
                             .vertical_scrollbar(&self.preview_error_scroll),
                     )
-                    .child(
-                        div().flex().flex_none().justify_end().child(
-                            Button::new("preview-error-show-problems")
-                                .xsmall()
-                                .outline()
-                                .label("Show in Problems")
-                                .on_click(cx.listener(|this, _, _, cx| this.show_problems(cx))),
-                        ),
-                    ),
+                    .child(show_in_problems_row("preview-error-show-problems", cx)),
             )
     }
 
@@ -219,7 +211,42 @@ impl EditorView {
             .p_2()
             .text_xs()
             .text_color(cx.theme().warning)
-            .children(self.problems.preview_warnings().iter().cloned())
+            .children(self.preview_warnings_summary("preview-warnings-show-problems", cx))
+    }
+
+    /// The preview warnings as a summary for a warnings box: the first
+    /// [`SUMMARY_WARNING_LIMIT`](crate::problems::SUMMARY_WARNING_LIMIT),
+    /// two lines each, how many more there are, and a way into the Problems
+    /// tab, which has the full text, when the summary may cut something off.
+    pub(crate) fn preview_warnings_summary(
+        &self,
+        button_id: &'static str,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let summary = summarize_warnings(self.problems.preview_warnings());
+        let mut lines: Vec<AnyElement> = summary
+            .shown
+            .iter()
+            .map(|warning| {
+                div()
+                    .line_clamp(2)
+                    .text_ellipsis()
+                    .child(warning.clone())
+                    .into_any_element()
+            })
+            .collect();
+        if summary.hidden > 0 {
+            lines.push(
+                div()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(format!("{} more", summary.hidden))
+                    .into_any_element(),
+            );
+        }
+        if summary.cut_off {
+            lines.push(show_in_problems_row(button_id, cx).into_any_element());
+        }
+        lines
     }
 
     /// Playhead timecode, transport controls, and the In/Out marks.

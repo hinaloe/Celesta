@@ -1,5 +1,6 @@
 use crate::helpers::clip_kind_label;
 use crate::problems::Source;
+use crate::problems_panel::show_in_problems_row;
 use crate::timecode::format_timecode;
 use crate::view::EditorView;
 use crate::waveform::{clip_local_time, format_media_asset_info};
@@ -263,16 +264,21 @@ impl EditorView {
             .when_some(
                 self.problems.active(Source::Schemas).cloned(),
                 |panel, active| {
+                    // Two lines at most; Problems has the full text.
                     panel.child(
                         div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
                             .px_3()
                             .py_2()
                             .text_xs()
                             .text_color(cx.theme().danger)
-                            .child(format!(
+                            .child(div().line_clamp(2).text_ellipsis().child(format!(
                                 "{}: {}",
                                 active.problem.title, active.problem.detail
-                            )),
+                            )))
+                            .child(show_in_problems_row("inspector-schemas-show-problems", cx)),
                     )
                 },
             )
@@ -638,7 +644,12 @@ impl EditorView {
                         .p_2()
                         .text_xs()
                         .text_color(cx.theme().warning)
-                        .children(self.problems.preview_warnings().iter().cloned()),
+                        .children(
+                            self.preview_warnings_summary(
+                                "react-preview-warnings-show-problems",
+                                cx,
+                            ),
+                        ),
                 )
             })
     }

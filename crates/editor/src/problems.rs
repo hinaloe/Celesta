@@ -330,6 +330,37 @@ pub(crate) fn first_line(detail: &str) -> &str {
     detail.lines().next().unwrap_or_default()
 }
 
+/// How many preview warnings a summary lists before folding the rest into
+/// one "N more" line.
+pub(crate) const SUMMARY_WARNING_LIMIT: usize = 3;
+
+/// What a two-line-per-warning summary of the preview warnings shows.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct WarningsSummary<'a> {
+    /// The warnings listed, each clamped to two lines.
+    pub(crate) shown: &'a [String],
+    /// How many warnings the summary leaves out.
+    pub(crate) hidden: usize,
+    /// Whether the summary may cut something off, so it should point to
+    /// Problems for the full text: a warning is left out, or one has more
+    /// than one line (a single long line that wraps past two lines is not
+    /// detected).
+    pub(crate) cut_off: bool,
+}
+
+pub(crate) fn summarize_warnings(warnings: &[String]) -> WarningsSummary<'_> {
+    let shown = &warnings[..warnings.len().min(SUMMARY_WARNING_LIMIT)];
+    let hidden = warnings.len() - shown.len();
+    WarningsSummary {
+        shown,
+        hidden,
+        cut_off: hidden > 0
+            || shown
+                .iter()
+                .any(|warning| warning.trim_end().contains('\n')),
+    }
+}
+
 /// `error` and the errors that caused it, outermost first, one per line.
 /// A cause whose text the message already contains is left out.
 pub(crate) fn error_chain(error: &dyn Error) -> String {
@@ -352,6 +383,50 @@ mod tests {
 
     fn problem(title: &str, detail: &str) -> Problem {
         Problem::new(title, detail)
+    }
+
+    fn warnings(texts: &[&str]) -> Vec<String> {
+        texts.iter().map(|text| (*text).to_owned()).collect()
+    }
+
+    #[test]
+    fn a_few_one_line_warnings_are_summarized_in_full() {
+        let warnings = warnings(&["a", "b", "c"]);
+        let summary = summarize_warnings(&warnings);
+        assert_eq!(summary.shown, &warnings[..]);
+        assert_eq!(summary.hidden, 0);
+        assert!(!summary.cut_off);
+    }
+
+    #[test]
+    fn no_warnings_summarize_to_nothing() {
+        let summary = summarize_warnings(&[]);
+        assert!(summary.shown.is_empty());
+        assert_eq!(summary.hidden, 0);
+        assert!(!summary.cut_off);
+    }
+
+    #[test]
+    fn warnings_past_the_limit_are_counted_and_cut_off() {
+        let warnings = warnings(&["a", "b", "c", "d", "e"]);
+        let summary = summarize_warnings(&warnings);
+        assert_eq!(summary.shown, &warnings[..3]);
+        assert_eq!(summary.hidden, 2);
+        assert!(summary.cut_off);
+    }
+
+    #[test]
+    fn a_multi_line_warning_is_cut_off() {
+        let warnings = warnings(&["a", "React preview unavailable: exited\nstderr line"]);
+        let summary = summarize_warnings(&warnings);
+        assert_eq!(summary.hidden, 0);
+        assert!(summary.cut_off);
+    }
+
+    #[test]
+    fn a_trailing_newline_does_not_count_as_another_line() {
+        let warnings = warnings(&["font fallback\n"]);
+        assert!(!summarize_warnings(&warnings).cut_off);
     }
 
     #[test]

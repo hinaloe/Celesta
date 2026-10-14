@@ -202,14 +202,18 @@ the React composition label, and the commands.
 
 The preview's error shows as a centered panel over the viewer: the title,
 the full detail as selectable text, a copy button, and a
-`Show in Problems` button. The preview warnings strip stays as it is. In
+`Show in Problems` button. The preview warnings strip below it, and the
+same warnings in the React Preview panel, list at most three warnings, two
+lines each, then how many more there are. When a warning has more than one
+line or some are left out, they add a `Show in Problems` button. In
 React-preview mode the entry is the whole frame, so a React runtime failure
 is the preview's error, and the last good frame stays under the panel.
 
 ### Inspector
 
-The component schema error stays in the inspector where it is today, and
-also appears in Problems.
+The component schema error stays in the inspector where it is today,
+clamped to two lines with a `Show in Problems` button under it, and also
+appears in Problems with its full text.
 
 ### Keyboard
 

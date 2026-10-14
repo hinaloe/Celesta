@@ -417,6 +417,21 @@ fn problem_block(
         .child(detail_block(id, detail, cx))
 }
 
+/// A right-aligned `Show in Problems` button, for a surface that shows a
+/// problem only in part.
+pub(crate) fn show_in_problems_row(
+    id: &'static str,
+    cx: &mut Context<EditorView>,
+) -> impl IntoElement + use<> {
+    div().flex().flex_none().justify_end().child(
+        Button::new(id)
+            .xsmall()
+            .outline()
+            .label("Show in Problems")
+            .on_click(cx.listener(|this, _, _, cx| this.show_problems(cx))),
+    )
+}
+
 /// `detail`, verbatim, monospaced, wrapped, selectable, with a copy button
 /// in the code block's corner.
 pub(crate) fn detail_block(id: SharedString, detail: &str, _cx: &App) -> impl IntoElement + use<> {
