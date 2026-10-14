@@ -13,9 +13,10 @@ use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Icon, IconName, Selectable as _, Sizable as _,
 };
 use gpui_kit::{
-    Bounds, Context, CursorStyle, Hsla, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement as _, PathBuilder, Pixels, Point, ScrollDelta, ScrollWheelEvent, SharedString,
-    Window, canvas, div, fill, point, prelude::*, px, relative, rgb, size,
+    Bounds, Context, CursorStyle, Hsla, IntoElement, Modifiers, MouseButton, MouseDownEvent,
+    ParentElement as _, PathBuilder, PinchEvent, Pixels, Point, ScrollDelta, ScrollWheelEvent,
+    SharedString, TouchPhase, Window, canvas, div, fill, point, prelude::*, px, relative, rgb,
+    size,
 };
 
 use crate::actions::{ZoomTimelineIn, ZoomTimelineOut, ZoomTimelineToFit};
@@ -276,20 +277,75 @@ impl EditorView {
         cx.notify();
     }
 
-    /// Wheel over the clip lanes: Option/Ctrl/Cmd zooms, a horizontal swipe
-    /// pans, and plain vertical scrolling falls through to scroll the tracks.
+    /// Moves the playhead as far along the lane as `delta_pixels`, then
+    /// scrolls the view just enough to keep it in sight.
+    fn scrub_timeline_pixels(&mut self, delta_pixels: f32) {
+        let (zoom, view_start) = self.timeline_view();
+        let end_frame = self.clock.end_frame();
+        let pixels_per_frame = f64::from(self.lane_width()) * zoom / end_frame.max(1) as f64;
+        let frames = scrub_frames(
+            delta_pixels,
+            pixels_per_frame,
+            &mut self.timeline_scrub_remainder,
+        );
+        self.pause();
+        let frame = self
+            .clock
+            .frame()
+            .saturating_add(frames)
+            .clamp(0, end_frame);
+        if frame != self.clock.frame() {
+            self.seek_frame(frame);
+        }
+        self.timeline_view_start = follow_playhead(view_start, zoom, self.playhead_fraction());
+    }
+
+    /// Scrolls the tracks by `delta_pixels`, the way the scroll container
+    /// itself would.
+    fn scroll_tracks_pixels(&mut self, delta_pixels: f32) {
+        let offset = self.timeline_tracks_scroll.offset();
+        let max = self.timeline_tracks_scroll.max_offset();
+        let y = (offset.y + px(delta_pixels)).clamp(-max.y, px(0.0));
+        self.timeline_tracks_scroll.set_offset(point(offset.x, y));
+    }
+
+    /// Wheel over the clip lanes: a horizontal swipe (or Shift with the
+    /// wheel) scrubs the playhead, Option pans, Ctrl/Cmd zooms, and plain
+    /// vertical scrolling falls through to scroll the tracks.
     fn lane_wheel(&mut self, event: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let delta = wheel_pixels(event.delta);
-        let modifiers = event.modifiers;
-        if modifiers.alt || modifiers.control || modifiers.platform {
-            let anchor = self.timeline_fraction_at(event.position.x);
-            self.zoom_timeline_about(anchor, wheel_zoom_factor(delta.y + delta.x));
-        } else if delta.x.abs() > delta.y.abs() || modifiers.shift {
-            let amount = if delta.x != 0.0 { delta.x } else { delta.y };
-            self.pan_timeline_pixels(amount);
-        } else {
+        if event.touch_phase == TouchPhase::Started {
+            self.timeline_scrub_remainder = 0.0;
+        }
+        let action = self.timeline_lane_gesture.wheel(
+            event.touch_phase,
+            wheel_pixels(event.delta),
+            matches!(event.delta, ScrollDelta::Pixels(_)),
+            event.modifiers,
+        );
+        match action {
+            LaneWheel::Scrub(amount) => self.scrub_timeline_pixels(amount),
+            LaneWheel::Pan(delta) => {
+                self.pan_timeline_pixels(delta.x);
+                self.scroll_tracks_pixels(delta.y);
+            }
+            LaneWheel::Zoom(delta_y) => {
+                let anchor = self.timeline_fraction_at(event.position.x);
+                self.zoom_timeline_about(anchor, wheel_zoom_factor(delta_y));
+            }
+            LaneWheel::Ignore => {}
+            LaneWheel::Scroll => return,
+        }
+        cx.stop_propagation();
+        cx.notify();
+    }
+
+    /// Pinch over the clip lanes: zoom about the pinch center.
+    fn lane_pinch(&mut self, event: &PinchEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if event.delta == 0.0 {
             return;
         }
+        let anchor = self.timeline_fraction_at(event.position.x);
+        self.zoom_timeline_about(anchor, (1.0 + f64::from(event.delta)).clamp(0.5, 2.0));
         cx.stop_propagation();
         cx.notify();
     }
@@ -418,8 +474,33 @@ impl EditorView {
             self.track_row(row, AUDIO_TRACK_HEIGHT, view, cx)
                 .into_any_element()
         }));
+        if !rows.is_empty() {
+            // The space below the last track takes the same lane gestures.
+            rows.push(
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .child(div().flex_none().w(px(TRACK_HEADER_WIDTH)))
+                    .child(
+                        div()
+                            .id("timeline-empty-lane")
+                            .flex_1()
+                            .mr(px(LANE_GUTTER))
+                            .on_scroll_wheel(cx.listener(Self::lane_wheel))
+                            .on_pinch(cx.listener(Self::lane_pinch))
+                            .on_mouse_down(
+                                MouseButton::Middle,
+                                cx.listener(Self::begin_timeline_pan),
+                            ),
+                    )
+                    .into_any_element(),
+            );
+        }
         let track_area = div()
             .id("timeline-tracks-scroll")
+            .track_scroll(&self.timeline_tracks_scroll)
             .flex()
             .flex_col()
             .size_full()
@@ -784,6 +865,7 @@ impl EditorView {
                     .mr(px(LANE_GUTTER))
                     .overflow_hidden()
                     .on_scroll_wheel(cx.listener(Self::lane_wheel))
+                    .on_pinch(cx.listener(Self::lane_pinch))
                     .on_mouse_down(MouseButton::Middle, cx.listener(Self::begin_timeline_pan))
                     .children(clips),
             )
@@ -912,11 +994,15 @@ impl EditorView {
             )
             .child(
                 div()
+                    .id("composition-lane")
                     .relative()
                     .flex_1()
                     .h_full()
                     .mr(px(LANE_GUTTER))
                     .overflow_hidden()
+                    .on_scroll_wheel(cx.listener(Self::lane_wheel))
+                    .on_pinch(cx.listener(Self::lane_pinch))
+                    .on_mouse_down(MouseButton::Middle, cx.listener(Self::begin_timeline_pan))
                     .child(
                         div()
                             .absolute()
@@ -1122,6 +1208,184 @@ fn wheel_pixels(delta: ScrollDelta) -> Point<f32> {
     }
 }
 
+/// Trackpad travel, in pixels along either axis, before a gesture over the
+/// lanes commits to scrubbing or scrolling.
+const AXIS_LOCK_PIXELS: f32 = 6.0;
+
+/// What a trackpad gesture over the lanes has committed to.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum LaneAxis {
+    /// No trackpad gesture yet: each wheel event picks its own axis.
+    #[default]
+    Free,
+    /// Fingers down but not yet moved far enough to pick; the travel so far.
+    Undecided(Point<f32>),
+    /// Scrubbing by the sideways travel.
+    Scrub,
+    /// Scrubbing by the vertical travel: a vertical gesture begun with Shift.
+    ScrubVertical,
+    Scroll,
+    /// Panning both ways: a gesture begun with Option.
+    Pan,
+}
+
+/// Locks a trackpad gesture over the lanes to one axis, so a vertical
+/// scroll that drifts sideways never scrubs and a scrub never scrolls.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct LaneGesture {
+    axis: LaneAxis,
+    /// The fingers have lifted: pixel events until the next touch are the
+    /// trackpad's momentum.
+    coasting: bool,
+}
+
+#[derive(Debug, PartialEq)]
+enum LaneWheel {
+    /// Move the playhead this many pixels along the lane.
+    Scrub(f32),
+    /// Move the view this many pixels sideways and the tracks this many
+    /// pixels vertically.
+    Pan(Point<f32>),
+    /// Zoom by this vertical wheel movement.
+    Zoom(f32),
+    /// Let the tracks scroll.
+    Scroll,
+    /// Swallow the event.
+    Ignore,
+}
+
+impl LaneGesture {
+    /// The action for one wheel event; `precise` is a pixel delta (a
+    /// trackpad) rather than wheel lines.
+    fn wheel(
+        &mut self,
+        phase: TouchPhase,
+        delta: Point<f32>,
+        precise: bool,
+        modifiers: Modifiers,
+    ) -> LaneWheel {
+        match phase {
+            TouchPhase::Started => {
+                self.axis = LaneAxis::Undecided(point(0.0, 0.0));
+                self.coasting = false;
+            }
+            TouchPhase::Ended | TouchPhase::Cancelled => {
+                self.coasting = true;
+                if matches!(self.axis, LaneAxis::Undecided(_)) {
+                    self.axis = LaneAxis::Scroll;
+                }
+            }
+            TouchPhase::Moved => {}
+        }
+        if modifiers.control || modifiers.platform {
+            return if delta.y == 0.0 {
+                LaneWheel::Ignore
+            } else {
+                LaneWheel::Zoom(delta.y)
+            };
+        }
+        let shift = modifiers.shift;
+        // Momentum arrives as phaseless pixel deltas after the lift.
+        let momentum = self.coasting && precise && phase == TouchPhase::Moved;
+        let locked = (!self.coasting || momentum) && self.axis != LaneAxis::Free;
+        if !locked {
+            // A wheel turns only one way, so with Option it pans sideways.
+            return if modifiers.alt {
+                let amount = if delta.x == 0.0 { delta.y } else { delta.x };
+                pan(point(amount, 0.0))
+            } else if delta.x.abs() > delta.y.abs() || shift {
+                scrub(scrub_amount(delta))
+            } else {
+                LaneWheel::Scroll
+            };
+        }
+        // A trackpad scrub follows one axis for the whole gesture: mixing
+        // the two would jerk the playhead back and forth. Shift and Option
+        // count only when the gesture starts moving: Shift turns a vertical
+        // gesture into a scrub, and Option pans both ways instead.
+        match self.axis {
+            LaneAxis::Undecided(travel) if modifiers.alt => {
+                self.axis = LaneAxis::Pan;
+                pan(travel + delta)
+            }
+            LaneAxis::Undecided(travel) => {
+                let travel = travel + delta;
+                if travel.x.abs().max(travel.y.abs()) < AXIS_LOCK_PIXELS {
+                    self.axis = LaneAxis::Undecided(travel);
+                    // With Shift the gesture scrubs either way, so hold the
+                    // tracks still.
+                    if shift {
+                        LaneWheel::Ignore
+                    } else {
+                        LaneWheel::Scroll
+                    }
+                } else if travel.x.abs() > travel.y.abs() {
+                    self.axis = LaneAxis::Scrub;
+                    scrub(travel.x)
+                } else if shift {
+                    self.axis = LaneAxis::ScrubVertical;
+                    scrub(-travel.y)
+                } else {
+                    self.axis = LaneAxis::Scroll;
+                    LaneWheel::Scroll
+                }
+            }
+            // Dropping momentum stops the playhead where the fingers did.
+            LaneAxis::Scrub | LaneAxis::ScrubVertical if momentum => LaneWheel::Ignore,
+            LaneAxis::Scrub => scrub(delta.x),
+            LaneAxis::ScrubVertical => scrub(-delta.y),
+            LaneAxis::Pan => pan(delta),
+            LaneAxis::Scroll | LaneAxis::Free => LaneWheel::Scroll,
+        }
+    }
+}
+
+fn pan(delta: Point<f32>) -> LaneWheel {
+    if delta.x == 0.0 && delta.y == 0.0 {
+        LaneWheel::Ignore
+    } else {
+        LaneWheel::Pan(delta)
+    }
+}
+
+/// A swipe moves the playhead with the scroll direction (the fingers' under
+/// natural scrolling); a wheel that only moves vertically advances it when
+/// rolled down.
+fn scrub_amount(delta: Point<f32>) -> f32 {
+    if delta.x == 0.0 { -delta.y } else { delta.x }
+}
+
+fn scrub(amount: f32) -> LaneWheel {
+    if amount == 0.0 {
+        LaneWheel::Ignore
+    } else {
+        LaneWheel::Scrub(amount)
+    }
+}
+
+/// Whole frames a scrub of `delta_pixels` covers at `pixels_per_frame`. The
+/// partial frame is carried in `remainder`, so slow swipes at a deep zoom
+/// still step through every frame.
+fn scrub_frames(delta_pixels: f32, pixels_per_frame: f64, remainder: &mut f64) -> i64 {
+    let frames = *remainder + f64::from(delta_pixels) / pixels_per_frame.max(f64::EPSILON);
+    let whole = frames.trunc();
+    *remainder = frames - whole;
+    whole as i64
+}
+
+/// `view_start` moved just far enough that the window `1 / zoom` wide
+/// shows composition fraction `playhead`.
+fn follow_playhead(view_start: f64, zoom: f64, playhead: f64) -> f64 {
+    let span = 1.0 / zoom;
+    if playhead < view_start {
+        playhead
+    } else if playhead > view_start + span {
+        playhead - span
+    } else {
+        view_start
+    }
+}
+
 /// Zoom factor for a vertical wheel movement in pixels: scrolling up (away
 /// from the user) zooms in.
 fn wheel_zoom_factor(delta_y: f32) -> f64 {
@@ -1130,10 +1394,13 @@ fn wheel_zoom_factor(delta_y: f32) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{edit_points, timeline_rows};
+    use super::{
+        LaneGesture, LaneWheel, edit_points, follow_playhead, scrub_frames, timeline_rows,
+    };
     use celesta_composition::Time;
     use celesta_editor_core::{ClipKind, ClipSummary, TrackSummary};
     use celesta_project::TrackKind;
+    use gpui_kit::{Modifiers, TouchPhase, point};
 
     fn track(id: &str, kind: TrackKind, clips: &[(i64, i64)]) -> TrackSummary {
         TrackSummary {
@@ -1192,5 +1459,225 @@ mod tests {
         ];
         let points = edit_points(&tracks, |time| Some(time.value * 10), 100);
         assert_eq!(points, [0, 10, 20, 50, 100]);
+    }
+
+    #[test]
+    fn scrub_frames_carry_the_partial_frame_between_events() {
+        let mut remainder = 0.0;
+        assert_eq!(scrub_frames(25.0, 10.0, &mut remainder), 2);
+        assert_eq!(scrub_frames(5.0, 10.0, &mut remainder), 1);
+        assert_eq!(remainder, 0.0);
+        assert_eq!(scrub_frames(-15.0, 10.0, &mut remainder), -1);
+        assert_eq!(scrub_frames(5.0, 10.0, &mut remainder), 0);
+        assert_eq!(remainder, 0.0);
+    }
+
+    #[test]
+    fn scrub_frames_skip_frames_when_zoomed_out() {
+        let mut remainder = 0.0;
+        assert_eq!(scrub_frames(3.0, 0.25, &mut remainder), 12);
+    }
+
+    fn wheel(gesture: &mut LaneGesture, phase: TouchPhase, dx: f32, dy: f32) -> LaneWheel {
+        gesture.wheel(phase, point(dx, dy), true, Modifiers::none())
+    }
+
+    #[test]
+    fn a_vertical_swipe_stays_a_scroll_through_sideways_jitter() {
+        let mut gesture = LaneGesture::default();
+        wheel(&mut gesture, TouchPhase::Started, 0.0, 0.0);
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 1.0, -4.0),
+            LaneWheel::Scroll
+        );
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 1.0, -4.0),
+            LaneWheel::Scroll
+        );
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 6.0, -1.0),
+            LaneWheel::Scroll
+        );
+    }
+
+    #[test]
+    fn a_sideways_swipe_scrubs_from_its_first_movement() {
+        let mut gesture = LaneGesture::default();
+        wheel(&mut gesture, TouchPhase::Started, 0.0, 0.0);
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 4.0, 1.0),
+            LaneWheel::Scroll
+        );
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 4.0, 0.0),
+            LaneWheel::Scrub(8.0)
+        );
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 1.0, 5.0),
+            LaneWheel::Scrub(1.0)
+        );
+    }
+
+    #[test]
+    fn momentum_after_the_fingers_lift_follows_the_locked_axis() {
+        let mut gesture = LaneGesture::default();
+        wheel(&mut gesture, TouchPhase::Started, 0.0, 0.0);
+        wheel(&mut gesture, TouchPhase::Moved, 10.0, 0.0);
+        wheel(&mut gesture, TouchPhase::Ended, 0.0, 0.0);
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 5.0, 0.0),
+            LaneWheel::Ignore
+        );
+
+        wheel(&mut gesture, TouchPhase::Started, 0.0, 0.0);
+        wheel(&mut gesture, TouchPhase::Moved, 0.0, -10.0);
+        wheel(&mut gesture, TouchPhase::Ended, 0.0, 0.0);
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 5.0, -1.0),
+            LaneWheel::Scroll
+        );
+    }
+
+    #[test]
+    fn the_mouse_wheel_picks_its_axis_per_event_even_after_a_swipe() {
+        let mut gesture = LaneGesture::default();
+        wheel(&mut gesture, TouchPhase::Started, 0.0, 0.0);
+        wheel(&mut gesture, TouchPhase::Moved, 10.0, 0.0);
+        wheel(&mut gesture, TouchPhase::Ended, 0.0, 0.0);
+        let lines = point(0.0, -40.0);
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, lines, false, Modifiers::none()),
+            LaneWheel::Scroll
+        );
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, lines, false, Modifiers::shift()),
+            LaneWheel::Scrub(40.0)
+        );
+    }
+
+    #[test]
+    fn shift_scrubs_a_vertical_trackpad_gesture_by_its_vertical_travel_alone() {
+        let mut gesture = LaneGesture::default();
+        let shift = Modifiers::shift();
+        gesture.wheel(TouchPhase::Started, point(0.0, 0.0), true, shift);
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, point(1.0, -10.0), true, shift),
+            LaneWheel::Scrub(10.0)
+        );
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, point(5.0, -2.0), true, shift),
+            LaneWheel::Scrub(2.0)
+        );
+        // Releasing Shift mid-gesture keeps the gesture's axis.
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 5.0, 0.0),
+            LaneWheel::Ignore
+        );
+        gesture.wheel(TouchPhase::Ended, point(0.0, 0.0), true, shift);
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, point(0.0, -4.0), true, shift),
+            LaneWheel::Ignore
+        );
+    }
+
+    #[test]
+    fn shift_with_a_sideways_trackpad_gesture_scrubs_by_its_sideways_travel() {
+        let mut gesture = LaneGesture::default();
+        let shift = Modifiers::shift();
+        gesture.wheel(TouchPhase::Started, point(0.0, 0.0), true, shift);
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, point(10.0, 1.0), true, shift),
+            LaneWheel::Scrub(10.0)
+        );
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, point(0.0, 3.0), true, shift),
+            LaneWheel::Ignore
+        );
+    }
+
+    #[test]
+    fn a_vertical_trackpad_gesture_without_shift_scrolls() {
+        let mut gesture = LaneGesture::default();
+        wheel(&mut gesture, TouchPhase::Started, 0.0, 0.0);
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 0.0, -10.0),
+            LaneWheel::Scroll
+        );
+        // Pressing Shift mid-gesture keeps the gesture's axis.
+        assert_eq!(
+            gesture.wheel(
+                TouchPhase::Moved,
+                point(0.0, -4.0),
+                true,
+                Modifiers::shift()
+            ),
+            LaneWheel::Scroll
+        );
+    }
+
+    #[test]
+    fn option_with_the_trackpad_pans_both_ways_and_keeps_its_momentum() {
+        let mut gesture = LaneGesture::default();
+        let option = Modifiers::alt();
+        gesture.wheel(TouchPhase::Started, point(0.0, 0.0), true, option);
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, point(3.0, -2.0), true, option),
+            LaneWheel::Pan(point(3.0, -2.0))
+        );
+        // Releasing Option mid-gesture keeps panning.
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 5.0, 4.0),
+            LaneWheel::Pan(point(5.0, 4.0))
+        );
+        wheel(&mut gesture, TouchPhase::Ended, 0.0, 0.0);
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 2.0, 1.0),
+            LaneWheel::Pan(point(2.0, 1.0))
+        );
+    }
+
+    #[test]
+    fn option_with_the_wheel_pans_sideways() {
+        let mut gesture = LaneGesture::default();
+        assert_eq!(
+            gesture.wheel(
+                TouchPhase::Moved,
+                point(0.0, -40.0),
+                false,
+                Modifiers::alt()
+            ),
+            LaneWheel::Pan(point(-40.0, 0.0))
+        );
+    }
+
+    #[test]
+    fn command_or_control_zooms_by_the_vertical_scroll_alone() {
+        let mut gesture = LaneGesture::default();
+        assert_eq!(
+            gesture.wheel(
+                TouchPhase::Moved,
+                point(0.0, -40.0),
+                false,
+                Modifiers::command()
+            ),
+            LaneWheel::Zoom(-40.0)
+        );
+        assert_eq!(
+            gesture.wheel(
+                TouchPhase::Moved,
+                point(5.0, 0.0),
+                true,
+                Modifiers::control()
+            ),
+            LaneWheel::Ignore
+        );
+    }
+
+    #[test]
+    fn following_the_playhead_moves_the_view_only_as_far_as_needed() {
+        // The window shows a quarter of the composition.
+        assert_eq!(follow_playhead(0.5, 4.0, 0.6), 0.5);
+        assert_eq!(follow_playhead(0.5, 4.0, 0.8), 0.55);
+        assert_eq!(follow_playhead(0.5, 4.0, 0.4), 0.4);
     }
 }
