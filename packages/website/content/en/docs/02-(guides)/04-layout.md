@@ -99,7 +99,7 @@ const ripple = defineShader({
 
 ## Blend modes
 
-Set `blendMode` on any layer to change how it combines with what is beneath it, as CSS `mix-blend-mode` does: `normal` (the default), `multiply`, `screen`, `overlay`, `add`, or `difference`. On a `Group`, any mode other than `normal` draws the children together first, then blends the result as one layer.
+Set `blendMode` on any layer to change how it combines with what is beneath it, as CSS `mix-blend-mode` does: `normal` (the default), `multiply`, `screen`, `overlay`, `add`, `difference`, `darken`, `lighten`, `colorDodge`, `colorBurn`, `hardLight`, `softLight`, `exclusion`, `hue`, `saturation`, `color`, or `luminosity`. They follow the W3C Compositing and Blending formulas; two-word names are camelCase (`colorDodge`, not CSS's `color-dodge`). On a `Group`, any mode other than `normal` draws the children together first, then blends the result as one layer.
 
 ```tsx title="A HUD that stays readable on light and dark scenes"
 <Group blendMode="difference" opacity={0.8}>

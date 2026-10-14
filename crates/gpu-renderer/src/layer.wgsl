@@ -602,25 +602,133 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     return saturate(source_color(input));
 }
 
-// `celesta_composition::BlendMode::blend_channel` for all three channels.
+fn screen(backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
+    return backdrop + source - backdrop * source;
+}
+
+fn hard_light(backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
+    return select(screen(backdrop, 2.0 * source - 1.0), backdrop * 2.0 * source, source <= vec3<f32>(0.5));
+}
+
+fn color_dodge(backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
+    let dodged = min(backdrop / max(1.0 - source, vec3<f32>(1e-30)), vec3<f32>(1.0));
+    let lit = select(dodged, vec3<f32>(1.0), source >= vec3<f32>(1.0));
+    return select(lit, vec3<f32>(0.0), backdrop <= vec3<f32>(0.0));
+}
+
+fn color_burn(backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
+    let burned = 1.0 - min((1.0 - backdrop) / max(source, vec3<f32>(1e-30)), vec3<f32>(1.0));
+    let dark = select(burned, vec3<f32>(0.0), source <= vec3<f32>(0.0));
+    return select(dark, vec3<f32>(1.0), backdrop >= vec3<f32>(1.0));
+}
+
+fn soft_light(backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
+    let d = select(sqrt(backdrop), ((16.0 * backdrop - 12.0) * backdrop + 4.0) * backdrop, backdrop <= vec3<f32>(0.25));
+    return select(
+        backdrop + (2.0 * source - 1.0) * (d - backdrop),
+        backdrop - (1.0 - 2.0 * source) * backdrop * (1.0 - backdrop),
+        source <= vec3<f32>(0.5),
+    );
+}
+
+// The non-separable modes' helpers, as in `celesta_composition`'s `blend.rs`.
+fn lum(color: vec3<f32>) -> f32 {
+    return dot(color, vec3<f32>(0.3, 0.59, 0.11));
+}
+
+fn min_channel(color: vec3<f32>) -> f32 {
+    return min(color.r, min(color.g, color.b));
+}
+
+fn max_channel(color: vec3<f32>) -> f32 {
+    return max(color.r, max(color.g, color.b));
+}
+
+fn sat(color: vec3<f32>) -> f32 {
+    return max_channel(color) - min_channel(color);
+}
+
+fn clip_color(color: vec3<f32>) -> vec3<f32> {
+    let l = lum(color);
+    let n = min_channel(color);
+    let x = max_channel(color);
+    var clipped = color;
+    if n < 0.0 && l > n {
+        clipped = l + (clipped - l) * l / (l - n);
+    }
+    if x > 1.0 && x > l {
+        clipped = l + (clipped - l) * (1.0 - l) / (x - l);
+    }
+    return saturate3(clipped);
+}
+
+fn set_lum(color: vec3<f32>, l: f32) -> vec3<f32> {
+    return clip_color(color + (l - lum(color)));
+}
+
+fn set_sat(color: vec3<f32>, s: f32) -> vec3<f32> {
+    let n = min_channel(color);
+    let x = max_channel(color);
+    if x > n {
+        return (color - n) * s / (x - n);
+    }
+    return vec3<f32>(0.0);
+}
+
+fn saturate3(color: vec3<f32>) -> vec3<f32> {
+    return clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+// `celesta_composition::BlendMode::blend`, numbered by `blend_mode_index`.
 fn blend(mode: u32, backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
     switch mode {
         case 1u: {
             return source * backdrop;
         }
         case 2u: {
-            return backdrop + source - backdrop * source;
+            return screen(backdrop, source);
         }
         case 3u: {
-            let doubled = 2.0 * backdrop;
-            let screened = source + (doubled - 1.0) - source * (doubled - 1.0);
-            return select(screened, source * doubled, backdrop <= vec3<f32>(0.5));
+            return hard_light(source, backdrop);
         }
         case 4u: {
             return min(source + backdrop, vec3<f32>(1.0));
         }
         case 5u: {
             return abs(backdrop - source);
+        }
+        case 6u: {
+            return min(backdrop, source);
+        }
+        case 7u: {
+            return max(backdrop, source);
+        }
+        case 8u: {
+            return color_dodge(backdrop, source);
+        }
+        case 9u: {
+            return color_burn(backdrop, source);
+        }
+        case 10u: {
+            return hard_light(backdrop, source);
+        }
+        case 11u: {
+            return soft_light(backdrop, source);
+        }
+        case 12u: {
+            return backdrop + source - 2.0 * backdrop * source;
+        }
+        case 13u: {
+            return set_lum(set_sat(source, sat(backdrop)), lum(backdrop));
+        }
+        case 14u: {
+            return set_lum(set_sat(backdrop, sat(source)), lum(backdrop));
+        }
+        case 15u: {
+            return set_lum(source, lum(backdrop));
+        }
+        case 16u: {
+            return set_lum(backdrop, lum(source));
         }
         default: {
             return source;

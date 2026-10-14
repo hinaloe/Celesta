@@ -17,14 +17,16 @@ pub use time::{Rational, Time, TimeError, TimeRange};
 pub use transform::{AnimatablePoint, Transform};
 
 mod animation;
+mod blend;
 mod instances;
 mod model;
 
 pub use animation::{AnimationError, evaluate_f64, integrate_f64};
+pub use blend::BlendMode;
 pub use instances::{F32Column, InstanceShape, U8Column, instance_size};
 pub use model::{
-    AssetLocation, AudioClip, AudioGraph, BlendMode, Clip, DEFAULT_MITER_LIMIT, EvaluatedTransform,
-    GroupMask, ImageAnimation, ImageFit, Layer, LayerContent, LayerEffects, LayerFilter, LayerGlow,
+    AssetLocation, AudioClip, AudioGraph, Clip, DEFAULT_MITER_LIMIT, EvaluatedTransform, GroupMask,
+    ImageAnimation, ImageFit, Layer, LayerContent, LayerEffects, LayerFilter, LayerGlow,
     LayerShader, LayerShadow, LineCap, LineDash, LineJoin, MaskMode, MediaTiming, PathCommand,
     Point, ResolvedAsset, Scene, ShaderParam, ShaderParamType, ShaderSource,
 };

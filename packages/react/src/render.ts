@@ -840,7 +840,11 @@ function extractEffects(props: Record<string, unknown>, context: WalkContext): L
   };
 }
 
-const BLEND_MODES: readonly BlendMode[] = ['normal', 'multiply', 'screen', 'overlay', 'add', 'difference'];
+const BLEND_MODES: readonly BlendMode[] = [
+  'normal', 'multiply', 'screen', 'overlay', 'add', 'difference',
+  'darken', 'lighten', 'colorDodge', 'colorBurn', 'hardLight', 'softLight', 'exclusion',
+  'hue', 'saturation', 'color', 'luminosity',
+];
 
 function extractBlendMode(value: unknown): BlendMode {
   if (value === undefined) {

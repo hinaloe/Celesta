@@ -1,4 +1,6 @@
 import type { Scene, Layer, Asset, BuiltinFilter, FontRun, LineDash, Paint, PathCommand, TextStyle } from './types';
+import { BLEND_MODES, blendPixels, coveredBox } from './blend-modes';
+import type { BlendMode } from './blend-modes';
 import { applyFilters } from './filters';
 import { canvasDrawsAlike, gradientPixels } from './gradients';
 import { SampleAverage } from './motion-blur';
@@ -17,11 +19,6 @@ type Box = [number, number, number, number];
 
 /** The built-in filters whose grids, centres, or `uv` follow the content box. */
 const READS_CONTENT_BOX = new Set(['vignette', 'pixelate', 'halftone', 'wave', 'scanlines', 'zoomBlur']);
-
-const blend: Record<string, GlobalCompositeOperation> = {
-  normal: 'source-over', multiply: 'multiply', screen: 'screen',
-  overlay: 'overlay', add: 'lighter', difference: 'difference',
-};
 
 /** The box of the points `commands` name, control points included, and 0,0 when the first command draws from there. */
 function commandBox(commands: PathCommand[]): Box {
@@ -428,12 +425,22 @@ export class SceneCanvas {
     const alpha = Math.max(0, Math.min(1, opacity * layer.opacity));
     if (!alpha) return;
     const content = layer.content;
-    const mode = blend[layer.blendMode ?? 'normal'];
-    if (!mode) throw new Error(`Unsupported blend mode: ${layer.blendMode}`);
+    const mode = layer.blendMode ?? 'normal';
+    if (!BLEND_MODES.includes(mode)) throw new Error(`Unsupported blend mode: ${layer.blendMode}`);
     const effects = layer.effects;
     const filters = effects?.filters ?? [];
     // Canvas 2D cannot run WGSL; drawing the layer without it would be wrong.
     if (filters.some(filter => filter.type === 'shader')) throw new Error('custom shaders are not supported in the browser renderer');
+    if (mode !== 'normal') {
+      // Draw the layer (a group isolated) with its effects, then blend it
+      // pixel by pixel as the native renderers do: Canvas's own modes round
+      // differently, and its `lighter` is not their `add`.
+      const source = this.surface(ctx);
+      await this.layer(source, { ...layer, opacity: 1, blendMode: 'normal' }, parent, 1);
+      this.blend(ctx, source, alpha, mode);
+      source.canvas.width = 0;
+      return;
+    }
     if (effects && (effects.blur || effects.shadow || effects.glow || filters.length)) {
       const source = this.surface(ctx);
       await this.layer(source, { ...layer, opacity: 1, blendMode: 'normal', effects: undefined }, parent, 1);
@@ -466,7 +473,7 @@ export class SceneCanvas {
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = alpha;
-      ctx.globalCompositeOperation = mode;
+      ctx.globalCompositeOperation = 'source-over';
       ctx.filter = 'none';
       ctx.drawImage(result.canvas, 0, 0);
       ctx.restore();
@@ -501,36 +508,23 @@ export class SceneCanvas {
         ctx.save();
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.globalAlpha = alpha;
-        ctx.globalCompositeOperation = mode;
+        ctx.globalCompositeOperation = 'source-over';
         ctx.filter = 'none';
         ctx.drawImage(result.canvas, 0, 0);
         ctx.restore();
         result.canvas.width = 0;
         return;
       }
-      let target = ctx;
-      if (mode !== 'source-over') target = this.surface(ctx);
-      target.save();
-      clipTo(target);
-      for (const child of content.layers) {
-        await this.layer(target, child as WebLayer, matrix, target === ctx ? alpha : 1);
-      }
-      target.restore();
-      if (target !== ctx) {
-        ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.globalAlpha = alpha;
-        ctx.globalCompositeOperation = mode;
-        ctx.filter = 'none';
-        ctx.drawImage(target.canvas, 0, 0);
-        ctx.restore();
-      }
+      ctx.save();
+      clipTo(ctx);
+      for (const child of content.layers) await this.layer(ctx, child as WebLayer, matrix, alpha);
+      ctx.restore();
       return;
     }
 
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.globalCompositeOperation = mode;
+    ctx.globalCompositeOperation = 'source-over';
     ctx.filter = 'none';
     if (content.type === 'rect') {
       const width = content.width, height = content.height;
@@ -861,6 +855,29 @@ export class SceneCanvas {
     const height = bottom - top;
     const y = content.baselineAnchor ? -(placed[0].baseline - top) : -anchor.y * height;
     return { lines, lineRuns, measured, width, placed, top, height, y, multiline };
+  }
+
+  /**
+   * Draws `source`, a surface of `ctx`'s size, onto `ctx` at `alpha`
+   * through `mode`: its colors become the blended ones against what `ctx`
+   * holds beneath them, then composite source-over (within `ctx`'s clip).
+   */
+  private blend(ctx: Context, source: Context, alpha: number, mode: BlendMode): void {
+    const { width, height } = source.canvas;
+    const pixels = source.getImageData(0, 0, width, height);
+    const box = coveredBox(pixels.data, width, height);
+    if (!box) return;
+    const [left, top, right, bottom] = box;
+    const backdrop = ctx.getImageData(left, top, right - left, bottom - top);
+    blendPixels(mode, pixels.data, width, backdrop.data, box);
+    source.putImageData(pixels, 0, 0, left, top, right - left, bottom - top);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = alpha;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.filter = 'none';
+    ctx.drawImage(source.canvas, 0, 0);
+    ctx.restore();
   }
 
   private surface(ctx: Context): Context {

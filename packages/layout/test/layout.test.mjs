@@ -110,3 +110,33 @@ test('an unknown safe area preset names the known ones', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a camera blends its view as one layer', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'celesta-layout-'));
+  const entry = join(dir, 'entry.tsx');
+  writeFileSync(
+    entry,
+    `import { Composition, Rect } from '@celesta/react'; import { Camera } from '@celesta/layout';\n` +
+      `export default function Root() {\n` +
+      `  return <Composition width={100} height={100} fps={30} durationInFrames={1}>` +
+      `<Camera blendMode="softLight" opacity={0.5}><Rect width={10} height={10} fill="#808080" /></Camera>` +
+      `</Composition>;\n` +
+      `}\n`,
+  );
+
+  try {
+    const result = spawnSync(process.execPath, [cli, entry], {
+      input: '{"time":{"value":0,"timescale":1}}\n',
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const [, frame] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    assert.equal(frame.error, undefined);
+    const [camera] = frame.scene.layers;
+    assert.equal(camera.blendMode, 'softLight');
+    assert.equal(camera.opacity, 0.5);
+    assert.equal(camera.content.layers[0].blendMode, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

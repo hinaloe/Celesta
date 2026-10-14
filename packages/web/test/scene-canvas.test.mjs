@@ -126,6 +126,64 @@ test('color filters change the layer\'s pixels before its other effects', async 
   renderer.dispose();
 });
 
+test('a blended layer takes the blended colors, then composites source-over inside its clip', async t => {
+  const originals = { document: globalThis.document, DOMMatrix: globalThis.DOMMatrix };
+  t.after(() => Object.assign(globalThis, originals));
+  globalThis.DOMMatrix = class { translate() { return this; } rotate() { return this; } scale() { return this; } };
+  const operations = [];
+  let nextCanvas = 0;
+  const rgba = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).concat(255);
+  const canvas = () => {
+    const element = { id: nextCanvas++, width: 2, height: 1, getContext() { return context; } };
+    // `fillRect` (the background) paints every pixel, `fill` (the rect) the first.
+    const pixels = new Uint8ClampedArray(8);
+    const stack = [];
+    const context = {
+      canvas: element, globalAlpha: 1, filter: 'none', globalCompositeOperation: 'source-over', clipped: false,
+      save() { stack.push({ globalAlpha: this.globalAlpha, globalCompositeOperation: this.globalCompositeOperation, clipped: this.clipped }); },
+      restore() { Object.assign(this, stack.pop()); }, setTransform() {}, beginPath() {}, roundRect() {},
+      clip() { this.clipped = true; },
+      fillRect() { pixels.set(rgba(this.fillStyle), 0); pixels.set(rgba(this.fillStyle), 4); },
+      fill() { pixels.set(rgba(this.fillStyle), 0); },
+      getImageData(x, y, width, height) {
+        operations.push(['read', element.id, x, y, width, height]);
+        return { data: pixels.slice((y * element.width + x) * 4, (y * element.width + x + width) * 4) };
+      },
+      putImageData(image, x, y, dirtyX, dirtyY, dirtyWidth, dirtyHeight) {
+        operations.push(['write', element.id, Array.from(image.data), dirtyX, dirtyY, dirtyWidth, dirtyHeight]);
+      },
+      drawImage(source) {
+        operations.push(['composite', element.id, source.id, this.globalAlpha, this.globalCompositeOperation, this.clipped]);
+      },
+    };
+    return element;
+  };
+  globalThis.document = { fonts: new Set(), createElement: canvas };
+  const renderer = new SceneCanvas(new Map());
+  const transform = { position: { x: 0, y: 0 }, scale: { x: 1, y: 1 }, anchor: { x: 0, y: 0 }, rotation: 0 };
+  const rect = {
+    opacity: 0.5, transform, blendMode: 'screen',
+    content: { type: 'rect', width: 1, height: 1, cornerRadius: 0, fill: { type: 'solid', color: '#808040' } },
+  };
+  const clip = { x: 0, y: 0, width: 1, height: 1 };
+  const output = canvas();
+  await renderer.draw(output, { width: 2, height: 1, layers: [{ opacity: 1, transform, content: { type: 'group', clip, layers: [rect] } }] });
+
+  const [write] = operations.filter(([kind]) => kind === 'write');
+  const source = write[1];
+  // The backdrop is read under the rect alone.
+  assert.deepEqual(operations.find(([kind, id]) => kind === 'read' && id === output.id), ['read', output.id, 0, 0, 1, 1]);
+  // Screen of the rect over the #14161c background, at the backdrop's full alpha.
+  const screened = [0x80, 0x80, 0x40].map((s, i) => Math.round(255 * (1 - (1 - s / 255) * (1 - [0x14, 0x16, 0x1c][i] / 255))));
+  assert.deepEqual(write.slice(2), [[...screened, 255, 0, 0, 0, 0], 0, 0, 1, 1]);
+  // Its opacity applies once, as it is drawn over the backdrop, and within the group's clip.
+  assert.deepEqual(operations.filter(([kind, id]) => kind === 'composite' && id === output.id), [
+    ['composite', output.id, source, 0.5, 'source-over', true],
+  ]);
+  await assert.rejects(renderer.draw(output, { width: 2, height: 1, layers: [{ ...rect, blendMode: 'color-dodge' }] }), /Unsupported blend mode: color-dodge/);
+  renderer.dispose();
+});
+
 test('a vignette spans the layer\'s shapes as the GPU renderer places them', async t => {
   const originals = { document: globalThis.document, DOMMatrix: globalThis.DOMMatrix, DOMPoint: globalThis.DOMPoint };
   t.after(() => Object.assign(globalThis, originals));

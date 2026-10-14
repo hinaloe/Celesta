@@ -119,7 +119,7 @@ backgrounds and footage first, titles and subtitles last.
 | `enabled` | `false` skips the item. |
 | `transform` | Optional; see below. |
 | `opacity` | `0`–`1`, number or keyframes. |
-| `blendMode` | `normal` (default), `multiply`, `screen`, `overlay`, `add`, or `difference`. |
+| `blendMode` | `normal` (default), `multiply`, `screen`, `overlay`, `add`, `difference`, `darken`, `lighten`, `colorDodge`, `colorBurn`, `hardLight`, `softLight`, `exclusion`, `hue`, `saturation`, `color`, or `luminosity`. |
 | `effects` | Optional `{ "blur": numberOrKeyframes, "shadow": { "color": colorOrKeyframes, "blur": numberOrKeyframes, "offsetX": numberOrKeyframes, "offsetY": numberOrKeyframes }, "glow": { "color": colorOrKeyframes, "blur": numberOrKeyframes } }`, plus the color filters below. Colors are `#RRGGBB` or `#RRGGBBAA`; color keyframes interpolate RGBA channels. Blur radii are 0–64 output pixels. |
 
 ### Color filters

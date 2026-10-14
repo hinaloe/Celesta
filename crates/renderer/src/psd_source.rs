@@ -223,7 +223,9 @@ impl PsdSources {
                     }
                     let source = Color::rgba(source[0], source[1], source[2], source[3]);
                     match mix {
-                        Some(mix) => blend_mixed(destination, source, opacity, mix),
+                        Some(mix) => blend_mixed(destination, source, opacity, |b, s| {
+                            [0, 1, 2].map(|channel| mix(b[channel], s[channel]))
+                        }),
                         None => blend(destination, source, opacity),
                     }
                 }

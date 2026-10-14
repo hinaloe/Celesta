@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
+use crate::blend::BlendMode;
 use crate::instances::{F32Column, InstanceShape, U8Column};
 use crate::tagged::TypeTagged;
 use crate::{Animatable, Paint, Rational, Stroke, TextStyle, Time, TimeRange};
@@ -377,59 +378,6 @@ pub struct LayerShadow {
 pub struct LayerGlow {
     pub color: String,
     pub blur: f64,
-}
-
-/// Separable blend modes from the W3C Compositing and Blending spec (plus
-/// `Add`, Photoshop's Linear Dodge), applied to non-premultiplied 8-bit
-/// channel values. With source color `Cs`, backdrop color `Cb` and backdrop
-/// alpha `ab`, the source color is replaced by
-/// `(1 - ab) * Cs + ab * B(Cb, Cs)` and then composited source-over.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
-#[cfg_attr(feature = "codegen", ts(export))]
-#[serde(rename_all = "camelCase")]
-pub enum BlendMode {
-    /// `B = Cs`: plain source-over.
-    #[default]
-    Normal,
-    /// `B = Cs * Cb`: darkens; white is neutral.
-    Multiply,
-    /// `B = Cs + Cb - Cs * Cb`: lightens; black is neutral.
-    Screen,
-    /// Multiply where the backdrop is dark, screen where it is light.
-    Overlay,
-    /// `B = min(Cs + Cb, 1)` (Linear Dodge): black is neutral.
-    Add,
-    /// `B = |Cb - Cs|`: black is neutral, white inverts.
-    Difference,
-}
-
-impl BlendMode {
-    pub fn is_normal(&self) -> bool {
-        *self == Self::Normal
-    }
-
-    /// The blended color `B(Cb, Cs)` of one channel, all in `0.0..=1.0`.
-    pub fn blend_channel(self, backdrop: f64, source: f64) -> f64 {
-        match self {
-            Self::Normal => source,
-            Self::Multiply => source * backdrop,
-            Self::Screen => screen(backdrop, source),
-            Self::Overlay => {
-                if backdrop <= 0.5 {
-                    source * 2.0 * backdrop
-                } else {
-                    screen(source, 2.0 * backdrop - 1.0)
-                }
-            }
-            Self::Add => (source + backdrop).min(1.0),
-            Self::Difference => (backdrop - source).abs(),
-        }
-    }
-}
-
-fn screen(backdrop: f64, source: f64) -> f64 {
-    backdrop + source - backdrop * source
 }
 
 // Deserialized through `LayerContentDef`, which keeps the same serde field attributes.
