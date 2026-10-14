@@ -30,6 +30,8 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | `Camera` | `@celesta/layout` | Look at a point of a larger world, with zoom, rotation, and shake. |
 | `Line` / `Polyline` / `Path` / `pointOnPolyline` | `@celesta/shapes` | Segments, curves, and filled shapes; polylines can draw themselves on. |
 | `Circle` / `Ellipse` / `Arrow` | `@celesta/shapes` | Diagram shapes: a circle is a rounded `Rect`, ellipses and arrows are `Path`s; circles and ellipses are placed like a `Rect`. |
+| `Triangle` / `Polygon` / `Star` / `Pie` / `Heart` | `@celesta/shapes` | Closed shapes drawn as `Path`s, with optional rounded corners; pie angles animate. |
+| `trianglePath` / `polygonPath` / `starPath` / `piePath` / `heartPath` | `@celesta/shapes` | The same shapes as path commands, to pass to a `Path` or reshape. |
 | `interpolate` / `Easings` | `@celesta/react` | Map a frame to a value, with easing and extrapolation. |
 | `interpolateColor` | `@celesta/react` | Map a frame to a `#RRGGBBAA` color, blending with premultiplied alpha. |
 | `frameKeyframes` | `@celesta/react` | frameKeyframes(keys, { fps, origin? }) builds volume or playbackRate keyframes from frame numbers. Times are (frame - origin) / fps on the enclosing sequence’s clock; origin defaults to 0. Use it for audio fades. The browser exporter only supports constant volume and playback rate. |

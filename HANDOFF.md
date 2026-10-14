@@ -90,7 +90,7 @@ compositions: no package a composition imports depends on them, though
 | `celesta-react-bridge` | Long-lived Node process and frame/component requests over stdin/stdout. |
 | `packages/math` (`@celesta/math`) | Pure, React-free math utilities for compositions. |
 | `packages/react` (`@celesta/react`) | Core components, hooks, animation helpers, reconciler, and scene walker. |
-| `packages/shapes` (`@celesta/shapes`) | Lines, polylines, paths, circles, ellipses, and arrows. |
+| `packages/shapes` (`@celesta/shapes`) | Lines, polylines, paths, circles, ellipses, arrows, triangles, polygons, stars, pies, and hearts, plus generators for their path commands. |
 | `packages/shader` (`@celesta/shader`) | `defineShader`: custom WGSL filters for a layer's `shader` prop. |
 | `packages/layout` (`@celesta/layout`) | Layout containers and `Camera`. |
 | `packages/transitions` (`@celesta/transitions`) | `Transition` and `TransitionSeries`. |

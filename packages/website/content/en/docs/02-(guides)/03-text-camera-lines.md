@@ -48,3 +48,16 @@ Every line and shape stroke takes `dash`, the lengths of its dashes and gaps in 
   stroke="#FFD84D" strokeWidth={8} />
 <Arrow x1={600} y1={300} x2={890} y2={480} strokeWidth={6} stroke="#FFD84D" />
 ```
+
+## Triangles, polygons, stars, pies, and hearts
+
+`<Polygon radius sides>`, `<Star radius points innerRatio>`, and `<Pie radius startAngle endAngle>` are sized by a radius and placed like a `<Circle>` of that radius; `<Triangle width height apex>` and `<Heart width height>` fill a box placed like a `Rect`. Polygon corners and star tips start at 12 o’clock, and pie angles are degrees clockwise from 12 o’clock, so animate `endAngle` from `startAngle` to sweep a slice open: equal angles draw nothing, and 360° apart a whole circle. `cornerRadius` rounds the corners of every shape but the heart. Each shape is one path whose `stroke` is centred on the outline, unlike a circle’s or an ellipse’s, and takes `join`/`miterLimit` like a `<Path>`; `cap` only shapes the ends of dashes, since the outline is closed.
+
+`trianglePath`, `polygonPath`, `starPath`, `piePath`, and `heartPath` return the same path commands, measured from the box’s top-left, to pass to a `<Path>` or to reshape first.
+
+```tsx title="A pie chart that sweeps open"
+<Pie x={760} y={340} radius={200} endAngle={interpolate(frame, [0, 45], [0, 270], { extrapolateRight: 'clamp' })}
+  fill="#4DD8C0" />
+<Star x={1200} y={340} radius={120} points={5} innerRatio={0.45} cornerRadius={8} fill="#FFD84D" />
+<Path x={1200} y={640} commands={starPath({ radius: 120, points: 5 })} stroke="#FFFFFF" strokeWidth={4} />
+```

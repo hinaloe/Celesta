@@ -546,3 +546,545 @@ export function Arrow({
   ];
   return React.createElement(Path, { ...props, points: outline, closed: true, fill: stroke });
 }
+
+export interface TrianglePathOptions {
+  /** Width of the triangle's box, in pixels. 0 draws nothing. */
+  width: number;
+  /** Height of the triangle's box, in pixels. 0 draws nothing. */
+  height: number;
+  /**
+   * Where the top corner is along the box's top edge, 0–1 of its width: 0.5
+   * (the default) is isosceles, 0 a right angle on the left.
+   */
+  apex?: number;
+  /** Rounds each corner to an arc of this radius, in pixels. Defaults to 0. */
+  cornerRadius?: number;
+}
+
+export interface PolygonPathOptions {
+  /** Radius of the circle the corners lie on; the box is `2 * radius` square. 0 draws nothing. */
+  radius: number;
+  /** Number of sides, a whole number of at least 3. */
+  sides: number;
+  /** Rounds each corner to an arc of this radius, in pixels. Defaults to 0. */
+  cornerRadius?: number;
+}
+
+export interface StarPathOptions {
+  /** Radius of the circle the tips lie on; the box is `2 * radius` square. 0 draws nothing. */
+  radius: number;
+  /** Number of tips, a whole number of at least 3. */
+  points: number;
+  /** Radius of the inner corners as a fraction (0–1) of `radius`. Defaults to 0.5. */
+  innerRatio?: number;
+  /** Rounds each tip and inner corner to an arc of this radius, in pixels. Defaults to 0. */
+  cornerRadius?: number;
+}
+
+export interface PiePathOptions {
+  /** Radius of the circle; the box is `2 * radius` square. 0 draws nothing. */
+  radius: number;
+  /** Angle the slice starts at, in degrees clockwise from 12 o'clock. Defaults to 0. */
+  startAngle?: number;
+  /**
+   * Angle the slice ends at, in degrees clockwise from 12 o'clock. Below
+   * `startAngle` it runs counter-clockwise; the same angle draws nothing, and
+   * 360° or more apart a whole circle.
+   */
+  endAngle: number;
+  /** Rounds the slice's three corners to arcs of this radius, in pixels. Defaults to 0. */
+  cornerRadius?: number;
+}
+
+export interface HeartPathOptions {
+  /** Width of the heart's box, in pixels. 0 draws nothing. */
+  width: number;
+  /** Height of the heart's box, in pixels. 0 draws nothing. */
+  height: number;
+}
+
+type Vec = readonly [number, number];
+
+function finiteOf(value: number, name: string, who: string): number {
+  if (!Number.isFinite(value)) {
+    throw new Error(`${who} requires a finite \`${name}\`, got ${String(value)}`);
+  }
+  return value;
+}
+
+function sizeOf(value: number, name: string, who: string): number {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${who} requires a finite \`${name}\` of at least 0, got ${String(value)}`);
+  }
+  return value;
+}
+
+function fractionOf(value: number, name: string, who: string): number {
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`${who} requires \`${name}\` to be from 0 to 1, got ${String(value)}`);
+  }
+  return value;
+}
+
+function countOf(value: number, name: string, who: string): number {
+  if (!Number.isInteger(value) || value < 3) {
+    throw new Error(`${who} requires a whole \`${name}\` of at least 3, got ${String(value)}`);
+  }
+  return value;
+}
+
+/**
+ * Appends cubic arcs of the ellipse centred on `cx`/`cy`, from angle `from`
+ * (radians from +x, clockwise on screen) turning by `sweep`, each at most a
+ * quarter turn. The current point must already be the arc's start.
+ */
+function arcTo(
+  commands: PathCommand[],
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  from: number,
+  sweep: number,
+): void {
+  const count = Math.max(1, Math.ceil(Math.abs(sweep) / (Math.PI / 2) - 1e-9));
+  const step = sweep / count;
+  const k = (4 / 3) * Math.tan(step / 4);
+  for (let i = 0; i < count; i += 1) {
+    const c0 = Math.cos(from + step * i);
+    const s0 = Math.sin(from + step * i);
+    const c1 = Math.cos(from + step * (i + 1));
+    const s1 = Math.sin(from + step * (i + 1));
+    commands.push({
+      type: 'cubicTo',
+      x1: cx + rx * (c0 - k * s0),
+      y1: cy + ry * (s0 + k * c0),
+      x2: cx + rx * (c1 + k * s1),
+      y2: cy + ry * (s1 - k * c1),
+      x: cx + rx * c1,
+      y: cy + ry * s1,
+    });
+  }
+}
+
+/** Appends the shorter arc of the circle about `center` from `start` to `end`, both on it. */
+function arcBetween(commands: PathCommand[], center: Vec, radius: number, start: Vec, end: Vec): void {
+  const from = Math.atan2(start[1] - center[1], start[0] - center[0]);
+  const to = Math.atan2(end[1] - center[1], end[0] - center[0]);
+  const sweep = to - from - Math.PI * 2 * Math.round((to - from) / (Math.PI * 2));
+  arcTo(commands, center[0], center[1], radius, radius, from, sweep);
+}
+
+interface Corner {
+  /** Where the arc leaves the side coming in. */
+  start: Vec;
+  /** Where the arc joins the side going out. */
+  end: Vec;
+  center: Vec;
+  radius: number;
+}
+
+/**
+ * The arc of `radius` tangent to both sides of the corner at `vertex`
+ * between `previous` and `next`, touching each side at most `reach` from
+ * the vertex (a smaller radius where it would reach further). `undefined`
+ * where there is nothing to round.
+ */
+function cornerAt(vertex: Vec, previous: Vec, next: Vec, radius: number, reach: number): Corner | undefined {
+  const ax = previous[0] - vertex[0];
+  const ay = previous[1] - vertex[1];
+  const bx = next[0] - vertex[0];
+  const by = next[1] - vertex[1];
+  const la = Math.hypot(ax, ay);
+  const lb = Math.hypot(bx, by);
+  if (radius <= 0 || la === 0 || lb === 0) {
+    return undefined;
+  }
+  // Half the angle between the two sides.
+  const half = Math.acos(Math.min(1, Math.max(-1, (ax * bx + ay * by) / (la * lb)))) / 2;
+  const tangent = Math.tan(half);
+  if (!(tangent > 0 && tangent < 1e9)) {
+    return undefined;
+  }
+  const distance = Math.min(radius / tangent, reach);
+  const fitted = distance * tangent;
+  if (fitted <= 0) {
+    return undefined;
+  }
+  const ux = ax / la + bx / lb;
+  const uy = ay / la + by / lb;
+  const toCenter = fitted / Math.sin(half) / Math.hypot(ux, uy);
+  return {
+    start: [vertex[0] + (ax / la) * distance, vertex[1] + (ay / la) * distance],
+    end: [vertex[0] + (bx / lb) * distance, vertex[1] + (by / lb) * distance],
+    center: [vertex[0] + ux * toCenter, vertex[1] + uy * toCenter],
+    radius: fitted,
+  };
+}
+
+/**
+ * A closed outline through `vertices`, starting at the first, with each
+ * corner rounded to an arc of `cornerRadius` tangent to both its sides. An
+ * arc reaches at most halfway along either side, so a short side gets a
+ * smaller one.
+ */
+function roundedOutline(vertices: readonly Vec[], cornerRadius: number): PathCommand[] {
+  const commands: PathCommand[] = [];
+  const n = vertices.length;
+  vertices.forEach((vertex, i) => {
+    const previous = vertices[(i + n - 1) % n];
+    const next = vertices[(i + 1) % n];
+    const reach = Math.min(
+      Math.hypot(previous[0] - vertex[0], previous[1] - vertex[1]),
+      Math.hypot(next[0] - vertex[0], next[1] - vertex[1]),
+    ) / 2;
+    const corner = cornerAt(vertex, previous, next, cornerRadius, reach);
+    const [x, y] = corner?.start ?? vertex;
+    commands.push(i === 0 ? { type: 'moveTo', x, y } : { type: 'lineTo', x, y });
+    if (corner !== undefined) {
+      arcBetween(commands, corner.center, corner.radius, corner.start, corner.end);
+    }
+  });
+  commands.push({ type: 'close' });
+  return commands;
+}
+
+/** The point `distance` from `center` at `degrees` clockwise from 12 o'clock. */
+function polar(center: Vec, distance: number, degrees: number): Vec {
+  const radians = (degrees * Math.PI) / 180;
+  return [center[0] + distance * Math.sin(radians), center[1] - distance * Math.cos(radians)];
+}
+
+function triangleCommands(options: TrianglePathOptions, who: string): PathCommand[] {
+  const width = sizeOf(options.width, 'width', who);
+  const height = sizeOf(options.height, 'height', who);
+  const apex = fractionOf(options.apex ?? 0.5, 'apex', who);
+  const cornerRadius = sizeOf(options.cornerRadius ?? 0, 'cornerRadius', who);
+  if (width === 0 || height === 0) {
+    return [];
+  }
+  return roundedOutline([[apex * width, 0], [width, height], [0, height]], cornerRadius);
+}
+
+function polygonCommands(options: PolygonPathOptions, who: string): PathCommand[] {
+  const radius = sizeOf(options.radius, 'radius', who);
+  const sides = countOf(options.sides, 'sides', who);
+  const cornerRadius = sizeOf(options.cornerRadius ?? 0, 'cornerRadius', who);
+  if (radius === 0) {
+    return [];
+  }
+  const center: Vec = [radius, radius];
+  const vertices = Array.from({ length: sides }, (_, i) => polar(center, radius, (360 * i) / sides));
+  return roundedOutline(vertices, cornerRadius);
+}
+
+function starCommands(options: StarPathOptions, who: string): PathCommand[] {
+  const radius = sizeOf(options.radius, 'radius', who);
+  const points = countOf(options.points, 'points', who);
+  const innerRatio = fractionOf(options.innerRatio ?? 0.5, 'innerRatio', who);
+  const cornerRadius = sizeOf(options.cornerRadius ?? 0, 'cornerRadius', who);
+  if (radius === 0) {
+    return [];
+  }
+  const center: Vec = [radius, radius];
+  const vertices = Array.from({ length: points * 2 }, (_, i) =>
+    polar(center, i % 2 === 0 ? radius : radius * innerRatio, (180 * i) / points));
+  return roundedOutline(vertices, cornerRadius);
+}
+
+function pieCommands(options: PiePathOptions, who: string): PathCommand[] {
+  const radius = sizeOf(options.radius, 'radius', who);
+  const startAngle = finiteOf(options.startAngle ?? 0, 'startAngle', who);
+  const endAngle = finiteOf(options.endAngle, 'endAngle', who);
+  const cornerRadius = sizeOf(options.cornerRadius ?? 0, 'cornerRadius', who);
+  const degrees = endAngle - startAngle;
+  if (radius === 0 || degrees === 0) {
+    return [];
+  }
+  const center: Vec = [radius, radius];
+  // `arcTo` measures from +x; these angles are from 12 o'clock.
+  const from = ((startAngle - 90) * Math.PI) / 180;
+  if (Math.abs(degrees) >= 360) {
+    const [x, y] = polar(center, radius, startAngle);
+    const commands: PathCommand[] = [{ type: 'moveTo', x, y }];
+    arcTo(commands, radius, radius, radius, radius, from, Math.sign(degrees) * Math.PI * 2);
+    commands.push({ type: 'close' });
+    return commands;
+  }
+  const sweep = (degrees * Math.PI) / 180;
+  const turn = Math.sign(degrees);
+  // The corners where the sides meet the rim: the largest arc that touches
+  // each side no nearer the centre than halfway and the rim no further than
+  // halfway round it.
+  const halfway = Math.sin(Math.min(Math.abs(sweep) / 2, Math.PI / 2));
+  const rim = Math.min(cornerRadius, (radius * 3) / 8, (radius * halfway) / (1 + halfway));
+  // How far round the rim each of those arcs reaches, in degrees.
+  const inset = rim > 0 ? (Math.asin(rim / (radius - rim)) * 180) / Math.PI : 0;
+  const along = Math.sqrt(radius * radius - 2 * radius * rim);
+  const first: Vec = polar(center, along, startAngle);
+  const last: Vec = polar(center, along, endAngle);
+  const centerCorner = cornerAt(center, last, first, cornerRadius, radius / 2);
+
+  const [x0, y0] = centerCorner?.end ?? center;
+  const commands: PathCommand[] = [{ type: 'moveTo', x: x0, y: y0 }];
+  commands.push({ type: 'lineTo', x: first[0], y: first[1] });
+  if (rim > 0) {
+    arcBetween(
+      commands,
+      polar(center, radius - rim, startAngle + turn * inset),
+      rim,
+      first,
+      polar(center, radius, startAngle + turn * inset),
+    );
+  }
+  arcTo(commands, radius, radius, radius, radius, from + (turn * inset * Math.PI) / 180, sweep - (turn * 2 * inset * Math.PI) / 180);
+  if (rim > 0) {
+    arcBetween(
+      commands,
+      polar(center, radius - rim, endAngle - turn * inset),
+      rim,
+      polar(center, radius, endAngle - turn * inset),
+      last,
+    );
+  }
+  if (centerCorner !== undefined) {
+    commands.push({ type: 'lineTo', x: centerCorner.start[0], y: centerCorner.start[1] });
+    arcBetween(commands, centerCorner.center, centerCorner.radius, centerCorner.start, centerCorner.end);
+  }
+  commands.push({ type: 'close' });
+  return commands;
+}
+
+function heartCommands(options: HeartPathOptions, who: string): PathCommand[] {
+  const width = sizeOf(options.width, 'width', who);
+  const height = sizeOf(options.height, 'height', who);
+  if (width === 0 || height === 0) {
+    return [];
+  }
+  // One lobe in a 1 × 1 box, from the bottom tip round to the cleft. Every
+  // control point is inside the box, and the curve touches its left, top,
+  // and bottom edges, so the heart fills its box exactly.
+  const lobe = [
+    [0.4, 0.86, 0, 0.62, 0, 0.32],
+    [0, 0.12, 0.13, 0, 0.27, 0],
+    [0.4, 0, 0.47, 0.07, 0.5, 0.2],
+  ];
+  const at = (u: number, v: number): Vec => [u * width, v * height];
+  const commands: PathCommand[] = [{ type: 'moveTo', x: width / 2, y: height }];
+  for (const [u1, v1, u2, v2, u, v] of lobe) {
+    const [x1, y1] = at(u1, v1);
+    const [x2, y2] = at(u2, v2);
+    const [x, y] = at(u, v);
+    commands.push({ type: 'cubicTo', x1, y1, x2, y2, x, y });
+  }
+  // The right lobe mirrors the left, from the cleft back to the tip.
+  for (let i = lobe.length - 1; i >= 0; i -= 1) {
+    const [u1, v1, u2, v2] = lobe[i];
+    const [u, v] = i === 0 ? [0.5, 1] : lobe[i - 1].slice(4);
+    const [x1, y1] = at(1 - u2, v2);
+    const [x2, y2] = at(1 - u1, v1);
+    const [x, y] = at(1 - u, v);
+    commands.push({ type: 'cubicTo', x1, y1, x2, y2, x, y });
+  }
+  commands.push({ type: 'close' });
+  return commands;
+}
+
+/**
+ * Path commands for a triangle filling a `width` × `height` box with its
+ * top-left at the origin: the top corner at `apex` along the top edge and
+ * the base along the bottom, clockwise from the top. Pass them to `<Path>`,
+ * or move or reshape them first.
+ */
+export function trianglePath(options: TrianglePathOptions): PathCommand[] {
+  return triangleCommands(options, 'trianglePath()');
+}
+
+/**
+ * Path commands for a regular polygon in a `2 * radius` square box with its
+ * top-left at the origin: `sides` corners on the circle of `radius`, the
+ * first at 12 o'clock, clockwise.
+ */
+export function polygonPath(options: PolygonPathOptions): PathCommand[] {
+  return polygonCommands(options, 'polygonPath()');
+}
+
+/**
+ * Path commands for a star in a `2 * radius` square box with its top-left
+ * at the origin: `points` tips on the circle of `radius`, the first at 12
+ * o'clock, clockwise, with inner corners at `innerRatio` of the radius.
+ */
+export function starPath(options: StarPathOptions): PathCommand[] {
+  return starCommands(options, 'starPath()');
+}
+
+/**
+ * Path commands for a pie slice in a `2 * radius` square box with its
+ * top-left at the origin, from `startAngle` to `endAngle` (degrees clockwise
+ * from 12 o'clock), starting from the centre. Returns no commands when the
+ * angles are equal, and a whole circle when they are 360° or more apart.
+ */
+export function piePath(options: PiePathOptions): PathCommand[] {
+  return pieCommands(options, 'piePath()');
+}
+
+/**
+ * Path commands for a heart filling a `width` × `height` box with its
+ * top-left at the origin, clockwise from the bottom tip.
+ */
+export function heartPath(options: HeartPathOptions): PathCommand[] {
+  return heartCommands(options, 'heartPath()');
+}
+
+/**
+ * Props shared by `<Triangle>`, `<Polygon>`, `<Star>`, `<Pie>`, and
+ * `<Heart>`. Like `<Rect>`, `x`/`y` place the box's `anchorX`/`anchorY`
+ * point (its top-left by default), which `scale`/`rotation` turn about.
+ */
+interface ClosedShapeProps extends StrokeProps {
+  anchorX?: number;
+  anchorY?: number;
+  /**
+   * How the ends of dashes finish, as for `<Path>`. A closed outline has no
+   * other ends, so it changes nothing on a solid stroke.
+   */
+  cap?: LineCap;
+  /**
+   * Hex color or a gradient `Paint` in the shape's local pixels (origin at
+   * its box's top-left, as for `<Rect>`). Omit for no fill.
+   */
+  fill?: string | Paint;
+}
+
+export interface TriangleProps extends ClosedShapeProps, TrianglePathOptions {}
+export interface PolygonProps extends ClosedShapeProps, PolygonPathOptions {}
+export interface StarProps extends ClosedShapeProps, StarPathOptions {}
+export interface PieProps extends ClosedShapeProps, PiePathOptions {}
+export interface HeartProps extends ClosedShapeProps, HeartPathOptions {}
+
+/** `commands` moved by `dx`/`dy`. */
+function offsetCommands(commands: readonly PathCommand[], dx: number, dy: number): PathCommand[] {
+  return commands.map((command) => {
+    switch (command.type) {
+      case 'close':
+        return command;
+      case 'moveTo':
+      case 'lineTo':
+        return { ...command, x: command.x + dx, y: command.y + dy };
+      case 'quadTo':
+        return { ...command, x1: command.x1 + dx, y1: command.y1 + dy, x: command.x + dx, y: command.y + dy };
+      case 'cubicTo':
+        return {
+          ...command,
+          x1: command.x1 + dx,
+          y1: command.y1 + dy,
+          x2: command.x2 + dx,
+          y2: command.y2 + dy,
+          x: command.x + dx,
+          y: command.y + dy,
+        };
+    }
+  });
+}
+
+/**
+ * `commands` (in a `width` × `height` box from its top-left) as one
+ * `<Path>`, placed by the box's anchor like `<Ellipse>`, with the stroke
+ * centred on the outline as for `<Path>`.
+ */
+function closedShape(
+  component: string,
+  commands: readonly PathCommand[],
+  width: number,
+  height: number,
+  { anchorX = 0, anchorY = 0, fill, stroke, strokeWidth, ...props }: ClosedShapeProps,
+): ReturnType<typeof React.createElement> | null {
+  const strokeWidthDrawn = stroke === undefined ? undefined : strokeWidthOf(strokeWidth, component);
+  if (commands.length === 0) {
+    return null;
+  }
+  // The path has no anchor, so its origin is the anchor point.
+  const left = -anchorX * width;
+  const top = -anchorY * height;
+  return React.createElement(Path, {
+    ...props,
+    commands: left === 0 && top === 0 ? commands : offsetCommands(commands, left, top),
+    fill: offsetPaint(fill, left, top),
+    stroke: offsetPaint(stroke, left, top),
+    ...(strokeWidthDrawn === undefined ? {} : { strokeWidth: strokeWidthDrawn }),
+  });
+}
+
+/**
+ * A triangle filling a `width` × `height` box, drawn as one `<Path>`: its
+ * top corner at `apex` along the top edge (the middle by default) and its
+ * base along the bottom. Turn it with `rotation` to point elsewhere.
+ */
+export function Triangle({
+  width,
+  height,
+  apex,
+  cornerRadius,
+  ...props
+}: TriangleProps): ReturnType<typeof React.createElement> | null {
+  const commands = triangleCommands({ width, height, apex, cornerRadius }, '<Triangle>');
+  return closedShape('Triangle', commands, width, height, props);
+}
+
+/**
+ * A regular polygon of `sides` corners on a circle of `radius`, the first at
+ * 12 o'clock, drawn as one `<Path>` and placed like a `<Circle>` of that
+ * radius.
+ */
+export function Polygon({
+  radius,
+  sides,
+  cornerRadius,
+  ...props
+}: PolygonProps): ReturnType<typeof React.createElement> | null {
+  const commands = polygonCommands({ radius, sides, cornerRadius }, '<Polygon>');
+  return closedShape('Polygon', commands, radius * 2, radius * 2, props);
+}
+
+/**
+ * A star of `points` tips on a circle of `radius`, the first at 12 o'clock,
+ * with inner corners at `innerRatio` of the radius, drawn as one `<Path>`
+ * and placed like a `<Circle>` of that radius.
+ */
+export function Star({
+  radius,
+  points,
+  innerRatio,
+  cornerRadius,
+  ...props
+}: StarProps): ReturnType<typeof React.createElement> | null {
+  const commands = starCommands({ radius, points, innerRatio, cornerRadius }, '<Star>');
+  return closedShape('Star', commands, radius * 2, radius * 2, props);
+}
+
+/**
+ * A slice of a circle of `radius` from `startAngle` to `endAngle` (degrees
+ * clockwise from 12 o'clock), drawn as one `<Path>` and placed like a
+ * `<Circle>` of that radius. Animate `endAngle` to sweep it open: equal
+ * angles draw nothing, and 360° or more apart a whole circle.
+ */
+export function Pie({
+  radius,
+  startAngle,
+  endAngle,
+  cornerRadius,
+  ...props
+}: PieProps): ReturnType<typeof React.createElement> | null {
+  const commands = pieCommands({ radius, startAngle, endAngle, cornerRadius }, '<Pie>');
+  return closedShape('Pie', commands, radius * 2, radius * 2, props);
+}
+
+/** A heart filling a `width` × `height` box, drawn as one `<Path>`. */
+export function Heart({
+  width,
+  height,
+  ...props
+}: HeartProps): ReturnType<typeof React.createElement> | null {
+  const commands = heartCommands({ width, height }, '<Heart>');
+  return closedShape('Heart', commands, width, height, props);
+}
