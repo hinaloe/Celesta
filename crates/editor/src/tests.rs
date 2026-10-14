@@ -10,7 +10,8 @@ use crate::helpers::{
     export_output, export_progress_label, export_range_for, export_suggested_name, loop_range_for,
 };
 use crate::layer_select::{
-    SourceLookup, display_path, letterbox, scene_point, source_lookup, source_position,
+    SourceLookup, display_path, launch_outcome_applies, letterbox, scene_point, source_lookup,
+    source_position,
 };
 use crate::source::is_react_entry;
 use crate::waveform::{
@@ -746,6 +747,16 @@ fn layer_select_shows_a_file_inside_the_entry_directory_relative_to_it() {
             Path::new("components").join("title.tsx").display()
         )
     );
+}
+
+#[test]
+fn layer_select_shows_a_launch_error_only_under_the_layer_it_opened() {
+    let started = (3, Some("title"));
+
+    assert!(launch_outcome_applies(started, (3, Some("title"))));
+    assert!(!launch_outcome_applies(started, (3, Some("subtitle"))));
+    assert!(!launch_outcome_applies(started, (3, None)));
+    assert!(!launch_outcome_applies(started, (4, Some("title"))));
 }
 
 #[test]

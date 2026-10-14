@@ -3,7 +3,7 @@
 //! opening its position in the user's editor.
 
 use crate::editor_launch::open_source;
-use crate::layer_select::{SourceLookup, source_position};
+use crate::layer_select::{SourceLookup, launch_outcome_applies, source_position};
 use crate::view::EditorView;
 use crate::widgets::{inspector_row, inspector_section};
 use celesta_react_bridge::LayerSource;
@@ -126,6 +126,7 @@ impl EditorView {
     fn open_layer_source(&mut self, source: LayerSource, cx: &mut Context<Self>) {
         let cwd = self.entry_dir();
         let session = self.session;
+        let layer = self.selected_layer.clone();
         self.launch_error = None;
         cx.notify();
         cx.spawn(async move |view, cx| {
@@ -134,8 +135,12 @@ impl EditorView {
                 .spawn(async move { open_source(&source, &cwd) })
                 .await;
             view.update(cx, |this, cx| {
-                // Another file opened meanwhile; the message belongs to the old one.
-                if this.session == session {
+                // Another file opened or another layer was picked meanwhile;
+                // the message belongs to the old one.
+                if launch_outcome_applies(
+                    (session, layer.as_deref()),
+                    (this.session, this.selected_layer.as_deref()),
+                ) {
                     this.launch_error = result.err().map(|error| error.to_string());
                     cx.notify();
                 }

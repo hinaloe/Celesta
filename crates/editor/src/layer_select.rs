@@ -62,6 +62,16 @@ pub(crate) fn source_lookup(result: LookupResult) -> SourceLookup {
     }
 }
 
+/// Whether the outcome of opening a source belongs in the panel: `started`
+/// is the session and selected layer when the open began, `now` the ones the
+/// panel shows. A late error must not appear under another layer.
+pub(crate) fn launch_outcome_applies(
+    started: (u64, Option<&str>),
+    now: (u64, Option<&str>),
+) -> bool {
+    started == now
+}
+
 /// `file` relative to the entry's directory when it is inside it, and in
 /// full otherwise.
 pub(crate) fn display_path(file: &Path, entry_dir: &Path) -> String {

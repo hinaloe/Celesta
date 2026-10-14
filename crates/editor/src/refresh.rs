@@ -332,6 +332,8 @@ impl EditorView {
                     .into();
                 }
                 self.react_reload_generation = self.react_reload_generation.wrapping_add(1);
+                // A layer picked while the reload ran belongs to the old code.
+                self.clear_layer_selection();
                 self.problems.clear(Source::Preview);
                 self.refresh_preview();
                 self.refresh_audio_preview();
