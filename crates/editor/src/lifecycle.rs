@@ -16,7 +16,7 @@ use gpui_kit::component::radio::Radio;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{ActiveTheme as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::*;
-use gpui_kit::{ClickEvent, Context, PathPromptOptions, Pixels, Window, div, px};
+use gpui_kit::{ClickEvent, Context, PathPromptOptions, Pixels, ScrollHandle, Window, div, px};
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -76,6 +76,8 @@ impl EditorView {
         // `list_templates` puts `blank` first, so it starts selected. The
         // dialog is rebuilt every frame, so the choice lives outside it.
         let selected = Rc::new(Cell::new(0_usize));
+        // Per dialog, so the list starts at the top each time it opens.
+        let list_scroll = ScrollHandle::new();
         let view = cx.entity().downgrade();
         window.open_dialog(cx, move |dialog, _, cx| {
             let muted = cx.theme().muted_foreground;
@@ -133,13 +135,24 @@ impl EditorView {
                         )
                         // Only the list scrolls once there are more templates
                         // than fit, so the description and buttons stay put.
+                        // A plain scroll container rather than
+                        // `overflow_y_scrollbar()`: that wrapper puts `max_h`
+                        // on itself and sizes its scroll area at 100% of a
+                        // height this auto-sized body never makes definite,
+                        // so the list would be clipped instead of scrolling.
                         .child(
-                            v_flex()
-                                .id("project-templates")
-                                .max_h(TEMPLATE_LIST_MAX_HEIGHT)
-                                .gap_3()
-                                .children(rows)
-                                .overflow_y_scrollbar(),
+                            div()
+                                .relative()
+                                .child(
+                                    v_flex()
+                                        .id("project-templates")
+                                        .max_h(TEMPLATE_LIST_MAX_HEIGHT)
+                                        .gap_3()
+                                        .overflow_y_scroll()
+                                        .track_scroll(&list_scroll)
+                                        .children(rows),
+                                )
+                                .vertical_scrollbar(&list_scroll),
                         ),
                 )
                 .footer(
