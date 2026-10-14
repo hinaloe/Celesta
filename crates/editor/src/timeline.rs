@@ -1209,7 +1209,10 @@ enum LaneAxis {
     Free,
     /// Fingers down but not yet moved far enough to pick; the travel so far.
     Undecided(Point<f32>),
+    /// Scrubbing by the sideways travel.
     Scrub,
+    /// Scrubbing by the vertical travel: a vertical gesture begun with Shift.
+    ScrubVertical,
     Scroll,
 }
 
@@ -1266,26 +1269,36 @@ impl LaneGesture {
                 LaneWheel::Scroll
             };
         }
-        // A trackpad gesture ignores Shift (that is for wheels that cannot
-        // scroll sideways) and scrubs by its sideways travel alone: mixing
-        // in the vertical travel would jerk the playhead back and forth.
+        // A trackpad scrub follows one axis for the whole gesture: mixing
+        // the two would jerk the playhead back and forth. Shift counts only
+        // when the axis is picked, turning a vertical gesture into a scrub.
         match self.axis {
             LaneAxis::Undecided(travel) => {
                 let travel = travel + delta;
                 if travel.x.abs().max(travel.y.abs()) < AXIS_LOCK_PIXELS {
                     self.axis = LaneAxis::Undecided(travel);
-                    LaneWheel::Scroll
+                    // With Shift the gesture scrubs either way, so hold the
+                    // tracks still.
+                    if shift {
+                        LaneWheel::Ignore
+                    } else {
+                        LaneWheel::Scroll
+                    }
                 } else if travel.x.abs() > travel.y.abs() {
                     self.axis = LaneAxis::Scrub;
                     scrub(travel.x)
+                } else if shift {
+                    self.axis = LaneAxis::ScrubVertical;
+                    scrub(-travel.y)
                 } else {
                     self.axis = LaneAxis::Scroll;
                     LaneWheel::Scroll
                 }
             }
             // Dropping momentum stops the playhead where the fingers did.
-            LaneAxis::Scrub if momentum => LaneWheel::Ignore,
+            LaneAxis::Scrub | LaneAxis::ScrubVertical if momentum => LaneWheel::Ignore,
             LaneAxis::Scrub => scrub(delta.x),
+            LaneAxis::ScrubVertical => scrub(-delta.y),
             LaneAxis::Scroll | LaneAxis::Free => LaneWheel::Scroll,
         }
     }
@@ -1499,14 +1512,32 @@ mod tests {
     }
 
     #[test]
-    fn shift_leaves_a_trackpad_gesture_to_its_axis() {
+    fn shift_scrubs_a_vertical_trackpad_gesture_by_its_vertical_travel_alone() {
         let mut gesture = LaneGesture::default();
         gesture.wheel(TouchPhase::Started, point(0.0, 0.0), true, true);
         assert_eq!(
-            gesture.wheel(TouchPhase::Moved, point(0.0, -10.0), true, true),
-            LaneWheel::Scroll
+            gesture.wheel(TouchPhase::Moved, point(1.0, -10.0), true, true),
+            LaneWheel::Scrub(10.0)
         );
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, point(5.0, -2.0), true, true),
+            LaneWheel::Scrub(2.0)
+        );
+        // Releasing Shift mid-gesture keeps the gesture's axis.
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, point(5.0, 0.0), true, false),
+            LaneWheel::Ignore
+        );
+        gesture.wheel(TouchPhase::Ended, point(0.0, 0.0), true, true);
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, point(0.0, -4.0), true, true),
+            LaneWheel::Ignore
+        );
+    }
 
+    #[test]
+    fn shift_with_a_sideways_trackpad_gesture_scrubs_by_its_sideways_travel() {
+        let mut gesture = LaneGesture::default();
         gesture.wheel(TouchPhase::Started, point(0.0, 0.0), true, true);
         assert_eq!(
             gesture.wheel(TouchPhase::Moved, point(10.0, 1.0), true, true),
@@ -1515,6 +1546,21 @@ mod tests {
         assert_eq!(
             gesture.wheel(TouchPhase::Moved, point(0.0, 3.0), true, true),
             LaneWheel::Ignore
+        );
+    }
+
+    #[test]
+    fn a_vertical_trackpad_gesture_without_shift_scrolls() {
+        let mut gesture = LaneGesture::default();
+        wheel(&mut gesture, TouchPhase::Started, 0.0, 0.0);
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 0.0, -10.0),
+            LaneWheel::Scroll
+        );
+        // Pressing Shift mid-gesture keeps the gesture's axis.
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, point(0.0, -4.0), true, true),
+            LaneWheel::Scroll
         );
     }
 
