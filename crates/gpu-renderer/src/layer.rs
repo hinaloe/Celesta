@@ -212,6 +212,33 @@ impl PreparedLayer {
             })
     }
 
+    /// For a stroked rect with no fill (or a fully transparent one), the
+    /// corners of the part inside its stroke in scene pixels, in the order of
+    /// `corners`; `None` for any other layer and for a stroke that leaves no
+    /// inside. `rect_color` in `layer.wgsl` draws the stroke inside the
+    /// rect's edge, so the hole is the rect inset by the stroke's width.
+    pub(crate) fn hole_corners(&self) -> Option<[Point; 4]> {
+        let PreparedContent::Rect(rect) = &self.content else {
+            return None;
+        };
+        // A flat color's alpha, 0 without a fill; a gradient's is -1.
+        if self.shape.is_some() || rect.stroke_width <= 0.0 || rect.fill[3] != 0.0 {
+            return None;
+        }
+        let (width, height) = (2.0 * rect.half_width, 2.0 * rect.half_height);
+        let stroke = rect.stroke_width;
+        if width <= 2.0 * stroke || height <= 2.0 * stroke {
+            return None;
+        }
+        Some(
+            self.quad_corners(self.drawn_transform(), [-stroke / width, -stroke / height])
+                .map(|(x, y)| Point {
+                    x: f64::from(x),
+                    y: f64::from(y),
+                }),
+        )
+    }
+
     /// The transform `write_instance` places the layer's quad with: a layer
     /// copied texel for texel lands on whole pixels.
     fn drawn_transform(&self) -> Affine {

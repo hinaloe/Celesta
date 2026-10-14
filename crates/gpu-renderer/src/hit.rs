@@ -12,6 +12,12 @@ pub struct HitRegion {
     /// transform. A path's and an `Instances` layer's are those of the box
     /// around their shapes.
     pub corners: [Point; 4],
+    /// The quad inside a stroked rect with no fill (or a fully transparent
+    /// one), in the same order as `corners`: only the stroke band around it
+    /// is hit, so an outline does not cover the layers under it. `None` for
+    /// every other layer and for a stroke that covers the whole rect. The
+    /// inner corners' rounding is left out, so a click there misses.
+    pub hole: Option<[Point; 4]>,
     /// Every clip the layer is drawn through, innermost first.
     pub clips: Vec<HitClip>,
 }
@@ -66,15 +72,25 @@ impl HitRegion {
         if self.area() == 0.0 {
             return false;
         }
-        // Inside a convex quad, the point is on the same side of every edge,
-        // whichever way round a mirroring transform turned the corners.
-        let sides = [0, 1, 2, 3].map(|i| {
-            let (from, to) = (self.corners[i], self.corners[(i + 1) % 4]);
-            (to.x - from.x) * (point.y - from.y) - (to.y - from.y) * (point.x - from.x)
-        });
-        (sides.iter().all(|side| *side >= 0.0) || sides.iter().all(|side| *side <= 0.0))
+        let outer = sides(&self.corners, point);
+        (outer.iter().all(|side| *side >= 0.0) || outer.iter().all(|side| *side <= 0.0))
+            && !self.hole.is_some_and(|hole| {
+                // Strictly inside: the hole's edge is the stroke's.
+                let inner = sides(&hole, point);
+                inner.iter().all(|side| *side > 0.0) || inner.iter().all(|side| *side < 0.0)
+            })
             && self.clips.iter().all(|clip| clip.contains(point))
     }
+}
+
+/// Which side of each of the quad's edges `point` is on. Inside a convex
+/// quad, it is the same side of every edge, whichever way round a mirroring
+/// transform turned the corners.
+fn sides(corners: &[Point; 4], point: Point) -> [f64; 4] {
+    [0, 1, 2, 3].map(|i| {
+        let (from, to) = (corners[i], corners[(i + 1) % 4]);
+        (to.x - from.x) * (point.y - from.y) - (to.y - from.y) * (point.x - from.x)
+    })
 }
 
 /// A leaf layer `prepare_layer` met while recording, whose corners are
@@ -106,6 +122,7 @@ mod tests {
         HitRegion {
             layer_id: id.to_owned(),
             corners: corners.map(|(x, y)| Point { x, y }),
+            hole: None,
             clips: Vec::new(),
         }
     }
@@ -203,6 +220,43 @@ mod tests {
             let at = Point { x: at.0, y: at.1 };
             assert_eq!(hit_test(&[point.clone(), line.clone()], at), None);
         }
+    }
+
+    /// The square above as an outline 2 wide: its hole is (12,12)-(18,18).
+    fn outline(id: &str) -> HitRegion {
+        HitRegion {
+            hole: Some(
+                [(12.0, 12.0), (18.0, 12.0), (18.0, 18.0), (12.0, 18.0)]
+                    .map(|(x, y)| Point { x, y }),
+            ),
+            ..square(id)
+        }
+    }
+
+    #[test]
+    fn hits_an_outline_only_on_its_band() {
+        let regions = [outline("outline")];
+        for at in [(11.0, 15.0), (15.0, 19.0), (10.0, 10.0), (12.0, 15.0)] {
+            assert_eq!(
+                hit_test(&regions, Point { x: at.0, y: at.1 }),
+                Some("outline"),
+                "{at:?}"
+            );
+        }
+        assert_eq!(hit_test(&regions, Point { x: 15.0, y: 15.0 }), None);
+    }
+
+    #[test]
+    fn hits_the_layer_below_an_outlines_hole() {
+        let regions = [square("below"), outline("outline")];
+        assert_eq!(
+            hit_test(&regions, Point { x: 15.0, y: 15.0 }),
+            Some("below")
+        );
+        assert_eq!(
+            hit_test(&regions, Point { x: 11.0, y: 15.0 }),
+            Some("outline")
+        );
     }
 
     #[test]

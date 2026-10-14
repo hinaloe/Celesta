@@ -4319,6 +4319,13 @@ fn records_where_each_leaf_layer_was_drawn() {
     // Inside the rect, outside its group's clip.
     assert_eq!(hit_test(regions, Point { x: 30.0, y: 130.0 }), None);
 
+    // Taking the regions leaves none behind.
+    let taken = renderer.take_hit_regions();
+    assert_eq!(taken.len(), 4);
+    assert!(renderer.hit_regions().is_empty());
+    renderer.render(&scene).unwrap();
+    assert_eq!(renderer.hit_regions(), taken.as_slice());
+
     // Turning recording off forgets the last frame's regions at once.
     renderer.set_record_hit_regions(false);
     assert!(renderer.hit_regions().is_empty());
@@ -4357,6 +4364,69 @@ fn records_a_paths_shape_box_and_nothing_for_a_path_it_drops() {
     assert_corners(
         &regions[0],
         [(20.0, 20.0), (40.0, 20.0), (40.0, 40.0), (20.0, 40.0)],
+    );
+}
+
+#[test]
+fn records_the_hole_of_an_unfilled_stroked_rect() {
+    let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+        return;
+    };
+    renderer.set_record_hit_regions(true);
+    let outlined = |id: &str, x: f64, fill: Option<&str>, width: f64| {
+        let mut layer = corner_rect(id, x, 10.0, 20.0, 20.0, "#ffffff");
+        layer.content = LayerContent::Rect {
+            width: 20.0,
+            height: 20.0,
+            fill: fill.map(solid),
+            stroke: Some(Stroke {
+                paint: solid("#ff0000"),
+                width,
+            }),
+            corner_radius: 0.0,
+        };
+        layer
+    };
+    let mut scene = empty_scene(300, 100);
+    scene.layers = vec![
+        outlined("outline", 10.0, None, 2.0),
+        outlined("clear", 40.0, Some("#00000000"), 2.0),
+        outlined("filled-outline", 70.0, Some("#ffffff"), 2.0),
+        // The stroke covers the whole rect: no hole.
+        outlined("thick", 100.0, None, 10.0),
+        corner_rect("filled", 130.0, 10.0, 20.0, 20.0, "#ffffff"),
+    ];
+    renderer.render(&scene).unwrap();
+    let regions = renderer.hit_regions();
+    let ids = regions
+        .iter()
+        .map(|region| region.layer_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        ["outline", "clear", "filled-outline", "thick", "filled"]
+    );
+    // The stroke is inside the rect's edge, as `rect_color` shades it.
+    let hole = HitRegion {
+        corners: regions[0].hole.expect("an unfilled outline has a hole"),
+        ..regions[0].clone()
+    };
+    assert_corners(
+        &hole,
+        [(12.0, 12.0), (28.0, 12.0), (28.0, 28.0), (12.0, 28.0)],
+    );
+    assert!(regions[1].hole.is_some());
+    for region in &regions[2..] {
+        assert_eq!(region.hole, None, "{}", region.layer_id);
+    }
+    assert_eq!(
+        hit_test(regions, Point { x: 11.0, y: 20.0 }),
+        Some("outline")
+    );
+    assert_eq!(hit_test(regions, Point { x: 20.0, y: 20.0 }), None);
+    assert_eq!(
+        hit_test(regions, Point { x: 110.0, y: 20.0 }),
+        Some("thick")
     );
 }
 

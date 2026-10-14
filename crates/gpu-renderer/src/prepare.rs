@@ -1014,9 +1014,9 @@ impl GpuRenderer {
             .hit_leaves
             .drain(..)
             .filter_map(|leaf| {
-                let corners = match &items[leaf.item] {
-                    PreparedItem::Layer(layer) => layer.corners(),
-                    PreparedItem::Instances(particles) => particles.shape().corners(),
+                let (corners, hole) = match &items[leaf.item] {
+                    PreparedItem::Layer(layer) => (layer.corners(), layer.hole_corners()),
+                    PreparedItem::Instances(particles) => (particles.shape().corners(), None),
                     _ => return None,
                 };
                 let clips = std::iter::successors(leaf.clip, |&index| clips[index as usize].parent)
@@ -1025,6 +1025,7 @@ impl GpuRenderer {
                 let region = HitRegion {
                     layer_id: leaf.layer_id,
                     corners,
+                    hole,
                     clips,
                 };
                 (region.area() > 0.0).then_some(region)
