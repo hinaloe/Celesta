@@ -402,6 +402,12 @@ impl GpuRenderer {
         &self.hit_regions
     }
 
+    /// Moves `hit_regions` out, leaving none until the next frame records
+    /// them, for a caller that sends every frame's regions on.
+    pub fn take_hit_regions(&mut self) -> Vec<HitRegion> {
+        std::mem::take(&mut self.hit_regions)
+    }
+
     pub const fn options(&self) -> GpuRenderOptions {
         self.options
     }

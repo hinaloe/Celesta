@@ -223,7 +223,7 @@ impl PreviewWorker {
                             generation: request.generation,
                             frame,
                             warnings,
-                            hit_regions: renderer.hit_regions().to_vec(),
+                            hit_regions: renderer.take_hit_regions(),
                             layer_source,
                         })
                         .is_err()
