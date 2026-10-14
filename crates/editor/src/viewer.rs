@@ -19,6 +19,7 @@ use crate::actions::{
 use crate::icons::CelestaIcon;
 use crate::meter::audio_meter;
 use crate::preview::PreviewPresentation;
+use crate::problems::Source;
 use crate::timecode::format_timecode;
 use crate::view::EditorView;
 
@@ -41,6 +42,7 @@ impl EditorView {
         let settings = &self.document.project().settings;
         let frame_size = (settings.width as f32, settings.height as f32);
         let overlay_color = cx.theme().foreground.opacity(0.55);
+        let preview_problem = self.problems.active(Source::Preview).cloned();
         let canvas_area = div()
             .relative()
             .flex()
@@ -76,16 +78,19 @@ impl EditorView {
                     .size_full(),
                 )
             })
-            .when_some(self.preview_error.clone(), |area, error| {
+            .when_some(preview_problem, |area, active| {
                 area.child(
                     div()
                         .p_4()
                         .text_sm()
                         .text_color(cx.theme().danger)
-                        .child(format!("Preview unavailable: {error}")),
+                        .child(format!(
+                            "{}: {}",
+                            active.problem.title, active.problem.detail
+                        )),
                 )
             })
-            .when(!self.preview_warnings.is_empty(), |area| {
+            .when(!self.problems.preview_warnings().is_empty(), |area| {
                 area.child(
                     div()
                         .absolute()
@@ -102,7 +107,7 @@ impl EditorView {
                         .p_2()
                         .text_xs()
                         .text_color(cx.theme().warning)
-                        .children(self.preview_warnings.iter().cloned()),
+                        .children(self.problems.preview_warnings().iter().cloned()),
                 )
             });
         div()

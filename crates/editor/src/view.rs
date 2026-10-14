@@ -4,6 +4,7 @@ use crate::export_worker::ExportWorker;
 use crate::media_probe::{MediaAssetInfo, MediaProbeWorker};
 use crate::meter::MasterLevels;
 use crate::preview::{AudioPreview, PreviewPresentation, PreviewWorker, ReactPreview};
+use crate::problems::Problems;
 use crate::property_panel::PropertyPanelState;
 use crate::react_audio::ReactAudioWorker;
 use crate::refresh::ReloadOrder;
@@ -34,7 +35,8 @@ pub(crate) struct EditorView {
     pub(crate) session: u64,
     /// A file picked from File > Open… is loading in the background.
     pub(crate) opening: bool,
-    pub(crate) open_error: Option<SharedString>,
+    /// Every error and warning, and the log since this project opened.
+    pub(crate) problems: Problems,
     /// The in-window menu bar. macOS shows the same menus natively instead.
     #[cfg(not(target_os = "macos"))]
     pub(crate) app_menu_bar: Option<Entity<AppMenuBar>>,
@@ -106,26 +108,17 @@ pub(crate) struct EditorView {
     pub(crate) component_schema_pending: bool,
     pub(crate) component_schemas: BTreeMap<String, ComponentPropertySchema>,
     pub(crate) project_property_schema: Option<BTreeMap<String, ComponentPropertyField>>,
-    pub(crate) component_schema_error: Option<SharedString>,
     pub(crate) project_name: SharedString,
     pub(crate) dimensions: SharedString,
     pub(crate) frame_rate_label: SharedString,
     pub(crate) assets: Vec<AssetSummary>,
     pub(crate) tracks: Vec<TrackSummary>,
     pub(crate) preview: Option<PreviewPresentation>,
-    pub(crate) preview_error: Option<SharedString>,
-    pub(crate) preview_warnings: Vec<SharedString>,
-    pub(crate) media_error: Option<SharedString>,
-    pub(crate) audio_error: Option<SharedString>,
     pub(crate) export_worker: ExportWorker,
     pub(crate) export_progress: Option<ExportProgress>,
     pub(crate) export_path: Option<PathBuf>,
     pub(crate) export_cancellation: Option<ExportCancellation>,
     pub(crate) export_cancelling: bool,
-    pub(crate) export_error: Option<SharedString>,
-    pub(crate) export_message: Option<SharedString>,
-    pub(crate) typescript_error: Option<SharedString>,
-    pub(crate) typescript_message: Option<SharedString>,
     /// Optional export in/out points, in composition frames. `out` is
     /// exclusive (one past the last frame to include). Both set and `in < out`
     /// means "Export…" renders only that span; otherwise the whole
@@ -218,7 +211,7 @@ impl EditorView {
             source_path,
             session: 0,
             opening: false,
-            open_error: None,
+            problems: Problems::default(),
             #[cfg(not(target_os = "macos"))]
             app_menu_bar: None,
             document,
@@ -262,26 +255,17 @@ impl EditorView {
             component_schema_pending: false,
             component_schemas: BTreeMap::new(),
             project_property_schema: None,
-            component_schema_error: None,
             project_name,
             dimensions,
             frame_rate_label,
             assets,
             tracks,
             preview: None,
-            preview_error: None,
-            preview_warnings: Vec::new(),
-            media_error: None,
-            audio_error: None,
             export_worker,
             export_progress: None,
             export_path: None,
             export_cancellation: None,
             export_cancelling: false,
-            export_error: None,
-            export_message: None,
-            typescript_error: None,
-            typescript_message: None,
             export_in_frame: None,
             export_out_frame: None,
             choosing_export_path: false,

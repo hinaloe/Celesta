@@ -1,4 +1,5 @@
 use crate::helpers::clip_kind_label;
+use crate::problems::{Severity, Source};
 use crate::timecode::format_timecode;
 use crate::view::EditorView;
 use crate::waveform::{clip_local_time, format_media_asset_info};
@@ -23,7 +24,6 @@ impl EditorView {
         let exporting = self.export_cancellation.is_some();
         let danger = cx.theme().danger;
         let warning = cx.theme().warning;
-        let success = cx.theme().success;
         let muted = cx.theme().muted_foreground;
         let message = |text: String, color| {
             div()
@@ -73,27 +73,16 @@ impl EditorView {
                 .items_center()
                 .gap_2()
                 .pr_2()
-                .when_some(self.open_error.clone(), |bar, error| {
-                    bar.child(message(error.to_string(), danger))
-                })
-                .when_some(self.media_error.clone(), |bar, error| {
-                    bar.child(message(format!("Media probe failed: {error}"), danger))
-                })
-                .when_some(self.audio_error.clone(), |bar, error| {
-                    bar.child(message(format!("Audio unavailable: {error}"), warning))
-                })
-                .when_some(self.export_error.clone(), |bar, error| {
-                    bar.child(message(format!("Export failed: {error}"), danger))
-                })
-                .when_some(self.export_message.clone(), |bar, text| {
-                    bar.child(message(text.to_string(), success))
-                })
-                .when_some(self.typescript_error.clone(), |bar, error| {
-                    bar.child(message(error.to_string(), warning))
-                })
-                .when_some(self.typescript_message.clone(), |bar, text| {
-                    bar.child(message(text.to_string(), success))
-                })
+                .children(self.problems.active_problems().map(|(source, active)| {
+                    let color = match source.severity() {
+                        Severity::Warning => warning,
+                        _ => danger,
+                    };
+                    message(
+                        format!("{}: {}", active.problem.title, active.problem.detail),
+                        color,
+                    )
+                }))
                 .child(
                     Button::new("create-new-project")
                         .small()
@@ -293,16 +282,22 @@ impl EditorView {
             .when_some(self.document.react_entry(), |panel, entry| {
                 panel.child(inspector_row("React entry", entry.to_owned(), cx))
             })
-            .when_some(self.component_schema_error.clone(), |panel, error| {
-                panel.child(
-                    div()
-                        .px_3()
-                        .py_2()
-                        .text_xs()
-                        .text_color(cx.theme().danger)
-                        .child(format!("Couldn’t load component schemas: {error}")),
-                )
-            })
+            .when_some(
+                self.problems.active(Source::Schemas).cloned(),
+                |panel, active| {
+                    panel.child(
+                        div()
+                            .px_3()
+                            .py_2()
+                            .text_xs()
+                            .text_color(cx.theme().danger)
+                            .child(format!(
+                                "{}: {}",
+                                active.problem.title, active.problem.detail
+                            )),
+                    )
+                },
+            )
             .when(self.document.react_entry().is_some(), |panel| {
                 self.render_project_properties(panel, cx)
             })
@@ -653,7 +648,7 @@ impl EditorView {
                     .label("Reload composition")
                     .on_click(cx.listener(Self::reload_react_click)),
             )
-            .when(!self.preview_warnings.is_empty(), |panel| {
+            .when(!self.problems.preview_warnings().is_empty(), |panel| {
                 panel.child(
                     div()
                         .flex()
@@ -667,7 +662,7 @@ impl EditorView {
                         .p_2()
                         .text_xs()
                         .text_color(cx.theme().warning)
-                        .children(self.preview_warnings.iter().cloned()),
+                        .children(self.problems.preview_warnings().iter().cloned()),
                 )
             })
     }
