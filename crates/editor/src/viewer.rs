@@ -189,6 +189,19 @@ impl EditorView {
             )
     }
 
+    /// Scrolls the preview error's detail back to the top when a different
+    /// error replaces the one it was scrolled for.
+    pub(crate) fn sync_preview_error_scroll(&mut self) {
+        let time = self
+            .problems
+            .active(Source::Preview)
+            .map(|active| active.time);
+        if time != self.preview_error_time {
+            self.preview_error_time = time;
+            self.preview_error_scroll.set_offset(point(px(0.), px(0.)));
+        }
+    }
+
     /// The current frame's preview warnings (font fallbacks), along the
     /// bottom of the viewer.
     fn preview_warnings_strip(&self, cx: &mut Context<Self>) -> impl IntoElement {

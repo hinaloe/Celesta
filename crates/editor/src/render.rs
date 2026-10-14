@@ -13,6 +13,7 @@ impl Render for EditorView {
         self.update_playback(window);
         self.sync_property_panel(window, cx);
         self.announce_problems(window, cx);
+        self.sync_preview_error_scroll();
         if self.preview_pending
             || self.media_pending
             || self.audio_pending

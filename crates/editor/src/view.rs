@@ -15,6 +15,7 @@ use celesta_exporter::{ExportCancellation, ExportProgress};
 use celesta_gpu_renderer::{GpuDriver, GpuRenderOptions, GpuRenderer};
 use celesta_media::FfmpegBackend;
 use celesta_react_bridge::{ComponentPropertyField, ComponentPropertySchema};
+use chrono::{DateTime, Local};
 #[cfg(not(target_os = "macos"))]
 use gpui_kit::component::menu::AppMenuBar;
 use gpui_kit::component::resizable::ResizableState;
@@ -184,6 +185,8 @@ pub(crate) struct EditorView {
     pub(crate) transport_width: Rc<Cell<Option<Pixels>>>,
     /// Scroll position of the preview error's detail over the viewer.
     pub(crate) preview_error_scroll: ScrollHandle,
+    /// When the preview error that scroll position belongs to was set.
+    pub(crate) preview_error_time: Option<DateTime<Local>>,
 }
 
 impl EditorView {
@@ -314,6 +317,7 @@ impl EditorView {
             timeline_overview_bounds: Rc::default(),
             transport_width: Rc::default(),
             preview_error_scroll: ScrollHandle::new(),
+            preview_error_time: None,
         };
         editor.refresh_preview();
         editor.refresh_audio_preview();
