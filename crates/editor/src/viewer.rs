@@ -5,7 +5,7 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{ActiveTheme as _, IconName, Selectable as _, Sizable as _};
+use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Selectable as _, Sizable as _};
 use gpui_kit::{
     BorderStyle, Bounds, Context, Hsla, IntoElement, MouseButton, ObjectFit, ParentElement as _,
     StyledImage as _, Window, canvas, div, fill, img, outline, point, prelude::*, px, relative,
@@ -19,7 +19,8 @@ use crate::actions::{
 use crate::icons::CelestaIcon;
 use crate::meter::audio_meter;
 use crate::preview::PreviewPresentation;
-use crate::problems::Source;
+use crate::problems::{ActiveProblem, Source};
+use crate::problems_panel::detail_block;
 use crate::timecode::format_timecode;
 use crate::view::EditorView;
 
@@ -79,16 +80,7 @@ impl EditorView {
                 )
             })
             .when_some(preview_problem, |area, active| {
-                area.child(
-                    div()
-                        .p_4()
-                        .text_sm()
-                        .text_color(cx.theme().danger)
-                        .child(format!(
-                            "{}: {}",
-                            active.problem.title, active.problem.detail
-                        )),
-                )
+                area.child(self.preview_error_panel(&active, cx))
             })
             .when(!self.problems.preview_warnings().is_empty(), |area| {
                 area.child(
@@ -118,6 +110,63 @@ impl EditorView {
             .h_full()
             .child(canvas_area)
             .child(self.transport_bar(cx))
+    }
+
+    /// The active preview error, centered over the viewer: its title, the
+    /// whole detail (selectable, with its own copy button), and a way into
+    /// the Problems tab.
+    fn preview_error_panel(
+        &self,
+        active: &ActiveProblem,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .p_6()
+            .child(
+                div()
+                    .id("preview-error")
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .w_full()
+                    .max_w(px(560.0))
+                    .max_h_full()
+                    .overflow_y_scroll()
+                    .rounded(cx.theme().radius)
+                    .border_1()
+                    .border_color(cx.theme().danger.opacity(0.5))
+                    .bg(cx.theme().popover)
+                    .p_3()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .text_sm()
+                            .text_color(cx.theme().danger)
+                            .child(Icon::new(IconName::CircleX).small())
+                            .child(active.problem.title.clone()),
+                    )
+                    .child(detail_block(
+                        "preview-error-detail".into(),
+                        &active.problem.detail,
+                        cx,
+                    ))
+                    .child(
+                        div().flex().justify_end().child(
+                            Button::new("preview-error-show-problems")
+                                .xsmall()
+                                .outline()
+                                .label("Show in Problems")
+                                .on_click(cx.listener(|this, _, _, cx| this.show_problems(cx))),
+                        ),
+                    ),
+            )
     }
 
     /// Playhead timecode, transport controls, and the In/Out marks.
