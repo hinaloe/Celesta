@@ -11,7 +11,7 @@ use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, WindowExt as _};
 use gpui_kit::prelude::*;
-use gpui_kit::{App, ClipboardItem, Context, Hsla, SharedString, Window, div};
+use gpui_kit::{App, ClipboardItem, Context, Hsla, SharedString, Window, div, rems};
 
 impl EditorView {
     /// The right dock: a tab bar over the inspector (or React Preview panel)
@@ -194,19 +194,32 @@ impl EditorView {
                         cx.notify();
                     }))
                     .child(severity_icon(entry.severity, cx))
-                    .child(div().text_color(muted).child(entry.source.label()))
+                    // Source and time sit in lanes wide enough for
+                    // `TypeScript` and `00:00:00`, so every row's title starts
+                    // on the same edge.
                     .child(
                         div()
+                            .flex_none()
+                            .min_w_16()
+                            .text_color(muted)
+                            .child(entry.source.label()),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .min_w(rems(3.5))
                             .text_color(muted)
                             .child(entry.time.format("%H:%M:%S").to_string()),
                     )
+                    // Truncated on one line; an expanded row wraps it, so a
+                    // long title can always be read in full.
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
+                            .when(!expanded, |title| {
+                                title.overflow_hidden().whitespace_nowrap().text_ellipsis()
+                            })
                             .text_color(cx.theme().foreground)
                             .child(entry.problem.title.clone()),
                     )

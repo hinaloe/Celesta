@@ -10,7 +10,7 @@ use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Selectable as _, Siz
 use gpui_kit::{
     BorderStyle, Bounds, Context, Hsla, IntoElement, MouseButton, ObjectFit, ParentElement as _,
     StyledImage as _, Window, canvas, div, fill, img, outline, point, prelude::*, px, relative,
-    size,
+    rems, size,
 };
 
 use crate::actions::{
@@ -132,7 +132,7 @@ impl EditorView {
                     .flex_col()
                     .gap_2()
                     .w_full()
-                    .max_w(px(560.0))
+                    .max_w(rems(35.))
                     .max_h_full()
                     .rounded(cx.theme().radius)
                     .border_1()
