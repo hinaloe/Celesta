@@ -472,6 +472,30 @@ impl EditorView {
             self.track_row(row, AUDIO_TRACK_HEIGHT, view, cx)
                 .into_any_element()
         }));
+        if !rows.is_empty() {
+            // The space below the last track takes the same lane gestures.
+            rows.push(
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .child(div().flex_none().w(px(TRACK_HEADER_WIDTH)))
+                    .child(
+                        div()
+                            .id("timeline-empty-lane")
+                            .flex_1()
+                            .mr(px(LANE_GUTTER))
+                            .on_scroll_wheel(cx.listener(Self::lane_wheel))
+                            .on_pinch(cx.listener(Self::lane_pinch))
+                            .on_mouse_down(
+                                MouseButton::Middle,
+                                cx.listener(Self::begin_timeline_pan),
+                            ),
+                    )
+                    .into_any_element(),
+            );
+        }
         let track_area = div()
             .id("timeline-tracks-scroll")
             .flex()
