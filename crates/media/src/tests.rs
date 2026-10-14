@@ -64,12 +64,20 @@ fn probes_stream_metadata_as_exact_rational_time() {
 }
 
 #[test]
-fn reports_a_missing_source_as_an_ffmpeg_error() {
+fn reports_a_missing_source_with_its_path() {
+    let path = Path::new("/definitely-not-a-real/celesta-media.mkv");
     let mut backend = FfmpegBackend::new();
-    assert!(matches!(
-        backend.probe("/definitely-not-a-real/celesta-media.mkv"),
-        Err(MediaError::Ffmpeg(_))
-    ));
+    for error in [
+        backend.probe(path).err().unwrap(),
+        backend.decode_frame(path, 0.0).err().unwrap(),
+        backend.decode_audio(path, 48_000, 2).err().unwrap(),
+    ] {
+        assert!(matches!(&error, MediaError::NotFound(missing) if missing == path));
+        assert_eq!(
+            error.to_string(),
+            "media file /definitely-not-a-real/celesta-media.mkv was not found"
+        );
+    }
 }
 
 #[test]

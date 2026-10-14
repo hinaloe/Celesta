@@ -1,7 +1,7 @@
 use crate::decoder::{AudioDecoder, VideoFrameDecoder};
 use crate::error::MediaError;
 use crate::mix::{clamp_to_source_end, video_seconds};
-use crate::probe::probe_path;
+use crate::probe::{ensure_exists, probe_path};
 use crate::sequential::{convert_frame, path_to_url, seconds_to_us, timestamps_match};
 use crate::types::{AudioBuffer, MediaProbe, VideoFrame};
 use celesta_composition::Rational;
@@ -233,6 +233,7 @@ impl AudioDecoder for FfmpegBackend {
                 channels,
             });
         }
+        ensure_exists(path)?;
         let probe = self.probe(path).ok();
         if probe.is_some_and(|probe| probe.audio.is_empty()) {
             return Ok(AudioBuffer {
