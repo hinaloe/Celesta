@@ -337,6 +337,22 @@ importers:
         specifier: ^19.3.0
         version: 19.3.0
 
+  examples/path-motion:
+    dependencies:
+      '@celesta/react':
+        specifier: workspace:*
+        version: link:../../packages/react
+      '@celesta/shapes':
+        specifier: workspace:*
+        version: link:../../packages/shapes
+      react:
+        specifier: ^19.3.0
+        version: 19.3.0
+    devDependencies:
+      '@types/react':
+        specifier: ^19.3.0
+        version: 19.3.0
+
   examples/perfect-loop:
     devDependencies:
       typescript:

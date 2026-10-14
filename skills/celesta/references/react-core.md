@@ -181,6 +181,7 @@ into one path each (tens of paths, not thousands of rects).
 | `join` | `'miter'` (default), `'round'`, `'bevel'`; `miterLimit` (4) bevels sharper miters. |
 | `fill` | Hex or `Paint` (non-zero rule); drawn under the stroke. |
 | `dash`, `dashOffset` | Dash and gap lengths in turn, like SVG's `stroke-dasharray` (an odd count repeats), starting over at each `moveTo`; `dashOffset` shifts the pattern, so animating it makes the dashes flow. `dash={[0, gap]}` with `cap="round"` draws dots. |
+| `progress`, `progressStart` | The part of the stroke drawn, 0–1 of the path's length (defaults 1 and 0); curves are split exactly, and dashes stay where they are on the whole path. A `fill` stays whole: with a trimmed stroke the path becomes a `<Group>` of a fill layer and a stroke layer. |
 
 Coordinates are the path's own pixels: `x`/`y` move their origin and
 `scale`/`rotation` turn about it (there is no `anchorX`/`anchorY`). Gradient
@@ -197,11 +198,45 @@ friendlier defaults: `stroke` (default white), `strokeWidth` (2), `cap`
 (`'round'` default, `'butt'`, `'square'`), `join` (round with round caps,
 else miter), plus `Path`'s transform, `opacity`, and `blendMode` props.
 `Polyline` takes `[x, y]` pairs (`closed` to loop) and draws the first
-`progress` (0–1) of its length, which animates a line being drawn;
+`progress` (0–1) of its length, which animates a line being drawn
+(`progressStart` trims the other end);
 `pointOnPolyline(points, t)` gives the tip as an `[x, y]` pair (not
 `{ x, y }`), for a marker or a label that rides the line. Both take
 `dash`/`dashOffset`; the dashes are anchored at the first point, so they
 stay put while `progress` draws the line on.
+
+Helpers for `commands` return points as `{ x, y }`, like the commands
+themselves. Lengths count every drawn segment, curves and `close`
+included, but not the jumps of `moveTo`:
+
+- `pointOnPath(commands, t)` / `tangentOnPath(commands, t)`: the point and
+  direction `t` (0–1) of the way along; `pointOnPath(commands, progress)` is
+  the tip of a `<Path progress>`. A tangent is a unit `{ x, y }` plus
+  `angle` in degrees clockwise, ready for `rotation`. At a corner it is the
+  direction of the segment that starts there.
+- `getLength(commands)`, `getPointAtLength(commands, s)`,
+  `getTangentAtLength(commands, s)`: the same by length in pixels (clamped).
+  `measurePath(commands)` measures once and returns `{ length,
+  getPointAtLength, getTangentAtLength }`. Results are cached per commands
+  array, so define it once, not inline.
+- `interpolatePath(a, b, t)`: the shape between two paths. Any commands work:
+  segments become cubics, each subpath is split where the other has a
+  corner (by fraction of its length), closed shapes start at the
+  best-aligned corner, and an unmatched subpath grows from its middle.
+  Paths with the same command types just blend point by point. Keep `a`
+  and `b` the same arrays across frames (the matching is cached).
+- `parseSvgPath(d)` turns SVG path data (all of `M L H V C S Q T A Z`,
+  relative too; arcs become cubics) into commands; `toSvgPath(commands)`
+  writes absolute `M L Q C Z`.
+
+```tsx
+const ROUTE = parseSvgPath('M0 0 C 100 -80 200 80 300 0');
+const t = progress(frame, 0, 90);
+const tip = pointOnPath(ROUTE, t);
+<Path commands={ROUTE} stroke="#4DD6FF" strokeWidth={4} progress={t} />
+<Path x={tip.x} y={tip.y} rotation={tangentOnPath(ROUTE, t).angle} fill="#FFFFFF"
+  points={[[12, 0], [-8, -7], [-8, 7]]} closed />
+```
 
 ## Circle, Ellipse, Arrow
 

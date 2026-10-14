@@ -28,7 +28,9 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | `useCue()` / `cueAt` | `@celesta/react` | The cue in effect from a list of `{ at, …data }`. |
 | `TextReveal`, `useTypewriter()`, `useCountUp()` | `@celesta/text` | Masked line reveals, typing, and counting numbers. |
 | `Camera` | `@celesta/layout` | Look at a point of a larger world, with zoom, rotation, and shake. |
-| `Line` / `Polyline` / `Path` / `pointOnPolyline` | `@celesta/shapes` | Segments, curves, and filled shapes; polylines can draw themselves on. |
+| `Line` / `Polyline` / `Path` / `pointOnPolyline` | `@celesta/shapes` | Segments, curves, and filled shapes; polylines and paths can draw themselves on. |
+| `pointOnPath` / `tangentOnPath` / `measurePath` / `getLength` / `getPointAtLength` / `getTangentAtLength` | `@celesta/shapes` | Points, directions, and lengths along path commands, curves included. |
+| `interpolatePath` / `parseSvgPath` / `toSvgPath` | `@celesta/shapes` | Morphing between paths with different commands, and SVG path data to commands and back. |
 | `Circle` / `Ellipse` / `Arrow` | `@celesta/shapes` | Diagram shapes: a circle is a rounded `Rect`, ellipses and arrows are `Path`s; circles and ellipses are placed like a `Rect`. |
 | `Triangle` / `Polygon` / `Star` / `Pie` / `Heart` | `@celesta/shapes` | Closed shapes drawn as `Path`s, with optional rounded corners; pie angles animate. |
 | `trianglePath` / `polygonPath` / `starPath` / `piePath` / `heartPath` | `@celesta/shapes` | The same shapes as path commands, to pass to a `Path` or reshape. |

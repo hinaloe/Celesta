@@ -1,0 +1,12 @@
+{
+  "name": "@celesta/example-path-motion",
+  "private": true,
+  "dependencies": {
+    "@celesta/react": "workspace:*",
+    "@celesta/shapes": "workspace:*",
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0"
+  }
+}

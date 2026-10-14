@@ -28,7 +28,9 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `useCue()` / `cueAt` | `@celesta/react` | `{ at, …data }` のリストから現在のキューを取得します。 |
 | `TextReveal`, `useTypewriter()`, `useCountUp()` | `@celesta/text` | マスク付きの行表示、入力効果、数値カウンター。 |
 | `Camera` | `@celesta/layout` | 大きなワールドの一部を、ズーム・回転・揺れ付きで映します。 |
-| `Line` / `Polyline` / `Path` / `pointOnPolyline` | `@celesta/shapes` | 線分・曲線・塗りつぶした形。折れ線は段階的に描けます。 |
+| `Line` / `Polyline` / `Path` / `pointOnPolyline` | `@celesta/shapes` | 線分・曲線・塗りつぶした形。折れ線とパスは段階的に描けます。 |
+| `pointOnPath` / `tangentOnPath` / `measurePath` / `getLength` / `getPointAtLength` / `getTangentAtLength` | `@celesta/shapes` | パスコマンド上の位置・向き・長さ。曲線も含みます。 |
+| `interpolatePath` / `parseSvgPath` / `toSvgPath` | `@celesta/shapes` | コマンドの異なるパス間のモーフィングと、SVG の `d` 文字列との相互変換。 |
 | `Circle` / `Ellipse` / `Arrow` | `@celesta/shapes` | 図のコンポーネント。円は丸い `Rect`、楕円と矢印は `Path` です。円と楕円は `Rect` と同様に配置します。 |
 | `Triangle` / `Polygon` / `Star` / `Pie` / `Heart` | `@celesta/shapes` | `Path` で描く閉じた図形。角を丸められ、扇形の角度はアニメーションできます。 |
 | `trianglePath` / `polygonPath` / `starPath` / `piePath` / `heartPath` | `@celesta/shapes` | 同じ図形のパスコマンド。`Path` に渡したり変形したりできます。 |

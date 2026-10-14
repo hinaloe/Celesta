@@ -39,6 +39,27 @@ For other shapes, `<Path>` takes `points` (with `closed`) or SVG-like `commands`
 
 Every line and shape stroke takes `dash`, the lengths of its dashes and gaps in turn (like SVG’s `stroke-dasharray`), and `dashOffset`, which shifts them along the line. `dash={[0, 12]}` with `cap="round"` draws dots, and `dashOffset={-frame}` makes the dashes flow towards the end. The pattern is anchored at the first point, so a dashed polyline drawn on with `progress` keeps its dashes in place. Closed shapes run their dashes clockwise: from the rightmost point of a circle or an ellipse, and from the end of a `Rect`’s top-left corner. An `<Arrow>` dashes only its shaft.
 
+A `<Path>` draws part of its stroke too, with `progress` and `progressStart` (0–1 of the path’s length); curves are split exactly along their length. Dashes stay where they are on the whole path, whichever part is drawn. A `fill` always covers the whole shape.
+
+## Moving along and between paths
+
+Functions that take `commands` return points as `{ x, y }`, the same shape as the commands (`pointOnPolyline` returns `[x, y]`, like its `points`).
+
+- `pointOnPath(commands, t)` and `tangentOnPath(commands, t)` give the point and direction `t` (0–1) of the way along. `pointOnPath(commands, progress)` is the tip of a `<Path progress>`. A tangent’s `angle` is in degrees clockwise, ready for `rotation`.
+- `getLength`, `getPointAtLength`, and `getTangentAtLength` do the same by length in pixels. `measurePath(commands)` measures once for many lengths.
+- `interpolatePath(a, b, t)` returns the shape between two paths. Their commands may differ in number and type: corners are matched by how far around the outline they are.
+- `parseSvgPath(d)` turns an SVG `d` string (every command, arcs `A` included) into commands, and `toSvgPath(commands)` turns them back.
+
+```tsx
+const ROUTE = parseSvgPath('M0 0 C 100 -80 200 80 300 0');
+const t = progress(frame, 0, 90);
+const tip = pointOnPath(ROUTE, t);
+
+<Path commands={ROUTE} stroke="#4DD6FF" strokeWidth={4} progress={t} />
+<Path x={tip.x} y={tip.y} rotation={tangentOnPath(ROUTE, t).angle} fill="#FFFFFF"
+  points={[[12, 0], [-8, -7], [-8, 7]]} closed />
+```
+
 ## Circles, ellipses, and arrows
 
 `<Circle radius>` and `<Ellipse width height>` are placed like a `Rect`: `x`/`y` put their box’s anchor (top-left by default), `fill` gradients start from the box’s top-left, and a `stroke` stays inside the box. `<Arrow x1 y1 x2 y2>` points its head’s tip at `x2`/`y2`; set `strokeWidth`, `headLength`, `headWidth`, and `heads` (`end`, `start`, or `both`). An arrow shorter than its heads shrinks them to fit, so it can grow from nothing, and one with no length draws nothing. A circle is drawn as a rounded `Rect` and the other two as paths; all three take gradients, transforms, and effects like any layer.
