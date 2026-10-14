@@ -18,7 +18,7 @@ Resolve's Workspace > Console). Celesta should do the same:
   operations. Every message can be selected and copied.
 - A **status bar indicator** shows the error and warning counts and opens the
   Problems tab.
-- **Toasts** announce new errors and completed operations.
+- **Toasts** announce new errors, warnings, and completed operations.
 - The **preview** shows its own error in full, in place.
 
 ## Non-goals
@@ -73,14 +73,18 @@ adds it directly with only the `clock` feature.
   `None` removes the active problem and leaves the history untouched.
 - `info(source, title, detail)` appends a `Done` entry, such as a finished
   export or TypeScript setup. It has no active state.
+  `info_without_toast` does the same for an operation the user already sees
+  ended, such as a cancelled export, and marks the entry so it gets no toast.
 - `set_preview_warnings(Vec<String>)` replaces the preview warnings.
   They count as warnings but are not logged, because they are recomputed on
-  every preview reload.
-- `reset()` clears everything. It runs when a project opens successfully.
-  A failed open keeps the previous project and therefore keeps its log, and
-  the failure is appended to it.
+  every preview result.
+- There is no `reset()` method. A project that opens successfully replaces
+  the view, and with it the store, so the new project starts with no
+  problems and an empty log. A failed open keeps the previous project and
+  therefore keeps its log, and the failure is appended to it.
 - The history keeps at most 500 entries and drops the oldest first.
-- `take_unannounced()` returns the entries appended since the last call, once.
+- `take_unannounced()` returns the entries appended since the last call,
+  once, leaving out those logged without a toast.
 - `error_count()` and `warning_count()` count the active problems and the
   preview warnings by severity.
 
@@ -117,12 +121,13 @@ prefixed string.
 
 The right dock gets an underline `TabBar` with two tabs. The left tab is
 `Inspector`, or `React Preview` in React-preview mode, and shows the panel
-it shows today. The tab bar replaces those panels' own headers. The right tab is `Problems`, with a badge holding the active
-error and warning count. `EditorView` stores the selected tab in a new
-`right_tab` field.
+it shows today. The tab bar replaces those panels' own headers. The right
+tab is `Problems`, followed by the active error and warning count as a
+muted suffix (not a badge) when there is any. `EditorView` stores the
+selected tab in a new `right_tab` field.
 
 ```
-┌ Inspector │ Problems ②  ──────────────┐
+┌ Inspector │ Problems 2  ──────────────┐
 │ Active                                 │
 │ ⊗ Export failed · 12:03:41        [⧉] │
 │ ┌────────────────────────────────────┐ │
@@ -146,8 +151,9 @@ error and warning count. `EditorView` stores the selected tab in a new
   was set, a `Clipboard` copy button, and the full detail. With nothing
   active, the section shows a muted `No problems`.
 - **History** lists log entries newest first, one line each: severity icon,
-  source label, time, and title. Clicking a row expands it to show the full
-  detail and a copy button, as in Active.
+  source label, time, and title. Clicking a row that has a detail expands
+  it to show the full detail and a copy button, as in Active; a row without
+  a detail has no chevron and does not expand.
 - `Copy all` copies the history as plain text, one entry per block, for bug
   reports. `Clear` empties the history. Both appear only when the history
   has entries.
@@ -176,8 +182,14 @@ none is available, so toasts are driven from render rather than from `set`.
   Problems tab. Because of the action, the toast does not autohide. Toasts
   are keyed with `id1` by source, so a repeated error from the same source
   replaces its toast instead of stacking.
-- **Done** entries: the title only, autohiding.
-- **Warning** entries: no toast. They are visible in the status bar count.
+- **Warning** entries: the title is the problem title and the message is
+  the first line of the detail, with no action, autohiding. A command that
+  ends in a warning, such as TypeScript setup or a track change, therefore
+  still gives feedback.
+- **Done** entries: the title only, autohiding. A cancelled export is logged
+  without a toast: the progress disappearing already shows it ended.
+- An error or warning toast closes once its source has no active problem,
+  including the previous project's toasts after another file opens.
 
 ### Title bar
 
@@ -188,7 +200,9 @@ the React composition label, and the commands.
 
 The preview's error shows as a centered panel over the viewer: the title,
 the full detail as selectable text, a copy button, and a
-`Show in Problems` button. The preview warnings strip stays as it is.
+`Show in Problems` button. The preview warnings strip stays as it is. In
+React-preview mode the entry is the whole frame, so a React runtime failure
+is the preview's error, and the last good frame stays under the panel.
 
 ### Inspector
 
@@ -199,7 +213,10 @@ also appears in Problems.
 
 The tab bar has its standard keyboard navigation. A new `ShowProblems`
 action, listed in the View menu as `Problems` and bound to
-`secondary-shift-m`, selects the Problems tab.
+`secondary-shift-m`, toggles between the Problems tab and the left tab.
+The buttons that lead to Problems (the status bar indicator, a toast's
+`Show in Problems`, and the preview error's `Show in Problems`) only
+select it.
 
 ## Testing
 
@@ -209,7 +226,7 @@ Unit tests in `problems.rs`:
 - Changing the title or detail appends another entry.
 - Clearing a problem removes it from active and keeps its history entry.
 - `info` appends a `Done` entry without active state.
-- `reset` empties active state, warnings, and history.
+- `info_without_toast` appends an entry that `take_unannounced` leaves out.
 - The history drops the oldest entries beyond 500.
 - `take_unannounced` returns each entry once.
 - `error_count` and `warning_count` count active problems and preview
