@@ -105,7 +105,13 @@ Token names come from the twinkleplop tokenizer: `keyword`, `builtin`,
 `function`, `tag_name`, `type`, `namespace`, `string`, `template`, `regex`,
 `number`, `constant`, `boolean`, `attr_name`, `property`, `parameter`,
 `punctuation`, `operator`, `comment`, and more. JSON object keys are
-`property`; string values stay `string`. Names a theme does not list use
+`property`; string values stay `string`. In bash, a word that starts with a
+letter, digit, or `_` is one `identifier` through its hyphens, dots, and
+slashes (`Celesta-export`, `scripts/migrate-packages.mjs`), so `keyword` and
+`builtin` only mark whole words (`export`, not the `export` in
+`Celesta-export`). A flag such as `--bit-depth` is one `parameter`. A leading
+`./` or `/` keeps `punctuation`/`operator` (`./test.sh` is `.`, `/`,
+`test.sh`), and inside `$((…))` and `${…}`, `-` stays an `operator`. Names a theme does not list use
 `foreground`. `tokenizeCode(source, language?)` returns the tokens (text,
 type, UTF-16 `[start, end)` offsets) if you need to check names; to draw
 code your own way, see [Draw it yourself](#draw-it-yourself).

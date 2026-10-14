@@ -76,6 +76,6 @@ const theme = {
 };
 ```
 
-トークン名は twinkleplop の `keyword`、`string`、`comment`、`number`、`function`、`type`、`tag_name`、`attr_name`、`punctuation`、`operator` などです。JSON のキーは `property`、文字列値は `string` と `string_escape` です。テーマにない名前は `foreground` を使います。
+トークン名は twinkleplop の `keyword`、`string`、`comment`、`number`、`function`、`type`、`tag_name`、`attr_name`、`punctuation`、`operator` などです。JSON のキーは `property`、文字列値は `string` と `string_escape` です。bash では語の途中のハイフン、ドット、スラッシュもその語の `identifier` に含まれる（`Celesta-export`、`scripts/migrate-packages.mjs`）ので、`keyword` と `builtin` は語全体にだけ付き、`--bit-depth` のようなフラグは 1 つの `parameter` です。テーマにない名前は `foreground` を使います。
 
 [入力効果・カーソル・トークン](/ja/docs/code-typing/)へ進みましょう。

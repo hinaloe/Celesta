@@ -76,6 +76,6 @@ const theme = {
 };
 ```
 
-Token names are twinkleplop’s, such as `keyword`, `string`, `comment`, `number`, `function`, `type`, `tag_name`, `attr_name`, `punctuation`, and `operator`. In JSON, object keys are `property`; string values keep `string` and `string_escape`. A name your theme does not list uses `foreground`.
+Token names are twinkleplop’s, such as `keyword`, `string`, `comment`, `number`, `function`, `type`, `tag_name`, `attr_name`, `punctuation`, and `operator`. In JSON, object keys are `property`; string values keep `string` and `string_escape`. In bash, hyphens, dots, and slashes inside a word stay in its `identifier` (`Celesta-export`, `scripts/migrate-packages.mjs`), so `keyword` and `builtin` only mark whole words, and a flag such as `--bit-depth` is one `parameter`. A name your theme does not list uses `foreground`.
 
 Continue with [typing effects, carets, and tokens](/en/docs/code-typing/).
