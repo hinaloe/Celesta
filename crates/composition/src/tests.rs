@@ -1,8 +1,8 @@
 use crate::time::{Rational, Time};
 use crate::{
     AssetLocation, Clip, EvaluatedTransform, F32Column, GroupMask, ImageFit, InstanceShape, Layer,
-    LayerContent, LetterSpacing, LineCap, LineJoin, MaskMode, MediaTiming, Paint, PathCommand,
-    Point, ResolvedAsset, Stroke, TextStyle, U8Column,
+    LayerContent, LetterSpacing, LineCap, LineDash, LineJoin, MaskMode, MediaTiming, Paint,
+    PathCommand, Point, ResolvedAsset, Stroke, TextStyle, U8Column,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -205,6 +205,7 @@ fn tagged_content_fills_omitted_fields_with_their_defaults() {
         fill,
         line_cap,
         miter_limit,
+        line_dash,
         ..
     } = content
     else {
@@ -214,6 +215,35 @@ fn tagged_content_fills_omitted_fields_with_their_defaults() {
     assert_eq!(fill, None);
     assert_eq!(line_cap, LineCap::Butt);
     assert_eq!(miter_limit, crate::DEFAULT_MITER_LIMIT);
+    assert_eq!(line_dash, None);
+}
+
+#[test]
+fn path_dash_offset_defaults_to_zero_and_lengths_cannot_be_negative() {
+    let content = serde_json::from_str::<LayerContent>(
+        r#"{"type":"path","commands":[],"lineDash":{"pattern":[4,2]}}"#,
+    )
+    .unwrap();
+    let LayerContent::Path { line_dash, .. } = content else {
+        panic!("expected a path, got {content:?}");
+    };
+    assert_eq!(
+        line_dash.as_deref(),
+        Some(&LineDash {
+            pattern: vec![4.0, 2.0],
+            offset: 0.0
+        })
+    );
+    let error = serde_json::from_str::<LayerContent>(
+        r#"{"type":"path","commands":[],"lineDash":{"pattern":[4,-1]}}"#,
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("lineDash pattern lengths must be finite and at least 0"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -248,6 +278,10 @@ fn nested_groups_round_trip() {
         line_cap: LineCap::Round,
         line_join: Default::default(),
         miter_limit: 2.0,
+        line_dash: Some(Box::new(LineDash {
+            pattern: vec![0.0, 6.0],
+            offset: -3.0,
+        })),
     };
     let json = serde_json::to_string(&leaf).unwrap();
     let group = format!(
@@ -437,6 +471,12 @@ fn every_tagged_variant_round_trips() {
                     LineJoin::Miter
                 },
                 miter_limit: if set { 2.0 } else { crate::DEFAULT_MITER_LIMIT },
+                line_dash: set.then(|| {
+                    Box::new(LineDash {
+                        pattern: vec![4.0, 2.0],
+                        offset: 1.5,
+                    })
+                }),
             },
         ]);
         for shape in [

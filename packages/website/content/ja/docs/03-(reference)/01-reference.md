@@ -5,7 +5,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | API | パッケージ | 用途 |
 | --- | --- | --- |
 | `Composition` | `@celesta/react` | `width`、`height`、`fps`、`durationInFrames` を設定します。任意の `lang` で既定のテキスト言語を指定し、default export からひとつだけ返します。 |
-| `Rect` | `@celesta/react` | `width`、`height`、任意の `fill`、`stroke`、`strokeWidth`、`cornerRadius` を持つ矩形。 |
+| `Rect` | `@celesta/react` | `width`、`height`、任意の `fill`、`stroke`、`strokeWidth`、`cornerRadius` を持つ矩形。`dash`、`dashOffset`、`cap` で stroke を破線にできます。 |
 | `Text` | `@celesta/react` | 文字列・数値の子を `style` で装飾し、`maxWidth` で折り返します。`lang` で言語を選び、`style.lang` はさらに優先されます。[テキストとフォント](/ja/docs/text-fonts/)を参照。 |
 | `Group` | `@celesta/react` | 子のレイヤーに共通の位置・拡縮・回転・透明度を適用します。`lang` で既定のテキスト言語を指定できます。 |
 | `Image` / `Video` / `Audio` | `@celesta/react` | `src` でローカルファイルや HTTP(S) の素材を指定します。[画像・動画・音声](/ja/docs/media/)も参照してください。 |

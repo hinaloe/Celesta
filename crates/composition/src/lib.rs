@@ -25,6 +25,6 @@ pub use instances::{F32Column, InstanceShape, U8Column, instance_size};
 pub use model::{
     AssetLocation, AudioClip, AudioGraph, BlendMode, Clip, DEFAULT_MITER_LIMIT, EvaluatedTransform,
     GroupMask, ImageAnimation, ImageFit, Layer, LayerContent, LayerEffects, LayerFilter, LayerGlow,
-    LayerShader, LayerShadow, LineCap, LineJoin, MaskMode, MediaTiming, PathCommand, Point,
-    ResolvedAsset, Scene, ShaderParam, ShaderParamType, ShaderSource,
+    LayerShader, LayerShadow, LineCap, LineDash, LineJoin, MaskMode, MediaTiming, PathCommand,
+    Point, ResolvedAsset, Scene, ShaderParam, ShaderParamType, ShaderSource,
 };

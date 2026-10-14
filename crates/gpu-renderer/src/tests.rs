@@ -1385,6 +1385,7 @@ fn benchmark_path_transform_matches_prepared_layer() {
             line_cap: LineCap::Round,
             line_join: LineJoin::Round,
             miter_limit: 4.0,
+            line_dash: None,
         },
     };
     renderer.scene_size = (64, 64);
@@ -1409,6 +1410,7 @@ fn benchmark_path_transform_matches_prepared_layer() {
         line_cap,
         line_join,
         miter_limit,
+        line_dash,
     } = &layer.content
     else {
         unreachable!("the layer is a path");
@@ -1420,6 +1422,7 @@ fn benchmark_path_transform_matches_prepared_layer() {
         line_cap: *line_cap,
         line_join: *line_join,
         miter_limit: *miter_limit,
+        line_dash: line_dash.as_deref(),
     };
     let path = flatten_path(&shape, path_transform(&layer.transform), 64, 64)
         .unwrap()
@@ -1867,6 +1870,7 @@ fn path_layer(
             line_cap: celesta_composition::LineCap::Butt,
             line_join: celesta_composition::LineJoin::Miter,
             miter_limit: celesta_composition::DEFAULT_MITER_LIMIT,
+            line_dash: None,
         },
     }
 }
@@ -2035,6 +2039,83 @@ fn shades_joins_caps_and_zero_length_segments_like_the_cpu_renderer() {
             dot("round", 70.0, LineCap::Round),
             dot("square", 80.0, LineCap::Square),
             dot("butt", 90.0, LineCap::Butt),
+        ],
+    );
+}
+
+#[test]
+fn shades_dashed_and_dotted_strokes_like_the_cpu_renderer() {
+    use celesta_composition::{LineCap, LineDash, LineJoin, PathCommand};
+
+    let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+        return;
+    };
+    let dashed = |mut layer: Layer, pattern: &[f64], offset: f64| {
+        if let LayerContent::Path { line_dash, .. } = &mut layer.content {
+            *line_dash = Some(Box::new(LineDash {
+                pattern: pattern.to_vec(),
+                offset,
+            }));
+        }
+        layer
+    };
+    let curve = vec![
+        PathCommand::MoveTo { x: 6.0, y: 30.0 },
+        PathCommand::CubicTo {
+            x1: 20.0,
+            y1: -6.0,
+            x2: 44.0,
+            y2: 62.0,
+            x: 60.0,
+            y: 24.0,
+        },
+    ];
+    assert_paths_match_cpu(
+        &mut renderer,
+        "dashes",
+        vec![
+            // Dashes along a curve, a period and a half into the pattern.
+            dashed(
+                styled(
+                    path_layer("curve", curve, None, Some((solid("#FFCC00"), 3.0))),
+                    LineCap::Butt,
+                    LineJoin::Miter,
+                    4.0,
+                ),
+                &[7.0, 3.0],
+                15.0,
+            ),
+            // Round dots around a closed square, whose last dash joins its
+            // first at the seam, from an offset before the start.
+            dashed(
+                styled(
+                    path_layer(
+                        "dots",
+                        polyline(
+                            &[(66.0, 8.0), (90.0, 8.0), (90.0, 32.0), (66.0, 32.0)],
+                            true,
+                        ),
+                        None,
+                        Some((solid("#66FF99"), 4.0)),
+                    ),
+                    LineCap::Round,
+                    LineJoin::Round,
+                    4.0,
+                ),
+                &[0.0, 7.0],
+                -2.0,
+            ),
+            // An odd pattern, repeated, under a translucent fill.
+            dashed(
+                path_layer(
+                    "filled",
+                    polyline(&[(66.0, 40.0), (90.0, 40.0), (78.0, 60.0)], true),
+                    Some(solid("#3366FFAA")),
+                    Some((solid("#FF6699"), 2.0)),
+                ),
+                &[5.0, 2.0, 1.0],
+                0.0,
+            ),
         ],
     );
 }
@@ -2412,6 +2493,7 @@ fn shades_rotated_paths_like_the_cpu_rasterizer() {
                 line_cap,
                 line_join,
                 miter_limit,
+                line_dash,
             } = &layer.content
             else {
                 unreachable!("the scene is paths");
@@ -2424,6 +2506,7 @@ fn shades_rotated_paths_like_the_cpu_rasterizer() {
                     line_cap: *line_cap,
                     line_join: *line_join,
                     miter_limit: *miter_limit,
+                    line_dash: line_dash.as_deref(),
                 },
                 transform: path_transform(&layer.transform),
                 opacity: layer.opacity,

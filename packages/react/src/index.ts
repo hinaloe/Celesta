@@ -59,6 +59,7 @@ export type {
   LetterSpacing,
   LineBreak,
   LineCap,
+  LineDash,
   LineJoin,
   MediaTiming,
   Paint,

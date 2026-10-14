@@ -437,6 +437,10 @@ pub enum LayerContent {
             skip_serializing_if = "is_default_miter_limit"
         )]
         miter_limit: f64,
+        /// Breaks the stroke into dashes; `None` strokes a solid line.
+        /// Boxed, as few paths are dashed and every layer stays small.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        line_dash: Option<Box<LineDash>>,
     },
     /// `count` particles of one shape, drawn in order: particle `i` is the
     /// shape at `widths[i]` x `heights[i]` (or the shared size), centred on
@@ -490,7 +494,10 @@ pub enum LayerContent {
 impl<'de> Deserialize<'de> for LayerContent {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let content = LayerContentDef::deserialize(TypeTagged(deserializer))?;
-        if let Some(error) = content.instance_column_error() {
+        if let Some(error) = content
+            .instance_column_error()
+            .or_else(|| content.line_dash_error())
+        {
             return Err(serde::de::Error::custom(error));
         }
         Ok(content)
@@ -498,6 +505,31 @@ impl<'de> Deserialize<'de> for LayerContent {
 }
 
 impl LayerContent {
+    /// Why a `Path` layer's dash pattern cannot be drawn: a negative or
+    /// non-finite length, or a non-finite offset.
+    fn line_dash_error(&self) -> Option<String> {
+        let LayerContent::Path {
+            line_dash: Some(dash),
+            ..
+        } = self
+        else {
+            return None;
+        };
+        let LineDash { pattern, offset } = dash.as_ref();
+        if pattern
+            .iter()
+            .any(|length| !length.is_finite() || *length < 0.0)
+        {
+            return Some(format!(
+                "path lineDash pattern lengths must be finite and at least 0, got {pattern:?}"
+            ));
+        }
+        if !offset.is_finite() {
+            return Some(format!("path lineDash offset must be finite, got {offset}"));
+        }
+        None
+    }
+
     /// Why an `Instances` layer's columns do not fit its `count`, so the
     /// renderers can index every column by particle without checks.
     fn instance_column_error(&self) -> Option<String> {
@@ -610,6 +642,8 @@ enum LayerContentDef {
         line_join: LineJoin,
         #[serde(default = "default_miter_limit")]
         miter_limit: f64,
+        #[serde(default)]
+        line_dash: Option<Box<LineDash>>,
     },
     Instances {
         count: u32,
@@ -754,6 +788,24 @@ impl LineJoin {
     pub fn is_miter(&self) -> bool {
         *self == Self::Miter
     }
+}
+
+/// The dashes a path's stroke is broken into, like SVG's `stroke-dasharray`
+/// and `stroke-dashoffset`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct LineDash {
+    /// Lengths of the dashes and the gaps between them, in turn, in the
+    /// layer's own units, starting over at each subpath. An odd count is
+    /// repeated to make an even one; empty, or all zero, strokes a solid
+    /// line. A zero-length dash still gets its round or square caps, a dot.
+    pub pattern: Vec<f64>,
+    /// How far into `pattern` each subpath starts: animating it makes the
+    /// dashes flow backwards along the path.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub offset: f64,
 }
 
 pub const DEFAULT_MITER_LIMIT: f64 = 4.0;

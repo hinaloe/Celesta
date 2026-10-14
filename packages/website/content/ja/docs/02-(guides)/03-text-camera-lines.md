@@ -37,6 +37,8 @@
 
 ほかの形は `<Path>` に `points`（`closed` を指定）または SVG 風の `commands`（`moveTo`、`lineTo`、`quadTo`、`cubicTo`、`close`）、`stroke` や `fill`、`cap` / `join` / `miterLimit` を渡します。区間数によらず 1 レイヤーで、拡大しても鮮明です。半透明の線が交差しても重ね塗りされないので、生成する線画は多数の細い矩形より少数のパスで描いてください。
 
+線や図形の stroke は、線と隙間の長さを交互に並べた `dash`（SVG の `stroke-dasharray` と同じ）と、模様を線に沿ってずらす `dashOffset` を取ります。`dash={[0, 12]}` と `cap="round"` で点線になり、`dashOffset={-frame}` で破線が終点へ向かって流れます。模様は最初の点を基準にするので、`progress` で描いていく破線の折れ線でも、描かれた破線は動きません。閉じた図形の破線は時計回りに並び、円・楕円は右端から、`Rect` は左上の角丸の終わりから始まります。`<Arrow>` は軸だけを破線にします。
+
 ## 円・楕円・矢印
 
 `<Circle radius>` と `<Ellipse width height>` は `Rect` と同じように配置します。`x` / `y` でボックスのアンカー（既定は左上）を置き、`fill` のグラデーションは左上を基準とし、`stroke` はボックス内に収まります。`<Arrow x1 y1 x2 y2>` は先端を `x2` / `y2` に向けます。`strokeWidth`、`headLength`、`headWidth`、`heads`（`end`、`start`、`both`）を指定できます。矢印が短いと頭も縮むので、長さ 0 から伸ばせます。長さ 0 では何も描きません。円は丸い `Rect`、ほかの 2 つはパスで描きます。いずれもグラデーション・変換・効果を使えます。

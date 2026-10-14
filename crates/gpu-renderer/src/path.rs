@@ -1,7 +1,7 @@
 use crate::bounds::PixelBounds;
 use crate::draw::encode_paint;
 use crate::transform::LayerState;
-use celesta_composition::{BlendMode, LineCap, LineJoin, Paint, PathCommand, Stroke};
+use celesta_composition::{BlendMode, LineCap, LineDash, LineJoin, Paint, PathCommand, Stroke};
 use celesta_renderer::{FlattenedPath, LineSegment, PathShape};
 
 /// A path layer whose outline `prepare_layer` left for `outline_paths`,
@@ -15,6 +15,7 @@ pub(crate) struct PendingPath {
     pub(crate) line_cap: LineCap,
     pub(crate) line_join: LineJoin,
     pub(crate) miter_limit: f64,
+    pub(crate) line_dash: Option<Box<LineDash>>,
     pub(crate) state: LayerState,
     pub(crate) blend_mode: BlendMode,
 }
@@ -82,6 +83,7 @@ impl PendingPath {
             line_cap: self.line_cap,
             line_join: self.line_join,
             miter_limit: self.miter_limit,
+            line_dash: self.line_dash.as_deref(),
         }
     }
 }

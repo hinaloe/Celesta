@@ -9,7 +9,7 @@ import {
   RootRuntimeContext,
   resolveTextLanguage,
 } from './hooks';
-import type { Animatable, BlendMode, Paint, TextStyle, LayerShadow, LayerGlow } from './scene';
+import type { Animatable, BlendMode, LineCap, Paint, PathCommand, TextStyle, LayerShadow, LayerGlow } from './scene';
 import type { LayerTint, LayerVignette, ShaderEffect } from './shader';
 import { endsWithComposition, secondsFromTime, secondsToTime } from './time';
 
@@ -190,6 +190,19 @@ export interface RectProps extends CommonProps {
   stroke?: string | Paint;
   strokeWidth?: number;
   cornerRadius?: number;
+  /**
+   * Breaks the stroke into dashes: lengths of the dashes and the gaps
+   * between them, in turn, in pixels, from the end of the top-left corner
+   * clockwise, like SVG's `stroke-dasharray`. An odd count repeats once
+   * more. With `cap` `'round'`, `[0, gap]` draws dots. A dashed rect is
+   * drawn as a path, its fill as a rect beneath it, so a translucent dash
+   * shows the fill through it.
+   */
+  dash?: readonly number[];
+  /** How far into `dash` the stroke starts; animate it to make the dashes flow. */
+  dashOffset?: number;
+  /** How each dash ends: `'butt'` (the default), `'round'`, or `'square'`. Only matters with `dash`. */
+  cap?: LineCap;
 }
 
 export interface StaticProps {
@@ -396,8 +409,83 @@ export function Text(props: TextProps): ReturnType<typeof React.createElement> {
 }
 
 /** A flat-shaded rectangle, optionally rounded and/or stroked. */
-export function Rect(props: RectProps): ReturnType<typeof React.createElement> {
-  return React.createElement('rect', props);
+export function Rect({ dash, dashOffset, cap, ...props }: RectProps): ReturnType<typeof React.createElement> {
+  const { width, height, fill, stroke, strokeWidth = 0, cornerRadius = 0, anchorX = 0, anchorY = 0, ...common } = props;
+  if (dash === undefined || dash.length === 0 || stroke === undefined || !(strokeWidth > 0)) {
+    return React.createElement('rect', props);
+  }
+  // A path has no anchor, so the group's origin is the anchor point; the
+  // stroke is centred on the outline, so inset it by half its width.
+  const left = -anchorX * width;
+  const top = -anchorY * height;
+  const drawn = Math.min(strokeWidth, Math.min(width, height) / 2);
+  const inset = drawn / 2;
+  const radius = Math.max(0, Math.min(cornerRadius, width / 2, height / 2) - inset);
+  return React.createElement(
+    'group',
+    common,
+    fill === undefined ? null : React.createElement('rect', { x: left, y: top, width, height, fill, cornerRadius }),
+    React.createElement('path', {
+      commands: roundedRectCommands(left + inset, top + inset, width - drawn, height - drawn, radius),
+      stroke: offsetPaint(stroke, left, top),
+      strokeWidth: drawn,
+      cap,
+      dash,
+      dashOffset,
+    }),
+  );
+}
+
+/**
+ * A `width` x `height` rectangle with corners rounded by `radius`, from the
+ * end of its top-left corner clockwise, as SVG draws a `<rect>`; each corner
+ * is two cubic arcs, as close to a circle as `<Ellipse>`'s.
+ */
+function roundedRectCommands(left: number, top: number, width: number, height: number, radius: number): PathCommand[] {
+  const right = left + width;
+  const bottom = top + height;
+  const k = (4 / 3) * Math.tan(Math.PI / 16);
+  const commands: PathCommand[] = [{ type: 'moveTo', x: left + radius, y: top }];
+  // Each corner's centre, and the quarter turn its arc starts at (0 is +x,
+  // clockwise in y-down pixels): top-right, bottom-right, bottom-left, top-left.
+  const corners: [number, number, number, number, number][] = [
+    [right - radius, top + radius, -2, right - radius, top],
+    [right - radius, bottom - radius, 0, right, bottom - radius],
+    [left + radius, bottom - radius, 2, left + radius, bottom],
+    [left + radius, top + radius, 4, left, top + radius],
+  ];
+  for (const [cx, cy, start, x, y] of corners) {
+    commands.push({ type: 'lineTo', x, y });
+    if (radius === 0) {
+      continue;
+    }
+    for (let i = start; i < start + 2; i += 1) {
+      const [c0, s0] = [Math.cos((i * Math.PI) / 4), Math.sin((i * Math.PI) / 4)];
+      const [c1, s1] = [Math.cos(((i + 1) * Math.PI) / 4), Math.sin(((i + 1) * Math.PI) / 4)];
+      commands.push({
+        type: 'cubicTo',
+        x1: cx + radius * (c0 - k * s0),
+        y1: cy + radius * (s0 + k * c0),
+        x2: cx + radius * (c1 + k * s1),
+        y2: cy + radius * (s1 - k * c1),
+        x: cx + radius * c1,
+        y: cy + radius * s1,
+      });
+    }
+  }
+  commands.push({ type: 'close' });
+  return commands;
+}
+
+/** `paint` with its gradient points moved by `dx`/`dy`. */
+function offsetPaint(paint: string | Paint, dx: number, dy: number): string | Paint {
+  if (typeof paint === 'string' || paint.type === 'solid') {
+    return paint;
+  }
+  const move = ({ x, y }: { x: number; y: number }) => ({ x: x + dx, y: y + dy });
+  return paint.type === 'linear'
+    ? { ...paint, start: move(paint.start), end: move(paint.end) }
+    : { ...paint, center: move(paint.center) };
 }
 
 export const Video = React.forwardRef<AssetReference, VideoProps>(function Video(props, ref) {

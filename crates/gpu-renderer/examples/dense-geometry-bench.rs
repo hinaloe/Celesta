@@ -336,6 +336,7 @@ fn ribbon_paths(
                     line_cap: LineCap::Round,
                     line_join: LineJoin::Round,
                     miter_limit: 4.0,
+                    line_dash: None,
                 },
             }
         })

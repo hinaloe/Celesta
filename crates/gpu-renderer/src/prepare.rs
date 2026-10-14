@@ -731,6 +731,7 @@ impl GpuRenderer {
                 line_cap,
                 line_join,
                 miter_limit,
+                line_dash,
             } => {
                 // Outlined and flattened on the CPU, with the whole
                 // transform applied to the geometry exactly as the CPU
@@ -747,6 +748,7 @@ impl GpuRenderer {
                     line_cap: *line_cap,
                     line_join: *line_join,
                     miter_limit: *miter_limit,
+                    line_dash: line_dash.clone(),
                     state,
                     blend_mode,
                 });

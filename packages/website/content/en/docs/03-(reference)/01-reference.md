@@ -5,7 +5,7 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | API | Package | Use it for |
 | --- | --- | --- |
 | `Composition` | `@celesta/react` | Set `width`, `height`, `fps`, and `durationInFrames`. Optional `lang` supplies the default text language. Return exactly one from your default export. |
-| `Rect` | `@celesta/react` | A rectangle with `width`, `height`, and optional `fill`, `stroke`, `strokeWidth`, and `cornerRadius`. |
+| `Rect` | `@celesta/react` | A rectangle with `width`, `height`, and optional `fill`, `stroke`, `strokeWidth`, `cornerRadius`, and a dashed stroke with `dash`, `dashOffset`, and `cap`. |
 | `Text` | `@celesta/react` | Text from string or number children, styled with `style` and wrapped with `maxWidth`. Optional `lang` selects its language; `style.lang` takes priority. See [Text & fonts](/en/docs/text-fonts/). |
 | `Group` | `@celesta/react` | Applies a shared position, scale, rotation, and opacity to child layers. Optional `lang` sets their default text language. |
 | `Image` / `Video` / `Audio` | `@celesta/react` | Local files or HTTP(S) media through `src`. See [Images, video & sound](/en/docs/media/). |

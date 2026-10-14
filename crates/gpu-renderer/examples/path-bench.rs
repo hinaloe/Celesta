@@ -158,6 +158,7 @@ fn scene(frame: usize) -> Scene {
                         line_cap: LineCap::Butt,
                         line_join: LineJoin::Miter,
                         miter_limit: 4.0,
+                        line_dash: None,
                     },
                 }
             })
@@ -174,6 +175,7 @@ fn draw(layer: &Layer) -> PathDraw<'_> {
         line_cap,
         line_join,
         miter_limit,
+        line_dash,
     } = &layer.content
     else {
         unreachable!("benchmark contains only paths");
@@ -186,6 +188,7 @@ fn draw(layer: &Layer) -> PathDraw<'_> {
             line_cap: *line_cap,
             line_join: *line_join,
             miter_limit: *miter_limit,
+            line_dash: line_dash.as_deref(),
         },
         transform: path_transform(&layer.transform),
         opacity: layer.opacity,

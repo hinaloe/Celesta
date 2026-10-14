@@ -181,6 +181,49 @@ test('a vignette spans the layer\'s shapes as the GPU renderer places them', asy
   assert.deepEqual(turned.map(value => Math.round(value * 1e9) / 1e9), [-10, 0, 0, 10]);
 });
 
+test('a dashed path is stroked with the dashes the native renderers draw', async t => {
+  const originals = { DOMMatrix: globalThis.DOMMatrix };
+  t.after(() => Object.assign(globalThis, originals));
+  globalThis.DOMMatrix = class { translate() { return this; } rotate() { return this; } scale() { return this; } };
+  const strokes = [];
+  const ctx = {
+    save() {}, restore() {}, setTransform() {}, beginPath() {}, moveTo() {}, lineTo() {},
+    lineDash: [], lineDashOffset: 0,
+    setLineDash(pattern) { this.lineDash = pattern; },
+    stroke() { strokes.push({ pattern: this.lineDash, offset: this.lineDashOffset, cap: this.lineCap }); },
+  };
+  const renderer = new SceneCanvas(new Map());
+  const transform = { position: { x: 0, y: 0 }, scale: { x: 1, y: 1 }, anchor: { x: 0, y: 0 }, rotation: 0 };
+  const line = (extra) => ({
+    opacity: 1, transform,
+    content: { type: 'path', commands: [{ type: 'moveTo', x: 0, y: 0 }, { type: 'lineTo', x: 100, y: 0 }], stroke: { width: 4, paint: { type: 'solid', color: '#fff' } }, ...extra },
+  });
+  for (const lineDash of [
+    { pattern: [12, 6], offset: 3 },
+    // An odd count repeats, as SVG and the native renderers do.
+    { pattern: [5, 2, 1] },
+    // An offset many repeats on, or before the start, within one repeat.
+    { pattern: [12, 6], offset: 180_003 },
+    { pattern: [12, 6], offset: -15 },
+    // All zero is solid; dots are zero-length dashes with round caps.
+    { pattern: [0, 0], offset: 4 },
+    { pattern: [0, 8] },
+  ]) {
+    await renderer.layer(ctx, line({ lineDash, lineCap: 'round' }), new DOMMatrix(), 1);
+  }
+  // A path without dashes is solid, whatever the last one drew.
+  await renderer.layer(ctx, line({}), new DOMMatrix(), 1);
+  assert.deepEqual(strokes, [
+    { pattern: [12, 6], offset: 3, cap: 'round' },
+    { pattern: [5, 2, 1, 5, 2, 1], offset: 0, cap: 'round' },
+    { pattern: [12, 6], offset: 3, cap: 'round' },
+    { pattern: [12, 6], offset: 3, cap: 'round' },
+    { pattern: [], offset: 0, cap: 'round' },
+    { pattern: [0, 8], offset: 0, cap: 'round' },
+    { pattern: [], offset: 0, cap: 'butt' },
+  ]);
+});
+
 test('text wrapped at maxWidth is anchored by its line boxes, as text broken with newlines', async t => {
   const originals = { document: globalThis.document, DOMMatrix: globalThis.DOMMatrix };
   t.after(() => Object.assign(globalThis, originals));
