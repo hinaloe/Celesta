@@ -30,6 +30,7 @@ mod media_probe;
 mod panels;
 mod playback;
 mod preview;
+mod problems;
 mod property_panel;
 mod property_panel_view;
 mod react_audio;

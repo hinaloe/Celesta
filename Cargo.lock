@@ -1043,6 +1043,7 @@ dependencies = [
  "celesta-project",
  "celesta-react-bridge",
  "celesta-remote",
+ "chrono",
  "clap",
  "gpui-kit",
  "image",

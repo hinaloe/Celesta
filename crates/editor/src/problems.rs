@@ -1,0 +1,508 @@
+//! What is wrong right now, and a log of the errors, warnings, and finished
+//! operations since the project opened. The Problems tab, the status bar
+//! counts, and the toasts all read from here.
+
+use chrono::{DateTime, Local};
+use std::collections::{BTreeMap, VecDeque};
+
+/// The most log entries kept; the oldest are dropped first.
+pub(crate) const HISTORY_LIMIT: usize = 500;
+
+/// Where a problem comes from, in the order the Problems tab lists them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) enum Source {
+    Project,
+    Media,
+    Audio,
+    Preview,
+    Schemas,
+    Export,
+    TypeScript,
+}
+
+impl Source {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Project => "Project",
+            Self::Media => "Media",
+            Self::Audio => "Audio",
+            Self::Preview => "Preview",
+            Self::Schemas => "Schemas",
+            Self::Export => "Export",
+            Self::TypeScript => "TypeScript",
+        }
+    }
+
+    /// Audio and TypeScript problems leave the editor usable, so they are
+    /// warnings; the rest block what the user asked for.
+    pub(crate) fn severity(self) -> Severity {
+        match self {
+            Self::Audio | Self::TypeScript => Severity::Warning,
+            _ => Severity::Error,
+        }
+    }
+
+    /// The title for a failure that has no more specific one.
+    pub(crate) fn failure_title(self) -> &'static str {
+        match self {
+            Self::Project => "Couldn’t open project",
+            Self::Media => "Media probe failed",
+            Self::Audio => "Audio unavailable",
+            Self::Preview => "Preview unavailable",
+            Self::Schemas => "Couldn’t load component schemas",
+            Self::Export => "Export failed",
+            Self::TypeScript => "TypeScript setup failed",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Severity {
+    Error,
+    Warning,
+    Done,
+}
+
+impl Severity {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Error => "Error",
+            Self::Warning => "Warning",
+            Self::Done => "Done",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Problem {
+    /// What happened: `Export failed`.
+    pub(crate) title: String,
+    /// The whole message, with its causes.
+    pub(crate) detail: String,
+}
+
+impl Problem {
+    pub(crate) fn new(title: impl Into<String>, detail: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            detail: detail.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ActiveProblem {
+    /// When this problem was first set.
+    pub(crate) time: DateTime<Local>,
+    pub(crate) problem: Problem,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct LogEntry {
+    /// Unique within a `Problems`, increasing; keys the interface's rows.
+    pub(crate) id: u64,
+    pub(crate) time: DateTime<Local>,
+    pub(crate) severity: Severity,
+    pub(crate) source: Source,
+    pub(crate) problem: Problem,
+}
+
+impl LogEntry {
+    /// `12:03:41 Error · Export · Export failed`, then the detail, if any.
+    pub(crate) fn to_text(&self) -> String {
+        let heading = format!(
+            "{} {} · {} · {}",
+            self.time.format("%H:%M:%S"),
+            self.severity.label(),
+            self.source.label(),
+            self.problem.title
+        );
+        if self.problem.detail.is_empty() {
+            heading
+        } else {
+            format!("{heading}\n{}", self.problem.detail)
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct Problems {
+    active: BTreeMap<Source, ActiveProblem>,
+    preview_warnings: Vec<String>,
+    history: VecDeque<LogEntry>,
+    /// How many of the newest history entries have not been announced.
+    unannounced: usize,
+    next_id: u64,
+}
+
+impl Problems {
+    /// Replaces `source`'s active problem. A problem that differs from the
+    /// current one is logged; setting the same one again is not.
+    pub(crate) fn set(&mut self, source: Source, problem: Option<Problem>) {
+        let Some(problem) = problem else {
+            self.active.remove(&source);
+            return;
+        };
+        if self
+            .active
+            .get(&source)
+            .is_some_and(|active| active.problem == problem)
+        {
+            return;
+        }
+        let time = Local::now();
+        self.push(time, source.severity(), source, problem.clone());
+        self.active.insert(source, ActiveProblem { time, problem });
+    }
+
+    pub(crate) fn report(
+        &mut self,
+        source: Source,
+        title: impl Into<String>,
+        detail: impl Into<String>,
+    ) {
+        self.set(source, Some(Problem::new(title, detail)));
+    }
+
+    /// Reports a failure under `source`'s default title.
+    pub(crate) fn fail(&mut self, source: Source, detail: impl Into<String>) {
+        self.report(source, source.failure_title(), detail);
+    }
+
+    pub(crate) fn clear(&mut self, source: Source) {
+        self.set(source, None);
+    }
+
+    /// Logs a finished operation, such as an export.
+    pub(crate) fn info(
+        &mut self,
+        source: Source,
+        title: impl Into<String>,
+        detail: impl Into<String>,
+    ) {
+        self.push(
+            Local::now(),
+            Severity::Done,
+            source,
+            Problem::new(title, detail),
+        );
+    }
+
+    /// Replaces the preview's warnings. They are recomputed on every preview
+    /// reload, so they are counted but not logged.
+    pub(crate) fn set_preview_warnings(&mut self, warnings: Vec<String>) {
+        self.preview_warnings = warnings;
+    }
+
+    pub(crate) fn active(&self, source: Source) -> Option<&ActiveProblem> {
+        self.active.get(&source)
+    }
+
+    pub(crate) fn active_problems(&self) -> impl Iterator<Item = (Source, &ActiveProblem)> {
+        self.active.iter().map(|(source, active)| (*source, active))
+    }
+
+    pub(crate) fn preview_warnings(&self) -> &[String] {
+        &self.preview_warnings
+    }
+
+    /// Log entries, oldest first.
+    pub(crate) fn history(&self) -> impl DoubleEndedIterator<Item = &LogEntry> {
+        self.history.iter()
+    }
+
+    /// The whole log as plain text, oldest first, one block per entry.
+    pub(crate) fn history_text(&self) -> String {
+        self.history
+            .iter()
+            .map(LogEntry::to_text)
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }
+
+    pub(crate) fn clear_history(&mut self) {
+        self.history.clear();
+        self.unannounced = 0;
+    }
+
+    /// The entries logged since the last call, oldest first.
+    pub(crate) fn take_unannounced(&mut self) -> Vec<LogEntry> {
+        let start = self.history.len() - self.unannounced;
+        self.unannounced = 0;
+        self.history.range(start..).cloned().collect()
+    }
+
+    pub(crate) fn error_count(&self) -> usize {
+        self.count(Severity::Error)
+    }
+
+    pub(crate) fn warning_count(&self) -> usize {
+        self.count(Severity::Warning) + self.preview_warnings.len()
+    }
+
+    fn count(&self, severity: Severity) -> usize {
+        self.active
+            .keys()
+            .filter(|source| source.severity() == severity)
+            .count()
+    }
+
+    fn push(
+        &mut self,
+        time: DateTime<Local>,
+        severity: Severity,
+        source: Source,
+        problem: Problem,
+    ) {
+        self.history.push_back(LogEntry {
+            id: self.next_id,
+            time,
+            severity,
+            source,
+            problem,
+        });
+        self.next_id += 1;
+        self.unannounced += 1;
+        while self.history.len() > HISTORY_LIMIT {
+            self.history.pop_front();
+        }
+        self.unannounced = self.unannounced.min(self.history.len());
+    }
+}
+
+/// `detail` as a Markdown code block that shows it verbatim: the fence is
+/// longer than any run of backticks inside it.
+pub(crate) fn fenced(detail: &str) -> String {
+    let longest = detail
+        .split(|character| character != '`')
+        .map(str::len)
+        .max()
+        .unwrap_or(0);
+    let fence = "`".repeat(longest.max(2) + 1);
+    format!("{fence}text\n{detail}\n{fence}")
+}
+
+/// The first line of `detail`, for a toast.
+pub(crate) fn first_line(detail: &str) -> &str {
+    detail.lines().next().unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone as _;
+
+    fn problem(title: &str, detail: &str) -> Problem {
+        Problem::new(title, detail)
+    }
+
+    #[test]
+    fn setting_a_new_problem_logs_one_entry() {
+        let mut problems = Problems::default();
+        problems.set(Source::Export, Some(problem("Export failed", "disk full")));
+        assert_eq!(problems.history().count(), 1);
+        let entry = problems.history().next().unwrap();
+        assert_eq!(entry.severity, Severity::Error);
+        assert_eq!(entry.source, Source::Export);
+        assert_eq!(entry.problem, problem("Export failed", "disk full"));
+        assert_eq!(
+            problems
+                .active(Source::Export)
+                .map(|active| &active.problem),
+            Some(&problem("Export failed", "disk full"))
+        );
+    }
+
+    #[test]
+    fn setting_the_same_problem_again_logs_nothing() {
+        let mut problems = Problems::default();
+        for _ in 0..3 {
+            problems.fail(Source::Preview, "node exited");
+        }
+        assert_eq!(problems.history().count(), 1);
+        assert_eq!(problems.take_unannounced().len(), 1);
+    }
+
+    #[test]
+    fn changing_a_problem_logs_another_entry() {
+        let mut problems = Problems::default();
+        problems.fail(Source::Preview, "first");
+        problems.fail(Source::Preview, "second");
+        let details: Vec<&str> = problems
+            .history()
+            .map(|entry| entry.problem.detail.as_str())
+            .collect();
+        assert_eq!(details, ["first", "second"]);
+    }
+
+    #[test]
+    fn clearing_keeps_the_history_entry() {
+        let mut problems = Problems::default();
+        problems.fail(Source::Audio, "no output device");
+        problems.clear(Source::Audio);
+        assert!(problems.active(Source::Audio).is_none());
+        assert_eq!(problems.history().count(), 1);
+        assert_eq!(
+            problems.history().next().unwrap().severity,
+            Severity::Warning
+        );
+    }
+
+    #[test]
+    fn a_problem_that_recurs_after_clearing_is_logged_again() {
+        let mut problems = Problems::default();
+        problems.fail(Source::Audio, "no output device");
+        problems.clear(Source::Audio);
+        problems.fail(Source::Audio, "no output device");
+        assert_eq!(problems.history().count(), 2);
+    }
+
+    #[test]
+    fn info_logs_a_done_entry_without_active_state() {
+        let mut problems = Problems::default();
+        problems.info(Source::Export, "Export finished", "/tmp/out.mp4");
+        assert!(problems.active(Source::Export).is_none());
+        let entry = problems.history().next().unwrap();
+        assert_eq!(entry.severity, Severity::Done);
+        assert_eq!(entry.problem, problem("Export finished", "/tmp/out.mp4"));
+    }
+
+    #[test]
+    fn counts_errors_and_warnings() {
+        let mut problems = Problems::default();
+        problems.fail(Source::Export, "disk full");
+        problems.fail(Source::Preview, "node exited");
+        problems.fail(Source::Audio, "no output device");
+        problems.set_preview_warnings(vec!["font fallback".to_owned(), "missing glyph".to_owned()]);
+        problems.info(Source::TypeScript, "TypeScript set up in film", "");
+        assert_eq!(problems.error_count(), 2);
+        assert_eq!(problems.warning_count(), 3);
+    }
+
+    #[test]
+    fn preview_warnings_are_not_logged() {
+        let mut problems = Problems::default();
+        problems.set_preview_warnings(vec!["font fallback".to_owned()]);
+        assert_eq!(problems.preview_warnings(), ["font fallback".to_owned()]);
+        assert_eq!(problems.history().count(), 0);
+    }
+
+    #[test]
+    fn history_is_capped_and_drops_the_oldest() {
+        let mut problems = Problems::default();
+        for index in 0..HISTORY_LIMIT + 10 {
+            problems.info(Source::Export, "Export finished", index.to_string());
+        }
+        assert_eq!(problems.history().count(), HISTORY_LIMIT);
+        assert_eq!(problems.history().next().unwrap().problem.detail, "10");
+    }
+
+    #[test]
+    fn trimming_keeps_unannounced_within_history() {
+        let mut problems = Problems::default();
+        for index in 0..HISTORY_LIMIT + 10 {
+            problems.info(Source::Export, "Export finished", index.to_string());
+        }
+        let announced = problems.take_unannounced();
+        assert_eq!(announced.len(), HISTORY_LIMIT);
+        assert_eq!(announced.first().unwrap().problem.detail, "10");
+    }
+
+    #[test]
+    fn take_unannounced_returns_each_entry_once() {
+        let mut problems = Problems::default();
+        problems.fail(Source::Export, "disk full");
+        problems.info(Source::TypeScript, "TypeScript set up in film", "");
+        let first: Vec<Source> = problems
+            .take_unannounced()
+            .iter()
+            .map(|entry| entry.source)
+            .collect();
+        assert_eq!(first, [Source::Export, Source::TypeScript]);
+        assert!(problems.take_unannounced().is_empty());
+        problems.fail(Source::Preview, "node exited");
+        assert_eq!(problems.take_unannounced().len(), 1);
+    }
+
+    #[test]
+    fn clear_history_empties_the_log_but_not_active_problems() {
+        let mut problems = Problems::default();
+        problems.fail(Source::Export, "disk full");
+        problems.clear_history();
+        assert_eq!(problems.history().count(), 0);
+        assert!(problems.take_unannounced().is_empty());
+        assert!(problems.active(Source::Export).is_some());
+    }
+
+    #[test]
+    fn entry_ids_are_unique_and_increasing() {
+        let mut problems = Problems::default();
+        problems.fail(Source::Export, "a");
+        problems.fail(Source::Export, "b");
+        let ids: Vec<u64> = problems.history().map(|entry| entry.id).collect();
+        assert!(ids[0] < ids[1]);
+    }
+
+    #[test]
+    fn active_problems_are_listed_in_source_order() {
+        let mut problems = Problems::default();
+        problems.fail(Source::Export, "disk full");
+        problems.fail(Source::Project, "bad json");
+        let sources: Vec<Source> = problems
+            .active_problems()
+            .map(|(source, _)| source)
+            .collect();
+        assert_eq!(sources, [Source::Project, Source::Export]);
+    }
+
+    #[test]
+    fn log_entry_text_names_time_severity_source_title_and_detail() {
+        let entry = LogEntry {
+            id: 0,
+            time: Local.with_ymd_and_hms(2026, 10, 14, 12, 3, 41).unwrap(),
+            severity: Severity::Error,
+            source: Source::Export,
+            problem: problem("Export failed", "ffmpeg exited\ncaused by: disk full"),
+        };
+        assert_eq!(
+            entry.to_text(),
+            "12:03:41 Error · Export · Export failed\nffmpeg exited\ncaused by: disk full"
+        );
+    }
+
+    #[test]
+    fn history_text_is_chronological_and_blank_line_separated() {
+        let mut problems = Problems::default();
+        problems.fail(Source::Export, "disk full");
+        problems.info(Source::Export, "Export finished", "");
+        let text = problems.history_text();
+        let blocks: Vec<&str> = text.split("\n\n").collect();
+        assert_eq!(blocks.len(), 2);
+        assert!(blocks[0].contains("Export failed"));
+        assert!(blocks[1].ends_with("Done · Export · Export finished"));
+    }
+
+    #[test]
+    fn fenced_detail_uses_a_longer_fence_than_the_detail() {
+        assert_eq!(fenced("plain"), "```text\nplain\n```");
+        assert_eq!(
+            fenced("before\n```js\nthrow 1\n```\nafter"),
+            "````text\nbefore\n```js\nthrow 1\n```\nafter\n````"
+        );
+    }
+
+    #[test]
+    fn first_line_of_detail() {
+        assert_eq!(first_line("one\ntwo"), "one");
+        assert_eq!(first_line(""), "");
+    }
+
+    #[test]
+    fn sources_have_labels_severities_and_failure_titles() {
+        assert_eq!(Source::Schemas.label(), "Schemas");
+        assert_eq!(Source::TypeScript.severity(), Severity::Warning);
+        assert_eq!(Source::Audio.severity(), Severity::Warning);
+        assert_eq!(Source::Project.severity(), Severity::Error);
+        assert_eq!(Source::Export.failure_title(), "Export failed");
+    }
+}
