@@ -215,7 +215,7 @@ test('generators validate their options and return nothing for an empty size', (
 test('each shape is one path layer with its generator\'s commands, fill, and centred stroke', () => {
   const [, frame] = render(
     `<Star x={10} y={20} radius={60} points={5} innerRatio={0.4} cornerRadius={4} opacity={0.5} fill="#FFD84D" stroke="#FFFFFF" join="round" />` +
-      `<Triangle width={80} height={60} apex={0.25} cornerRadius={6} stroke="#FF0000" strokeWidth={5} />` +
+      `<Triangle width={80} height={60} apex={0.25} cornerRadius={6} stroke="#FF0000" strokeWidth={5} cap="round" />` +
       `<Polygon radius={30} sides={7} fill="#3366CC" />` +
       `<Pie radius={40} startAngle={-45} endAngle={200} cornerRadius={5} fill="#4DD8C0" />` +
       `<Heart width={70} height={60} fill="#EF402B" />`,
@@ -234,6 +234,7 @@ test('each shape is one path layer with its generator\'s commands, fill, and cen
     type: 'path',
     commands: trianglePath({ width: 80, height: 60, apex: 0.25, cornerRadius: 6 }),
     stroke: { paint: { type: 'solid', color: '#FF0000' }, width: 5 },
+    lineCap: 'round',
   });
   assert.deepEqual(polygon.content.commands, polygonPath({ radius: 30, sides: 7 }));
   assert.deepEqual(pie.content.commands, piePath({ radius: 40, startAngle: -45, endAngle: 200, cornerRadius: 5 }));

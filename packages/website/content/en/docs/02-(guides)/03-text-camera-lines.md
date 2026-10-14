@@ -49,7 +49,7 @@ For other shapes, `<Path>` takes `points` (with `closed`) or SVG-like `commands`
 
 ## Triangles, polygons, stars, pies, and hearts
 
-`<Polygon radius sides>`, `<Star radius points innerRatio>`, and `<Pie radius startAngle endAngle>` are sized by a radius and placed like a `<Circle>` of that radius; `<Triangle width height apex>` and `<Heart width height>` fill a box placed like a `Rect`. Polygon corners and star tips start at 12 o’clock, and pie angles are degrees clockwise from 12 o’clock, so animate `endAngle` from `startAngle` to sweep a slice open: equal angles draw nothing, and 360° apart a whole circle. `cornerRadius` rounds the corners of every shape but the heart. Each shape is one path whose `stroke` is centred on the outline, unlike a circle’s or an ellipse’s, and takes `join`/`miterLimit` like a `<Path>`.
+`<Polygon radius sides>`, `<Star radius points innerRatio>`, and `<Pie radius startAngle endAngle>` are sized by a radius and placed like a `<Circle>` of that radius; `<Triangle width height apex>` and `<Heart width height>` fill a box placed like a `Rect`. Polygon corners and star tips start at 12 o’clock, and pie angles are degrees clockwise from 12 o’clock, so animate `endAngle` from `startAngle` to sweep a slice open: equal angles draw nothing, and 360° apart a whole circle. `cornerRadius` rounds the corners of every shape but the heart. Each shape is one path whose `stroke` is centred on the outline, unlike a circle’s or an ellipse’s, and takes `join`/`miterLimit` like a `<Path>`; `cap` only shapes the ends of dashes, since the outline is closed.
 
 `trianglePath`, `polygonPath`, `starPath`, `piePath`, and `heartPath` return the same path commands, measured from the box’s top-left, to pass to a `<Path>` or to reshape first.
 

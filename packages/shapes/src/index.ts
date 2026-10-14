@@ -821,9 +821,14 @@ export function heartPath(options: HeartPathOptions): PathCommand[] {
  * `<Heart>`. Like `<Rect>`, `x`/`y` place the box's `anchorX`/`anchorY`
  * point (its top-left by default), which `scale`/`rotation` turn about.
  */
-interface ClosedShapeProps extends Omit<StrokeProps, 'cap'> {
+interface ClosedShapeProps extends StrokeProps {
   anchorX?: number;
   anchorY?: number;
+  /**
+   * How the ends of dashes finish, as for `<Path>`. A closed outline has no
+   * other ends, so it changes nothing on a solid stroke.
+   */
+  cap?: LineCap;
   /**
    * Hex color or a gradient `Paint` in the shape's local pixels (origin at
    * its box's top-left, as for `<Rect>`). Omit for no fill.

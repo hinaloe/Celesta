@@ -49,7 +49,7 @@
 
 ## 三角形・多角形・星・扇形・ハート
 
-`<Polygon radius sides>`、`<Star radius points innerRatio>`、`<Pie radius startAngle endAngle>` は半径で大きさを決め、同じ半径の `<Circle>` と同じように配置します。`<Triangle width height apex>` と `<Heart width height>` は、`Rect` と同じように配置したボックスいっぱいに描きます。多角形の角と星の先端は 12 時の位置から始まります。扇形の角度は 12 時から時計回りの度数です。`endAngle` を `startAngle` からアニメーションすると扇形が開きます。2 つの角度が等しいと何も描かず、360° 離れると円になります。`cornerRadius` はハート以外の角を丸めます。どの図形も 1 つのパスで、`stroke` は円や楕円と違って輪郭の中心に描きます。`<Path>` と同じく `join` / `miterLimit` も指定できます。
+`<Polygon radius sides>`、`<Star radius points innerRatio>`、`<Pie radius startAngle endAngle>` は半径で大きさを決め、同じ半径の `<Circle>` と同じように配置します。`<Triangle width height apex>` と `<Heart width height>` は、`Rect` と同じように配置したボックスいっぱいに描きます。多角形の角と星の先端は 12 時の位置から始まります。扇形の角度は 12 時から時計回りの度数です。`endAngle` を `startAngle` からアニメーションすると扇形が開きます。2 つの角度が等しいと何も描かず、360° 離れると円になります。`cornerRadius` はハート以外の角を丸めます。どの図形も 1 つのパスで、`stroke` は円や楕円と違って輪郭の中心に描きます。`<Path>` と同じく `join` / `miterLimit` も指定できます。輪郭は閉じているので、`cap` が効くのは破線の端だけです。
 
 `trianglePath`、`polygonPath`、`starPath`、`piePath`、`heartPath` は、同じ形のパスコマンドをボックスの左上を原点として返します。そのまま `<Path>` に渡すことも、変形してから渡すこともできます。
 

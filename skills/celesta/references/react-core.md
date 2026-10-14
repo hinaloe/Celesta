@@ -268,7 +268,8 @@ animating `endAngle` stays smooth). `fill` and `stroke` are hex or `Paint`
 in box-local pixels. **The stroke is centred on the outline** (as for
 `<Path>`, unlike `<Ellipse>`/`<Circle>`/`<Rect>`, whose stroke lies inside
 the box), so half of it lies outside the box; `join` and `miterLimit` work
-as for `<Path>` (a sharp star tip bevels past `miterLimit`). A 0 size draws
+as for `<Path>` (a sharp star tip bevels past `miterLimit`), and `cap`
+shapes only the ends of dashes, since the outline is closed. A 0 size draws
 nothing; negative or non-finite sizes, a `sides`/`points` that is not a
 whole number ≥ 3, or `apex`/`innerRatio` outside 0–1 fail the render.
 
