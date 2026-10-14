@@ -22,6 +22,10 @@ pub struct FfmpegBackend {
 /// container seek is cheaper than decoding every frame in between.
 pub(crate) const MAX_FORWARD_WALK_SECONDS: f64 = 0.5;
 
+/// The most decoded audio past a stream's stated length that is cut as
+/// encoder padding, in output frames (about 43 ms at 48 kHz).
+const MAX_TRIMMED_PADDING_FRAMES: usize = 2_048;
+
 /// One long-lived `ez-ffmpeg` decode run held open across a monotonic
 /// sequence of frame requests. Frames are pulled from `frames` at the
 /// source's native cadence; each request walks the iterator forward to the
@@ -221,19 +225,24 @@ impl AudioDecoder for FfmpegBackend {
                 channels,
             });
         }
-        if self.probe(path).is_ok_and(|probe| probe.audio.is_empty()) {
+        let probe = self.probe(path).ok();
+        if probe.is_some_and(|probe| probe.audio.is_empty()) {
             return Ok(AudioBuffer {
                 sample_rate,
                 channels,
                 samples: Vec::new(),
             });
         }
+        let stream_seconds = probe
+            .and_then(|probe| probe.audio.first())
+            .and_then(|audio| audio.duration)
+            .and_then(|duration| duration.as_seconds().ok());
         let layout = if channels == 1 {
             Channels::Mono
         } else {
             Channels::Stereo
         };
-        let samples = SampleExtractor::new(Input::from(path_to_url(path)))
+        let mut samples = SampleExtractor::new(Input::from(path_to_url(path)))
             .sample_rate(sample_rate)
             .channels(layout)
             .collect_samples()
@@ -243,6 +252,20 @@ impl AudioDecoder for FfmpegBackend {
                 samples: samples.len(),
                 channels,
             });
+        }
+        // The extractor keeps the padding an encoder adds after the last
+        // sample (AAC's discard padding, a few milliseconds), which a looping
+        // clip would play as a gap on every pass. Cut what runs a little past
+        // the stream's own length; a larger difference is a length the
+        // container only estimated, so the samples stay.
+        if let Some(seconds) =
+            stream_seconds.filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+        {
+            let frames = (seconds * f64::from(sample_rate)).round() as usize;
+            let decoded = samples.len() / usize::from(channels);
+            if frames < decoded && decoded - frames <= MAX_TRIMMED_PADDING_FRAMES {
+                samples.truncate(frames * usize::from(channels));
+            }
         }
         Ok(AudioBuffer {
             sample_rate,

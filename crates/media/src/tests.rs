@@ -113,6 +113,27 @@ fn freezes_on_the_last_frame_past_the_source_end() {
 }
 
 #[test]
+fn decodes_aac_without_the_encoder_padding_after_its_last_sample() {
+    let directory = fixture_dir("aac");
+    let tone = directory.join("tone.m4a");
+    // One second is 46.875 AAC frames, so the encoder pads the last one.
+    FfmpegContext::builder()
+        .input(Input::from("sine=frequency=440:sample_rate=48000:duration=1").set_format("lavfi"))
+        .output(Output::from(path_to_url(&tone)).set_audio_codec("aac"))
+        .build()
+        .unwrap()
+        .start()
+        .unwrap()
+        .wait()
+        .unwrap();
+
+    let audio = FfmpegBackend::new().decode_audio(&tone, 48_000, 2).unwrap();
+    assert_eq!(audio.frame_count(), 48_000);
+
+    fs::remove_dir_all(&directory).ok();
+}
+
+#[test]
 fn mixes_audio_at_exact_timeline_and_source_offsets() {
     struct Decoder;
 

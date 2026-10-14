@@ -12,7 +12,7 @@ use std::os::unix::fs::MetadataExt;
 use celesta_media::AudioBuffer;
 
 const MAGIC: &[u8; 8] = b"CELESPCM";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 const HEADER_LEN: u64 = 32;
 const DEFAULT_MAX_BYTES: u64 = 1024 * 1024 * 1024;
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
