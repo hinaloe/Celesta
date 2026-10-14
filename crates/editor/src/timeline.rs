@@ -304,34 +304,26 @@ impl EditorView {
     /// (or Shift with the wheel) scrubs the playhead, and plain vertical
     /// scrolling falls through to scroll the tracks.
     fn lane_wheel(&mut self, event: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
-        match event.touch_phase {
-            TouchPhase::Started => {
-                self.timeline_scrub_coasting = false;
-                self.timeline_scrub_remainder = 0.0;
-            }
-            TouchPhase::Ended | TouchPhase::Cancelled => self.timeline_scrub_coasting = true,
-            TouchPhase::Moved => {}
+        if event.touch_phase == TouchPhase::Started {
+            self.timeline_scrub_remainder = 0.0;
         }
         let delta = wheel_pixels(event.delta);
         let modifiers = event.modifiers;
+        let action = self.timeline_lane_gesture.wheel(
+            event.touch_phase,
+            delta,
+            matches!(event.delta, ScrollDelta::Pixels(_)),
+            modifiers.shift,
+        );
         if modifiers.alt || modifiers.control || modifiers.platform {
             let anchor = self.timeline_fraction_at(event.position.x);
             self.zoom_timeline_about(anchor, wheel_zoom_factor(delta.y + delta.x));
-        } else if delta.x.abs() > delta.y.abs() || modifiers.shift {
-            // Momentum after the fingers lift arrives as pixel deltas with
-            // no phase; dropping it stops the playhead where the fingers did.
-            let momentum = self.timeline_scrub_coasting
-                && event.touch_phase == TouchPhase::Moved
-                && matches!(event.delta, ScrollDelta::Pixels(_));
-            if !momentum {
-                // A swipe moves the playhead with the scroll direction (the
-                // fingers' under natural scrolling); the wheel advances it
-                // when rolled down.
-                let amount = if delta.x != 0.0 { delta.x } else { -delta.y };
-                self.scrub_timeline_pixels(amount);
-            }
         } else {
-            return;
+            match action {
+                LaneWheel::Scrub(amount) => self.scrub_timeline_pixels(amount),
+                LaneWheel::Ignore => {}
+                LaneWheel::Scroll => return,
+            }
         }
         cx.stop_propagation();
         cx.notify();
@@ -1205,6 +1197,116 @@ fn wheel_pixels(delta: ScrollDelta) -> Point<f32> {
     }
 }
 
+/// Trackpad travel, in pixels along either axis, before a gesture over the
+/// lanes commits to scrubbing or scrolling.
+const AXIS_LOCK_PIXELS: f32 = 6.0;
+
+/// What a trackpad gesture over the lanes has committed to.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum LaneAxis {
+    /// No trackpad gesture yet: each wheel event picks its own axis.
+    #[default]
+    Free,
+    /// Fingers down but not yet moved far enough to pick; the travel so far.
+    Undecided(Point<f32>),
+    Scrub,
+    Scroll,
+}
+
+/// Locks a trackpad gesture over the lanes to one axis, so a vertical
+/// scroll that drifts sideways never scrubs and a scrub never scrolls.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct LaneGesture {
+    axis: LaneAxis,
+    /// The fingers have lifted: pixel events until the next touch are the
+    /// trackpad's momentum.
+    coasting: bool,
+}
+
+#[derive(Debug, PartialEq)]
+enum LaneWheel {
+    /// Move the playhead this many pixels along the lane.
+    Scrub(f32),
+    /// Let the tracks scroll.
+    Scroll,
+    /// Swallow the event.
+    Ignore,
+}
+
+impl LaneGesture {
+    /// The action for one wheel event; `precise` is a pixel delta (a
+    /// trackpad) rather than wheel lines.
+    fn wheel(
+        &mut self,
+        phase: TouchPhase,
+        delta: Point<f32>,
+        precise: bool,
+        shift: bool,
+    ) -> LaneWheel {
+        match phase {
+            TouchPhase::Started => {
+                self.axis = LaneAxis::Undecided(point(0.0, 0.0));
+                self.coasting = false;
+            }
+            TouchPhase::Ended | TouchPhase::Cancelled => {
+                self.coasting = true;
+                if matches!(self.axis, LaneAxis::Undecided(_)) {
+                    self.axis = LaneAxis::Scroll;
+                }
+            }
+            TouchPhase::Moved => {}
+        }
+        // Momentum arrives as phaseless pixel deltas after the lift.
+        let momentum = self.coasting && precise && phase == TouchPhase::Moved;
+        let locked = (!self.coasting || momentum) && self.axis != LaneAxis::Free;
+        if !locked {
+            return if delta.x.abs() > delta.y.abs() || shift {
+                scrub(scrub_amount(delta, true))
+            } else {
+                LaneWheel::Scroll
+            };
+        }
+        match self.axis {
+            LaneAxis::Undecided(travel) => {
+                let travel = travel + delta;
+                if !shift && travel.x.abs().max(travel.y.abs()) < AXIS_LOCK_PIXELS {
+                    self.axis = LaneAxis::Undecided(travel);
+                    LaneWheel::Scroll
+                } else if shift || travel.x.abs() > travel.y.abs() {
+                    self.axis = LaneAxis::Scrub;
+                    scrub(scrub_amount(travel, shift))
+                } else {
+                    self.axis = LaneAxis::Scroll;
+                    LaneWheel::Scroll
+                }
+            }
+            // Dropping momentum stops the playhead where the fingers did.
+            LaneAxis::Scrub if momentum => LaneWheel::Ignore,
+            LaneAxis::Scrub => scrub(scrub_amount(delta, shift)),
+            LaneAxis::Scroll | LaneAxis::Free => LaneWheel::Scroll,
+        }
+    }
+}
+
+/// A swipe moves the playhead with the scroll direction (the fingers' under
+/// natural scrolling); with `vertical`, a wheel that only moves vertically
+/// advances it when rolled down.
+fn scrub_amount(delta: Point<f32>, vertical: bool) -> f32 {
+    if delta.x == 0.0 && vertical {
+        -delta.y
+    } else {
+        delta.x
+    }
+}
+
+fn scrub(amount: f32) -> LaneWheel {
+    if amount == 0.0 {
+        LaneWheel::Ignore
+    } else {
+        LaneWheel::Scrub(amount)
+    }
+}
+
 /// Whole frames a scrub of `delta_pixels` covers at `pixels_per_frame`. The
 /// partial frame is carried in `remainder`, so slow swipes at a deep zoom
 /// still step through every frame.
@@ -1236,10 +1338,13 @@ fn wheel_zoom_factor(delta_y: f32) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{edit_points, follow_playhead, scrub_frames, timeline_rows};
+    use super::{
+        LaneGesture, LaneWheel, edit_points, follow_playhead, scrub_frames, timeline_rows,
+    };
     use celesta_composition::Time;
     use celesta_editor_core::{ClipKind, ClipSummary, TrackSummary};
     use celesta_project::TrackKind;
+    use gpui_kit::{TouchPhase, point};
 
     fn track(id: &str, kind: TrackKind, clips: &[(i64, i64)]) -> TrackSummary {
         TrackSummary {
@@ -1315,6 +1420,93 @@ mod tests {
     fn scrub_frames_skip_frames_when_zoomed_out() {
         let mut remainder = 0.0;
         assert_eq!(scrub_frames(3.0, 0.25, &mut remainder), 12);
+    }
+
+    fn wheel(gesture: &mut LaneGesture, phase: TouchPhase, dx: f32, dy: f32) -> LaneWheel {
+        gesture.wheel(phase, point(dx, dy), true, false)
+    }
+
+    #[test]
+    fn a_vertical_swipe_stays_a_scroll_through_sideways_jitter() {
+        let mut gesture = LaneGesture::default();
+        wheel(&mut gesture, TouchPhase::Started, 0.0, 0.0);
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 1.0, -4.0),
+            LaneWheel::Scroll
+        );
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 1.0, -4.0),
+            LaneWheel::Scroll
+        );
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 6.0, -1.0),
+            LaneWheel::Scroll
+        );
+    }
+
+    #[test]
+    fn a_sideways_swipe_scrubs_from_its_first_movement() {
+        let mut gesture = LaneGesture::default();
+        wheel(&mut gesture, TouchPhase::Started, 0.0, 0.0);
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 4.0, 1.0),
+            LaneWheel::Scroll
+        );
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 4.0, 0.0),
+            LaneWheel::Scrub(8.0)
+        );
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 1.0, 5.0),
+            LaneWheel::Scrub(1.0)
+        );
+    }
+
+    #[test]
+    fn momentum_after_the_fingers_lift_follows_the_locked_axis() {
+        let mut gesture = LaneGesture::default();
+        wheel(&mut gesture, TouchPhase::Started, 0.0, 0.0);
+        wheel(&mut gesture, TouchPhase::Moved, 10.0, 0.0);
+        wheel(&mut gesture, TouchPhase::Ended, 0.0, 0.0);
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 5.0, 0.0),
+            LaneWheel::Ignore
+        );
+
+        wheel(&mut gesture, TouchPhase::Started, 0.0, 0.0);
+        wheel(&mut gesture, TouchPhase::Moved, 0.0, -10.0);
+        wheel(&mut gesture, TouchPhase::Ended, 0.0, 0.0);
+        assert_eq!(
+            wheel(&mut gesture, TouchPhase::Moved, 5.0, -1.0),
+            LaneWheel::Scroll
+        );
+    }
+
+    #[test]
+    fn the_mouse_wheel_picks_its_axis_per_event_even_after_a_swipe() {
+        let mut gesture = LaneGesture::default();
+        wheel(&mut gesture, TouchPhase::Started, 0.0, 0.0);
+        wheel(&mut gesture, TouchPhase::Moved, 10.0, 0.0);
+        wheel(&mut gesture, TouchPhase::Ended, 0.0, 0.0);
+        let lines = point(0.0, -40.0);
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, lines, false, false),
+            LaneWheel::Scroll
+        );
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, lines, false, true),
+            LaneWheel::Scrub(40.0)
+        );
+    }
+
+    #[test]
+    fn shift_turns_a_trackpad_scroll_into_a_scrub() {
+        let mut gesture = LaneGesture::default();
+        gesture.wheel(TouchPhase::Started, point(0.0, 0.0), true, true);
+        assert_eq!(
+            gesture.wheel(TouchPhase::Moved, point(0.0, -2.0), true, true),
+            LaneWheel::Scrub(2.0)
+        );
     }
 
     #[test]

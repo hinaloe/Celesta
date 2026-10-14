@@ -8,6 +8,7 @@ use crate::property_panel::PropertyPanelState;
 use crate::react_audio::ReactAudioWorker;
 use crate::refresh::ReloadOrder;
 use crate::source::{PropertyArgs, load_source};
+use crate::timeline::LaneGesture;
 use celesta_composition::Rational;
 use celesta_editor_core::{AssetSummary, EditorDocument, TimelineClock, TrackSummary};
 use celesta_exporter::{ExportCancellation, ExportProgress};
@@ -154,10 +155,10 @@ pub(crate) struct EditorView {
     /// grab)`. `Some` while the middle button is held over the timeline.
     pub(crate) timeline_pan: Option<(f32, f64)>,
     /// Swipe scrubbing over the clip lanes: the partial frame carried
-    /// between wheel events, and whether the fingers have lifted so the
-    /// trackpad's momentum events that follow should not scrub.
+    /// between wheel events, and the axis the current trackpad gesture is
+    /// locked to.
     pub(crate) timeline_scrub_remainder: f64,
-    pub(crate) timeline_scrub_coasting: bool,
+    pub(crate) timeline_lane_gesture: LaneGesture,
     /// Drag of the overview bar's thumb: `(pointer x at grab, view_start at
     /// grab)`.
     pub(crate) timeline_overview_drag: Option<(f32, f64)>,
@@ -300,7 +301,7 @@ impl EditorView {
             timeline_view_start: 0.0,
             timeline_pan: None,
             timeline_scrub_remainder: 0.0,
-            timeline_scrub_coasting: false,
+            timeline_lane_gesture: LaneGesture::default(),
             timeline_overview_drag: None,
             timeline_lane_bounds: Rc::default(),
             timeline_overview_bounds: Rc::default(),
