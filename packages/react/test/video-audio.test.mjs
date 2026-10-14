@@ -62,3 +62,15 @@ test('<Video> inside <FreezeFrame> or <Assets> makes no sound', () => {
   expect(at(mount(Root), 0).audio).toEqual([]);
   expect(mount(Root).collectAudio()).toEqual([]);
 });
+
+test('loop reaches the picture and the sound of <Video>, and the sound of <Audio>', () => {
+  const composition = mount(root(30,
+    h(Video, { src: './clip.mp4', loop: true }),
+    h(Audio, { src: './music.wav', loop: true }),
+    h(Audio, { src: './voice.wav' })));
+  const frame = at(composition, 15);
+  expect(frame.scene.layers[0].content.timing.loop).toBe(true);
+  expect(frame.audio.map((clip) => clip.loop)).toEqual([true, true, undefined]);
+  expect(mount(root(30, h(Video, { src: './clip.mp4' }))).renderAt({ value: 0, timescale: 30 }, null)
+    .scene.layers[0].content.timing).not.toHaveProperty('loop');
+});

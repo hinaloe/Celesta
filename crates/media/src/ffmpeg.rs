@@ -1,6 +1,6 @@
 use crate::decoder::{AudioDecoder, VideoFrameDecoder};
 use crate::error::MediaError;
-use crate::mix::clamp_to_source_end;
+use crate::mix::{clamp_to_source_end, video_seconds};
 use crate::probe::probe_path;
 use crate::sequential::{convert_frame, path_to_url, seconds_to_us, timestamps_match};
 use crate::types::{AudioBuffer, MediaProbe, VideoFrame};
@@ -209,6 +209,14 @@ impl VideoFrameDecoder for FfmpegBackend {
             }
             None => self.decode(path, source_time_seconds),
         }
+    }
+
+    fn video_duration(&mut self, path: &Path) -> Result<Option<f64>, MediaError> {
+        let probe = self.probe(path)?;
+        Ok(probe
+            .video
+            .as_ref()
+            .and_then(|video| video_seconds(video, probe.duration)))
     }
 }
 

@@ -62,6 +62,10 @@ pub struct ReactAudioClipDescriptor {
     pub muted: bool,
     pub start: f64,
     pub duration: f64,
+    /// Starts the source over from its beginning past its end. Reported only
+    /// when set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub r#loop: bool,
 }
 
 /// One field of a `ComponentPropertySchema` declared on the TypeScript side

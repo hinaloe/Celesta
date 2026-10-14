@@ -431,7 +431,7 @@ async function inspectEntry(options) {
             `${clip.sourceStart ? `, starting ${fmt(clip.sourceStart)} s into the file` : ''}` +
             `${typeof clip.volume === 'number' && clip.volume !== 1 ? `, volume ${fmt(clip.volume)}` : ''}` +
             `${typeof clip.volume === 'object' ? ', volume keyframes' : ''}` +
-            `${clip.muted ? ', muted' : ''}${checkFile(clip.src)}`,
+            `${clip.loop ? ', looping' : ''}${clip.muted ? ', muted' : ''}${checkFile(clip.src)}`,
         );
       }
     }
@@ -674,7 +674,7 @@ function printLayers(layers, depth, checkFile, warnings, sources) {
       case 'psd': {
         const src = content.asset.location.path ?? content.asset.location.url;
         let extra = '';
-        if (content.type === 'video') extra = ` (source ${fmt(content.timing.sourceTimeSeconds)} s)`;
+        if (content.type === 'video') extra = ` (source ${fmt(content.timing.sourceTimeSeconds)} s${content.timing.loop ? ', looping' : ''})`;
         if (content.type === 'image' && (content.width || content.height)) {
           extra = ` size ${content.width ? fmt(content.width) : 'auto'}×${content.height ? fmt(content.height) : 'auto'}${content.fit ? ` ${content.fit}` : ''}`;
         }

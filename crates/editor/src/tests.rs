@@ -168,6 +168,7 @@ fn clip_waveforms_follow_source_ranges_and_playback_rate() {
         playback_rate: Animatable::Static(1.0),
         volume: Animatable::Static(1.0),
         muted: false,
+        r#loop: false,
     };
     let peaks = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
 
@@ -182,6 +183,14 @@ fn clip_waveforms_follow_source_ranges_and_playback_rate() {
         map_clip_waveform(&peaks, 8, 4, &clip, 4),
         vec![0.4, 0.6, 0.8, 0.0]
     );
+
+    // Looping, the source starts over where it ran out.
+    clip.r#loop = true;
+    assert_eq!(
+        map_clip_waveform(&peaks, 8, 4, &clip, 4),
+        vec![0.4, 0.6, 0.8, 0.2]
+    );
+    clip.r#loop = false;
 
     clip.volume = Animatable::Static(0.5);
     assert_eq!(

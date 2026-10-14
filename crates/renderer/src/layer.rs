@@ -473,11 +473,16 @@ impl CpuRenderer {
         timing: &MediaTiming,
     ) -> Result<DecodedImage, RenderError> {
         let path = self.local_asset_path(asset)?;
-        let frame = self
+        let decoder = self
             .video_decoder
             .as_mut()
-            .expect("video decoder presence was checked")
-            .decode_frame_for(request_id, &path, timing.source_time_seconds)?;
+            .expect("video decoder presence was checked");
+        let source_time_seconds = if timing.r#loop {
+            decoder.loop_source_time(&path, timing.source_time_seconds)?
+        } else {
+            timing.source_time_seconds
+        };
+        let frame = decoder.decode_frame_for(request_id, &path, source_time_seconds)?;
         Ok(DecodedImage {
             width: frame.width,
             height: frame.height,

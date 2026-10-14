@@ -44,7 +44,7 @@ export type LayerContent =
   | { type: 'path'; commands: PathCommand[]; fill?: Paint | null; stroke?: Stroke | null; lineCap?: 'butt' | 'round' | 'square'; lineJoin?: 'miter' | 'round' | 'bevel'; miterLimit?: number }
   | { type: 'text'; text: string; style: TextStyle; maxWidth?: number | null; baselineAnchor?: boolean }
   | { type: 'image'; asset: Asset; width?: number; height?: number; fit?: 'contain' | 'cover'; animation?: { sourceTimeSeconds: number; loop: boolean } }
-  | { type: 'video'; asset: Asset; timing: { sourceTimeSeconds: number } }
+  | { type: 'video'; asset: Asset; timing: { sourceTimeSeconds: number; loop?: boolean } }
   | { type: 'psd'; asset: Asset }
   | { type: 'missingComponent'; component: string; props: Record<string, unknown> };
 /** A built-in color filter; see `LayerFilter` in `@celesta/react`. */
@@ -82,5 +82,6 @@ export type AudioClip = {
   muted: boolean;
   start: number;
   duration: number;
+  loop?: boolean;
 };
 export type Frame = { scene: Scene; audio: AudioClip[] };

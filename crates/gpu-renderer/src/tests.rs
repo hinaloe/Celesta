@@ -3827,6 +3827,7 @@ fn decodes_positions_and_fades_a_video_frame_on_the_gpu() {
                 source_start: Time::new(1, 1),
                 source_time_seconds: 2.0,
                 playback_rate: 2.0,
+                r#loop: false,
             },
         },
     });
@@ -3929,6 +3930,7 @@ fn shrinks_images_and_video_frames_larger_than_the_texture_limit() {
             source_start: Time::ZERO,
             source_time_seconds: 0.0,
             playback_rate: 1.0,
+            r#loop: false,
         },
     };
     assert_split(&renderer.render(&scene).unwrap());
@@ -3973,6 +3975,7 @@ fn rejects_a_malformed_video_frame_larger_than_the_texture_limit() {
                 source_start: Time::ZERO,
                 source_time_seconds: 0.0,
                 playback_rate: 1.0,
+                r#loop: false,
             },
         },
     });

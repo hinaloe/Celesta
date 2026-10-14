@@ -33,6 +33,7 @@ fn static_clip(src: &str, start: f64, duration: f64, volume: f64) -> ReactAudioC
         muted: false,
         start,
         duration,
+        r#loop: false,
     }
 }
 
@@ -74,6 +75,7 @@ fn builds_a_react_audio_graph_with_ranges_and_keyframed_volume() {
         muted: false,
         start: 1.0,
         duration: 2.0,
+        r#loop: false,
     }];
 
     let graph = build_audio_graph(&clips, Path::new("/entry/root"), None).unwrap();

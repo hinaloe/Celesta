@@ -109,6 +109,8 @@ export interface AudioClipDescriptor {
   start: number;
   /** Audible length in composition seconds. */
   duration: number;
+  /** Starts the source over from its beginning past its end. Present only when set. */
+  loop?: true;
 }
 
 /**
@@ -556,6 +558,7 @@ function buildLayer(
         sourceStart: secondsToTime(startFrom),
         sourceTimeSeconds: startFrom + secondsFromTime(context.time) * playbackRate,
         playbackRate,
+        ...(props.loop === true ? { loop: true } : {}),
       },
     };
   } else {
@@ -846,6 +849,7 @@ function collectAudioClip(props: Record<string, unknown>, context: WalkContext, 
     muted: props.muted === true,
     start: startSec,
     duration: endSec - startSec,
+    ...(props.loop === true ? { loop: true } : {}),
   });
 }
 

@@ -146,6 +146,7 @@ impl<'project> Evaluator<'project> {
                         playback_rate: playback_rate.clone().unwrap_or(Animatable::Static(1.0)),
                         volume: volume.clone().unwrap_or(Animatable::Static(1.0)),
                         muted: muted.unwrap_or(false),
+                        r#loop: false,
                     }),
                     TimelineContent::Dialogue {
                         audio: Some(asset),
@@ -160,6 +161,7 @@ impl<'project> Evaluator<'project> {
                         playback_rate: Animatable::Static(1.0),
                         volume: volume.clone().unwrap_or(Animatable::Static(1.0)),
                         muted: false,
+                        r#loop: false,
                     }),
                     _ => {}
                 }
@@ -195,6 +197,7 @@ impl<'project> Evaluator<'project> {
                     source_time_seconds: source_start(*source_range).as_seconds()?
                         + integrate_optional(playback_rate, local_time, 1.0)?,
                     playback_rate: evaluate_optional(playback_rate, local_time, 1.0)?,
+                    r#loop: false,
                 },
             },
             TimelineContent::Image {

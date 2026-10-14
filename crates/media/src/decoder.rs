@@ -18,6 +18,27 @@ pub trait VideoFrameDecoder: Send {
         let _ = request_id;
         self.decode_frame(path, source_time_seconds)
     }
+
+    /// Seconds one pass through the video at `path` lasts, or `None` when
+    /// that is not known.
+    fn video_duration(&mut self, path: &Path) -> Result<Option<f64>, MediaError> {
+        let _ = path;
+        Ok(None)
+    }
+
+    /// The time into the video at `path` that a clip looping it shows at
+    /// `source_time_seconds`: past the end, the time into its next pass. A
+    /// video of unknown length holds its last frame instead.
+    fn loop_source_time(
+        &mut self,
+        path: &Path,
+        source_time_seconds: f64,
+    ) -> Result<f64, MediaError> {
+        Ok(match self.video_duration(path)? {
+            Some(duration) if duration > 0.0 => source_time_seconds.rem_euclid(duration),
+            _ => source_time_seconds,
+        })
+    }
 }
 
 pub trait AudioDecoder {
