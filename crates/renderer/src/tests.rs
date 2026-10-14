@@ -1339,6 +1339,11 @@ fn blends_each_mode_with_the_backdrop() {
     assert_eq!(blended(BlendMode::Overlay, 1.0), [188, 157, 98, 255]);
     assert_eq!(blended(BlendMode::Add, 1.0), [255, 255, 255, 255]);
     assert_eq!(blended(BlendMode::Difference, 1.0), [100, 100, 200, 255]);
+    assert_eq!(blended(BlendMode::Darken, 1.0), [100, 100, 50, 255]);
+    assert_eq!(blended(BlendMode::Lighten, 1.0), [200, 200, 250, 255]);
+    assert_eq!(blended(BlendMode::Exclusion, 1.0), [143, 143, 202, 255]);
+    // The backdrop lifted by 0.2, the difference in the spec's luminosity.
+    assert_eq!(blended(BlendMode::Luminosity, 1.0), [251, 151, 101, 255]);
     // Opacity fades between the backdrop and the blended color.
     assert_eq!(blended(BlendMode::Difference, 0.5), [150, 100, 125, 255]);
 

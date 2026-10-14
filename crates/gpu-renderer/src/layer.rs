@@ -491,5 +491,16 @@ pub(crate) fn blend_mode_index(mode: BlendMode) -> f32 {
         BlendMode::Overlay => 3.0,
         BlendMode::Add => 4.0,
         BlendMode::Difference => 5.0,
+        BlendMode::Darken => 6.0,
+        BlendMode::Lighten => 7.0,
+        BlendMode::ColorDodge => 8.0,
+        BlendMode::ColorBurn => 9.0,
+        BlendMode::HardLight => 10.0,
+        BlendMode::SoftLight => 11.0,
+        BlendMode::Exclusion => 12.0,
+        BlendMode::Hue => 13.0,
+        BlendMode::Saturation => 14.0,
+        BlendMode::Color => 15.0,
+        BlendMode::Luminosity => 16.0,
     }
 }

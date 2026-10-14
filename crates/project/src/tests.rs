@@ -87,7 +87,13 @@ fn reads_and_writes_an_items_blend_mode() {
     );
 
     let mut item = serde_json::to_value(&project.tracks[0].items[0]).unwrap();
-    item["blendMode"] = "hue".into();
+    item["blendMode"] = "softLight".into();
+    let item: TimelineItem = serde_json::from_value(item).unwrap();
+    assert_eq!(item.blend_mode, Some(BlendMode::SoftLight));
+
+    // Multi-word modes are camelCase, not CSS's kebab-case.
+    let mut item = serde_json::to_value(&project.tracks[0].items[0]).unwrap();
+    item["blendMode"] = "soft-light".into();
     assert!(serde_json::from_value::<TimelineItem>(item).is_err());
 }
 

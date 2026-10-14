@@ -14,18 +14,18 @@ pub(crate) fn blend_with_mode(
         return blend(destination, source, opacity);
     }
     blend_mixed(destination, source, opacity, |backdrop, source| {
-        mode.blend_channel(backdrop, source)
+        mode.blend(backdrop, source)
     });
 }
 
-/// Source-over compositing with a separable mixing function `mix(backdrop,
-/// source)` per channel, all in 0–1 (W3C Compositing, "simple alpha
+/// Source-over compositing with a mixing function `mix(backdrop, source)`
+/// of whole colors, all in 0–1 (W3C Compositing, "simple alpha
 /// compositing" with blending).
 pub(crate) fn blend_mixed(
     destination: &mut [u8],
     source: Color,
     opacity: f64,
-    mix: impl Fn(f64, f64) -> f64,
+    mix: impl Fn([f64; 3], [f64; 3]) -> [f64; 3],
 ) {
     let source_alpha = (f64::from(source.alpha) / 255.0) * opacity.clamp(0.0, 1.0);
     if source_alpha == 0.0 {
@@ -33,13 +33,14 @@ pub(crate) fn blend_mixed(
     }
     let backdrop_alpha = f64::from(destination[3]) / 255.0;
     let output_alpha = source_alpha + backdrop_alpha * (1.0 - source_alpha);
+    let source_color = [source.red, source.green, source.blue].map(|c| f64::from(c) / 255.0);
+    let backdrop_color = [0, 1, 2].map(|channel| f64::from(destination[channel]) / 255.0);
+    let blended = mix(backdrop_color, source_color);
     for channel in 0..3 {
-        let source_value = f64::from([source.red, source.green, source.blue][channel]) / 255.0;
-        let backdrop_value = f64::from(destination[channel]) / 255.0;
-        let mixed = (1.0 - backdrop_alpha) * source_value
-            + backdrop_alpha * mix(backdrop_value, source_value);
+        let mixed =
+            (1.0 - backdrop_alpha) * source_color[channel] + backdrop_alpha * blended[channel];
         let output = (source_alpha * mixed
-            + backdrop_alpha * backdrop_value * (1.0 - source_alpha))
+            + backdrop_alpha * backdrop_color[channel] * (1.0 - source_alpha))
             / output_alpha;
         destination[channel] = (output * 255.0).round().clamp(0.0, 255.0) as u8;
     }

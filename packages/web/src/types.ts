@@ -75,7 +75,10 @@ export type Layer = {
     glow?: { color: string; blur: number } | null;
     filters?: (BuiltinFilter | { type: 'shader'; id: string })[];
   };
-  blendMode?: 'normal' | 'multiply' | 'screen' | 'overlay' | 'add' | 'difference';
+  blendMode?:
+    | 'normal' | 'multiply' | 'screen' | 'overlay' | 'add' | 'difference'
+    | 'darken' | 'lighten' | 'colorDodge' | 'colorBurn' | 'hardLight' | 'softLight' | 'exclusion'
+    | 'hue' | 'saturation' | 'color' | 'luminosity';
   content: LayerContent;
 };
 export type Scene = {

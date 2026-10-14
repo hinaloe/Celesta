@@ -99,7 +99,7 @@ const ripple = defineShader({
 
 ## ブレンドモード
 
-各レイヤーの `blendMode` で、CSS の `mix-blend-mode` と同様に下の描画との混ぜ方を変えます。`normal`（既定）、`multiply`、`screen`、`overlay`、`add`、`difference` が使えます。`Group` で `normal` 以外を選ぶと、先に子をまとめて描き、その結果を 1 レイヤーとして混ぜます。
+各レイヤーの `blendMode` で、CSS の `mix-blend-mode` と同様に下の描画との混ぜ方を変えます。`normal`（既定）、`multiply`、`screen`、`overlay`、`add`、`difference`、`darken`、`lighten`、`colorDodge`、`colorBurn`、`hardLight`、`softLight`、`exclusion`、`hue`、`saturation`、`color`、`luminosity` が使えます。計算は W3C Compositing and Blending の式どおりで、2 語の名前は CSS の `color-dodge` ではなく `colorDodge` のように書きます。`Group` で `normal` 以外を選ぶと、先に子をまとめて描き、その結果を 1 レイヤーとして混ぜます。
 
 ```tsx title="明るい背景でも暗い背景でも読める HUD"
 <Group blendMode="difference" opacity={0.8}>

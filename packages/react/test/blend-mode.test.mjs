@@ -51,9 +51,25 @@ test('blendMode is set on layers and groups, and omitted when normal', () => {
   assert.equal(grain.blendMode, 'overlay');
 });
 
-test('an unknown blendMode is an error', () => {
-  const result = render(`      <Rect width={10} height={10} fill="#ffffff" blendMode="hue" />`);
+test('every W3C blend mode is accepted, multi-word ones in camelCase', () => {
+  const modes = [
+    'darken', 'lighten', 'colorDodge', 'colorBurn', 'hardLight', 'softLight', 'exclusion',
+    'hue', 'saturation', 'color', 'luminosity',
+  ];
+  const result = render(
+    modes.map((mode) => `      <Rect width={10} height={10} fill="#808080" blendMode="${mode}" />`).join('\n') +
+      `\n      <Group blendMode="luminosity"><Rect width={10} height={10} fill="#808080" /></Group>`,
+  );
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const [, frame] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
-  assert.match(frame.error, /unknown blendMode "hue"/);
+  assert.equal(frame.error, undefined);
+  assert.deepEqual(frame.scene.layers.map((layer) => layer.blendMode), [...modes, 'luminosity']);
+});
+
+test('an unknown blendMode is an error', () => {
+  // CSS spells it `color-dodge`; Celesta's names are camelCase.
+  const result = render(`      <Rect width={10} height={10} fill="#ffffff" blendMode="color-dodge" />`);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const [, frame] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+  assert.match(frame.error, /unknown blendMode "color-dodge"; expected one of .*colorDodge/);
 });

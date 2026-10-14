@@ -451,24 +451,55 @@ fn blend_group(opacity: f64, blend_mode: BlendMode, layers: Vec<Layer>) -> Layer
     }
 }
 
+const BLEND_MODES: [BlendMode; 17] = [
+    BlendMode::Normal,
+    BlendMode::Multiply,
+    BlendMode::Screen,
+    BlendMode::Overlay,
+    BlendMode::Add,
+    BlendMode::Difference,
+    BlendMode::Darken,
+    BlendMode::Lighten,
+    BlendMode::ColorDodge,
+    BlendMode::ColorBurn,
+    BlendMode::HardLight,
+    BlendMode::SoftLight,
+    BlendMode::Exclusion,
+    BlendMode::Hue,
+    BlendMode::Saturation,
+    BlendMode::Color,
+    BlendMode::Luminosity,
+];
+
 /// Every blend mode, at partial opacity and with translucent fills, on
-/// its own and inside nested isolated groups.
+/// its own and inside nested isolated groups, over stripes of dark, light
+/// and saturated backdrops.
 fn blend_scene() -> Scene {
-    let modes = [
-        BlendMode::Normal,
-        BlendMode::Multiply,
-        BlendMode::Screen,
-        BlendMode::Overlay,
-        BlendMode::Add,
-        BlendMode::Difference,
-    ];
-    let mut scene = empty_scene(24, 16);
-    scene.layers = vec![
-        blend_rect("dark", 0.0, 0.0, 12.0, "#202830", BlendMode::Normal),
-        blend_rect("light", 12.0, 0.0, 12.0, "#e0d0c0", BlendMode::Normal),
-        blend_rect("warm", 6.0, 4.0, 12.0, "#ff4d1f80", BlendMode::Normal),
-    ];
-    for (index, mode) in modes.into_iter().enumerate() {
+    let width = BLEND_MODES.len() as u32 * 4 + 4;
+    let mut scene = empty_scene(width, 16);
+    let backdrops = ["#202830", "#e0d0c0", "#c04080", "#30a0e0"];
+    scene.layers = (0..width / 2)
+        .map(|stripe| Layer {
+            transform: EvaluatedTransform {
+                position: Point {
+                    x: f64::from(stripe * 2),
+                    y: 0.0,
+                },
+                anchor: Point { x: 0.0, y: 0.0 },
+                ..EvaluatedTransform::default()
+            },
+            ..solid_rect("stripe", 0.0, 2.0, 16.0, backdrops[stripe as usize % 4])
+        })
+        .collect();
+    scene.layers.push(Layer {
+        transform: EvaluatedTransform {
+            position: Point { x: 0.0, y: 4.0 },
+            anchor: Point { x: 0.0, y: 0.0 },
+            ..EvaluatedTransform::default()
+        },
+        ..solid_rect("warm", 0.0, f64::from(width), 6.0, "#ff4d1f80")
+    });
+    for (index, mode) in BLEND_MODES.into_iter().enumerate() {
         let x = index as f64 * 4.0;
         let mut layer = blend_rect("mode", x, 2.0, 5.0, "#6ab04cc0", mode);
         layer.opacity = 0.8;
@@ -515,6 +546,12 @@ fn blends_layers_and_isolated_groups_like_the_cpu_renderer() {
     })
     .render(&scene)
     .unwrap();
+    let width = scene.width as usize;
+    let hue = BLEND_MODES
+        .iter()
+        .position(|mode| *mode == BlendMode::Hue)
+        .unwrap()
+        * 4;
     // Twice: the second frame reuses the canvases the first created.
     for _ in 0..2 {
         let frame = renderer.render(&scene).unwrap();
@@ -524,16 +561,22 @@ fn blends_layers_and_isolated_groups_like_the_cpu_renderer() {
             .zip(expected.pixels().chunks_exact(4))
             .enumerate()
         {
+            let (x, y) = (index % width, index / width);
+            // `Hue` keeps the hue of the group's own color, which `over`
+            // screens nearly gray (about #b3adaf), and SetSat divides by
+            // that color's tiny saturation: one rounding step of the
+            // group's canvas turns the hue a long way. Elsewhere, and in
+            // every other mode, the two renderers agree closely.
+            let tolerance = if (hue..hue + 5).contains(&x) && y >= 9 {
+                16
+            } else {
+                2
+            };
             let close = gpu
                 .iter()
                 .zip(cpu)
-                .all(|(gpu, cpu)| gpu.abs_diff(*cpu) <= 2);
-            assert!(
-                close,
-                "pixel ({}, {}): GPU {gpu:?}, CPU {cpu:?}",
-                index % 24,
-                index / 24,
-            );
+                .all(|(gpu, cpu)| gpu.abs_diff(*cpu) <= tolerance);
+            assert!(close, "pixel ({x}, {y}): GPU {gpu:?}, CPU {cpu:?}");
         }
     }
 
