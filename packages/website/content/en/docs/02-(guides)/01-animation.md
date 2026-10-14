@@ -74,6 +74,44 @@ Every frame is a function of the frame number, so `<FreezeFrame frame>` can draw
 
 Directly inside, `useCurrentFrame()` returns `frame`, rounded to a whole frame (a `Sequence` within it still counts from its own start), and sequences, video, lip sync, and blinking all show that moment. A fixed `frame` holds still; with `frame` read from `useCurrentFrame()` in your root component, `frame={frame - 90}` replays 90 frames behind (three seconds at 30 fps). Frozen children are silent. A `CharacterView` drawn inside leaves its ref to the live view, and a `Dialogue` inside drives only a view inside the same `FreezeFrame`. Project layers (`ProjectTimeline`, `ProjectTrack`) are evaluated for the current frame only and cannot be drawn inside.
 
+## Blur fast motion
+
+Something that moves far between two frames jumps from one place to the next. `<MotionBlur>` draws its children at several moments while a shutter is open around the frame and shows their average, so the movement smears the way a camera sees it:
+
+```tsx title="A card that dashes across, blurred"
+<MotionBlur shutterAngle={180} samples={8}>
+  <DashingCard />
+</MotionBlur>
+```
+
+`shutterAngle` is how long the shutter stays open, in degrees of a frame: 180 (the default) is half a frame, centered on the frame, and 360 a whole frame. `samples` (8 by default) is how many moments are averaged; each one draws the children again, so a blur costs about that many times the children. When very fast motion shows steps instead of a smooth smear, raise `samples`.
+
+Inside, `useCurrentFrame()` returns each moment’s frame, such as `12.25`, so components that animate from it move between the moments. Code that indexes an array by the frame needs `Math.floor` there. Props you compute outside, such as a `Camera`’s `x`, are the same in every moment; pass a function to compute them per moment instead:
+
+```tsx title="Blur a camera move"
+<MotionBlur>
+  {(frame) => (
+    <Camera x={interpolate(frame, [0, 30], [0, 3000], { extrapolateRight: 'clamp' })}>
+      <World />
+    </Camera>
+  )}
+</MotionBlur>
+```
+
+The result of a frame does not depend on which frames were drawn before it, and the editor preview draws the same blur as the export. Moments stay within the enclosing `Sequence`, so the first and last frames of a shot do not fade. `<Video>`, animated images, lip sync, and blinking keep the frame’s picture in every moment (footage already carries the blur of its own camera), and audio inside plays once. Every moment is a copy, like a `FreezeFrame`’s: a `CharacterView` inside leaves its ref alone, so put its `Dialogue` inside too. Project layers cannot be drawn inside. The blurred layer takes a group’s props (`x`, `opacity`, `blendMode`, `blur`, …), which apply to the average.
+
+## Leave a trail
+
+`<Trail>` draws earlier copies of its children beneath them, each `lagInFrames` frames older and fainter than the one above:
+
+```tsx title="A ball with four ghosts"
+<Trail copies={4} lagInFrames={1.5} trailOpacity={0.5}>
+  <Ball />
+</Trail>
+```
+
+The newest copy is drawn at `trailOpacity` and each older one fades by the same step. A copy fades as a `Group` with that opacity does, so overlapping layers within one copy show through each other. Copies from before the enclosing `Sequence` began are not drawn. Inside a copy, `useCurrentFrame()` and the rules for video, audio, and characters are those of `MotionBlur`; the children on top are the live ones.
+
 ## Ready-made entrances and exits
 
 `<Transition>` fades, slides, or scales its children at the start (`direction="in"`, the default) or end (`direction="out"`) of the enclosing sequence:

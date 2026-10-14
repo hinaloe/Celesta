@@ -23,6 +23,7 @@ For randomness and noise, use [`@celesta/math`](math.md).
 - [progress](#progress)
 - [Sequence](#sequence)
 - [FreezeFrame](#freezeframe)
+- [MotionBlur and Trail](#motionblur-and-trail)
 - [Series and computeSeries](#series-and-computeseries)
 - [TransitionSeries](#transitionseries)
 - [Stagger](#stagger)
@@ -42,6 +43,8 @@ For randomness and noise, use [`@celesta/math`](math.md).
 | Scenes back to back | `Series` + `computeSeries` |
 | Scenes joined by a cut, cross-fade, slide, or wipe | `TransitionSeries` + `computeTransitionSeries` |
 | A past frame redrawn in place (rewind, flashback, thumbnails) | `FreezeFrame` |
+| Fast motion (a dash, a whip pan, a spinning wheel) smeared like a camera sees it | `MotionBlur` |
+| Ghost copies following a moving object | `Trail` |
 | A voiced script back to back | `planDialogue` + `DialogueSeries` ([dialogue.md](dialogue.md#timing-a-script-from-its-voices)) |
 | Items entering one after another | `Stagger` (or `progress(frame, i * each, …)`) |
 | Fade/slide/scale of one element at a scene's start or end | `Transition` |
@@ -58,7 +61,7 @@ For randomness and noise, use [`@celesta/math`](math.md).
 
 | Hook | Returns |
 | --- | --- |
-| `useCurrentFrame()` | Integer frame, local to the innermost `<Sequence>` (directly inside a `<FreezeFrame>`, its `frame`, rounded). |
+| `useCurrentFrame()` | Integer frame, local to the innermost `<Sequence>` (directly inside a `<FreezeFrame>`, its `frame`, rounded). Inside a `<MotionBlur>` or a `<Trail>` copy, the exact fractional frame of the moment drawn, such as `12.25`. |
 | `useCurrentTime()` | Exact `{ value, timescale }` time, local to the innermost `<Sequence>`. |
 | `useVideoConfig()` | `{ width, height, fps, durationInFrames }`; inside a `Sequence`, `durationInFrames` is the sequence's. |
 | `useIsPreview()` | `true` only in the Celesta app preview, `false` in exports. |
@@ -191,6 +194,52 @@ It accepts common layer props.
 - Authored `id`s inside are prefixed with the freeze layer's id and `/`.
 - `<ProjectTimeline />`, `<ProjectTrack />`, and `useProjectTrack()` throw
   inside: project layers are evaluated for the current frame only.
+
+## MotionBlur and Trail
+
+`<MotionBlur shutterAngle samples>` draws its children at `samples` moments
+(default 8) while a shutter `shutterAngle` degrees of a frame wide (default
+180, from 0 to 720) is open, centred on the frame, and shows their average.
+Moments stay within the enclosing window's first and last frames. Each moment
+draws the children again, so the blur costs about `samples` times the
+children: wrap only what moves fast. Raise `samples` when very fast motion
+shows steps.
+
+Inside, `useCurrentFrame()` is each moment's exact frame (`12.25`), so
+components that animate from it move between moments; floor it before
+indexing arrays. Props computed outside are the same in every moment, so
+pass a function child to compute them per moment:
+
+```tsx
+<MotionBlur>
+  {(frame) => (
+    <Camera x={interpolate(frame, [0, 30], [0, 3000], { extrapolateRight: 'clamp' })}>
+      <World />
+    </Camera>
+  )}
+</MotionBlur>
+```
+
+`<Trail copies lagInFrames trailOpacity>` (defaults 4, 1, 0.5) draws
+`copies` earlier copies beneath its children, each `lagInFrames` older; the
+newest is at `trailOpacity` and each older one fades by the same step. A
+copy fades like a `<Group>` with that opacity (overlapping layers in it show
+through each other). Copies from before the enclosing window are not drawn.
+
+Both:
+
+- Accept common layer props, applied to the result (for `MotionBlur`, to
+  the average).
+- Give the same result for a frame whatever was drawn before; the editor
+  preview draws what the export does.
+- Keep `<Video>`, animated images, lip sync, and blinking at the frame's
+  moment in every copy. Audio inside plays once (from the moment nearest the
+  frame, or `Trail`'s live children).
+- Draw each moment as a copy, like `<FreezeFrame>`: a `<CharacterView>`
+  inside never takes its ref, so its `<Dialogue>` must be inside too.
+  `<ProjectTimeline />` and `<ProjectTrack />` throw inside. `<Static>`
+  cannot contain either.
+- `samples={1}` or `shutterAngle={0}` draws a plain group.
 
 ## Series and computeSeries
 
@@ -352,7 +401,9 @@ world point (`x`, `y`) at the center of the current area (canvas,
 `SafeArea`, or `Fit`), magnified by `zoom` about that point. Defaults look at
 the center, so `<Camera zoom={1.05}>` is a slow push-in. `shake` is the
 largest drift in world pixels, smoothed by `@celesta/math`'s `noise()`.
-Animate the props from the frame for pans and zooms.
+Animate the props from the frame for pans and zooms. To blur a fast pan,
+wrap the camera in a `<MotionBlur>` with a function child that computes the
+props from the frame it is given ([MotionBlur and Trail](#motionblur-and-trail)).
 
 ## Timecodes
 

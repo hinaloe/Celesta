@@ -750,6 +750,42 @@ fn draws_circles_as_rects_and_ellipses_and_arrows_as_paths_when_node_is_availabl
 }
 
 #[test]
+fn a_motion_blur_reaches_rust_as_a_group_of_samples_when_node_is_available() {
+    let Some((node, cli_script, package_root)) = live_react_runtime() else {
+        return;
+    };
+
+    let entry = package_root.join("examples/with-motion-blur.tsx");
+    let mut bridge = ReactBridge::spawn(&node, &cli_script, &entry).unwrap();
+    let scene = bridge.scene_at(Time::new(18, 30)).unwrap();
+    let blurred = scene
+        .layers
+        .iter()
+        .find_map(|layer| match &layer.content {
+            LayerContent::Group {
+                layers,
+                motion_blur: true,
+                ..
+            } => Some(layers),
+            _ => None,
+        })
+        .expect("the scene has a motion-blurred group");
+    // The default 8 samples, each the card at another moment.
+    assert_eq!(blurred.len(), 8);
+    let card_x = |sample: &Layer| {
+        let LayerContent::Group { layers, .. } = &sample.content else {
+            panic!("a sample is a group");
+        };
+        let LayerContent::Group { layers, .. } = &layers[0].content else {
+            panic!("the sample holds the example's Dash group");
+        };
+        layers[0].transform.position.x
+    };
+    let xs: Vec<f64> = blurred.iter().map(card_x).collect();
+    assert!(xs.windows(2).all(|pair| pair[0] < pair[1]), "{xs:?}");
+}
+
+#[test]
 fn reports_audio_clips_per_frame_when_node_is_available() {
     let Some((node, cli_script, package_root)) = live_react_runtime() else {
         return;

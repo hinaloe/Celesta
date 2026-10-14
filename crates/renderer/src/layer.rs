@@ -330,7 +330,7 @@ impl CpuRenderer {
         inner: ParentState,
     ) -> Result<(), RenderError> {
         // Premultiplied red, green, and blue, then alpha, all in 0–255.
-        let mut sums = vec![0.0_f32; frame.pixels.len()];
+        let mut sums = vec![[0.0_f32; 4]; frame.pixels.len() / 4];
         let mut sample = RgbaFrame {
             width: frame.width,
             height: frame.height,
@@ -339,7 +339,7 @@ impl CpuRenderer {
         for layer in samples {
             sample.pixels.fill(0);
             self.render_layer(&mut sample, layer, inner.clone())?;
-            for (sum, pixel) in sums.chunks_exact_mut(4).zip(sample.pixels.chunks_exact(4)) {
+            for (sum, pixel) in sums.iter_mut().zip(sample.pixels.as_chunks::<4>().0) {
                 let alpha = f32::from(pixel[3]);
                 for channel in 0..3 {
                     sum[channel] += f32::from(pixel[channel]) * alpha / 255.0;
@@ -348,7 +348,7 @@ impl CpuRenderer {
             }
         }
         let count = samples.len() as f32;
-        for (pixel, sum) in frame.pixels.chunks_exact_mut(4).zip(sums.chunks_exact(4)) {
+        for (pixel, sum) in frame.pixels.as_chunks_mut::<4>().0.iter_mut().zip(&sums) {
             if sum[3] == 0.0 {
                 continue;
             }

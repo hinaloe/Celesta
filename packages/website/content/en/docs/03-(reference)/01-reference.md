@@ -19,6 +19,8 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | --- | --- | --- |
 | `Sequence` | `@celesta/react` | Places children at a frame offset with `from` and an optional `durationInFrames`. Optional `lang` sets their default text language. |
 | `FreezeFrame` | `@celesta/react` | Draws its children as the composition looked at an absolute `frame`, silently. |
+| `MotionBlur` | `@celesta/react` | Averages its children over a shutter (`shutterAngle`, 180 by default) around the frame, at `samples` moments (8). |
+| `Trail` | `@celesta/react` | Draws `copies` earlier, fainter copies of its children beneath them, each `lagInFrames` older. |
 | `Transition` | `@celesta/transitions` | A fade, slide, or scale (or several at once) at the start or end of the enclosing sequence. |
 | `Series` / `computeSeries` | `@celesta/react` | Scenes back to back, by length. See [Scenes, cues & beats](/en/docs/motion-toolkit/). |
 | `TransitionSeries` / `computeTransitionSeries` | `@celesta/transitions` | Scenes joined by cuts, cross-fades, slides, or wipes, with the overlaps and total length computed. See [Scenes, cues & beats](/en/docs/motion-toolkit/). |

@@ -19,6 +19,8 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | --- | --- | --- |
 | `Sequence` | `@celesta/react` | `from` と任意の `durationInFrames` で子の時間を配置します。`lang` で既定のテキスト言語も指定できます。 |
 | `FreezeFrame` | `@celesta/react` | 子要素を、コンポジション全体の `frame` 時点（絶対フレーム）の状態で、音声なしで描画します。 |
+| `MotionBlur` | `@celesta/react` | フレームを中心に開いたシャッター（`shutterAngle`、既定 180）の間の `samples` 時点（既定 8）で子要素を描き、平均します。 |
+| `Trail` | `@celesta/react` | 子要素の下に、`lagInFrames` ずつ古く薄い複製を `copies` 個描きます。 |
 | `Transition` | `@celesta/transitions` | 親シーケンスの開始・終了に、フェード・スライド・拡縮を単独または組み合わせて適用します。 |
 | `Series` / `computeSeries` | `@celesta/react` | 長さでシーンを続けて並べます。[シーン・キュー・拍](/ja/docs/motion-toolkit/)を参照。 |
 | `TransitionSeries` / `computeTransitionSeries` | `@celesta/transitions` | シーンの間をカット・クロスフェード・スライド・ワイプでつなぎ、重なりと全体の長さを計算します。[シーン・キュー・拍](/ja/docs/motion-toolkit/)を参照。 |
