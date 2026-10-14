@@ -34,9 +34,16 @@ Design: `docs/superpowers/specs/2026-10-14-open-layer-source-design.md`.
   the frame like a frame request (component state advances as for any frame
   request), then walks it again with the `<Static>` cache off and a
   `Map<layerId, HostNode>` that `buildLayer` and `staticLayer` fill, so
-  layers inside `<Static>` subtrees are found. The re-walk touches neither
-  the static cache nor its sequence numbers (a test checks that the next
-  frame's references are unchanged), and its scene is discarded. It renders
+  layers inside `<Static>` subtrees are found. Only nodes React created
+  (with a `fiber`) are recorded. A host element whose content builds layers
+  of its own, such as `<CharacterView>`'s `${id}.portrait`, `.eyes` and
+  `.mouth`, and a `rawLayers` node map every id they produced (group
+  children included) that has no node yet to themselves, the nearest node
+  with a fiber. `<Dialogue>`'s default subtitle, walked from a synthetic
+  node without one, maps to the `<Dialogue>` the same way. The re-walk
+  touches neither the static cache nor its sequence numbers (a test checks
+  that the next frame's references are unchanged), and its scene is
+  discarded. It renders
   with no project frame, as `collectAudio` does, so a composition whose hooks
   require project layers would error on a lookup.
 
@@ -55,10 +62,15 @@ element around the layer. Adjacent entries at the same file, line, and
 column are merged, and a component's name is its `displayName`, its
 `name`, or the wrapped `memo`/`forwardRef` component's. Limitation:
 `prepareUpdate` can skip `commitUpdate`, so the stored fiber may be the
-alternate of the current one. Both have the same `return` chain of element
-types and sources, but if an ancestor's source changed while the host's
-props stayed equal, the chain could lag until the node is recreated (a
-rebuild remounts, so it matters only under HMR-style edits).
+alternate of the current one, and an ancestor's source on the alternate's
+`return` chain can be stale. A rebuild remounts, but within one build a
+frame-driven ternary between two call sites that render a host element with
+equal props is enough to trigger it. It rarely shows because `layerSource`
+renders the tree again at the same time right after the frame render, so the
+fiber, its alternate, and their `return` parents all hold that time's props.
+The remaining exposure is a memoised subtree that bails out on the lookup
+render. Any future optimisation that reuses the frame's render for the lookup
+instead of rendering again would expose it.
 
 ## Bridge
 
@@ -81,12 +93,19 @@ order, from the quad `PreparedLayer::shape` uses; `hit_regions()` returns the
 last frame's (`crates/gpu-renderer/src/hit.rs`, `prepare.rs`). `clips` is a
 list of every clip the layer is drawn through, innermost first. `hit_test`
 returns the last region whose quad and clips contain the point; a quad
-without area hits nothing. Groups, masks, and effect canvases record nothing
-themselves, and layers with nothing to draw (zero opacity, fully clipped,
-empty paths) are skipped. Recording is off by default and only the editor's
-preview worker turns it on, in `WholeScene` mode, so export is untouched. A
-layer is hit anywhere in its quad, including transparent pixels and the gaps
-between glyphs.
+without area hits nothing. A `Rect` with a stroke and no fill (or a fully
+transparent flat one) also records `hole`, the rect inset by the stroke width
+(`rect_color` in `layer.wgsl` draws the stroke inside the edge), and is hit
+only on the band between, so an outline such as `<DebugOverlay>`'s safe-area
+rect or `<DebugBounds>`' box does not cover what is under it. A stroke that
+leaves no inside records no hole, and the inner corners' rounding is ignored.
+`take_hit_regions()` moves the regions out, which the preview worker does
+every frame instead of cloning them. Groups, masks, and effect canvases
+record nothing themselves, and layers with nothing to draw (zero opacity,
+fully clipped, empty paths) are skipped. Recording is off by default and only the editor's
+preview worker turns it on, in `WholeScene` mode, so export is untouched.
+Other layers are hit anywhere in their quad, including transparent pixels and
+the gaps between glyphs.
 
 ## Editor
 
@@ -94,11 +113,12 @@ between glyphs.
   mouse-down on the canvas in the React preview maps the position to scene
   pixels through the viewer's letterbox (the safe-area overlay shares it),
   hit-tests the latest regions, and selects the id or clears the selection.
-  The selection persists across frames by id and is cleared on reload. The
-  outline strokes each region of the selected id; it uses
-  `celesta_editor_theme::accent()` (`#ffa13b`, as the playhead), not
-  `cx.theme().accent`, which is `neutral-800` in the dark theme and would be
-  nearly invisible over the preview. The overlay canvas is now always
+  The selection persists across frames by id and is cleared when a reload
+  is requested and again when it is applied, so a layer picked while the
+  reload ran does not outlive it. The outline strokes each region of the
+  selected id; it uses `celesta_editor_theme::accent()` (`#ffa13b`, as the
+  playhead), not `cx.theme().accent`, which is `neutral-800` in the dark
+  theme and would be nearly invisible over the preview. The overlay canvas is now always
   present, since it records the viewer's bounds.
 - Lookup (`preview.rs`, `refresh.rs`, `background.rs`): `PreviewRequest.
   source_of` carries the selected id when the selection changes and when the
@@ -114,7 +134,8 @@ between glyphs.
   position", the lookup error. Each row is a ghost button with the
   `ExternalLink` icon, `<name>  <path>:<line>:<column>` (relative to the
   entry's directory when inside it), and a tooltip with the absolute
-  position. A launch error is shown below the rows.
+  position. A launch error is shown below the rows, and only if the same
+  layer is still selected when the open returns.
 
 ## Opening the editor
 
@@ -158,9 +179,9 @@ Per task; all pass unless noted.
 - Task 3 (CLI and `layerSource`): `pnpm run test:runtime` (react 100, cli 84),
   including the six `layer-source.test.mjs` tests.
 - Task 4 (bridge): `cargo test -p celesta-react-bridge` (79 unit, 34
-  integration). The live test, which asks for a layer's source in
-  `packages/cli/examples/` and checks the file and line, ran against the
-  built runtime and did not skip.
+  integration). The live test writes a two-file fixture to a temp
+  directory, asks for a layer's source, and checks the file and line; it ran
+  against the built runtime and did not skip.
 - Task 5 (hit regions): `CELESTA_REQUIRE_GPU=1 cargo test -p
   celesta-gpu-renderer` (145 tests, none skipped).
 - Task 6 (`editor_launch`): `cargo test -p celesta-editor`, with the
@@ -168,6 +189,10 @@ Per task; all pass unless noted.
   and login-shell parsing cases as pure functions.
 - Task 7 (selection): `cargo test -p celesta-editor` (88 tests), including
   the letterbox, scene-point, display-path, and lookup-state cases.
+- Final review fixes: `pnpm run test:runtime` (react 100, cli 85, with the
+  `<CharacterView>`/`<Dialogue>` lookup), `CELESTA_REQUIRE_GPU=1 cargo test
+  -p celesta-gpu-renderer` (148), `cargo test -p celesta-editor` (89),
+  `cargo test -p celesta-react-bridge` (79 unit, 34 integration).
 - `cargo check --workspace --all-targets` and `cargo fmt` pass. The
   website's `pnpm run check` (no issues; the OGP image warnings are on every
   page) and `pnpm test` (57 tests) pass with the new user docs.
