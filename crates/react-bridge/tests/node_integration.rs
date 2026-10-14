@@ -383,6 +383,63 @@ fn prepare_can_preload_media_metadata_when_node_is_available() {
 }
 
 #[test]
+fn audio_spectrum_is_the_same_in_preview_and_export_when_node_is_available() {
+    let Some((node, cli_script, package_root)) = live_react_runtime() else {
+        return;
+    };
+
+    let entry = package_root.join("examples/with-audio-spectrum.tsx");
+    // Each meter's RMS, then its 8 band levels, from the rects' sizes.
+    let meter = |layers: &[&Layer], name: &str| -> Vec<f64> {
+        let size = |id: String| {
+            layers
+                .iter()
+                .find_map(|layer| match &layer.content {
+                    LayerContent::Rect { width, height, .. } if layer.id == id => {
+                        Some(if id.ends_with("-rms") {
+                            *width
+                        } else {
+                            *height
+                        })
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("no rect {id}"))
+        };
+        std::iter::once(size(format!("{name}-rms")))
+            .chain((0..8).map(|band| size(format!("{name}-band-{band}"))))
+            .collect()
+    };
+    let frames = [0, 6, 12, 18, 24, 36, 44];
+    let read = |preview: bool, order: &[i64]| {
+        let mut bridge = ReactBridge::spawn(&node, &cli_script, &entry).unwrap();
+        bridge.set_preview(preview);
+        let mut values = BTreeMap::new();
+        for &frame in order {
+            let scene = bridge.scene_at(Time::new(frame, 30)).unwrap();
+            let layers = all_layers(&scene.layers);
+            values.insert(frame, (meter(&layers, "decoded"), meter(&layers, "parsed")));
+        }
+        values
+    };
+
+    let export = read(false, &frames);
+    let reversed: Vec<_> = frames.iter().rev().copied().collect();
+    let preview = read(true, &reversed);
+    assert_eq!(export, preview);
+    // Some frame reads the voice in every band.
+    assert!(
+        export
+            .values()
+            .any(|(decoded, _)| decoded.iter().all(|value| *value > 0.0))
+    );
+    for (decoded, parsed) in export.values() {
+        // FFmpeg's samples are the WAV parser's, which @celesta/web matches.
+        assert_eq!(decoded, parsed);
+    }
+}
+
+#[test]
 fn animated_images_report_their_length_and_play_when_node_is_available() {
     let Some((node, cli_script, package_root)) = live_react_runtime() else {
         return;

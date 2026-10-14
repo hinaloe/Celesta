@@ -20,6 +20,7 @@ import {
   holdProjectPropertyValues,
   listComponentSchemas,
   mount,
+  setAudioDecoder,
   setMediaProbe,
   setProjectPropertyValues,
   setTextMeasurer,
@@ -28,6 +29,7 @@ import type {
   AudioClipDescriptor,
   ComponentResolutionRequest,
   ComponentResolutions,
+  DecodedAudio,
   EntryComponent,
   LayerSourceEntry,
   MeasureTextRequest,
@@ -104,6 +106,12 @@ interface ProbeMediaResponse {
   error?: string;
 }
 
+interface DecodeAudioResponse {
+  /** A temporary file of mono little-endian f32 samples, which Celesta removes. */
+  audio?: { path: string; sampleRate: number; frames: number };
+  error?: string;
+}
+
 function isLayerSourceRequest(request: Request): request is LayerSourceRequest {
   return typeof (request as LayerSourceRequest).layerSource === 'string';
 }
@@ -140,6 +148,15 @@ async function main(): Promise<void> {
   let requestQueue = Promise.resolve();
   setMediaProbe((mediaPath) => {
     const result = requestQueue.then(() => requestMediaProbe(lines, mediaPath));
+    requestQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  });
+
+  setAudioDecoder((mediaPath) => {
+    const result = requestQueue.then(() => requestDecodedAudio(lines, mediaPath));
     requestQueue = result.then(
       () => undefined,
       () => undefined,
@@ -365,6 +382,38 @@ async function requestMediaProbe(
   return response.media;
 }
 
+async function requestDecodedAudio(lines: AsyncIterator<string>, path: string): Promise<DecodedAudio> {
+  writeLine({ decodeAudio: { path } });
+  const next = await lines.next();
+  if (next.done) {
+    throw new Error('Celesta closed the audio decoding channel unexpectedly');
+  }
+  let response: DecodeAudioResponse;
+  try {
+    response = JSON.parse(next.value) as DecodeAudioResponse;
+  } catch (error) {
+    throw new Error(`invalid audio decoding response: ${describeError(error)}`);
+  }
+  if (response.error) {
+    throw new Error(response.error);
+  }
+  if (!response.audio) {
+    throw new Error('Celesta returned an empty audio decoding response');
+  }
+  // Read before the queue sends anything else: Celesta removes the file when
+  // the next message arrives.
+  const bytes = await fs.promises.readFile(response.audio.path);
+  if (bytes.byteLength !== response.audio.frames * 4) {
+    throw new Error(`decoded audio for ${path} is ${bytes.byteLength} bytes, expected ${response.audio.frames * 4}`);
+  }
+  const samples = new Float32Array(response.audio.frames);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let i = 0; i < samples.length; i += 1) {
+    samples[i] = view.getFloat32(i * 4, true);
+  }
+  return { sampleRate: response.audio.sampleRate, samples };
+}
+
 async function requestTextMeasure(
   lines: AsyncIterator<string>,
   request: MeasureTextRequest,
@@ -416,6 +465,7 @@ function writeLine(
     | { layerSource: { chain: LayerSourceEntry[] | null } }
     | ComponentResolutions
     | { probeMedia: { path: string } }
+    | { decodeAudio: { path: string } }
     | { measureText: MeasureTextRequest }
     | { invalidProperties: PropertyIssue[] }
     | { error: string },

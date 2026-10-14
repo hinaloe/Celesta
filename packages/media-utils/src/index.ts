@@ -3,6 +3,16 @@ import type { MediaInfo } from '@celesta/react/internal';
 
 export type { MediaAnimationInfo, MediaAudioInfo, MediaInfo, MediaVideoInfo } from '@celesta/react/internal';
 
+export { analyzeAudioSpectrum, loadAudioSpectrum, spectrumAt, useAudioSpectrum } from './spectrum';
+export type {
+  AudioSmoothing,
+  AudioSpectrum,
+  AudioSpectrumFrame,
+  AudioSpectrumOptions,
+  FrequencyScale,
+  UseAudioSpectrumOptions,
+} from './spectrum';
+
 /**
  * Probes and caches media metadata during an entry's async `prepare()`.
  * Relative paths resolve from the entry file, matching `<Video>` and `<Audio>`;

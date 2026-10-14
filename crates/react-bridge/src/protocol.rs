@@ -1,3 +1,4 @@
+use crate::decode::DecodeAudioRequest;
 use crate::measure::MeasureTextRequest;
 use crate::probe::MediaProbeRequest;
 use crate::properties::{PropertyIssue, PropertyLayer};
@@ -245,6 +246,10 @@ pub(crate) enum ReadyMessage {
     MeasureText {
         #[serde(rename = "measureText")]
         measure_text: Box<MeasureTextRequest>,
+    },
+    DecodeAudio {
+        #[serde(rename = "decodeAudio")]
+        decode_audio: DecodeAudioRequest,
     },
     InvalidProperties {
         #[serde(rename = "invalidProperties")]

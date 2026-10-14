@@ -85,8 +85,8 @@ produces a video that differs between preview and export.
    "random" values, use `random(seed)` and `noise(seed, t)` from
    `@celesta/math` (not `@celesta/react`).
 6. **Async work goes in `prepare()`.** Rendering is synchronous. Fetching,
-   file reads, `preloadMedia()`, `measureText()`, `fitText()`,
-   `planDialogue()`, `loadLipSync()`, and `loadPsdPreset()` belong in
+   file reads, `preloadMedia()`, `loadAudioSpectrum()`, `measureText()`,
+   `fitText()`, `planDialogue()`, `loadLipSync()`, and `loadPsdPreset()` belong in
    `export async function prepare()`, which runs once before the first
    frame. Store results in module-level `let` variables and keep offline
    fallbacks. To measure text during render, use `useTextMetrics()`.
@@ -185,7 +185,7 @@ layers sit; it does not prove the rendered pixels.
 | `@celesta/transitions` | `Transition`, `TransitionSeries`, `useTransitionSeriesScene`, `useTransitionVolume` |
 | `@celesta/text` | `TextReveal`, `useTypewriter`, `useCountUp`, `TextBox`, `fitText`, `useFitText` |
 | `@celesta/character` | `Character`, `CharacterView`, `Dialogue`, `DialogueSeries`, `planDialogue`, `loadLipSync`, `useLipSync`, `lipSyncFromSpeechTiming`, `speechVowelShape`, `blinkPhase`, `loadPsdPreset`, and their types |
-| `@celesta/media-utils` | `preloadMedia`, `mediaDurationInFrames` |
+| `@celesta/media-utils` | `preloadMedia`, `mediaDurationInFrames`, `loadAudioSpectrum`, `useAudioSpectrum`, `spectrumAt`, `analyzeAudioSpectrum` |
 | `@celesta/project` | `ProjectProvider`, `ProjectTimeline`, `ProjectTrack`, `useProject`, `useProjectProperty`, `useProjectTrack`, `loadProject`, and the project file types |
 | `@celesta/debug` | `DebugOverlay`, `DebugBounds` |
 | `@celesta/math` | `random`, `noise`, `loopNoise`, and math helpers |
@@ -208,7 +208,7 @@ Load only the one you need; each is self-contained.
 | --- | --- |
 | Find `Celesta`/`Celesta-export`, start a project (`--init`), add npm packages, type-check, how the user previews | [setup.md](references/setup.md) |
 | Start from a ready-made video (`--init --template slideshow\|ranking\|dialogue`, `--list-templates`), then edit its `props.json` and data file | [setup.md](references/setup.md#create-a-react-project) |
-| Entry file and `prepare()`, layer props (incl. effects, color filters: `brightness`, `saturation`, `tint`, `vignette`, …, stylize effects: `pixelate`, `halftone`, `wave`, `noise`, `scanlines`, `zoomBlur`, …, and `chromaKey` for green screens), `Rect`/gradients, `Path`/`Line`/`Polyline`, `Circle`/`Ellipse`/`Arrow`, `Group` clip, `Image`, `Video`, `Audio`, `Font`/`Assets`, layout helpers (`Center`, `SafeArea`, `Stack`, `Grid`, `Fit`), vertical video and platform UI safe areas, `preloadMedia`, audio keyframes and `frameKeyframes`, debug guides | [react-core.md](references/react-core.md) |
+| Entry file and `prepare()`, layer props (incl. effects, color filters: `brightness`, `saturation`, `tint`, `vignette`, …, stylize effects: `pixelate`, `halftone`, `wave`, `noise`, `scanlines`, `zoomBlur`, …, and `chromaKey` for green screens), `Rect`/gradients, `Path`/`Line`/`Polyline`, `Circle`/`Ellipse`/`Arrow`, `Group` clip, `Image`, `Video`, `Audio`, `Font`/`Assets`, layout helpers (`Center`, `SafeArea`, `Stack`, `Grid`, `Fit`), vertical video and platform UI safe areas, `preloadMedia`, audio spectrum and loudness (`loadAudioSpectrum`, `useAudioSpectrum`), audio keyframes and `frameKeyframes`, debug guides | [react-core.md](references/react-core.md) |
 | Frame hooks, `interpolate`, `interpolateColor`, `Easings`, `spring`, `progress`, `Sequence`, `Series`, `TransitionSeries`, `Stagger`, `Transition`, `useBeat`, `useCue`, `Camera`, timecodes | [animation.md](references/animation.md) |
 | `Text`, `TextStyle`, fonts and fallback, font stacks (和欧混植), text language (`lang`), emoji, line breaking, `TextReveal`, `useTypewriter`, `useCountUp`, `useTextMetrics`/`measureText`, `TextBox`/`useFitText`/`fitText` | [text.md](references/text.md) |
 | Subtitle files: reading SRT/WebVTT (`parseSubtitles`), `<Subtitles>`, writing them with `formatSubtitles` or `--subtitles` on export | [subtitles.md](references/subtitles.md) |

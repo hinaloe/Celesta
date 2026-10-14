@@ -43,8 +43,15 @@ export type { MeasureTextRequest } from './text-measure';
 export { flattenTextContent, sliceTextRuns, withTextRuns } from './rich-text';
 export type { FlatText } from './rich-text';
 
-export { probeMedia, setMediaProbe } from './media';
-export type { MediaAnimationInfo, MediaAudioInfo, MediaInfo, MediaVideoInfo, ProbedMediaInfo } from './media';
+export { decodeAudio, probeMedia, setAudioDecoder, setMediaProbe } from './media';
+export type {
+  DecodedAudio,
+  MediaAnimationInfo,
+  MediaAudioInfo,
+  MediaInfo,
+  MediaVideoInfo,
+  ProbedMediaInfo,
+} from './media';
 
 export { listComponentSchemas, resolveComponent } from './registry';
 export {

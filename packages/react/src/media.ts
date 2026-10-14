@@ -62,3 +62,42 @@ export async function probeMedia(src: string): Promise<MediaInfo> {
   }
   return { src, ...(await pending) };
 }
+
+/** Mono PCM: the mean of the source's channels, at its own sample rate. */
+export interface DecodedAudio {
+  sampleRate: number;
+  samples: Float32Array;
+}
+
+let audioDecoder: ((path: string) => Promise<DecodedAudio>) | undefined;
+const decoded = new Map<string, Promise<DecodedAudio>>();
+
+/**
+ * @internal Installed by the Celesta CLI, or the browser runtime, before an
+ * entry's `prepare()` runs.
+ */
+export function setAudioDecoder(next: (path: string) => Promise<DecodedAudio>): void {
+  audioDecoder = next;
+  decoded.clear();
+}
+
+/**
+ * @internal Decodes an audio file, or a video's soundtrack, during an entry's
+ * async `prepare()`, once per path. Paths resolve like `probeMedia()`. A path
+ * gets the same promise until it fails or a decoder is installed again, so
+ * callers can key their own caches on it.
+ */
+export function decodeAudio(src: string): Promise<DecodedAudio> {
+  if (!audioDecoder) {
+    return Promise.reject(new Error('decoding audio requires a Celesta editor, exporter, or @celesta/web runtime'));
+  }
+  const path = isRemoteUrl(src) ? src : entryRelativePath(src);
+  let pending = decoded.get(path);
+  if (!pending) {
+    pending = audioDecoder(path);
+    decoded.set(path, pending);
+    // A failure is not cached, so a later call can try again.
+    pending.catch(() => decoded.delete(path));
+  }
+  return pending;
+}

@@ -4,7 +4,7 @@ Rules that are easy to get wrong:
 - The default export returns exactly one `<Composition>` with fixed positive integer `width`, `height`, `fps`, `durationInFrames` (even width/height for video export).
 - Only Celesta elements (`Rect`, `Text`, `Group`, `Image`, `Video`, `Audio`, shapes, layout helpers); no DOM, HTML, or CSS.
 - Every frame is a pure function of the frame number: no `Math.random()`, `Date.now()`, timers, effects, or accumulated state. Use `random`/`noise` from `@celesta/math`.
-- Async work (fetching, `measureText`, `preloadMedia`, …) goes in `export async function prepare()`.
+- Async work (fetching, `measureText`, `preloadMedia`, `loadAudioSpectrum`, …) goes in `export async function prepare()`.
 - Colors are hex strings; relative paths resolve from the entry's folder; import each API from the package that provides it.
 
 Workflow:

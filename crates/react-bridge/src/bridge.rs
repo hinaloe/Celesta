@@ -1,5 +1,6 @@
 use crate::animated_images::AnimatedImages;
 use crate::audio::{react_audio_clips, react_video_clip_ids};
+use crate::decode::{DecodedAudioFiles, decode_audio_response};
 use crate::error::ReactBridgeError;
 use crate::measure::measure_text_response;
 use crate::probe::{MediaProbeResponse, animation_probe_payload, media_probe_payload};
@@ -156,9 +157,12 @@ impl ReactBridge {
         let mut media = FfmpegBackend::new();
         // Created on the first `measureText`: it scans the system fonts.
         let mut text_measurer: Option<TextRasterizer> = None;
+        let mut decoded_audio = DecodedAudioFiles::default();
         let mut handshake = || -> Result<ReactCompositionMetadata, ReactBridgeError> {
             loop {
                 read_message(&mut stdout, &mut message)?;
+                // Node reads a decoded file before it sends anything else.
+                decoded_audio.remove();
                 let ready: ReadyMessage =
                     serde_json::from_slice(&message).map_err(ReactBridgeError::Protocol)?;
                 match ready {
@@ -239,6 +243,17 @@ impl ReactBridge {
                     }
                     ReadyMessage::MeasureText { measure_text } => {
                         let response = measure_text_response(&mut text_measurer, &measure_text);
+                        let payload =
+                            serde_json::to_string(&response).map_err(ReactBridgeError::Protocol)?;
+                        writeln!(stdin, "{payload}").map_err(ReactBridgeError::Io)?;
+                        stdin.flush().map_err(ReactBridgeError::Io)?;
+                    }
+                    ReadyMessage::DecodeAudio { decode_audio } => {
+                        let response = decode_audio_response(
+                            &mut media,
+                            &mut decoded_audio,
+                            &decode_audio.path,
+                        );
                         let payload =
                             serde_json::to_string(&response).map_err(ReactBridgeError::Protocol)?;
                         writeln!(stdin, "{payload}").map_err(ReactBridgeError::Io)?;

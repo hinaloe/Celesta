@@ -8,6 +8,7 @@ import { loadFonts, releaseFonts } from './fonts';
 import { checkFontRuns, cssFont, letterSpacingPx, measureLine, runPieces, textLineRanges, textStyle } from './text-layout';
 import type { RunPiece } from './text-layout';
 import { animationFrame, decodeAnimatedImage } from './animated-image';
+import { audioBytes } from './audio-decode';
 import type { AnimatedImage } from './animated-image';
 
 type Canvas = HTMLCanvasElement;
@@ -157,14 +158,8 @@ export class SceneCanvas {
     return url;
   }
 
-  async audioBytes(src: string): Promise<ArrayBuffer> {
-    const file = this.assets.get(src) ?? this.assets.get(src.replace(/^\.\//, ''));
-    if (file) return file.arrayBuffer();
-    if (this.baseURL) src = new URL(src, this.baseURL).href;
-    if (!/^https?:\/\//i.test(src)) throw new Error(`Missing audio file: ${src}. Add it with “Add media”.`);
-    const response = await fetch(src);
-    if (!response.ok) throw new Error(`Could not load audio: ${src} (${response.status}).`);
-    return response.arrayBuffer();
+  audioBytes(src: string): Promise<ArrayBuffer> {
+    return audioBytes(src, this.assets, this.baseURL);
   }
 
   private async image(asset: Asset): Promise<HTMLImageElement> {
