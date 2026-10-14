@@ -18,6 +18,7 @@ import { instancesContent } from './instances';
 import { type StaticsFrame, StaticSubtrees } from './static';
 import { resolveComponent } from './registry';
 import { type HostNode, type RootContainer, HostReconciler, createRoot } from './reconciler';
+import { type LayerSourceEntry, sourceChain } from './source-chain';
 import type {
   BlendMode,
   Clip,
@@ -146,6 +147,8 @@ interface WalkContext {
   statics: StaticWalk | null;
   /** Walking a `<Static>`'s children, which cannot depend on the time. */
   insideStatic: boolean;
+  /** Filled with the host node behind each layer id, for `layerSource`; `null` otherwise. */
+  layerNodes: Map<string, HostNode> | null;
 }
 
 interface StaticWalk {
@@ -197,6 +200,18 @@ export interface MountedComposition {
   ): { scene: Scene; audio: AudioClipDescriptor[]; statics?: StaticsFrame };
   /** Sweeps every frame without constructing visual layers; hooks and font measurements still run. */
   collectAudio(): AudioClipDescriptor[];
+  /**
+   * The JSX that produced the layer `id` in the frame at `time`, innermost
+   * first (see `sourceChain`), or null when the frame has no such layer.
+   * `<Static>` subtrees are walked here rather than referenced. The frame's
+   * scene is discarded and the `<Static>` cache is left as it was.
+   */
+  layerSource(
+    time: Time,
+    id: string,
+    resolveFile: (fileName: string) => string,
+    options?: { preview?: boolean },
+  ): LayerSourceEntry[] | null;
 }
 
 function findCompositionInstance(container: RootContainer): HostNode {
@@ -241,6 +256,7 @@ function rootWalkContext(
   openEnd = false,
   compact = false,
   statics: StaticWalk | null = null,
+  layerNodes: Map<string, HostNode> | null = null,
 ): WalkContext {
   const endSec = durationInFrames / fps;
   return {
@@ -259,6 +275,7 @@ function rootWalkContext(
     compact,
     statics,
     insideStatic: false,
+    layerNodes,
   };
 }
 
@@ -426,6 +443,38 @@ function shiftAnimated(value: AnimatedNumber, deltaSeconds: number): AnimatedNum
   };
 }
 
+/**
+ * Records the host node behind a layer id for `layerSource`. Only nodes React
+ * created have a fiber to walk; a node a host element makes up (such as
+ * `<Dialogue>`'s default subtitle) is left out, and `recordBuiltLayers` maps
+ * its layers to the host element instead.
+ */
+function recordLayerNode(context: WalkContext, id: string, node: HostNode): void {
+  if (node.fiber != null) {
+    context.layerNodes?.set(id, node);
+  }
+}
+
+/**
+ * Maps every layer a host element or `rawLayers` built itself, group
+ * children included, that has no node yet to `node`, the nearest node with
+ * a fiber.
+ */
+function recordBuiltLayers(context: WalkContext, layers: readonly Layer[], node: HostNode): void {
+  const { layerNodes } = context;
+  if (!layerNodes || node.fiber == null) {
+    return;
+  }
+  for (const layer of layers) {
+    if (!layerNodes.has(layer.id)) {
+      layerNodes.set(layer.id, node);
+    }
+    if (layer.content.type === 'group') {
+      recordBuiltLayers(context, layer.content.layers, node);
+    }
+  }
+}
+
 function buildLayer(
   node: HostNode,
   path: string,
@@ -434,6 +483,7 @@ function buildLayer(
 ): Layer {
   const { props } = node;
   const id = typeof props.id === 'string' && props.id.length > 0 ? flatString(`${context.idPrefix}${props.id}`) : path;
+  recordLayerNode(context, id, node);
   // An `<Instances>`'s x, y, and rotation are its particles', not its own.
   const fullTransform = extractTransform(
     node.type === 'instances'
@@ -489,6 +539,9 @@ function buildLayer(
     };
   } else if (hostElement(node.type)?.content) {
     content = hostElement(node.type)!.content!(node, hostWalk(id, context, audio));
+    if (content.type === 'group') {
+      recordBuiltLayers(context, content.layers, node);
+    }
   } else if (node.type === 'text') {
     const maxWidth = props.maxWidth;
     const flat = flattenTextContent(props.children as React.ReactNode, '<Text> children');
@@ -778,6 +831,7 @@ function childSequenceContext(node: HostNode, context: WalkContext): WalkContext
     compact: context.compact,
     statics: context.statics,
     insideStatic: context.insideStatic,
+    layerNodes: context.layerNodes,
   };
 }
 
@@ -804,6 +858,7 @@ function childFreezeContext(node: HostNode, context: WalkContext, layerId: strin
     compact: context.compact,
     statics: context.statics,
     insideStatic: context.insideStatic,
+    layerNodes: context.layerNodes,
   };
 }
 
@@ -878,7 +933,12 @@ function walkNode(
     context = { ...context, lang: resolveTextLanguage(node.props.lang, context.lang) };
   }
   if (node.type === 'rawLayers') {
-    return audioOnly ? [] : inheritTextLanguage((node.props.layers as Layer[] | undefined) ?? [], context.lang);
+    if (audioOnly) {
+      return [];
+    }
+    const layers = inheritTextLanguage((node.props.layers as Layer[] | undefined) ?? [], context.lang);
+    recordBuiltLayers(context, layers, node);
+    return layers;
   }
   if (
     node.type === 'assets' ||
@@ -953,6 +1013,7 @@ function sameLocation(left: ResolvedAsset, right: ResolvedAsset): boolean {
  */
 function staticLayer(node: HostNode, path: string, context: WalkContext, audio: AudioClipDescriptor[]): Layer {
   const { statics } = context;
+  recordLayerNode(context, path, node);
   const key = { path, lang: context.lang, idPrefix: context.idPrefix, compact: context.compact };
   // The children are walked with a frame state of their own, so the custom
   // shaders they use are known and can be listed again on frames that reuse
@@ -1098,15 +1159,13 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
   fonts = initialFonts;
   const staticSubtrees = new StaticSubtrees();
 
-  const renderFrame = (
+  /** Renders the tree for `time`, again if fonts or refs changed, and returns the `<Composition>`. */
+  const settleTree = (
     time: Time,
     project: ProjectFrame | null,
-    audioOnly = false,
-    openEnd = false,
-    compact = false,
-    statics?: { decoded: number },
-    debugGuides = false,
-    preview = false,
+    openEnd: boolean,
+    debugGuides: boolean,
+    preview: boolean,
   ) => {
     rerenderRequested = false;
     renderTree(time, project, config, openEnd, debugGuides, preview);
@@ -1124,6 +1183,20 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
       renderTree(time, project, config, openEnd, debugGuides, preview);
       instance = findCompositionInstance(container);
     }
+    return instance;
+  };
+
+  const renderFrame = (
+    time: Time,
+    project: ProjectFrame | null,
+    audioOnly = false,
+    openEnd = false,
+    compact = false,
+    statics?: { decoded: number },
+    debugGuides = false,
+    preview = false,
+  ) => {
+    const instance = settleTree(time, project, openEnd, debugGuides, preview);
     const audio: AudioClipDescriptor[] = [];
     const context = rootWalkContext(
       config.frameRate.numerator,
@@ -1188,6 +1261,31 @@ export function mount(defaultExport: EntryComponent): MountedComposition {
         for (const clip of renderFrame(time, null, true).audio) audio.push(clip);
       }
       return audio;
+    },
+    layerSource(time, id, resolveFile, options) {
+      const instance = settleTree(time, null, false, false, options?.preview === true);
+      const layerNodes = new Map<string, HostNode>();
+      // No statics: a <Static> is walked, not referenced, so its layers are
+      // reachable, and its cached layers and sequence numbers stay as they
+      // were (no sweep either). The scene itself is thrown away.
+      const context = rootWalkContext(
+        config.frameRate.numerator,
+        config.durationInFrames,
+        time,
+        resolveTextLanguage(instance.props.lang),
+        false,
+        false,
+        null,
+        layerNodes,
+      );
+      if (hasHostElementPreparation()) {
+        for (const child of instance.children) {
+          prepareHostElements(child, context);
+        }
+      }
+      walkChildren(instance, 'root', context, []);
+      const node = layerNodes.get(id);
+      return node ? sourceChain(node, resolveFile) : null;
     },
   };
 }

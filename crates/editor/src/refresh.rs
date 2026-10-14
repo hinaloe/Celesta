@@ -1,5 +1,6 @@
 use crate::component_schema::ComponentSchemaRequest;
 use crate::helpers::format_time;
+use crate::layer_select::source_lookup_target;
 use crate::media_probe::{MediaProbeRequest, ProbeAsset};
 use crate::preview::{
     KeptSchema, PreviewRequest, ReactPreview, ReactPreviewContext, ReactPreviewMode,
@@ -151,6 +152,12 @@ impl EditorView {
         self.react_preview.is_some()
     }
 
+    /// Whether clicking the viewer picks layers: the React preview in
+    /// interactive mode.
+    pub(crate) fn picks_layers(&self) -> bool {
+        self.interactive && self.is_react_preview()
+    }
+
     pub(crate) fn current_time(&self) -> Time {
         self.clock.time().unwrap_or(Time::ZERO)
     }
@@ -177,6 +184,7 @@ impl EditorView {
                         self.document.asset_root(),
                     ),
                 },
+                source_locations: self.picks_layers(),
             }
         });
         let react_mode = if self.is_react_preview() {
@@ -184,6 +192,12 @@ impl EditorView {
         } else {
             ReactPreviewMode::ResolveComponents
         };
+        let source_of = source_lookup_target(
+            self.selected_layer.as_deref(),
+            self.picks_layers(),
+            self.playing,
+            self.source_lookup.as_ref(),
+        );
         match self.document.scene_at(self.current_time()) {
             // The warnings stay until the result replaces them, so their
             // counts don't flicker while frames are in flight.
@@ -201,6 +215,7 @@ impl EditorView {
                     } else {
                         RenderQuality::Final
                     },
+                    source_of,
                 }) {
                     self.preview_pending = false;
                     self.problems.set_preview_warnings(Vec::new());
@@ -228,6 +243,8 @@ impl EditorView {
         let property_args = react.property_args.clone();
         let (node, cli_script) = react_runtime_paths();
         let frame = self.clock.frame();
+        // The reloaded code may not produce the same layers.
+        self.clear_layer_selection();
         let session = self.session;
         let sequence = self.react_reloads.request();
         cx.spawn(async move |view, cx| {
@@ -321,6 +338,8 @@ impl EditorView {
                     .into();
                 }
                 self.react_reload_generation = self.react_reload_generation.wrapping_add(1);
+                // A layer picked while the reload ran belongs to the old code.
+                self.clear_layer_selection();
                 self.problems.clear(Source::Preview);
                 self.refresh_preview();
                 self.refresh_audio_preview();

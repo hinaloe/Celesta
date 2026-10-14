@@ -2,6 +2,7 @@ use crate::compositor::BackdropTexture;
 use crate::draw::{LAYER_INSTANCE_SIZE, clip_bind_group, clip_buffer, instance_buffer};
 use crate::effect::EffectProcessor;
 use crate::error::GpuRenderError;
+use crate::hit::{HitLeaf, HitRegion};
 use crate::mask::MaskPipelines;
 #[cfg(target_os = "macos")]
 use crate::native_preview;
@@ -142,6 +143,12 @@ pub struct GpuRenderer {
     /// The last prepared frame's text layers with characters their family
     /// has no glyph for, one per family, weight, and set of characters.
     pub(crate) missing_glyphs: Vec<MissingGlyphs>,
+    /// Whether `prepare_draws` records `hit_regions`.
+    pub(crate) record_hit_regions: bool,
+    /// The leaf layers of the frame being prepared, for `hit_regions`.
+    pub(crate) hit_leaves: Vec<HitLeaf>,
+    /// The last prepared frame's leaf layers, in painter's order.
+    pub(crate) hit_regions: Vec<HitRegion>,
 }
 
 impl GpuRenderer {
@@ -356,6 +363,9 @@ impl GpuRenderer {
             text_font_count: 0,
             font_fallbacks: Vec::new(),
             missing_glyphs: Vec::new(),
+            record_hit_regions: false,
+            hit_leaves: Vec::new(),
+            hit_regions: Vec::new(),
         })
     }
 
@@ -372,6 +382,30 @@ impl GpuRenderer {
     /// family and weight are listed once, with the first of them.
     pub fn missing_glyphs(&self) -> &[MissingGlyphs] {
         &self.missing_glyphs
+    }
+
+    /// Whether later frames record `hit_regions`; off by default, when
+    /// preparing a frame does no work for them. Turning it off also forgets
+    /// the regions already recorded.
+    pub fn set_record_hit_regions(&mut self, record: bool) {
+        self.record_hit_regions = record;
+        if !record {
+            self.hit_regions.clear();
+        }
+    }
+
+    /// Where each leaf layer (image, video, PSD, text, rect, path or
+    /// instances) of the most recently rendered or submitted frame was
+    /// drawn, in painter's order, for `hit_test`. Empty unless
+    /// `set_record_hit_regions` turned recording on.
+    pub fn hit_regions(&self) -> &[HitRegion] {
+        &self.hit_regions
+    }
+
+    /// Moves `hit_regions` out, leaving none until the next frame records
+    /// them, for a caller that sends every frame's regions on.
+    pub fn take_hit_regions(&mut self) -> Vec<HitRegion> {
+        std::mem::take(&mut self.hit_regions)
     }
 
     pub const fn options(&self) -> GpuRenderOptions {

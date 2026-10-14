@@ -1,7 +1,7 @@
 use crate::actions::{
     GoToEnd, GoToIn, GoToOut, GoToStart, JumpBackward, JumpForward, NextEditPoint, NextFrame,
-    PausePlayback, PlayForward, PreviousEditPoint, PreviousFrame, ToggleLoop, TogglePlayback,
-    ToggleSafeAreas,
+    PausePlayback, PlayForward, PreviousEditPoint, PreviousFrame, ToggleInteractive, ToggleLoop,
+    TogglePlayback, ToggleSafeAreas,
 };
 use crate::helpers::loop_range_for;
 use crate::problems::{Source, error_chain};
@@ -259,6 +259,15 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         self.toggle_safe_areas(cx);
+    }
+
+    pub(crate) fn toggle_interactive_action(
+        &mut self,
+        _: &ToggleInteractive,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_interactive(cx);
     }
 
     /// Pointer moves anywhere in the window continue whichever drag is in

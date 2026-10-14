@@ -8,7 +8,7 @@ use crate::properties::{
 use crate::protocol::{
     PropertyInputsMessage, ReadyMessage, Request, Response, ready_property_order,
 };
-use crate::types::{ComponentPropertyField, ReactAudioClipDescriptor};
+use crate::types::{ComponentPropertyField, LayerSource, ReactAudioClipDescriptor};
 use celesta_composition::{
     Animatable, AssetLocation, LayerFilter, ShaderParam, ShaderParamType, ShaderSource, Time,
 };
@@ -424,6 +424,31 @@ fn deserializes_errors_and_rejects_unknown_responses() {
     };
     assert_eq!(error, "boom");
     assert!(serde_json::from_str::<Response>(r#"{"unexpected":1}"#).is_err());
+}
+
+#[test]
+fn deserializes_layer_source_replies() {
+    let Response::LayerSource { chain } =
+        serde_json::from_str(r#"{"layerSource":{"chain":null}}"#).unwrap()
+    else {
+        panic!("expected a LayerSource response");
+    };
+    assert_eq!(chain, None);
+
+    let json =
+        r#"{"layerSource":{"chain":[{"name":"Rect","file":"/a/title.tsx","line":3,"column":10}]}}"#;
+    let Response::LayerSource { chain } = serde_json::from_str(json).unwrap() else {
+        panic!("expected a LayerSource response");
+    };
+    assert_eq!(
+        chain,
+        Some(vec![LayerSource {
+            name: "Rect".to_owned(),
+            file: "/a/title.tsx".into(),
+            line: 3,
+            column: 10,
+        }])
+    );
 }
 
 fn audio_descriptor(src: &str, start: f64) -> ReactAudioClipDescriptor {

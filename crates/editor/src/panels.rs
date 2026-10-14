@@ -585,6 +585,7 @@ impl EditorView {
                     .overflow_x_hidden()
                     .overflow_y_scroll()
                     .child(self.react_preview_facts(entry, properties, cx))
+                    .children(self.layer_section(cx))
                     .children(self.property_section(cx)),
             )
     }

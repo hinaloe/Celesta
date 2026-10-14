@@ -2,22 +2,26 @@
 //! it, plus the audio monitor (master meter and preview volume) that sits
 //! beside the timeline.
 
+use celesta_composition::Point;
+use celesta_editor_theme as theme;
+use celesta_gpu_renderer::hit_test;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Selectable as _, Sizable as _};
 use gpui_kit::{
-    AnyElement, BorderStyle, Bounds, Context, Hsla, IntoElement, MouseButton, ObjectFit,
-    ParentElement as _, StyledImage as _, Window, canvas, div, fill, img, outline, point,
-    prelude::*, px, relative, rems, size,
+    AnyElement, BorderStyle, Bounds, Context, Hsla, IntoElement, MouseButton, MouseDownEvent,
+    ObjectFit, ParentElement as _, PathBuilder, Pixels, StyledImage as _, Window, canvas, div,
+    fill, img, outline, point, prelude::*, px, relative, rems, size,
 };
 
 use crate::actions::{
     ClearExportRange, GoToEnd, GoToStart, NextFrame, PreviousFrame, SetExportIn, SetExportOut,
-    ToggleLoop, TogglePlayback, ToggleSafeAreas,
+    ToggleInteractive, ToggleLoop, TogglePlayback, ToggleSafeAreas,
 };
 use crate::icons::CelestaIcon;
+use crate::layer_select::{SourceLookup, letterbox, scene_point};
 use crate::meter::audio_meter;
 use crate::preview::PreviewPresentation;
 use crate::problems::{ActiveProblem, Source, flow_line_breaks, summarize_warnings};
@@ -46,6 +50,21 @@ impl EditorView {
         let overlay_color = cx.theme().foreground.opacity(0.55);
         let preview_problem = self.problems.active(Source::Preview).cloned();
         let has_warnings = !self.problems.preview_warnings().is_empty();
+        let show_safe_areas = self.show_safe_areas;
+        // Every region of the selected layer in the shown frame; none when
+        // the frame does not draw it.
+        let selected_quads: Vec<[Point; 4]> = self
+            .selected_layer
+            .as_ref()
+            .map(|id| {
+                self.hit_regions
+                    .iter()
+                    .filter(|region| region.layer_id == *id)
+                    .map(|region| region.corners)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let viewer_bounds = self.viewer_bounds.clone();
         let canvas_area = div()
             .relative()
             .flex()
@@ -67,19 +86,25 @@ impl EditorView {
                         .object_fit(ObjectFit::Contain),
                 ),
             })
-            .when(self.show_safe_areas, |area| {
-                area.child(
-                    canvas(
-                        |_, _, _| (),
-                        move |bounds, _, window, _| {
-                            paint_safe_areas(bounds, frame_size, overlay_color, window)
-                        },
-                    )
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full(),
+            .child(
+                canvas(
+                    move |bounds, _, _| viewer_bounds.set(Some(bounds)),
+                    move |bounds, _, window, _| {
+                        if show_safe_areas {
+                            paint_safe_areas(bounds, frame_size, overlay_color, window);
+                        }
+                        for corners in &selected_quads {
+                            paint_layer_outline(bounds, frame_size, corners, window);
+                        }
+                    },
                 )
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full(),
+            )
+            .when(self.picks_layers(), |area| {
+                area.on_mouse_down(MouseButton::Left, cx.listener(Self::select_layer_at))
             })
             // One column over the frame: the error panel takes the space the
             // warnings strip leaves, so the two never overlap.
@@ -431,7 +456,18 @@ impl EditorView {
                     .selected(self.show_safe_areas)
                     .tooltip_with_action("Safe areas", &ToggleSafeAreas, KEY_CONTEXT)
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_safe_areas(cx))),
-            );
+            )
+            .when(self.is_react_preview(), |bar| {
+                bar.child(
+                    Button::new("toggle-interactive")
+                        .small()
+                        .ghost()
+                        .icon(CelestaIcon::MousePointerClick)
+                        .selected(self.interactive)
+                        .tooltip_with_action("Select layers", &ToggleInteractive, KEY_CONTEXT)
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_interactive(cx))),
+                )
+            });
         div()
             .relative()
             .flex()
@@ -596,6 +632,56 @@ impl EditorView {
         self.show_safe_areas = !self.show_safe_areas;
         cx.notify();
     }
+
+    /// Switches the React preview between its plain mode and the
+    /// interactive mode that picks layers. The bridge respawns with or
+    /// without source positions; leaving interactive mode drops the
+    /// selection.
+    pub(crate) fn toggle_interactive(&mut self, cx: &mut Context<Self>) {
+        if !self.is_react_preview() {
+            return;
+        }
+        self.interactive = !self.interactive;
+        if !self.interactive {
+            self.clear_layer_selection();
+            self.hit_regions.clear();
+        }
+        self.refresh_preview();
+        cx.notify();
+    }
+
+    /// Selects the topmost layer under the click in the shown frame, or
+    /// clears the selection when the click hits none, and looks up the new
+    /// selection's source.
+    fn select_layer_at(&mut self, event: &MouseDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(bounds) = self.viewer_bounds.get() else {
+            return;
+        };
+        let settings = &self.document.project().settings;
+        let frame_size = (settings.width as f32, settings.height as f32);
+        let hit = scene_point(bounds, frame_size, event.position)
+            .and_then(|point| hit_test(&self.hit_regions, point))
+            .map(str::to_owned);
+        if hit == self.selected_layer {
+            return;
+        }
+        self.selected_layer = hit;
+        self.launch_error = None;
+        if self.selected_layer.is_some() {
+            self.source_lookup = Some(SourceLookup::Pending);
+            self.refresh_preview();
+        } else {
+            self.source_lookup = None;
+        }
+        cx.notify();
+    }
+
+    /// Forgets the selected layer and its source.
+    pub(crate) fn clear_layer_selection(&mut self) {
+        self.selected_layer = None;
+        self.source_lookup = None;
+        self.launch_error = None;
+    }
 }
 
 fn transport_separator(cx: &Context<EditorView>) -> impl IntoElement {
@@ -605,20 +691,15 @@ fn transport_separator(cx: &Context<EditorView>) -> impl IntoElement {
 /// Action-safe (90 %) and title-safe (80 %) frames plus a center cross,
 /// drawn over the letterboxed frame rather than the whole viewer.
 fn paint_safe_areas(
-    bounds: Bounds<gpui_kit::Pixels>,
+    bounds: Bounds<Pixels>,
     (frame_width, frame_height): (f32, f32),
     color: Hsla,
     window: &mut Window,
 ) {
-    if frame_width <= 0.0 || frame_height <= 0.0 {
+    let Some((left, top, scale)) = letterbox(bounds, (frame_width, frame_height)) else {
         return;
-    }
-    let area_width = f32::from(bounds.size.width);
-    let area_height = f32::from(bounds.size.height);
-    let scale = (area_width / frame_width).min(area_height / frame_height);
+    };
     let (width, height) = (frame_width * scale, frame_height * scale);
-    let left = f32::from(bounds.origin.x) + (area_width - width) / 2.0;
-    let top = f32::from(bounds.origin.y) + (area_height - height) / 2.0;
     for (inset, style) in [(0.05, BorderStyle::Solid), (0.10, BorderStyle::Dashed)] {
         window.paint_quad(outline(
             Bounds::new(
@@ -648,4 +729,32 @@ fn paint_safe_areas(
         ),
         color,
     ));
+}
+
+/// A 1px outline around a selected layer's quad, its scene-pixel corners
+/// placed on the letterboxed frame.
+fn paint_layer_outline(
+    bounds: Bounds<Pixels>,
+    frame_size: (f32, f32),
+    corners: &[Point; 4],
+    window: &mut Window,
+) {
+    let Some((left, top, scale)) = letterbox(bounds, frame_size) else {
+        return;
+    };
+    let [first, rest @ ..] = corners.map(|corner| {
+        point(
+            px(left + corner.x as f32 * scale),
+            px(top + corner.y as f32 * scale),
+        )
+    });
+    let mut path = PathBuilder::stroke(px(1.0));
+    path.move_to(first);
+    for corner in rest {
+        path.line_to(corner);
+    }
+    path.close();
+    if let Ok(path) = path.build() {
+        window.paint_path(path, theme::accent());
+    }
 }

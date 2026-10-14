@@ -14,6 +14,8 @@ export type {
   Resolver,
 } from './render';
 export type { HostNode } from './reconciler';
+export { sourceChain } from './source-chain';
+export type { LayerSourceEntry } from './source-chain';
 export { registerHostElement } from './host-elements';
 export type { HostElement, HostVisit, HostWalk } from './host-elements';
 
@@ -55,6 +57,8 @@ export { SECONDS_TIMESCALE, secondsFromTime, secondsToTime } from './time';
 export { COLOR_FILTERS, colorFilter, shaderEffect, shaderSource } from './shader';
 export type { ShaderSourceHandle } from './shader';
 export { entryRelativePath, isRemoteUrl } from './entry-dir';
+export { sourceOfProps } from './jsx-dev-runtime';
+export type { SourcePosition } from './jsx-dev-runtime';
 
 // Rust types of the project document (`celesta-project`), which
 // `@celesta/project` and `@celesta/character` re-export; ts-rs generates them

@@ -43,8 +43,9 @@ pub(crate) enum PreparedItem {
     /// A text layer `place_texts` replaces with a `Layer` before anything
     /// else reads the items.
     PendingText,
-    /// A path layer `place_paths` replaces with a `Layer`, or drops when it
-    /// covers no pixel, before anything else reads the items.
+    /// A path layer `place_paths` replaces with a `Layer` before anything
+    /// else reads the items; its callers drop the ones still pending, which
+    /// cover no pixel.
     PendingPath,
 }
 
@@ -194,6 +195,53 @@ impl PreparedLayer {
         if let Some(shape) = self.shape {
             return shape;
         }
+        self.quad(self.drawn_transform(), [0.0, 0.0])
+    }
+
+    /// The corners of the layer's own shape in scene pixels, in order
+    /// around it (see `HitRegion::corners`): the quad `shape` boxes, or the
+    /// corners of `shape` when set.
+    pub(crate) fn corners(&self) -> [Point; 4] {
+        if let Some(shape) = self.shape {
+            return shape.corners();
+        }
+        self.quad_corners(self.drawn_transform(), [0.0, 0.0])
+            .map(|(x, y)| Point {
+                x: f64::from(x),
+                y: f64::from(y),
+            })
+    }
+
+    /// For a stroked rect with no fill (or a fully transparent one), the
+    /// corners of the part inside its stroke in scene pixels, in the order of
+    /// `corners`; `None` for any other layer and for a stroke that leaves no
+    /// inside. `rect_color` in `layer.wgsl` draws the stroke inside the
+    /// rect's edge, so the hole is the rect inset by the stroke's width.
+    pub(crate) fn hole_corners(&self) -> Option<[Point; 4]> {
+        let PreparedContent::Rect(rect) = &self.content else {
+            return None;
+        };
+        // A flat color's alpha, 0 without a fill; a gradient's is -1.
+        if self.shape.is_some() || rect.stroke_width <= 0.0 || rect.fill[3] != 0.0 {
+            return None;
+        }
+        let (width, height) = (2.0 * rect.half_width, 2.0 * rect.half_height);
+        let stroke = rect.stroke_width;
+        if width <= 2.0 * stroke || height <= 2.0 * stroke {
+            return None;
+        }
+        Some(
+            self.quad_corners(self.drawn_transform(), [-stroke / width, -stroke / height])
+                .map(|(x, y)| Point {
+                    x: f64::from(x),
+                    y: f64::from(y),
+                }),
+        )
+    }
+
+    /// The transform `write_instance` places the layer's quad with: a layer
+    /// copied texel for texel lands on whole pixels.
+    fn drawn_transform(&self) -> Affine {
         let mut transform = self.state.transform;
         let is_rect = matches!(self.content, PreparedContent::Rect(_));
         if !is_rect && transform.is_uniform_scale(self.raster_scale) {
@@ -201,7 +249,7 @@ impl PreparedLayer {
             (transform.tx, transform.ty) =
                 self.pixel_aligned_translation(transform, texel_width, texel_height);
         }
-        self.quad(transform, [0.0, 0.0])
+        transform
     }
 
     fn texels(&self) -> (u32, u32) {
@@ -215,17 +263,27 @@ impl PreparedLayer {
 
     /// The box of the layer's quad placed by `transform`, reaching
     /// `margin_u` and `margin_v` of its size past each edge.
-    fn quad(&self, transform: Affine, [margin_u, margin_v]: [f32; 2]) -> PixelBounds {
+    fn quad(&self, transform: Affine, margins: [f32; 2]) -> PixelBounds {
+        let corners = self.quad_corners(transform, margins);
+        let xs = corners.map(|(x, _)| x);
+        let ys = corners.map(|(_, y)| y);
+        let min = |values: [f32; 4]| values.into_iter().fold(f32::INFINITY, f32::min);
+        let max = |values: [f32; 4]| values.into_iter().fold(f32::NEG_INFINITY, f32::max);
+        PixelBounds([min(xs), min(ys), max(xs), max(ys)])
+    }
+
+    /// The corners of the quad `quad` boxes, in order around it.
+    fn quad_corners(&self, transform: Affine, [margin_u, margin_v]: [f32; 2]) -> [(f32, f32); 4] {
         let (texel_width, texel_height) = self.texels();
         let (width, height) = self.size(texel_width, texel_height);
         let anchor = [self.anchor.x as f32, self.anchor.y as f32];
         let (low_u, high_u) = (-margin_u, 1.0 + margin_u);
         let (low_v, high_v) = (-margin_v, 1.0 + margin_v);
-        let corners = [
+        [
             [low_u, low_v],
             [high_u, low_v],
-            [low_u, high_v],
             [high_u, high_v],
+            [low_u, high_v],
         ]
         .map(|[u, v]| {
             let x = (u - anchor[0]) * width;
@@ -234,12 +292,7 @@ impl PreparedLayer {
                 transform.a * x + transform.c * y + transform.tx,
                 transform.b * x + transform.d * y + transform.ty,
             )
-        });
-        let xs = corners.map(|(x, _)| x);
-        let ys = corners.map(|(_, y)| y);
-        let min = |values: [f32; 4]| values.into_iter().fold(f32::INFINITY, f32::min);
-        let max = |values: [f32; 4]| values.into_iter().fold(f32::NEG_INFINITY, f32::max);
-        PixelBounds([min(xs), min(ys), max(xs), max(ys)])
+        })
     }
 
     /// The layer's size in layer units: a rect's own, or `texel_width` x

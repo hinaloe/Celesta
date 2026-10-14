@@ -1,3 +1,5 @@
+use celesta_composition::Point;
+
 /// An axis-aligned rectangle in canvas pixels: `[left, top, right, bottom]`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct PixelBounds(pub(crate) [f32; 4]);
@@ -32,6 +34,12 @@ impl PixelBounds {
     pub(crate) fn expand(self, x: f32, y: f32) -> Self {
         let [left, top, right, bottom] = self.0;
         Self([left - x, top - y, right + x, bottom + y])
+    }
+
+    /// The corners in order around the rectangle, from its top-left one.
+    pub(crate) fn corners(self) -> [Point; 4] {
+        let [left, top, right, bottom] = self.0.map(f64::from);
+        [(left, top), (right, top), (right, bottom), (left, bottom)].map(|(x, y)| Point { x, y })
     }
 
     pub(crate) fn offset(self, [x, y]: [f32; 2]) -> Self {

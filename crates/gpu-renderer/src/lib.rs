@@ -10,6 +10,7 @@ mod draw;
 mod effect;
 mod encode;
 mod error;
+mod hit;
 mod instances;
 mod layer;
 mod mask;
@@ -30,6 +31,7 @@ mod types;
 mod yuv;
 
 pub use error::GpuRenderError;
+pub use hit::{HitClip, HitRegion, hit_test};
 pub use renderer::GpuRenderer;
 pub use transform::path_transform;
 #[cfg(target_os = "macos")]

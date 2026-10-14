@@ -1,6 +1,7 @@
 use celesta_composition::{Animatable, Layer, Rational, Scene, ShaderSource};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 /// A companion project's layers for one exact frame, evaluated up front by
 /// the caller (see [`ReactBridge::scene_at_with_project`]).
@@ -12,6 +13,29 @@ pub struct ProjectFrame<'a> {
     /// The same layers, grouped by track id — what `<ProjectTrack />` and
     /// `useProjectTrack()` embed.
     pub tracks: &'a BTreeMap<String, Vec<Layer>>,
+}
+
+/// Options for [`ReactBridge::spawn_with_options`](crate::ReactBridge::spawn_with_options).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SpawnOptions {
+    /// Makes the runtime record the source position of every JSX element so
+    /// [`ReactBridge::layer_source`](crate::ReactBridge::layer_source) can
+    /// answer. Costs render time, so only the editor preview asks for it.
+    pub source_locations: bool,
+}
+
+/// One element of the chain of JSX that produced a layer (see
+/// [`ReactBridge::layer_source`](crate::ReactBridge::layer_source)).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct LayerSource {
+    /// The element's component name, e.g. `Rect` or `Title`.
+    pub name: String,
+    /// The module holding the element, as an absolute path.
+    pub file: PathBuf,
+    /// 1-based line of the element's opening `<`.
+    pub line: u32,
+    /// 1-based column of the element's opening `<`.
+    pub column: u32,
 }
 
 /// Static composition facts read once from the entry's `<Composition>` root.

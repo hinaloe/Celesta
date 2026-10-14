@@ -1,9 +1,17 @@
 use crate::EDITOR_DEMO_PROJECT;
 use crate::audio::{AudioCacheKey, CachedAudioDecoder, take_latest};
 use crate::audio_cache::DiskAudioCache;
+use crate::editor_launch::{
+    Invocation, LaunchError, default_opener, editor_invocation, editor_value,
+    parse_login_shell_output, read_until_closing_marker, split_command,
+};
 use crate::export_worker::{ExportEvent, ExportRequest, ExportSource, ExportWorker};
 use crate::helpers::{
     export_output, export_progress_label, export_range_for, export_suggested_name, loop_range_for,
+};
+use crate::layer_select::{
+    SourceLookup, display_path, launch_outcome_applies, letterbox, scene_point, source_lookup,
+    source_lookup_target, source_position,
 };
 use crate::source::is_react_entry;
 use crate::waveform::{
@@ -14,7 +22,8 @@ use celesta_editor_core::ClipKind;
 use celesta_gpu_renderer::GpuDriver;
 
 use crate::preview::{
-    collect_component_requests, splice_component_resolutions, strip_missing_components,
+    ReactPreviewContext, ReactPreviewMode, collect_component_requests, records_hit_regions,
+    splice_component_resolutions, strip_missing_components,
 };
 use celesta_composition::{
     Animatable, AssetLocation, AudioClip, EvaluatedTransform, GroupMask, Layer, LayerContent,
@@ -25,9 +34,9 @@ use celesta_editor_core::ClipSummary;
 use celesta_exporter::{ExportCancellation, ExportProgress, VideoFormat};
 use celesta_media::{AudioBuffer, AudioDecoder};
 use celesta_project::Project;
-use celesta_react_bridge::ComponentResolutions;
+use celesta_react_bridge::{ComponentResolutions, LayerSource};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -402,4 +411,431 @@ fn splicing_component_resolutions_lists_their_shaders_once() {
     assert!(
         matches!(&mask.layers[0].content, LayerContent::Group { layers, .. } if layers.len() == 1)
     );
+}
+
+fn layer_source_at(file: &str, line: u32, column: u32) -> LayerSource {
+    LayerSource {
+        name: "Title".to_string(),
+        file: PathBuf::from(file),
+        line,
+        column,
+    }
+}
+
+fn invocation(program: &str, args: &[&str]) -> Invocation {
+    Invocation {
+        program: program.to_string(),
+        args: args.iter().map(|arg| arg.to_string()).collect(),
+    }
+}
+
+#[test]
+fn editor_value_prefers_visual_over_editor() {
+    let env = |name: &str| match name {
+        "VISUAL" => Some("code".to_string()),
+        "EDITOR" => Some("vim".to_string()),
+        _ => None,
+    };
+
+    assert_eq!(editor_value(env), Some("code".to_string()));
+}
+
+#[test]
+fn editor_value_falls_back_to_editor_when_visual_is_empty() {
+    let env = |name: &str| match name {
+        "VISUAL" => Some(String::new()),
+        "EDITOR" => Some("zed".to_string()),
+        _ => None,
+    };
+
+    assert_eq!(editor_value(env), Some("zed".to_string()));
+}
+
+#[test]
+fn editor_value_is_none_when_both_are_unset_or_empty() {
+    assert_eq!(editor_value(|_| None), None);
+    assert_eq!(editor_value(|_| Some(String::new())), None);
+    assert_eq!(editor_value(|_| Some("  ".to_string())), None);
+}
+
+#[test]
+fn editor_invocation_passes_the_position_the_way_each_editor_expects() {
+    let source = layer_source_at("/p/a.tsx", 12, 5);
+    let goto = ["--goto", "/p/a.tsx:12:5"];
+    let cases: Vec<(&str, Invocation)> = vec![
+        ("code", invocation("code", &goto)),
+        (
+            "code -n",
+            invocation("code", &["-n", "--goto", "/p/a.tsx:12:5"]),
+        ),
+        ("cursor", invocation("cursor", &goto)),
+        ("windsurf", invocation("windsurf", &goto)),
+        ("codium", invocation("codium", &goto)),
+        ("code-insiders", invocation("code-insiders", &goto)),
+        ("zed", invocation("zed", &["/p/a.tsx:12:5"])),
+        ("subl", invocation("subl", &["/p/a.tsx:12:5"])),
+        (
+            "sublime_text",
+            invocation("sublime_text", &["/p/a.tsx:12:5"]),
+        ),
+        (
+            "idea",
+            invocation("idea", &["--line", "12", "--column", "5", "/p/a.tsx"]),
+        ),
+        (
+            "rustrover",
+            invocation("rustrover", &["--line", "12", "--column", "5", "/p/a.tsx"]),
+        ),
+        ("mate", invocation("mate", &["--line", "12", "/p/a.tsx"])),
+        ("emacs", invocation("emacs", &["+12", "/p/a.tsx"])),
+        ("gedit", invocation("gedit", &["+12", "/p/a.tsx"])),
+        (
+            "emacsclient -c",
+            invocation("emacsclient", &["-c", "+12", "/p/a.tsx"]),
+        ),
+    ];
+
+    for (value, expected) in cases {
+        assert_eq!(
+            editor_invocation(value, &source),
+            Ok(expected),
+            "value {value:?}"
+        );
+    }
+}
+
+#[test]
+fn editor_invocation_keeps_a_quoted_program_path_with_spaces() {
+    let source = layer_source_at("/p/a.tsx", 12, 5);
+
+    assert_eq!(
+        editor_invocation(
+            "'/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl'",
+            &source
+        ),
+        Ok(invocation(
+            "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl",
+            &["/p/a.tsx:12:5"]
+        ))
+    );
+}
+
+#[test]
+fn editor_invocation_matches_a_windows_program_path_without_extension() {
+    let source = layer_source_at("/p/a.tsx", 12, 5);
+
+    assert_eq!(
+        editor_invocation("\"C:\\Tools\\Code.exe\"", &source),
+        Ok(invocation(
+            "C:\\Tools\\Code.exe",
+            &["--goto", "/p/a.tsx:12:5"]
+        ))
+    );
+    assert_eq!(
+        split_command("C:\\Tools\\Code.exe --wait", true),
+        Some(vec![
+            "C:\\Tools\\Code.exe".to_string(),
+            "--wait".to_string()
+        ])
+    );
+    assert_eq!(
+        split_command("\"C:\\Program Files\\Code.exe\" -n", true),
+        Some(vec![
+            "C:\\Program Files\\Code.exe".to_string(),
+            "-n".to_string()
+        ])
+    );
+}
+
+#[test]
+fn editor_invocation_refuses_terminal_editors() {
+    let source = layer_source_at("/p/a.tsx", 12, 5);
+    let cases = [
+        ("vim", "vim"),
+        ("nvim", "nvim"),
+        ("nano", "nano"),
+        ("hx", "hx"),
+        ("/usr/bin/vim", "vim"),
+        ("emacs -nw", "emacs"),
+        ("emacsclient -t", "emacsclient"),
+        ("emacs --tty", "emacs"),
+    ];
+
+    for (value, name) in cases {
+        assert_eq!(
+            editor_invocation(value, &source),
+            Err(LaunchError::TerminalEditor(name.to_string())),
+            "value {value:?}"
+        );
+    }
+}
+
+#[test]
+fn editor_invocation_rejects_an_unbalanced_quote() {
+    let source = layer_source_at("/p/a.tsx", 12, 5);
+
+    assert_eq!(
+        editor_invocation("code '--goto", &source),
+        Err(LaunchError::Unparsable("code '--goto".to_string()))
+    );
+    assert!(matches!(
+        editor_invocation("  ", &source),
+        Err(LaunchError::Unparsable(_))
+    ));
+}
+
+#[test]
+fn parse_login_shell_output_reads_both_variables_between_the_markers() {
+    let output = "motd noise\n__CELESTA_EDITOR__vim\0code__CELESTA_EDITOR__\ntrailing";
+    assert_eq!(parse_login_shell_output(output), Some("vim".to_string()));
+
+    let empty_visual = "banner\n__CELESTA_EDITOR__\0code__CELESTA_EDITOR__\n";
+    assert_eq!(
+        parse_login_shell_output(empty_visual),
+        Some("code".to_string())
+    );
+}
+
+#[test]
+fn parse_login_shell_output_is_none_without_a_value_or_markers() {
+    assert_eq!(parse_login_shell_output("no markers here\n"), None);
+    assert_eq!(
+        parse_login_shell_output("__CELESTA_EDITOR__\0__CELESTA_EDITOR__\n"),
+        None
+    );
+    assert_eq!(parse_login_shell_output("__CELESTA_EDITOR__code"), None);
+}
+
+#[test]
+fn default_opener_uses_the_os_default_application() {
+    let expected = if cfg!(target_os = "macos") {
+        invocation("open", &["/p/a.tsx"])
+    } else if cfg!(windows) {
+        invocation("cmd", &["/C", "start", "", "/p/a.tsx"])
+    } else {
+        invocation("xdg-open", &["/p/a.tsx"])
+    };
+
+    assert_eq!(default_opener(Path::new("/p/a.tsx")), expected);
+}
+
+#[test]
+fn launch_error_displays_the_panel_copy() {
+    assert_eq!(
+        LaunchError::TerminalEditor("vim".to_string()).to_string(),
+        "VISUAL/EDITOR is a terminal editor (vim); set VISUAL to a graphical editor"
+    );
+    assert_eq!(
+        LaunchError::Unparsable("code '--goto".to_string()).to_string(),
+        "VISUAL/EDITOR could not be parsed: code '--goto"
+    );
+    assert_eq!(
+        LaunchError::Spawn("No such file or directory".to_string()).to_string(),
+        "Could not open the editor: No such file or directory"
+    );
+}
+
+/// Yields `chunks`, then panics: a read past them means the caller waited for
+/// an end of stream that a daemon holding the pipe would never deliver.
+struct ChunksThenForever {
+    chunks: std::vec::IntoIter<&'static [u8]>,
+}
+
+impl std::io::Read for ChunksThenForever {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let chunk = self.chunks.next().expect("read past the closing marker");
+        buf[..chunk.len()].copy_from_slice(chunk);
+        Ok(chunk.len())
+    }
+}
+
+#[test]
+fn reading_login_shell_output_stops_at_the_closing_marker_without_eof() {
+    let reader = ChunksThenForever {
+        chunks: vec![
+            b"noise\n__CELESTA_EDI".as_slice(),
+            b"TOR__code\0vim__CELESTA_EDITOR__\n".as_slice(),
+        ]
+        .into_iter(),
+    };
+
+    let output = read_until_closing_marker(reader);
+
+    assert_eq!(parse_login_shell_output(&output), Some("code".to_string()));
+}
+
+#[test]
+fn reading_login_shell_output_returns_what_it_got_at_eof() {
+    let output = read_until_closing_marker(&b"only noise"[..]);
+
+    assert_eq!(output, "only noise");
+    assert_eq!(parse_login_shell_output(&output), None);
+}
+
+/// The viewer area the layer selection tests click in: 960 x 960 at the origin.
+fn square_viewer() -> gpui_kit::Bounds<gpui_kit::Pixels> {
+    gpui_kit::Bounds::new(
+        gpui_kit::point(gpui_kit::px(0.0), gpui_kit::px(0.0)),
+        gpui_kit::size(gpui_kit::px(960.0), gpui_kit::px(960.0)),
+    )
+}
+
+#[test]
+fn layer_select_letterboxes_a_wide_frame_in_a_square_area() {
+    assert_eq!(
+        letterbox(square_viewer(), (1920.0, 1080.0)),
+        Some((0.0, 210.0, 0.5))
+    );
+}
+
+#[test]
+fn layer_select_letterboxes_nothing_for_a_frame_without_size() {
+    assert_eq!(letterbox(square_viewer(), (0.0, 1080.0)), None);
+    assert_eq!(letterbox(square_viewer(), (1920.0, 0.0)), None);
+}
+
+#[test]
+fn layer_select_maps_a_click_in_the_frame_to_scene_pixels() {
+    let point = scene_point(
+        square_viewer(),
+        (1920.0, 1080.0),
+        gpui_kit::point(gpui_kit::px(480.0), gpui_kit::px(480.0)),
+    );
+
+    assert_eq!(
+        point,
+        Some(celesta_composition::Point { x: 960.0, y: 540.0 })
+    );
+}
+
+#[test]
+fn layer_select_maps_a_click_in_the_letterbox_bar_to_nothing() {
+    let point = scene_point(
+        square_viewer(),
+        (1920.0, 1080.0),
+        gpui_kit::point(gpui_kit::px(480.0), gpui_kit::px(100.0)),
+    );
+
+    assert_eq!(point, None);
+}
+
+#[test]
+fn layer_select_reads_each_lookup_outcome() {
+    let chain = vec![layer_source_at("/project/title.tsx", 12, 5)];
+
+    assert_eq!(source_lookup(Ok(None)), SourceLookup::NotInFrame);
+    assert_eq!(
+        source_lookup(Ok(Some(Vec::new()))),
+        SourceLookup::NoPosition
+    );
+    assert_eq!(
+        source_lookup(Ok(Some(chain.clone()))),
+        SourceLookup::Found(chain)
+    );
+    assert_eq!(
+        source_lookup(Err("bridge closed".to_string())),
+        SourceLookup::Failed("bridge closed".to_string())
+    );
+}
+
+#[test]
+fn layer_select_shows_a_file_inside_the_entry_directory_relative_to_it() {
+    let entry_dir = Path::new("/project/src");
+    // Joined, so the separators are the platform's, as the runtime's are.
+    let file = entry_dir.join("components").join("title.tsx");
+    let source = layer_source_at(file.to_str().expect("an ASCII path"), 12, 5);
+
+    assert_eq!(
+        display_path(&source.file, entry_dir),
+        Path::new("components")
+            .join("title.tsx")
+            .display()
+            .to_string()
+    );
+    assert_eq!(
+        source_position(&source, entry_dir),
+        format!(
+            "{}:12:5",
+            Path::new("components").join("title.tsx").display()
+        )
+    );
+}
+
+#[test]
+fn layer_select_shows_a_launch_error_only_under_the_layer_it_opened() {
+    let started = (3, Some("title"));
+
+    assert!(launch_outcome_applies(started, (3, Some("title"))));
+    assert!(!launch_outcome_applies(started, (3, Some("subtitle"))));
+    assert!(!launch_outcome_applies(started, (3, None)));
+    assert!(!launch_outcome_applies(started, (4, Some("title"))));
+}
+
+#[test]
+fn layer_select_shows_a_file_outside_the_entry_directory_in_full() {
+    let entry_dir = Path::new("/project/src");
+    let file = Path::new("/project/shared/title.tsx");
+
+    assert_eq!(display_path(file, entry_dir), file.display().to_string());
+}
+
+fn react_context(source_locations: bool) -> ReactPreviewContext {
+    ReactPreviewContext {
+        node: PathBuf::from("node"),
+        cli_script: PathBuf::from("cli.js"),
+        entry: PathBuf::from("entry.tsx"),
+        properties: celesta_react_bridge::PropertyInputs::default(),
+        source_locations,
+    }
+}
+
+#[test]
+fn layer_select_respawns_the_bridge_when_the_mode_changes() {
+    // `ensure_react_bridge` respawns Node whenever the context differs.
+    assert_ne!(react_context(true), react_context(false));
+}
+
+#[test]
+fn layer_select_records_hit_regions_only_in_interactive_mode() {
+    let interactive = react_context(true);
+    let preview = react_context(false);
+
+    assert!(records_hit_regions(
+        ReactPreviewMode::WholeScene,
+        Some(&interactive)
+    ));
+    assert!(!records_hit_regions(
+        ReactPreviewMode::WholeScene,
+        Some(&preview)
+    ));
+    assert!(!records_hit_regions(
+        ReactPreviewMode::ResolveComponents,
+        Some(&interactive)
+    ));
+    assert!(!records_hit_regions(ReactPreviewMode::WholeScene, None));
+}
+
+#[test]
+fn layer_select_looks_up_sources_only_in_interactive_mode() {
+    let found = SourceLookup::Found(Vec::new());
+
+    // Paused with a selection: looked up while picking, never otherwise.
+    assert_eq!(
+        source_lookup_target(Some("root.2"), true, false, Some(&found)),
+        Some("root.2".to_string())
+    );
+    assert_eq!(
+        source_lookup_target(Some("root.2"), false, false, Some(&found)),
+        None
+    );
+    // Playing: only a selection still waiting for its first answer.
+    assert_eq!(
+        source_lookup_target(Some("root.2"), true, true, Some(&SourceLookup::Pending)),
+        Some("root.2".to_string())
+    );
+    assert_eq!(
+        source_lookup_target(Some("root.2"), true, true, Some(&found)),
+        None
+    );
+    assert_eq!(source_lookup_target(None, true, false, None), None);
 }

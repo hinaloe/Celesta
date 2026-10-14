@@ -3,6 +3,7 @@ use crate::compositor::BackdropTexture;
 use crate::draw::{LAYER_INSTANCE_SIZE, RectShape, clip_bind_group, clip_buffer, instance_buffer};
 use crate::effect::EffectSpec;
 use crate::error::GpuRenderError;
+use crate::hit::{HitLeaf, HitRegion};
 use crate::instances::{InstanceColumns, PreparedInstanceShape, PreparedInstances};
 use crate::layer::{InstanceBytes, PreparedContent, PreparedItem, PreparedLayer};
 use crate::mask::MaskSpec;
@@ -52,6 +53,8 @@ impl GpuRenderer {
         self.scene_size = (scene.width, scene.height);
         self.font_fallbacks.clear();
         self.missing_glyphs.clear();
+        self.hit_leaves.clear();
+        self.hit_regions.clear();
         let mut items = Vec::new();
         let prepared = scene
             .layers
@@ -77,6 +80,13 @@ impl GpuRenderer {
         );
         self.place_texts(&texts, &jobs, images, &mut items)?;
         self.place_paths(&paths, outlines?, &mut items)?;
+        if self.record_hit_regions {
+            self.resolve_hit_regions(&items);
+        }
+        // The paths that cover no pixel.
+        if !paths.is_empty() {
+            items.retain(|item| !matches!(item, PreparedItem::PendingPath));
+        }
 
         // A frame with an isolated group, an effect, a mask or a layer that
         // blends anything but source-over composites through canvases, so
@@ -401,6 +411,7 @@ impl GpuRenderer {
             return Ok(());
         }
         let blend_mode = layer.blend_mode;
+        let item = output.len();
         if !layer.effects.is_empty() {
             let mut effects = EffectSpec::parse(&layer.effects)?;
             effects.shaders =
@@ -453,9 +464,12 @@ impl GpuRenderer {
                         clip: None,
                         ..state
                     };
+                    // The mask is never seen, so it has no hit regions.
+                    let leaves = self.hit_leaves.len();
                     for layer in &mask.layers {
                         self.prepare_layer(layer, matte, output)?;
                     }
+                    self.hit_leaves.truncate(leaves);
                     output.push(PreparedItem::MaskContent);
                     let inner = LayerState {
                         opacity: 1.0,
@@ -843,6 +857,19 @@ impl GpuRenderer {
                 }
             }
         }
+        if self.record_hit_regions && !matches!(layer.content, LayerContent::Group { .. }) {
+            // A blended `Instances` layer's particles follow the
+            // `BeginGroup` that isolates them.
+            let item = match output[item] {
+                PreparedItem::BeginGroup => item + 1,
+                _ => item,
+            };
+            self.hit_leaves.push(HitLeaf {
+                item,
+                layer_id: layer.id.clone(),
+                clip: state.clip,
+            });
+        }
         Ok(())
     }
 
@@ -879,18 +906,20 @@ impl GpuRenderer {
         let paths = std::mem::take(&mut self.pending_paths);
         let entry_limit = path_entry_limit(&self.device.limits());
         let outlines = outline_paths(&paths, self.scene_size, entry_limit)?;
-        self.place_paths(&paths, outlines, items)
+        self.place_paths(&paths, outlines, items)?;
+        items.retain(|item| !matches!(item, PreparedItem::PendingPath));
+        Ok(())
     }
 
     /// Puts the layers of `pending`, outlined by `outline_paths`, in place
-    /// of their `PendingPath` items, and drops the items of paths that cover
-    /// no pixel. Only where each path's entries go in the frame's buffer is
-    /// chosen in order; they are copied there in parallel.
+    /// of their `PendingPath` items; the caller drops the items of paths
+    /// that cover no pixel. Only where each path's entries go in the frame's
+    /// buffer is chosen in order; they are copied there in parallel.
     pub(crate) fn place_paths(
         &mut self,
         pending: &[PendingPath],
         outlines: Vec<PathOutline>,
-        items: &mut Vec<PreparedItem>,
+        items: &mut [PreparedItem],
     ) -> Result<(), GpuRenderError> {
         if pending.is_empty() {
             return Ok(());
@@ -975,8 +1004,37 @@ impl GpuRenderer {
         parts
             .into_par_iter()
             .for_each(|(entries, base, part)| entries.place(base, part));
-        items.retain(|item| !matches!(item, PreparedItem::PendingPath));
         Ok(())
+    }
+
+    /// Turns the frame's `hit_leaves` into `hit_regions`, from `items` with
+    /// every text and path placed but before the paths that cover no pixel
+    /// (which record nothing) are dropped. A layer whose quad has no area,
+    /// such as a rect 0 wide, records nothing either. The leaves were met
+    /// in painter's order.
+    fn resolve_hit_regions(&mut self, items: &[PreparedItem]) {
+        let clips = &self.clip_entries;
+        self.hit_regions = self
+            .hit_leaves
+            .drain(..)
+            .filter_map(|leaf| {
+                let (corners, hole) = match &items[leaf.item] {
+                    PreparedItem::Layer(layer) => (layer.corners(), layer.hole_corners()),
+                    PreparedItem::Instances(particles) => (particles.shape().corners(), None),
+                    _ => return None,
+                };
+                let clips = std::iter::successors(leaf.clip, |&index| clips[index as usize].parent)
+                    .map(|index| clips[index as usize].hit_clip())
+                    .collect();
+                let region = HitRegion {
+                    layer_id: leaf.layer_id,
+                    corners,
+                    hole,
+                    clips,
+                };
+                (region.area() > 0.0).then_some(region)
+            })
+            .collect();
     }
 }
 

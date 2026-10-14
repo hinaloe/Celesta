@@ -602,3 +602,37 @@ fn gpu_refuses_a_static_ref() {
         "{error}"
     );
 }
+
+#[test]
+fn records_one_hit_region_around_every_particle() {
+    let Some(mut renderer) = renderer(GpuRenderOptions::default()) else {
+        return;
+    };
+    renderer.set_record_hit_regions(true);
+    let mut scene = empty_scene(100, 60);
+    scene.layers = vec![instances_layer(
+        "particles",
+        LayerContent::Instances {
+            count: 2,
+            shape: Box::new(InstanceShape::Rect { corner_radius: 0.0 }),
+            width: Some(10.0),
+            height: Some(4.0),
+            color: None,
+            x: F32Column::from(vec![20.0, 70.0]),
+            y: F32Column::from(vec![10.0, 40.0]),
+            widths: None,
+            heights: None,
+            rotation: None,
+            colors: None,
+        },
+    )];
+    renderer.render(&scene).unwrap();
+    let regions = renderer.hit_regions();
+    assert_eq!(regions.len(), 1);
+    assert_eq!(regions[0].layer_id, "particles");
+    // Particles are centred on their positions.
+    assert_corners(
+        &regions[0],
+        [(15.0, 8.0), (75.0, 8.0), (75.0, 42.0), (15.0, 42.0)],
+    );
+}

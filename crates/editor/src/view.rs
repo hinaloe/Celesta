@@ -1,6 +1,7 @@
 use crate::audio::{AudioMixWorker, MasterVolumeDrag};
 use crate::component_schema::ComponentSchemaWorker;
 use crate::export_worker::ExportWorker;
+use crate::layer_select::SourceLookup;
 use crate::media_probe::{MediaAssetInfo, MediaProbeWorker};
 use crate::meter::MasterLevels;
 use crate::preview::{AudioPreview, PreviewPresentation, PreviewWorker, ReactPreview};
@@ -13,7 +14,7 @@ use crate::timeline::LaneGesture;
 use celesta_composition::Rational;
 use celesta_editor_core::{AssetSummary, EditorDocument, TimelineClock, TrackSummary};
 use celesta_exporter::{ExportCancellation, ExportProgress};
-use celesta_gpu_renderer::{GpuDriver, GpuRenderOptions, GpuRenderer};
+use celesta_gpu_renderer::{GpuDriver, GpuRenderOptions, GpuRenderer, HitRegion};
 use celesta_media::FfmpegBackend;
 use celesta_react_bridge::{ComponentPropertyField, ComponentPropertySchema};
 use chrono::{DateTime, Local};
@@ -122,6 +123,10 @@ pub(crate) struct EditorView {
     pub(crate) play_when_audio_ready: bool,
     /// Draws action-safe and title-safe frames over the viewer.
     pub(crate) show_safe_areas: bool,
+    /// The React preview's interactive mode: clicking the viewer selects a
+    /// layer and shows its JSX source. Off, the preview skips recording
+    /// source positions and hit regions, which large scenes pay for.
+    pub(crate) interactive: bool,
     pub(crate) scrubbing: bool,
     /// Playback gain for the preview only (0..=2). It scales the mixed
     /// buffer at the output device and never touches the project, so it has
@@ -195,6 +200,18 @@ pub(crate) struct EditorView {
     pub(crate) preview_error_scroll: ScrollHandle,
     /// When the preview error that scroll position belongs to was set.
     pub(crate) preview_error_time: Option<DateTime<Local>>,
+    /// The React preview layer picked by clicking the viewer, by id; kept
+    /// across frames until a click misses or the composition reloads.
+    pub(crate) selected_layer: Option<String>,
+    /// Where each leaf layer of the shown frame was drawn, for picking.
+    pub(crate) hit_regions: Vec<HitRegion>,
+    /// The selected layer's JSX source, as the Layer section shows it.
+    pub(crate) source_lookup: Option<SourceLookup>,
+    /// Window bounds of the viewer's frame area as last painted, for mapping
+    /// clicks onto the scene.
+    pub(crate) viewer_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// Why the last attempt to open a source position failed.
+    pub(crate) launch_error: Option<String>,
 }
 
 impl EditorView {
@@ -286,6 +303,7 @@ impl EditorView {
             loop_playback: false,
             play_when_audio_ready: false,
             show_safe_areas: false,
+            interactive: false,
             scrubbing: false,
             monitor_volume: 1.0,
             master_volume_drag: None,
@@ -329,6 +347,11 @@ impl EditorView {
             transport_width: Rc::default(),
             preview_error_scroll: ScrollHandle::new(),
             preview_error_time: None,
+            selected_layer: None,
+            hit_regions: Vec::new(),
+            source_lookup: None,
+            viewer_bounds: Rc::default(),
+            launch_error: None,
         };
         editor.refresh_preview();
         editor.refresh_audio_preview();

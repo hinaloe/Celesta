@@ -538,6 +538,7 @@ impl EditorView {
         next.right_tab = self.right_tab;
         // The new project's first render closes the previous one's toasts.
         next.toasted_sources = std::mem::take(&mut self.toasted_sources);
+        next.interactive = self.interactive;
         *self = next;
         if self.is_react_preview() {
             self.watch_react_entry(cx);
