@@ -1,0 +1,13 @@
+{
+  "name": "@celesta/example-resonance",
+  "private": true,
+  "scripts": {
+    "preview": "celesta-editor film.tsx",
+    "score": "python3 make-score.py",
+    "export": "celesta-exporter --json --react --overwrite film.tsx resonance.mp4",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
