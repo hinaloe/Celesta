@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import * as React from 'react';
 
-import { Composition, FreezeFrame, Group, Image, Rect, Sequence, Static, Text, Video } from '../dist/index.js';
+import { Composition, FreezeFrame, Group, Image, MotionBlur, Rect, Sequence, Static, Text, Video } from '../dist/index.js';
 import { mount } from '../dist/render.js';
 import { builtinFilter } from '../dist/internal.js';
 
@@ -91,6 +91,13 @@ test('the noise seed defaults to the layer\'s frame, so it changes every frame',
   assert.equal(frozen.content.layers[0].effects.filters[0].seed, 3);
   // Seeds are 32-bit, as the renderers hash them.
   assert.equal(seedAt(0, rect({ noise: { amount: 0.2, seed: -1 } })), 0xffffffff);
+});
+
+test('every <MotionBlur> sample takes the frame\'s noise seed, as its media does', () => {
+  // A 720° shutter's samples reach a frame either side of frame 10.
+  const layer = scene(h(MotionBlur, { samples: 4, shutterAngle: 720 }, h(Rect, { width: 4, height: 4, noise: 0.2 })), 10).layers[0];
+  const seeds = layer.content.layers.map((sample) => sample.content.layers[0].effects.filters[0].seed);
+  assert.deepEqual(seeds, [10, 10, 10, 10]);
 });
 
 test('a <Static> subtree needs a noise seed', () => {

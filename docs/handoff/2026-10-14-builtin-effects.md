@@ -14,8 +14,13 @@ GPU and in `@celesta/web`. The design, with each effect's arithmetic, is
   a zero offset, amplitude, or amount); a chroma key always keys.
 - Scene model: `LayerFilter` gains a variant per effect, every field
   written by the walker. `noise.seed` is a `u32`; the walker fills an
-  omitted seed with `Math.round(seconds(context.time) * fps)`, the value
-  `useCurrentFrame()` returns at that layer, and throws inside `<Static>`.
+  omitted seed with `Math.round(seconds(context.mediaTime) * fps)`, the
+  frame `useCurrentFrame()` returns at that layer, and throws inside
+  `<Static>`. `mediaTime` is the frame's moment inside a `<MotionBlur>`
+  sample or a `<Trail>` copy, as media uses it, so every sample shows the
+  frame's grain instead of averaging two seeds' grain to gray. An explicit
+  `seed` must be an integer, so one computed from `useCurrentFrame()` inside
+  a sample, which is fractional there, is refused.
   The function form (`noise(0.2)`) keeps the seed open in the
   `ShaderEffect` and resolves it when the walker serializes it.
 - GPU: `builtin_effect.wgsl`, assembled and compiled like
