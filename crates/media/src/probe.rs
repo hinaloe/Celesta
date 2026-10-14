@@ -6,7 +6,17 @@ use ez_ffmpeg::stream_info::{StreamInfo, find_all_stream_infos};
 use ez_ffmpeg::{AVRational, container_info};
 use std::path::Path;
 
+/// Fails with [`MediaError::NotFound`] for a missing file, whose FFmpeg
+/// error ("File or stream not found") would not name it.
+pub(crate) fn ensure_exists(path: &Path) -> Result<(), MediaError> {
+    match path.try_exists() {
+        Ok(false) => Err(MediaError::NotFound(path.to_owned())),
+        _ => Ok(()),
+    }
+}
+
 pub(crate) fn probe_path(path: &Path) -> Result<MediaProbe, MediaError> {
+    ensure_exists(path)?;
     let url = path_to_url(path);
     let streams = find_all_stream_infos(url.as_str()).map_err(MediaError::Ffmpeg)?;
     let duration = container_info::get_duration_us(url.as_str())

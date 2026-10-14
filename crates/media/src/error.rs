@@ -7,6 +7,7 @@ use std::path::PathBuf;
 #[derive(Debug)]
 pub enum MediaError {
     Ffmpeg(ez_ffmpeg::error::Error),
+    NotFound(PathBuf),
     NoVideoStream(PathBuf),
     InvalidTimestamp(f64),
     FrameTooLarge {
@@ -33,6 +34,9 @@ impl fmt::Display for MediaError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Ffmpeg(error) => write!(formatter, "FFmpeg operation failed: {error}"),
+            Self::NotFound(path) => {
+                write!(formatter, "media file {} was not found", path.display())
+            }
             Self::NoVideoStream(path) => {
                 write!(formatter, "{} has no video stream", path.display())
             }
