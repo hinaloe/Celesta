@@ -9,6 +9,7 @@
 mod animated_images;
 mod audio;
 mod bridge;
+mod decode;
 mod error;
 mod measure;
 mod probe;
