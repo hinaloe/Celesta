@@ -23,6 +23,7 @@ impl EditorView {
         let muted = cx.theme().muted_foreground;
         let tabs = TabBar::new("right-dock-tabs")
             .underline()
+            .px_3()
             .selected_index(match self.right_tab {
                 RightTab::Details => 0,
                 RightTab::Problems => 1,
@@ -272,19 +273,12 @@ fn problem_block(
         .child(detail_block(id, detail, cx))
 }
 
-/// `detail`, verbatim, monospaced, wrapped, selectable, with a copy button.
-pub(crate) fn detail_block(id: SharedString, detail: &str, cx: &App) -> impl IntoElement + use<> {
-    div()
-        .relative()
-        .rounded(cx.theme().radius)
-        .border_1()
-        .border_color(cx.theme().border)
-        .bg(cx.theme().background)
-        .p_2()
-        .pr_8()
-        .text_xs()
-        .child(TextView::markdown(id.clone(), fenced(detail)).selectable(true))
-        .child(div().absolute().top_1().right_1().child(
-            Clipboard::new(SharedString::from(format!("{id}-copy"))).value(detail.to_owned()),
-        ))
+/// `detail`, verbatim, monospaced, wrapped, selectable, with a copy button
+/// in the code block's corner.
+pub(crate) fn detail_block(id: SharedString, detail: &str, _cx: &App) -> impl IntoElement + use<> {
+    let copy_id = SharedString::from(format!("{id}-copy"));
+    let value = SharedString::from(detail.to_owned());
+    TextView::markdown(id, fenced(detail))
+        .selectable(true)
+        .code_block_actions(move |_, _, _| Clipboard::new(copy_id.clone()).value(value.clone()))
 }
