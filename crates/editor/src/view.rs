@@ -4,6 +4,7 @@ use crate::export_worker::ExportWorker;
 use crate::media_probe::{MediaAssetInfo, MediaProbeWorker};
 use crate::meter::MasterLevels;
 use crate::preview::{AudioPreview, PreviewPresentation, PreviewWorker, ReactPreview};
+use crate::problems::{Problems, Source};
 use crate::property_panel::PropertyPanelState;
 use crate::react_audio::ReactAudioWorker;
 use crate::refresh::ReloadOrder;
@@ -14,16 +15,37 @@ use celesta_exporter::{ExportCancellation, ExportProgress};
 use celesta_gpu_renderer::{GpuDriver, GpuRenderOptions, GpuRenderer};
 use celesta_media::FfmpegBackend;
 use celesta_react_bridge::{ComponentPropertyField, ComponentPropertySchema};
+use chrono::{DateTime, Local};
 #[cfg(not(target_os = "macos"))]
 use gpui_kit::component::menu::AppMenuBar;
 use gpui_kit::component::resizable::ResizableState;
-use gpui_kit::{Bounds, Entity, FocusHandle, Pixels, SharedString};
+use gpui_kit::{Bounds, Entity, FocusHandle, Pixels, ScrollHandle, SharedString};
 use std::cell::Cell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Instant;
+
+/// Which tab the right dock shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum RightTab {
+    /// The inspector, or the React Preview panel in React-preview mode.
+    #[default]
+    Details,
+    Problems,
+}
+
+impl RightTab {
+    /// The tab `ShowProblems` switches to: Problems, or back to Details from
+    /// Problems.
+    pub(crate) fn toggled_problems(self) -> Self {
+        match self {
+            Self::Details => Self::Problems,
+            Self::Problems => Self::Details,
+        }
+    }
+}
 
 pub(crate) struct EditorView {
     /// The file this view was opened from (`None` for the built-in demo);
@@ -34,7 +56,14 @@ pub(crate) struct EditorView {
     pub(crate) session: u64,
     /// A file picked from File > Open… is loading in the background.
     pub(crate) opening: bool,
-    pub(crate) open_error: Option<SharedString>,
+    /// Every error and warning, and the log since this project opened.
+    pub(crate) problems: Problems,
+    pub(crate) right_tab: RightTab,
+    /// History rows the user expanded, by `LogEntry::id`.
+    pub(crate) expanded_log_entries: HashSet<u64>,
+    /// Sources whose error or warning toast this window shows; each closes
+    /// once its source has no active problem.
+    pub(crate) toasted_sources: HashSet<Source>,
     /// The in-window menu bar. macOS shows the same menus natively instead.
     #[cfg(not(target_os = "macos"))]
     pub(crate) app_menu_bar: Option<Entity<AppMenuBar>>,
@@ -106,26 +135,17 @@ pub(crate) struct EditorView {
     pub(crate) component_schema_pending: bool,
     pub(crate) component_schemas: BTreeMap<String, ComponentPropertySchema>,
     pub(crate) project_property_schema: Option<BTreeMap<String, ComponentPropertyField>>,
-    pub(crate) component_schema_error: Option<SharedString>,
     pub(crate) project_name: SharedString,
     pub(crate) dimensions: SharedString,
     pub(crate) frame_rate_label: SharedString,
     pub(crate) assets: Vec<AssetSummary>,
     pub(crate) tracks: Vec<TrackSummary>,
     pub(crate) preview: Option<PreviewPresentation>,
-    pub(crate) preview_error: Option<SharedString>,
-    pub(crate) preview_warnings: Vec<SharedString>,
-    pub(crate) media_error: Option<SharedString>,
-    pub(crate) audio_error: Option<SharedString>,
     pub(crate) export_worker: ExportWorker,
     pub(crate) export_progress: Option<ExportProgress>,
     pub(crate) export_path: Option<PathBuf>,
     pub(crate) export_cancellation: Option<ExportCancellation>,
     pub(crate) export_cancelling: bool,
-    pub(crate) export_error: Option<SharedString>,
-    pub(crate) export_message: Option<SharedString>,
-    pub(crate) typescript_error: Option<SharedString>,
-    pub(crate) typescript_message: Option<SharedString>,
     /// Optional export in/out points, in composition frames. `out` is
     /// exclusive (one past the last frame to include). Both set and `in < out`
     /// means "Export…" renders only that span; otherwise the whole
@@ -163,6 +183,10 @@ pub(crate) struct EditorView {
     /// Width of the transport bar as last painted; a narrow viewer drops its
     /// secondary controls (they stay in the menus and on the keyboard).
     pub(crate) transport_width: Rc<Cell<Option<Pixels>>>,
+    /// Scroll position of the preview error's detail over the viewer.
+    pub(crate) preview_error_scroll: ScrollHandle,
+    /// When the preview error that scroll position belongs to was set.
+    pub(crate) preview_error_time: Option<DateTime<Local>>,
 }
 
 impl EditorView {
@@ -218,7 +242,10 @@ impl EditorView {
             source_path,
             session: 0,
             opening: false,
-            open_error: None,
+            problems: Problems::default(),
+            right_tab: RightTab::Details,
+            expanded_log_entries: HashSet::new(),
+            toasted_sources: HashSet::new(),
             #[cfg(not(target_os = "macos"))]
             app_menu_bar: None,
             document,
@@ -262,26 +289,17 @@ impl EditorView {
             component_schema_pending: false,
             component_schemas: BTreeMap::new(),
             project_property_schema: None,
-            component_schema_error: None,
             project_name,
             dimensions,
             frame_rate_label,
             assets,
             tracks,
             preview: None,
-            preview_error: None,
-            preview_warnings: Vec::new(),
-            media_error: None,
-            audio_error: None,
             export_worker,
             export_progress: None,
             export_path: None,
             export_cancellation: None,
             export_cancelling: false,
-            export_error: None,
-            export_message: None,
-            typescript_error: None,
-            typescript_message: None,
             export_in_frame: None,
             export_out_frame: None,
             choosing_export_path: false,
@@ -298,6 +316,8 @@ impl EditorView {
             timeline_lane_bounds: Rc::default(),
             timeline_overview_bounds: Rc::default(),
             transport_width: Rc::default(),
+            preview_error_scroll: ScrollHandle::new(),
+            preview_error_time: None,
         };
         editor.refresh_preview();
         editor.refresh_audio_preview();
@@ -306,5 +326,16 @@ impl EditorView {
             editor.refresh_component_schemas();
         }
         Ok(editor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RightTab;
+
+    #[test]
+    fn show_problems_toggles_between_problems_and_details() {
+        assert_eq!(RightTab::Details.toggled_problems(), RightTab::Problems);
+        assert_eq!(RightTab::Problems.toggled_problems(), RightTab::Details);
     }
 }

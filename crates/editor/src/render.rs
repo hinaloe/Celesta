@@ -12,6 +12,8 @@ impl Render for EditorView {
         self.poll_background_work();
         self.update_playback(window);
         self.sync_property_panel(window, cx);
+        self.announce_problems(window, cx);
+        self.sync_preview_error_scroll();
         if self.preview_pending
             || self.media_pending
             || self.audio_pending
@@ -67,6 +69,7 @@ impl EditorView {
             .on_action(cx.listener(Self::go_to_out_action))
             .on_action(cx.listener(Self::toggle_loop_action))
             .on_action(cx.listener(Self::toggle_safe_areas_action))
+            .on_action(cx.listener(Self::show_problems_action))
             .on_action(cx.listener(Self::zoom_timeline_in_action))
             .on_action(cx.listener(Self::zoom_timeline_out_action))
             .on_action(cx.listener(Self::zoom_timeline_to_fit_action))
@@ -133,11 +136,7 @@ impl EditorView {
                             .overflow_hidden()
                             .border_l_1()
                             .border_color(border)
-                            .child(if react {
-                                self.react_preview_panel(cx).into_any_element()
-                            } else {
-                                self.inspector_panel(cx).into_any_element()
-                            }),
+                            .child(self.right_dock(cx)),
                     ),
             );
         div()
@@ -217,5 +216,6 @@ impl EditorView {
                     )
                 },
             )
+            .right(self.problems_indicator(cx))
     }
 }

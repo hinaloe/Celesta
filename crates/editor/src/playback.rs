@@ -4,6 +4,7 @@ use crate::actions::{
     ToggleSafeAreas,
 };
 use crate::helpers::loop_range_for;
+use crate::problems::{Source, error_chain};
 use crate::view::EditorView;
 use crate::{timecode, timeline};
 use celesta_composition::Time;
@@ -79,7 +80,8 @@ impl EditorView {
         if let Some(audio) = &mut self.audio_preview
             && let Err(error) = audio.seek(self.clock.time().unwrap_or(Time::ZERO), true)
         {
-            self.audio_error = Some(error.to_string().into());
+            self.problems
+                .fail(Source::Audio, error_chain(error.as_ref()));
             self.audio_preview = None;
         }
     }
@@ -132,7 +134,8 @@ impl EditorView {
         if let Some(audio) = &mut self.audio_preview
             && let Err(error) = audio.seek(time, true)
         {
-            self.audio_error = Some(error.to_string().into());
+            self.problems
+                .fail(Source::Audio, error_chain(error.as_ref()));
             self.audio_preview = None;
         }
     }

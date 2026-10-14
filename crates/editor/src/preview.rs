@@ -1,5 +1,6 @@
 use crate::audio::take_latest;
 use crate::helpers::prepare_preview_frame;
+use crate::problems::error_chain;
 use crate::source::PropertyArgs;
 use celesta_composition::{Layer, LayerContent, Scene, ShaderSource};
 use celesta_gpu_renderer::{GpuRenderer, RenderQuality};
@@ -172,24 +173,34 @@ impl PreviewWorker {
                         react_bridge = None;
                     }
                     let mut scene = request.scene;
-                    let mut warnings = match request.react_mode {
+                    let mut warnings = Vec::new();
+                    // In `.tsx` preview mode the React entry is the whole
+                    // frame, so its failure is the frame's error; the last
+                    // good frame stays on screen.
+                    let evaluated = match request.react_mode {
                         ReactPreviewMode::WholeScene => render_whole_react_scene(
                             &mut scene,
                             &mut react_bridge,
                             request.react.as_ref(),
                         ),
-                        ReactPreviewMode::ResolveComponents => resolve_preview_components(
-                            &mut scene,
-                            &mut react_bridge,
-                            request.react.as_ref(),
-                        ),
+                        ReactPreviewMode::ResolveComponents => {
+                            warnings = resolve_preview_components(
+                                &mut scene,
+                                &mut react_bridge,
+                                request.react.as_ref(),
+                            );
+                            Ok(())
+                        }
                     };
-                    let frame = renderer
-                        .render_preview(&scene)
-                        .map_err(|error| error.to_string())
-                        .map(prepare_preview_frame);
-                    warnings.extend(renderer.font_fallbacks().iter().map(ToString::to_string));
-                    warnings.extend(renderer.missing_glyphs().iter().map(ToString::to_string));
+                    let frame = evaluated.and_then(|()| {
+                        let frame = renderer
+                            .render_preview(&scene)
+                            .map_err(|error| error_chain(&error))
+                            .map(prepare_preview_frame);
+                        warnings.extend(renderer.font_fallbacks().iter().map(ToString::to_string));
+                        warnings.extend(renderer.missing_glyphs().iter().map(ToString::to_string));
+                        frame
+                    });
                     if result_tx
                         .send(PreviewResult {
                             generation: request.generation,
@@ -249,7 +260,7 @@ pub(crate) fn ensure_react_bridge<'a>(
                 Err(error) => ReactPreviewBridge {
                     context: react.clone(),
                     bridge: None,
-                    failure: Some(error.to_string()),
+                    failure: Some(error_chain(&error)),
                 },
             },
         );
@@ -260,33 +271,34 @@ pub(crate) fn ensure_react_bridge<'a>(
 /// Replaces the whole preview scene with the standalone React entry's own
 /// evaluation at `scene.time` — the editor's synthetic project has no tracks,
 /// so this is the only source of layers in `.tsx` preview mode. A bridge
-/// failure is remembered and surfaced as a warning; the (empty) scene is left
-/// in place so the preview still clears to the composition background.
+/// failure is remembered, so later frames report the same error without
+/// restarting Node, and returned as the frame's error.
 pub(crate) fn render_whole_react_scene(
     scene: &mut Scene,
     react_bridge: &mut Option<ReactPreviewBridge>,
     react: Option<&ReactPreviewContext>,
-) -> Vec<String> {
+) -> Result<(), String> {
     let Some(react) = react else {
-        return vec!["React runtime is unavailable for this preview".to_owned()];
+        return Err("React runtime is unavailable for this preview".to_owned());
     };
     let state = ensure_react_bridge(react_bridge, react);
     match &mut state.bridge {
         Some(bridge) => match bridge.scene_at_with_project(scene.time, None) {
             Ok(evaluated) => {
                 *scene = evaluated;
-                Vec::new()
+                Ok(())
             }
             Err(error) => {
+                let failure = error_chain(&error);
                 state.bridge = None;
-                state.failure = Some(error.to_string());
-                vec![format!("React preview failed: {error}")]
+                state.failure = Some(failure.clone());
+                Err(failure)
             }
         },
-        None => vec![format!(
-            "React preview unavailable: {}",
-            state.failure.as_deref().unwrap_or("unknown error")
-        )],
+        None => Err(state
+            .failure
+            .clone()
+            .unwrap_or_else(|| "the React runtime is unavailable".to_owned())),
     }
 }
 
@@ -341,7 +353,7 @@ pub(crate) fn resolve_preview_components(
                     // failure until the entry changes rather than respawning
                     // on every frame.
                     state.bridge = None;
-                    state.failure = Some(error.to_string());
+                    state.failure = Some(error_chain(&error));
                     warnings.push("React component resolution failed; component clips are hidden from the preview".to_owned());
                     append_component_names(&requests, &mut warnings);
                     strip_missing_components(&mut scene.layers);

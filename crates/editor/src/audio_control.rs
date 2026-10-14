@@ -1,4 +1,5 @@
 use crate::audio::{AudioMixRequest, MasterVolumeDrag};
+use crate::problems::{Source, error_chain};
 use crate::react_audio::ReactAudioRequest;
 use crate::view::EditorView;
 use crate::waveform::master_volume_from_drag;
@@ -22,7 +23,6 @@ impl EditorView {
             let (node, cli_script) = react_runtime_paths();
             self.clip_waveforms.clear();
             self.audio_pending = true;
-            self.audio_error = None;
             if let Err(error) = self.react_audio_worker.request(ReactAudioRequest {
                 generation,
                 node,
@@ -33,7 +33,7 @@ impl EditorView {
                 master_volume: self.document.master_volume(),
             }) {
                 self.audio_pending = false;
-                self.audio_error = Some(error.into());
+                self.problems.fail(Source::Audio, error);
             }
             return;
         }
@@ -42,11 +42,10 @@ impl EditorView {
             Ok(graph) if graph.clips.is_empty() => {
                 self.clip_waveforms.clear();
                 self.clip_levels.clear();
-                self.audio_error = None;
+                self.problems.clear(Source::Audio);
             }
             Ok(graph) => {
                 self.audio_pending = true;
-                self.audio_error = None;
                 if let Err(error) = self.audio_mix_worker.request(AudioMixRequest {
                     generation,
                     graph,
@@ -54,13 +53,13 @@ impl EditorView {
                     duration: self.document.duration(),
                 }) {
                     self.audio_pending = false;
-                    self.audio_error = Some(error.into());
+                    self.problems.fail(Source::Audio, error);
                 }
             }
             Err(error) => {
                 self.clip_waveforms.clear();
                 self.clip_levels.clear();
-                self.audio_error = Some(error.to_string().into());
+                self.problems.fail(Source::Audio, error_chain(&error));
             }
         }
     }
@@ -71,7 +70,11 @@ impl EditorView {
                 self.tracks = self.document.tracks();
                 self.refresh_audio_preview();
             }
-            Err(error) => self.audio_error = Some(error.to_string().into()),
+            Err(error) => self.problems.report(
+                Source::Audio,
+                "Couldn’t change the track",
+                error_chain(&error),
+            ),
         }
         cx.notify();
     }
@@ -82,7 +85,11 @@ impl EditorView {
                 self.tracks = self.document.tracks();
                 self.refresh_audio_preview();
             }
-            Err(error) => self.audio_error = Some(error.to_string().into()),
+            Err(error) => self.problems.report(
+                Source::Audio,
+                "Couldn’t change the track",
+                error_chain(&error),
+            ),
         }
         cx.notify();
     }

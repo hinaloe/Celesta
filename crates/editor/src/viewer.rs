@@ -3,13 +3,14 @@
 //! beside the timeline.
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{ActiveTheme as _, IconName, Selectable as _, Sizable as _};
+use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Selectable as _, Sizable as _};
 use gpui_kit::{
-    BorderStyle, Bounds, Context, Hsla, IntoElement, MouseButton, ObjectFit, ParentElement as _,
-    StyledImage as _, Window, canvas, div, fill, img, outline, point, prelude::*, px, relative,
-    size,
+    AnyElement, BorderStyle, Bounds, Context, Hsla, IntoElement, MouseButton, ObjectFit,
+    ParentElement as _, StyledImage as _, Window, canvas, div, fill, img, outline, point,
+    prelude::*, px, relative, rems, size,
 };
 
 use crate::actions::{
@@ -19,6 +20,8 @@ use crate::actions::{
 use crate::icons::CelestaIcon;
 use crate::meter::audio_meter;
 use crate::preview::PreviewPresentation;
+use crate::problems::{ActiveProblem, Source, flow_line_breaks, summarize_warnings};
+use crate::problems_panel::{detail_block, show_in_problems_row};
 use crate::timecode::format_timecode;
 use crate::view::EditorView;
 
@@ -41,6 +44,8 @@ impl EditorView {
         let settings = &self.document.project().settings;
         let frame_size = (settings.width as f32, settings.height as f32);
         let overlay_color = cx.theme().foreground.opacity(0.55);
+        let preview_problem = self.problems.active(Source::Preview).cloned();
+        let has_warnings = !self.problems.preview_warnings().is_empty();
         let canvas_area = div()
             .relative()
             .flex()
@@ -76,33 +81,22 @@ impl EditorView {
                     .size_full(),
                 )
             })
-            .when_some(self.preview_error.clone(), |area, error| {
-                area.child(
-                    div()
-                        .p_4()
-                        .text_sm()
-                        .text_color(cx.theme().danger)
-                        .child(format!("Preview unavailable: {error}")),
-                )
-            })
-            .when(!self.preview_warnings.is_empty(), |area| {
+            // One column over the frame: the error panel takes the space the
+            // warnings strip leaves, so the two never overlap.
+            .when(preview_problem.is_some() || has_warnings, |area| {
                 area.child(
                     div()
                         .absolute()
-                        .bottom(px(8.0))
-                        .left(px(8.0))
-                        .right(px(8.0))
+                        .inset_0()
                         .flex()
                         .flex_col()
-                        .gap_1()
-                        .rounded(cx.theme().radius)
-                        .border_1()
-                        .border_color(cx.theme().warning.opacity(0.5))
-                        .bg(cx.theme().warning.opacity(0.12))
-                        .p_2()
-                        .text_xs()
-                        .text_color(cx.theme().warning)
-                        .children(self.preview_warnings.iter().cloned()),
+                        .justify_end()
+                        .when_some(preview_problem, |overlay, active| {
+                            overlay.child(self.preview_error_panel(&active, cx))
+                        })
+                        .when(has_warnings, |overlay| {
+                            overlay.child(self.preview_warnings_strip(cx))
+                        }),
                 )
             });
         div()
@@ -113,6 +107,146 @@ impl EditorView {
             .h_full()
             .child(canvas_area)
             .child(self.transport_bar(cx))
+    }
+
+    /// The active preview error, centered in the space above the warnings
+    /// strip: its title, the whole detail (selectable, with its own copy
+    /// button), and a way into the Problems tab. Only the detail scrolls, so
+    /// the title and the button stay in view.
+    fn preview_error_panel(
+        &self,
+        active: &ActiveProblem,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_1()
+            .min_h_0()
+            .items_center()
+            .justify_center()
+            .p_6()
+            .child(
+                div()
+                    .id("preview-error")
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .w_full()
+                    .max_w(rems(35.))
+                    .max_h_full()
+                    .rounded(cx.theme().radius)
+                    .border_1()
+                    .border_color(cx.theme().danger.opacity(0.5))
+                    .bg(cx.theme().popover)
+                    .p_3()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .gap_2()
+                            .text_sm()
+                            .text_color(cx.theme().danger)
+                            .child(Icon::new(IconName::CircleX).small())
+                            .child(active.problem.title.clone()),
+                    )
+                    // The detail keeps its own height until the surface hits
+                    // its max height, then shrinks and scrolls. A plain scroll
+                    // container rather than `overflow_y_scrollbar()`: that
+                    // wrapper sizes its scroll area at 100% of a height this
+                    // auto-sized column never makes definite, so it collapses.
+                    .child(
+                        div()
+                            .relative()
+                            .flex()
+                            .flex_col()
+                            .flex_initial()
+                            .min_h_0()
+                            .child(
+                                div()
+                                    .id("preview-error-detail-scroll")
+                                    .flex_initial()
+                                    .min_h_0()
+                                    .overflow_y_scroll()
+                                    .track_scroll(&self.preview_error_scroll)
+                                    .child(detail_block(
+                                        "preview-error-detail".into(),
+                                        &active.problem.detail,
+                                        cx,
+                                    )),
+                            )
+                            .vertical_scrollbar(&self.preview_error_scroll),
+                    )
+                    .child(show_in_problems_row("preview-error-show-problems", cx)),
+            )
+    }
+
+    /// Scrolls the preview error's detail back to the top when a different
+    /// error replaces the one it was scrolled for.
+    pub(crate) fn sync_preview_error_scroll(&mut self) {
+        let time = self
+            .problems
+            .active(Source::Preview)
+            .map(|active| active.time);
+        if time != self.preview_error_time {
+            self.preview_error_time = time;
+            self.preview_error_scroll.set_offset(point(px(0.), px(0.)));
+        }
+    }
+
+    /// The current frame's preview warnings (font fallbacks), along the
+    /// bottom of the viewer.
+    fn preview_warnings_strip(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex_none()
+            .mx_2()
+            .mb_2()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .rounded(cx.theme().radius)
+            .border_1()
+            .border_color(cx.theme().warning.opacity(0.5))
+            .bg(cx.theme().warning.opacity(0.12))
+            .p_2()
+            .text_xs()
+            .text_color(cx.theme().warning)
+            .children(self.preview_warnings_summary("preview-warnings-show-problems", cx))
+    }
+
+    /// The preview warnings as a summary for a warnings box: the first
+    /// [`SUMMARY_WARNING_LIMIT`](crate::problems::SUMMARY_WARNING_LIMIT),
+    /// each flowed into two lines at most, how many more there are, and a
+    /// way into the Problems tab, which has the full text.
+    pub(crate) fn preview_warnings_summary(
+        &self,
+        button_id: &'static str,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let summary = summarize_warnings(self.problems.preview_warnings());
+        let mut lines: Vec<AnyElement> = summary
+            .shown
+            .iter()
+            .map(|warning| {
+                div()
+                    .line_clamp(2)
+                    .text_ellipsis()
+                    .child(flow_line_breaks(warning).into_owned())
+                    .into_any_element()
+            })
+            .collect();
+        if summary.hidden > 0 {
+            lines.push(
+                div()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(format!("{} more", summary.hidden))
+                    .into_any_element(),
+            );
+        }
+        if !summary.shown.is_empty() {
+            lines.push(show_in_problems_row(button_id, cx).into_any_element());
+        }
+        lines
     }
 
     /// Playhead timecode, transport controls, and the In/Out marks.

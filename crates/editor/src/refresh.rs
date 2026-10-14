@@ -4,6 +4,7 @@ use crate::media_probe::{MediaProbeRequest, ProbeAsset};
 use crate::preview::{
     KeptSchema, PreviewRequest, ReactPreview, ReactPreviewContext, ReactPreviewMode,
 };
+use crate::problems::{Source, error_chain};
 use crate::source::{REACT_PREVIEW_SAMPLE_RATE, watched_mtime};
 use crate::timecode::format_timecode;
 use crate::view::EditorView;
@@ -37,7 +38,7 @@ pub(crate) struct PreviewLoadError {
 
 impl PreviewLoadError {
     pub(crate) fn from_bridge(error: ReactBridgeError) -> Self {
-        let message = error.to_string();
+        let message = error_chain(&error);
         let property_issues = match error {
             ReactBridgeError::InvalidProperties(issues) => issues,
             _ => Vec::new(),
@@ -184,10 +185,10 @@ impl EditorView {
             ReactPreviewMode::ResolveComponents
         };
         match self.document.scene_at(self.current_time()) {
+            // The warnings stay until the result replaces them, so their
+            // counts don't flicker while frames are in flight.
             Ok(scene) => {
                 self.preview_pending = true;
-                self.preview_error = None;
-                self.preview_warnings.clear();
                 if let Err(error) = self.preview_worker.request(PreviewRequest {
                     generation,
                     scene,
@@ -202,12 +203,14 @@ impl EditorView {
                     },
                 }) {
                     self.preview_pending = false;
-                    self.preview_error = Some(error.into());
+                    self.problems.set_preview_warnings(Vec::new());
+                    self.problems.fail(Source::Preview, error);
                 }
             }
             Err(error) => {
                 self.preview_pending = false;
-                self.preview_error = Some(error.to_string().into());
+                self.problems.set_preview_warnings(Vec::new());
+                self.problems.fail(Source::Preview, error_chain(&error));
             }
         }
     }
@@ -318,12 +321,16 @@ impl EditorView {
                     .into();
                 }
                 self.react_reload_generation = self.react_reload_generation.wrapping_add(1);
-                self.preview_error = None;
+                self.problems.clear(Source::Preview);
                 self.refresh_preview();
                 self.refresh_audio_preview();
             }
             Err(error) => {
-                self.preview_error = Some(format!("React reload failed: {}", error.message).into());
+                self.problems.report(
+                    Source::Preview,
+                    "React reload failed",
+                    error.message.clone(),
+                );
             }
         }
         cx.notify();
@@ -402,7 +409,7 @@ impl EditorView {
             .request(MediaProbeRequest { generation, assets })
         {
             self.media_pending = false;
-            self.media_error = Some(error.into());
+            self.problems.fail(Source::Media, error);
         }
     }
 
@@ -416,13 +423,12 @@ impl EditorView {
         let generation = self.component_schema_generation;
         let Some(entry) = self.document.react_entry_absolute_path() else {
             self.component_schema_pending = false;
-            self.component_schema_error = None;
+            self.problems.clear(Source::Schemas);
             self.component_schemas.clear();
             self.project_property_schema = None;
             return;
         };
         self.component_schema_pending = true;
-        self.component_schema_error = None;
         let (node, cli_script) = react_runtime_paths();
         if let Err(error) = self
             .component_schema_worker
@@ -434,7 +440,7 @@ impl EditorView {
             })
         {
             self.component_schema_pending = false;
-            self.component_schema_error = Some(error.into());
+            self.problems.fail(Source::Schemas, error);
         }
     }
 }

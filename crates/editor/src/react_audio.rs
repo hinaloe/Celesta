@@ -1,4 +1,5 @@
 use crate::audio::take_latest;
+use crate::problems::error_chain;
 use celesta_composition::AudioGraph;
 use celesta_react_bridge::{PropertyInputs, ReactBridge};
 use std::error::Error;
@@ -50,7 +51,7 @@ impl ReactAudioWorker {
                         &request.entry,
                         &request.properties,
                     )
-                    .map_err(|error| error.to_string())
+                    .map_err(|error| error_chain(&error))
                     .and_then(|mut bridge| {
                         bridge
                             .collect_audio_graph(
@@ -58,7 +59,7 @@ impl ReactAudioWorker {
                                 request.master_volume,
                                 &entry_dir,
                             )
-                            .map_err(|error| error.to_string())
+                            .map_err(|error| error_chain(&error))
                     });
                     if result_tx
                         .send(ReactAudioResult {

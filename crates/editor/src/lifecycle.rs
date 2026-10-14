@@ -2,6 +2,7 @@ use crate::actions::{
     CloseWindow, CreateNewProject, OpenProject, ReloadProject, SetUpTypeScript,
     SetUpTypeScriptInFolder,
 };
+use crate::problems::{Source, error_chain};
 use crate::source::load_source;
 use crate::view::EditorView;
 use celesta_react_bridge::{
@@ -54,18 +55,20 @@ impl EditorView {
         let templates: Rc<[TemplateInfo]> = match list_templates(&dir) {
             Ok(templates) if !templates.is_empty() => templates.into(),
             Ok(_) => {
-                self.open_error = Some(
-                    format!(
-                        "Couldn’t create project: no templates found in {}",
-                        dir.display()
-                    )
-                    .into(),
+                self.problems.report(
+                    Source::Project,
+                    "Couldn’t create project",
+                    format!("No templates found in {}.", dir.display()),
                 );
                 cx.notify();
                 return;
             }
             Err(error) => {
-                self.open_error = Some(format!("Couldn’t create project: {error}").into());
+                self.problems.report(
+                    Source::Project,
+                    "Couldn’t create project",
+                    error_chain(&error),
+                );
                 cx.notify();
                 return;
             }
@@ -192,8 +195,11 @@ impl EditorView {
                 Ok(Ok(None)) | Err(_) => None,
                 Ok(Err(error)) => {
                     view.update_in(cx, |this, _, cx| {
-                        this.open_error =
-                            Some(format!("Couldn’t show the folder dialog: {error}").into());
+                        this.problems.report(
+                            Source::Project,
+                            "Couldn’t show the folder dialog",
+                            error_chain(error.as_ref()),
+                        );
                         cx.notify();
                     })
                     .ok();
@@ -207,7 +213,7 @@ impl EditorView {
                         return false;
                     }
                     this.opening = true;
-                    this.open_error = None;
+                    this.problems.clear(Source::Project);
                     cx.notify();
                     true
                 })
@@ -236,8 +242,11 @@ impl EditorView {
                         this.load_path(Some(setup.root.join("film.tsx")), window, cx);
                     }
                     Err(error) => {
-                        this.open_error =
-                            Some(format!("Couldn’t create project: {error}").into());
+                        this.problems.report(
+                            Source::Project,
+                            "Couldn’t create project",
+                            error_chain(&error),
+                        );
                         cx.notify();
                     }
                 }
@@ -282,8 +291,11 @@ impl EditorView {
                 Ok(Ok(None)) => None,
                 Ok(Err(error)) => {
                     view.update_in(cx, |this, _, cx| {
-                        this.open_error =
-                            Some(format!("Couldn’t show the Open dialog: {error}").into());
+                        this.problems.report(
+                            Source::Project,
+                            "Couldn’t show the Open dialog",
+                            error_chain(error.as_ref()),
+                        );
                         cx.notify();
                     })
                     .ok();
@@ -329,11 +341,12 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.typescript_error = None;
-        self.typescript_message = None;
+        self.problems.clear(Source::TypeScript);
         let Some(entry) = self.document.react_entry_absolute_path() else {
-            self.typescript_error = Some(
-                "Open a React entry, or use Set Up TypeScript in Folder… for a new project".into(),
+            self.problems.report(
+                Source::TypeScript,
+                "TypeScript setup needs a React entry",
+                "Open a React entry, or use Set Up TypeScript in Folder… for a new project.",
             );
             cx.notify();
             return;
@@ -351,8 +364,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.typescript_error = None;
-        self.typescript_message = None;
+        self.problems.clear(Source::TypeScript);
         cx.notify();
         let selection = cx.prompt_for_paths(PathPromptOptions {
             files: false,
@@ -366,8 +378,11 @@ impl EditorView {
                 Ok(Ok(None)) | Err(_) => None,
                 Ok(Err(error)) => {
                     view.update_in(cx, |this, _, cx| {
-                        this.typescript_error =
-                            Some(format!("Couldn’t show the folder dialog: {error}").into());
+                        this.problems.report(
+                            Source::TypeScript,
+                            "Couldn’t show the folder dialog",
+                            error_chain(error.as_ref()),
+                        );
                         cx.notify();
                     })
                     .ok();
@@ -387,7 +402,7 @@ impl EditorView {
     }
 
     /// Runs `set_up` against this build's support template on a background
-    /// thread and reports the outcome in the title bar.
+    /// thread and reports the outcome in Problems.
     pub(crate) fn run_typescript_setup(
         &mut self,
         window: &mut Window,
@@ -405,19 +420,23 @@ impl EditorView {
             view.update_in(cx, |this, _, cx| {
                 match result {
                     Ok(setup) if setup.tsconfig == ProjectTsconfig::MissingExtends => {
-                        this.typescript_error = Some(
-                            "Types installed — add \"extends\": \"./.celesta/tsconfig.json\" to tsconfig.json"
-                                .into(),
+                        this.problems.report(
+                            Source::TypeScript,
+                            "Add “extends” to tsconfig.json",
+                            "Types are installed. Add \"extends\": \"./.celesta/tsconfig.json\" to tsconfig.json to enable them.",
                         );
                     }
                     Ok(setup) => {
                         let name = setup.root.file_name().unwrap_or(setup.root.as_os_str());
-                        this.typescript_message =
-                            Some(format!("TypeScript set up in {}", name.to_string_lossy()).into());
+                        this.problems.clear(Source::TypeScript);
+                        this.problems.info(
+                            Source::TypeScript,
+                            format!("TypeScript set up in {}", name.to_string_lossy()),
+                            setup.root.display().to_string(),
+                        );
                     }
                     Err(error) => {
-                        this.typescript_error =
-                            Some(format!("TypeScript setup failed: {error}").into());
+                        this.problems.fail(Source::TypeScript, error_chain(&error));
                     }
                 }
                 cx.notify();
@@ -452,7 +471,7 @@ impl EditorView {
 
     /// Loads `path` on a background thread (a React entry blocks on a Node
     /// handshake), then swaps it into this view. On failure the current
-    /// contents stay and the error shows in the title bar.
+    /// contents stay and the error goes to Problems.
     pub(crate) fn load_path(
         &mut self,
         path: Option<PathBuf>,
@@ -472,7 +491,7 @@ impl EditorView {
             .map(|react| react.property_args.clone())
             .unwrap_or_default();
         self.opening = true;
-        self.open_error = None;
+        self.problems.clear(Source::Project);
         self.pause();
         cx.notify();
         cx.spawn_in(window, async move |view, cx| {
@@ -486,12 +505,12 @@ impl EditorView {
                 let driver = this.driver;
                 let result = loaded.and_then(|(document, react_preview)| {
                     EditorView::from_document(path, document, react_preview, driver)
-                        .map_err(|error| error.to_string())
+                        .map_err(|error| error_chain(error.as_ref()))
                 });
                 match result {
                     Ok(next) => this.replace_contents(next, cx),
                     Err(error) => {
-                        this.open_error = Some(format!("Couldn’t open: {error}").into());
+                        this.problems.fail(Source::Project, error);
                     }
                 }
                 cx.notify();
@@ -516,6 +535,9 @@ impl EditorView {
         next.monitor_volume = self.monitor_volume;
         next.loop_playback = self.loop_playback;
         next.show_safe_areas = self.show_safe_areas;
+        next.right_tab = self.right_tab;
+        // The new project's first render closes the previous one's toasts.
+        next.toasted_sources = std::mem::take(&mut self.toasted_sources);
         *self = next;
         if self.is_react_preview() {
             self.watch_react_entry(cx);

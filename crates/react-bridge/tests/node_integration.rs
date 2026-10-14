@@ -1452,6 +1452,118 @@ fn embeds_per_track_layers_for_use_project_track_when_node_is_available() {
     assert!(!scene.layers.iter().any(|layer| layer.id == "title-1"));
 }
 
+/// A temp directory holding `script` as `runtime.mjs`, to stand in for the
+/// CLI. Returns the directory and the script.
+fn fake_runtime(name: &str, script: &str) -> (PathBuf, PathBuf) {
+    let dir = std::env::temp_dir().join(format!("celesta-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let runtime = dir.join("runtime.mjs");
+    std::fs::write(&runtime, script).unwrap();
+    (dir, runtime)
+}
+
+fn assert_exit_shows(error: &ReactBridgeError, lines: &[&str]) {
+    assert!(
+        matches!(error, ReactBridgeError::UnexpectedExit { .. }),
+        "expected an unexpected exit, got {error:?}"
+    );
+    let message = error.to_string();
+    for line in lines {
+        assert!(
+            message.contains(&format!("\n  {line}")),
+            "{line:?} missing from {message:?}"
+        );
+    }
+}
+
+#[test]
+fn a_runtime_that_dies_before_the_handshake_shows_its_last_output() {
+    let Some(node) = find_executable("CELESTA_NODE", "node") else {
+        eprintln!("skipping live Node.js test: node was not found");
+        return;
+    };
+    let (dir, runtime) = fake_runtime(
+        "stderr-handshake",
+        "console.error('Error: first line');\nconsole.error('second line');\nprocess.exitCode = 3;\n",
+    );
+    let error = ReactBridge::spawn(&node, &runtime, dir.join("film.tsx"))
+        .err()
+        .expect("the runtime exits before the handshake");
+    assert_exit_shows(&error, &["Error: first line", "second line"]);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_runtime_that_dies_on_a_request_shows_its_last_output() {
+    let Some(node) = find_executable("CELESTA_NODE", "node") else {
+        eprintln!("skipping live Node.js test: node was not found");
+        return;
+    };
+    // Sends a valid handshake, then dies on the first request.
+    let (dir, runtime) = fake_runtime(
+        "stderr-request",
+        &format!(
+            "{FAKE_HANDSHAKE}
+process.stdin.once('data', () => {{
+  console.error('Error: request failed');
+  console.error('    at render');
+  process.exitCode = 1;
+  process.stdin.destroy();
+}});
+"
+        ),
+    );
+    let mut bridge = ReactBridge::spawn(&node, &runtime, dir.join("film.tsx")).unwrap();
+    let error = bridge.scene_at(Time::new(0, 30)).unwrap_err();
+    assert_exit_shows(&error, &["Error: request failed", "    at render"]);
+    // The next request finds the pipe closed and still says why.
+    let error = bridge.scene_at(Time::new(1, 30)).unwrap_err();
+    assert_exit_shows(&error, &["Error: request failed", "    at render"]);
+    drop(bridge);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_runtime_that_dies_while_measuring_text_shows_its_last_output() {
+    let Some(node) = find_executable("CELESTA_NODE", "node") else {
+        eprintln!("skipping live Node.js test: node was not found");
+        return;
+    };
+    // Asks for a text measurement and exits without waiting for the answer,
+    // so the bridge usually finds the pipe closed when it replies.
+    let (dir, runtime) = fake_runtime(
+        "stderr-measure",
+        &format!(
+            "{FAKE_HANDSHAKE}
+process.stdin.once('data', () => {{
+  send({{ measureText: {{ text: 'Hello' }} }});
+  console.error('Error: measuring failed');
+  process.exitCode = 1;
+  process.stdin.destroy();
+}});
+"
+        ),
+    );
+    let mut bridge = ReactBridge::spawn(&node, &runtime, dir.join("film.tsx")).unwrap();
+    let error = bridge.scene_at(Time::new(0, 30)).unwrap_err();
+    assert_exit_shows(&error, &["Error: measuring failed"]);
+    drop(bridge);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The start of a fake runtime: `send()` writes one length-prefixed
+/// message, and a valid handshake goes out first.
+const FAKE_HANDSHAKE: &str = r"function send(message) {
+  const body = Buffer.from(JSON.stringify(message));
+  const length = Buffer.alloc(4);
+  length.writeUInt32LE(body.length);
+  process.stdout.write(Buffer.concat([length, body]));
+}
+send({
+  config: { width: 16, height: 9, frameRate: { numerator: 30, denominator: 1 }, durationInFrames: 30 },
+});";
+
 fn live_react_runtime() -> Option<(PathBuf, PathBuf, PathBuf)> {
     let Some(node) = find_executable("CELESTA_NODE", "node") else {
         eprintln!("skipping live Node.js test: node was not found");

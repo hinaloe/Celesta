@@ -9,6 +9,7 @@ use crate::protocol::{
     ResolutionRuntime, Response, StaticsRequest, ready_property_order,
 };
 use crate::statics::StaticCache;
+use crate::stderr::StderrCapture;
 use crate::types::{
     ComponentResolutionRequest, ComponentResolutions, FrameEvaluation, ProjectFrame,
     ReactCompositionMetadata,
@@ -28,6 +29,8 @@ pub struct ReactBridge {
     pub(crate) child: Child,
     pub(crate) stdin: ChildStdin,
     pub(crate) stdout: BufReader<ChildStdout>,
+    /// The runtime's stderr, passed through and kept to explain an exit.
+    pub(crate) stderr: StderrCapture,
     /// The last message read from `stdout`, kept to reuse its allocation.
     pub(crate) message: Vec<u8>,
     pub(crate) metadata: ReactCompositionMetadata,
@@ -43,6 +46,7 @@ pub struct ReactBridge {
 
 impl Drop for ReactBridge {
     fn drop(&mut self) {
+        // This also closes Node's stderr, which ends its reader thread.
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -89,124 +93,142 @@ impl ReactBridge {
             .arg(cli_script.as_ref())
             .arg(entry.as_ref())
             .arg("--length-prefixed");
-        if !properties.is_empty() {
+        let property_payload = if properties.is_empty() {
+            None
+        } else {
             command.arg("--properties-stdin");
-        }
+            let payload = serde_json::to_string(&PropertyInputsMessage {
+                property_inputs: properties.layers(),
+            })
+            .map_err(ReactBridgeError::Protocol)?;
+            Some(payload)
+        };
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|source| ReactBridgeError::Executable {
                 executable: node.to_owned(),
                 source,
             })?;
-        let mut stdin = child.stdin.take().ok_or(ReactBridgeError::MissingPipe)?;
-        let stdout = child.stdout.take().ok_or(ReactBridgeError::MissingPipe)?;
+        let (mut stdin, stdout, stderr) =
+            match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
+                (Some(stdin), Some(stdout), Some(stderr)) => (stdin, stdout, stderr),
+                _ => {
+                    end(&mut child);
+                    return Err(ReactBridgeError::MissingPipe);
+                }
+            };
+        let stderr = match StderrCapture::start(stderr) {
+            Ok(stderr) => stderr,
+            Err(error) => {
+                end(&mut child);
+                return Err(ReactBridgeError::Io(error));
+            }
+        };
         let mut stdout = BufReader::new(stdout);
         let mut message = Vec::new();
-        if !properties.is_empty() {
-            let payload = serde_json::to_string(&PropertyInputsMessage {
-                property_inputs: properties.layers(),
-            })
-            .map_err(ReactBridgeError::Protocol)?;
-            // A runtime that already exited fails below as `UnexpectedExit`;
-            // its reason is on the inherited stderr.
+        if let Some(payload) = property_payload {
+            // A runtime that already exited fails below as `UnexpectedExit`,
+            // with its last stderr lines.
             let _ = writeln!(stdin, "{payload}").and_then(|()| stdin.flush());
         }
 
         let mut media = FfmpegBackend::new();
         // Created on the first `measureText`: it scans the system fonts.
         let mut text_measurer: Option<TextRasterizer> = None;
-        let metadata = loop {
-            if let Err(error) = read_message(&mut stdout, &mut message) {
-                if matches!(error, ReactBridgeError::UnexpectedExit) {
-                    let _ = child.wait();
-                }
-                return Err(error);
-            }
-            let ready: ReadyMessage =
-                serde_json::from_slice(&message).map_err(ReactBridgeError::Protocol)?;
-            match ready {
-                ReadyMessage::Ready {
-                    config,
-                    component_schemas,
-                    project_property_schema,
-                } => {
-                    // Without an order, fall back to the map's sorted keys.
-                    let mut project_property_order = ready_property_order(&message);
-                    if project_property_order.is_empty()
-                        && let Some(schema) = &project_property_schema
-                    {
-                        project_property_order = schema.keys().cloned().collect();
-                    }
-                    break ReactCompositionMetadata {
-                        width: config.width,
-                        height: config.height,
-                        frame_rate: config.frame_rate,
-                        duration_in_frames: config.duration_in_frames,
+        let mut handshake = || -> Result<ReactCompositionMetadata, ReactBridgeError> {
+            loop {
+                read_message(&mut stdout, &mut message)?;
+                let ready: ReadyMessage =
+                    serde_json::from_slice(&message).map_err(ReactBridgeError::Protocol)?;
+                match ready {
+                    ReadyMessage::Ready {
+                        config,
                         component_schemas,
                         project_property_schema,
-                        project_property_order,
-                    };
-                }
-                ReadyMessage::ProbeMedia { probe_media } => {
-                    let path = probe_media.path;
-                    let local = if is_remote_url(&path) {
-                        RemoteAssetCache::standard()
-                            .fetch(&path)
-                            .map_err(|error| error.to_string())
-                    } else {
-                        Ok(PathBuf::from(&path))
-                    };
-                    // `<Image>` plays an animated image itself; FFmpeg reads
-                    // some of them as one frame, or not at all.
-                    let animation = local
-                        .as_ref()
-                        .ok()
-                        .and_then(|local| probe_animation(local).ok().flatten());
-                    let probed = match &animation {
-                        Some(animation) => Ok(animation_probe_payload(animation)),
-                        None => local.and_then(|local| {
-                            media
-                                .probe(local)
-                                .map(media_probe_payload)
+                    } => {
+                        // Without an order, fall back to the map's sorted keys.
+                        let mut project_property_order = ready_property_order(&message);
+                        if project_property_order.is_empty()
+                            && let Some(schema) = &project_property_schema
+                        {
+                            project_property_order = schema.keys().cloned().collect();
+                        }
+                        return Ok(ReactCompositionMetadata {
+                            width: config.width,
+                            height: config.height,
+                            frame_rate: config.frame_rate,
+                            duration_in_frames: config.duration_in_frames,
+                            component_schemas,
+                            project_property_schema,
+                            project_property_order,
+                        });
+                    }
+                    ReadyMessage::ProbeMedia { probe_media } => {
+                        let path = probe_media.path;
+                        let local = if is_remote_url(&path) {
+                            RemoteAssetCache::standard()
+                                .fetch(&path)
                                 .map_err(|error| error.to_string())
-                        }),
-                    };
-                    let response = match probed {
-                        Ok(media) => MediaProbeResponse {
-                            media: Some(media),
-                            error: None,
-                        },
-                        Err(error) => MediaProbeResponse {
-                            media: None,
-                            error: Some(format!("could not probe {path}: {error}")),
-                        },
-                    };
-                    let payload =
-                        serde_json::to_string(&response).map_err(ReactBridgeError::Protocol)?;
-                    writeln!(stdin, "{payload}").map_err(ReactBridgeError::Io)?;
-                    stdin.flush().map_err(ReactBridgeError::Io)?;
+                        } else {
+                            Ok(PathBuf::from(&path))
+                        };
+                        // `<Image>` plays an animated image itself; FFmpeg reads
+                        // some of them as one frame, or not at all.
+                        let animation = local
+                            .as_ref()
+                            .ok()
+                            .and_then(|local| probe_animation(local).ok().flatten());
+                        let probed = match &animation {
+                            Some(animation) => Ok(animation_probe_payload(animation)),
+                            None => local.and_then(|local| {
+                                media
+                                    .probe(local)
+                                    .map(media_probe_payload)
+                                    .map_err(|error| error.to_string())
+                            }),
+                        };
+                        let response = match probed {
+                            Ok(media) => MediaProbeResponse {
+                                media: Some(media),
+                                error: None,
+                            },
+                            Err(error) => MediaProbeResponse {
+                                media: None,
+                                error: Some(format!("could not probe {path}: {error}")),
+                            },
+                        };
+                        let payload =
+                            serde_json::to_string(&response).map_err(ReactBridgeError::Protocol)?;
+                        writeln!(stdin, "{payload}").map_err(ReactBridgeError::Io)?;
+                        stdin.flush().map_err(ReactBridgeError::Io)?;
+                    }
+                    ReadyMessage::MeasureText { measure_text } => {
+                        let response = measure_text_response(&mut text_measurer, &measure_text);
+                        let payload =
+                            serde_json::to_string(&response).map_err(ReactBridgeError::Protocol)?;
+                        writeln!(stdin, "{payload}").map_err(ReactBridgeError::Io)?;
+                        stdin.flush().map_err(ReactBridgeError::Io)?;
+                    }
+                    ReadyMessage::InvalidProperties { invalid_properties } => {
+                        return Err(ReactBridgeError::InvalidProperties(invalid_properties));
+                    }
+                    ReadyMessage::Error { error } => {
+                        return Err(ReactBridgeError::EntryFailed(error));
+                    }
                 }
-                ReadyMessage::MeasureText { measure_text } => {
-                    let response = measure_text_response(&mut text_measurer, &measure_text);
-                    let payload =
-                        serde_json::to_string(&response).map_err(ReactBridgeError::Protocol)?;
-                    writeln!(stdin, "{payload}").map_err(ReactBridgeError::Io)?;
-                    stdin.flush().map_err(ReactBridgeError::Io)?;
-                }
-                ReadyMessage::InvalidProperties { invalid_properties } => {
-                    // The entry is already imported; handles it opened could keep Node alive.
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(ReactBridgeError::InvalidProperties(invalid_properties));
-                }
-                ReadyMessage::Error { error } => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(ReactBridgeError::EntryFailed(error));
-                }
+            }
+        };
+        let metadata = match handshake() {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                let error = stderr.exit_error(&mut child, error);
+                // The entry may already be imported; handles it opened could
+                // keep Node alive.
+                end(&mut child);
+                return Err(error);
             }
         };
 
@@ -214,6 +236,7 @@ impl ReactBridge {
             child,
             stdin,
             stdout,
+            stderr,
             message,
             metadata,
             text_measurer,
@@ -488,14 +511,24 @@ impl ReactBridge {
     }
 
     fn write_request<R: Serialize>(&mut self, request: R) -> Result<(), ReactBridgeError> {
-        let payload = serde_json::to_string(&request).map_err(ReactBridgeError::Protocol)?;
-        writeln!(self.stdin, "{payload}").map_err(ReactBridgeError::Io)?;
-        self.stdin.flush().map_err(ReactBridgeError::Io)
+        let written = write_line(&mut self.stdin, &request);
+        written.map_err(|error| self.exit_error(error))
     }
 
     /// Reads messages into `self.message` until one is not a text
     /// measurement, answering each measurement as it arrives.
     fn receive_message(&mut self) -> Result<(), ReactBridgeError> {
+        let received = self.receive_answering_measurements();
+        received.map_err(|error| self.exit_error(error))
+    }
+
+    /// Gives an error from a runtime that went away the reason it printed;
+    /// see [`StderrCapture::exit_error`].
+    fn exit_error(&mut self, error: ReactBridgeError) -> ReactBridgeError {
+        self.stderr.exit_error(&mut self.child, error)
+    }
+
+    fn receive_answering_measurements(&mut self) -> Result<(), ReactBridgeError> {
         loop {
             read_message(&mut self.stdout, &mut self.message)?;
             // The CLI writes the key first; checking it leaves a frame's
@@ -509,11 +542,24 @@ impl ReactBridge {
                 return Err(ReactBridgeError::UnexpectedResponse);
             };
             let metrics = measure_text_response(&mut self.text_measurer, &measure_text);
-            serde_json::to_writer(&mut self.stdin, &metrics).map_err(ReactBridgeError::Protocol)?;
-            writeln!(self.stdin).map_err(ReactBridgeError::Io)?;
-            self.stdin.flush().map_err(ReactBridgeError::Io)?;
+            // `receive_message` explains a closed pipe here.
+            write_line(&mut self.stdin, &metrics)?;
         }
     }
+}
+
+/// Writes `message` to the CLI as one line of JSON.
+fn write_line(stdin: &mut ChildStdin, message: &impl Serialize) -> Result<(), ReactBridgeError> {
+    let payload = serde_json::to_string(message).map_err(ReactBridgeError::Protocol)?;
+    writeln!(stdin, "{payload}")
+        .and_then(|()| stdin.flush())
+        .map_err(ReactBridgeError::Io)
+}
+
+/// Ends a runtime this bridge gives up on before it is set up.
+fn end(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// A frame's response read by [`ReactBridge::receive_frame`], not yet
@@ -524,12 +570,18 @@ pub struct PendingFrame(Vec<u8>);
 /// `--length-prefixed` every message is a little-endian `u32` byte count
 /// followed by that many bytes of JSON, so a frame's scene is read in a few
 /// large reads instead of being scanned for its line end.
+///
+/// A closed stdout fails as an `UnexpectedExit` without stderr;
+/// [`StderrCapture::exit_error`] fills it in.
 fn read_message(
     stdout: &mut BufReader<ChildStdout>,
     buffer: &mut Vec<u8>,
 ) -> Result<(), ReactBridgeError> {
+    let exited = || ReactBridgeError::UnexpectedExit {
+        stderr: String::new(),
+    };
     let eof = |error: io::Error| match error.kind() {
-        io::ErrorKind::UnexpectedEof => ReactBridgeError::UnexpectedExit,
+        io::ErrorKind::UnexpectedEof => exited(),
         _ => ReactBridgeError::Io(error),
     };
     let mut length = [0; 4];
@@ -544,6 +596,6 @@ fn read_message(
     if read == length {
         Ok(())
     } else {
-        Err(ReactBridgeError::UnexpectedExit)
+        Err(exited())
     }
 }

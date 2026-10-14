@@ -1,3 +1,4 @@
+use crate::problems::error_chain;
 use celesta_exporter::{
     ExportCancellation, ExportError, ExportOptions, ExportProgress, ExportRange, Exporter,
     GpuDriver, ReactRuntimeOptions, VideoFormat,
@@ -91,7 +92,7 @@ impl ExportWorker {
                     if event_tx
                         .send(ExportEvent::Finished {
                             output: request.output,
-                            result: result.map_err(|error| error.to_string()),
+                            result: result.map_err(|error| error_chain(&error)),
                             cancelled,
                         })
                         .is_err()

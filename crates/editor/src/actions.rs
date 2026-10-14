@@ -29,6 +29,7 @@ actions!(
         GoToOut,
         ToggleLoop,
         ToggleSafeAreas,
+        ShowProblems,
         ZoomTimelineIn,
         ZoomTimelineOut,
         ZoomTimelineToFit

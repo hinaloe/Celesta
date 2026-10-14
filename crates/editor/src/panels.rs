@@ -1,4 +1,6 @@
 use crate::helpers::clip_kind_label;
+use crate::problems::{Source, flow_line_breaks};
+use crate::problems_panel::show_in_problems_row;
 use crate::timecode::format_timecode;
 use crate::view::EditorView;
 use crate::waveform::{clip_local_time, format_media_asset_info};
@@ -17,24 +19,11 @@ use gpui_kit::{ClickEvent, Context, ObjectFit, SharedString, Window, div, img, p
 
 impl EditorView {
     /// The window's title bar: the menu bar (outside macOS, which shows it
-    /// natively), the open file, status messages, and the window-wide
-    /// commands — Open…, Export…, and the preview volume.
+    /// natively), the open file, and the window-wide commands — Create New
+    /// Project…, Open…, and Export….
     pub(crate) fn title_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let exporting = self.export_cancellation.is_some();
-        let danger = cx.theme().danger;
-        let warning = cx.theme().warning;
-        let success = cx.theme().success;
         let muted = cx.theme().muted_foreground;
-        let message = |text: String, color| {
-            div()
-                .max_w(px(420.0))
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .text_xs()
-                .text_color(color)
-                .child(text)
-        };
         let leading = div()
             .flex()
             .items_center()
@@ -73,27 +62,6 @@ impl EditorView {
                 .items_center()
                 .gap_2()
                 .pr_2()
-                .when_some(self.open_error.clone(), |bar, error| {
-                    bar.child(message(error.to_string(), danger))
-                })
-                .when_some(self.media_error.clone(), |bar, error| {
-                    bar.child(message(format!("Media probe failed: {error}"), danger))
-                })
-                .when_some(self.audio_error.clone(), |bar, error| {
-                    bar.child(message(format!("Audio unavailable: {error}"), warning))
-                })
-                .when_some(self.export_error.clone(), |bar, error| {
-                    bar.child(message(format!("Export failed: {error}"), danger))
-                })
-                .when_some(self.export_message.clone(), |bar, text| {
-                    bar.child(message(text.to_string(), success))
-                })
-                .when_some(self.typescript_error.clone(), |bar, error| {
-                    bar.child(message(error.to_string(), warning))
-                })
-                .when_some(self.typescript_message.clone(), |bar, text| {
-                    bar.child(message(text.to_string(), success))
-                })
                 .child(
                     Button::new("create-new-project")
                         .small()
@@ -293,16 +261,29 @@ impl EditorView {
             .when_some(self.document.react_entry(), |panel, entry| {
                 panel.child(inspector_row("React entry", entry.to_owned(), cx))
             })
-            .when_some(self.component_schema_error.clone(), |panel, error| {
-                panel.child(
-                    div()
-                        .px_3()
-                        .py_2()
-                        .text_xs()
-                        .text_color(cx.theme().danger)
-                        .child(format!("Couldn’t load component schemas: {error}")),
-                )
-            })
+            .when_some(
+                self.problems.active(Source::Schemas).cloned(),
+                |panel, active| {
+                    // Flowed into two lines at most; Problems has the full
+                    // text.
+                    panel.child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .px_3()
+                            .py_2()
+                            .text_xs()
+                            .text_color(cx.theme().danger)
+                            .child(div().line_clamp(2).text_ellipsis().child(format!(
+                                "{}: {}",
+                                active.problem.title,
+                                flow_line_breaks(&active.problem.detail)
+                            )))
+                            .child(show_in_problems_row("inspector-schemas-show-problems", cx)),
+                    )
+                },
+            )
             .when(self.document.react_entry().is_some(), |panel| {
                 self.render_project_properties(panel, cx)
             })
@@ -389,7 +370,6 @@ impl EditorView {
             .min_h_0()
             .w_full()
             .bg(cx.theme().sidebar)
-            .child(panel_header("Inspector", 0, cx))
             .child(contents)
     }
 
@@ -595,7 +575,6 @@ impl EditorView {
             .w_full()
             .flex_col()
             .bg(cx.theme().sidebar)
-            .child(panel_header("React Preview", 0, cx))
             .child(
                 div()
                     .id("react-preview-scroll")
@@ -653,7 +632,7 @@ impl EditorView {
                     .label("Reload composition")
                     .on_click(cx.listener(Self::reload_react_click)),
             )
-            .when(!self.preview_warnings.is_empty(), |panel| {
+            .when(!self.problems.preview_warnings().is_empty(), |panel| {
                 panel.child(
                     div()
                         .flex()
@@ -667,7 +646,12 @@ impl EditorView {
                         .p_2()
                         .text_xs()
                         .text_color(cx.theme().warning)
-                        .children(self.preview_warnings.iter().cloned()),
+                        .children(
+                            self.preview_warnings_summary(
+                                "react-preview-warnings-show-problems",
+                                cx,
+                            ),
+                        ),
                 )
             })
     }

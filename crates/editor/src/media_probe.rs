@@ -1,4 +1,5 @@
 use crate::audio::take_latest;
+use crate::problems::error_chain;
 use crate::waveform::media_asset_info;
 use celesta_composition::Time;
 use celesta_media::FfmpegBackend;
@@ -51,7 +52,7 @@ impl MediaProbeWorker {
                             let result = backend
                                 .probe(&asset.path)
                                 .map(media_asset_info)
-                                .map_err(|error| error.to_string());
+                                .map_err(|error| error_chain(&error));
                             (asset.id, result)
                         })
                         .collect();

@@ -27,6 +27,25 @@ fn reports_a_missing_node_executable() {
 }
 
 #[test]
+fn an_unexpected_exit_shows_the_runtime_s_last_output() {
+    let bare = ReactBridgeError::UnexpectedExit {
+        stderr: String::new(),
+    };
+    assert_eq!(
+        bare.to_string(),
+        "the Node.js React runtime exited unexpectedly"
+    );
+    let with_output = ReactBridgeError::UnexpectedExit {
+        stderr: "Error: Cannot find module '@celesta/react'\n\nNode.js v24.0.0".to_owned(),
+    };
+    assert_eq!(
+        with_output.to_string(),
+        "the Node.js React runtime exited unexpectedly\nIts last output:\n  \
+         Error: Cannot find module '@celesta/react'\n\n  Node.js v24.0.0"
+    );
+}
+
+#[test]
 fn deserializes_component_schemas_from_the_ready_message() {
     let json = serde_json::json!({
         "config": {

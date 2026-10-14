@@ -1,6 +1,7 @@
 use crate::actions::{ClearExportRange, ExportProject, SetExportIn, SetExportOut};
 use crate::export_worker::{ExportRequest, ExportSource};
 use crate::helpers::{export_output, export_range_for, export_suggested_name};
+use crate::problems::{Source, error_chain};
 use crate::view::EditorView;
 use celesta_exporter::{ExportCancellation, ExportProgress, VideoFormat};
 use celesta_react_bridge::runtime_paths as react_runtime_paths;
@@ -32,8 +33,7 @@ impl EditorView {
         }
         self.pause();
         self.choosing_export_path = true;
-        self.export_error = None;
-        self.export_message = None;
+        self.problems.clear(Source::Export);
         let directory = self.document.path().and_then(Path::parent).map_or_else(
             || std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             Path::to_path_buf,
@@ -46,8 +46,11 @@ impl EditorView {
                 Ok(Err(error)) => {
                     view.update_in(cx, |this, _, cx| {
                         this.choosing_export_path = false;
-                        this.export_error =
-                            Some(format!("could not open Export dialog: {error}").into());
+                        this.problems.report(
+                            Source::Export,
+                            "Couldn’t show the Export dialog",
+                            error_chain(error.as_ref()),
+                        );
                         cx.notify();
                     })
                     .ok();
@@ -56,8 +59,11 @@ impl EditorView {
                 Err(error) => {
                     view.update_in(cx, |this, _, cx| {
                         this.choosing_export_path = false;
-                        this.export_error =
-                            Some(format!("Export dialog was interrupted: {error}").into());
+                        this.problems.report(
+                            Source::Export,
+                            "Export dialog was interrupted",
+                            error_chain(&error),
+                        );
                         cx.notify();
                     })
                     .ok();
@@ -117,13 +123,12 @@ impl EditorView {
         self.export_progress = Some(ExportProgress::Rendering { frame: 0, total: 0 });
         self.export_cancellation = Some(cancellation);
         self.export_cancelling = false;
-        self.export_error = None;
-        self.export_message = None;
+        self.problems.clear(Source::Export);
         if let Err(error) = self.export_worker.request(request) {
             self.export_path = None;
             self.export_progress = None;
             self.export_cancellation = None;
-            self.export_error = Some(error.into());
+            self.problems.fail(Source::Export, error);
         }
     }
 
@@ -135,7 +140,7 @@ impl EditorView {
         if self.export_out_frame.is_some_and(|out| out <= frame) {
             self.export_out_frame = None;
         }
-        self.export_error = None;
+        self.problems.clear(Source::Export);
         cx.notify();
     }
 
@@ -147,7 +152,7 @@ impl EditorView {
         if self.export_in_frame.is_some_and(|start| start >= frame) {
             self.export_in_frame = None;
         }
-        self.export_error = None;
+        self.problems.clear(Source::Export);
         cx.notify();
     }
 

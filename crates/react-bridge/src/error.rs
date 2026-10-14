@@ -12,7 +12,11 @@ pub enum ReactBridgeError {
     MissingPipe,
     Io(io::Error),
     Protocol(serde_json::Error),
-    UnexpectedExit,
+    /// The runtime closed its stdout. `stderr` holds the last lines it wrote
+    /// there, if any, which usually say why.
+    UnexpectedExit {
+        stderr: String,
+    },
     UnexpectedResponse,
     EntryFailed(String),
     /// The entry rejected project property values before running `prepare()`.
@@ -46,8 +50,20 @@ impl fmt::Display for ReactBridgeError {
                 formatter,
                 "the Node.js React runtime sent an unexpected response: {error}"
             ),
-            Self::UnexpectedExit => {
-                formatter.write_str("the Node.js React runtime exited unexpectedly")
+            Self::UnexpectedExit { stderr } => {
+                formatter.write_str("the Node.js React runtime exited unexpectedly")?;
+                if stderr.is_empty() {
+                    return Ok(());
+                }
+                formatter.write_str("\nIts last output:")?;
+                for line in stderr.lines() {
+                    if line.is_empty() {
+                        formatter.write_str("\n")?;
+                    } else {
+                        write!(formatter, "\n  {line}")?;
+                    }
+                }
+                Ok(())
             }
             Self::UnexpectedResponse => formatter
                 .write_str("the Node.js React runtime answered with the wrong kind of response"),
@@ -80,7 +96,7 @@ impl Error for ReactBridgeError {
             Self::Executable { source, .. } | Self::Io(source) => Some(source),
             Self::Protocol(error) => Some(error),
             Self::MissingPipe
-            | Self::UnexpectedExit
+            | Self::UnexpectedExit { .. }
             | Self::UnexpectedResponse
             | Self::EntryFailed(_)
             | Self::InvalidProperties(_)
