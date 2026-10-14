@@ -43,8 +43,29 @@ impl HitClip {
 }
 
 impl HitRegion {
+    /// The quad's area in square scene pixels, 0 for one collapsed to a
+    /// line or a point (and for one with a corner that is not finite).
+    pub(crate) fn area(&self) -> f64 {
+        let twice = (0..4)
+            .map(|i| {
+                let (from, to) = (self.corners[i], self.corners[(i + 1) % 4]);
+                from.x * to.y - to.x * from.y
+            })
+            .sum::<f64>();
+        if twice.is_finite() {
+            twice.abs() / 2.0
+        } else {
+            0.0
+        }
+    }
+
     /// Whether `point`, in scene pixels, is inside the quad and every clip.
+    /// A quad without area contains nothing: every point is on the line it
+    /// collapsed to as far as its edges tell.
     fn contains(&self, point: Point) -> bool {
+        if self.area() == 0.0 {
+            return false;
+        }
         // Inside a convex quad, the point is on the same side of every edge,
         // whichever way round a mirroring transform turned the corners.
         let sides = [0, 1, 2, 3].map(|i| {
@@ -148,6 +169,40 @@ mod tests {
             Some("clipped")
         );
         assert_eq!(hit_test(&regions, Point { x: 17.0, y: 15.0 }), None);
+    }
+
+    #[test]
+    fn misses_a_region_its_outer_clip_excludes() {
+        let mut clipped = square("clipped");
+        // Innermost first: the left half of the square, (10,10)-(15,20),
+        // inside a clip of its right half, (15,10)-(20,20).
+        clipped.clips.push(HitClip {
+            inverse: [1.0, 0.0, 0.0, 1.0, -12.5, -15.0],
+            half: [2.5, 5.0],
+            radius: 0.0,
+        });
+        clipped.clips.push(HitClip {
+            inverse: [1.0, 0.0, 0.0, 1.0, -17.5, -15.0],
+            half: [2.5, 5.0],
+            radius: 0.0,
+        });
+        let regions = [clipped];
+        assert_eq!(hit_test(&regions, Point { x: 12.0, y: 15.0 }), None);
+        assert_eq!(hit_test(&regions, Point { x: 17.0, y: 15.0 }), None);
+    }
+
+    #[test]
+    fn misses_a_quad_without_area() {
+        // A rect 0 wide and 0 high, then one only 0 high.
+        let point = region("point", [(15.0, 15.0); 4]);
+        let line = region(
+            "line",
+            [(10.0, 15.0), (20.0, 15.0), (20.0, 15.0), (10.0, 15.0)],
+        );
+        for at in [(15.0, 15.0), (0.0, 0.0), (12.0, 15.0), (40.0, 15.0)] {
+            let at = Point { x: at.0, y: at.1 };
+            assert_eq!(hit_test(&[point.clone(), line.clone()], at), None);
+        }
     }
 
     #[test]

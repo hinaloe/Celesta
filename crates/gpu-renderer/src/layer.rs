@@ -43,8 +43,9 @@ pub(crate) enum PreparedItem {
     /// A text layer `place_texts` replaces with a `Layer` before anything
     /// else reads the items.
     PendingText,
-    /// A path layer `place_paths` replaces with a `Layer`, or drops when it
-    /// covers no pixel, before anything else reads the items.
+    /// A path layer `place_paths` replaces with a `Layer` before anything
+    /// else reads the items; its callers drop the ones still pending, which
+    /// cover no pixel.
     PendingPath,
 }
 

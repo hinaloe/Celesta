@@ -385,9 +385,13 @@ impl GpuRenderer {
     }
 
     /// Whether later frames record `hit_regions`; off by default, when
-    /// preparing a frame does no work for them.
-    pub const fn set_record_hit_regions(&mut self, record: bool) {
+    /// preparing a frame does no work for them. Turning it off also forgets
+    /// the regions already recorded.
+    pub fn set_record_hit_regions(&mut self, record: bool) {
         self.record_hit_regions = record;
+        if !record {
+            self.hit_regions.clear();
+        }
     }
 
     /// Where each leaf layer (image, video, PSD, text, rect, path or

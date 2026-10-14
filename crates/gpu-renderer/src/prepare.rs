@@ -1005,8 +1005,9 @@ impl GpuRenderer {
 
     /// Turns the frame's `hit_leaves` into `hit_regions`, from `items` with
     /// every text and path placed but before the paths that cover no pixel
-    /// (which record nothing) are dropped. The leaves were met in painter's
-    /// order.
+    /// (which record nothing) are dropped. A layer whose quad has no area,
+    /// such as a rect 0 wide, records nothing either. The leaves were met
+    /// in painter's order.
     fn resolve_hit_regions(&mut self, items: &[PreparedItem]) {
         let clips = &self.clip_entries;
         self.hit_regions = self
@@ -1021,11 +1022,12 @@ impl GpuRenderer {
                 let clips = std::iter::successors(leaf.clip, |&index| clips[index as usize].parent)
                     .map(|index| clips[index as usize].hit_clip())
                     .collect();
-                Some(HitRegion {
+                let region = HitRegion {
                     layer_id: leaf.layer_id,
                     corners,
                     clips,
-                })
+                };
+                (region.area() > 0.0).then_some(region)
             })
             .collect();
     }

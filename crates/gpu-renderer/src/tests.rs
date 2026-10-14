@@ -4253,11 +4253,14 @@ fn records_where_each_leaf_layer_was_drawn() {
     let mut scene = empty_scene(400, 200);
     let mut hidden = corner_rect("z", 50.0, 50.0, 10.0, 10.0, "#ff0000");
     hidden.opacity = 0.0;
+    // Nothing to draw either: an animated rect's first frame.
+    let empty = corner_rect("empty", 60.0, 60.0, 0.0, 0.0, "#ff0000");
     let mut text = text_layer("t", Point { x: 300.0, y: 20.0 }, 1.0, 24.0);
     text.transform.rotation = 90.0;
     scene.layers = vec![
         corner_rect("a", 5.0, 5.0, 10.0, 10.0, "#ff0000"),
         hidden,
+        empty,
         group(
             EvaluatedTransform {
                 position: Point { x: 100.0, y: 0.0 },
@@ -4316,7 +4319,9 @@ fn records_where_each_leaf_layer_was_drawn() {
     // Inside the rect, outside its group's clip.
     assert_eq!(hit_test(regions, Point { x: 30.0, y: 130.0 }), None);
 
+    // Turning recording off forgets the last frame's regions at once.
     renderer.set_record_hit_regions(false);
+    assert!(renderer.hit_regions().is_empty());
     renderer.render(&scene).unwrap();
     assert!(renderer.hit_regions().is_empty());
 }
