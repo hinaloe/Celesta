@@ -622,6 +622,17 @@ function describeFilter(filter, sources) {
     case 'hue': return `hue(${fmt(filter.degrees)}°)`;
     case 'tint': return `tint(${filter.color}, ${fmt(filter.amount)})`;
     case 'vignette': return `vignette(${fmt(filter.amount)}, radius ${fmt(filter.radius)}, softness ${fmt(filter.softness)})`;
+    case 'pixelate': return `pixelate(${fmt(filter.size)} px)`;
+    case 'halftone': return `halftone(${fmt(filter.size)} px, ${fmt(filter.angle)}°)`;
+    case 'chromaticAberration': return `chromaticAberration(${fmt(filter.offset)} px, ${fmt(filter.angle)}°)`;
+    case 'wave':
+      return `wave(${fmt(filter.amplitude)} px, wavelength ${fmt(filter.wavelength)} px, phase ${fmt(filter.phase)}°, ${fmt(filter.angle)}°)`;
+    case 'noise': return `noise(${fmt(filter.amount)}, seed ${fmt(filter.seed)}${filter.monochrome === false ? ', color' : ''})`;
+    case 'scanlines':
+      return `scanlines(${fmt(filter.amount)}, spacing ${fmt(filter.spacing)} px, thickness ${fmt(filter.thickness)}, offset ${fmt(filter.offset)} px)`;
+    case 'zoomBlur': return `zoomBlur(${fmt(filter.amount)}, centre (${fmt(filter.centerX)}, ${fmt(filter.centerY)}))`;
+    case 'chromaKey':
+      return `chromaKey(${filter.color}, tolerance ${fmt(filter.tolerance)}, softness ${fmt(filter.softness)}, spill ${fmt(filter.spill)})`;
     default: return `${filter.type}(${fmt(filter.amount)})`;
   }
 }

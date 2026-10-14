@@ -10,3 +10,5 @@ node_modules/
 
 # Template sample media is part of the templates.
 !templates/*/assets/**
+# The green-screen example's footage is generated and kept small.
+!examples/greenscreen/assets/*.mp4

@@ -78,12 +78,14 @@ missing: ./mira/calm.png (relative paths resolve from /Users/me/my-video)
 Read it as: one line per layer in draw order (later lines draw on top),
 nested groups indented, positions in canvas pixels, followed by
 non-default opacity, blend mode, effects, and clip. A layer's custom
-shaders and color filters follow `filters`, in the order they run (`→`):
-the `shader` prop's first, then the color filter props'. A custom shader
-shows its name (the id when it has none), its parameters' values, and its
-padding (`pad`); a `color` parameter shows as the four 0–1 numbers the
-shader receives. A color filter shows its values, as `saturation(1.2)` or
-`vignette(0.5, radius 0.5, softness 0.5)`.
+shaders and built-in filters follow `filters`, in the order they run
+(`→`): the `shader` prop's first, then the built-in filter props'. A
+custom shader shows its name (the id when it has none), its parameters'
+values, and its padding (`pad`); a `color` parameter shows as the four 0–1
+numbers the shader receives. A built-in filter shows its values, as
+`saturation(1.2)`, `vignette(0.5, radius 0.5, softness 0.5)`,
+`pixelate(8 px)`, or `noise(0.2, seed 42)`; a noise's seed is the frame's
+unless the composition gave one.
 Check that:
 
 - the frames you changed contain the layers you expect, with the text,

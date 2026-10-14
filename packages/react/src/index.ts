@@ -80,7 +80,11 @@ export type {
   TextStyle,
   Time,
 } from './scene';
-export type { ColorFilterName, ColorFilterValues, LayerTint, LayerVignette, ShaderEffect } from './shader';
+export type {
+  BuiltinFilterName, BuiltinFilterValues, ColorFilterName, ColorFilterValues, EffectFilterName, EffectFilterValues,
+  LayerChromaKey, LayerChromaticAberration, LayerHalftone, LayerNoise, LayerPixelate, LayerScanlines, LayerTint,
+  LayerVignette, LayerWave, LayerZoomBlur, ShaderEffect,
+} from './shader';
 
 export { useCurrentFrame, useCurrentTime, useDebugGuides, useIsPreview, useVideoConfig } from './hooks';
 export type { VideoConfig } from './hooks';

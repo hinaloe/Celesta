@@ -96,7 +96,7 @@ test('the shader prop only takes a ShaderEffect or an array of them', () => {
   for (const shader of [lookalike, 'ripple', null, [effect, lookalike], [effect, null], [, effect]]) {
     assert.throws(
       () => frame(h(Rect, { width: 4, height: 4, shader })),
-      /shader must be a value returned by @celesta\/shader \(defineShader\(\) or a color filter such as brightness\(\)\), or an array of them/,
+      /shader must be a value returned by @celesta\/shader \(defineShader\(\) or a built-in filter such as brightness\(\)\), or an array of them/,
     );
   }
 });

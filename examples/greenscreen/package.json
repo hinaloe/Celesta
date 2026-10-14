@@ -1,0 +1,11 @@
+{
+  "name": "@celesta/example-greenscreen",
+  "private": true,
+  "dependencies": {
+    "@celesta/react": "workspace:*",
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0"
+  }
+}

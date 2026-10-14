@@ -143,6 +143,31 @@ test('the built-in color filters run where the array lists them', () => {
   ]);
 });
 
+test('the stylize effects and the chroma key run where the array lists them', () => {
+  const frame = render(
+    `import { chromaKey, chromaticAberration, halftone, noise, pixelate, scanlines, wave, zoomBlur } from '@celesta/shader';`,
+    `<Rect width={8} height={8} shader={[
+       scanlines(0.4), pixelate(6), halftone({ size: 8, angle: 15 }), chromaticAberration(2),
+       wave({ amplitude: 3, wavelength: 40, phase: 90 }), noise(0.1), noise({ amount: 0.1, seed: 5, monochrome: false }),
+       zoomBlur({ amount: 0.2, centerY: 0 }), chromaKey({ color: '#0000ff', spill: 0 }),
+     ]} />`,
+  );
+  assert.equal(frame.error, undefined, frame.error);
+  assert.equal('shaders' in frame.scene, false);
+  assert.deepEqual(frame.scene.layers[0].effects.filters, [
+    { type: 'scanlines', amount: 0.4, spacing: 4, thickness: 0.5, offset: 0 },
+    { type: 'pixelate', size: 6 },
+    { type: 'halftone', size: 8, angle: 15 },
+    { type: 'chromaticAberration', offset: 2, angle: 0 },
+    { type: 'wave', amplitude: 3, wavelength: 40, phase: 90, angle: 0 },
+    // Frame 0's seed.
+    { type: 'noise', amount: 0.1, seed: 0, monochrome: true },
+    { type: 'noise', amount: 0.1, seed: 5, monochrome: false },
+    { type: 'zoomBlur', amount: 0.2, centerX: 0.5, centerY: 0 },
+    { type: 'chromaKey', color: '#0000ff', tolerance: 0.2, softness: 0.1, spill: 0 },
+  ]);
+});
+
 test('color filters without custom shaders list no shaders in the scene', () => {
   const frame = render(
     `import { invert } from '@celesta/shader';`,
