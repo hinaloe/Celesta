@@ -296,10 +296,13 @@ impl Exporter {
             })?;
         ensure_not_cancelled(cancellation)?;
 
+        // No `-shortest`: the mix already spans the video. With a copied WebM
+        // video it cut the audio a frame short, and it lets the muxer finish
+        // while the audio encoder still sends, which ez-ffmpeg can report as
+        // "Muxer already finished".
         let muxed = Output::from(path_to_url(output))
             .add_stream_map_with_copy("0:v:0")
-            .add_stream_map("1:a:0")
-            .set_shortest(true);
+            .add_stream_map("1:a:0");
         let context = FfmpegContext::builder()
             .input(Input::from(path_to_url(video)))
             .input(
