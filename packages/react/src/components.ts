@@ -684,7 +684,12 @@ export interface FreezeFrameProps extends CommonProps {
  * replays the composition at that offset. Frozen children are always silent.
  * `<CharacterView>`s inside never attach their ref, which stays with the live
  * view, and `<Dialogue>`s inside drive only views drawn inside the same
- * `<FreezeFrame>`. Authored `id`s inside are prefixed with this layer's id.
+ * `<FreezeFrame>`. A `frame` at or past the composition's end draws the
+ * children as if the video went on: a `<Sequence>` that ends with the
+ * composition stays open, one with its own end keeps it, and
+ * `useVideoConfig()` still reports the composition's real duration, so a
+ * short composition (a poster, say) can draw a frame of a longer video.
+ * Authored `id`s inside are prefixed with this layer's id.
  * Project layers (`<ProjectTimeline />`, `<ProjectTrack />`) are evaluated at
  * the current frame only, so they throw inside.
  */
@@ -698,10 +703,24 @@ export function FreezeFrame(props: FreezeFrameProps): ReturnType<typeof React.cr
   if (typeof props.frame !== 'number' || !Number.isFinite(props.frame)) {
     throw new Error('<FreezeFrame> requires a finite `frame`');
   }
+  const time = secondsToTime(props.frame / root.fps);
+  // A frame past the composition's end is drawn as if the video went on, as
+  // render.ts's walker decides in `childFreezeContext`. The frozen clock is
+  // the root's inside, so a `<Sequence>` there places its window against it.
+  const frozen = {
+    ...root,
+    lang: context.lang,
+    time,
+    openEnd: secondsFromTime(time) >= root.durationInFrames / root.fps,
+  };
   return React.createElement(
-    CompositionRuntimeContext.Provider,
-    { value: { ...root, lang: context.lang, time: secondsToTime(props.frame / root.fps), openEnd: false } },
-    React.createElement(FreezeFrameContext.Provider, { value: scope }, React.createElement('freeze-frame', props)),
+    RootRuntimeContext.Provider,
+    { value: frozen },
+    React.createElement(
+      CompositionRuntimeContext.Provider,
+      { value: frozen },
+      React.createElement(FreezeFrameContext.Provider, { value: scope }, React.createElement('freeze-frame', props)),
+    ),
   );
 }
 

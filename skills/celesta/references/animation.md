@@ -185,6 +185,16 @@ It accepts common layer props.
 </Group>
 ```
 
+- `frame` may lie at or past the end of the composition the element is in:
+  the children are drawn as if the video went on, so a short composition
+  (a 1-frame poster, say) can draw a frame of a longer video. A `<Sequence>`
+  inside that ends with the composition (no `durationInFrames`) stays open,
+  one with its own `durationInFrames` keeps its own end, and
+  `useVideoConfig()` still reports the composition's real duration (inside
+  such an open `<Sequence>`, the frames from its start to the composition's
+  end, or 0 when it starts past the end). Children
+  that read it there can differ from a longer composition's; give the
+  `<Sequence>` its own `durationInFrames` to keep them the same.
 - Frozen children are always silent: `<Audio>`, the sound of a `<Video>`,
   and voiced `<Dialogue>` inside are not collected. For delayed playback with sound, use `<Sequence from>`.
 - Portraits can be redrawn too. A `<CharacterView>` inside never takes over
