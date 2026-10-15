@@ -48,6 +48,7 @@ export const CompositionRuntimeContext = React.createContext<CompositionRuntimeC
 /**
  * @internal The root composition's runtime, which `<Sequence>` never
  * overrides: `<FreezeFrame>` reads the composition's clock and duration here.
+ * Inside a `<FreezeFrame>`, the clock is the frozen one.
  */
 export const RootRuntimeContext = React.createContext<CompositionRuntimeContextValue | null>(null);
 

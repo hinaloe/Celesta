@@ -20,6 +20,7 @@ import {
 } from '@celesta/react';
 import { Character, CharacterView, Dialogue, blinkPhase } from '@celesta/character';
 import { ProjectTimeline, ProjectTrack } from '@celesta/project';
+import { TransitionSeries } from '@celesta/transitions';
 import { mount } from '@celesta/react/internal';
 
 const h = React.createElement;
@@ -92,6 +93,34 @@ test('inner sequences open against the frozen frame, even inside a short Sequenc
   assert.deepEqual(texts(at(composition, 0).scene.layers), []);
   assert.deepEqual(texts(at(composition, 11).scene.layers), ['intro']);
   assert.deepEqual(texts(at(composition, 13).scene.layers), ['main']);
+});
+
+test('a frame past the composition\'s end draws the whole tree, as in a longer composition', () => {
+  function Clock() {
+    const frame = useCurrentFrame();
+    const { durationInFrames } = useVideoConfig();
+    return h(Text, null, `clock:${frame}/${durationInFrames}`);
+  }
+  const World = () => h(React.Fragment, null,
+    h(Text, null, 'base'),
+    h(Sequence, { from: 30 }, h(Text, null, 'open')),
+    h(Sequence, { from: 30, durationInFrames: 100 }, h(Text, null, 'explicit')),
+    h(Sequence, { durationInFrames: 40 }, h(Text, null, 'ended')),
+    h(TransitionSeries, null,
+      h(TransitionSeries.Sequence, { durationInFrames: 30 }, h(Text, null, 'scene-a')),
+      h(TransitionSeries.Sequence, { durationInFrames: 30 }, h(Text, null, 'scene-b')),
+    ),
+    h(Sequence, { from: 50 }, h(Text, null, 'thumb')),
+    h(Sequence, { from: 40, durationInFrames: 20 }, h(FreezeFrame, { frame: 50 }, h(Sequence, { from: 50 }, h(Text, null, 'nested')))),
+    h(Clock),
+  );
+  const film = (durationInFrames) => mount(() => h(Composition, { width: 10, height: 10, fps: FPS, durationInFrames },
+    h(FreezeFrame, { frame: 45 }, h(World)),
+  ));
+  const drawn = (durationInFrames) => ['base', 'open', 'explicit', 'scene-b', 'nested', `clock:45/${durationInFrames}`];
+  assert.deepEqual(texts(at(film(120), 0).scene.layers), drawn(120));
+  assert.deepEqual(texts(at(film(1), 0).scene.layers), drawn(1));
+  assert.deepEqual(texts(at(film(45), 44).scene.layers), drawn(45));
 });
 
 test('frozen children contribute no audio', () => {

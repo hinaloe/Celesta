@@ -956,19 +956,24 @@ function childSequenceContext(node: HostNode, context: WalkContext): WalkContext
  * The walk context for a `<FreezeFrame>`'s children: the root clock at its
  * `frame`, with the root's range rather than the enclosing one, so a freeze
  * inside a short `<Sequence>` still opens the sequences its frame is in.
+ * A frame at or past the composition's end is evaluated as if the video
+ * went on (`openEnd`), as `<FreezeFrame>` in components.ts decides, so a
+ * short composition draws the same frame of the tree as a long one would.
  * Authored ids inside are prefixed with the freeze layer's id.
  */
 function childFreezeContext(node: HostNode, context: WalkContext, layerId: string): WalkContext {
   const time = secondsToTime(numberOr(node.props.frame, 0) / context.fps);
+  const frozenSec = secondsFromTime(time);
+  const openEnd = frozenSec >= context.compositionEndSec;
   return {
     time,
     lang: context.lang,
     fps: context.fps,
     originSec: 0,
     rangeStartSec: 0,
-    rangeEndSec: context.compositionEndSec,
+    rangeEndSec: openEnd ? frozenSec + 1 / context.fps : context.compositionEndSec,
     compositionEndSec: context.compositionEndSec,
-    openEnd: false,
+    openEnd,
     windowEndSec: context.compositionEndSec,
     frozen: true,
     idPrefix: `${layerId}/`,
