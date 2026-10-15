@@ -50,7 +50,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libasound2-dev libxkbcommon-x11-dev libfontconfig-dev mesa-vulkan-drivers
 
-      - uses: ./.github/actions/setup-ffmpeg
+      # Installing FFmpeg takes about two minutes on macOS (Homebrew), so the
+      # Rust toolchain, Node.js, and the JS packages install meanwhile.
+      # rust-cache waits for it: FFMPEG_VERSION is part of its key, and a
+      # background step's environment reaches later steps only after `wait`.
+      # It starts after the Linux packages, as both use apt.
+      - id: ffmpeg
+        uses: ./.github/actions/setup-ffmpeg
+        background: true
 
       # rust-cache hashes every installed toolchain; exclude the runner's moving stable.
       - name: Isolate Rust toolchain
@@ -60,17 +67,6 @@ jobs:
         with:
           # Update deliberately so compiler releases do not unexpectedly invalidate caches.
           toolchain: 1.99.0
-
-      # Pull requests restore main's cache; saving their own copies only
-      # crowds main's entries out of the repository's cache quota.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          env-vars: FFMPEG_VERSION FFMPEG_FEATURES
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
-        with:
-          tool: nextest@0.9.146
 
       # The pnpm version comes from package.json's `packageManager`.
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -82,41 +78,66 @@ jobs:
         with:
           node-version: 24
 
+      - name: Install JS packages
+        run: pnpm install --frozen-lockfile
+
+      - wait: ffmpeg
+
+      # Pull requests restore main's cache; saving their own copies only
+      # crowds main's entries out of the repository's cache quota.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          env-vars: FFMPEG_VERSION FFMPEG_FEATURES
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # After rust-cache, which restores ~/.cargo/bin, where it installs.
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: nextest@0.9.146
+
       # celesta-react-bridge and celesta-exporter tests spawn the compiled
       # packages/cli/dist/cli.js, so build the CLI and every package it serves first.
       - name: Build Celesta packages
         run: |
-          pnpm install --frozen-lockfile
           pnpm --dir packages/react run codegen --locked --timings
           pnpm run build:runtime
 
+      # Not beside the Rust build: many of these tests keep vitest's 5 second
+      # timeout and spawn processes, which time out on a runner whose cores
+      # Cargo keeps busy.
       - name: Test Celesta packages
         run: |
           pnpm run test:runtime
           pnpm --dir templates test
+          pnpm --dir packages/website test
+
+      # Type checks have no timeouts, so they run beside the Rust build and
+      # use the cores it leaves idle while it links.
+      - id: typecheck
+        name: Typecheck templates and examples
+        background: true
+        run: |
           pnpm --dir templates typecheck
           pnpm --dir packages/code run check:examples
           pnpm run typecheck:examples
-
-      - name: Test @celesta/website
-        run: pnpm --dir packages/website test
 
       - name: Build
         # Compile normal binaries and test targets together so Cargo can schedule
         # them in parallel; the Test step reuses the compiled test targets.
         run: cargo build --workspace --all-targets --locked --timings
 
+      # A failed type check fails the job here, before the Rust tests start.
+      - wait: typecheck
+
       # nextest runs every test in its own process, all binaries at once. The
       # GPU tests take turns within one process (see GPU_LOCK in
       # crates/gpu-renderer/src/tests.rs), so under `cargo test` they ran one by
-      # one. nextest skips doctests, so `cargo test --doc` runs them.
+      # one. nextest skips doctests; the workspace has none.
       # Linux has lavapipe; missing it must fail rather than skip GPU tests.
       - name: Test
         env:
           CELESTA_REQUIRE_GPU: ${{ runner.os == 'Linux' && '1' || '0' }}
-        run: |
-          cargo nextest run --workspace --locked --no-fail-fast
-          cargo test --workspace --locked --doc
+        run: cargo nextest run --workspace --locked --no-fail-fast
 
       - name: Upload Cargo build timings
         if: always()
