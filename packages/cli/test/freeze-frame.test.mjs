@@ -103,7 +103,7 @@ test('a frame past the composition\'s end draws the whole tree, as in a longer c
   }
   const World = () => h(React.Fragment, null,
     h(Text, null, 'base'),
-    h(Sequence, { from: 30 }, h(Text, null, 'open')),
+    h(Sequence, { from: 30 }, h(Clock)),
     h(Sequence, { from: 30, durationInFrames: 100 }, h(Text, null, 'explicit')),
     h(Sequence, { durationInFrames: 40 }, h(Text, null, 'ended')),
     h(TransitionSeries, null,
@@ -117,7 +117,10 @@ test('a frame past the composition\'s end draws the whole tree, as in a longer c
   const film = (durationInFrames) => mount(() => h(Composition, { width: 10, height: 10, fps: FPS, durationInFrames },
     h(FreezeFrame, { frame: 45 }, h(World)),
   ));
-  const drawn = (durationInFrames) => ['base', 'open', 'explicit', 'scene-b', 'nested', `clock:45/${durationInFrames}`];
+  // A sequence ending with the composition reports what is left of it.
+  const drawn = (durationInFrames) => [
+    'base', `clock:15/${Math.max(0, durationInFrames - 30)}`, 'explicit', 'scene-b', 'nested', `clock:45/${durationInFrames}`,
+  ];
   assert.deepEqual(texts(at(film(120), 0).scene.layers), drawn(120));
   assert.deepEqual(texts(at(film(1), 0).scene.layers), drawn(1));
   assert.deepEqual(texts(at(film(45), 44).scene.layers), drawn(45));
