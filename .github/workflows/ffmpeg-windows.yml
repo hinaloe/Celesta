@@ -73,21 +73,47 @@ jobs:
               <repository type="git" url="$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY" commit="$env:GITHUB_SHA" />
             </metadata>
             <files>
-              <file src="installed\**" target="vcpkg\installed" />
+              <file src="installed\**\*" target="vcpkg\installed" />
             </files>
           </package>
           "@ | Set-Content -LiteralPath $nuspec -Encoding utf8
           $out = Join-Path $env:RUNNER_TEMP 'nupkg'
           nuget pack $nuspec -BasePath $env:VCPKG_ROOT -OutputDirectory $out -NoPackageAnalysis
           if ($LASTEXITCODE -ne 0) { throw 'nuget pack failed' }
-          "PACKAGE_PATH=$(Join-Path $out "$env:PACKAGE_ID.$version.nupkg")" >> $env:GITHUB_ENV
-          "Published ``$env:PACKAGE_ID`` ``$version``. Pin it in ``.github/actions/setup-ffmpeg/action.yml``." >> $env:GITHUB_STEP_SUMMARY
+          $nupkg = Join-Path $out "$env:PACKAGE_ID.$version.nupkg"
+          # A published version cannot be replaced, so check that the package
+          # holds what setup-ffmpeg and the vcpkg crate read before publishing.
+          $entries = tar -tf $nupkg
+          if ($LASTEXITCODE -ne 0) { throw 'could not list the package' }
+          foreach ($expected in @(
+              'vcpkg/installed/vcpkg/status',
+              'vcpkg/installed/x64-windows-static-md-release/lib/avcodec.lib',
+              'vcpkg/installed/x64-windows-static-md-release/share/ffmpeg/copyright',
+              'vcpkg/installed/x64-windows-release/lib/avcodec.lib')) {
+            if ($entries -notcontains $expected) { throw "the package lacks $expected" }
+          }
+          if (-not ($entries -like 'vcpkg/installed/x64-windows-release/bin/avcodec-*.dll')) {
+            throw 'the package lacks the avcodec DLL'
+          }
+          "PACKAGE_VERSION=$version" >> $env:GITHUB_ENV
+          "PACKAGE_PATH=$nupkg" >> $env:GITHUB_ENV
 
+      # A re-run whose version is already published fails here rather than
+      # report the hash of a package it did not publish.
       - name: Publish
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          dotnet nuget push $env:PACKAGE_PATH --skip-duplicate `
+          dotnet nuget push $env:PACKAGE_PATH `
             --source "https://nuget.pkg.github.com/$env:GITHUB_REPOSITORY_OWNER/index.json" `
             --api-key $env:GITHUB_TOKEN
           if ($LASTEXITCODE -ne 0) { throw 'dotnet nuget push failed' }
+          $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $env:PACKAGE_PATH).Hash.ToLowerInvariant()
+          @(
+            "Published ``$env:PACKAGE_ID`` ``$env:PACKAGE_VERSION``. Pin both values in ``.github/actions/setup-ffmpeg/action.yml``:"
+            ''
+            '```yaml'
+            "PACKAGE_VERSION: '$env:PACKAGE_VERSION'"
+            "PACKAGE_SHA256: '$sha256'"
+            '```'
+          ) -join "`n" >> $env:GITHUB_STEP_SUMMARY
