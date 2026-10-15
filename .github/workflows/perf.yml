@@ -9,6 +9,12 @@ name: Performance
 # as a reference. perf-comment.yml then posts both on the pull request.
 # See docs/performance/benchmarking.md.
 #
+# A pull request is measured only while it has the `perf` label: adding the
+# label measures the current head, and each later push measures again. The
+# jobs hold runners for 15 to 25 minutes, and the macOS one takes one of the
+# few macOS runners the CI tests wait for, so they do not run on every pull
+# request.
+#
 # Like ci.yml, pull requests only restore the Rust cache: a cache saved from
 # a pull request's ref is visible to that pull request alone, and these are
 # large enough to evict main's. On a push to main the instructions job only
@@ -25,6 +31,7 @@ on:
       - ".github/actions/setup-ffmpeg/**"
       - ".github/workflows/perf.yml"
   pull_request:
+    types: [labeled, synchronize, reopened]
     paths:
       # Rust crate changes can affect the benchmark or its build.
       - "crates/**"
@@ -59,7 +66,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Adding another label starts a run whose jobs all skip; its own group keeps
+  # it from cancelling a measurement in progress.
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'perf' && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -68,6 +77,12 @@ env:
 jobs:
   instructions:
     name: Instructions per frame (lavapipe)
+    # A push to main builds for the cache; a pull request needs the label.
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'perf') ||
+      (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'perf'))
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -159,7 +174,11 @@ jobs:
   # the runner has no usable GPU.
   time:
     name: Time per frame (macOS)
-    if: github.event_name != 'push'
+    # As `instructions`, but not on a push to main: nothing to time there.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'perf') ||
+      (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'perf'))
     runs-on: macos-latest
     continue-on-error: true
     defaults:

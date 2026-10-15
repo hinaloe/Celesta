@@ -53,7 +53,11 @@ cargo run --release -p celesta-bench -- run --frames 10 --dump out/ # also save 
 ## In CI: instructions per frame
 
 [`.github/workflows/perf.yml`](../../.github/workflows/perf.yml) runs on pull
-requests that touch the renderer, the React runtime, or the benchmark. It
+requests that have the `perf` label and touch the renderer, the React
+runtime, or the benchmark. Adding the label measures the current head, and
+each later push measures again until the label is removed; it also runs by
+hand (Actions, Performance, Run workflow, with a `base`). Add the label to a
+pull request that changes rendering or claims a speedup. It
 builds `celesta-bench` at the pull request's base and at its merge commit,
 and runs each workload with both, at 1280x720 for 6 frames after 2 warmup
 frames:
@@ -171,8 +175,8 @@ power, and prefer more rounds over more frames.
 
 The `Time per frame (macOS)` job of
 [`perf.yml`](../../.github/workflows/perf.yml) runs this comparison on
-`macos-latest` for every pull request that runs the performance check, and by
-hand (Actions, Performance, Run workflow, with a `base`). Its adapter is
+`macos-latest` whenever the instruction counts above run: for a pull request
+with the `perf` label, and by hand. Its adapter is
 `Apple Paravirtual device (Metal)`: a GPU, reached through virtualization.
 `perf-comment.yml` adds its table to the pull request's comment, below the
 instruction counts: medians and min–max ranges of both sides, the 95%
