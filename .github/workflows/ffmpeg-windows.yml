@@ -1,0 +1,93 @@
+name: FFmpeg for Windows
+
+# Builds the FFmpeg libraries Celesta links on Windows and publishes them to
+# GitHub Packages as the Celesta.FFmpeg.Windows NuGet package, which
+# .github/actions/setup-ffmpeg downloads. Built in every job, vcpkg rebuilt
+# FFmpeg, x264, libvpx, and libopus (about 35 minutes) whenever its cache was
+# gone or a runner image brought a newer MSVC, which changes vcpkg's package
+# hashes. A published package keeps working on newer images: MSVC links
+# static libraries that an older MSVC built.
+#
+# Run it after changing the vcpkg release or FFmpeg's features, then pin the
+# version it reports in .github/actions/setup-ffmpeg.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  # A vcpkg release whose ffmpeg port is 8.1.x; vcpkg master ships FFmpeg 9,
+  # which Celesta does not support yet.
+  VCPKG_TAG: '2026.07.29'
+  PACKAGE_ID: Celesta.FFmpeg.Windows
+
+jobs:
+  build:
+    name: Build and publish
+    runs-on: windows-latest
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      # Release-only triplets: the vcpkg crate links only lib/, never
+      # debug/lib, so debug builds would double the build for nothing.
+      # x64-windows-static-md-release is what Celesta links; the DLLs of
+      # x64-windows-release come along for linking FFmpeg dynamically.
+      - name: Build FFmpeg
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'vcpkg'
+          git clone --quiet --depth 1 --branch $env:VCPKG_TAG https://github.com/microsoft/vcpkg $root
+          if ($LASTEXITCODE -ne 0) { throw 'git clone failed' }
+          & "$root/bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg bootstrap failed' }
+          & "$root/vcpkg.exe" install --clean-after-build `
+            'ffmpeg[x264,vpx,opus]:x64-windows-static-md-release' `
+            'ffmpeg[x264,vpx,opus]:x64-windows-release'
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg install failed' }
+          "VCPKG_ROOT=$root" >> $env:GITHUB_ENV
+
+      # The package holds vcpkg's installed/ tree, which the vcpkg crate reads
+      # as it is (VCPKG_ROOT), along with the license files under share/.
+      # Versions cannot be replaced, so each run publishes FFmpeg's version
+      # with the run number as its prerelease part.
+      - name: Pack
+        run: |
+          $listing = & "$env:VCPKG_ROOT/vcpkg.exe" list ffmpeg
+          $match = $listing | Select-String '^ffmpeg:x64-windows-static-md-release\s+([0-9.]+)'
+          if (-not $match) { throw "ffmpeg is not installed: $listing" }
+          $version = "$($match.Matches[0].Groups[1].Value)-$env:GITHUB_RUN_NUMBER"
+          $nuspec = Join-Path $env:RUNNER_TEMP "$env:PACKAGE_ID.nuspec"
+          @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+            <metadata>
+              <id>$env:PACKAGE_ID</id>
+              <version>$version</version>
+              <authors>$env:GITHUB_REPOSITORY_OWNER</authors>
+              <description>FFmpeg with libx264, libvpx, and libopus, built by vcpkg $env:VCPKG_TAG for x64-windows-static-md-release and x64-windows-release.</description>
+              <license type="expression">GPL-2.0-or-later</license>
+              <repository type="git" url="$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY" commit="$env:GITHUB_SHA" />
+            </metadata>
+            <files>
+              <file src="installed\**" target="vcpkg\installed" />
+            </files>
+          </package>
+          "@ | Set-Content -LiteralPath $nuspec -Encoding utf8
+          $out = Join-Path $env:RUNNER_TEMP 'nupkg'
+          nuget pack $nuspec -BasePath $env:VCPKG_ROOT -OutputDirectory $out -NoPackageAnalysis
+          if ($LASTEXITCODE -ne 0) { throw 'nuget pack failed' }
+          "PACKAGE_PATH=$(Join-Path $out "$env:PACKAGE_ID.$version.nupkg")" >> $env:GITHUB_ENV
+          "Published ``$env:PACKAGE_ID`` ``$version``. Pin it in ``.github/actions/setup-ffmpeg/action.yml``." >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Publish
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          dotnet nuget push $env:PACKAGE_PATH --skip-duplicate `
+            --source "https://nuget.pkg.github.com/$env:GITHUB_REPOSITORY_OWNER/index.json" `
+            --api-key $env:GITHUB_TOKEN
+          if ($LASTEXITCODE -ne 0) { throw 'dotnet nuget push failed' }
