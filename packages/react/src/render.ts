@@ -143,8 +143,9 @@ export interface SubtitleDescriptor {
  * the enclosing `<Sequence>` chain; `originSec` converts local time back to
  * composition seconds (`local + originSec`); `rangeStartSec`/`rangeEndSec`
  * bound when the current subtree can be visible or audible, in composition
- * seconds. `compositionEndSec` is the root's `rangeEndSec`, which a
- * `<FreezeFrame>` restores for its children; `frozen` is true inside one, and
+ * seconds. `compositionEndSec` is where the composition ends, which a
+ * `<FreezeFrame>` restores as its children's `rangeEndSec` (running past
+ * its frame when that frame is past the end); `frozen` is true inside one, and
  * `idPrefix` is prepended to authored layer ids there. `openEnd` is true when
  * a frame past the composition's end is evaluated as if the video went on
  * and this window ends with the composition; `rangeEndSec` then runs past
