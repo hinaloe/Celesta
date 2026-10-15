@@ -5,9 +5,11 @@ Celesta のリリースごとに「前のバージョンから何が変わった
 各機能をリリースノートの 1 ページのように見せます。見出し、何ができるか、それを使う差分、マージされた PR、そしてその場で動くデモです。
 
 - `film-0.7.0.tsx` — v0.6.0 → v0.7.0 の 91 秒（エントリ）。Celesta の File → Open… で開きます。
+- `shorts-0.7.0.tsx` — 同じ 91 秒を 1080×1920 の縦長に組み直したショート版（エントリ）。
 - `film-0.6.0.tsx` — v0.5.0 → v0.6.0 の 62 秒。
 - `components/` — シリーズ共通の見た目。配色・書体（`theme.ts`）、章のページ（`ChapterShell.tsx`）、右上の進行表示（`Hud.tsx`）、差分パネル（`DiffPanel.tsx`）、WGSL シェーダー（`shaders.ts`）、背景のドット（`Backdrop.tsx`）、Δ マーク（`Delta.tsx`）。0.7.0 は BGM のメーター付きの `Hud.tsx` を `v0.7.0/` に持ちます。
 - `v0.7.0/`・`v0.6.0/` — 各リリースの中身。冒頭（`Open.tsx`）、章の一覧（`chapters.tsx`）とデモ（`demos/`）、アウトロ（`Outro.tsx`）、リリースノートの PR 一覧（`prs.ts`）、テンポと章の位置（`timeline.ts`）。
+  0.7.0 は 2 つのエントリが同じカット（`reel.tsx`）を、それぞれのキャンバス（`layout.ts`）に組んで再生します。
 - `make-score-<version>.py` — BGM を生成する Python スクリプト。標準ライブラリのみ。
 - `poster-0.7.0.jpg`・`poster.jpg` — 0.7.0 は `poster` コンポジションの書き出し、0.6.0 は映像のアウトロから抽出した静止画。
 
@@ -60,6 +62,21 @@ SPECTRUM からはリードを足して 2 回目のドロップにしていま�
   言語はプロジェクトプロパティ `captions`（`ja` / `en`、既定は `ja`）で選び、書き出し時は `--props` で渡します。
 - エントリには `film` と `poster` の 2 つのコンポジションがあります。`poster` はアウトロの 1 フレームを `<FreezeFrame>` で描いたものです。
 - MCP 章のフレーム、エディタ章のプレビュー、MASK 章のカード、アウトロのサムネイルは、この映像そのものを `<FreezeFrame>` で描き直したものです。
+
+## ショート版（v0.7.0）
+
+`shorts-0.7.0.tsx` は本編と同じ 91 秒・同じ BGM・同じ切り替えを 1080×1920 で再生する縦長版です（Shorts、TikTok、Reels 向け）。
+
+- **組み直した部分**: 冒頭・MORE・アウトロは、本編と同じ部品がキャンバスの大きさに合わせて組み直されます。
+  章のページは縦用の `ShortChapter.tsx` で、ラベル・タイトル・見出し・差分を上に、デモ（本編の 860×742 のステージを 0.95 倍）を下に大きく置きます。
+  本文の説明は省き、PR 番号はプレビューの見出しに移しています。
+- **セーフエリア**: 読ませる文字は `'vertical-social'`（上 192・右 200・下 384・左 72 px）の内側に置いています。
+  ただし、タイトルが入ってくるときの字間や、デモの枠の端は少しはみ出します。
+  中央に置くもの（冒頭の図形や DELTA カード、アウトロ）は、セーフエリアではなく画面の中心に揃えています。
+- **セーフエリアの外側**: プラットフォームの UI に隠れる縁は `ShortFrame.tsx` が埋めます。
+  下端には BGM のバンドが帯になって伸び縮みし、右下には章番号が大きく画面からはみ出して置かれ、右端を章名が縦に流れます。
+- **本編の再利用**: リプレイやサムネイル（冒頭のティザー、MASK、MCP、EDITOR、SUBTITLES、アウトロ）は横長の本編のフレームです。
+- **補助線**: `<DebugOverlay safeArea="vertical-social" />` を入れてあり、アプリのプレビューと `--debug-guides` 付きの PNG にだけ描かれます（MP4 には描かれません）。
 
 ## 本物と演出（v0.7.0）
 
@@ -136,6 +153,13 @@ Celesta-export --json --react --composition poster examples/delta/film-0.7.0.tsx
 Celesta-export --json --react --overwrite --props '{"captions":"ja"}' examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 --subtitles examples/delta/delta-0.7.0.ja.vtt
 Celesta-export --json --react --overwrite --props '{"captions":"en"}' examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 --subtitles examples/delta/delta-0.7.0.en.srt
 Celesta-export --json --react --overwrite --props '{"captions":"en"}' examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 --subtitles examples/delta/delta-0.7.0.en.vtt
+```
+
+ショート版の書き出しと、セーフエリアの補助線付きのコンタクトシートです。
+
+```sh
+Celesta-export --json --react examples/delta/shorts-0.7.0.tsx examples/delta/delta-0.7.0-shorts.mp4
+Celesta-export --json --react --debug-guides --every 80 --contact-sheet --columns 6 examples/delta/shorts-0.7.0.tsx examples/delta/shorts-sheet.png
 ```
 
 ```sh
