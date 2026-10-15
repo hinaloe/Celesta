@@ -45,6 +45,9 @@ on:
       - "examples/versus/bench/celesta/**/*.tsx"
       - "examples/versus/bench/assets/fonts/**"
       - "examples/assets/dialogue-demo/portraits/**"
+      # The comparison itself.
+      - "scripts/bench.py"
+      - ".github/workflows/perf.yml"
   workflow_dispatch:
     inputs:
       base:
