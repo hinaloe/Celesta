@@ -1,6 +1,6 @@
 {
   "name": "@celesta/debug",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "description": "Debug overlays and bounds for previewing Celesta compositions.",
   "license": "MIT OR Apache-2.0",
