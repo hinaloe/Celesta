@@ -55,8 +55,8 @@ def build(revision, label, target_dir, worktrees, react):
             cwd=ROOT, stderr=subprocess.DEVNULL,
         ).returncode != 0:
             return None
-        # A worktree that stays at the same path keeps Cargo's incremental
-        # state for the workspace crates between invocations.
+        # A worktree that stays at the same path keeps its node_modules
+        # between invocations.
         source = worktrees / label
         if (source / ".git").is_file():
             git("checkout", "--quiet", "--detach", revision, cwd=source)
@@ -66,9 +66,22 @@ def build(revision, label, target_dir, worktrees, react):
             git("worktree", "prune")
             git("worktree", "add", "--quiet", "--detach", str(source), revision)
     print(f"building celesta-bench for {label} ({describe(revision)})", file=sys.stderr)
-    # Shared artifacts can reuse a path dependency from the other revision.
-    cargo_target = target_dir / label
-    env = {**os.environ, "CARGO_TARGET_DIR": str(cargo_target)}
+    # Both revisions share one target directory, so the dependencies are
+    # built once. Cargo names and fingerprints the workspace's own crates by
+    # their path relative to the workspace root, the same in both checkouts,
+    # and tells them stale by their sources' modification times, so a
+    # revision whose files are older than the other's build would reuse the
+    # other's crates. Remove them first, for the profiles that both the
+    # benchmark and the React runtime's codegen build.
+    env = {**os.environ, "CARGO_TARGET_DIR": str(target_dir)}
+    metadata = json.loads(subprocess.run(
+        ["cargo", "metadata", "--no-deps", "--format-version", "1"],
+        check=True, cwd=source, env=env, text=True, stdout=subprocess.PIPE,
+    ).stdout)
+    packages = [argument for package in metadata["packages"] for argument in ("-p", package["id"])]
+    for profile in ([], ["--release"]):
+        subprocess.run(["cargo", "clean", "--quiet", *profile, *packages],
+                       check=True, cwd=source, env=env)
     subprocess.run(
         ["cargo", "build", "--release", "--locked", "--quiet", "-p", "celesta-bench"],
         check=True, cwd=source, env=env,
@@ -88,7 +101,7 @@ def build(revision, label, target_dir, worktrees, react):
     suffix = ".exe" if os.name == "nt" else ""
     binary = target_dir / "bench-bin" / f"celesta-bench-{label}{suffix}"
     binary.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(cargo_target / "release" / f"celesta-bench{suffix}", binary)
+    shutil.copy2(target_dir / "release" / f"celesta-bench{suffix}", binary)
     return binary
 
 
