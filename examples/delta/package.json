@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "score": "python3 make-score-0.7.0.py",
-    "export": "celesta-exporter --json --react --overwrite film-0.7.0.tsx delta-0.7.0.mp4 --subtitles delta-0.7.0.srt",
+    "export": "celesta-exporter --json --react --overwrite film-0.7.0.tsx delta-0.7.0.mp4 --subtitles delta-0.7.0.ja.srt",
     "score:0.6.0": "python3 make-score-0.6.0.py",
     "export:0.6.0": "celesta-exporter --json --react --overwrite film-0.6.0.tsx delta-0.6.0.mp4",
     "typecheck": "tsc --project tsconfig.json"

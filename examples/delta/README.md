@@ -56,7 +56,8 @@ SPECTRUM からはリードを足して 2 回目のドロップにしていま�
 - `prepare()` で BGM を `loadAudioSpectrum()` に通し、右上のメーター（`useAudioSpectrum()`）、冒頭の色収差、SPECTRUM 章、
   エディタ章の波形、アウトロの輪が同じ解析結果で動きます。
 - 欧文の 3 書体は `<Font google="…">` で名前から読み込み、和文は使う文字だけの Noto Sans JP です。
-- 各場面の日本語の字幕を `<Subtitles>` に渡しており、`--subtitles` で SRT として書き出せます（画面には描きません）。
+- 各場面の字幕（日本語と英語）を `<Subtitles>` に渡しており、`--subtitles` で SRT または WebVTT として書き出せます（画面には描きません）。
+  言語はプロジェクトプロパティ `captions`（`ja` / `en`、既定は `ja`）で選び、書き出し時は `--props` で渡します。
 - エントリには `film` と `poster` の 2 つのコンポジションがあります。`poster` はアウトロの 1 フレームを `<FreezeFrame>` で描いたものです。
 - MCP 章のフレーム、エディタ章のプレビュー、MASK 章のカード、アウトロのサムネイルは、この映像そのものを `<FreezeFrame>` で描き直したものです。
 
@@ -64,7 +65,7 @@ SPECTRUM からはリードを足して 2 回目のドロップにしていま�
 
 - **実際の機能**: 上に挙げたもののほか、TRANSITIONS の再生、MASK の文字マスクと輝度マスク、MOTION BLUR と Trail、EFFECTS と COLOR の各フィルターと
   シェーダー配列、BLEND の 17 モード、SHAPES の図形と破線、PATHS の計測・トリム・モーフィング・SVG パス、SPECTRUM の値、
-  MORE の SUBTITLES に出る SRT（このカード自身の字幕を `formatSubtitles()` で書いたもの）と SAFE AREAS の数値（`safeAreaInsets()`）は実際の描画と計算です。
+  MORE の SUBTITLES の見本（SPECTRUM 章に合わせた英語の SRT を `parseSubtitles()` で読み、4 倍速で再生した SPECTRUM 章に載せたもの）と SAFE AREAS の数値（`safeAreaInsets()`）は実際の描画と計算です。
 - **説明のための描画**: MEDIA の 3 つのファイル（動画、APNG、透過の書き出し）は実ファイルではなく、似せて描いたものです。
   動画の波形はこの映像の BGM の音量、スピナーのコマは時間から求めています。
   MCP の会話、EDITOR のエディタ画面・ピンチ・Problems タブのエラー文、AIVISSPEECH のモーラ、WEBSITE のページも同様に描いたもので、
@@ -125,8 +126,16 @@ WAV と MP4 はリポジトリ全体の設定で Git の管理対象外です。
 ```sh
 python3 examples/delta/make-score-0.7.0.py
 node skills/celesta/scripts/inspect.mjs examples/delta/film-0.7.0.tsx --frames 0,1360,2719
-Celesta-export --json --react examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 --subtitles examples/delta/delta-0.7.0.srt
+Celesta-export --json --react examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 --subtitles examples/delta/delta-0.7.0.ja.srt
 Celesta-export --json --react --composition poster examples/delta/film-0.7.0.tsx --frame 0 examples/delta/poster-0.7.0.png
+```
+
+字幕は 1 回の書き出しで 1 ファイルです。英語は `--props`、WebVTT は拡張子で選びます（映像は毎回同じものが書き出されます）。
+
+```sh
+Celesta-export --json --react --overwrite --props '{"captions":"ja"}' examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 --subtitles examples/delta/delta-0.7.0.ja.vtt
+Celesta-export --json --react --overwrite --props '{"captions":"en"}' examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 --subtitles examples/delta/delta-0.7.0.en.srt
+Celesta-export --json --react --overwrite --props '{"captions":"en"}' examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 --subtitles examples/delta/delta-0.7.0.en.vtt
 ```
 
 ```sh

@@ -1,13 +1,14 @@
+import { useContext } from 'react';
 import type { ReactNode } from 'react';
-import { Easings, Group, Rect, Text, formatSubtitles, interpolate, progress, useCurrentFrame } from '@celesta/react';
+import { Easings, FreezeFrame, Group, Rect, Text, interpolate, parseSubtitles, progress, useCurrentFrame } from '@celesta/react';
 import { safeAreaInsets } from '@celesta/layout';
 import { chromaticAberration, pixelate } from '@celesta/shader';
 import { Backdrop } from '../components/Backdrop';
 import { CUT } from '../components/ChapterShell';
 import { Delta } from '../components/Delta';
-import { C, FONT, FPS, ease, solid } from '../components/theme';
-import { CAPTIONS } from './captions';
-import { BAR, BEAT, CHAPTER_COUNT, DURATION } from './timeline';
+import { C, FONT, FPS, W, ease, solid } from '../components/theme';
+import { FilmContext } from './film-context';
+import { BAR, BEAT, DURATION, chapterAt } from './timeline';
 
 // MORE: eight one-bar cards for what did not get a chapter. Each lands on a
 // downbeat with a stab in the score; the title slams in through a pixelate
@@ -80,18 +81,65 @@ function GoogleFonts({ f, c }: VisualProps) {
   );
 }
 
+// The SUBTITLES card's sample: an English SRT timed to the SPECTRUM chapter,
+// read with parseSubtitles() and drawn over that chapter playing (at four
+// times speed, so both cues fit in the card's bar).
+const SAMPLE_AT = chapterAt(8);
+const SAMPLE_SRT = `1
+${timecode(SAMPLE_AT)} --> ${timecode(SAMPLE_AT + 2 * BAR)}
+These bars are this film's own score.
+
+2
+${timecode(SAMPLE_AT + 2 * BAR)} --> ${timecode(SAMPLE_AT + 4 * BAR)}
+32 bands and the loudness, frame by frame.
+`;
+const SAMPLE_CUES = parseSubtitles(SAMPLE_SRT, { fps: FPS });
+const SPEED = 4;
+const PREVIEW_SIZE = { width: 600, height: 338 };
+
+/** An SRT time (HH:MM:SS,mmm) for a composition frame. */
+function timecode(frame: number) {
+  const ms = Math.round((frame / FPS) * 1000);
+  const pad = (n: number, width = 2) => String(n).padStart(width, '0');
+  return `${pad(Math.floor(ms / 3_600_000))}:${pad(Math.floor(ms / 60_000) % 60)}:${pad(Math.floor(ms / 1000) % 60)},${pad(ms % 1000, 3)}`;
+}
+
 function SubtitleFile({ f, c }: VisualProps) {
-  // This card's own cue, as the export writes it with --subtitles.
-  const cue = CAPTIONS[CHAPTER_COUNT];
-  const srt = formatSubtitles([cue], { fps: FPS, format: 'srt' }).trim().split('\n');
+  const Film = useContext(FilmContext);
+  const at = SAMPLE_AT + Math.max(0, f) * SPEED;
+  const current = SAMPLE_CUES.findIndex((cue) => cue.from <= at && at < cue.from + cue.durationInFrames);
+  const lines = SAMPLE_SRT.trim().split('\n');
+  const scale = PREVIEW_SIZE.width / W;
   return (
-    <Group>
-      <Rect x={-30} y={20} width={760} height={330} cornerRadius={12} fill={c.panel} />
-      <Text y={50} opacity={ease(f, 2, 10)} style={mono(20, c.sub)}>delta-0.7.0.srt</Text>
-      {srt.map((line, i) => (
-        <Text key={i} y={100 + i * 50} opacity={ease(f, 5 + i * 4, 10)} maxWidth={700}
-          style={{ ...mono(i === 1 ? 24 : 26, i === 1 ? c.accent : c.ink, i === 2 ? 700 : 400), lineHeight: 40 }}>{line}</Text>
-      ))}
+    <Group y={-60}>
+      {/* The cues on the film, as <Sequence>s of the parsed frames would show them. */}
+      <Group opacity={ease(f, 2, 10)}>
+        <Rect x={-3} y={-3} width={PREVIEW_SIZE.width + 6} height={PREVIEW_SIZE.height + 6} cornerRadius={8} fill={c.ink} />
+        <Group clip={{ width: PREVIEW_SIZE.width, height: PREVIEW_SIZE.height, cornerRadius: 6 }}>
+          <Group scale={scale}><FreezeFrame frame={at}><Film /></FreezeFrame></Group>
+          {current >= 0 ? (
+            <Group>
+              <Rect x={60} y={PREVIEW_SIZE.height - 64} width={PREVIEW_SIZE.width - 120} height={42} cornerRadius={6} fill="#000000B8" />
+              <Text x={PREVIEW_SIZE.width / 2} y={PREVIEW_SIZE.height - 43} anchorX={0.5} anchorY={0.5}
+                style={{ fontFamily: FONT.sans, fontSize: 20, fontWeight: 500, fill: solid('#FFFFFF') }}>
+                {SAMPLE_CUES[current].text}
+              </Text>
+            </Group>
+          ) : null}
+          <Text x={PREVIEW_SIZE.width - 14} y={14} anchorX={1} style={mono(14, '#FFFFFFAA')}>{`${SPEED}×`}</Text>
+        </Group>
+      </Group>
+      <Group y={PREVIEW_SIZE.height + 30}>
+        <Text opacity={ease(f, 2, 10)} style={mono(18, c.sub)}>captions.srt  →  parseSubtitles(srt, {'{'} fps: 30 {'}'})</Text>
+        {lines.map((line, i) => {
+          const cue = i < 4 ? 0 : 1;
+          const on = cue === current;
+          return (
+            <Text key={i} y={32 + i * 27} opacity={ease(f, 3 + i * 2, 10) * (on ? 1 : 0.45)}
+              style={mono(19, i % 4 === 1 ? c.accent : c.ink, on && i % 4 === 2 ? 700 : 400)}>{line}</Text>
+          );
+        })}
+      </Group>
     </Group>
   );
 }
@@ -204,7 +252,7 @@ function Fixes({ f, c }: VisualProps) {
 export const CARDS: readonly Card[] = [
   { title: 'COMPOSITIONS', line: 'One entry, several videos. This one has two.', prs: [340], Visual: Compositions },
   { title: 'GOOGLE FONTS', line: 'Ask for a family by name. Every Latin face here is.', prs: [341], Visual: GoogleFonts },
-  { title: 'SUBTITLES', line: 'SRT and WebVTT in, --subtitles out. This film writes its own.', prs: [342], Visual: SubtitleFile },
+  { title: 'SUBTITLES', line: 'SRT and WebVTT in, --subtitles out. This film writes its own, in two languages.', prs: [342], Visual: SubtitleFile },
   { title: 'SAFE AREAS', line: 'Insets for Shorts, TikTok and Reels, guides in PNG checks.', prs: [281, 220], Visual: SafeAreas },
   { title: 'AIVISSPEECH', line: 'Mora and phoneme timing from VOICEVOX and AivisSpeech.', prs: [274], Visual: Moras },
   { title: 'REACT 19', line: 'The workspace and every example on one React.', prs: [330, 345, 361], Visual: React19 },

@@ -1,8 +1,11 @@
-import { Assets, Audio, Composition, Font, FreezeFrame, Group, Subtitles, progress, useCurrentFrame } from '@celesta/react';
+import {
+  Assets, Audio, Composition, Font, FreezeFrame, Group, Subtitles, defineProjectProperties, getProjectProperty, progress, useCurrentFrame,
+} from '@celesta/react';
 import { TransitionSeries, computeTransitionSeries } from '@celesta/transitions';
 import { CUT, ChapterShell } from './components/ChapterShell';
 import { FPS, H, W, japaneseFonts } from './components/theme';
-import { CAPTIONS } from './v0.7.0/captions';
+import { CAPTIONS, CAPTION_LANGUAGES } from './v0.7.0/captions';
+import type { CaptionLanguage } from './v0.7.0/captions';
 import { CHAPTERS } from './v0.7.0/chapters';
 import { CUTS, CUT_EASING } from './v0.7.0/cuts';
 import { FilmContext } from './v0.7.0/film-context';
@@ -20,7 +23,8 @@ import { CHAPTER_COUNT, CHAPTER_LENGTHS, OPEN_LENGTH, OUTRO_AT, OUTRO_LENGTH, ch
 // live demo of the feature drawn by the feature.
 // Open this file in Celesta, or export it with:
 //   python3 examples/delta/make-score-0.7.0.py
-//   Celesta-export --react examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 --subtitles examples/delta/delta-0.7.0.srt
+//   Celesta-export --react examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 --subtitles examples/delta/delta-0.7.0.ja.srt
+// (--props '{"captions":"en"}' for English captions; .vtt for WebVTT)
 //
 //   components/   the DELTA look, shared by every release film: theme, chapter page, diff panel, shaders
 //   v0.7.0/       this release: the open, the chapters (chapters.tsx lists them, demos/ draws them), MORE, the outro
@@ -30,7 +34,8 @@ import { CHAPTER_COUNT, CHAPTER_LENGTHS, OPEN_LENGTH, OUTRO_AT, OUTRO_LENGTH, ch
 // under a <MotionBlur> and flashes the chapters through a text mask, the
 // card is glitched by a shader array, the HUD and the outro's ring read the
 // score's spectrum, the fonts are loaded by name, the captions go out as an
-// SRT file, and the entry holds a second composition: the poster.
+// SRT or WebVTT file in Japanese or English, and the entry holds a second
+// composition: the poster.
 
 /** prepare(): the score's spectrum, for everything that moves with the music. */
 export async function prepare() {
@@ -90,7 +95,17 @@ function ChapterHud() {
   return <Group opacity={opacity}><Hud version="0.7.0" starts={CHAPTER_AT.slice(0, -1)} lengths={CHAPTER_LENGTHS.slice(0, -1)} /></Group>;
 }
 
-const JA_STRINGS = [...PRS.map(([, title]) => title), ...MORE_STRINGS, ...CAPTIONS.map((cue) => cue.text)];
+// The arrow is drawn in JetBrains Mono, whose Google Fonts file lacks it (#363).
+const JA_STRINGS = [...PRS.map(([, title]) => title), ...MORE_STRINGS, '→'];
+
+// Which language --subtitles writes: --props '{"captions":"en"}'.
+defineProjectProperties({
+  captions: { type: 'select', label: 'Captions', defaultValue: 'ja', options: [...CAPTION_LANGUAGES] },
+});
+
+function Captions() {
+  return <Subtitles cues={CAPTIONS[getProjectProperty<CaptionLanguage>('captions')]} />;
+}
 
 function Fonts() {
   // Latin faces by family name (#341); Japanese subset to the film's glyphs.
@@ -113,7 +128,7 @@ export default function Root() {
           <Film />
         </FilmContext.Provider>
         <ChapterHud />
-        <Subtitles cues={CAPTIONS} />
+        <Captions />
         <Audio src={SCORE_SRC} />
       </Composition>
       {/* A still of the outro. As long as the film, so the frames its thumbnails
