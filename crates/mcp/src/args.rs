@@ -544,8 +544,8 @@ mod tests {
     #[test]
     fn contact_sheet_output_extension_picks_the_format() {
         for output in ["a.png", "a.jpg", "a.JPEG", "a.webp"] {
-            let job = sheet_job(json!({ "source": "a.tsx", "every": 5, "output": output }))
-                .unwrap();
+            let job =
+                sheet_job(json!({ "source": "a.tsx", "every": 5, "output": output })).unwrap();
             assert!(job.output.ends_with(output), "{}", job.output.display());
         }
         let job = sheet_job(json!({ "source": "a.tsx", "every": 5, "format": "webp" })).unwrap();
@@ -589,8 +589,10 @@ mod tests {
         let quality = |job: ExportJob| job.stills.unwrap().quality;
         assert_eq!(
             quality(
-                frames_job(json!({ "source": "a.tsx", "frames": [0], "format": "jpeg", "quality": 75 }))
-                    .unwrap()
+                frames_job(
+                    json!({ "source": "a.tsx", "frames": [0], "format": "jpeg", "quality": 75 })
+                )
+                .unwrap()
             ),
             Some(75)
         );
@@ -602,8 +604,10 @@ mod tests {
         );
         assert_eq!(
             quality(
-                sheet_job(json!({ "source": "a.tsx", "every": 5, "output": "a.webp", "quality": 1 }))
-                    .unwrap()
+                sheet_job(
+                    json!({ "source": "a.tsx", "every": 5, "output": "a.webp", "quality": 1 })
+                )
+                .unwrap()
             ),
             Some(1)
         );

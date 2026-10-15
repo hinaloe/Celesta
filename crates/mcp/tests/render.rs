@@ -299,7 +299,11 @@ async fn render_frames_writes_and_returns_jpeg_and_webp() {
         }
         for output in structured(&result)["outputs"].as_array().unwrap() {
             let path = std::path::Path::new(output["path"].as_str().unwrap());
-            assert!(path.to_str().unwrap().ends_with(extension), "{}", path.display());
+            assert!(
+                path.to_str().unwrap().ends_with(extension),
+                "{}",
+                path.display()
+            );
             assert!(matches(&std::fs::read(path).unwrap()), "{}", path.display());
         }
     }
@@ -314,10 +318,12 @@ async fn contact_sheet_writes_the_output_extension_format() {
     let out = tempfile::tempdir().unwrap();
     let (client, _) = client().await;
     let sheet = out.path().join("sheet.webp");
+    // Five 160-pixel tiles stay under the inline limit, so the image comes
+    // back as written rather than as a downscaled PNG.
     let result = call(
         &client,
         "contact_sheet",
-        json!({ "source": entry, "every": 5, "output": sheet, "quality": 80 }),
+        json!({ "source": entry, "every": 5, "tileWidth": 160, "output": sheet, "quality": 80 }),
     )
     .await;
     assert!(!is_error(&result), "{}", text(&result));
@@ -330,7 +336,7 @@ async fn contact_sheet_writes_the_output_extension_format() {
     let result = call(
         &client,
         "contact_sheet",
-        json!({ "source": entry, "every": 5, "format": "jpeg" }),
+        json!({ "source": entry, "every": 5, "tileWidth": 160, "format": "jpeg" }),
     )
     .await;
     assert!(!is_error(&result), "{}", text(&result));
