@@ -99,8 +99,7 @@ export function Captions() {
   return <Subtitles cues={CAPTIONS[getProjectProperty<CaptionLanguage>('captions')]} />;
 }
 
-// The arrow is drawn in JetBrains Mono, whose Google Fonts file lacks it (#363).
-const JA_STRINGS = [...PRS.map(([, title]) => title), ...MORE_STRINGS, '→'];
+const JA_STRINGS = [...PRS.map(([, title]) => title), ...MORE_STRINGS];
 
 export function Fonts() {
   // Latin faces by family name (#341); Japanese subset to the film's glyphs.
@@ -108,7 +107,7 @@ export function Fonts() {
     <Assets>
       <Font google="Bebas Neue" />
       <Font google="Space Grotesk" weights={[400, 500, 700]} />
-      <Font google="JetBrains Mono" weights={[400, 700]} subsets={['latin', 'greek']} />
+      <Font google="JetBrains Mono" weights={[400, 700]} />
       <Font src={japaneseFonts(JA_STRINGS)} />
     </Assets>
   );

@@ -44,9 +44,8 @@ export default function Root() {
         <Captions />
         <Audio src={SCORE_SRC} />
       </Composition>
-      {/* A still of the outro. As long as the film, so the frames its thumbnails
-          freeze exist in it too; export any one frame of it. */}
-      <Composition id="poster" width={W} height={H} fps={FPS} durationInFrames={DURATION} lang="ja-JP">
+      {/* A still of the outro: one frame of the film, past this composition's end. */}
+      <Composition id="poster" width={W} height={H} fps={FPS} durationInFrames={1} lang="ja-JP">
         <Fonts />
         <FilmContext.Provider value={Film}>
           <FreezeFrame frame={POSTER_AT}><Film /></FreezeFrame>
