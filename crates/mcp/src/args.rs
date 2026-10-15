@@ -268,6 +268,7 @@ impl RenderFramesArgs {
             frames,
             contact_sheet: None,
             debug_guides,
+            quality: None,
         };
         Ok(job(source, dir.join("frame.png"), Some(stills), options))
     }
@@ -306,6 +307,7 @@ impl ContactSheetArgs {
                 tile_width,
             }),
             debug_guides,
+            quality: None,
         };
         Ok(job(source, output, Some(stills), options))
     }

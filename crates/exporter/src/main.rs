@@ -15,7 +15,8 @@ use celesta_composition::Time;
 use celesta_exporter::{
     BitDepth, ColorConversion, ContactSheet, EncoderPreset, ExportCancellation, ExportError,
     ExportJob, ExportOptions, ExportProgress, ExportRange, FrameSelection, GpuDriver,
-    ReactRuntimeOptions, RenderQuality, StillExport, VideoEncoding, VideoFormat, parse_timecode,
+    ReactRuntimeOptions, RenderQuality, StillExport, StillFormat, VideoEncoding, VideoFormat,
+    parse_timecode,
 };
 use celesta_react_bridge::{PropsFileChoice, resolve_props_file};
 
@@ -28,12 +29,16 @@ span of the composition to export (the output starts at its own 00:00).
 project's dialogue items, each for as long as it is shown. With --from/--to
 the times start at the span's start, and cues are cut to the span.
 
-PNG output is selected by --frame/--frames or --every. Multiple frames use
-output-000090.png names; frame numbers are zero-based. --every <n> picks
-frames 0, n, 2n, ... of the --from/--to span (or the whole composition) plus
-its last frame. --contact-sheet writes the selection as one labelled grid
-image instead. --debug-guides draws a React entry's <DebugOverlay> and
-<DebugBounds> into the PNGs, as the editor preview does.
+Still images are selected by --frame/--frames or --every and written as PNG
+(.png), JPEG (.jpg, .jpeg) or lossy WebP (.webp) by the output's extension;
+--quality sets JPEG and WebP quality, 1-100 (default 90). Stills are drawn
+over the export's opaque background, as an MP4 is, so JPEG's missing alpha
+channel loses nothing. Multiple frames use output-000090.png names with the
+output's extension; frame numbers are zero-based. --every <n> picks frames
+0, n, 2n, ... of the --from/--to span (or the whole composition) plus its
+last frame. --contact-sheet writes the selection as one labelled grid image
+instead. --debug-guides draws a React entry's <DebugOverlay> and
+<DebugBounds> into the stills, as the editor preview does.
 
 --props and --props-file set the values an entry declares with
 defineProjectProperties(). Highest precedence first: --props, --props-file,
@@ -55,7 +60,8 @@ request per stdin line, each a composition time (with openEnd, a time past
 the end, evaluated as if the video went on), and answers each with one JSON
 line on stdout; skills/celesta/scripts/inspect.mjs --native drives it.";
 
-/// Exports a Celesta project or React composition to MP4, MOV or WebM video or PNG stills.
+/// Exports a Celesta project or React composition to MP4, MOV or WebM video or
+/// PNG, JPEG or WebP stills.
 #[derive(Parser)]
 #[command(
     name = "celesta-exporter",
@@ -67,7 +73,7 @@ struct Cli {
     /// The project (.celesta.json), or with --react the entry (.tsx), to export.
     source: PathBuf,
     /// The .mp4, .mov (ProRes 4444 with alpha) or .webm (VP9 with alpha) file to
-    /// write, or the .png file for frame exports.
+    /// write, or the .png, .jpg/.jpeg or .webp file for frame exports.
     #[arg(required_unless_present = "inspect")]
     output: Option<PathBuf>,
     /// Evaluate frames requested on stdin as JSON lines instead of exporting.
@@ -76,7 +82,7 @@ struct Cli {
         requires = "react",
         conflicts_with_all = [
             "output", "project", "overwrite", "from", "to", "frames", "every",
-            "contact_sheet", "columns", "tile_width", "output_format", "preset",
+            "contact_sheet", "columns", "tile_width", "output_format", "quality", "preset",
             "crf", "color_conversion", "bit_depth", "render_quality", "driver", "no_ui",
             "json", "debug_guides", "subtitles",
         ]
@@ -116,7 +122,7 @@ struct Cli {
     /// Also write the video's subtitles to this .srt or .vtt file.
     #[arg(long, value_name = "FILE")]
     subtitles: Option<PathBuf>,
-    /// Export these zero-based frames as PNG; repeatable and comma-separated.
+    /// Export these zero-based frames as stills; repeatable and comma-separated.
     #[arg(
         long = "frame",
         visible_alias = "frames",
@@ -125,14 +131,21 @@ struct Cli {
         conflicts_with_all = ["every", "from", "to"]
     )]
     frames: Vec<u64>,
-    /// Export every n-th frame (and the last one) as PNG.
+    /// Export every n-th frame (and the last one) as stills.
     #[arg(long, value_name = "N")]
     every: Option<NonZeroU64>,
     /// Write the selected frames as one labelled grid image.
     #[arg(long)]
     contact_sheet: bool,
+    /// JPEG or WebP quality, 1-100; higher is sharper and larger [default: 90].
+    #[arg(
+        long,
+        value_name = "1-100",
+        value_parser = clap::value_parser!(u8).range(1..=i64::from(StillExport::MAX_QUALITY))
+    )]
+    quality: Option<u8>,
     /// Draw the entry's debug guides (<DebugOverlay>, <DebugBounds>) into
-    /// PNG frames and contact sheets; never into a video.
+    /// still frames and contact sheets; never into a video.
     #[arg(long, requires = "react")]
     debug_guides: bool,
     /// Contact sheet columns.
@@ -151,8 +164,8 @@ struct Cli {
         default_value_t = non_zero(ContactSheet::DEFAULT_TILE_WIDTH)
     )]
     tile_width: NonZeroU32,
-    /// Output format; PNG is implied by a frame selection, video formats by the
-    /// extension.
+    /// Output format; the output's extension implies it, and must match it when
+    /// it is a known one. A still format requires a frame selection.
     #[arg(long, value_enum)]
     output_format: Option<OutputFormat>,
     /// libx264 preset: faster presets encode faster but produce larger files.
@@ -230,19 +243,31 @@ impl Cli {
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum OutputFormat {
     Png,
+    Jpeg,
+    Webp,
     Mp4,
     Mov,
     Webm,
 }
 
 impl OutputFormat {
-    /// The video format this names, or `None` for PNG.
+    /// The video format this names, or `None` for a still format.
     fn video(self) -> Option<VideoFormat> {
         match self {
-            Self::Png => None,
+            Self::Png | Self::Jpeg | Self::Webp => None,
             Self::Mp4 => Some(VideoFormat::Mp4),
             Self::Mov => Some(VideoFormat::Mov),
             Self::Webm => Some(VideoFormat::Webm),
+        }
+    }
+
+    /// The still format this names, or `None` for a video format.
+    fn still(self) -> Option<StillFormat> {
+        match self {
+            Self::Png => Some(StillFormat::Png),
+            Self::Jpeg => Some(StillFormat::Jpeg),
+            Self::Webp => Some(StillFormat::Webp),
+            Self::Mp4 | Self::Mov | Self::Webm => None,
         }
     }
 }
@@ -305,7 +330,10 @@ fn main() -> ExitCode {
         source: &cli.source,
         output: cli.output(),
         react: cli.react,
-        png: format.is_none(),
+        still: format
+            .is_none()
+            .then(|| StillFormat::from_extension(cli.output()).unwrap_or_default()),
+        still_quality: cli.quality.unwrap_or(StillExport::DEFAULT_QUALITY),
         format: format.unwrap_or_default(),
         video: cli.video(),
         render_quality: cli.render_quality,
@@ -384,7 +412,7 @@ fn usage_error(json: bool, kind: ErrorKind, message: &str) -> ! {
     error.exit()
 }
 
-/// The video format `cli` exports, or `None` for PNG stills, checking the
+/// The video format `cli` exports, or `None` for stills, checking the
 /// combinations of selection, format and encoder flags clap cannot express.
 /// `explicit` tells whether the argument with that id was given on the command line.
 fn output_choice(
@@ -393,25 +421,47 @@ fn output_choice(
 ) -> Result<Option<VideoFormat>, String> {
     let selected = !cli.frames.is_empty() || cli.every.is_some();
     let named = cli.output_format.and_then(OutputFormat::video);
+    let named_still = cli.output_format.and_then(OutputFormat::still);
     if (selected || cli.contact_sheet) && named.is_some() {
-        return Err("--frame/--frames/--every/--contact-sheet require PNG output".into());
+        return Err(
+            "--frame/--frames/--every/--contact-sheet require still output (PNG, JPEG or WebP)"
+                .into(),
+        );
     }
-    let png = selected || cli.contact_sheet || cli.output_format == Some(OutputFormat::Png);
-    if png && !selected {
-        return Err("PNG output requires --frame, --frames or --every".into());
+    let stills = selected || cli.contact_sheet || named_still.is_some();
+    if stills && !selected {
+        return Err("still output requires --frame, --frames or --every".into());
     }
-    if png {
+    if stills {
         if cli.subtitles.is_some() {
-            return Err("--subtitles applies to video output, not PNG frames".into());
+            return Err("--subtitles applies to video output, not still frames".into());
         }
         if cli.bit_depth != BitDepth::Eight {
-            return Err("--bit-depth applies to MP4 output; PNG stills are 8-bit".into());
+            return Err("--bit-depth applies to MP4 output; stills are 8-bit".into());
+        }
+        // An output with no still extension is left to the exporter, which
+        // reports it as `invalid_selection`.
+        let format = StillFormat::from_extension(cli.output());
+        if let (Some(named), Some(format)) = (named_still, format)
+            && named != format
+        {
+            let extension = cli.output().extension().unwrap_or_default();
+            return Err(format!(
+                "--output-format {named} does not match the .{} output",
+                extension.to_string_lossy()
+            ));
+        }
+        if cli.quality.is_some() && format == Some(StillFormat::Png) {
+            return Err("--quality applies to JPEG and WebP output; PNG is lossless".into());
         }
         return Ok(None);
     }
+    if cli.quality.is_some() {
+        return Err("--quality applies to JPEG and WebP stills, not video".into());
+    }
     if cli.debug_guides {
         return Err(
-            "--debug-guides applies to PNG output; video exports never draw debug guides".into(),
+            "--debug-guides applies to still output; video exports never draw debug guides".into(),
         );
     }
     // An output with no video extension is left to the exporter, which reports
@@ -469,6 +519,7 @@ fn export(
                 tile_width: cli.tile_width.get(),
             }),
             debug_guides: cli.debug_guides,
+            quality: cli.quality,
         }),
         options: ExportOptions {
             overwrite: cli.overwrite,
@@ -589,15 +640,60 @@ mod tests {
                 "out.png",
             ],
         ] {
-            assert!(error(args).contains("require PNG output"));
+            assert!(error(args).contains("require still output"));
         }
     }
 
     #[test]
-    fn png_selections_keep_their_rules() {
+    fn still_selections_keep_their_rules() {
         assert_eq!(choice(&["--frame", "0", "out.png"]), Ok(None));
         assert!(error(&["--output-format", "png", "out.png"]).contains("requires --frame"));
+        assert!(error(&["--output-format", "jpeg", "out.jpg"]).contains("requires --frame"));
         assert!(error(&["--frame", "0", "--bit-depth", "10", "out.png"]).contains("--bit-depth"));
+        assert!(error(&["--frame", "0", "--bit-depth", "10", "out.jpg"]).contains("--bit-depth"));
+    }
+
+    #[test]
+    fn the_output_extension_selects_the_still_format() {
+        for output in ["out.jpg", "out.JPEG", "out.webp"] {
+            assert_eq!(choice(&["--frame", "0", output]), Ok(None), "{output}");
+        }
+        assert_eq!(
+            choice(&["--output-format", "jpeg", "--frame", "0", "out.jpg"]),
+            Ok(None)
+        );
+        assert_eq!(
+            choice(&["--output-format", "webp", "--every", "2", "out.WebP"]),
+            Ok(None)
+        );
+        let message = error(&["--output-format", "png", "--frame", "0", "out.webp"]);
+        assert!(
+            message.contains("--output-format png does not match the .webp output"),
+            "{message}"
+        );
+        // An unknown extension is left to the exporter, as for video.
+        assert_eq!(choice(&["--frame", "0", "out.gif"]), Ok(None));
+    }
+
+    #[test]
+    fn quality_applies_to_jpeg_and_webp_stills_only() {
+        assert_eq!(
+            choice(&["--frame", "0", "--quality", "70", "out.jpg"]),
+            Ok(None)
+        );
+        assert_eq!(
+            choice(&["--every", "3", "--quality", "1", "out.webp"]),
+            Ok(None)
+        );
+        let message = error(&["--frame", "0", "--quality", "70", "out.png"]);
+        assert!(message.contains("PNG is lossless"), "{message}");
+        for output in ["out.mp4", "out.webm"] {
+            let message = error(&["--quality", "70", output]);
+            assert!(
+                message.contains("--quality applies to JPEG and WebP stills"),
+                "{message}"
+            );
+        }
     }
 
     #[test]
@@ -608,6 +704,9 @@ mod tests {
         );
         assert!(
             error(&["--frame", "0", "--subtitles", "out.srt", "out.png"]).contains("--subtitles")
+        );
+        assert!(
+            error(&["--frame", "0", "--subtitles", "out.srt", "out.jpg"]).contains("--subtitles")
         );
     }
 }

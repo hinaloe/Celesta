@@ -387,7 +387,7 @@ fn error_report(error: &ExportError, hints: HintStyle) -> ErrorReport {
         ExportError::UnsupportedOutput { .. } => (
             "unsupported_output",
             Some(if cli {
-                "write video to a .mp4, .mov or .webm path, or select frames with --frame or --every for PNG"
+                "write video to a .mp4, .mov or .webm path, or select frames with --frame or --every for PNG, JPEG or WebP stills"
             } else {
                 "write video to a .mp4, .mov or .webm path with export_video, or render PNG frames with render_frames"
             }),
@@ -399,7 +399,7 @@ fn error_report(error: &ExportError, hints: HintStyle) -> ErrorReport {
         ExportError::EncoderUnavailable { .. } => ("encoder_unavailable", None),
         ExportError::UnsupportedDimensions { .. } => (
             "unsupported_dimensions",
-            Some("make the composition width and height even; PNG frame exports accept odd sizes"),
+            Some("make the composition width and height even; still frame exports accept odd sizes"),
         ),
         ExportError::InvalidCrf(_) => ("invalid_crf", None),
         ExportError::EmptyTimeline => ("empty_timeline", None),

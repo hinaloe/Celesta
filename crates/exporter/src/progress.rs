@@ -11,7 +11,9 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
-use celesta_exporter::{ExportError, ExportProgress, RenderQuality, VideoEncoding, VideoFormat};
+use celesta_exporter::{
+    ExportError, ExportProgress, RenderQuality, StillFormat, VideoEncoding, VideoFormat,
+};
 use ratatui::{
     Frame, Terminal, TerminalOptions, Viewport,
     backend::CrosstermBackend,
@@ -33,7 +35,10 @@ pub struct Settings<'a> {
     pub source: &'a Path,
     pub output: &'a Path,
     pub react: bool,
-    pub png: bool,
+    /// `Some` for a still export, in this format.
+    pub still: Option<StillFormat>,
+    /// The JPEG or WebP quality a still export uses.
+    pub still_quality: u8,
     pub format: VideoFormat,
     pub video: VideoEncoding,
     pub render_quality: RenderQuality,
@@ -349,14 +354,20 @@ fn render(frame: &mut Frame, settings: &Settings<'_>, state: &State) {
                     Style::new().fg(status_color),
                 ),
                 Span::styled(
-                    if settings.png {
-                        "PNG / LOSSLESS"
-                    } else {
-                        match settings.format {
+                    match settings.still {
+                        Some(StillFormat::Png) => "PNG / LOSSLESS".to_owned(),
+                        Some(StillFormat::Jpeg) => {
+                            format!("JPEG / QUALITY {}", settings.still_quality)
+                        }
+                        Some(StillFormat::Webp) => {
+                            format!("WEBP / QUALITY {}", settings.still_quality)
+                        }
+                        None => match settings.format {
                             VideoFormat::Mp4 => "MP4 / H.264 + AAC",
                             VideoFormat::Mov => "MOV / ProRes 4444 + PCM",
                             VideoFormat::Webm => "WEBM / VP9 alpha + Opus",
                         }
+                        .to_owned(),
                     },
                     Style::new().fg(MUTED),
                 ),
@@ -451,14 +462,15 @@ fn render(frame: &mut Frame, settings: &Settings<'_>, state: &State) {
         .block(panel(" FILES ")),
         details[0],
     );
-    let encoding = if settings.png {
-        "Lossless RGBA".into()
-    } else {
-        match settings.format {
+    let encoding = match settings.still {
+        Some(StillFormat::Png) => "Lossless RGBA".into(),
+        Some(StillFormat::Jpeg) => format!("JPEG quality {}", settings.still_quality),
+        Some(StillFormat::Webp) => format!("WebP quality {}", settings.still_quality),
+        None => match settings.format {
             VideoFormat::Mp4 => format!("{} / CRF {}", settings.video.preset, settings.video.crf),
             VideoFormat::Mov => "ProRes 4444".into(),
             VideoFormat::Webm => "VP9 CRF 20".into(),
-        }
+        },
     };
     let mut profile = vec![
         Line::from(format!(
@@ -471,8 +483,9 @@ fn render(frame: &mut Frame, settings: &Settings<'_>, state: &State) {
         )),
         Line::from(format!(" Quality  {}", settings.render_quality)),
         Line::from(format!(" Encode   {encoding}")),
-        Line::from(if settings.png {
-            " Alpha    preserved".into()
+        Line::from(if settings.still.is_some() {
+            // Stills are drawn over the opaque export background.
+            " Alpha    opaque background".into()
         } else if settings.format.has_alpha() {
             " Alpha    straight, BT.709".into()
         } else {
@@ -528,7 +541,7 @@ fn render_pipeline(frame: &mut Frame, area: Rect, settings: &Settings<'_>, state
     let spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     let mut lines = Vec::new();
     for (index, (stage, label)) in stages.iter().enumerate() {
-        if settings.png && index > 1 {
+        if settings.still.is_some() && index > 1 {
             continue;
         }
         let active = *stage == state.active_stage;
@@ -642,8 +655,12 @@ fn render_compact(frame: &mut Frame, settings: &Settings<'_>, state: &State) {
         )),
         rows[2],
     );
-    let format = if settings.png {
-        "PNG stills".to_owned()
+    let format = if let Some(still) = settings.still {
+        match still {
+            StillFormat::Png => "PNG stills".to_owned(),
+            StillFormat::Jpeg => format!("JPEG stills  •  quality {}", settings.still_quality),
+            StillFormat::Webp => format!("WebP stills  •  quality {}", settings.still_quality),
+        }
     } else {
         match settings.format {
             VideoFormat::Mp4 => format!(
@@ -784,7 +801,8 @@ mod tests {
             source: Path::new("film.tsx"),
             output: Path::new("film.mp4"),
             react: true,
-            png: false,
+            still: None,
+            still_quality: 90,
             format: VideoFormat::Mp4,
             video: VideoEncoding::default(),
             render_quality: RenderQuality::default(),
@@ -831,6 +849,37 @@ mod tests {
             assert!(text.contains(encode), "{text}");
             assert!(text.contains("Alpha    straight, BT.709"), "{text}");
             assert!(!text.contains("H.264"), "{text}");
+        }
+    }
+
+    #[test]
+    fn still_formats_name_their_encoding_and_quality() {
+        for (still, header, encode) in [
+            (StillFormat::Png, "PNG / LOSSLESS", "Lossless RGBA"),
+            (StillFormat::Jpeg, "JPEG / QUALITY 75", "JPEG quality 75"),
+            (StillFormat::Webp, "WEBP / QUALITY 75", "WebP quality 75"),
+        ] {
+            let settings = Settings {
+                output: Path::new("film.png"),
+                still: Some(still),
+                still_quality: 75,
+                ..settings()
+            };
+            let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+            terminal
+                .draw(|frame| render(frame, &settings, &State::new()))
+                .unwrap();
+            let text: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            assert!(text.contains(header), "{text}");
+            assert!(text.contains(encode), "{text}");
+            assert!(text.contains("Alpha    opaque background"), "{text}");
+            assert!(!text.contains("Audio mix"), "{text}");
         }
     }
 

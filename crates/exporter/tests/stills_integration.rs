@@ -534,7 +534,7 @@ fn rejects_conflicting_and_oversized_png_selections() {
     );
     fails(
         &["--contact-sheet"],
-        "PNG output requires --frame, --frames or --every",
+        "still output requires --frame, --frames or --every",
     );
     fails(
         &["--every", "2", "--contact-sheet", "--columns", "0"],
@@ -542,7 +542,7 @@ fn rejects_conflicting_and_oversized_png_selections() {
     );
     fails(
         &["--every", "2", "--output-format", "mp4"],
-        "require PNG output",
+        "require still output",
     );
     fails(
         &["--every", "2", "--from", "3"],
@@ -559,6 +559,180 @@ fn rejects_conflicting_and_oversized_png_selections() {
             "16384",
         ],
         "the limit is 16384 on each side",
+    );
+    assert!(std::fs::read_dir(dir.path()).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with("check")
+    }));
+}
+
+/// Whether every channel of `actual` is within `tolerance` of `expected`.
+fn near(actual: &[u8], expected: &[u8], tolerance: u8) -> bool {
+    actual.len() == expected.len()
+        && actual
+            .iter()
+            .zip(expected)
+            .all(|(&a, &b)| a.abs_diff(b) <= tolerance)
+}
+
+/// Decodes a WebP file to RGB(A) with its size.
+fn decode_webp(path: &Path) -> (u32, u32, usize, Vec<u8>) {
+    let bytes = std::fs::read(path).unwrap();
+    assert_eq!(&bytes[8..12], b"WEBP", "{} is not WebP", path.display());
+    let image = webp::Decoder::new(&bytes).decode().unwrap();
+    let channels = if image.is_alpha() { 4 } else { 3 };
+    (image.width(), image.height(), channels, image.to_vec())
+}
+
+#[test]
+fn stills_are_opaque() {
+    // JPEG has no alpha channel; stills never need one because they are
+    // drawn over the export's opaque background.
+    let dir = tempfile::tempdir().unwrap();
+    let source = tiny_project(dir.path());
+    let output = dir.path().join("check.png");
+    let result = export(&source, &["--frame", "0"], &output);
+    assert!(result.status.success(), "{}", stderr(&result));
+    assert!(pixels(&output).chunks(4).all(|pixel| pixel[3] == 255));
+}
+
+#[test]
+fn the_output_extension_writes_jpeg_or_webp_stills() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = colored_project(dir.path());
+
+    let jpegs = dir.path().join("jpeg").join("check.jpg");
+    let result = export(&source, &["--every", "3", "--quality", "95"], &jpegs);
+    assert!(result.status.success(), "{}", stderr(&result));
+    for (frame, color) in [
+        (0, COLORS[0]),
+        (3, COLORS[1]),
+        (6, COLORS[3]),
+        (7, COLORS[3]),
+    ] {
+        let path = dir.path().join(format!("jpeg/check-{frame:06}.jpg"));
+        let image = image::open(&path).unwrap();
+        assert_eq!(image.color(), image::ColorType::Rgb8, "frame {frame}");
+        let image = image.to_rgb8();
+        assert_eq!(image.dimensions(), (64, 36));
+        assert!(
+            near(&image.get_pixel(32, 18).0, &color, 8),
+            "frame {frame}: {:?}",
+            image.get_pixel(32, 18)
+        );
+    }
+
+    let webp = dir.path().join("green.WEBP");
+    let result = export(&source, &["--frame", "2"], &webp);
+    assert!(result.status.success(), "{}", stderr(&result));
+    let (width, height, channels, pixels) = decode_webp(&webp);
+    assert_eq!((width, height), (64, 36));
+    let center = (18 * 64 + 32) * channels;
+    assert!(near(&pixels[center..center + 3], &COLORS[1], 8));
+
+    // A contact sheet takes the format of its output too: frames 0, 2, 4,
+    // 6, 7 in three 32 px columns.
+    for name in ["sheet.webp", "sheet.jpeg"] {
+        let sheet = dir.path().join(name);
+        let result = export(
+            &source,
+            &[
+                "--every",
+                "2",
+                "--contact-sheet",
+                "--columns",
+                "3",
+                "--tile-width",
+                "32",
+            ],
+            &sheet,
+        );
+        assert!(result.status.success(), "{name}: {}", stderr(&result));
+        let size = if name.ends_with("webp") {
+            let (width, height, _, _) = decode_webp(&sheet);
+            (width, height)
+        } else {
+            image::open(&sheet).unwrap().to_rgb8().dimensions()
+        };
+        assert_eq!(size, (8 + 3 * (32 + 8), 8 + 2 * (18 + 11 + 8)), "{name}");
+    }
+}
+
+#[test]
+fn quality_trades_file_size_for_fidelity() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = colored_project(dir.path());
+    // Labelled tiles have hard edges, which lower quality blurs into fewer bytes.
+    let size = |name: &str, quality: &str| {
+        let output = dir.path().join(name);
+        let result = export(
+            &source,
+            &[
+                "--every",
+                "1",
+                "--contact-sheet",
+                "--tile-width",
+                "160",
+                "--quality",
+                quality,
+            ],
+            &output,
+        );
+        assert!(result.status.success(), "{name}: {}", stderr(&result));
+        std::fs::metadata(output).unwrap().len()
+    };
+    for extension in ["jpg", "webp"] {
+        let low = size(&format!("low.{extension}"), "5");
+        let high = size(&format!("high.{extension}"), "100");
+        assert!(low < high, "{extension}: {low} >= {high}");
+    }
+}
+
+#[test]
+fn rejects_quality_where_it_does_not_apply() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = colored_project(dir.path());
+    let fails = |args: &[&str], output: &str, message: &str| {
+        let result = export(&source, args, &dir.path().join(output));
+        assert!(!result.status.success(), "{args:?} {output} succeeded");
+        assert!(
+            stderr(&result).contains(message),
+            "{args:?} {output}: {}",
+            stderr(&result)
+        );
+    };
+    fails(
+        &["--frame", "0", "--quality", "80"],
+        "check.png",
+        "--quality applies to JPEG and WebP output; PNG is lossless",
+    );
+    fails(
+        &["--quality", "80"],
+        "check.mp4",
+        "--quality applies to JPEG and WebP stills",
+    );
+    fails(
+        &["--frame", "0", "--quality", "0"],
+        "check.jpg",
+        "invalid value '0' for '--quality <1-100>'",
+    );
+    fails(
+        &["--frame", "0", "--quality", "101"],
+        "check.jpg",
+        "invalid value '101' for '--quality <1-100>'",
+    );
+    fails(
+        &["--frame", "0", "--output-format", "webp"],
+        "check.jpg",
+        "--output-format webp does not match the .jpg output",
+    );
+    fails(
+        &["--frame", "0"],
+        "check.gif",
+        "must use the .png, .jpg, .jpeg or .webp extension",
     );
     assert!(std::fs::read_dir(dir.path()).unwrap().all(|entry| {
         !entry
@@ -725,7 +899,7 @@ export default function Root() {
     let result = run(&["--debug-guides"], &video);
     assert!(!result.status.success());
     assert!(
-        stderr(&result).contains("--debug-guides applies to PNG output"),
+        stderr(&result).contains("--debug-guides applies to still output"),
         "{}",
         stderr(&result)
     );
