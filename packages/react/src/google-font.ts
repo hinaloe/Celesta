@@ -1,7 +1,11 @@
 export interface GoogleFontOptions {
   /** Static weights, from 100 to 900 in steps of 100. Defaults to [400]. */
   weights?: readonly number[];
-  /** Google Fonts script subsets, such as latin, cyrillic, or japanese. */
+  /**
+   * Google Fonts script subsets, such as latin, cyrillic, or japanese. Omitted
+   * or empty loads every script the family has; listing subsets loads only
+   * those scripts, plus Latin when the family has it.
+   */
   subsets?: readonly string[];
 }
 
@@ -20,7 +24,11 @@ export function googleFont(family: string, { weights = [400], subsets = [] }: Go
   const encode = (value: string) => encodeURIComponent(value).replace(/%20/g, '+');
   const sortedWeights = [...new Set(weights)].sort((a, b) => a - b);
   const sortedSubsets = [...new Set(subsets)].sort();
-  // The v1 CSS API documents script subsets; v2 only documents axes and text.
-  return `https://fonts.googleapis.com/css?family=${encode(family)}:${sortedWeights.join(',')}`
-    + (sortedSubsets.length ? `&subset=${sortedSubsets.join(',')}` : '');
+  // Only the v1 CSS API takes script subsets, but without &subset= it returns
+  // Latin alone to clients without unicode-range. The v2 API ignores subsets
+  // and returns every script, so it serves the whole-family request.
+  if (!sortedSubsets.length) {
+    return `https://fonts.googleapis.com/css2?family=${encode(family)}:wght@${sortedWeights.join(';')}`;
+  }
+  return `https://fonts.googleapis.com/css?family=${encode(family)}:${sortedWeights.join(',')}&subset=${sortedSubsets.join(',')}`;
 }

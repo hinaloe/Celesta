@@ -8,8 +8,19 @@ test('googleFont encodes one family and canonicalizes weights and subsets for th
   assert.equal(url, 'https://fonts.googleapis.com/css?family=M+PLUS+Rounded+1c:400,700&subset=japanese,latin');
   assert.equal(googleFont('M PLUS Rounded 1c', { weights: [400, 700], subsets: ['latin', 'japanese'] }), url);
   assert.deepEqual(prepareFonts([url]), [{ id: url, location: { type: 'url', url } }]);
-  assert.equal(googleFont('Noto Sans JP'), 'https://fonts.googleapis.com/css?family=Noto+Sans+JP:400');
-  assert.equal(new URL(googleFont('A&B + 日本語')).searchParams.get('family'), 'A&B + 日本語:400');
+  assert.equal(new URL(googleFont('A&B + 日本語')).searchParams.get('family'), 'A&B + 日本語:wght@400');
+});
+
+test('googleFont without subsets requests the whole family from the v2 API', () => {
+  // The v1 API narrows a request without &subset= to Latin; v2 returns every script.
+  assert.equal(googleFont('Noto Sans JP'), 'https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400');
+  const url = googleFont('JetBrains Mono', { weights: [700, 400, 700] });
+  assert.equal(url, 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700');
+  assert.equal(googleFont('JetBrains Mono', { weights: [400, 700], subsets: [] }), url);
+  assert.equal(
+    googleFont('JetBrains Mono', { weights: [400, 700], subsets: ['greek'] }),
+    'https://fonts.googleapis.com/css?family=JetBrains+Mono:400,700&subset=greek',
+  );
 });
 
 test('googleFont rejects empty families, injected API syntax, weights, and subsets', () => {

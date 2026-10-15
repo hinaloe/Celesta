@@ -79,7 +79,7 @@ test('<Font google> uses the same stylesheet asset as src and googleFont(), incl
   `);
   assert.deepEqual(scene.fonts, [
     { id: 'rounded', location: { type: 'url', url: 'https://fonts.googleapis.com/css?family=M+PLUS+Rounded+1c:400,700&subset=japanese' } },
-    { id: 'https://fonts.googleapis.com/css?family=Inter:400', location: { type: 'url', url: 'https://fonts.googleapis.com/css?family=Inter:400' } },
+    { id: 'https://fonts.googleapis.com/css2?family=Inter:wght@400', location: { type: 'url', url: 'https://fonts.googleapis.com/css2?family=Inter:wght@400' } },
   ]);
 });
 
