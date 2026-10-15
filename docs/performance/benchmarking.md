@@ -123,6 +123,12 @@ comments if the pull request's head is still the measured commit; a newer
 push gets its own run. Like every `workflow_run` workflow, it takes effect
 once it is on the default branch.
 
+Pull requests restore the Rust build cache but never save it: a cache saved
+from a pull request is visible to that pull request alone and only uses up
+the repository's quota. Instead, each push to `main` that touches the Rust
+build runs `scripts/bench.py build`, which builds the head as `compare`
+does and measures nothing, and saves the cache from there.
+
 What instruction counts cannot see: memory bandwidth, cache misses, GPU
 occupancy and parallelism, driver-specific costs, and anything that is fast
 on a GPU but slow on a CPU or the other way around. A shader that does more

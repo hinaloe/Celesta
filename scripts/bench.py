@@ -15,6 +15,7 @@ workloads with both, and prints a Markdown table. Two modes:
   CI runner without a GPU. Linux only.
 
   scripts/bench.py compare [--base REV] [--head REV] [--mode time|instructions] [workload ...]
+  scripts/bench.py build
 """
 
 import argparse
@@ -55,8 +56,8 @@ def build(revision, label, target_dir, worktrees, react):
             cwd=ROOT, stderr=subprocess.DEVNULL,
         ).returncode != 0:
             return None
-        # A worktree that stays at the same path keeps Cargo's incremental
-        # state for the workspace crates between invocations.
+        # A worktree that stays at the same path keeps its node_modules
+        # between invocations.
         source = worktrees / label
         if (source / ".git").is_file():
             git("checkout", "--quiet", "--detach", revision, cwd=source)
@@ -66,9 +67,24 @@ def build(revision, label, target_dir, worktrees, react):
             git("worktree", "prune")
             git("worktree", "add", "--quiet", "--detach", str(source), revision)
     print(f"building celesta-bench for {label} ({describe(revision)})", file=sys.stderr)
-    # Shared artifacts can reuse a path dependency from the other revision.
-    cargo_target = target_dir / label
+    # Both revisions share one target directory, so the dependencies are
+    # built once. Cargo names and fingerprints the workspace's own crates by
+    # their path relative to the workspace root, the same in both checkouts,
+    # and tells them stale by their sources' modification times, so a
+    # revision whose files are older than the other's build would reuse the
+    # other's crates. Remove them first, for the profiles that both the
+    # benchmark and the React runtime's codegen build. The directory is
+    # separate from target/'s own profiles, which this would also remove.
+    cargo_target = target_dir / "bench"
     env = {**os.environ, "CARGO_TARGET_DIR": str(cargo_target)}
+    metadata = json.loads(subprocess.run(
+        ["cargo", "metadata", "--no-deps", "--format-version", "1"],
+        check=True, cwd=source, env=env, text=True, stdout=subprocess.PIPE,
+    ).stdout)
+    packages = [argument for package in metadata["packages"] for argument in ("-p", package["id"])]
+    for profile in ([], ["--release"]):
+        subprocess.run(["cargo", "clean", "--locked", "--quiet", *profile, *packages],
+                       check=True, cwd=source, env=env)
     subprocess.run(
         ["cargo", "build", "--release", "--locked", "--quiet", "-p", "celesta-bench"],
         check=True, cwd=source, env=env,
@@ -326,7 +342,16 @@ def main():
     compare.add_argument("--csv", type=Path, help="write raw observations to this CSV file")
     compare.add_argument("--fail-on-regression", action="store_true",
                          help="exit with status 1 if a workload got slower")
+    # CI runs this on main to save the build cache that pull requests restore.
+    build_only = commands.add_parser(
+        "build", help="build the working tree as compare builds the head, without measuring")
+    build_only.add_argument("--target-dir", type=Path,
+                            help="Cargo target directory (default: target/ in the repository)")
     options = parser.parse_args()
+    target_dir = (options.target_dir or ROOT / "target").resolve()
+    if options.command == "build":
+        build(None, "head", target_dir, None, react=True)
+        return
 
     instructions = options.mode == "instructions"
     if options.seed is None:
@@ -344,7 +369,6 @@ def main():
     options.head = options.head and commit(options.head)
     if instructions and shutil.which("valgrind") is None:
         sys.exit("instructions mode needs valgrind (3.22 or later)")
-    target_dir = (options.target_dir or ROOT / "target").resolve()
     worktrees = (options.worktrees or target_dir / "bench-worktrees").resolve()
     revisions = {"base": describe(base), "head": describe(options.head)}
     react = not options.workloads or "nebula" in options.workloads
