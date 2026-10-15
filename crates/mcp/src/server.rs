@@ -41,14 +41,16 @@ impl CelestaServer {
     }
 }
 
-/// A rendering tool's result: the PNGs it wrote as images, then its report.
+/// A rendering tool's result: the stills it wrote as images, then its report.
 fn rendered(run: Run) -> CallToolResult {
     if !run.ok {
         return CallToolResult::structured_error(run.report);
     }
     let mut content = match image_blocks(&run.files) {
         Ok(images) => images,
-        Err(error) => return error_result("io", format!("could not read a rendered PNG: {error}")),
+        Err(error) => {
+            return error_result("io", format!("could not read a rendered image: {error}"));
+        }
     };
     content.push(ContentBlock::text(run.report.to_string()));
     let mut result = CallToolResult::success(content);
@@ -177,7 +179,7 @@ impl CelestaServer {
     }
 
     #[tool(
-        description = "Render frames of a React entry or JSON project to PNG and return them as images (the first 6; the report lists every file). Look at them before saying a change looks right. Also validates a whole .celesta.json."
+        description = "Render frames of a React entry or JSON project to PNG (or JPEG/WebP with `format`) and return them as images (the first 6; the report lists every file). Look at them before saying a change looks right; PNG shows fine text and edges without compression artifacts. Also validates a whole .celesta.json."
     )]
     async fn render_frames(
         &self,
@@ -191,7 +193,7 @@ impl CelestaServer {
     }
 
     #[tool(
-        description = "Render the selected frames as one labelled grid image, to see a whole video at once (for example every 150 frames). Returns the image and the tile frames."
+        description = "Render the selected frames as one labelled grid image (PNG, or JPEG/WebP by the output extension or `format`), to see a whole video at once (for example every 150 frames). Returns the image and the tile frames."
     )]
     async fn contact_sheet(
         &self,
