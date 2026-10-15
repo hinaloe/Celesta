@@ -73,15 +73,17 @@ def build(revision, label, target_dir, worktrees, react):
     # and tells them stale by their sources' modification times, so a
     # revision whose files are older than the other's build would reuse the
     # other's crates. Remove them first, for the profiles that both the
-    # benchmark and the React runtime's codegen build.
-    env = {**os.environ, "CARGO_TARGET_DIR": str(target_dir)}
+    # benchmark and the React runtime's codegen build. The directory is
+    # separate from target/'s own profiles, which this would also remove.
+    cargo_target = target_dir / "bench"
+    env = {**os.environ, "CARGO_TARGET_DIR": str(cargo_target)}
     metadata = json.loads(subprocess.run(
         ["cargo", "metadata", "--no-deps", "--format-version", "1"],
         check=True, cwd=source, env=env, text=True, stdout=subprocess.PIPE,
     ).stdout)
     packages = [argument for package in metadata["packages"] for argument in ("-p", package["id"])]
     for profile in ([], ["--release"]):
-        subprocess.run(["cargo", "clean", "--quiet", *profile, *packages],
+        subprocess.run(["cargo", "clean", "--locked", "--quiet", *profile, *packages],
                        check=True, cwd=source, env=env)
     subprocess.run(
         ["cargo", "build", "--release", "--locked", "--quiet", "-p", "celesta-bench"],
@@ -102,7 +104,7 @@ def build(revision, label, target_dir, worktrees, react):
     suffix = ".exe" if os.name == "nt" else ""
     binary = target_dir / "bench-bin" / f"celesta-bench-{label}{suffix}"
     binary.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(target_dir / "release" / f"celesta-bench{suffix}", binary)
+    shutil.copy2(cargo_target / "release" / f"celesta-bench{suffix}", binary)
     return binary
 
 
