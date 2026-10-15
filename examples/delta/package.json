@@ -2,13 +2,17 @@
   "name": "@celesta/example-delta",
   "private": true,
   "scripts": {
-    "score": "python3 make-score-0.6.0.py",
-    "export": "celesta-exporter --json --react --overwrite film-0.6.0.tsx delta-0.6.0.mp4",
+    "score": "python3 make-score-0.7.0.py",
+    "export": "celesta-exporter --json --react --overwrite film-0.7.0.tsx delta-0.7.0.mp4 --subtitles delta-0.7.0.srt",
+    "score:0.6.0": "python3 make-score-0.6.0.py",
+    "export:0.6.0": "celesta-exporter --json --react --overwrite film-0.6.0.tsx delta-0.6.0.mp4",
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
     "@celesta/code": "workspace:*",
+    "@celesta/layout": "workspace:*",
     "@celesta/math": "workspace:*",
+    "@celesta/media-utils": "workspace:*",
     "@celesta/react": "workspace:*",
     "@celesta/shader": "workspace:*",
     "@celesta/shapes": "workspace:*",

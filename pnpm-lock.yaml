@@ -273,9 +273,15 @@ importers:
       '@celesta/code':
         specifier: workspace:*
         version: link:../../packages/code
+      '@celesta/layout':
+        specifier: workspace:*
+        version: link:../../packages/layout
       '@celesta/math':
         specifier: workspace:*
         version: link:../../packages/math
+      '@celesta/media-utils':
+        specifier: workspace:*
+        version: link:../../packages/media-utils
       '@celesta/react':
         specifier: workspace:*
         version: link:../../packages/react

@@ -1,3 +1,4 @@
 node_modules/
 .celesta/
 .DS_Store
+*.srt
