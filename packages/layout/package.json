@@ -1,6 +1,6 @@
 {
   "name": "@celesta/layout",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "description": "Layout containers (Center, Stack, Grid, Fit, SafeArea) and Camera for Celesta compositions.",
   "license": "MIT OR Apache-2.0",
