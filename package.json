@@ -5,7 +5,7 @@
   "scripts": {
     "build": "turbo run build",
     "build:runtime": "pnpm --filter \"@celesta/cli...\" run build",
-    "test:runtime": "pnpm --filter \"@celesta/cli...\" run --no-sort test",
+    "test:runtime": "pnpm --filter \"@celesta/cli...\" run test",
     "typecheck:examples": "node scripts/typecheck-examples.mjs"
   },
   "devDependencies": {
