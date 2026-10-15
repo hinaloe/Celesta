@@ -403,15 +403,20 @@ mod tests {
 
     #[test]
     fn google_fonts_bad_request_names_the_family_and_weights() {
-        let error = RemoteAssetError::Request {
-            url: "https://fonts.googleapis.com/css?family=Missing+Family:400".to_owned(),
-            source: Box::new(ureq::Error::StatusCode(400)),
-        };
-        assert!(
-            error
-                .to_string()
-                .contains("could not find the family or requested weights")
-        );
+        for url in [
+            "https://fonts.googleapis.com/css?family=Missing+Family:400",
+            "https://fonts.googleapis.com/css2?family=Missing+Family:wght@400",
+        ] {
+            let error = RemoteAssetError::Request {
+                url: url.to_owned(),
+                source: Box::new(ureq::Error::StatusCode(400)),
+            };
+            assert!(
+                error
+                    .to_string()
+                    .contains("could not find the family or requested weights")
+            );
+        }
         let error = RemoteAssetError::Request {
             url: "https://fonts.googleapis.com/css?family=Noto+Sans+JP:400".to_owned(),
             source: Box::new(ureq::Error::StatusCode(503)),

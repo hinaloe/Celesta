@@ -595,8 +595,9 @@ conditional plays only on frames where it is rendered.
   stored inside the font**, not the file name. See
   [text.md](text.md#fonts-fallback-and-emoji) for weights and fallback.
 - `<Font google>` requests a family by name instead of `src`. `weights`
-  defaults to `[400]` (100–900 in steps of 100); `subsets` names scripts.
-  Google may return all subsets; every returned face is loaded. Native
+  defaults to `[400]` (100–900 in steps of 100). Omit `subsets` to load
+  every script the family has; listing scripts such as `['japanese']`
+  loads only those plus Latin. Every returned face is loaded. Native
   rendering caches CSS and files for later offline use. Unknown names or
   unavailable weights report an error. `googleFont(family, { weights,
   subsets })` returns the same URL for `measureText`'s `fonts` option.
