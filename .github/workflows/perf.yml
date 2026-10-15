@@ -8,8 +8,22 @@ name: Performance
 # shader work. A second job times the same workloads on a macOS runner's GPU
 # as a reference. perf-comment.yml then posts both on the pull request.
 # See docs/performance/benchmarking.md.
+#
+# Like ci.yml, pull requests only restore the Rust cache: a cache saved from
+# a pull request's ref is visible to that pull request alone, and these are
+# large enough to evict main's. On a push to main the instructions job only
+# builds the head, to save the cache that pull requests restore.
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/bench.py"
+      - ".github/actions/setup-ffmpeg/**"
+      - ".github/workflows/perf.yml"
   pull_request:
     paths:
       # Rust crate changes can affect the benchmark or its build.
@@ -65,6 +79,7 @@ jobs:
       # Valgrind 3.22 or later for Cachegrind's instrumentation client
       # requests, lavapipe, and CJK fonts for the text workloads.
       - name: Install Linux dependencies
+        if: github.event_name != 'push'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends valgrind mesa-vulkan-drivers fonts-noto-cjk
@@ -83,6 +98,7 @@ jobs:
         with:
           key: perf
           env-vars: FFMPEG_VERSION FFMPEG_FEATURES
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # The pnpm version comes from package.json's `packageManager`.
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -93,10 +109,17 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
+      # rust-cache keys on the job, so the cache is saved from this job, with
+      # the build compare does for the head.
+      - name: Build for the cache
+        if: github.event_name == 'push'
+        run: python3 scripts/bench.py build
+
       # Builds celesta-bench and the React runtime at both revisions, then
       # fails if a workload needs more than 1% more instructions per frame.
       # The base's worktree stays out of target/, which rust-cache saves.
       - name: Compare with the base
+        if: github.event_name != 'push'
         env:
           BASE: ${{ github.event.pull_request.base.sha || inputs.base }}
         run: |
@@ -135,6 +158,7 @@ jobs:
   # the runner has no usable GPU.
   time:
     name: Time per frame (macOS)
+    if: github.event_name != 'push'
     runs-on: macos-latest
     continue-on-error: true
     defaults:
@@ -159,6 +183,7 @@ jobs:
         with:
           key: perf-macos
           env-vars: FFMPEG_VERSION FFMPEG_FEATURES
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 

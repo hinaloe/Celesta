@@ -15,6 +15,7 @@ workloads with both, and prints a Markdown table. Two modes:
   CI runner without a GPU. Linux only.
 
   scripts/bench.py compare [--base REV] [--head REV] [--mode time|instructions] [workload ...]
+  scripts/bench.py build
 """
 
 import argparse
@@ -339,7 +340,16 @@ def main():
     compare.add_argument("--csv", type=Path, help="write raw observations to this CSV file")
     compare.add_argument("--fail-on-regression", action="store_true",
                          help="exit with status 1 if a workload got slower")
+    # CI runs this on main to save the build cache that pull requests restore.
+    build_only = commands.add_parser(
+        "build", help="build the working tree as compare builds the head, without measuring")
+    build_only.add_argument("--target-dir", type=Path,
+                            help="Cargo target directory (default: target/ in the repository)")
     options = parser.parse_args()
+    target_dir = (options.target_dir or ROOT / "target").resolve()
+    if options.command == "build":
+        build(None, "head", target_dir, None, react=True)
+        return
 
     instructions = options.mode == "instructions"
     if options.seed is None:
@@ -357,7 +367,6 @@ def main():
     options.head = options.head and commit(options.head)
     if instructions and shutil.which("valgrind") is None:
         sys.exit("instructions mode needs valgrind (3.22 or later)")
-    target_dir = (options.target_dir or ROOT / "target").resolve()
     worktrees = (options.worktrees or target_dir / "bench-worktrees").resolve()
     revisions = {"base": describe(base), "head": describe(options.head)}
     react = not options.workloads or "nebula" in options.workloads
