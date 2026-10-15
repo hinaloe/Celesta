@@ -25,11 +25,16 @@ runs:
       if: runner.os == 'Windows'
       shell: pwsh
       env:
-        # The version ffmpeg-windows.yml reports; update it after publishing.
+        # The version and SHA-256 that ffmpeg-windows.yml reports in its job
+        # summary; update both after publishing.
         PACKAGE_VERSION: '8.1.2-1'
+        PACKAGE_SHA256: ''
         PACKAGE_ID: celesta.ffmpeg.windows
         GITHUB_TOKEN: ${{ github.token }}
       run: |
+        if (-not $env:PACKAGE_SHA256) { throw 'Pin the FFmpeg package SHA-256 that ffmpeg-windows.yml reports.' }
+        # The progress bar slows down large downloads.
+        $ProgressPreference = 'SilentlyContinue'
         $credentials = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("token:$env:GITHUB_TOKEN"))
         $headers = @{ Authorization = "Basic $credentials" }
         $index = Invoke-RestMethod -Headers $headers "https://nuget.pkg.github.com/$env:GITHUB_REPOSITORY_OWNER/index.json"
@@ -38,11 +43,20 @@ runs:
         $version = $env:PACKAGE_VERSION.ToLowerInvariant()
         $nupkg = Join-Path $env:RUNNER_TEMP "$env:PACKAGE_ID.$version.nupkg"
         Invoke-WebRequest -Headers $headers -OutFile $nupkg "$($base.TrimEnd('/'))/$env:PACKAGE_ID/$version/$env:PACKAGE_ID.$version.nupkg"
+        # The pinned hash makes the build use exactly the package that was
+        # published, even if that version is deleted and published again.
+        $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $nupkg).Hash.ToLowerInvariant()
+        if ($sha256 -ne $env:PACKAGE_SHA256.ToLowerInvariant()) {
+          throw "FFmpeg package $version has SHA-256 $sha256, not the pinned $env:PACKAGE_SHA256"
+        }
         $root = Join-Path $env:RUNNER_TEMP 'ffmpeg-windows'
         New-Item -ItemType Directory -Force $root | Out-Null
         tar -xf $nupkg -C $root
         if ($LASTEXITCODE -ne 0) { throw 'could not extract the FFmpeg package' }
         $vcpkg = Join-Path $root 'vcpkg'
+        if (-not (Test-Path -LiteralPath (Join-Path $vcpkg 'installed/x64-windows-static-md-release/lib/avcodec.lib'))) {
+          throw 'the FFmpeg package lacks avcodec.lib'
+        }
         # NuGet leaves out dotfiles and empty directories, and the vcpkg crate
         # needs the .vcpkg-root marker and the status updates directory.
         New-Item -ItemType File -Force (Join-Path $vcpkg '.vcpkg-root') | Out-Null
