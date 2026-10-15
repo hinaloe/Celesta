@@ -56,7 +56,10 @@ or `ERROR:` per frame (`UNSUPPORTED inspection:` for text it cannot measure). Di
 | --- | --- |
 | `video export requires non-zero even dimensions, got 1921x1080` | Make width and height even. |
 | `output already exists: …` | Choose another path, or add `--overwrite` if replacing it is intended. |
-| `PNG output requires --frame, --frames or --every` | Add a frame selection, or drop `--output-format png` / `--contact-sheet`. |
+| `still output requires --frame, --frames or --every` | Add a frame selection, or drop `--output-format png`/`jpeg`/`webp` / `--contact-sheet`. |
+| `--quality applies to JPEG and WebP …` | `--quality` sets JPEG and WebP still quality; drop it for PNG and video. See [export.md](export.md#still-images). |
+| `still output must use the .png, .jpg, .jpeg or .webp extension` | Name the still output `.png`, `.jpg`, `.jpeg`, or `.webp`. |
+| `… too large for WebP …` | WebP holds at most 16383 pixels on each side; write the contact sheet as PNG or JPEG, or use fewer columns or a smaller `--tile-width`. |
 | `unexpected argument '--every'` (or `--contact-sheet`, `--no-ui`, `--json`), or the exporter prints its usage text | The installed Celesta is older than this skill; ask the user to update, or use only the options its usage lists (without `--json`, use `--no-ui`). |
 | Export is very slow | See [performance.md](performance.md). Without a GPU, see [export.md](export.md#without-a-gpu). |
 

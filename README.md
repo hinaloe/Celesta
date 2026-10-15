@@ -3,7 +3,7 @@
 Celesta is a code-first video tool. Build animated scenes with React and
 TypeScript, combining video, images, text, shapes, and audio. Preview your work
 in the Celesta desktop app and export it as MP4, transparent MOV or WebM, or
-PNG frames.
+PNG, JPEG, or WebP frames.
 
 **[Website](https://celesta.natsuneko.cat/)** ·
 **[Documentation](https://celesta.natsuneko.cat/en/docs/)** ·
@@ -34,7 +34,7 @@ contains the projects and their setup instructions.
   frames, and inspect layers and tracks. The app reloads when you save your source.
 - **Build character dialogue:** combine image or PSD portraits, expressions,
   subtitles, voice recordings, lip sync, and blinking.
-- **Export and automate:** render videos, PNG frames, and contact sheets from
+- **Export and automate:** render videos, PNG, JPEG, or WebP frames, and contact sheets from
   the desktop app or CLI, with JSON results and MCP tools for scripts and agents.
 
 ## Get started

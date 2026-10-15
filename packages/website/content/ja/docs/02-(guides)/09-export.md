@@ -119,9 +119,11 @@ MP4 は libx264 を使い、既定では --preset medium、--crf 18 で書き出
 
 FFmpeg のビルドに選んだ形式のエンコーダーがない場合、書き出しはエラーコード `encoder_unavailable` で失敗します。
 
-## PNG 画像とコンタクトシート
+## 静止画とコンタクトシート
 
 --frame / --frames で、0 から始まるフレーム番号を指定します。複数指定すると check-000090.png のような名前で保存されます。--every N は --from/--to の範囲（省略時は全体）から N フレームごとと最後のフレームを選びます。--contact-sheet を加えると、番号付きの一覧画像を作れます。列数は --columns、各画像の幅は --tile-width で指定します。フレーム番号の直接指定は --every、--from、--to と併用できません。
+
+画像の形式は拡張子で決まります。`.png` は可逆圧縮の PNG、`.jpg` と `.jpeg` は JPEG、`.webp` は非可逆圧縮の WebP です。JPEG と WebP はファイルが小さく、サムネイルに向きます。`--quality` で品質を 1〜100（既定値 90）の範囲で指定でき、PNG には指定できません。フレームは MP4 と同じ不透明な背景の上に描くため、透過チャンネルを持たない JPEG でも失われるものはありません。WebP は一辺 16383 ピクセルまでのため、それより大きいコンタクトシートは描画前にエラーになります。
 
 ::::tabs[書き出しを行う OS]{default="macOS"}
 :::tab[macOS]
@@ -132,6 +134,10 @@ FFmpeg のビルドに選んだ形式のエンコーダーがない場合、書�
 
 ```sh title="コンタクトシートを書き出す"
 "/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react --every 30 --contact-sheet --columns 4 --tile-width 320 first-scene.tsx sheet.png
+```
+
+```sh title="JPEG のサムネイルを書き出す"
+"/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react --frame 90 --quality 85 first-scene.tsx thumbnail.jpg
 ```
 
 :::
@@ -145,10 +151,14 @@ FFmpeg のビルドに選んだ形式のエンコーダーがない場合、書�
 & "C:\path\to\Celesta\Celesta-export.exe" --react --every 30 --contact-sheet --columns 4 --tile-width 320 first-scene.tsx sheet.png
 ```
 
+```sh title="JPEG のサムネイルを書き出す"
+& "C:\path\to\Celesta\Celesta-export.exe" --react --frame 90 --quality 85 first-scene.tsx thumbnail.jpg
+```
+
 :::
 ::::
 
-`--debug-guides` を加えると、React コンポジションの `<DebugOverlay>` と `<DebugBounds>` を、プレビューと同じように PNG フレームやコンタクトシートに描きます。動画の書き出しには描かれません。
+`--debug-guides` を加えると、React コンポジションの `<DebugOverlay>` と `<DebugBounds>` を、プレビューと同じように静止画やコンタクトシートに描きます。動画の書き出しには描かれません。
 
 ::::tabs[書き出しを行う OS]{default="macOS"}
 :::tab[macOS]
