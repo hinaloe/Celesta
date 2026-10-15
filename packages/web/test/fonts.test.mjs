@@ -90,11 +90,15 @@ test('Google Fonts loads every Japanese split face and reports unknown names wit
   assert.deepEqual([...faces].map(face => [face.family, face.descriptors.weight, face.descriptors.unicodeRange]), [
     ['Noto Sans JP', '700', 'U+3040-30FF'], ['Noto Sans JP', '700', 'U+0000-00FF'],
   ]);
-  const missingURL = 'https://fonts.googleapis.com/css?family=Missing+Family:400';
-  const missing = { id: missingURL, location: { type: 'url', url: missingURL } };
-  for (let attempt = 0; attempt < 2; attempt++) {
-    await assert.rejects(loadFonts([missing], resolve), /could not find family "Missing Family" or the requested weights/);
-    assert.throws(() => requireLoadedFonts([missing], resolve), /preloaded fonts/);
+  for (const missingURL of [
+    'https://fonts.googleapis.com/css?family=Missing+Family:400',
+    'https://fonts.googleapis.com/css2?family=Missing+Family:wght@400',
+  ]) {
+    const missing = { id: missingURL, location: { type: 'url', url: missingURL } };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await assert.rejects(loadFonts([missing], resolve), /could not find family "Missing Family" or the requested weights/);
+      assert.throws(() => requireLoadedFonts([missing], resolve), /preloaded fonts/);
+    }
   }
-  assert.equal(hits, 3);
+  assert.equal(hits, 5);
 });
