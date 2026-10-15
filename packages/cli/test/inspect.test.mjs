@@ -41,7 +41,7 @@ const measuring = `
   }
 `;
 
-test('measuring frames are unsupported, not errors, and scene errors still win', { timeout: 30000 }, () => {
+test('measuring frames are unsupported, not errors, and scene errors still win', () => {
   withEntry('celesta-inspect-', ({ write, inspect }) => {
     write(measuring);
     const text = inspect('--frames', '0,2');
@@ -65,7 +65,7 @@ test('measuring frames are unsupported, not errors, and scene errors still win',
   });
 });
 
-test('measuring before the handshake stops inspection as unsupported', { timeout: 30000 }, () => {
+test('measuring before the handshake stops inspection as unsupported', () => {
   withEntry('celesta-inspect-startup-', ({ write, inspect }) => {
     // Frame 0 renders while the entry mounts, before the handshake.
     write(measuring.replace('if (frame === 0) return <Text>Celesta</Text>;', ''));
@@ -98,7 +98,7 @@ test('measuring before the handshake stops inspection as unsupported', { timeout
   });
 });
 
-test('other startup failures are errors', { timeout: 30000 }, () => {
+test('other startup failures are errors', () => {
   withEntry('celesta-inspect-error-', ({ write, inspect }) => {
     write(`
       import { Composition } from '@celesta/react';
