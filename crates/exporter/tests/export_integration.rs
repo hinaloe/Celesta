@@ -597,6 +597,29 @@ fn audio_stream(url: &str) -> (String, i32) {
     (codec_name, sample_rate)
 }
 
+/// How many seconds of audio `path` decodes to, after the decoder drops the
+/// encoder's priming samples.
+fn decoded_audio_seconds(path: &Path) -> f64 {
+    let raw = path.with_extension("f32");
+    FfmpegContext::builder()
+        .input(Input::from(path.to_string_lossy().into_owned()))
+        .output(
+            Output::from(raw.to_string_lossy().into_owned())
+                .add_stream_map("0:a:0")
+                .set_format("f32le")
+                .set_audio_codec("pcm_f32le")
+                .set_audio_channels(1),
+        )
+        .build()
+        .unwrap()
+        .start()
+        .unwrap()
+        .wait()
+        .unwrap();
+    let (_, sample_rate) = audio_stream(&path.to_string_lossy());
+    std::fs::metadata(raw).unwrap().len() as f64 / 4.0 / f64::from(sample_rate)
+}
+
 /// The red quadrant keeps its straight color and half alpha (within
 /// `tolerance` 16-bit codes); undrawn pixels are fully transparent.
 fn assert_transparent_quadrant(pixels: &[u16], tolerance: u16) {
@@ -649,6 +672,27 @@ fn exports_transparent_vp9_webm() {
     assert_eq!(audio_stream(&url), ("opus".to_owned(), 48_000));
     // 4:2:0 chroma blurs the quadrant's color a little more.
     assert_transparent_quadrant(&decode_rgba64(&output, Some("libvpx-vp9")), 6 * 257);
+}
+
+#[test]
+fn every_format_muxes_audio_as_long_as_the_video() {
+    let directory = tempfile::tempdir().unwrap();
+    let project = transparent_project(directory.path());
+    for (format, name) in [
+        (VideoFormat::Mp4, "clip.mp4"),
+        (VideoFormat::Mov, "clip.mov"),
+        (VideoFormat::Webm, "clip.webm"),
+    ] {
+        let Some(output) = export_as(&project, directory.path(), format, name) else {
+            return;
+        };
+        // AAC rounds the last frame up to 1024 samples (0.128 s at 8 kHz).
+        let seconds = decoded_audio_seconds(&output);
+        assert!(
+            (0.999..1.129).contains(&seconds),
+            "{format}: {seconds} s of audio"
+        );
+    }
 }
 
 #[test]
