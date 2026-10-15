@@ -1,21 +1,9 @@
-import {
-  Assets, Audio, Composition, Font, FreezeFrame, Group, Subtitles, defineProjectProperties, getProjectProperty, progress, useCurrentFrame,
-} from '@celesta/react';
-import { TransitionSeries, computeTransitionSeries } from '@celesta/transitions';
-import { CUT, ChapterShell } from './components/ChapterShell';
-import { FPS, H, W, japaneseFonts } from './components/theme';
-import { CAPTIONS, CAPTION_LANGUAGES } from './v0.7.0/captions';
-import type { CaptionLanguage } from './v0.7.0/captions';
-import { CHAPTERS } from './v0.7.0/chapters';
-import { CUTS, CUT_EASING } from './v0.7.0/cuts';
+import { Audio, Composition, FreezeFrame } from '@celesta/react';
+import { FPS, H, W } from './components/theme';
 import { FilmContext } from './v0.7.0/film-context';
-import { Hud } from './v0.7.0/Hud';
-import { MORE_STRINGS, More } from './v0.7.0/More';
-import { Open } from './v0.7.0/Open';
-import { Outro } from './v0.7.0/Outro';
-import { PRS } from './v0.7.0/prs';
+import { LANDSCAPE } from './v0.7.0/layout';
+import { Captions, ChapterHud, DURATION, Film, Fonts, POSTER_AT } from './v0.7.0/reel';
 import { SCORE_SRC, loadScore } from './v0.7.0/score';
-import { CHAPTER_COUNT, CHAPTER_LENGTHS, OPEN_LENGTH, OUTRO_AT, OUTRO_LENGTH, chapterAt } from './v0.7.0/timeline';
 
 // DELTA 0.7.0: what changed from Celesta v0.6.0 to v0.7.0, in a minute and a
 // half. Twelve features of four bars and eight one-bar cards, cut to a
@@ -25,9 +13,11 @@ import { CHAPTER_COUNT, CHAPTER_LENGTHS, OPEN_LENGTH, OUTRO_AT, OUTRO_LENGTH, ch
 //   python3 examples/delta/make-score-0.7.0.py
 //   Celesta-export --react examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 --subtitles examples/delta/delta-0.7.0.ja.srt
 // (--props '{"captions":"en"}' for English captions; .vtt for WebVTT)
+// shorts-0.7.0.tsx is the same cut at 9:16.
 //
 //   components/   the DELTA look, shared by every release film: theme, chapter page, diff panel, shaders
-//   v0.7.0/       this release: the open, the chapters (chapters.tsx lists them, demos/ draws them), MORE, the outro
+//   v0.7.0/       this release: the cut (reel.tsx), the open, the chapters (chapters.tsx lists them,
+//                 demos/ draws them), MORE, the outro
 //
 // The film is cut with the features it shows: every cut is a different
 // transition (two of them defineTransition()), the open whips the PR log
@@ -42,83 +32,6 @@ export async function prepare() {
   await loadScore();
 }
 
-// Each scene runs CUT frames past its bar line, so every cut lands on one.
-const SCENES = [OPEN_LENGTH, ...CHAPTER_LENGTHS.map((length) => length + CUT), OUTRO_LENGTH + CUT];
-const series = computeTransitionSeries(SCENES.flatMap((length, i) => (
-  i === 0 ? [{ durationInFrames: length }] : [{ type: CUTS[i - 1].type, durationInFrames: CUT }, { durationInFrames: length }]
-)));
-const DURATION = series.durationInFrames;
-/** The frame each chapter's cut lands on. */
-const CHAPTER_AT = CHAPTER_LENGTHS.map((_, i) => series.sequences[i + 1].from + CUT);
-// FreezeFrame and the outro find chapters through timeline.ts; keep it honest.
-if (CHAPTERS.length + 1 !== CHAPTER_COUNT || CUTS.length !== CHAPTER_COUNT + 1
-  || CHAPTER_AT.some((at, i) => at !== chapterAt(i)) || series.sequences[CHAPTER_COUNT + 1].from + CUT !== OUTRO_AT) {
-  throw new Error('v0.7.0/timeline.ts does not match the cuts in film-0.7.0.tsx');
-}
-/** The outro's last frame with everything in: the poster. */
-const POSTER_AT = DURATION - 30;
-
-function Scene({ index }: { index: number }) {
-  return index < CHAPTERS.length
-    ? <ChapterShell chapter={CHAPTERS[index]} index={index} total={CHAPTERS.length} />
-    : <More />;
-}
-
-function Film() {
-  const outro = [
-    ...CHAPTERS.map((chapter, i) => ({ title: chapter.title, at: CHAPTER_AT[i] + 100 })),
-    { title: 'MORE', at: CHAPTER_AT[CHAPTERS.length] + 20 },
-  ];
-  return (
-    <TransitionSeries>
-      <TransitionSeries.Sequence durationInFrames={SCENES[0]}><Open chapters={CHAPTERS.length} /></TransitionSeries.Sequence>
-      {CHAPTER_LENGTHS.flatMap((_, i) => [
-        <TransitionSeries.Transition key={`cut-${i}`} type={CUTS[i].type} from={CUTS[i].from}
-          durationInFrames={CUT} easing={CUT_EASING} />,
-        <TransitionSeries.Sequence key={`scene-${i}`} durationInFrames={SCENES[i + 1]}>
-          <Scene index={i} />
-        </TransitionSeries.Sequence>,
-      ])}
-      <TransitionSeries.Transition type={CUTS[CHAPTER_COUNT].type} from={CUTS[CHAPTER_COUNT].from}
-        durationInFrames={CUT} easing={CUT_EASING} />
-      <TransitionSeries.Sequence durationInFrames={SCENES[SCENES.length - 1]}><Outro chapters={outro} /></TransitionSeries.Sequence>
-    </TransitionSeries>
-  );
-}
-
-function ChapterHud() {
-  const frame = useCurrentFrame();
-  // Only over the twelve chapter pages: MORE and the outro are full-bleed.
-  const end = CHAPTER_AT[CHAPTERS.length];
-  if (frame < CHAPTER_AT[0] || frame >= end) return null;
-  const opacity = progress(frame, CHAPTER_AT[0], 10) * (1 - progress(frame, end - CUT, CUT));
-  return <Group opacity={opacity}><Hud version="0.7.0" starts={CHAPTER_AT.slice(0, -1)} lengths={CHAPTER_LENGTHS.slice(0, -1)} /></Group>;
-}
-
-// The arrow is drawn in JetBrains Mono, whose Google Fonts file lacks it (#363).
-const JA_STRINGS = [...PRS.map(([, title]) => title), ...MORE_STRINGS, '→'];
-
-// Which language --subtitles writes: --props '{"captions":"en"}'.
-defineProjectProperties({
-  captions: { type: 'select', label: 'Captions', defaultValue: 'ja', options: [...CAPTION_LANGUAGES] },
-});
-
-function Captions() {
-  return <Subtitles cues={CAPTIONS[getProjectProperty<CaptionLanguage>('captions')]} />;
-}
-
-function Fonts() {
-  // Latin faces by family name (#341); Japanese subset to the film's glyphs.
-  return (
-    <Assets>
-      <Font google="Bebas Neue" />
-      <Font google="Space Grotesk" weights={[400, 500, 700]} />
-      <Font google="JetBrains Mono" weights={[400, 700]} subsets={['latin', 'greek']} />
-      <Font src={japaneseFonts(JA_STRINGS)} />
-    </Assets>
-  );
-}
-
 export default function Root() {
   return (
     <>
@@ -127,7 +40,7 @@ export default function Root() {
         <FilmContext.Provider value={Film}>
           <Film />
         </FilmContext.Provider>
-        <ChapterHud />
+        <ChapterHud layout={LANDSCAPE} />
         <Captions />
         <Audio src={SCORE_SRC} />
       </Composition>

@@ -5,8 +5,9 @@ import { Path, interpolatePath } from '@celesta/shapes';
 import { Backdrop } from '../components/Backdrop';
 import { PREVIEW } from '../components/ChapterShell';
 import { glitch } from '../components/shaders';
-import { C, FONT, H, W, ease, solid } from '../components/theme';
+import { C, FONT, ease, solid } from '../components/theme';
 import { FilmContext } from './film-context';
+import { useLayout } from './layout';
 import { outlines } from './outlines';
 import { PRS } from './prs';
 import { scoreAt } from './score';
@@ -16,24 +17,24 @@ import { BAR, BEAT, chapterAt } from './timeline';
 // Bar 3: a Δ draws itself on and morphs through the new shapes, trailing.
 // Bar 4: 0.7.0 as a mask, the chapters to come flashing through it.
 // Bars 5-6: the orange DELTA card, glitched by a chain of shaders.
+// Laid out for the film's 16:9 or the short's 9:16 (useLayout()).
 export const TAGLINE = 'Every update is a diff.';
 
 const ROW = 34;
-const CURSOR_Y = 540;
 const LOG_END = 2 * BAR - 4;
 
 const scroll = (frame: number) => interpolate(frame, [0, LOG_END], [0, PRS.length - 1],
   { easing: Easings.easeInOutCubic, extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
 
-function Log({ frame }: { frame: number }) {
+function Log({ frame, cursorY, height }: { frame: number; cursorY: number; height: number }) {
   const at = scroll(frame);
   const row = Math.round(at);
   const mono = { fontFamily: FONT.mono, fontSize: 22 };
   return (
     <Group>
       {PRS.map(([n, title], i) => {
-        const y = CURSOR_Y + (i - at) * ROW;
-        if (y < -ROW || y > H + ROW) return null;
+        const y = cursorY + (i - at) * ROW;
+        if (y < -ROW || y > height + ROW) return null;
         const near = Math.max(0, 1 - Math.abs(i - at) / 12);
         const on = i === row;
         return (
@@ -49,16 +50,21 @@ function Log({ frame }: { frame: number }) {
 }
 
 function Counter({ frame }: { frame: number }) {
+  const layout = useLayout();
   const row = Math.round(scroll(frame));
   const p = 1 - progress(frame, LOG_END - 6, 10);
   const mono = { fontFamily: FONT.mono, fontSize: 18, fill: solid(C.grey) };
+  // The film: a panel on the right. The short: a band across the lower half.
+  const box = layout.portrait
+    ? { x: 0, y: 1120, width: layout.width, height: layout.height - 1120, right: layout.width - layout.safe.right, top: 1200 }
+    : { x: 1290, y: 0, width: 630, height: layout.height, right: 1800, top: 480 };
   return (
     <Group opacity={p}>
-      <Rect x={1290} y={0} width={630} height={H} fill="#0C0D0FEE" />
-      <Text x={1800} y={480} anchorX={1} anchorY={0.5} style={mono}>PULL REQUESTS SINCE v0.6.0</Text>
-      <Text x={1800} y={620} anchorX={1} anchorY={0.5}
+      <Rect x={box.x} y={box.y} width={box.width} height={box.height} fill="#0C0D0FEE" />
+      <Text x={box.right} y={box.top} anchorX={1} anchorY={0.5} style={mono}>PULL REQUESTS SINCE v0.6.0</Text>
+      <Text x={box.right} y={box.top + 140} anchorX={1} anchorY={0.5}
         style={{ fontFamily: FONT.display, fontSize: 220, fill: solid(C.orange) }}>{`#${PRS[row][0]}`}</Text>
-      <Text x={1800} y={750} anchorX={1} anchorY={0.5} style={mono}>{`${row + 1} / ${PRS.length} merged`}</Text>
+      <Text x={box.right} y={box.top + 270} anchorX={1} anchorY={0.5} style={mono}>{`${row + 1} / ${PRS.length} merged`}</Text>
     </Group>
   );
 }
@@ -77,10 +83,11 @@ function outlineAt(frame: number) {
 }
 
 function Shapes({ frame }: { frame: number }) {
+  const layout = useLayout();
   if (frame < SHAPES_AT - 2 || frame >= 3 * BAR + 2) return null;
   const draw = progress(frame, SHAPES_AT, BEAT, Easings.easeOutCubic);
   const out = progress(frame, 3 * BAR - 4, 6);
-  const center = { x: W / 2, y: H / 2 + 20 };
+  const center = { x: layout.width / 2, y: layout.height / 2 + 20 };
   return (
     <Group opacity={1 - out}>
       <Trail copies={6} lagInFrames={1} trailOpacity={0.6}>
@@ -108,23 +115,25 @@ const PREVIEW_CENTER = { x: PREVIEW.x + PREVIEW.width / 2, y: PREVIEW.y + PREVIE
 
 function Teaser({ frame }: { frame: number }) {
   const Film = useContext(FilmContext);
+  const layout = useLayout();
   if (frame < TEASER_AT || frame >= 4 * BAR + 2) return null;
   const f = frame - TEASER_AT;
   const beat = Math.min(3, Math.floor(f / BEAT));
   const hit = 1 - progress(f % BEAT, 0, 6);
   const scale = interpolate(f, [0, BAR], [1.18, 1], { easing: Easings.easeOutCubic, extrapolateRight: 'clamp' });
-  const word = { fontFamily: FONT.display, fontSize: 640, letterSpacing: { em: 0.02 } } as const;
+  const word = { fontFamily: FONT.display, fontSize: layout.portrait ? 420 : 640, letterSpacing: { em: 0.02 } } as const;
+  const center = { x: layout.width / 2, y: layout.height / 2 };
   // The chapter's preview panel, magnified to fill the letters.
   const zoom = 1.7;
   return (
-    <Group x={W / 2} y={H / 2} scale={scale}
+    <Group x={center.x} y={center.y} scale={scale}
       shader={[chromaticAberration({ offset: 2 + 12 * hit }), scanlines({ amount: 0.3, spacing: 5 })]}>
       <Text anchorX={0.5} anchorY={0.5} style={{ ...word, fill: solid('#2A170F'), stroke: { paint: solid(C.orange), width: 3 } }}>0.7.0</Text>
       <Group mask={<Text anchorX={0.5} anchorY={0.5} style={{ ...word, fill: solid('#FFFFFF') }}>0.7.0</Text>}>
         <Group x={-PREVIEW_CENTER.x * zoom} y={-PREVIEW_CENTER.y * zoom} scale={zoom}>
           <FreezeFrame frame={TEASED[beat]}><Film /></FreezeFrame>
         </Group>
-        <Rect x={-W / 2} y={-H / 2} width={W} height={H} fill="#F26A2E" opacity={0.3 * hit} blendMode="screen" />
+        <Rect x={-center.x} y={-center.y} width={layout.width} height={layout.height} fill="#F26A2E" opacity={0.3 * hit} blendMode="screen" />
       </Group>
     </Group>
   );
@@ -135,6 +144,7 @@ function Teaser({ frame }: { frame: number }) {
 const CARD_AT = 4 * BAR;
 
 function Card({ frame, chapters }: { frame: number; chapters: number }) {
+  const layout = useLayout();
   if (frame < CARD_AT) return null;
   const f = frame - CARD_AT;
   const settle = 1 - progress(f, 2, 24, Easings.easeOutCubic);
@@ -145,6 +155,11 @@ function Card({ frame, chapters }: { frame: number; chapters: number }) {
   const mono = { fontFamily: FONT.mono, fontSize: 22, fill: solid(C.ink) };
   const line = ease(f, 10, 18);
   const amount = 90 * settle + 70 * again;
+  // Centred on the frame, not the safe area, which would pull it up and left.
+  const x = layout.width / 2;
+  // Rows of the card, from its middle: the meta line, DELTA, the tagline, the versions.
+  const mid = layout.portrait ? layout.height / 2 - 60 : 520;
+  const spacing = layout.portrait ? '  ·  ' : '   ·   ';
   return (
     <Group invert={silence ? 1 : 0}
       zoomBlur={silence ? { amount: progress(f - BAR - 3 * BEAT, 0, BEAT) * 0.5 } : undefined}
@@ -153,19 +168,19 @@ function Card({ frame, chapters }: { frame: number; chapters: number }) {
         chromaticAberration({ offset: 3 + 10 * kick }),
         scanlines({ amount: 0.18, spacing: 4 }),
       ]}>
-      <Rect width={W} height={H} fill={C.orange} />
-      <Text x={W / 2} y={300} anchorX={0.5} anchorY={0.5} opacity={line} style={{ ...mono, fontWeight: 700 }}>
-        {`CELESTA   ·   WHAT'S NEW   ·   ${chapters} FEATURES   ·   ${PRS.length} PRS`}
+      <Rect width={layout.width} height={layout.height} fill={C.orange} />
+      <Text x={x} y={mid - 220} anchorX={0.5} anchorY={0.5} opacity={line} style={{ ...mono, fontWeight: 700 }}>
+        {['CELESTA', "WHAT'S NEW", `${chapters} FEATURES`, `${PRS.length} PRS`].join(spacing)}
       </Text>
-      <Text x={W / 2} y={520} anchorX={0.5} anchorY={0.5}
-        style={{ fontFamily: FONT.display, fontSize: 360, letterSpacing: { em: 0.02 + 0.12 * settle }, fill: solid(C.ink) }}>
+      <Text x={x} y={mid} anchorX={0.5} anchorY={0.5}
+        style={{ fontFamily: FONT.display, fontSize: layout.portrait ? 300 : 360, letterSpacing: { em: 0.02 + 0.12 * settle }, fill: solid(C.ink) }}>
         DELTA
       </Text>
-      <Text x={W / 2} y={730} anchorX={0.5} anchorY={0.5} opacity={line}
+      <Text x={x} y={mid + 210} anchorX={0.5} anchorY={0.5} opacity={line}
         style={{ fontFamily: FONT.sans, fontSize: 40, fontWeight: 700, fill: solid(C.ink) }}>
         {TAGLINE}
       </Text>
-      <Text x={W / 2} y={800} anchorX={0.5} anchorY={0.5} opacity={line} style={mono}>
+      <Text x={x} y={mid + 280} anchorX={0.5} anchorY={0.5} opacity={line} style={mono}>
         v0.6.0   →   v0.7.0
       </Text>
     </Group>
@@ -173,22 +188,24 @@ function Card({ frame, chapters }: { frame: number; chapters: number }) {
 }
 
 export function Open({ chapters }: { chapters: number }) {
+  const layout = useLayout();
   const frame = useCurrentFrame();
   const { rms } = scoreAt(frame);
   const logOut = 1 - progress(frame, LOG_END - 6, 10);
+  const cursorY = layout.portrait ? 760 : 540;
   return (
     <Group>
-      <Backdrop />
+      <Backdrop width={layout.width} height={layout.height} />
       {frame < LOG_END + 6 ? (
         <Group opacity={logOut} shader={[chromaticAberration({ offset: 1 + 16 * rms + 30 * (1 - progress(frame, 0, 2 * BEAT)) })]}>
           <MotionBlur shutterAngle={360} samples={10}>
-            {(moment) => <Log frame={moment} />}
+            {(moment) => <Log frame={moment} cursorY={cursorY} height={layout.height} />}
           </MotionBlur>
         </Group>
       ) : null}
       <Counter frame={frame} />
       {/* The first downbeat: a flash over the sub boom. */}
-      {frame < BEAT ? <Rect width={W} height={H} fill={C.paper} opacity={0.9 * (1 - progress(frame, 0, BEAT, Easings.easeOutCubic))} /> : null}
+      {frame < BEAT ? <Rect width={layout.width} height={layout.height} fill={C.paper} opacity={0.9 * (1 - progress(frame, 0, BEAT, Easings.easeOutCubic))} /> : null}
       <Shapes frame={frame} />
       <Teaser frame={frame} />
       <Card frame={frame} chapters={chapters} />

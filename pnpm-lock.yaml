@@ -273,6 +273,9 @@ importers:
       '@celesta/code':
         specifier: workspace:*
         version: link:../../packages/code
+      '@celesta/debug':
+        specifier: workspace:*
+        version: link:../../packages/debug
       '@celesta/layout':
         specifier: workspace:*
         version: link:../../packages/layout

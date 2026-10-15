@@ -1,13 +1,15 @@
 import { useContext } from 'react';
 import type { ReactNode } from 'react';
-import { Easings, FreezeFrame, Group, Rect, Text, interpolate, parseSubtitles, progress, useCurrentFrame } from '@celesta/react';
+import { Easings, FreezeFrame, Group, Rect, Text, interpolate, parseSubtitles, progress, useCurrentFrame, useTextMetrics } from '@celesta/react';
 import { safeAreaInsets } from '@celesta/layout';
 import { chromaticAberration, pixelate } from '@celesta/shader';
+import { useFitText } from '@celesta/text';
 import { Backdrop } from '../components/Backdrop';
 import { CUT } from '../components/ChapterShell';
 import { Delta } from '../components/Delta';
 import { C, FONT, FPS, W, ease, solid } from '../components/theme';
 import { FilmContext } from './film-context';
+import { useLayout } from './layout';
 import { BAR, BEAT, DURATION, chapterAt } from './timeline';
 
 // MORE: eight one-bar cards for what did not get a chapter. Each lands on a
@@ -263,31 +265,60 @@ export const CARDS: readonly Card[] = [
 /** Strings with Japanese in them, for the font subset. */
 export const MORE_STRINGS = [...MORAS, WEBSITE_LINE];
 
+const TITLE_STYLE = { fontFamily: FONT.display } as const;
+const LINE_STYLE = { fontFamily: FONT.sans, fontSize: 42, fontWeight: 700, lineHeight: 54 } as const;
+const START_SPACING = 0.12;
+
+/**
+ * Where a card's parts go. The film: copy on the left, the visual on the
+ * right. The short: copy stacked in the safe area, the visual below it, and
+ * the title fitted to the safe area's width.
+ */
+function useCardLayout(card: Card) {
+  const layout = useLayout();
+  const width = layout.width - layout.safe.left - layout.safe.right - 48;
+  // Fitted at rest; while it slams in, a long title may run past the safe area.
+  const fit = useFitText(card.title, { width, height: 260, minFontSize: 90, maxFontSize: 260, maxLines: 1, style: TITLE_STYLE });
+  const copy = useTextMetrics(card.line, LINE_STYLE, { maxWidth: width });
+  if (!layout.portrait) {
+    return { layout, x: 120, label: 150, title: 190, size: 220, line: 440, lineWidth: 760, prs: 960, visual: { x: 1020, y: 420, scale: 1 } };
+  }
+  const x = layout.safe.left + 24;
+  const top = layout.safe.top + 60;
+  const line = top + 40 + fit.fontSize * 1.05;
+  return {
+    layout, x, label: top, title: top + 40, size: fit.fontSize, line, lineWidth: width,
+    // The visuals are about 700 px wide: at 1.15 this centres them on the frame.
+    prs: layout.height - layout.safe.bottom - 50, visual: { x: (layout.width - 700 * 1.15) / 2, y: line + copy.height + 120, scale: 1.15 },
+  };
+}
+
 function CardView({ card, index, f }: { card: Card; index: number; f: number }) {
   const orange = index % 2 === 1;
   const c = orange ? LIGHT : DARK;
+  const at = useCardLayout(card);
   const hit = 1 - progress(f, 0, BEAT, Easings.easeOutCubic);
-  const title = { fontFamily: FONT.display, fontSize: 220, fill: solid(c.ink) } as const;
-  const spacing = interpolate(f, [0, 16], [0.12, 0.02], { easing: Easings.easeOutCubic, extrapolateRight: 'clamp' });
+  const title = { ...TITLE_STYLE, fontSize: at.size, fill: solid(c.ink) } as const;
+  const spacing = interpolate(f, [0, 16], [START_SPACING, 0.02], { easing: Easings.easeOutCubic, extrapolateRight: 'clamp' });
   const line = ease(f, 4, 12);
   const { Visual } = card;
   return (
     <Group>
-      <Backdrop fill={orange ? C.orange : C.ink} dots={orange ? '#0C0D0F18' : '#FFFFFF14'} />
+      <Backdrop fill={orange ? C.orange : C.ink} dots={orange ? '#0C0D0F18' : '#FFFFFF14'} width={at.layout.width} height={at.layout.height} />
       <Group shader={[pixelate(1 + 26 * hit ** 2), chromaticAberration({ offset: 22 * hit })]}>
-        <Group x={120} y={150}>
+        <Group x={at.x} y={at.label}>
           <Delta x={10} y={0} size={22} fill={orange ? C.ink : C.orange} />
           <Text x={34} y={0} anchorY={0.5} style={mono(22, orange ? C.ink : C.orange, 700)}>
             {`MORE  ${String(index + 1).padStart(2, '0')} / ${CARDS.length}`}
           </Text>
         </Group>
-        <Text x={116} y={190} style={{ ...title, letterSpacing: { em: spacing } }}>{card.title}</Text>
-        <Text x={120} y={440} opacity={line} maxWidth={760}
-          style={{ fontFamily: FONT.sans, fontSize: 42, fontWeight: 700, lineHeight: 54, fill: solid(c.ink) }}>{card.line}</Text>
-        <Text x={120} y={960} opacity={line} style={mono(22, c.sub)}>
+        <Text x={at.x - 4} y={at.title} style={{ ...title, letterSpacing: { em: spacing } }}>{card.title}</Text>
+        <Text x={at.x} y={at.line} opacity={line} maxWidth={at.lineWidth}
+          style={{ ...LINE_STYLE, fill: solid(c.ink) }}>{card.line}</Text>
+        <Text x={at.x} y={at.prs} opacity={line} style={mono(22, c.sub)}>
           {card.prs.map((n) => `#${n}`).join('  ·  ')}
         </Text>
-        <Group x={1020} y={420}>
+        <Group x={at.visual.x} y={at.visual.y} scale={at.visual.scale}>
           <Visual f={f} c={c} />
         </Group>
       </Group>
