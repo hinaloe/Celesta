@@ -246,5 +246,4 @@ test('dash lengths and offsets that cannot be drawn are refused', () => {
     const [, result] = render(body, { allowFailure: true });
     assert.match(result.error ?? '', message, body);
   }
-  // Five renders, each starting the CLI.
-}, 30_000);
+});

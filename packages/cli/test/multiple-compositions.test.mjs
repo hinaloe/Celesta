@@ -63,7 +63,7 @@ test('rejects missing, empty, duplicate and unknown IDs with useful diagnostics'
   assert.throws(() => mount(() => root({ id: 'a' }), 'missing'), /unknown.*missing.*available: a/);
 });
 
-test('inspect.mjs exposes the list and selects frames with shared entry properties', { timeout: 30000 }, () => {
+test('inspect.mjs exposes the list and selects frames with shared entry properties', () => {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-compositions-'));
   const entry = join(dir, 'entry.tsx');
   const inspector = fileURLToPath(new URL('../../../skills/celesta/scripts/inspect.mjs', import.meta.url));

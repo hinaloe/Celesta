@@ -63,7 +63,7 @@ test('render metrics cache by value and refresh for text, style, wrapping and co
 });
 
 
-test('CLI shares prepare and render RPCs, handles large UTF-8 replies, and forwards measurement errors', { timeout: 15000 }, async () => {
+test('CLI shares prepare and render RPCs, handles large UTF-8 replies, and forwards measurement errors', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-metrics-'));
   const entry = join(dir, 'entry.tsx');
   writeFileSync(entry, `

@@ -197,7 +197,7 @@ function images(layers) {
   );
 }
 
-test('DialogueSeries plays each planned line in its window with its voice and speaker', { timeout: 15000 }, async (t) => {
+test('DialogueSeries plays each planned line in its window with its voice and speaker', async (t) => {
   const { config, frames } = await renderEntry(
     t,
     `
@@ -257,7 +257,7 @@ test('DialogueSeries plays each planned line in its window with its voice and sp
   assert.deepEqual(clips(frames[7]), [{ src: 'a.wav', start: 76, frames: 30, volume: 0.5 }]);
 });
 
-test('DialogueSeries can hold subtitles through the gap and reports unmapped speakers', { timeout: 15000 }, async (t) => {
+test('DialogueSeries can hold subtitles through the gap and reports unmapped speakers', async (t) => {
   const source = (series) => `
     import * as React from 'react';
     import { Assets, Composition } from '@celesta/react';
