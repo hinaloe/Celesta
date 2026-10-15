@@ -109,7 +109,10 @@ try {
     Copy-Item -Path "$root/LICENSE*" -Destination $licenses
     Copy-Item -LiteralPath "$root/packaging/GPL-SOURCE-OFFER.md" -Destination $licenses
     if (-not $env:VCPKG_ROOT) { throw 'VCPKG_ROOT is required to collect native library licenses.' }
-    Copy-Item -LiteralPath "$env:VCPKG_ROOT/installed/x64-windows-static-md/share" -Destination "$licenses/native" -Recurse
+    # The triplet the vcpkg crate linked: CI's FFmpeg package sets
+    # VCPKGRS_TRIPLET to its release-only triplet.
+    $triplet = if ($env:VCPKGRS_TRIPLET) { $env:VCPKGRS_TRIPLET } else { 'x64-windows-static-md' }
+    Copy-Item -LiteralPath "$env:VCPKG_ROOT/installed/$triplet/share" -Destination "$licenses/native" -Recurse
     $metadataText = & cargo metadata --locked --offline --format-version 1 --filter-platform x86_64-pc-windows-msvc
     if ($LASTEXITCODE -ne 0) { throw 'cargo metadata failed' }
     $metadata = $metadataText | ConvertFrom-Json

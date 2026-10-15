@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: read
+  # setup-ffmpeg downloads Windows' FFmpeg from GitHub Packages.
+  packages: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
