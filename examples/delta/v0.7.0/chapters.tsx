@@ -24,7 +24,7 @@ export const CHAPTERS: readonly Chapter[] = [
     key: 'transitions',
     title: 'TRANSITIONS',
     headline: <>Seven new cuts, <Span style={accent}>and your own</Span>.</>,
-    body: 'Iris, clock wipe, zoom, dissolve, blur, flip and cube join the four, and defineTransition() makes more. Every cut in this film is a different one.',
+    body: 'Iris, clock wipe, zoom, dissolve, blur, flip and cube join the four, and defineTransition() makes more. No two cuts in this film are alike.',
     file: 'film.tsx',
     code: 'const delta = defineTransition({ present });\n<TransitionSeries.Transition type={delta}\n  durationInFrames={8} />',
     merged: [[350, 'seven types, defineTransition(), series size']],

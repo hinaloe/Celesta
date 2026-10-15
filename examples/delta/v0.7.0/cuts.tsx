@@ -1,12 +1,12 @@
 import { Easings } from '@celesta/react';
 import { chromaticAberration, noise, pixelate } from '@celesta/shader';
 import { Path } from '@celesta/shapes';
-import { blur, clockWipe, cube, defineTransition, dissolve, flip, iris, slide, wipe, zoom } from '@celesta/transitions';
+import { blur, clockWipe, crossfade, cube, defineTransition, dissolve, flip, iris, slide, wipe, zoom } from '@celesta/transitions';
 import type { TransitionDefinition } from '@celesta/transitions';
 import { trianglePoints } from '../components/Delta';
 
-// Every cut in the film is a different transition: the seven types new in
-// 0.7.0, the four from before, and two defined here with defineTransition().
+// No two cuts in the film are alike: every built-in type (iris and zoom
+// both ways), and two defined here with defineTransition().
 // All of them take CUT frames, so each chapter's downbeat stays where
 // ChapterShell expects it.
 
@@ -59,7 +59,7 @@ export const CUTS: readonly Cut[] = [
   { type: wipe(), from: 'left', label: 'wipe' },
   { type: iris({ direction: 'close', feather: 30 }), label: 'iris close' },
   { type: zoom({ direction: 'out', scale: 1.4 }), label: 'zoom out' },
-  { type: clockWipe({ direction: 'counterclockwise' }), label: 'clock-wipe' },
+  { type: crossfade(), label: 'crossfade' },
 ];
 
 export const CUT_EASING = Easings.easeInOutCubic;

@@ -6,7 +6,7 @@ import { CHAPTER_COUNT, CHAPTER_LENGTHS, OPEN_LENGTH, OUTRO_AT, OUTRO_LENGTH, ch
 // writes them out with --subtitles delta-0.7.0.srt.
 const TEXTS = [
   `Celesta v0.6.0 → v0.7.0。マージされた ${PRS.length} 本の PR から`,
-  'Δ01 TRANSITIONS — 新しいトランジション 7 種と defineTransition()。この映像の切り替えはすべて別の種類です',
+  'Δ01 TRANSITIONS — 新しいトランジション 7 種と defineTransition()。この映像に同じ切り替えは 2 度出てきません',
   'Δ02 MASK — テキストやパスや部分木を、グループのマスクに',
   'Δ03 MOTION BLUR — シャッターが開いている間の平均を描く MotionBlur と、残像の Trail',
   'Δ04 EFFECTS — ハーフトーン・色収差・波・ノイズ・走査線・ズームブラーとクロマキーをプロパティで',

@@ -2,7 +2,7 @@ import { useContext } from 'react';
 import { FreezeFrame, Group, Rect, Text } from '@celesta/react';
 import type { DemoProps } from '../../components/ChapterShell';
 import { STAGE, enter } from '../../components/ChapterShell';
-import { C, FONT, W, solid } from '../../components/theme';
+import { C, FONT, FPS, H, W, solid } from '../../components/theme';
 import { FilmContext } from '../film-context';
 import { BEAT, DURATION, chapterAt } from '../timeline';
 
@@ -30,11 +30,14 @@ export function McpDemo({ frame }: DemoProps) {
   const Film = useContext(FilmContext);
   const thumb = { width: 268, height: 151 };
   const scale = thumb.width / W;
-  const inspect = JSON.stringify({ compositionId: 'film', durationInFrames: DURATION, compositions: ['film', 'poster'] });
+  // The fields of inspect's result that say which composition and how long;
+  // `compositions` lists every root with its size and length (shortened here).
+  const inspect = `{ "compositionId": "film", "composition": { "width": ${W}, "height": ${H}, "fps": ${FPS}, "frames": ${DURATION} },`
+    + ' "compositions": [{ "id": "film", … }, { "id": "poster", … }] }';
   return (
     <Group>
       <Group opacity={enter(frame, 0)}>
-        <Text style={mono(19, C.grey)}>{'> render the spectrum, color and effects'}</Text>
+        <Text style={mono(19, C.grey)}>{'> render the spectrum, blend and effects'}</Text>
         <Text y={30} style={mono(19, C.grey)}>{'  chapters of film-0.7.0.tsx and check them'}</Text>
       </Group>
       <Group y={80}>

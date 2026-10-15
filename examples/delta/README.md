@@ -6,7 +6,7 @@ Celesta のリリースごとに「前のバージョンから何が変わった
 
 - `film-0.7.0.tsx` — v0.6.0 → v0.7.0 の 91 秒（エントリ）。Celesta の File → Open… で開きます。
 - `film-0.6.0.tsx` — v0.5.0 → v0.6.0 の 62 秒。
-- `components/` — シリーズ共通の見た目。配色・書体（`theme.ts`）、章のページ（`ChapterShell.tsx`）、右上の進行表示（`Hud.tsx`）、差分パネル（`DiffPanel.tsx`）、WGSL シェーダー（`shaders.ts`）、背景のドット（`Backdrop.tsx`）、Δ マーク（`Delta.tsx`）。
+- `components/` — シリーズ共通の見た目。配色・書体（`theme.ts`）、章のページ（`ChapterShell.tsx`）、右上の進行表示（`Hud.tsx`）、差分パネル（`DiffPanel.tsx`）、WGSL シェーダー（`shaders.ts`）、背景のドット（`Backdrop.tsx`）、Δ マーク（`Delta.tsx`）。0.7.0 は BGM のメーター付きの `Hud.tsx` を `v0.7.0/` に持ちます。
 - `v0.7.0/`・`v0.6.0/` — 各リリースの中身。冒頭（`Open.tsx`）、章の一覧（`chapters.tsx`）とデモ（`demos/`）、アウトロ（`Outro.tsx`）、リリースノートの PR 一覧（`prs.ts`）、テンポと章の位置（`timeline.ts`）。
 - `make-score-<version>.py` — BGM を生成する Python スクリプト。標準ライブラリのみ。
 - `poster-0.7.0.jpg`・`poster.jpg` — 0.7.0 は `poster` コンポジションの書き出し、0.6.0 は映像のアウトロから抽出した静止画。
@@ -48,8 +48,8 @@ SPECTRUM からはリードを足して 2 回目のドロップにしていま�
 
 ## 新機能で作っている部分（v0.7.0）
 
-- 章の切り替え 14 か所はすべて別のトランジションです。0.7.0 で入った 7 種（iris・clock-wipe・zoom・dissolve・blur・flip・cube）と、
-  `defineTransition()` で定義した 2 種（冒頭から Δ01 への Δ 形のマスク、SPECTRUM への色収差とピクセル化のグリッチ）を含みます（`v0.7.0/cuts.tsx`）。
+- 章の切り替え 14 か所に同じものはありません。組み込みの 11 種すべて（0.7.0 で入った iris・clock-wipe・zoom・dissolve・blur・flip・cube を含み、iris と zoom は開く向きと閉じる向きの両方）と、
+  `defineTransition()` で定義した 2 種（冒頭から Δ01 への Δ 形のマスク、SPECTRUM への色収差とピクセル化のグリッチ）です（`v0.7.0/cuts.tsx`）。
 - 冒頭の PR ログは `<MotionBlur>`、モーフィングする Δ は `<Trail>`・`interpolatePath()`・破線の `<Path progress>`、
   「0.7.0」は `<Group mask>` で、文字の中の章は `<FreezeFrame>` です。
 - DELTA カードと MORE のカードは、WGSL のシェーダーと組み込みの `chromaticAberration`・`scanlines`・`pixelate` を 1 つの `shader` 配列で重ねています。
@@ -68,7 +68,7 @@ SPECTRUM からはリードを足して 2 回目のドロップにしていま�
 - **説明のための描画**: MEDIA の 3 つのファイル（動画、APNG、透過の書き出し）は実ファイルではなく、似せて描いたものです。
   動画の波形はこの映像の BGM の音量、スピナーのコマは時間から求めています。
   MCP の会話、EDITOR のエディタ画面・ピンチ・Problems タブのエラー文、AIVISSPEECH のモーラ、WEBSITE のページも同様に描いたもので、
-  MCP の引数と `inspect` の値、EDITOR のソースの行番号（`ColorDemo.tsx:62`）はこのリポジトリの実際の値です。
+  MCP の引数名と `inspect` の結果のフィールド名・値（`compositions` の中身は省略）、EDITOR のソースの行番号（`ColorDemo.tsx:62`）はこのリポジトリの実際のものです。
 - **数値**: SAFE AREAS の数値は `'vertical-social'` を 1080×1920 で解決した値、MCP の `durationInFrames` はこの映像の長さです。
 
 ## 構成（v0.6.0）
