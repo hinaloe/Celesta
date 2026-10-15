@@ -4,15 +4,90 @@ Celesta のリリースごとに「前のバージョンから何が変わった
 インク黒とオレンジ、Bebas Neue の見出し、Space Grotesk の本文、JetBrains Mono のコードで、
 各機能をリリースノートの 1 ページのように見せます。見出し、何ができるか、それを使う差分、マージされた PR、そしてその場で動くデモです。
 
-- `film-0.6.0.tsx` — v0.5.0 → v0.6.0 の 62 秒（エントリ）。Celesta の File → Open… で開きます。
-- `components/` — シリーズ共通の見た目。配色・書体・テンポ（`theme.ts`）、章のページ（`ChapterShell.tsx`）、右上の進行表示（`Hud.tsx`）、差分パネル（`DiffPanel.tsx`）、WGSL シェーダー（`shaders.ts`）、背景のドット（`Backdrop.tsx`）、Δ マーク（`Delta.tsx`）。
-- `v0.6.0/` — このリリースの中身。冒頭（`Open.tsx`）、12 章の一覧（`chapters.tsx`）とデモ（`demos/`）、アウトロ（`Outro.tsx`）、リリースノートの PR 一覧（`prs.ts`）、章の位置（`timeline.ts`）。
-- `make-score-0.6.0.py` — BGM を生成する Python スクリプト。標準ライブラリのみ。
-- `poster.jpg` — 書き出した映像のアウトロから抽出した静止画。
+- `film-0.7.0.tsx` — v0.6.0 → v0.7.0 の 91 秒（エントリ）。Celesta の File → Open… で開きます。
+- `shorts-0.7.0.tsx` — 同じ 91 秒を 1080×1920 の縦長に組み直したショート版（エントリ）。
+- `film-0.6.0.tsx` — v0.5.0 → v0.6.0 の 62 秒。
+- `components/` — シリーズ共通の見た目。配色・書体（`theme.ts`）、章のページ（`ChapterShell.tsx`）、右上の進行表示（`Hud.tsx`）、差分パネル（`DiffPanel.tsx`）、WGSL シェーダー（`shaders.ts`）、背景のドット（`Backdrop.tsx`）、Δ マーク（`Delta.tsx`）。0.7.0 は BGM のメーター付きの `Hud.tsx` を `v0.7.0/` に持ちます。
+- `v0.7.0/`・`v0.6.0/` — 各リリースの中身。冒頭（`Open.tsx`）、章の一覧（`chapters.tsx`）とデモ（`demos/`）、アウトロ（`Outro.tsx`）、リリースノートの PR 一覧（`prs.ts`）、テンポと章の位置（`timeline.ts`）。
+  0.7.0 は 2 つのエントリが同じカット（`reel.tsx`）を、それぞれのキャンバス（`layout.ts`）に組んで再生します。
+- `make-score-<version>.py` — BGM を生成する Python スクリプト。標準ライブラリのみ。
+- `poster-0.7.0.jpg`・`poster.jpg` — 0.7.0 は `poster` コンポジションの書き出し、0.6.0 は映像のアウトロから抽出した静止画。
 
 次のリリースは `film-<version>.tsx` と `v<version>/` を足し、`components/` を使い回します。
+`components/` は v0.6.0 の API だけで書かれており、0.6.0 の映像はそのまま v0.6.0 で動きます。
 
-![poster](poster.jpg)
+![poster](poster-0.7.0.jpg)
+
+## 構成（v0.7.0）
+
+1920×1080、30 fps、180 BPM のドラムンベース（1 拍 = 10 フレーム、1 小節 = 40 フレーム）。
+12 の章は 4 小節ずつ、続く MORE は 1 小節に 1 枚のカードが 8 枚です。切り替えはすべて小節の頭に落ちます。
+
+| 時間 | 内容 |
+| --- | --- |
+| 0–2.7 秒 | 白い閃光のあと、v0.7.0 までにマージされた 47 本の PR が `<MotionBlur>` をかけて流れ、右の番号が #220 から #361 まで進む |
+| 2.7–4 秒 | Δ が破線で描かれ、拍ごとに星・ハート・六角形へ `interpolatePath()` で形を変えながら `<Trail>` を引く |
+| 4–5.3 秒 | 「0.7.0」の文字をマスクにして、これから出てくる章が 1 拍ずつ文字の中に映る |
+| 5.3–8 秒 | オレンジの DELTA カード。WGSL のグリッチと組み込みの色収差・走査線を 1 つの `shader` 配列で重ね、最後の無音の拍で反転してズームブラーがかかる |
+| 8–13.3 秒 | Δ01 TRANSITIONS — プレビューの中の本物の `TransitionSeries` が 2 拍ごとに新しい 7 種で切り替わる |
+| 13.3–18.7 秒 | Δ02 MASK — MASK の文字の中で DELTA カードが再生され、ぼかした円の輝度マスクがスポットライトになり、最後に反転する |
+| 18.7–24 秒 | Δ03 MOTION BLUR — 同じ車輪と Δ をブラーなしと `<MotionBlur>` で並べ、跳ねる星に `<Trail>` |
+| 24–29.3 秒 | Δ04 EFFECTS — 同じ絵にハーフトーン・ピクセル化・色収差・波・ノイズ・走査線・ズームブラーを 2 拍ずつかけ、最後にクロマキー |
+| 29.3–34.7 秒 | Δ05 COLOR — 色補正のプロパティ 8 種を並べ、続いて `shader` 配列を 1 段ずつ積む |
+| 34.7–40 秒 | Δ06 BLEND — 17 のブレンドモードを同じ背景と円で並べる |
+| 40–45.3 秒 | Δ07 SHAPES — Triangle・Polygon・Star・Pie・Heart の角が拍に合わせて丸まり、破線と点線が流れる |
+| 45.3–50.7 秒 | Δ08 PATHS — SVG のパスを `progress` で描き、先端の矢印が接線に沿って進む。下では輪郭が拍ごとにモーフィングする |
+| 50.7–56 秒 | Δ09 SPECTRUM — いま鳴っているこの映像の BGM の 32 バンドと音量、直近 3 秒のスペクトログラム |
+| 56–61.3 秒 | Δ10 MEDIA — 音の鳴る `<Video>` とループ、時間に合わせて進むアニメーション画像、透過の書き出し |
+| 61.3–66.7 秒 | Δ11 MCP — エージェントが `render_frames` でこの映像の 3 フレームを受け取り、`inspect` する |
+| 66.7–72 秒 | Δ12 EDITOR — この映像のクリップと BGM の波形が並ぶタイムライン、ピンチでのズーム、ソースを開く、Problems タブ |
+| 72–82.7 秒 | MORE — COMPOSITIONS / GOOGLE FONTS / SUBTITLES / SAFE AREAS / AIVISSPEECH / REACT 19 / WEBSITE / FIXES |
+| 82.7–90.7 秒 | BGM のスペクトルが輪になって脈打つ Δ、タグライン、13 場面のサムネイル。最後の和音とベルが鳴り切って終わる |
+
+BGM は 0.6.0 の 120 BPM のハウスから変え、映画予告風のブラスとサブベースで始まるドラムンベースにしました。
+F マイナー（Fm – D♭ – B♭m – C）の 2 ステップにリースベースを乗せ、SHAPES と PATHS の 2 章だけ軽く落とし、
+SPECTRUM からはリードを足して 2 回目のドロップにしています。MORE の後半はドラムを抜いてスネアのロールで盛り上げます。
+
+## 新機能で作っている部分（v0.7.0）
+
+- 章の切り替え 14 か所に同じものはありません。組み込みの 11 種すべて（0.7.0 で入った iris・clock-wipe・zoom・dissolve・blur・flip・cube を含み、iris と zoom は開く向きと閉じる向きの両方）と、
+  `defineTransition()` で定義した 2 種（冒頭から Δ01 への Δ 形のマスク、SPECTRUM への色収差とピクセル化のグリッチ）です（`v0.7.0/cuts.tsx`）。
+- 冒頭の PR ログは `<MotionBlur>`、モーフィングする Δ は `<Trail>`・`interpolatePath()`・破線の `<Path progress>`、
+  「0.7.0」は `<Group mask>` で、文字の中の章は `<FreezeFrame>` です。
+- DELTA カードと MORE のカードは、WGSL のシェーダーと組み込みの `chromaticAberration`・`scanlines`・`pixelate` を 1 つの `shader` 配列で重ねています。
+- `prepare()` で BGM を `loadAudioSpectrum()` に通し、右上のメーター（`useAudioSpectrum()`）、冒頭の色収差、SPECTRUM 章、
+  エディタ章の波形、アウトロの輪が同じ解析結果で動きます。
+- 欧文の 3 書体は `<Font google="…">` で名前から読み込み、和文は使う文字だけの Noto Sans JP です。
+- 各場面の字幕（日本語と英語）を `<Subtitles>` に渡しており、`--subtitles` で SRT または WebVTT として書き出せます（画面には描きません）。
+  言語はプロジェクトプロパティ `captions`（`ja` / `en`、既定は `ja`）で選び、書き出し時は `--props` で渡します。
+- エントリには `film` と `poster` の 2 つのコンポジションがあります。`poster` はアウトロの 1 フレームを `<FreezeFrame>` で描いたものです。
+- MCP 章のフレーム、エディタ章のプレビュー、MASK 章のカード、アウトロのサムネイルは、この映像そのものを `<FreezeFrame>` で描き直したものです。
+
+## ショート版（v0.7.0）
+
+`shorts-0.7.0.tsx` は本編と同じ 91 秒・同じ BGM・同じ切り替えを 1080×1920 で再生する縦長版です（Shorts、TikTok、Reels 向け）。
+
+- **組み直した部分**: 冒頭・MORE・アウトロは、本編と同じ部品がキャンバスの大きさに合わせて組み直されます。
+  章のページは縦用の `ShortChapter.tsx` で、ラベル・タイトル・見出し・差分を上に、デモ（本編の 860×742 のステージを 0.95 倍）を下に大きく置きます。
+  本文の説明は省き、PR 番号はプレビューの見出しに移しています。
+- **セーフエリア**: 読ませる文字は `'vertical-social'`（上 192・右 200・下 384・左 72 px）の内側に置いています。
+  ただし、タイトルが入ってくるときの字間や、デモの枠の端は少しはみ出します。
+  中央に置くもの（冒頭の図形や DELTA カード、アウトロ）は、セーフエリアではなく画面の中心に揃えています。
+- **セーフエリアの外側**: プラットフォームの UI に隠れる縁は `ShortFrame.tsx` が埋めます。
+  下端には BGM のバンドが帯になって伸び縮みし、右下には章番号が大きく画面からはみ出して置かれ、右端を章名が縦に流れます。
+- **本編の再利用**: リプレイやサムネイル（冒頭のティザー、MASK、MCP、EDITOR、SUBTITLES、アウトロ）は横長の本編のフレームです。
+- **補助線**: `<DebugOverlay safeArea="vertical-social" />` を入れてあり、アプリのプレビューと `--debug-guides` 付きの PNG にだけ描かれます（MP4 には描かれません）。
+
+## 本物と演出（v0.7.0）
+
+- **実際の機能**: 上に挙げたもののほか、TRANSITIONS の再生、MASK の文字マスクと輝度マスク、MOTION BLUR と Trail、EFFECTS と COLOR の各フィルターと
+  シェーダー配列、BLEND の 17 モード、SHAPES の図形と破線、PATHS の計測・トリム・モーフィング・SVG パス、SPECTRUM の値、
+  MORE の SUBTITLES の見本（SPECTRUM 章に合わせた英語の SRT を `parseSubtitles()` で読み、4 倍速で再生した SPECTRUM 章に載せたもの）と SAFE AREAS の数値（`safeAreaInsets()`）は実際の描画と計算です。
+- **説明のための描画**: MEDIA の 3 つのファイル（動画、APNG、透過の書き出し）は実ファイルではなく、似せて描いたものです。
+  動画の波形はこの映像の BGM の音量、スピナーのコマは時間から求めています。
+  MCP の会話、EDITOR のエディタ画面・ピンチ・Problems タブのエラー文、AIVISSPEECH のモーラ、WEBSITE のページも同様に描いたもので、
+  MCP の引数名と `inspect` の結果のフィールド名・値（`compositions` の中身は省略）、EDITOR のソースの行番号（`ColorDemo.tsx:62`）はこのリポジトリの実際のものです。
+- **数値**: SAFE AREAS の数値は `'vertical-social'` を 1080×1920 で解決した値、MCP の `durationInFrames` はこの映像の長さです。
 
 ## 構成（v0.6.0）
 
@@ -37,7 +112,7 @@ Celesta のリリースごとに「前のバージョンから何が変わった
 | 50–54 秒 | Δ12 SPEED — 各 PR の before / after |
 | 54–62 秒 | Δ、タグライン、12 章のサムネイル。最後の和音が鳴り切って終わる |
 
-## 新機能で作っている部分
+## 新機能で作っている部分（v0.6.0）
 
 紹介している機能の多くは、この映像自体の組み立てにも使っています。
 
@@ -50,7 +125,7 @@ Celesta のリリースごとに「前のバージョンから何が変わった
 - FREEZE 章とアウトロのサムネイルは、この映像そのものを `<FreezeFrame>` で描き直したものです。
 - 使っている API はすべて v0.6.0 で公開されているものです（色フィルタや `shader` の配列など、その後に入ったものは使っていません）。
 
-## 本物と演出
+## 本物と演出（v0.6.0）
 
 - **実際の機能**: 上に挙げたもののほか、SHADER のシェーダー、TRANSITIONS の再生とタイムライン、SPAN の再折り返し、
   FONT STACK の和欧混植と em 指定の字間、CODE の行と run、FREEZE の巻き戻し、LOOP のリングの周期性はすべて実際の描画です。
@@ -63,6 +138,29 @@ Celesta のリリースごとに「前のバージョンから何が変わった
 ## 再生成
 
 WAV と MP4 はリポジトリ全体の設定で Git の管理対象外です。クローン後は最初にスコアを生成してください。
+0.7.0 は `prepare()` で BGM を解析するため、WAV がないと読み込みで失敗します。
+
+```sh
+python3 examples/delta/make-score-0.7.0.py
+node skills/celesta/scripts/inspect.mjs examples/delta/film-0.7.0.tsx --frames 0,1360,2719
+Celesta-export --json --react examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 --subtitles examples/delta/delta-0.7.0.ja.srt
+Celesta-export --json --react --composition poster examples/delta/film-0.7.0.tsx --frame 0 examples/delta/poster-0.7.0.png
+```
+
+字幕は 1 回の書き出しで 1 ファイルです。英語は `--props`、WebVTT は拡張子で選びます（映像は毎回同じものが書き出されます）。
+
+```sh
+Celesta-export --json --react --overwrite --props '{"captions":"ja"}' examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 --subtitles examples/delta/delta-0.7.0.ja.vtt
+Celesta-export --json --react --overwrite --props '{"captions":"en"}' examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 --subtitles examples/delta/delta-0.7.0.en.srt
+Celesta-export --json --react --overwrite --props '{"captions":"en"}' examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 --subtitles examples/delta/delta-0.7.0.en.vtt
+```
+
+ショート版の書き出しと、セーフエリアの補助線付きのコンタクトシートです。
+
+```sh
+Celesta-export --json --react examples/delta/shorts-0.7.0.tsx examples/delta/delta-0.7.0-shorts.mp4
+Celesta-export --json --react --debug-guides --every 80 --contact-sheet --columns 6 examples/delta/shorts-0.7.0.tsx examples/delta/shorts-sheet.png
+```
 
 ```sh
 python3 examples/delta/make-score-0.6.0.py
