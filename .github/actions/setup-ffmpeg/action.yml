@@ -28,7 +28,7 @@ runs:
         # The version and SHA-256 that ffmpeg-windows.yml reports in its job
         # summary; update both after publishing.
         PACKAGE_VERSION: '8.1.2-1'
-        PACKAGE_SHA256: ''
+        PACKAGE_SHA256: '2d9fceb98906dc086c4e34e894aaf5504eae6ac7ce4b17a937b4862f987ed951'
         PACKAGE_ID: celesta.ffmpeg.windows
         GITHUB_TOKEN: ${{ github.token }}
       run: |
