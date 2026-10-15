@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use celesta_exporter::{
     BitDepth, ContactSheet, EncoderPreset, ExportJob, ExportOptions, ExportRange, FrameSelection,
-    PngExport, VideoEncoding, VideoFormat, parse_timecode,
+    StillExport, VideoEncoding, VideoFormat, parse_timecode,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -228,7 +228,7 @@ fn png_path(output: &Path) -> Result<PathBuf, String> {
 fn job(
     source: Source,
     output: PathBuf,
-    png: Option<PngExport>,
+    stills: Option<StillExport>,
     options: ExportOptions,
 ) -> ExportJob {
     ExportJob {
@@ -239,7 +239,7 @@ fn job(
         props_file: source.props_file,
         props: source.props,
         output,
-        png,
+        stills,
         options,
     }
 }
@@ -264,12 +264,12 @@ impl RenderFramesArgs {
             range: source.range,
             ..ExportOptions::default()
         };
-        let png = PngExport {
+        let stills = StillExport {
             frames,
             contact_sheet: None,
             debug_guides,
         };
-        Ok(job(source, dir.join("frame.png"), Some(png), options))
+        Ok(job(source, dir.join("frame.png"), Some(stills), options))
     }
 }
 
@@ -299,7 +299,7 @@ impl ContactSheetArgs {
             range: source.range,
             ..ExportOptions::default()
         };
-        let png = PngExport {
+        let stills = StillExport {
             frames,
             contact_sheet: Some(ContactSheet {
                 columns,
@@ -307,7 +307,7 @@ impl ContactSheetArgs {
             }),
             debug_guides,
         };
-        Ok(job(source, output, Some(png), options))
+        Ok(job(source, output, Some(stills), options))
     }
 }
 
@@ -517,7 +517,7 @@ mod tests {
         .unwrap();
         assert_eq!(job.options.video.crf, 20);
         assert_eq!(job.options.video.bit_depth, BitDepth::Ten);
-        assert!(job.png.is_none());
+        assert!(job.stills.is_none());
         assert_eq!(job.options.subtitles, None);
         let job = video_job(json!({
             "source": "a.tsx", "output": "a.mp4", "subtitles": "a.srt"
@@ -533,7 +533,7 @@ mod tests {
         assert!(job.react);
         assert!(job.output.is_absolute());
         assert_eq!(
-            job.png.unwrap().frames,
+            job.stills.unwrap().frames,
             celesta_exporter::FrameSelection::FromEnd(vec![0, -1])
         );
         let job = frames_job(json!({ "source": "a.celesta.json", "every": 5 })).unwrap();

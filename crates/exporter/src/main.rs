@@ -14,8 +14,8 @@ mod progress;
 use celesta_composition::Time;
 use celesta_exporter::{
     BitDepth, ColorConversion, ContactSheet, EncoderPreset, ExportCancellation, ExportError,
-    ExportJob, ExportOptions, ExportProgress, ExportRange, FrameSelection, GpuDriver, PngExport,
-    ReactRuntimeOptions, RenderQuality, VideoEncoding, VideoFormat, parse_timecode,
+    ExportJob, ExportOptions, ExportProgress, ExportRange, FrameSelection, GpuDriver,
+    ReactRuntimeOptions, RenderQuality, StillExport, VideoEncoding, VideoFormat, parse_timecode,
 };
 use celesta_react_bridge::{PropsFileChoice, resolve_props_file};
 
@@ -459,7 +459,7 @@ fn export(
         props_file: cli.props_file.clone(),
         props: cli.props.clone(),
         output: cli.output().to_owned(),
-        png: format.is_none().then(|| PngExport {
+        stills: format.is_none().then(|| StillExport {
             frames: match cli.every {
                 Some(step) => FrameSelection::Every(step.get()),
                 None => FrameSelection::Frames(cli.frames.clone()),

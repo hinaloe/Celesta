@@ -170,7 +170,7 @@ export default function Root() {
     .unwrap();
     let mut progress = Vec::new();
     Exporter::new(ExportOptions::default())
-        .export_react_png(
+        .export_react_stills(
             &entry,
             &ReactRuntimeOptions::new("node", runtime_path),
             None,
@@ -232,7 +232,7 @@ export default function Root() {
     )
     .unwrap();
     Exporter::new(ExportOptions::default())
-        .export_react_png(
+        .export_react_stills(
             &entry,
             &ReactRuntimeOptions::new("node", runtime_path),
             None,
@@ -271,7 +271,7 @@ export default function Root() {
     )
     .unwrap();
     Exporter::new(ExportOptions::default())
-        .export_react_png(
+        .export_react_stills(
             &entry,
             &ReactRuntimeOptions::new("node", runtime_path),
             None,

@@ -63,7 +63,7 @@ impl Default for ContactSheet {
 
 /// What a PNG export renders and how it is written.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PngExport {
+pub struct StillExport {
     pub frames: FrameSelection,
     /// `None` writes one PNG per frame.
     pub contact_sheet: Option<ContactSheet>,
@@ -74,7 +74,7 @@ pub struct PngExport {
 }
 
 /// Most frames one export writes as separate PNG files.
-pub const MAX_PNG_FRAMES: usize = 1_000;
+pub const MAX_STILL_FILES: usize = 1_000;
 
 fn invalid(message: impl Into<String>) -> ExportError {
     ExportError::InvalidSelection(message.into())
@@ -107,7 +107,7 @@ fn validate(frames: &[u64], total: u64, output: &Path) -> Result<(), ExportError
 fn frame_limit(contact_sheet: Option<ContactSheet>) -> (usize, &'static str) {
     match contact_sheet {
         Some(_) => (ContactSheet::MAX_FRAMES, "a contact sheet holds"),
-        None => (MAX_PNG_FRAMES, "one export writes as separate PNGs"),
+        None => (MAX_STILL_FILES, "one export writes as separate PNGs"),
     }
 }
 
@@ -394,7 +394,7 @@ fn write_png(
 impl Exporter {
     /// Exports exact zero-based project frames without video encoding or audio mixing.
     /// Multiple selections append `-000090` style frame numbers to the output stem.
-    pub fn export_project_png(
+    pub fn export_project_stills(
         &self,
         project: &Project,
         asset_root: &Path,
@@ -402,10 +402,10 @@ impl Exporter {
         output: &Path,
         progress: impl FnMut(ExportProgress),
     ) -> Result<(), ExportError> {
-        self.export_project_png_with(
+        self.export_project_stills_with(
             project,
             asset_root,
-            &PngExport {
+            &StillExport {
                 frames: FrameSelection::Frames(frames.to_vec()),
                 contact_sheet: None,
                 debug_guides: false,
@@ -418,11 +418,11 @@ impl Exporter {
     /// Exports project frames chosen by `request` as separate PNGs or one
     /// contact sheet. An export range is only allowed with
     /// [`FrameSelection::Every`].
-    pub fn export_project_png_with(
+    pub fn export_project_stills_with(
         &self,
         project: &Project,
         asset_root: &Path,
-        request: &PngExport,
+        request: &StillExport,
         output: &Path,
         mut progress: impl FnMut(ExportProgress),
     ) -> Result<(), ExportError> {
@@ -486,7 +486,7 @@ impl Exporter {
     }
 
     /// Exports selected React frames with one runtime/prepare call and shared font/asset caches.
-    pub fn export_react_png(
+    pub fn export_react_stills(
         &self,
         entry: &Path,
         runtime: &ReactRuntimeOptions,
@@ -495,11 +495,11 @@ impl Exporter {
         output: &Path,
         progress: impl FnMut(ExportProgress),
     ) -> Result<(), ExportError> {
-        self.export_react_png_with(
+        self.export_react_stills_with(
             entry,
             runtime,
             companion,
-            &PngExport {
+            &StillExport {
                 frames: FrameSelection::Frames(frames.to_vec()),
                 contact_sheet: None,
                 debug_guides: false,
@@ -509,14 +509,14 @@ impl Exporter {
         )
     }
 
-    /// [`Self::export_react_png`] for frames chosen by `request`, as separate
+    /// [`Self::export_react_stills`] for frames chosen by `request`, as separate
     /// PNGs or one contact sheet.
-    pub fn export_react_png_with(
+    pub fn export_react_stills_with(
         &self,
         entry: &Path,
         runtime: &ReactRuntimeOptions,
         companion: Option<CompanionProject<'_>>,
-        request: &PngExport,
+        request: &StillExport,
         output: &Path,
         mut progress: impl FnMut(ExportProgress),
     ) -> Result<(), ExportError> {
