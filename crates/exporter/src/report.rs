@@ -389,7 +389,7 @@ fn error_report(error: &ExportError, hints: HintStyle) -> ErrorReport {
             Some(if cli {
                 "write video to a .mp4, .mov or .webm path, or select frames with --frame or --every for PNG, JPEG or WebP stills"
             } else {
-                "write video to a .mp4, .mov or .webm path with export_video, or render PNG frames with render_frames"
+                "write video to a .mp4, .mov or .webm path with export_video, or render PNG, JPEG or WebP stills with render_frames"
             }),
         ),
         ExportError::UnsupportedSubtitles(_) => (
@@ -643,7 +643,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [
                 "set overwrite to replace it, or write to another path",
-                "write video to a .mp4, .mov or .webm path with export_video, or render PNG frames with render_frames",
+                "write video to a .mp4, .mov or .webm path with export_video, or render PNG, JPEG or WebP stills with render_frames",
                 "choose start/end inside the composition (composition.duration seconds)",
             ]
         );

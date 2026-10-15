@@ -121,6 +121,11 @@ Celesta-export --json --react scene.tsx --every 150 --contact-sheet sheet.webp
   rejected before rendering.
 - Check frames for yourself as PNG ([verify.md](verify.md)); JPEG and WebP
   compression can blur fine text and edges.
+- The MCP `render_frames` tool takes `format` (`png`, `jpeg`, or `webp`) and
+  `contact_sheet` takes the same extensions in `output`; both take `quality`
+  and return the images in the format they wrote. An image over 1568 pixels
+  on a side comes back as a downscaled PNG; the file keeps its size and
+  format.
 
 ## JSON results
 

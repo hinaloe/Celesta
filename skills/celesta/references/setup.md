@@ -62,15 +62,15 @@ claude mcp add celesta -- /Applications/Celesta.app/Contents/MacOS/Celesta-mcp
 | Shell command in this skill | MCP tool |
 | --- | --- |
 | `node inspect.mjs <entry> [--frames …] [--loop]` | `inspect` (`entry`, `frames`, `every`, `loop`) |
-| `Celesta-export --json … --frame/--frames/--every … out.png` | `render_frames` (returns the PNGs as images) |
-| `Celesta-export --json … --every N --contact-sheet out.png` | `contact_sheet` |
+| `Celesta-export --json … --frame/--frames/--every … out.png` | `render_frames` (returns the images; `format`: `png`, `jpeg`, `webp`) |
+| `Celesta-export --json … --every N --contact-sheet out.png` | `contact_sheet` (`output` extension or `format` picks the image format) |
 | `Celesta-export --json … out.mp4` | `export_video` |
 | `Celesta --init <folder> [--template <name>]` | `init_project` |
 | `Celesta --list-templates` | `list_templates` |
 | reading these references | `read_docs` (`topic`: `setup`, `animation`, …) |
 
 Tool arguments are camelCase versions of the options (`propsFile`,
-`debugGuides`, `start`/`end` for `--from`/`--to`); a `source` ending in
+`debugGuides`, `quality`, `start`/`end` for `--from`/`--to`); a `source` ending in
 `.json` is a JSON project, anything else a React entry. Failed calls return
 the same error `code`s as `--json` ([export.md](export.md#json-results)).
 `inspect.mjs --psd-layers` has no tool; run it in a shell.

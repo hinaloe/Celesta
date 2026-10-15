@@ -11,7 +11,7 @@ Workflow:
 1. Read the existing source, or create a project with `init_project` (see `list_templates`).
 2. Edit the source.
 3. `inspect` the React entry: it evaluates frames without rendering and reports layers, audio, and missing files.
-4. `render_frames` and look at the images; `contact_sheet` shows the whole video in one image. Do not claim the video looks right without looking at a rendered frame.
+4. `render_frames` and look at the images; `contact_sheet` shows the whole video in one image. Do not claim the video looks right without looking at a rendered frame. Both write PNG unless given `format` (`jpeg`, `webp`) or, for `contact_sheet`, a `.jpg`/`.webp` `output`, with an optional `quality` (1–100, default 90); check with PNG, since compression blurs fine text and edges.
 5. `export_video` only for audio or the final video (.mp4, .mov or .webm).
 
 Call `read_docs` before writing a feature you have not used: `read_docs` with no topic lists the topics. The docs mention shell commands; these tools replace them: `inspect.mjs` → `inspect`, `Celesta-export --frame/--frames/--every` → `render_frames`, `--contact-sheet` → `contact_sheet`, video export → `export_video`, `Celesta --init` → `init_project`, `--list-templates` → `list_templates`. `inspect.mjs --psd-layers` has no tool; run it in a shell.
