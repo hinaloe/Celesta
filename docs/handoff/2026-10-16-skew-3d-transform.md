@@ -121,7 +121,8 @@ Issue #300. Every layer and `Group` takes `skewX`/`skewY`, `rotationX`/
 - `@celesta/web` mirrors the GPU renderer in `packages/web/src/projection.ts`
   (DOM-free: matrix, facing, inverse-homography warp, footprint taps) and
   `scene-canvas.ts`: a projective layer draws into an offscreen canvas in the
-  raster frame, then into its parent pixel by pixel. The plane canvas is also
+  raster frame, then into its parent as affine triangles (`plane-pieces.ts`,
+  see `2026-10-17-web-plane-triangles.md`). The plane canvas is also
   capped at 16,777,216 pixels (iOS Safari draws nothing past about that), the
   canvas grows by its descendants' effects' reach, and blurs are capped.
   A flat layer builds no 3x3 (`turnsFlat`, `turnFlat`), and one that neither
@@ -137,9 +138,10 @@ Issue #300. Every layer and `Group` takes `skewX`/`skewY`, `rotationX`/
   over 200 random planes and the floor below). A probe of the example's
   floor (a 3780x2193 raster of noise warped onto 1920x428 output pixels)
   went from about 747 ms to 115 ms per call in Node 24, and to 77 ms
-  when half the source is transparent. Still a tenth of a second per frame
-  for a screen-filling plane, which the guide says; a subdivided-triangle
-  `drawImage` path is a planned follow-up.
+  when half the source is transparent. It now draws only a band along the
+  near clip and what no triangle filter fits: see
+  `2026-10-17-web-plane-triangles.md` for the `drawImage` path that replaced
+  it (about 120 ms to 31–38 ms for the floor in Chrome).
 - The CPU reference renderer refuses a nonzero skew, `rotationX`, or
   `rotationY` with `RenderError::UnsupportedTransform { layer, property }`;
   `perspective` alone is accepted.
@@ -181,11 +183,13 @@ Issue #300. Every layer and `Group` takes `skewX`/`skewY`, `rotationX`/
   from frame 1: children with blend modes can change how they mix. The guide
   says to start from a nonzero angle.
 - Blur radii inside a plane are capped at 64 plane pixels (see above).
-- The browser preview of large perspective planes is slow (see the web
-  warp above).
-- Follow-ups already split off: density-banded planes and a subdivided
-  affine `drawImage` path for the web warp. Size-only stand-ins for images,
-  SVG, and PSD in plane measurement are done (see above).
+- The browser preview draws planes as affine triangles, within half a pixel
+  of the GPU and with an antialiased outline
+  (`2026-10-17-web-plane-triangles.md`).
+- Follow-ups already split off: density-banded planes. The subdivided affine
+  `drawImage` path for the web warp (`2026-10-17-web-plane-triangles.md`) and
+  size-only stand-ins for images, SVG, and PSD in plane measurement (see
+  above) are done.
 
 ## Checks
 
