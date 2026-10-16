@@ -1,5 +1,7 @@
 use crate::Evaluator;
-use celesta_composition::{Animatable, BlendMode, ImageAnimation, Scene};
+use celesta_composition::{
+    Animatable, AnimatablePoint, BackfaceVisibility, BlendMode, ImageAnimation, Scene, Transform,
+};
 
 use celesta_composition::{
     Keyframe, KeyframeAnimation, KeyframeAnimationType, LayerContent, LayerFilter, Time,
@@ -115,6 +117,60 @@ fn evaluates_animated_effects_at_item_local_time() {
     assert_eq!(layer.effects.shadow.as_ref().unwrap().color, "#800000C0");
     assert_eq!(layer.effects.glow.as_ref().unwrap().blur, 4.0);
     assert!(layer.effects.filters.is_empty());
+}
+
+#[test]
+fn evaluates_3d_transform_fields() {
+    let mut project = example();
+    let start = project.tracks[0].items[0].range.start;
+    let time = start.checked_add(Time::new(1, 2)).unwrap();
+    let transform_at = |project: &Project| {
+        Evaluator::new(project)
+            .unwrap()
+            .scene_at(time)
+            .unwrap()
+            .layers[0]
+            .transform
+    };
+
+    let defaults = transform_at(&project);
+    assert_eq!((defaults.skew.x, defaults.skew.y), (0.0, 0.0));
+    assert_eq!(defaults.rotation_x, 0.0);
+    assert_eq!(defaults.rotation_y, 0.0);
+    assert_eq!(defaults.perspective, None);
+    assert_eq!(defaults.backface_visibility, BackfaceVisibility::Visible);
+
+    project.tracks[0].items[0].transform = Some(Transform {
+        skew: Some(AnimatablePoint {
+            x: Some(Animatable::Static(10.0)),
+            y: None,
+        }),
+        rotation_y: Some(Animatable::Keyframes(KeyframeAnimation {
+            kind: KeyframeAnimationType::Keyframes,
+            keyframes: vec![
+                Keyframe {
+                    time: Time::ZERO,
+                    value: 0.0,
+                    easing: None,
+                },
+                Keyframe {
+                    time: Time::new(1, 1),
+                    value: 180.0,
+                    easing: None,
+                },
+            ],
+        })),
+        perspective: Some(Animatable::Static(900.0)),
+        backface_visibility: Some(BackfaceVisibility::Hidden),
+        ..Transform::default()
+    });
+    let transform = transform_at(&project);
+    assert_eq!(transform.skew.x, 10.0);
+    assert_eq!(transform.skew.y, 0.0);
+    assert_eq!(transform.rotation_x, 0.0);
+    assert_eq!(transform.rotation_y, 90.0);
+    assert_eq!(transform.perspective, Some(900.0));
+    assert_eq!(transform.backface_visibility, BackfaceVisibility::Hidden);
 }
 
 #[test]

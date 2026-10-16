@@ -191,7 +191,15 @@ pub(crate) fn evaluate_transform(
         scale: evaluate_point(transform.scale.as_ref(), time, defaults.scale)?,
         rotation: evaluate_optional(&transform.rotation, time, defaults.rotation)?,
         anchor: evaluate_point(transform.anchor.as_ref(), time, defaults.anchor)?,
-        ..defaults
+        skew: evaluate_point(transform.skew.as_ref(), time, defaults.skew)?,
+        rotation_x: evaluate_optional(&transform.rotation_x, time, defaults.rotation_x)?,
+        rotation_y: evaluate_optional(&transform.rotation_y, time, defaults.rotation_y)?,
+        perspective: transform
+            .perspective
+            .as_ref()
+            .map(|perspective| evaluate_f64(perspective, time))
+            .transpose()?,
+        backface_visibility: transform.backface_visibility.unwrap_or_default(),
     })
 }
 
