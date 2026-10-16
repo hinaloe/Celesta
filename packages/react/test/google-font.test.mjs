@@ -23,6 +23,22 @@ test('googleFont without subsets requests the whole family from the v2 API', () 
   );
 });
 
+test('googleFont text requests only those characters, deduplicated and sorted for the cache', () => {
+  const url = googleFont('Noto Sans JP', { weights: [700, 500], text: '日本語の字幕、日本語' });
+  assert.equal(url, `https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@500;700&text=${encodeURIComponent('、の字幕日本語')}`);
+  assert.equal(googleFont('Noto Sans JP', { weights: [500, 700], text: '語本日幕字の、' }), url);
+  // Encoded as one query value: separators and astral characters stay inside it.
+  const params = new URL(googleFont('Inter', { text: 'a&b=c+d #😀' })).searchParams;
+  assert.equal(params.get('family'), 'Inter:wght@400');
+  assert.equal(params.get('text'), ' #&+=abcd😀');
+  assert.equal(googleFont('Inter', { text: 'ab', subsets: [] }), googleFont('Inter', { text: 'ba' }));
+});
+
+test('googleFont rejects text with subsets and empty text', () => {
+  assert.throws(() => googleFont('Noto Sans JP', { text: '日本', subsets: ['japanese'] }), /either `text` or `subsets`/);
+  assert.throws(() => googleFont('Noto Sans JP', { text: '' }), /at least one character/);
+});
+
 test('googleFont rejects empty families, injected API syntax, weights, and subsets', () => {
   for (const family of ['', ' ', 'Inter|Roboto', 'Inter:700']) {
     assert.throws(() => googleFont(family), /family name/);

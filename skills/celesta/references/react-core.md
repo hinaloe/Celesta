@@ -600,7 +600,15 @@ conditional plays only on frames where it is rendered.
   loads only those plus Latin. Every returned face is loaded. Native
   rendering caches CSS and files for later offline use. Unknown names or
   unavailable weights report an error. `googleFont(family, { weights,
-  subsets })` returns the same URL for `measureText`'s `fonts` option.
+  subsets, text })` returns the same URL for `measureText`'s `fonts` option.
+- `text` loads only the characters a video draws, one small file per weight
+  instead of the many files a Japanese family is split into:
+  `<Font google="Noto Sans JP" weights={[500, 700]} text={strings.join('')} />`.
+  Characters are deduplicated and sorted, so the same set shares one cache
+  entry; changing the set makes a new request. A character missing from
+  `text` is drawn by the next family in the `fontFamily` stack or a system
+  fallback font, and the export warns that the family has no glyph for it.
+  `text` cannot be combined with `subsets`, and must not be empty.
   Fonts retain their own licenses; include license and copyright notices
   when redistributing files. The cache does not fetch license files.
 - `<Assets>` holds declarations that draw nothing: `Font`, `Character`, and

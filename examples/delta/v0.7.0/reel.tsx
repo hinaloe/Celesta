@@ -1,7 +1,7 @@
 import { Assets, Font, Group, Subtitles, defineProjectProperties, getProjectProperty, progress, useCurrentFrame } from '@celesta/react';
 import { TransitionSeries, computeTransitionSeries } from '@celesta/transitions';
 import { CUT, ChapterShell } from '../components/ChapterShell';
-import { japaneseFonts } from '../components/theme';
+import { japaneseText } from '../components/theme';
 import { CAPTIONS, CAPTION_LANGUAGES } from './captions';
 import type { CaptionLanguage } from './captions';
 import { CHAPTERS } from './chapters';
@@ -108,7 +108,7 @@ export function Fonts() {
       <Font google="Bebas Neue" />
       <Font google="Space Grotesk" weights={[400, 500, 700]} />
       <Font google="JetBrains Mono" weights={[400, 700]} />
-      <Font src={japaneseFonts(JA_STRINGS)} />
+      <Font google="Noto Sans JP" weights={[500, 700]} text={japaneseText(JA_STRINGS)} />
     </Assets>
   );
 }

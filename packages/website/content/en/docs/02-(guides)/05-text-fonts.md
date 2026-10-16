@@ -58,7 +58,19 @@ To use a font file that is not installed, declare it with `<Font>`. A relative `
 
 `google` takes one Google Fonts family name and replaces `src`; choose either one. `weights` defaults to `[400]` and accepts static weights from 100 to 900 in steps of 100. List every weight your text uses. Without `subsets`, every script the family has is loaded, the same as a CSS2 API link. `subsets` narrows the request to Google Fonts script names, such as `latin`, `cyrillic`, or `japanese`; Latin is included when available. These options use the [Google Fonts CSS API](https://developers.google.com/fonts/docs/getting_started). Google may return all Unicode ranges for clients supporting `unicode-range`, such as the browser preview, regardless of `subsets`. Celesta loads all returned faces, including Japanese fonts split across multiple files. Use a CSS URL in `src` for italic styles or variable weight ranges.
 
-The desktop app and exporter cache both the stylesheet and each font file in the existing remote asset cache. Once a request has loaded successfully, it works offline on later runs, including in a new process. Changing weights or subsets creates a different request; its first use needs network access. Files are not revalidated. The browser preview uses the browser's HTTP cache and does not guarantee offline availability. An unknown family or unavailable weight reports a Google Fonts error; network failures remain download errors.
+A Japanese family is split into many files, and most of them hold characters a video never draws. `text` loads only the characters you pass, as one small file per weight:
+
+```tsx title="Load only the characters a video draws"
+const captions = ['字幕の組版を改善', '日本語の折り返し'];
+
+<Assets>
+  <Font google="Noto Sans JP" weights={[500, 700]} text={captions.join('')} />
+</Assets>
+```
+
+Characters are deduplicated and sorted, so passing the same characters in another order reuses the same request. A character that is not in `text` is drawn by the next family in the `fontFamily` stack, or by a system fallback font, and the export warns that the family has no glyph for it. Include every string the video draws, including ones chosen by props or data. `text` cannot be combined with `subsets`, and must contain at least one character.
+
+The desktop app and exporter cache both the stylesheet and each font file in the existing remote asset cache. Once a request has loaded successfully, it works offline on later runs, including in a new process. Changing weights, subsets, or text creates a different request; its first use needs network access. Files are not revalidated. The browser preview uses the browser's HTTP cache and does not guarantee offline availability. An unknown family or unavailable weight reports a Google Fonts error; network failures remain download errors.
 
 For measurements in `prepare()`, use the same URL helper:
 

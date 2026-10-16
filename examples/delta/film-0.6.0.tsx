@@ -2,7 +2,7 @@ import { Assets, Audio, Composition, Easings, Font, Group, progress, useCurrentF
 import { TransitionSeries, computeTransitionSeries } from '@celesta/transitions';
 import { CUT, ChapterShell } from './components/ChapterShell';
 import { Hud } from './components/Hud';
-import { FPS, H, LATIN_FONTS, W, japaneseFonts } from './components/theme';
+import { FPS, H, LATIN_FONTS, W, japaneseText } from './components/theme';
 import { CHAPTERS } from './v0.6.0/chapters';
 import { JA_STRINGS } from './v0.6.0/demos/FontStackDemo';
 import { FilmContext } from './v0.6.0/film-context';
@@ -76,7 +76,7 @@ export default function Root() {
     <Composition width={W} height={H} fps={FPS} durationInFrames={DURATION} lang="ja-JP">
       <Assets>
         <Font src={LATIN_FONTS} />
-        <Font src={japaneseFonts([...PRS.map(([, title]) => title), ...JA_STRINGS])} />
+        <Font google="Noto Sans JP" weights={[500, 700]} text={japaneseText([...PRS.map(([, title]) => title), ...JA_STRINGS])} />
       </Assets>
       <FilmContext.Provider value={Film}>
         <Film />

@@ -37,13 +37,10 @@ export const FONT = {
 export const LATIN_FONTS = 'https://fonts.googleapis.com/css2?family=Bebas+Neue'
   + '&family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;700';
 
-// Japanese is subset to the characters a film draws (Google Fonts' `text=`),
-// so it loads as a few small files.
-export function japaneseFonts(strings: readonly string[]): string {
-  const glyphs = [...new Set(strings.join(''))].filter((c) => c.codePointAt(0)! > 0x2000).sort().join('');
-  return 'https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@500;700'
-    + `&text=${encodeURIComponent(glyphs)}`;
-}
+// The characters Noto Sans JP loads with <Font google text>: Latin comes
+// from the first family of each stack, so only the Japanese glyphs a film
+// draws are kept and the face loads as a few small files.
+export const japaneseText = (strings: readonly string[]) => strings.join('').replace(/[\0-\u2000]/g, '');
 
 export const solid = (color: string) => ({ type: 'solid' as const, color });
 
