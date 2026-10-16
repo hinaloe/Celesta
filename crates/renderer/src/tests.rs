@@ -2786,3 +2786,74 @@ fn cpu_refuses_a_static_ref() {
         "{error}"
     );
 }
+
+fn transformed_square(transform: EvaluatedTransform) -> Scene {
+    let mut layer = red_square();
+    layer.id = "tilted".to_owned();
+    layer.transform = transform;
+    clip_scene(vec![layer])
+}
+
+#[test]
+fn refuses_skew_and_3d_rotation() {
+    let cases = [
+        (
+            "skewX",
+            EvaluatedTransform {
+                skew: Point { x: 5.0, y: 0.0 },
+                ..EvaluatedTransform::default()
+            },
+        ),
+        (
+            "skewY",
+            EvaluatedTransform {
+                skew: Point { x: 0.0, y: 5.0 },
+                ..EvaluatedTransform::default()
+            },
+        ),
+        (
+            "rotationX",
+            EvaluatedTransform {
+                rotation_x: 5.0,
+                ..EvaluatedTransform::default()
+            },
+        ),
+        (
+            "rotationY",
+            EvaluatedTransform {
+                rotation_y: 5.0,
+                ..EvaluatedTransform::default()
+            },
+        ),
+    ];
+    for (property, transform) in cases {
+        let error = CpuRenderer::default()
+            .render(&transformed_square(transform))
+            .unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                RenderError::UnsupportedTransform { layer, property: refused }
+                    if layer == "tilted" && *refused == property
+            ),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn perspective_and_hidden_backface_alone_render_like_a_plain_rect() {
+    let plain = CpuRenderer::default()
+        .render(&clip_scene(vec![red_square()]))
+        .unwrap();
+
+    let mut layer = red_square();
+    layer.transform.perspective = Some(500.0);
+    layer.transform.backface_visibility = celesta_composition::BackfaceVisibility::Hidden;
+    let flat = CpuRenderer::default()
+        .render(&clip_scene(vec![layer]))
+        .unwrap();
+
+    assert!(is_red(&flat, 20, 20));
+    assert_eq!(plain.pixels(), flat.pixels());
+}

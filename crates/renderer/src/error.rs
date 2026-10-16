@@ -26,6 +26,10 @@ pub enum RenderError {
         layer: String,
         degrees: f64,
     },
+    UnsupportedTransform {
+        layer: String,
+        property: &'static str,
+    },
     UnsupportedNonUniformTextScale {
         x: f64,
         y: f64,
@@ -96,6 +100,10 @@ impl fmt::Display for RenderError {
             Self::UnsupportedRotation { layer, degrees } => write!(
                 formatter,
                 "CPU reference renderer does not support {degrees} degree rotation on layer `{layer}`"
+            ),
+            Self::UnsupportedTransform { layer, property } => write!(
+                formatter,
+                "CPU reference renderer does not support `{property}` on layer `{layer}`"
             ),
             Self::UnsupportedNonUniformTextScale { x, y } => write!(
                 formatter,

@@ -27,6 +27,18 @@ impl CpuRenderer {
                 degrees: layer.transform.rotation,
             });
         }
+        let refused = [
+            (layer.transform.skew.x != 0.0, "skewX"),
+            (layer.transform.skew.y != 0.0, "skewY"),
+            (layer.transform.rotation_x != 0.0, "rotationX"),
+            (layer.transform.rotation_y != 0.0, "rotationY"),
+        ];
+        if let Some((_, property)) = refused.into_iter().find(|(set, _)| *set) {
+            return Err(RenderError::UnsupportedTransform {
+                layer: layer.id.clone(),
+                property,
+            });
+        }
         let state = ParentState {
             position: Point {
                 x: parent.position.x + layer.transform.position.x * parent.scale.x,
