@@ -8,8 +8,8 @@ use celesta_project::Project;
 use std::path::{Path, PathBuf};
 
 /// One export as `Celesta-export` and the MCP server describe it: a JSON
-/// project or a React entry, written as still images (PNG, JPEG or WebP) or a
-/// video (MP4, MOV or WebM).
+/// project or a React entry, written as still images (PNG, JPEG or WebP), a
+/// video (MP4, MOV or WebM), or only subtitle files.
 #[derive(Clone, Debug)]
 pub struct ExportJob {
     pub source: PathBuf,
@@ -23,14 +23,16 @@ pub struct ExportJob {
     pub props_file: Option<PathBuf>,
     /// Property values as a JSON object, over `props_file`'s.
     pub props: Option<String>,
-    pub output: PathBuf,
+    /// The video or still image to write. `None` writes only the subtitle
+    /// files `options.subtitles` names, rendering nothing.
+    pub output: Option<PathBuf>,
     /// `Some` writes still images (PNG, JPEG or WebP) instead of a video.
     pub stills: Option<StillExport>,
     pub options: ExportOptions,
 }
 
 impl ExportJob {
-    /// Runs the export. Only video exports check `cancellation`.
+    /// Runs the export. Only video and subtitle exports check `cancellation`.
     pub fn run(
         &self,
         cancellation: &ExportCancellation,
@@ -55,20 +57,38 @@ impl ExportJob {
             )
             .map(|runtime| runtime.with_composition(self.composition_id.clone()))
         };
+        let Some(output) = &self.output else {
+            if self.stills.is_some() {
+                return Err(ExportError::InvalidSelection(
+                    "still images need an output path".into(),
+                ));
+            }
+            return if self.react {
+                exporter.export_react_subtitles(
+                    &self.source,
+                    &runtime()?,
+                    companion,
+                    cancellation,
+                    progress,
+                )
+            } else {
+                exporter.export_project_subtitles(&load(&self.source)?, progress)
+            };
+        };
         match (&self.stills, self.react) {
             (Some(stills), true) => exporter.export_react_stills_with(
                 &self.source,
                 &runtime()?,
                 companion,
                 stills,
-                &self.output,
+                output,
                 progress,
             ),
             (Some(stills), false) => exporter.export_project_stills_with(
                 &load(&self.source)?,
                 asset_root(&self.source),
                 stills,
-                &self.output,
+                output,
                 progress,
             ),
             (None, true) => {
@@ -78,14 +98,14 @@ impl ExportJob {
                         &self.source,
                         &runtime,
                         companion,
-                        &self.output,
+                        output,
                         cancellation,
                         progress,
                     ),
                     None => exporter.export_react_entry_cancellable(
                         &self.source,
                         &runtime,
-                        &self.output,
+                        output,
                         cancellation,
                         progress,
                     ),
@@ -94,7 +114,7 @@ impl ExportJob {
             (None, false) => exporter.export_project_cancellable(
                 &load(&self.source)?,
                 asset_root(&self.source),
-                &self.output,
+                output,
                 cancellation,
                 progress,
             ),

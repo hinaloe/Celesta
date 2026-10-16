@@ -227,12 +227,22 @@ impl State {
 
 /// An inline viewport preserves scrollback and needs neither raw mode nor an alternate screen.
 /// Keeping the cursor visible also leaves Ctrl-C with the terminal's usual behavior.
+/// Runs `export` with progress lines on stderr and never the dashboard, for
+/// an export that writes only subtitles: its frames are evaluated, not
+/// rendered.
+pub fn run_plain(
+    export: impl FnOnce(&mut dyn FnMut(ExportProgress)) -> Result<(), ExportError>,
+) -> Result<(), ExportError> {
+    let mut plain = PlainProgress::new("evaluating");
+    export(&mut |event| plain.update(event))
+}
+
 pub fn run(
     settings: Settings<'_>,
     no_ui: bool,
     export: impl FnOnce(&mut dyn FnMut(ExportProgress)) -> Result<(), ExportError>,
 ) -> Result<(), ExportError> {
-    let mut plain = PlainProgress::new();
+    let mut plain = PlainProgress::new("rendering");
     if no_ui
         || !io::stderr().is_terminal()
         || std::env::var_os("TERM").is_some_and(|term| term == "dumb")
@@ -718,14 +728,17 @@ struct PlainProgress {
     state: State,
     last_line: Option<Instant>,
     terminal: bool,
+    /// What is done to each frame, as progress lines name it.
+    verb: &'static str,
 }
 
 impl PlainProgress {
-    fn new() -> Self {
+    fn new(verb: &'static str) -> Self {
         Self {
             state: State::new(),
             last_line: None,
             terminal: io::stderr().is_terminal(),
+            verb,
         }
     }
 
@@ -745,7 +758,8 @@ impl PlainProgress {
                 self.last_line = Some(Instant::now());
                 let (fps, eta) = self.state.metrics();
                 let line = format!(
-                    "rendering frame {frame}/{total}  {} fps  elapsed {}  eta {}",
+                    "{} frame {frame}/{total}  {} fps  elapsed {}  eta {}",
+                    self.verb,
                     fps.map_or_else(|| "—".into(), |fps| format!("{fps:.1}")),
                     clock(self.state.elapsed()),
                     eta.map_or_else(|| "—".into(), clock)

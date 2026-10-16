@@ -9,7 +9,8 @@ use crate::subtitles;
 use celesta_composition::Time;
 use celesta_media::{AudioMixError, FfmpegBackend, mix_audio_graph_cancellable};
 use celesta_project::Project;
-use std::path::Path;
+use celesta_react_bridge::ReactCompositionMetadata;
+use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 impl Exporter {
@@ -137,9 +138,7 @@ impl Exporter {
             self.options.overwrite,
         )?;
         ensure_encoders(self.options.video_format)?;
-        if let Some(path) = &self.options.subtitles {
-            subtitles::check_output(path, self.options.overwrite)?;
-        }
+        subtitles::check_outputs(&self.options.subtitles, self.options.overwrite)?;
 
         // Absolutize the asset roots up front: `absolutize_layers` and
         // `build_audio_graph` rewrite relative asset paths into absolute ones
@@ -149,11 +148,7 @@ impl Exporter {
         // again.
         let asset_root = entry.parent().unwrap_or_else(|| Path::new("."));
         let asset_root = &fs::canonicalize(asset_root).unwrap_or_else(|_| asset_root.to_owned());
-        let project = project.map(|(project, project_asset_root)| {
-            let project_asset_root = fs::canonicalize(project_asset_root)
-                .unwrap_or_else(|_| project_asset_root.to_owned());
-            (project, project_asset_root)
-        });
+        let project = canonical_project(project);
         let parent = output_path.parent().unwrap_or_else(|| Path::new("."));
         fs::create_dir_all(parent).map_err(|source| ExportError::Io {
             operation: "create output directory",
@@ -167,36 +162,13 @@ impl Exporter {
                 .map(|(project, root)| (*project, root.as_path())),
         )?;
         let metadata = bridge.metadata().clone();
-        progress(ExportProgress::ReactCompositions {
-            selected: metadata.composition_id.clone(),
-            compositions: metadata.compositions.clone(),
-        });
-        progress(ExportProgress::Composition(CompositionInfo {
-            width: metadata.width,
-            height: metadata.height,
-            frame_rate: metadata.frame_rate,
-            frames: metadata.duration_in_frames,
-        }));
+        report_composition(&metadata, &mut progress);
         validate_dimensions(metadata.width, metadata.height)?;
         if metadata.duration_in_frames == 0 {
             return Err(ExportError::EmptyTimeline);
         }
 
-        let (start_frame, frame_count, window_start) = match self.options.range {
-            None => (0, metadata.duration_in_frames, Time::ZERO),
-            Some(range) => {
-                let full = Time::frames(
-                    i64::try_from(metadata.duration_in_frames)
-                        .map_err(|_| ExportError::TimelineTooLong)?,
-                    metadata.frame_rate,
-                )
-                .map_err(ExportError::Time)?;
-                let window = resolve_window(&range, full, metadata.frame_rate)?;
-                let start_frame =
-                    u64::try_from(window.start_frame).map_err(|_| ExportError::TimelineTooLong)?;
-                (start_frame, window.frames, window.start)
-            }
-        };
+        let (start_frame, frame_count, window_start) = self.react_window(&metadata)?;
 
         // Video frames stream into a staged file first; every frame's
         // response reports the `<Audio>` clips its tree declares (see
@@ -296,17 +268,131 @@ impl Exporter {
             audio,
             format: self.options.video_format,
         }));
-        if let Some(path) = &self.options.subtitles {
-            let window = subtitles::Window {
-                start: window_start.as_seconds().map_err(ExportError::Time)?,
-                duration: duration.as_seconds().map_err(ExportError::Time)?,
-            };
+        if !self.options.subtitles.is_empty() {
+            let window = subtitles::Window::new(window_start, duration)?;
             self.write_subtitles(
-                path,
                 &subtitles::react_cues(&react_subtitles, window),
                 &mut progress,
             )?;
         }
         Ok(())
     }
+
+    /// Writes only a React entry's subtitle files (`ExportOptions::subtitles`),
+    /// as a video export of the same range would: every frame of the range
+    /// is evaluated, but none is rendered or encoded, so it takes a fraction
+    /// of the export's time. `companion` supplies project properties as in a
+    /// video export. Rendering progress counts the evaluated frames.
+    pub fn export_react_subtitles(
+        &self,
+        entry: impl AsRef<Path>,
+        react_runtime: &ReactRuntimeOptions,
+        companion: Option<CompanionProject<'_>>,
+        cancellation: &ExportCancellation,
+        mut progress: impl FnMut(ExportProgress),
+    ) -> Result<(), ExportError> {
+        if self.options.subtitles.is_empty() {
+            return Err(ExportError::NoOutput);
+        }
+        ensure_not_cancelled(cancellation)?;
+        subtitles::check_outputs(&self.options.subtitles, self.options.overwrite)?;
+        let project = canonical_project(
+            companion.map(|companion| (companion.project, companion.project_asset_root)),
+        );
+        let mut bridge = react_runtime.spawn(
+            entry.as_ref(),
+            project
+                .as_ref()
+                .map(|(project, root)| (*project, root.as_path())),
+        )?;
+        let metadata = bridge.metadata().clone();
+        report_composition(&metadata, &mut progress);
+        if metadata.duration_in_frames == 0 {
+            return Err(ExportError::EmptyTimeline);
+        }
+        let (start_frame, frame_count, window_start) = self.react_window(&metadata)?;
+
+        // A second of frames per request: few enough round trips to cost
+        // nothing, often enough to report progress and notice cancellation.
+        let chunk = metadata
+            .frame_rate
+            .numerator
+            .div_ceil(metadata.frame_rate.denominator.max(1))
+            .max(1);
+        let mut reports = Vec::new();
+        let mut done = 0;
+        while done < frame_count {
+            ensure_not_cancelled(cancellation)?;
+            let frames = u64::from(chunk).min(frame_count - done);
+            reports.extend(
+                bridge
+                    .collect_subtitles(start_frame + done, frames)
+                    .map_err(ExportError::React)?,
+            );
+            done += frames;
+            progress(ExportProgress::Rendering {
+                frame: done,
+                total: frame_count,
+            });
+        }
+        ensure_not_cancelled(cancellation)?;
+
+        let duration = Time::frames(
+            i64::try_from(frame_count).map_err(|_| ExportError::TimelineTooLong)?,
+            metadata.frame_rate,
+        )
+        .map_err(ExportError::Time)?;
+        let window = subtitles::Window::new(window_start, duration)?;
+        self.write_subtitles(&subtitles::react_cues(&reports, window), &mut progress)
+    }
+
+    /// The first frame, the number of frames, and the start time of the
+    /// span of the entry an export covers.
+    fn react_window(
+        &self,
+        metadata: &ReactCompositionMetadata,
+    ) -> Result<(u64, u64, Time), ExportError> {
+        match self.options.range {
+            None => Ok((0, metadata.duration_in_frames, Time::ZERO)),
+            Some(range) => {
+                let full = Time::frames(
+                    i64::try_from(metadata.duration_in_frames)
+                        .map_err(|_| ExportError::TimelineTooLong)?,
+                    metadata.frame_rate,
+                )
+                .map_err(ExportError::Time)?;
+                let window = resolve_window(&range, full, metadata.frame_rate)?;
+                let start_frame =
+                    u64::try_from(window.start_frame).map_err(|_| ExportError::TimelineTooLong)?;
+                Ok((start_frame, window.frames, window.start))
+            }
+        }
+    }
+}
+
+/// The companion project with its asset root made absolute (see
+/// `export_react_entry_impl`).
+fn canonical_project<'a>(project: Option<(&'a Project, &Path)>) -> Option<(&'a Project, PathBuf)> {
+    project.map(|(project, project_asset_root)| {
+        let project_asset_root =
+            fs::canonicalize(project_asset_root).unwrap_or_else(|_| project_asset_root.to_owned());
+        (project, project_asset_root)
+    })
+}
+
+/// Reports the entry's compositions and the selected one's size and length.
+fn report_composition(
+    metadata: &ReactCompositionMetadata,
+    progress: &mut impl FnMut(ExportProgress),
+) {
+    progress(ExportProgress::ReactCompositions {
+        selected: metadata.composition_id.clone(),
+        compositions: metadata.compositions.clone(),
+    });
+    progress(ExportProgress::Composition(CompositionInfo {
+        width: metadata.width,
+        height: metadata.height,
+        frame_rate: metadata.frame_rate,
+        frames: metadata.duration_in_frames,
+    }));
 }

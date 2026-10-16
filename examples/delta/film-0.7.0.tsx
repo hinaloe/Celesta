@@ -11,8 +11,9 @@ import { SCORE_SRC, loadScore } from './v0.7.0/score';
 // live demo of the feature drawn by the feature.
 // Open this file in Celesta, or export it with:
 //   python3 examples/delta/make-score-0.7.0.py
-//   Celesta-export --react examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 --subtitles examples/delta/delta-0.7.0.ja.srt
-// (--props '{"captions":"en"}' for English captions; .vtt for WebVTT)
+//   Celesta-export --react examples/delta/film-0.7.0.tsx examples/delta/delta-0.7.0.mp4 \
+//     --subtitles 'examples/delta/delta-0.7.0.{lang}.srt' --subtitles 'examples/delta/delta-0.7.0.{lang}.vtt'
+// (the captions in Japanese and English, as SRT and WebVTT)
 // shorts-0.7.0.tsx is the same cut at 9:16.
 //
 //   components/   the DELTA look, shared by every release film: theme, chapter page, diff panel, shaders

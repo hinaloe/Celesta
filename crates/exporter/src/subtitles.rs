@@ -1,16 +1,23 @@
-//! The SRT or WebVTT file a video export writes beside the video
-//! (`ExportOptions::subtitles`): a React entry's `<Subtitles>` cues and
-//! `<Dialogue>` lines, or a project's dialogue items, timed like the video.
+//! The SRT or WebVTT files an export writes (`ExportOptions::subtitles`):
+//! a React entry's `<Subtitles>` cues and `<Dialogue>` lines, or a project's
+//! dialogue items, timed like the video. A `{lang}` in a path writes one
+//! file per language.
 
 use crate::error::ExportError;
-use celesta_composition::TimeError;
+use celesta_composition::{Time, TimeError};
 use celesta_project::{Project, TimelineContent};
 use celesta_react_bridge::ReactSubtitleDescriptor;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::io::{self, Write as _};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// The placeholder a subtitle path names its language with.
+pub const LANG_PLACEHOLDER: &str = "{lang}";
+
+/// The language a `{lang}` path names cues with none (BCP 47 "undetermined").
+const UNDETERMINED: &str = "und";
 
 /// The format of a subtitle file, chosen by its extension.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,6 +52,8 @@ pub(crate) struct Cue {
     pub(crate) start: f64,
     pub(crate) end: f64,
     pub(crate) text: String,
+    /// The language it is in, when the composition says.
+    pub(crate) lang: Option<String>,
 }
 
 /// The exported span of the composition, in composition seconds: the file's
@@ -56,15 +65,24 @@ pub(crate) struct Window {
 }
 
 impl Window {
+    /// The span from `start` lasting `duration`, in composition time.
+    pub(crate) fn new(start: Time, duration: Time) -> Result<Self, ExportError> {
+        Ok(Self {
+            start: start.as_seconds().map_err(ExportError::Time)?,
+            duration: duration.as_seconds().map_err(ExportError::Time)?,
+        })
+    }
+
     /// `text` shown from `start` to `end` composition seconds, shifted to
     /// the file's clock and cut to the window; `None` outside it.
-    fn cue(self, text: &str, start: f64, end: f64) -> Option<Cue> {
+    fn cue(self, text: &str, start: f64, end: f64, lang: Option<&str>) -> Option<Cue> {
         let start = (start - self.start).max(0.0);
         let end = (end - self.start).min(self.duration);
         (end > start && !text.trim().is_empty()).then(|| Cue {
             start,
             end,
             text: text.to_owned(),
+            lang: lang.map(str::to_owned),
         })
     }
 }
@@ -76,8 +94,22 @@ pub(crate) fn react_cues(reports: &[ReactSubtitleDescriptor], window: Window) ->
     let mut seen = HashSet::new();
     let mut cues: Vec<Cue> = reports
         .iter()
-        .filter(|report| seen.insert((&report.text, report.start.to_bits(), report.end.to_bits())))
-        .filter_map(|report| window.cue(&report.text, report.start, report.end))
+        .filter(|report| {
+            seen.insert((
+                &report.text,
+                report.start.to_bits(),
+                report.end.to_bits(),
+                &report.lang,
+            ))
+        })
+        .filter_map(|report| {
+            window.cue(
+                &report.text,
+                report.start,
+                report.end,
+                report.lang.as_deref(),
+            )
+        })
         .collect();
     cues.sort_by(|a, b| a.start.total_cmp(&b.start));
     cues
@@ -99,7 +131,7 @@ pub(crate) fn project_cues(project: &Project, window: Window) -> Result<Vec<Cue>
             if let TimelineContent::Dialogue { text, .. } = &item.content {
                 let start = item.range.start.as_seconds()?;
                 let end = item.range.end()?.as_seconds()?;
-                cues.extend(window.cue(text, start, end));
+                cues.extend(window.cue(text, start, end, None));
             }
         }
     }
@@ -170,16 +202,90 @@ fn timestamp(seconds: f64, format: SubtitleFormat) -> String {
     )
 }
 
-/// The format `path` is written in, failing before anything renders when
-/// its extension is neither `.srt` nor `.vtt` or, without `overwrite`, when
-/// it exists.
-pub(crate) fn check_output(path: &Path, overwrite: bool) -> Result<SubtitleFormat, ExportError> {
-    let format = SubtitleFormat::from_extension(path)
-        .ok_or_else(|| ExportError::UnsupportedSubtitles(path.to_owned()))?;
-    if !overwrite && path.exists() {
-        return Err(ExportError::OutputExists(path.to_owned()));
+/// Whether `path` writes one file per language.
+pub(crate) fn is_per_language(path: &Path) -> bool {
+    path.to_string_lossy().contains(LANG_PLACEHOLDER)
+}
+
+/// Fails before anything renders when a path's extension is neither `.srt`
+/// nor `.vtt` or, without `overwrite`, when a path without `{lang}` exists.
+/// A `{lang}` path's files are only known once the cues are.
+pub(crate) fn check_outputs(paths: &[PathBuf], overwrite: bool) -> Result<(), ExportError> {
+    for path in paths {
+        SubtitleFormat::from_extension(path)
+            .ok_or_else(|| ExportError::UnsupportedSubtitles(path.clone()))?;
+        if !overwrite && !is_per_language(path) && path.exists() {
+            return Err(ExportError::OutputExists(path.clone()));
+        }
     }
-    Ok(format)
+    Ok(())
+}
+
+/// One subtitle file to write: its path, language, and cues.
+#[derive(Debug, PartialEq)]
+pub(crate) struct File {
+    pub(crate) path: PathBuf,
+    pub(crate) lang: Option<String>,
+    pub(crate) cues: Vec<Cue>,
+}
+
+/// The files `path` stands for. A `{lang}` path is one file per language
+/// the cues are in (none for no cues), with `und` for cues without one; any
+/// other path holds every cue, so their languages must agree.
+pub(crate) fn files(path: &Path, cues: &[Cue]) -> Result<Vec<File>, ExportError> {
+    let mut languages = BTreeMap::<Option<&str>, Vec<Cue>>::new();
+    for cue in cues {
+        languages
+            .entry(cue.lang.as_deref())
+            .or_default()
+            .push(cue.clone());
+    }
+    if is_per_language(path) {
+        let path = path.to_string_lossy();
+        return Ok(languages
+            .into_iter()
+            .map(|(lang, cues)| File {
+                path: PathBuf::from(path.replace(LANG_PLACEHOLDER, &file_language(lang))),
+                lang: lang.map(str::to_owned),
+                cues,
+            })
+            .collect());
+    }
+    if languages.len() > 1 {
+        return Err(ExportError::MixedSubtitleLanguages {
+            path: path.to_owned(),
+            languages: languages
+                .keys()
+                .map(|lang| lang.map_or_else(|| "(none)".to_owned(), str::to_owned))
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
+        });
+    }
+    let lang = languages.keys().next().copied().flatten();
+    Ok(vec![File {
+        path: path.to_owned(),
+        lang: lang.map(str::to_owned),
+        cues: cues.to_vec(),
+    }])
+}
+
+/// `lang` as it goes in a file name: `und` without one, and only letters,
+/// digits, `-` and `_`, so it cannot name another directory.
+fn file_language(lang: Option<&str>) -> String {
+    match lang.map(str::trim) {
+        None | Some("") => UNDETERMINED.to_owned(),
+        Some(lang) => lang
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect(),
+    }
 }
 
 /// Writes `cues` to `path` as its extension says, all at once, and returns
@@ -189,7 +295,11 @@ pub(crate) fn write(
     cues: &[Cue],
     overwrite: bool,
 ) -> Result<SubtitleFormat, ExportError> {
-    let format = check_output(path, overwrite)?;
+    let format = SubtitleFormat::from_extension(path)
+        .ok_or_else(|| ExportError::UnsupportedSubtitles(path.to_owned()))?;
+    if !overwrite && path.exists() {
+        return Err(ExportError::OutputExists(path.to_owned()));
+    }
     let parent = match path.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent,
         _ => Path::new("."),
@@ -230,6 +340,7 @@ mod tests {
             text: text.to_owned(),
             start,
             end,
+            lang: None,
         }
     }
 
@@ -238,7 +349,13 @@ mod tests {
             start,
             end,
             text: text.to_owned(),
+            lang: None,
         }
+    }
+
+    fn in_lang(lang: &str, mut cue: Cue) -> Cue {
+        cue.lang = Some(lang.to_owned());
+        cue
     }
 
     const WHOLE: Window = Window {
@@ -357,9 +474,107 @@ mod tests {
         );
         assert_eq!(SubtitleFormat::from_extension(Path::new("a.ass")), None);
         assert!(matches!(
-            check_output(Path::new("captions.txt"), false),
+            check_outputs(&[PathBuf::from("captions.txt")], false),
             Err(ExportError::UnsupportedSubtitles(_))
         ));
+        assert!(matches!(
+            check_outputs(&[PathBuf::from("captions.{lang}.txt")], false),
+            Err(ExportError::UnsupportedSubtitles(_))
+        ));
+    }
+
+    #[test]
+    fn reports_in_different_languages_are_different_cues() {
+        let mut english = report("Hi", 0.0, 1.0);
+        english.lang = Some("en".into());
+        let reports = [report("Hi", 0.0, 1.0), english.clone(), english];
+        assert_eq!(
+            react_cues(&reports, WHOLE),
+            [cue("Hi", 0.0, 1.0), in_lang("en", cue("Hi", 0.0, 1.0))]
+        );
+    }
+
+    #[test]
+    fn a_lang_path_writes_one_file_per_language() {
+        let cues = [
+            in_lang("ja", cue("こんにちは", 0.0, 1.0)),
+            in_lang("en", cue("Hello", 0.0, 1.0)),
+            cue("Narration", 1.0, 2.0),
+            in_lang("en", cue("World", 1.0, 2.0)),
+            in_lang("../x", cue("Escape", 2.0, 3.0)),
+        ];
+        let files = files(Path::new("out/film.{lang}.vtt"), &cues).unwrap();
+        let summary: Vec<_> = files
+            .iter()
+            .map(|file| {
+                (
+                    file.path.to_string_lossy().into_owned(),
+                    file.lang.clone(),
+                    file.cues
+                        .iter()
+                        .map(|cue| cue.text.as_str())
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                ("out/film.und.vtt".into(), None, vec!["Narration"]),
+                (
+                    "out/film.___x.vtt".into(),
+                    Some("../x".into()),
+                    vec!["Escape"]
+                ),
+                (
+                    "out/film.en.vtt".into(),
+                    Some("en".into()),
+                    vec!["Hello", "World"]
+                ),
+                (
+                    "out/film.ja.vtt".into(),
+                    Some("ja".into()),
+                    vec!["こんにちは"]
+                ),
+            ]
+        );
+        assert!(files_of(Path::new("film.{lang}.srt"), &[]).is_empty());
+    }
+
+    fn files_of(path: &Path, cues: &[Cue]) -> Vec<File> {
+        files(path, cues).unwrap()
+    }
+
+    #[test]
+    fn a_plain_path_takes_one_language() {
+        let english = [
+            in_lang("en", cue("Hello", 0.0, 1.0)),
+            in_lang("en", cue("World", 1.0, 2.0)),
+        ];
+        assert_eq!(
+            files_of(Path::new("film.srt"), &english),
+            [File {
+                path: "film.srt".into(),
+                lang: Some("en".into()),
+                cues: english.to_vec(),
+            }]
+        );
+        assert_eq!(
+            files_of(Path::new("film.srt"), &[]),
+            [File {
+                path: "film.srt".into(),
+                lang: None,
+                cues: Vec::new(),
+            }]
+        );
+        let mixed = [english[0].clone(), cue("Narration", 1.0, 2.0)];
+        match files(Path::new("film.srt"), &mixed) {
+            Err(ExportError::MixedSubtitleLanguages { path, languages }) => {
+                assert_eq!(path, Path::new("film.srt"));
+                assert_eq!(languages, ["(none)", "en"]);
+            }
+            other => panic!("expected mixed languages, got {other:?}"),
+        }
     }
 
     #[test]

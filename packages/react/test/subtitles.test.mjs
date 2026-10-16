@@ -142,3 +142,41 @@ test('<Subtitles> checks its cues', () => {
     h(Subtitles, { cues: [{ from: 0, durationInFrames: 1 }] }));
   expect(() => frames(Root, 1)).toThrow(/<Subtitles>: cue 0 requires a string `text`/);
 });
+
+test('<Subtitles> reports its lang, else the enclosing one', () => {
+  const cue = (text) => [{ from: 0, durationInFrames: 5, text }];
+  const Root = () => h(Composition, { width: 10, height: 10, fps: 10, durationInFrames: 5, lang: 'ja' },
+    h(Subtitles, { cues: cue('composition') }),
+    h(Subtitles, { lang: 'en', cues: cue('own') }),
+    h(Sequence, { lang: 'fr' }, h(Subtitles, { cues: cue('sequence') })));
+  expect(frames(Root, 1)[0]).toEqual([
+    { text: 'composition', start: 0, end: 0.5, lang: 'ja' },
+    { text: 'own', start: 0, end: 0.5, lang: 'en' },
+    { text: 'sequence', start: 0, end: 0.5, lang: 'fr' },
+  ]);
+  const Plain = () => h(Composition, { width: 10, height: 10, fps: 10, durationInFrames: 1 },
+    h(Subtitles, { cues: cue('none') }));
+  expect(frames(Plain, 1)[0]).toEqual([{ text: 'none', start: 0, end: 0.1 }]);
+  const Wrong = () => h(Composition, { width: 10, height: 10, fps: 10, durationInFrames: 1 },
+    h(Subtitles, { lang: 1, cues: cue('x') }));
+  expect(() => frames(Wrong, 1)).toThrow(/string `lang`/);
+});
+
+test('collectSubtitles() reports each subtitle of a span of frames once', () => {
+  const cues = [
+    { from: 0, durationInFrames: 3, text: 'one' },
+    { from: 3, durationInFrames: 4, text: 'two' },
+    { from: 8, durationInFrames: 2, text: 'three' },
+  ];
+  const Root = () => h(Composition, { width: 10, height: 10, fps: 10, durationInFrames: 10 },
+    h(Subtitles, { lang: 'en', cues }));
+  const mounted = mount(Root);
+  expect(mounted.collectSubtitles(0, 10)).toEqual([
+    { text: 'one', start: 0, end: 0.3, lang: 'en' },
+    { text: 'two', start: 0.3, end: 0.7, lang: 'en' },
+    { text: 'three', start: 0.8, end: 1, lang: 'en' },
+  ]);
+  expect(mounted.collectSubtitles(4, 3).map(({ text }) => text)).toEqual(['two']);
+  // Frames past the end are not evaluated.
+  expect(mounted.collectSubtitles(9, 100).map(({ text }) => text)).toEqual(['three']);
+});

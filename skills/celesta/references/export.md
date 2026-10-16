@@ -57,7 +57,7 @@ Celesta-export --json --react scene.tsx out.mp4
 | `--props-file <file>` | JSON object of project property values for the entry (needs `--react`). Without it, a `props.json` in the entry's folder is used automatically; this option replaces it. See [project-data.md](project-data.md#pass-values-from-the-command-line). |
 | `--props <json>` | Inline JSON object of project property values (needs `--react`); wins over `--props-file`. |
 | `--from <t>`, `--to <t>` | Export only this span (`--to` exclusive); the output starts at 00:00. Times are seconds, `MM:SS.mmm`, or `HH:MM:SS.mmm`. |
-| `--subtitles <file>` | Also write the video's subtitles (`<Subtitles>` cues, `<Dialogue>` lines, a project's dialogue items) as `.srt` or `.vtt`, timed like the video. Video only. See [subtitles.md](subtitles.md#write-the-subtitle-file-on-export). |
+| `--subtitles <file>` | Also write the video's subtitles (`<Subtitles>` cues, `<Dialogue>` lines, a project's dialogue items) as `.srt` or `.vtt`, timed like the video. Repeatable; `{lang}` in the path writes one file per language. Without an output video, writes only the subtitles, without rendering. See [subtitles.md](subtitles.md#write-the-subtitle-file-on-export). |
 | `--overwrite` | Replace an existing output file. |
 | `--preset <p>` | libx264 preset, `ultrafast` … `veryslow` (default `medium`). Encoding speed against file size only; it does not change what is rendered. MP4 only. |
 | `--crf <n>` | 0–51, lower is better quality (default 18). MP4 only. |
@@ -157,8 +157,9 @@ props file, the result also has `propsFile` (its path) and `propsFileAuto`
     `"webm"`), and `alpha` (`true` when the format carries transparency:
     `mov` and `webm`);
   - `frame`: one still image, with `frame` and `time`;
-  - `subtitles`: the `--subtitles` file, with `format` (`"srt"` or `"vtt"`)
-    and the number of `cues`;
+  - `subtitles`: one `--subtitles` file (a `{lang}` path lists one per
+    language), with `format` (`"srt"` or `"vtt"`), the number of `cues`,
+    and `lang` when the subtitles have a language;
   - `contactSheet`: one image, with `columns` and the tile `frames` in
     reading order.
 - `stats.renderFps` is the average rendering speed. Compare it between
@@ -179,6 +180,7 @@ props file, the result also has `propsFile` (its path) and `propsFileAuto`
 | `encoder_unavailable` | This FFmpeg build lacks an encoder the format needs (video: H.264, ProRes, or VP9; audio: AAC, PCM, or Opus). |
 | `unsupported_dimensions` | Video needs non-zero even width and height. |
 | `unsupported_subtitles` | The `--subtitles` path is not a `.srt` or `.vtt` file. |
+| `mixed_subtitle_languages` | Subtitles in several languages would share a `--subtitles` path without `{lang}`; see [subtitles.md](subtitles.md#several-languages). |
 | `project_io`, `project_json` | The project file could not be read or is not valid JSON. |
 | `project_validation` | The project is invalid; `error.issues` lists each `{path, message}`. |
 | `react` | The React entry failed to load or render; read `message` and look it up in [errors.md](errors.md). |

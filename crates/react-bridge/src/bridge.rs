@@ -13,7 +13,7 @@ use crate::statics::StaticCache;
 use crate::stderr::StderrCapture;
 use crate::types::{
     ComponentResolutionRequest, ComponentResolutions, FrameEvaluation, LayerSource, ProjectFrame,
-    ReactCompositionInfo, ReactCompositionMetadata, SpawnOptions,
+    ReactCompositionInfo, ReactCompositionMetadata, ReactSubtitleDescriptor, SpawnOptions,
 };
 use celesta_composition::{AudioGraph, Scene, Time};
 use celesta_media::FfmpegBackend;
@@ -530,7 +530,9 @@ impl ReactBridge {
                 shaders,
             }),
             Response::Ok { .. } => Err(ReactBridgeError::UnexpectedResponse),
-            Response::CollectedAudio { .. } => Err(ReactBridgeError::UnexpectedResponse),
+            Response::CollectedAudio { .. } | Response::CollectedSubtitles { .. } => {
+                Err(ReactBridgeError::UnexpectedResponse)
+            }
             Response::Err { error } => Err(ReactBridgeError::Render(error)),
             Response::MeasureText { .. } => Err(ReactBridgeError::UnexpectedResponse),
             Response::LayerSource { .. } => Err(ReactBridgeError::UnexpectedResponse),
@@ -601,6 +603,27 @@ impl ReactBridge {
             },
             video_clip_ids: react_video_clip_ids(&reports),
         })
+    }
+
+    /// The subtitles shown on `frames` frames from zero-based frame `first`
+    /// (cut to the composition), each once in the order first shown: what a
+    /// video export of those frames reports, without building their scenes
+    /// here. A subtitle shown across several calls is reported by each.
+    pub fn collect_subtitles(
+        &mut self,
+        first: u64,
+        frames: u64,
+    ) -> Result<Vec<ReactSubtitleDescriptor>, ReactBridgeError> {
+        let request = serde_json::json!({
+            "collectSubtitles": { "from": first, "frames": frames },
+        });
+        match self.request_response(request)? {
+            Response::CollectedSubtitles {
+                collected_subtitles,
+            } => Ok(collected_subtitles),
+            Response::Err { error } => Err(ReactBridgeError::Render(error)),
+            _ => Err(ReactBridgeError::UnexpectedResponse),
+        }
     }
 
     pub(crate) fn request_response<R: Serialize>(
