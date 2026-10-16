@@ -11,6 +11,8 @@ on:
 
 permissions:
   contents: read
+  # package-build.yml's setup-ffmpeg downloads Windows' FFmpeg from GitHub Packages.
+  packages: read
 
 env:
   CARGO_TERM_COLOR: always
