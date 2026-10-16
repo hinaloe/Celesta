@@ -1,7 +1,8 @@
 # Subtitle files (SRT / WebVTT)
 
 Reading subtitles from an SRT or WebVTT file, drawing them, and writing a
-video's subtitles out as a file beside it. `parseSubtitles`,
+video's subtitles out as files beside it, one per language and format if
+needed, or without the video. `parseSubtitles`,
 `formatSubtitles`, and `<Subtitles>` come from `@celesta/react`.
 `<Dialogue>` lines ([dialogue.md](dialogue.md)) go into the same file.
 
@@ -10,6 +11,8 @@ video's subtitles out as a file beside it. `parseSubtitles`,
 - [Read a file](#read-a-file)
 - [Draw the cues](#draw-the-cues)
 - [Write the subtitle file on export](#write-the-subtitle-file-on-export)
+- [Several languages](#several-languages)
+- [Subtitles without the video](#subtitles-without-the-video)
 - [Write a file from data](#write-a-file-from-data)
 
 ## Read a file
@@ -78,10 +81,11 @@ and shows the cue's own SRT block next to a timeline.
 ## Write the subtitle file on export
 
 `--subtitles <file>` writes the video's subtitles beside it, as SRT for
-`.srt` and WebVTT for `.vtt`:
+`.srt` and WebVTT for `.vtt`. Repeat it to write the same subtitles in
+several formats from one export:
 
 ```sh
-Celesta-export --json --react film.tsx film.mp4 --subtitles film.srt
+Celesta-export --json --react film.tsx film.mp4 --subtitles film.srt --subtitles film.vtt
 ```
 
 - The file holds every `<Subtitles>` cue and every `<Dialogue>` line (not a
@@ -91,12 +95,65 @@ Celesta-export --json --react film.tsx film.mp4 --subtitles film.srt
   the span; cues outside it are left out.
 - A line reported more than once with the same text and times is one cue.
   Blank lines inside a cue are dropped; WebVTT escapes `&`, `<`, and `>`.
-- Video only: with a PNG selection `--subtitles` is a usage error. Without
+- With a still-image selection (`--frame`, `--every`) `--subtitles` is a usage error. Without
   `--overwrite` an existing subtitle file is `output_exists`, checked before
-  anything renders; another extension is `unsupported_subtitles`.
-- The JSON result lists it in `outputs` as `{"type": "subtitles", "path",
-  "format": "srt" | "vtt", "cues"}`.
-- The MCP `export_video` tool takes the same path as `subtitles`.
+  anything renders (a `{lang}` path's files only when they are written);
+  another extension is `unsupported_subtitles`.
+- The JSON result lists each file in `outputs` as `{"type": "subtitles",
+  "path", "format": "srt" | "vtt", "cues", "lang"?}`; `lang` is there when
+  the subtitles have a language.
+- The MCP `export_video` tool takes the same as `subtitles`: one path or a
+  list of them.
+
+## Several languages
+
+Give each language its own `<Subtitles lang>` and put `{lang}` in the path.
+Each language goes to its own file, with the language in place of `{lang}`:
+
+```tsx
+<Subtitles lang="ja" cues={japanese} />
+<Subtitles lang="en" cues={english} />
+```
+
+```sh
+Celesta-export --json --react film.tsx film.mp4 \
+  --subtitles 'film.{lang}.srt' --subtitles 'film.{lang}.vtt'
+# film.ja.srt, film.en.srt, film.ja.vtt, film.en.vtt
+```
+
+- Without `lang`, a `<Subtitles>` takes the `lang` of the enclosing
+  `<Sequence>`, `<Group>`, or `<Composition>`, as text does
+  ([text.md](text.md)); so do `<Dialogue>` lines. Set `lang` on every
+  `<Subtitles>` whose language differs from the composition's: in a
+  `<Composition lang="ja-JP">`, an English `<Subtitles>` without `lang` is
+  `ja-JP` too.
+- Languages are compared as written: `ja` and `ja-JP` are two files.
+  Subtitles with no language at all go to `und` (`film.und.srt`). Characters
+  other than letters, digits, `-`, and `_` become `_` in the file name.
+- A `{lang}` path with no subtitles writes nothing and warns.
+- A path without `{lang}` takes subtitles of one language only; subtitles in
+  several languages there fail with `mixed_subtitle_languages`, after the
+  video is written, and no subtitle file is written.
+- Quote the path in the shell so `{lang}` reaches the exporter as written.
+
+## Subtitles without the video
+
+Leave out the output video to write only the subtitle files. Every frame
+of the composition (or the `--from`/`--to` span) is evaluated as an export
+would, so the files are the same as a video export writes, but nothing is
+rendered or encoded: a 90-second film takes seconds, not minutes.
+
+```sh
+Celesta-export --json --react film.tsx --subtitles 'film.{lang}.vtt'
+```
+
+- `--from`/`--to`, `--props`, `--props-file`, `--project`, `--composition`,
+  and `--overwrite` work as with a video. Options about pictures or encoding
+  (`--frame`, `--crf`, `--preset`, `--render-quality`, …) are usage errors.
+- Progress counts the evaluated frames; the JSON result has `composition`
+  and the subtitle files in `outputs`, and no video.
+- A JSON project writes its dialogue items without evaluating anything.
+- MCP: call `export_video` with `subtitles` and no `output`.
 
 ## Write a file from data
 

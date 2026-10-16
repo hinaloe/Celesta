@@ -38,6 +38,15 @@ pub enum ExportError {
     },
     /// The subtitle file's extension is neither `.srt` nor `.vtt`.
     UnsupportedSubtitles(PathBuf),
+    /// Subtitles in several languages would go to one file, a path without
+    /// `{lang}`.
+    MixedSubtitleLanguages {
+        path: PathBuf,
+        /// Each language, `(none)` for subtitles without one.
+        languages: Vec<String>,
+    },
+    /// An export with neither a video nor a subtitle file to write.
+    NoOutput,
     /// The linked FFmpeg build lacks an encoder `format` needs.
     EncoderUnavailable {
         format: VideoFormat,
@@ -89,6 +98,15 @@ impl fmt::Display for ExportError {
                 "subtitles must use the .srt or .vtt extension: {}",
                 path.display()
             ),
+            Self::MixedSubtitleLanguages { path, languages } => write!(
+                formatter,
+                "subtitles in several languages ({}) cannot share one file: {}",
+                languages.join(", "),
+                path.display()
+            ),
+            Self::NoOutput => {
+                formatter.write_str("an export needs a video output or a subtitle file to write")
+            }
             Self::EncoderUnavailable { format, encoder } => write!(
                 formatter,
                 "this FFmpeg build has no {encoder} encoder, which {format} export needs"
@@ -128,6 +146,8 @@ impl Error for ExportError {
             | Self::InvalidSelection(_)
             | Self::UnsupportedOutput { .. }
             | Self::UnsupportedSubtitles(_)
+            | Self::MixedSubtitleLanguages { .. }
+            | Self::NoOutput
             | Self::EncoderUnavailable { .. }
             | Self::UnsupportedDimensions { .. }
             | Self::InvalidCrf(_)

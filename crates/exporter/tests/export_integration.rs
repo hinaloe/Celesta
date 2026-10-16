@@ -2,9 +2,9 @@ use std::path::{Path, PathBuf};
 
 use celesta_composition::{Rational, Time, TimeRange};
 use celesta_exporter::{
-    BitDepth, ColorConversion, EncoderPreset, ExportCancellation, ExportError, ExportOptions,
-    ExportProgress, ExportRange, ExportedFile, Exporter, ReactRuntimeOptions, VideoEncoding,
-    VideoFormat,
+    BitDepth, ColorConversion, EncoderPreset, ExportCancellation, ExportError, ExportJob,
+    ExportOptions, ExportProgress, ExportRange, ExportedFile, Exporter, ReactRuntimeOptions,
+    VideoEncoding, VideoFormat,
 };
 use celesta_gpu_renderer::GpuRenderError;
 use celesta_media::{FfmpegBackend, VideoFrameDecoder};
@@ -795,7 +795,7 @@ export default function Root() {
     let mut written = Vec::new();
     match Exporter::new(ExportOptions {
         range: Some(ExportRange::new(Time::new(2, 1), Time::new(7, 2))),
-        subtitles: Some(subtitles.clone()),
+        subtitles: vec![subtitles.clone()],
         ..ExportOptions::default()
     })
     .export_react_entry_with_progress(
@@ -836,4 +836,131 @@ export default function Root() {
         ),
         "{written:?}"
     );
+}
+
+#[test]
+fn writes_only_a_react_entrys_subtitles_per_language_and_format() {
+    let runtime_path = workspace_root().join("packages/cli/dist/cli.js");
+    if !runtime_path.exists() {
+        eprintln!("skipping React subtitle test: build packages/cli first");
+        return;
+    }
+    let directory = tempfile::tempdir_in(workspace_root().join("packages/cli")).unwrap();
+    let entry = directory.path().join("film.tsx");
+    std::fs::write(
+        &entry,
+        r##"
+import { Composition, Sequence, Subtitles } from '@celesta/react';
+const ja = [{ from: 0, durationInFrames: 10, text: 'こんにちは' }, { from: 20, durationInFrames: 10, text: '世界' }];
+const en = [{ from: 0, durationInFrames: 10, text: 'Hello' }, { from: 20, durationInFrames: 10, text: 'World' }];
+export default function Root() {
+  return <Composition width={64} height={64} fps={10} durationInFrames={30} lang="ja">
+    <Subtitles cues={ja} />
+    <Sequence from={5}><Subtitles lang="en" cues={en} /></Sequence>
+  </Composition>;
+}
+"##,
+    )
+    .unwrap();
+    let per_language =
+        |extension: &str| directory.path().join(format!("film.{{lang}}.{extension}"));
+    let mut written = Vec::new();
+    let mut rendered = Vec::new();
+    let job = ExportJob {
+        source: entry.clone(),
+        react: true,
+        composition_id: None,
+        companion: None,
+        props_file: None,
+        props: None,
+        output: None,
+        stills: None,
+        options: ExportOptions {
+            subtitles: vec![per_language("srt"), per_language("vtt")],
+            ..ExportOptions::default()
+        },
+    };
+    let runtime = ReactRuntimeOptions::new("node", &runtime_path);
+    Exporter::new(job.options.clone())
+        .export_react_subtitles(
+            &entry,
+            &runtime,
+            None,
+            &ExportCancellation::default(),
+            |event| match event {
+                ExportProgress::Wrote(file) => written.push(file),
+                ExportProgress::Rendering { frame, total } => rendered.push((frame, total)),
+                _ => {}
+            },
+        )
+        .unwrap();
+
+    // No video, one file per language and format; the English cues are
+    // shifted by their sequence and cut to the composition.
+    assert!(!directory.path().join("film.mp4").exists());
+    assert_eq!(
+        std::fs::read_to_string(directory.path().join("film.ja.srt")).unwrap(),
+        "1\n00:00:00,000 --> 00:00:01,000\nこんにちは\n\n\
+         2\n00:00:02,000 --> 00:00:03,000\n世界\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(directory.path().join("film.en.vtt")).unwrap(),
+        "WEBVTT\n\n\
+         00:00:00.500 --> 00:00:01.500\nHello\n\n\
+         00:00:02.500 --> 00:00:03.000\nWorld\n"
+    );
+    let mut files: Vec<_> = written
+        .iter()
+        .map(|file| match file {
+            ExportedFile::Subtitles {
+                path, cues, lang, ..
+            } => (
+                path.file_name().unwrap().to_string_lossy().into_owned(),
+                *cues,
+                lang.clone(),
+            ),
+            other => panic!("only subtitles should be written, not {other:?}"),
+        })
+        .collect();
+    files.sort();
+    assert_eq!(
+        files,
+        [
+            ("film.en.srt".into(), 2, Some("en".into())),
+            ("film.en.vtt".into(), 2, Some("en".into())),
+            ("film.ja.srt".into(), 2, Some("ja".into())),
+            ("film.ja.vtt".into(), 2, Some("ja".into())),
+        ]
+    );
+    assert_eq!(rendered.last(), Some(&(30, 30)));
+
+    // A path without {lang} cannot take both languages, and writes nothing.
+    let mixed = directory.path().join("mixed.srt");
+    let error = Exporter::new(ExportOptions {
+        subtitles: vec![directory.path().join("other.{lang}.srt"), mixed.clone()],
+        ..ExportOptions::default()
+    })
+    .export_react_subtitles(
+        &entry,
+        &runtime,
+        None,
+        &ExportCancellation::default(),
+        |_| {},
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&error, ExportError::MixedSubtitleLanguages { languages, .. } if languages == &["en", "ja"]),
+        "{error}"
+    );
+    assert!(!mixed.exists());
+    assert!(!directory.path().join("other.ja.srt").exists());
+
+    // The job runs the same export when it has no output.
+    std::fs::remove_file(directory.path().join("film.ja.srt")).unwrap();
+    let mut job = job;
+    job.options.subtitles = vec![per_language("srt")];
+    job.options.overwrite = true;
+    job.run(&ExportCancellation::default(), &mut |_| {})
+        .unwrap();
+    assert!(directory.path().join("film.ja.srt").exists());
 }

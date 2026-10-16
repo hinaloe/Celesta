@@ -117,6 +117,9 @@ enum Output {
         path: PathBuf,
         format: &'static str,
         cues: usize,
+        /// The language of the cues, when the composition names one.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        lang: Option<String>,
     },
     ContactSheet {
         path: PathBuf,
@@ -320,10 +323,16 @@ fn output(file: ExportedFile, frame_rate: Option<Rational>) -> Output {
             frame,
             time: seconds(frame, rate),
         },
-        ExportedFile::Subtitles { path, format, cues } => Output::Subtitles {
+        ExportedFile::Subtitles {
+            path,
+            format,
+            cues,
+            lang,
+        } => Output::Subtitles {
             path: absolute(&path),
             format: format.as_str(),
             cues,
+            lang,
         },
         ExportedFile::ContactSheet {
             path,
@@ -396,10 +405,26 @@ fn error_report(error: &ExportError, hints: HintStyle) -> ErrorReport {
             "unsupported_subtitles",
             Some("write subtitles to a .srt or .vtt path"),
         ),
+        ExportError::MixedSubtitleLanguages { .. } => (
+            "mixed_subtitle_languages",
+            Some(
+                "put {lang} in the subtitle path to write one file per language, or set the same lang on every <Subtitles>",
+            ),
+        ),
+        ExportError::NoOutput => (
+            "no_output",
+            Some(if cli {
+                "give an output video, or --subtitles to write only subtitle files"
+            } else {
+                "give output, or subtitles to write only subtitle files"
+            }),
+        ),
         ExportError::EncoderUnavailable { .. } => ("encoder_unavailable", None),
         ExportError::UnsupportedDimensions { .. } => (
             "unsupported_dimensions",
-            Some("make the composition width and height even; still frame exports accept odd sizes"),
+            Some(
+                "make the composition width and height even; still frame exports accept odd sizes",
+            ),
         ),
         ExportError::InvalidCrf(_) => ("invalid_crf", None),
         ExportError::EmptyTimeline => ("empty_timeline", None),

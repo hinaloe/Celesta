@@ -207,7 +207,7 @@ impl CelestaServer {
     }
 
     #[tool(
-        description = "Export a React entry or JSON project as an H.264/AAC MP4, a ProRes 4444 MOV or a VP9 WebM (both transparent where nothing is drawn), all of it or the start/end span, optionally with an SRT/WebVTT subtitle file timed like it. Sends progress notifications when the request has a progress token, and stops when the request is cancelled. Use it for the final file or to check audio; check pictures with render_frames."
+        description = "Export a React entry or JSON project as an H.264/AAC MP4, a ProRes 4444 MOV or a VP9 WebM (both transparent where nothing is drawn), all of it or the start/end span, optionally with SRT/WebVTT subtitle files timed like it (several paths, or {lang} in a path for one file per language); without output it writes only the subtitle files, evaluating frames without rendering them. Sends progress notifications when the request has a progress token, and stops when the request is cancelled. Use it for the final file or to check audio; check pictures with render_frames."
     )]
     async fn export_video(
         &self,

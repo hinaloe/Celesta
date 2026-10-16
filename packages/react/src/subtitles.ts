@@ -210,6 +210,13 @@ export function checkCue(cue: unknown, index: number, what: string): asserts cue
 export interface SubtitlesProps {
   /** Frames count from the enclosing `<Sequence>`'s start, as its children's do. */
   cues: readonly SubtitleCue[];
+  /**
+   * The cues' language, such as `"en"` or `"ja"`, which a `{lang}` in the
+   * export's `--subtitles` path is replaced with, so each language goes to
+   * its own file. Defaults to the enclosing `<Sequence>`, `<Group>`, or
+   * `<Composition>`'s `lang`.
+   */
+  lang?: string;
 }
 
 /**
@@ -218,8 +225,13 @@ export interface SubtitlesProps {
  * enclosing `<Sequence>`, the way `<Audio>` plays only inside it. `<Dialogue>`
  * lines go in the same file on their own.
  *
+ * With `lang`, several languages can be declared side by side and written
+ * to one file each by putting `{lang}` in the path
+ * (`--subtitles 'film.{lang}.vtt'`).
+ *
  * ```tsx
  * <Subtitles cues={cues} />
+ * <Subtitles lang="en" cues={englishCues} />
  * ```
  */
 export function Subtitles(props: SubtitlesProps): ReturnType<typeof React.createElement> {
