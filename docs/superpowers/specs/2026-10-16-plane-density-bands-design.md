@@ -12,14 +12,14 @@ The canvas is capped at the device's maximum texture dimension and 4 times
 the scene's pixel area (the browser also caps it at 16,777,216 pixels), so a
 long receding plane is lowered a long way. A text column 1200 wide and 20000
 tall at `rotationX={70}` and `perspective={800}`, its near edge at the
-bottom of a 1920x1080 scene, needs 1.48 (1.54 rounded up) at its near edge
-but is drawn at 0.587 with a 16384 texture limit and 0.41 with 8192, so its
-near text is 2.5 to 3.6 times too soft.
+bottom of a 1920x1080 scene, needs 2.38 at its near corners (1.48 in the
+middle of the near edge) but is drawn at 0.587 with a 16384 texture limit
+and 0.41 with 8192, so its near text is 4 to 6 times too soft.
 
 Density banding splits such a plane into bands along lines of equal `w`,
 each with its own raster scale and canvas, so every band is as sharp as its
 own nearest part. With the same budget, the crawl above becomes 8 bands
-totalling 2.57M pixels, its near band at the full 1.54.
+totalling 4.30M pixels, its near band at the full 2.38.
 
 A single text layer that tall also exceeds the texture limit on its own, so
 the GPU renderer also learns to rasterize only a window of a text layer.
@@ -65,12 +65,17 @@ to `plane_raster` in `prepare_plane` and the web `plane()`.
    `[2^-6, 2^6]`, as a single plane's is.
 6. Overlap. Band `k`'s canvas covers `P` clipped to
    `b_k − δ ≤ w ≤ b_(k+1) + δ`, the growth only on sides that meet another
-   band, with `δ = |(g, h)| · (MARGIN / s_k + reach)`: `MARGIN` is 4 texels
-   (the footprint filter's taps and their bilinear neighbours at a seam), and
-   `reach` is the farthest any effect inside the plane spreads past its
-   content, in local units, taken from the measure pass's `EndEffect` items
-   (`EffectSpec::output_bounds` of an empty box). A blur that crosses a seam
-   thus sees the same content in both bands. The canvas is that polygon's
+   band, with `δ = |(g, h)| · (MARGIN / s_k + reach + footprint(b))`:
+   `MARGIN` is 4 texels (the footprint filter's bilinear neighbours at a
+   seam); `reach` is the farthest any effect inside the plane spreads past
+   its content, in local units, taken from the measure pass's `EndEffect`
+   items (`EffectSpec::output_bounds` of an empty box), so a blur that
+   crosses a seam sees the same content in both bands; and `footprint(b)` is
+   how far half an output pixel on the boundary `b` reaches across it, in
+   local units (the pixel square mapped back through the inverse of the
+   projection's Jacobian at the boundary's ends). Where the plane recedes
+   steeply a pixel spans tens of texels in depth, and the taps of a pixel on
+   one side of a seam read that far into the other. The canvas is that polygon's
    box at `s_k`, with today's 1-pixel transparent margin and 128-pixel size
    steps.
 7. Budget. Each band's canvas stays within the maximum texture dimension on
@@ -82,9 +87,11 @@ to `plane_raster` in `prepare_plane` and the web `plane()`.
    holds `w` in `[b_k, b_(k+1))`, the nearest band's near side and the
    farthest band's far side unbounded.
 
-For the crawl above: 8 bands from `w` 0.676 to 24.17, scales 1.542, 1.0,
-0.648, 0.42, 0.25, 0.162, 0.105, and 0.068, canvases from 1853x503 down to
-84x508.
+For the crawl above: 8 bands from `w` 0.676 to 24.17, scales 2.378, 1.189,
+0.707, 0.42, 0.273, 0.162, 0.105, and 0.068, canvases from 2857x782 down to
+84x536, 4.30M pixels in all (the single canvas would be 706x11734 at 0.587).
+The example's floor (`with-3d-transform.tsx`) becomes three bands at 2.18,
+1.54, and 1.0 instead of one at 2.09.
 
 ## GPU renderer
 
@@ -101,8 +108,11 @@ and texture pool already handle any number of them.
 
 The band's canvas is its clip: content outside it lands off the render
 target, paths are already outlined only within their `space`, and text is
-windowed (below). No `ClipEntry` is added, as one would anti-alias inside the
-overlap.
+windowed (below). A text layer whose measured box misses the band's canvas
+is skipped in that band, so each band rasterizes only the text it shows; the
+overlap holds the effects' reach, so no effect of a skipped text reaches the
+pixels the band draws. No `ClipEntry` is added, as one would anti-alias
+inside the overlap.
 
 Since `effect_scale` is `s_k` over a stretch shared by every band, an effect
 inside the plane has the same size in local units in every band, and lines
@@ -145,22 +155,24 @@ between bands is still the right one for the pixels the next band covers.
 
 ### Hit testing
 
-Each band is a `PlaneEntry` and a hit region of its own, as a plane is now.
-Every band holds the same content, so whichever band's canvas a pointer
-maps into answers the same; no band test is needed there.
+Each band is a `PlaneEntry`, as a plane is now. A layer is one hit region
+however many bands draw it: a layer that an earlier band of the plane
+already recorded is left out of the later ones. Every band holds the same
+content, so whichever band's region a pointer maps into answers the same.
 
 ## Text windows
 
 A GPU text layer is one texture, and `rasterize_text` lowers its scale until
 its larger side fits the texture limit. A text column 20000 tall would be
-lowered to 0.41 even in a band that needs 1.54.
+lowered to 0.41 even in a band that needs 2.38.
 
 - When a text layer's whole raster (its layout size times its raster scale,
   plus the stroke and overflow pads) would exceed the texture limit on
   either side, it is rasterized only for a window: the target canvas
   (`scene_size`) mapped back through the text's affine state into the
   text's raster pixels, intersected with its box, and snapped outward to a
-  grid of 512 raster pixels.
+  grid of 512 raster pixels. When the target shows none of it, it is not
+  drawn. A windowed text's hit region is the whole text's box.
 - `TextRasterizer::rasterize` (`celesta-renderer`) takes an optional
   window. The layout is the same as without one; glyphs, decorations, and
   runs outside the window are skipped, and the image covers only the window.
@@ -182,16 +194,21 @@ windows.
 
 - `planeBands` as above; `planeBox` also returns the effects' reach and
   whether the content runs a shader.
-- `warp` takes an optional band `[qFar, qNear]`. Its `w` at a pixel is the
-  bottom row of `toSource` times the pixel's centre, which is `1/W`; it draws
-  the pixel only when `qFar < w ≤ qNear`, the GPU's test.
-- `plane()` makes one landing surface over where the whole plane lands. For
-  each band it draws the content onto a canvas of the band's size at the
-  band's `toPlane`, reads it, warps it into the shared image with the band's
-  range, and frees the canvas. Every band's `toSource` shares the landing
-  offset and the same bottom row (an affine `toPlane` leaves it unchanged),
-  so every band computes the same `w` for a pixel. The image is drawn onto
-  the parent once, at the layer's alpha.
+- The browser draws a plane as affine triangles (`plane-pieces.ts`, #394),
+  not pixel by pixel, so a band is not cut per pixel there. `drawPlane`
+  with a band's depth range draws the band's canvas whole onto a layer and
+  replaces the target with it within the band's strip grown by a pixel:
+  `1/W` is affine in target pixels, so the strip is a convex polygon, and
+  the target is cleared and added to through it, the clip's coverage
+  blending a seam pixel between two bands that are both right there. A
+  band's canvas holds its content `PLANE_SEAM` (6.5) target pixels past its
+  boundaries (`planeBands`'s `seam`, half a pixel on the GPU), room for that
+  pixel and for the triangles' overlap and warp where the canvas ends.
+- `plane()` makes one surface over where the whole plane lands. For each
+  band it draws the content onto a canvas of the band's size at the band's
+  `toPlane`, draws it through `drawPlane` with the band's range, and frees
+  the canvas. The surface is drawn onto the parent once, at the layer's
+  alpha.
 
 ## Testing
 
@@ -201,8 +218,9 @@ GPU pixel tests, in a new `crates/gpu-renderer/src/tests/plane_bands.rs`:
   20000 tall at `rotationX` 70 and `perspective` 800, its near edge near the
   bottom of the screen, against a short plane holding only the bottom 600
   units of the same text with the same near edge on screen. The mean
-  absolute luminance gradient over the rows just above the near edge must be
-  at least 0.9 times the short plane's (before banding, about 0.4 times).
+  absolute alpha step between neighbours over the rows just above the near
+  edge must be at least 0.9 times the short plane's (before banding, 0.83
+  times for one text layer and 0.69 for many).
   The same with the column made of many small text layers.
 - No seams: a long banded plane of a uniform rect at 50% opacity, with
   `normal` and with `multiply`; every pixel inside it is equal within 1 per
@@ -212,7 +230,7 @@ GPU pixel tests, in a new `crates/gpu-renderer/src/tests/plane_bands.rs`:
   rendered banded and as one uncapped canvas, matches within a small
   tolerance.
 - Hit testing finds the layer through the nearest and the farthest band.
-- Flat text 12000 tall at scale 1 is drawn at raster scale 1.
+- Flat text 20160 tall (more than a 16384 texture holds) at scale 1 is as sharp as a short text of the same lines.
 
 Unit tests:
 
@@ -221,9 +239,11 @@ Unit tests:
   geometrically, sharing their boundaries; at most 8 bands; each scale at
   least the stretch at its corners while within budget; the total within
   budget; nothing nearer than `NEAR_W`; the crawl gives 8 bands with a near
-  scale of 1.542 in both.
-- `warp`: two bands meeting at a boundary, warped from one source, give a
-  target byte for byte equal to the unbanded warp.
+  scale of 2.378 in both.
+- `plane-pieces.test.mjs`: a long plane drawn in bands with the software
+  canvas is as close to the GPU's warp as the plane drawn whole, at the
+  median, the 90th and 99th percentiles, and at worst; a band's strip holds
+  only its range of `w`.
 - `scene-canvas.test.mjs`: a long plane draws through several offscreen
   canvases and composites onto its parent once, at its alpha.
 - `celesta-renderer`: a windowed raster equals the same rows and columns of

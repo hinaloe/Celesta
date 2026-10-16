@@ -167,17 +167,23 @@ Issue #300. Every layer and `Group` takes `skewX`/`skewY`, `rotationX`/
 
 ## Known limitations
 
-- A plane is rasterized at one uniform scale, that of its most magnified
-  point on screen, then lowered to fit the largest texture and 4 times the
-  scene's pixel area (in the browser also 16,777,216 pixels). A long receding
-  plane, such as a text crawl 20000 tall, is lowered a long way, so its near
-  text softens. The example's floor is capped too: its visible trapezoid's
-  box is 1800x1044 local units and its on-screen near corners need a scale
-  of 2.18 (8.9M pixels), so it is drawn at 2.10, as before the exact screen
-  clip. The clip changes a raster when it drops the most magnified corner or
-  shrinks the box: a floor reaching past the screen's bottom goes from 4.55
-  to 2.38 uncapped, and one also 6000 wide from 0.89 to 1.50 capped, as its
-  box shrinks. Density-banded planes are a planned follow-up.
+- A plane too large for one canvas at the scale its most magnified point
+  needs is now drawn in bands of equal depth, each at the scale its own
+  nearest part needs (see `docs/handoff/2026-10-16-plane-density-bands.md`),
+  and a text layer too large for one texture is rasterized only where it
+  shows. What stays limited: a plane that is huge but barely recedes (all of
+  it about as far away) is one band and still lowered to fit; a plane whose
+  content runs a custom shader or a built-in stylize effect is not banded,
+  as those work in the plane's own pixel grid; a blur that reaches the
+  64-plane-pixel cap can come out different sizes either side of a seam;
+  and the bands together still share the one budget (largest texture side
+  each, 4 times the scene's area in all, in the browser also 16,777,216
+  pixels), lowered alike past it. The example's floor, whose near corners
+  need 2.18 and which one canvas drew at 2.09, is now three bands at 2.18,
+  1.54, and 1.0. The clip changes a raster when it drops the most magnified
+  corner or shrinks the box: a floor reaching past the screen's bottom goes
+  from 4.55 to 2.38 uncapped, and one also 6000 wide from 0.89 to 1.50
+  capped, as its box shrinks.
 - `is_projective` turns on at any nonzero 3D rotation, so
   `rotationY={frame * 4}` is affine and not isolated on frame 0 and isolated
   from frame 1: children with blend modes can change how they mix. The guide
@@ -186,10 +192,10 @@ Issue #300. Every layer and `Group` takes `skewX`/`skewY`, `rotationX`/
 - The browser preview draws planes as affine triangles, within half a pixel
   of the GPU and with an antialiased outline
   (`2026-10-17-web-plane-triangles.md`).
-- Follow-ups already split off: density-banded planes. The subdivided affine
-  `drawImage` path for the web warp (`2026-10-17-web-plane-triangles.md`) and
-  size-only stand-ins for images, SVG, and PSD in plane measurement (see
-  above) are done.
+- Follow-ups already split off are done: the subdivided affine `drawImage`
+  path for the web warp (`2026-10-17-web-plane-triangles.md`), size-only
+  stand-ins for images, SVG, and PSD in plane measurement (see above), and
+  density-banded planes (see above).
 
 ## Checks
 
