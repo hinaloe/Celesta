@@ -9,9 +9,13 @@ use signalsmith_stretch::Stretch;
 use std::ops::Range;
 
 const CHANNELS: usize = 2;
-/// Output frames per `process` call; transposition and cancellation are
-/// updated once per block (~10 ms at 48 kHz).
+/// Output frames per `process` call. The transposition factor is set, and
+/// cancellation checked, once per block; the stretcher picks the factor up at
+/// its own ~30 ms analysis interval.
 const BLOCK: i64 = 512;
+/// Signalsmith's default preset crashes or never returns at very low sample
+/// rates (a segfault at 1 and 8 Hz, an endless loop at 32 Hz).
+pub(crate) const MIN_STRETCH_SAMPLE_RATE: u32 = 8000;
 
 /// Whether `clip` needs the stretcher: a pitch other than 0, or a playback
 /// rate other than 1 whose pitch change is suppressed.
@@ -36,6 +40,9 @@ pub(crate) fn mix_stretched_clip(
     output: &mut [f32],
     is_cancelled: &mut impl FnMut() -> bool,
 ) -> Result<(), AudioMixError> {
+    if sample_rate < MIN_STRETCH_SAMPLE_RATE {
+        return Err(AudioMixError::PitchNeedsSampleRate { sample_rate });
+    }
     let rate = f64::from(sample_rate);
     let range_start_frame = sample_ceil(clip.range.start, sample_rate)?;
     let produced = frames.end - range_start_frame;
@@ -83,18 +90,25 @@ pub(crate) fn mix_stretched_clip(
         let block_end = (block_start + BLOCK).min(stream_end);
         let next_source = source_frame(block_end)?;
         let input_frames = next_source - block_source;
-        // A rate of 0 or below cannot be stretched; its blocks stay silent.
-        if input_frames > 0 {
-            // Spectra analysed now are centred on clip frame `block_start`'s
-            // source and come out `output_latency` frames later, heard at
-            // `block_start` itself.
-            if let Some(factor) = transpose_factor(clip, local_time(block_start)?)? {
-                stretch.set_transpose_factor(factor, None);
-            }
+        // A rate of 0 or below cannot be stretched; its blocks are silent.
+        // They still run through the stretcher, with no input, so its output
+        // clock keeps pace and its latency tail is not replayed after the gap.
+        let silent = input_frames <= 0;
+        // Spectra analysed now are centred on clip frame `block_start`'s
+        // source and come out `output_latency` frames later, heard at
+        // `block_start` itself.
+        if let Some(factor) = transpose_factor(clip, local_time(block_start)?)? {
+            stretch.set_transpose_factor(factor, None);
+        }
+        if silent {
+            input.clear();
+        } else {
             reader.read(block_source + input_latency, input_frames, &mut input);
-            block.clear();
-            block.resize((block_end - block_start) as usize * CHANNELS, 0.0);
-            stretch.process(&input, &mut block);
+        }
+        block.clear();
+        block.resize((block_end - block_start) as usize * CHANNELS, 0.0);
+        stretch.process(&input, &mut block);
+        if !silent {
             for (heard, frame) in
                 (block_start - output_latency..).zip(block.as_chunks::<CHANNELS>().0)
             {

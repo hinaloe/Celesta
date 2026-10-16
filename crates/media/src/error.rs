@@ -1,3 +1,4 @@
+use crate::stretch::MIN_STRETCH_SAMPLE_RATE;
 use celesta_composition::{AnimationError, TimeError};
 use celesta_remote::RemoteAssetError;
 use std::error::Error;
@@ -90,6 +91,11 @@ pub enum AudioMixError {
     InvalidSampleRate,
     InvalidMasterVolume(f64),
     TimelineTooLong,
+    /// A pitched or pitch-preserving clip at a sample rate Signalsmith
+    /// Stretch cannot run at.
+    PitchNeedsSampleRate {
+        sample_rate: u32,
+    },
     RemoteAsset {
         asset: String,
         source: RemoteAssetError,
@@ -112,6 +118,10 @@ impl fmt::Display for AudioMixError {
                 write!(formatter, "audio graph has invalid master volume {volume}")
             }
             Self::TimelineTooLong => formatter.write_str("audio timeline is too long to mix"),
+            Self::PitchNeedsSampleRate { sample_rate } => write!(
+                formatter,
+                "pitch and preservePitch need a sample rate of at least {MIN_STRETCH_SAMPLE_RATE} Hz, got {sample_rate}"
+            ),
             Self::RemoteAsset { asset, source } => {
                 write!(formatter, "could not load audio asset `{asset}`: {source}")
             }
@@ -140,6 +150,7 @@ impl Error for AudioMixError {
             | Self::InvalidSampleRate
             | Self::InvalidMasterVolume(_)
             | Self::TimelineTooLong
+            | Self::PitchNeedsSampleRate { .. }
             | Self::UnexpectedDecodedFormat { .. } => None,
         }
     }

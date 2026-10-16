@@ -925,3 +925,30 @@ fn slow_rate_with_preserved_pitch_keeps_pitch_and_stays_continuous() {
         assert!(level > 0.2, "rms {level} at {start} s");
     }
 }
+
+#[test]
+fn stretching_refuses_sample_rates_signalsmith_cannot_run_at() {
+    let mut clip = clip(0.0, 1.0);
+    clip.pitch = Animatable::Static(12.0);
+    let mut source = tone(440.0, 0.0, 1.0, 1.0);
+    source.sample_rate = 4000;
+    let graph = AudioGraph {
+        sample_rate: 4000,
+        master_volume: 1.0,
+        clips: vec![clip],
+    };
+
+    let error = mix_audio_graph(
+        &graph,
+        Path::new("assets"),
+        seconds(1.0),
+        &mut BufferDecoder(source),
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        AudioMixError::PitchNeedsSampleRate { sample_rate: 4000 }
+    ));
+    assert!(error.to_string().contains("at least 8000 Hz"));
+}

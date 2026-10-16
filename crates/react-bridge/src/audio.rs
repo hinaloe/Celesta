@@ -78,7 +78,7 @@ pub fn react_audio_clips(clips: &[ReactAudioClipDescriptor], entry_dir: &Path) -
                 volume: clip.volume,
                 muted: clip.muted,
                 r#loop: clip.r#loop,
-                pitch: clip.pitch.clone(),
+                pitch: clip.pitch,
                 preserve_pitch: clip.preserve_pitch,
             }
         })
