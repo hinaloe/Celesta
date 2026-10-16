@@ -11,7 +11,7 @@ const modulePath = join(directory, 'canvas.mjs');
 writeFileSync(modulePath, result.outputFiles[0].text);
 const { SceneCanvas } = await import(pathToFileURL(modulePath));
 rmSync(directory, { recursive: true });
-const { homography, planeRaster, project, stretchAt } = await import('../src/projection.ts');
+const { homography, planeRaster, stretchAt } = await import('../src/projection.ts');
 
 test('file font URLs are reused across frames and isolated opacity is applied once', async t => {
   const faces = new Set(), operations = [];
@@ -479,10 +479,11 @@ test('a hidden backface draws nothing when a parent group turns it away', async 
  * `operations` records fills, reads, writes, clips, and composites.
  */
 function pixelCanvases(t) {
-  const originals = { document: globalThis.document, DOMMatrix: globalThis.DOMMatrix, DOMPoint: globalThis.DOMPoint };
+  const originals = { document: globalThis.document, DOMMatrix: globalThis.DOMMatrix, DOMPoint: globalThis.DOMPoint, Path2D: globalThis.Path2D };
   t.after(() => Object.assign(globalThis, originals));
   globalThis.DOMMatrix = AffineMatrix;
   globalThis.DOMPoint = class { constructor(x, y) { this.x = x; this.y = y; } };
+  globalThis.Path2D = class { moveTo() {} lineTo() {} closePath() {} addPath() {} };
   const operations = [];
   let nextCanvas = 0;
   const canvas = () => {
@@ -523,10 +524,25 @@ function pixelCanvases(t) {
   return { canvas, operations };
 }
 
+/** The canvases that what is on canvas `id` is drawn onto, directly or through others. */
+function reaches(operations, id) {
+  const found = new Set();
+  const visit = from => {
+    for (const [kind, to, source] of operations) {
+      if (kind === 'composite' && source === from && !found.has(to)) {
+        found.add(to);
+        visit(to);
+      }
+    }
+  };
+  visit(id);
+  return found;
+}
+
 const at = (x, y, extra = {}) => ({ position: { x, y }, scale: { x: 1, y: 1 }, anchor: { x: 0.5, y: 0.5 }, rotation: 0, ...extra });
 const square = (transform, extra = {}) => ({ opacity: 1, transform, content: { type: 'rect', width: 20, height: 20, cornerRadius: 0, fill: { type: 'solid', color: '#f00' } }, ...extra });
 
-test('a projective rect is drawn onto a canvas in its own plane, then warped onto its parent once', async t => {
+test('a projective rect is drawn onto a canvas in its own plane, then onto its parent once', async t => {
   const { canvas, operations } = pixelCanvases(t);
   const renderer = new SceneCanvas(new Map());
   const transform = at(50, 50, { rotationY: 30, perspective: 200 });
@@ -541,22 +557,16 @@ test('a projective rect is drawn onto a canvas in its own plane, then warped ont
   assert.deepEqual(fill.slice(2, 4), [raster.width, raster.height]);
   const { a, b, c, d, e, f } = fill[4];
   assert.deepEqual([a, b, c, d, e, f], [raster.scale, 0, 0, raster.scale, 1 - raster.left * raster.scale, 1 - raster.top * raster.scale]);
-  // It is read once, warped onto a surface over where it lands, which
-  // reaches the output once, at the rect's opacity.
-  assert.deepEqual(operations.filter(([kind]) => kind === 'read').map(([, id]) => id), [fill[1]]);
-  const [write] = operations.filter(([kind]) => kind === 'write');
+  // It is drawn piece by piece, each through a clip, onto a surface (or
+  // layers that add onto it), which reaches the output once, at the rect's
+  // opacity; nothing is read back where no piece is warped (see
+  // plane-pieces.test.mjs).
   const composites = operations.filter(([kind, id]) => kind === 'composite' && id === output.id);
-  assert.deepEqual(composites.map(([, , from, alpha]) => [from, alpha]), [[write[1], 0.5]]);
-  const [, , image, left, top] = write;
-  assert.ok(image.width < 100 && left > 0 && top > 0, `${image.width} at ${left}, ${top}`);
-  // The centre of the rect lands at its position; the far right edge is
-  // nearer the middle than the near left one.
-  const pixel = (x, y) => Array.from(image.data.slice(((y - top) * image.width + x - left) * 4, ((y - top) * image.width + x - left) * 4 + 4));
-  assert.deepEqual(pixel(50, 50), [255, 0, 0, 255]);
-  const [right] = project(forward, 10, 0), [near] = project(forward, -10, 0);
-  assert.ok(right - 50 < 50 - near, `${near}, ${right}`);
-  assert.deepEqual(pixel(Math.floor(right) + 2, 50), [0, 0, 0, 0]);
-  assert.deepEqual(pixel(Math.floor(right) - 2, 50), [255, 0, 0, 255]);
+  assert.deepEqual(composites.map(([, , , alpha]) => alpha), [0.5]);
+  const result = composites[0][2];
+  const pieces = operations.filter(([kind, , from, , , , , clipped]) => kind === 'composite' && from === fill[1] && clipped);
+  assert.ok(pieces.length > 1 && pieces.every(([, id]) => id === result || reaches(operations, id).has(result)), JSON.stringify(pieces));
+  assert.deepEqual(operations.filter(([kind]) => kind === 'read'), []);
   renderer.dispose();
 });
 
@@ -611,13 +621,15 @@ test('a plane draws within its parent\'s clip, and through its blend mode', asyn
 
   operations.length = 0;
   await renderer.draw(output, { width: 100, height: 100, layers: [square(transform, { opacity: 0.5, blendMode: 'multiply' })] });
-  // The plane is warped onto a surface of its own, which then blends over
-  // the backdrop it reads, at the layer's opacity.
-  const [warped] = operations.filter(([kind]) => kind === 'write');
-  const blended = operations.find(([kind, id, from]) => kind === 'composite' && from === warped[1]);
-  assert.notEqual(blended[1], output.id);
+  // The plane is drawn onto a surface of its own, which then blends over
+  // the backdrop it reads onto another, at the layer's opacity.
+  const [plane] = operations.filter(([kind]) => kind === 'fill');
+  const composites = operations.filter(([kind, id]) => kind === 'composite' && id === output.id);
+  assert.deepEqual(composites.map(([, , , alpha]) => alpha), [0.5]);
+  const blended = composites[0][2];
+  const pieces = operations.filter(([kind, , from, , , , , clipped]) => kind === 'composite' && from === plane[1] && clipped);
+  assert.ok(reaches(operations, plane[1]).has(blended) && pieces.every(([, id]) => id !== blended));
   assert.ok(operations.some(([kind, id]) => kind === 'read' && id === output.id), 'the backdrop is read');
-  assert.deepEqual(operations.filter(([kind, id]) => kind === 'composite' && id === output.id).map(([, , from, alpha]) => [from, alpha]), [[blended[1], 0.5]]);
   renderer.dispose();
 });
 
