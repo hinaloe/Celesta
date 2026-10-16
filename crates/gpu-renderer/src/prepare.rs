@@ -13,11 +13,11 @@ use crate::renderer::GpuRenderer;
 use crate::text::{PendingText, text_layer, text_raster_scale};
 use crate::texture::{DecodedImage, LayerTexture, TEXT_TEXTURE_PREFIX, canvas_texture, psd_key};
 use crate::texture::{rasterize_texts, text_jobs};
-use crate::transform::{Affine, CLIP_ENTRY_SIZE, ClipEntry, LayerState, MAX_CLIP_DEPTH};
+use crate::transform::{Affine, CLIP_ENTRY_SIZE, ClipEntry, LayerState, MAX_CLIP_DEPTH, Walk};
 use crate::types::RenderQuality;
 use celesta_composition::{
     BackfaceVisibility, BlendMode, Clip, ImageAnimation, ImageFit, InstanceShape, Layer,
-    LayerContent, LayerEffects, Point, ResolvedAsset, Scene, faces_away, multiply3,
+    LayerContent, LayerEffects, Matrix3, Point, ResolvedAsset, Scene, faces_away, multiply3,
 };
 use celesta_renderer::image_source::{fit_within, resize_rgba};
 use celesta_renderer::{
@@ -55,6 +55,7 @@ impl GpuRenderer {
         self.missing_glyphs.clear();
         self.hit_leaves.clear();
         self.hit_regions.clear();
+        self.walk = Walk::default();
         let mut items = Vec::new();
         let prepared = scene
             .layers
@@ -439,12 +440,35 @@ impl GpuRenderer {
         parent: LayerState,
         output: &mut Vec<PreparedItem>,
     ) -> Result<(), GpuRenderError> {
+        let previous = self.walk;
+        let linear = layer.transform.linear();
+        let orientation = multiply3(&previous.orientation, &linear);
         if layer.transform.backface_visibility == BackfaceVisibility::Hidden
-            && faces_away(&multiply3(&parent.orientation, &layer.transform.linear()))
+            && faces_away(&orientation)
         {
             return Ok(());
         }
-        let state = parent.then(&layer.transform, layer.opacity);
+        self.walk.orientation = orientation;
+        let prepared = self.prepare_visible_layer(layer, parent, previous, &linear, output);
+        self.walk = previous;
+        prepared
+    }
+
+    /// `prepare_layer` once the layer faces the viewer (or shows its back):
+    /// `self.walk` describes the layer, `previous` its parent, and `linear`
+    /// is the layer's 3D linear part.
+    fn prepare_visible_layer(
+        &mut self,
+        layer: &Layer,
+        parent: LayerState,
+        previous: Walk,
+        linear: &Matrix3,
+        output: &mut Vec<PreparedItem>,
+    ) -> Result<(), GpuRenderError> {
+        let state = parent.then_affine(
+            Affine::from_linear(linear, layer.transform.position),
+            layer.opacity,
+        );
         if state.opacity == 0.0 || state.transform.is_degenerate() {
             return Ok(());
         }
@@ -460,6 +484,8 @@ impl GpuRenderer {
             inner.opacity = 1.0;
             inner.blend_mode = BlendMode::Normal;
             inner.effects = LayerEffects::default();
+            // The inner layer is this one again: it adds its own orientation.
+            self.walk = previous;
             self.prepare_layer(
                 &inner,
                 LayerState {
@@ -474,7 +500,6 @@ impl GpuRenderer {
                         transform: Affine::IDENTITY,
                         opacity: state.opacity,
                         clip: parent.clip,
-                        ..LayerState::default()
                     },
                     blend_mode,
                     true,
@@ -528,7 +553,6 @@ impl GpuRenderer {
                                 transform: Affine::IDENTITY,
                                 opacity: 1.0,
                                 clip: None,
-                                ..LayerState::default()
                             },
                             BlendMode::Normal,
                             true,
@@ -544,7 +568,6 @@ impl GpuRenderer {
                                 transform: Affine::IDENTITY,
                                 opacity: state.opacity,
                                 clip: None,
-                                ..LayerState::default()
                             },
                             blend_mode,
                             true,
@@ -570,7 +593,6 @@ impl GpuRenderer {
                             transform: Affine::IDENTITY,
                             opacity: state.opacity,
                             clip: None,
-                            ..LayerState::default()
                         },
                         blend_mode,
                         true,
@@ -599,7 +621,6 @@ impl GpuRenderer {
                         transform: Affine::IDENTITY,
                         opacity: state.opacity,
                         clip: None,
-                        ..LayerState::default()
                     },
                     blend_mode,
                     true,
@@ -938,7 +959,6 @@ impl GpuRenderer {
                             transform: Affine::IDENTITY,
                             opacity: state.opacity,
                             clip: None,
-                            ..LayerState::default()
                         },
                         blend_mode,
                         true,

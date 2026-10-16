@@ -16,7 +16,7 @@ use crate::text::PendingText;
 use crate::texture::{
     CachedTexture, CanvasTexture, DecodedImage, LayerTexture, canvas_format, upload_texture,
 };
-use crate::transform::{CLIP_ENTRY_SIZE, ClipEntry};
+use crate::transform::{CLIP_ENTRY_SIZE, ClipEntry, Walk};
 #[cfg(target_os = "macos")]
 use crate::types::NativePreviewFrame;
 use crate::types::{
@@ -148,6 +148,9 @@ pub struct GpuRenderer {
     pub(crate) missing_glyphs: Vec<MissingGlyphs>,
     /// Whether `prepare_draws` records `hit_regions`.
     pub(crate) record_hit_regions: bool,
+    /// What `prepare_layer` carries down the layer tree besides the
+    /// `LayerState`; reset at the start of every frame.
+    pub(crate) walk: Walk,
     /// The leaf layers of the frame being prepared, for `hit_regions`.
     pub(crate) hit_leaves: Vec<HitLeaf>,
     /// The last prepared frame's leaf layers, in painter's order.
@@ -369,6 +372,7 @@ impl GpuRenderer {
             font_fallbacks: Vec::new(),
             missing_glyphs: Vec::new(),
             record_hit_regions: false,
+            walk: Walk::default(),
             hit_leaves: Vec::new(),
             hit_regions: Vec::new(),
         })

@@ -1,5 +1,5 @@
 use crate::hit::HitClip;
-use celesta_composition::{Clip, EvaluatedTransform, IDENTITY3, Matrix3, multiply3};
+use celesta_composition::{Clip, EvaluatedTransform, IDENTITY3, Matrix3, Point};
 use celesta_renderer::PathTransform;
 
 /// Evaluates an unparented Path layer's transform using the GPU renderer's
@@ -16,25 +16,45 @@ pub(crate) struct LayerState {
     /// Index into `GpuRenderer::clip_entries` of the innermost clip the
     /// layer is drawn through.
     pub(crate) clip: Option<u32>,
+}
+
+impl LayerState {
+    pub(crate) fn then(self, transform: &EvaluatedTransform, opacity: f64) -> Self {
+        self.then_affine(Affine::from_transform(transform), opacity)
+    }
+
+    pub(crate) fn then_affine(self, transform: Affine, opacity: f64) -> Self {
+        Self {
+            transform: self.transform.multiply(transform),
+            opacity: (self.opacity * opacity.clamp(0.0, 1.0) as f32).clamp(0.0, 1.0),
+            clip: self.clip,
+        }
+    }
+}
+
+/// What `prepare_layer` carries down the layer tree besides the `LayerState`
+/// that drawn items keep: state only the walk itself reads, so prepared items
+/// stay small.
+#[derive(Clone, Copy)]
+pub(crate) struct Walk {
     /// The accumulated 3D linear part of the layer's ancestors and itself,
     /// which decides whether its back faces the viewer.
     pub(crate) orientation: Matrix3,
     /// How much larger than its layer-space size an effect's pixels are
     /// drawn, so a blur or shadow radius follows the layer's projection.
+    #[allow(dead_code, reason = "read once projective layers set it")]
     pub(crate) effect_scale: f32,
     /// Index of the projective plane the layer is drawn onto, if any.
+    #[allow(dead_code, reason = "read once projective layers set it")]
     pub(crate) plane: Option<u32>,
 }
 
-impl LayerState {
-    pub(crate) fn then(self, transform: &EvaluatedTransform, opacity: f64) -> Self {
+impl Default for Walk {
+    fn default() -> Self {
         Self {
-            transform: self.transform.multiply(Affine::from_transform(transform)),
-            opacity: (self.opacity * opacity.clamp(0.0, 1.0) as f32).clamp(0.0, 1.0),
-            clip: self.clip,
-            orientation: multiply3(&self.orientation, &transform.linear()),
-            effect_scale: self.effect_scale,
-            plane: self.plane,
+            orientation: IDENTITY3,
+            effect_scale: 1.0,
+            plane: None,
         }
     }
 }
@@ -45,9 +65,6 @@ impl Default for LayerState {
             transform: Affine::IDENTITY,
             opacity: 1.0,
             clip: None,
-            orientation: IDENTITY3,
-            effect_scale: 1.0,
-            plane: None,
         }
     }
 }
@@ -166,14 +183,19 @@ impl Affine {
     };
 
     pub(crate) fn from_transform(transform: &EvaluatedTransform) -> Self {
-        let linear = transform.linear();
+        Self::from_linear(&transform.linear(), transform.position)
+    }
+
+    /// The transform of a layer whose 3D linear part is `linear`, with the
+    /// z axis dropped.
+    pub(crate) fn from_linear(linear: &Matrix3, position: Point) -> Self {
         Self {
             a: linear[0][0] as f32,
             b: linear[1][0] as f32,
             c: linear[0][1] as f32,
             d: linear[1][1] as f32,
-            tx: transform.position.x as f32,
-            ty: transform.position.y as f32,
+            tx: position.x as f32,
+            ty: position.y as f32,
         }
     }
 
@@ -192,11 +214,12 @@ impl Affine {
     /// stretched (a skew near ±90°) that drawing it would only overflow.
     pub(crate) fn is_degenerate(self) -> bool {
         let entries = [self.a, self.b, self.c, self.d, self.tx, self.ty];
+        let determinant = self.a * self.d - self.b * self.c;
         entries
             .iter()
             .any(|entry| !entry.is_finite() || entry.abs() > MAX_ENTRY)
-            || !(self.a * self.d - self.b * self.c).is_finite()
-            || (self.a * self.d - self.b * self.c).abs() <= f32::EPSILON
+            || !determinant.is_finite()
+            || determinant.abs() <= f32::EPSILON
     }
 
     /// The largest and smallest factors the transform stretches a length by
