@@ -566,6 +566,14 @@ To show a 1280×720 clip full-screen in a 1920×1080 composition, wrap it in
 `<Fit sourceWidth={1280} sourceHeight={720}>` (see
 [Layout helpers](#layout-helpers)).
 
+HDR video (PQ or HLG, such as iPhone footage) and BT.2020 SDR video are
+converted to SDR the way Chrome draws them onto a canvas, so the native
+preview, the export, and `@celesta/web` agree. The HDR reference white
+(203 nits, HLG's 75% signal) lands at half of SDR white's light, so HDR
+footage looks darker than a white `<Rect>` beside it; highlights roll off up
+to the file's MaxCLL (1000 nits without one). Export is SDR.
+`preloadMedia()` reports `video.hdr` (`'pq'` or `'hlg'`) for such a file.
+
 ## Audio
 
 | Prop | Notes |
@@ -710,7 +718,9 @@ export async function prepare() {
 ```
 
 `preloadMedia(src)` resolves to
-`{ src, durationSeconds?, video?: { width, height, codec?, frameRate?, durationSeconds? }, audio: [{ codec?, sampleRate?, channels?, durationSeconds? }], animation?: { frameCount, durationSeconds } }`.
+`{ src, durationSeconds?, video?: { width, height, codec?, frameRate?, durationSeconds?, color?: { primaries?, transfer?, matrix? }, hdr?: 'pq' | 'hlg' }, audio: [{ codec?, sampleRate?, channels?, durationSeconds? }], animation?: { frameCount, durationSeconds } }`.
+`color` holds FFmpeg's names for the stream's tags (`bt2020`,
+`smpte2084`, `bt2020nc`, …); `hdr` is set for HDR video (see [Video](#video)).
 `animation` is there for an animated GIF, APNG, or WebP, whose
 `durationSeconds` is then one pass through its frames, as `<Image>` plays it.
 `mediaDurationInFrames(info, fps)` rounds up to whole frames. To lay out a

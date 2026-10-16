@@ -1,3 +1,4 @@
+use crate::color::VideoColor;
 use celesta_composition::{Rational, Time};
 use std::sync::Arc;
 
@@ -16,6 +17,7 @@ pub struct VideoStream {
     pub height: u32,
     pub frame_rate: Option<Rational>,
     pub duration: Option<Time>,
+    pub color: VideoColor,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -189,10 +189,23 @@ function probeMedia(mediaPath) {
     const [numerator, denominator] = video.avg_frame_rate.split('/').map(Number);
     frameRate = { numerator, denominator };
   }
+  // Celesta's probe omits what FFmpeg reports as unknown, and the whole
+  // object when nothing is tagged.
+  const tag = (value) => (value === undefined || value === 'unknown' || value === 'reserved' ? undefined : value);
+  const color = video && { primaries: tag(video.color_primaries), transfer: tag(video.color_transfer), matrix: tag(video.color_space) };
+  const hdr = { smpte2084: 'pq', 'arib-std-b67': 'hlg' }[color?.transfer];
   return {
     media: {
       durationSeconds: seconds(data.format?.duration),
-      video: video && { codec: video.codec_name, width: video.width, height: video.height, frameRate, durationSeconds: seconds(video.duration) },
+      video: video && {
+        codec: video.codec_name,
+        width: video.width,
+        height: video.height,
+        frameRate,
+        durationSeconds: seconds(video.duration),
+        color: Object.values(color).some((value) => value !== undefined) ? color : undefined,
+        hdr,
+      },
       audio: data.streams
         .filter((stream) => stream.codec_type === 'audio')
         .map((stream) => ({ codec: stream.codec_name, sampleRate: Number(stream.sample_rate), channels: stream.channels, durationSeconds: seconds(stream.duration) })),

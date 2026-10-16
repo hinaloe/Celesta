@@ -1,3 +1,4 @@
+use crate::color::VideoColor;
 use crate::error::MediaError;
 use crate::sequential::path_to_url;
 use crate::types::{AudioStream, MediaProbe, VideoStream};
@@ -37,6 +38,9 @@ pub(crate) fn probe_path(path: &Path) -> Result<MediaProbe, MediaError> {
                 r_frame_rate,
                 duration,
                 time_base,
+                color_primaries,
+                color_transfer,
+                color_space,
                 ..
             } if video.is_none() => {
                 video = Some(VideoStream {
@@ -46,6 +50,7 @@ pub(crate) fn probe_path(path: &Path) -> Result<MediaProbe, MediaError> {
                     height: height.max(0) as u32,
                     frame_rate: video_frame_rate(avg_frame_rate, r_frame_rate),
                     duration: stream_duration(duration, time_base),
+                    color: VideoColor::from_raw(color_primaries, color_transfer, color_space),
                 });
             }
             StreamInfo::Audio {

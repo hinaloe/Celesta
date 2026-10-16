@@ -1,7 +1,13 @@
 import { probeMedia } from '@celesta/react/internal';
 import type { MediaInfo } from '@celesta/react/internal';
 
-export type { MediaAnimationInfo, MediaAudioInfo, MediaInfo, MediaVideoInfo } from '@celesta/react/internal';
+export type {
+  MediaAnimationInfo,
+  MediaAudioInfo,
+  MediaInfo,
+  MediaVideoColor,
+  MediaVideoInfo,
+} from '@celesta/react/internal';
 
 export { analyzeAudioSpectrum, loadAudioSpectrum, spectrumAt, useAudioSpectrum } from './spectrum';
 export type {

@@ -1,12 +1,29 @@
 import { entryRelativePath, isRemoteUrl } from './entry-dir';
 import type { Rational } from './scene';
 
+/** A video stream's color tags, by FFmpeg's names for them. */
+export interface MediaVideoColor {
+  /** `bt709`, `bt2020`, `smpte432`, … */
+  primaries?: string;
+  /** `bt709`, `smpte2084` (PQ), `arib-std-b67` (HLG), … */
+  transfer?: string;
+  /** `bt709`, `bt2020nc`, `smpte170m`, … */
+  matrix?: string;
+}
+
 export interface MediaVideoInfo {
   codec?: string;
   width: number;
   height: number;
   frameRate?: Rational;
   durationSeconds?: number;
+  /** Absent when the stream carries no color tags. */
+  color?: MediaVideoColor;
+  /**
+   * Set for HDR video. `<Video>` tone maps it to SDR the way Chrome draws
+   * it onto a canvas.
+   */
+  hdr?: 'pq' | 'hlg';
 }
 
 export interface MediaAudioInfo {

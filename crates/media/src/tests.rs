@@ -1,3 +1,4 @@
+use crate::color::{DynamicRange, VideoColor};
 use crate::decoder::{AudioDecoder, VideoFrameDecoder};
 use crate::error::{AudioMixError, MediaError};
 use crate::ffmpeg::FfmpegBackend;
@@ -155,6 +156,90 @@ fn loops_video_from_its_first_frame_past_the_source_end() {
         third.pixels
     );
 
+    fs::remove_dir_all(&directory).ok();
+}
+
+/// A 10-bit limited-range gray clip of luma code `luma`, tagged BT.2020
+/// with `transfer`.
+fn generate_hdr_clip(path: &Path, luma: u16, transfer: &str) {
+    generate_clip(
+        path,
+        &format!(
+            "color=s=32x16:r=10:d=1,format=yuv420p10le,geq=lum={luma}:cb=512:cr=512,\
+             setparams=color_primaries=bt2020:color_trc={transfer}:colorspace=bt2020nc:range=tv"
+        ),
+        (10, 1),
+    );
+}
+
+fn center_pixel(frame: &crate::VideoFrame) -> [u8; 4] {
+    let offset = ((frame.height / 2 * frame.width + frame.width / 2) * 4) as usize;
+    frame.pixels[offset..offset + 4].try_into().unwrap()
+}
+
+#[test]
+fn probes_and_tone_maps_hdr_video_like_chrome() {
+    let directory = fixture_dir("hdr");
+    // Luma 573 is PQ's 203 nits and 721 HLG's 75% signal: both the HDR
+    // reference white, which Chrome draws at half of SDR white's light.
+    for (name, luma, transfer, range) in [
+        ("pq.mkv", 573, "smpte2084", DynamicRange::Pq),
+        ("hlg.mkv", 721, "arib-std-b67", DynamicRange::Hlg),
+    ] {
+        let clip = directory.join(name);
+        generate_hdr_clip(&clip, luma, transfer);
+
+        let mut backend = FfmpegBackend::new();
+        let video = backend.probe(&clip).unwrap().video.clone().unwrap();
+        assert_eq!(
+            video.color,
+            VideoColor {
+                primaries: Some("bt2020".to_owned()),
+                transfer: Some(transfer.to_owned()),
+                matrix: Some("bt2020nc".to_owned()),
+            }
+        );
+        assert_eq!(video.color.dynamic_range(), range);
+
+        let frame = backend.decode_frame(&clip, 0.5).unwrap();
+        assert_eq!((frame.width, frame.height), (32, 16));
+        let [r, g, b, a] = center_pixel(&frame);
+        assert!(
+            [r, g, b].iter().all(|channel| channel.abs_diff(188) <= 2) && a == 255,
+            "{name} reference white decoded as {:?}",
+            [r, g, b, a]
+        );
+
+        // Sequential playback converts the same way, frame after frame.
+        let mut sequential = FfmpegBackend::new().with_sequential_video(Rational::new(10, 1));
+        for step in 0..10 {
+            let next = sequential
+                .decode_frame_for("clip", &clip, f64::from(step) * 0.1)
+                .unwrap_or_else(|error| panic!("{name} frame {step} should decode: {error}"));
+            assert_eq!(next.pixels, frame.pixels, "{name} frame {step}");
+        }
+        assert_eq!(sequential.sequential_video_processes_started(), 1);
+    }
+    fs::remove_dir_all(&directory).ok();
+}
+
+#[test]
+fn leaves_sdr_video_on_the_packed_path() {
+    let directory = fixture_dir("sdr-color");
+    let clip = directory.join("clip.mkv");
+    generate_clip(
+        &clip,
+        "color=c=0x949494:s=32x16:r=10:d=1,format=yuv420p,\
+         setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv",
+        (10, 1),
+    );
+    let mut backend = FfmpegBackend::new();
+    let video = backend.probe(&clip).unwrap().video.clone().unwrap();
+    assert_eq!(video.color.dynamic_range(), DynamicRange::Sdr);
+    assert_eq!(video.color.conversion(), None);
+    let frame = backend.decode_frame(&clip, 0.0).unwrap();
+    let [r, g, b, _] = center_pixel(&frame);
+    assert!([r, g, b].iter().all(|channel| channel.abs_diff(148) <= 1));
     fs::remove_dir_all(&directory).ok();
 }
 

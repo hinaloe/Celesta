@@ -1,7 +1,7 @@
 use crate::media_probe::MediaAssetInfo;
 use crate::viewer;
 use celesta_composition::{AudioClip, Time, evaluate_f64, integrate_f64};
-use celesta_media::{AudioBuffer, MediaProbe};
+use celesta_media::{AudioBuffer, DynamicRange, MediaProbe};
 
 pub(crate) fn waveform_peaks(buffer: &AudioBuffer, requested_buckets: usize) -> Vec<f32> {
     let frame_count = buffer.frame_count();
@@ -32,6 +32,10 @@ pub(crate) fn media_asset_info(probe: &MediaProbe) -> MediaAssetInfo {
             .video
             .as_ref()
             .map(|video| (video.width, video.height)),
+        dynamic_range: probe
+            .video
+            .as_ref()
+            .map_or(DynamicRange::Sdr, |video| video.color.dynamic_range()),
         has_audio: !probe.audio.is_empty(),
     }
 }
@@ -40,6 +44,11 @@ pub(crate) fn format_media_asset_info(info: &MediaAssetInfo) -> String {
     let mut parts = Vec::new();
     if let Some((width, height)) = info.video_size {
         parts.push(format!("{width}×{height}"));
+    }
+    match info.dynamic_range {
+        DynamicRange::Sdr => {}
+        DynamicRange::Pq => parts.push("HDR (PQ)".to_owned()),
+        DynamicRange::Hlg => parts.push("HDR (HLG)".to_owned()),
     }
     if let Some(duration) = info
         .duration

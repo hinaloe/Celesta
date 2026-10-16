@@ -2,7 +2,7 @@ use crate::audio::take_latest;
 use crate::problems::error_chain;
 use crate::waveform::media_asset_info;
 use celesta_composition::Time;
-use celesta_media::FfmpegBackend;
+use celesta_media::{DynamicRange, FfmpegBackend};
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -27,6 +27,7 @@ pub(crate) struct MediaProbeResult {
 pub(crate) struct MediaAssetInfo {
     pub(crate) duration: Option<Time>,
     pub(crate) video_size: Option<(u32, u32)>,
+    pub(crate) dynamic_range: DynamicRange,
     pub(crate) has_audio: bool,
 }
 

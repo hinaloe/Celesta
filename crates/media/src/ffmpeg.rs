@@ -2,11 +2,11 @@ use crate::decoder::{AudioDecoder, VideoFrameDecoder};
 use crate::error::MediaError;
 use crate::mix::{clamp_to_source_end, video_seconds};
 use crate::probe::{ensure_exists, probe_path};
-use crate::sequential::{convert_frame, path_to_url, seconds_to_us, timestamps_match};
+use crate::sequential::{FrameRun, path_to_url, timestamps_match};
 use crate::types::{AudioBuffer, MediaProbe, VideoFrame};
 use celesta_composition::Rational;
 use ez_ffmpeg::Input;
-use ez_ffmpeg::frame_export::{Channels, FrameExtractor, FrameIter, PixelLayout, SampleExtractor};
+use ez_ffmpeg::frame_export::{Channels, SampleExtractor};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -28,11 +28,11 @@ const MAX_TRIMMED_PADDING_FRAMES: usize = 2_048;
 
 /// One long-lived `ez-ffmpeg` decode run held open across a monotonic
 /// sequence of frame requests. Frames are pulled from `frames` at the
-/// source's native cadence; each request walks the iterator forward to the
+/// source's native cadence; each request walks the run forward to the
 /// first frame at or after the requested time (a container seek re-zeroed
 /// `frames`' timeline at `start_seconds`).
 pub(crate) struct SequentialVideoSession {
-    pub(crate) frames: FrameIter,
+    pub(crate) frames: FrameRun,
     pub(crate) width: u32,
     pub(crate) height: u32,
     /// The source time the decode window was seeked to; frame presentation
@@ -99,18 +99,12 @@ impl FfmpegBackend {
         // the timeline; the in-graph trim then drops the negative-pts lead-in,
         // so the first delivered frame is the one at or after the request —
         // the same frame `ffmpeg -ss <t> -i … -frames:v 1` produced.
-        let mut frames = FrameExtractor::new(Input::from(path_to_url(path)))
-            .start_time_us(seconds_to_us(source_time_seconds))
-            .pixel(PixelLayout::Rgba32)
-            .max_frames(1)
-            .frames()
-            .map_err(MediaError::Ffmpeg)?;
-        let frame = frames
-            .next()
-            .transpose()
-            .map_err(MediaError::Ffmpeg)?
+        let mut frames = FrameRun::spawn(path, &video, source_time_seconds, Some(1))?;
+        let (_, frame) = frames
+            .next_frame(video.width, video.height)
+            .transpose()?
             .ok_or_else(|| MediaError::NoVideoStream(path.to_owned()))?;
-        convert_frame(frame, video.width, video.height)
+        Ok(frame)
     }
 
     pub(crate) fn decode_sequential(
@@ -167,13 +161,8 @@ impl FfmpegBackend {
         let step_seconds = learned_step.unwrap_or_else(|| {
             f64::from(default_frame_rate.denominator) / f64::from(default_frame_rate.numerator)
         });
-        let mut session = SequentialVideoSession::spawn(
-            path,
-            source_time_seconds,
-            step_seconds,
-            video.width,
-            video.height,
-        )?;
+        let mut session =
+            SequentialVideoSession::spawn(path, &video, source_time_seconds, step_seconds)?;
         self.sequential_video_processes_started =
             self.sequential_video_processes_started.saturating_add(1);
         let frame = session.read_frame(source_time_seconds)?;
