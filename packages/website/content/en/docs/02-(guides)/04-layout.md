@@ -23,7 +23,7 @@ Every layer and `Group` can lean and turn in depth, as CSS transforms do:
 
 The transforms apply in this order, from the layer outward: `scale`, skew, `rotation`, `rotationY`, `rotationX`, `perspective`, then `x`/`y`. As with `rotation` and `scale`, everything turns about the anchor. A `Group` has no size, so it turns about its own origin. The vanishing point of a `perspective` is that same pivot, so a layer recedes toward its anchor, not toward the center of the canvas.
 
-Skew and 3D rotation without a perspective only reshape the layer, so they cost no more than a non-uniform scale. A layer with both `perspective` and a 3D rotation is drawn through its own picture, which is then projected onto its parent. The picture is made at the sharpness of its nearest, most magnified part, so text and paths stay crisp up close, and the far side is filtered as it shrinks, without shimmer. Because it is a picture of its own, a group with a `perspective` is isolated: its children’s `blendMode`s mix only with each other, as in CSS.
+Skew and 3D rotation without a perspective only reshape the layer, so they cost no more than a non-uniform scale. A layer with both `perspective` and a 3D rotation is drawn through its own picture, which is then projected onto its parent. The picture is made at the sharpness of its nearest, most magnified part, so text and paths stay crisp up close, and the far side is filtered as it shrinks, without shimmer. Because it is a picture of its own, a group drawn this way is isolated: its children’s `blendMode`s mix only with each other, as in CSS.
 
 Children are flattened into their parent’s plane, as CSS `transform-style: flat` does. A turned group’s children are not sorted by depth: they draw in the order they are written, each in the plane of the group. To make a card with two faces, put each face in its own group and hide the one that faces away. Whether a layer faces away follows the turns of all its parents: a face inside a group turned 180 degrees is hidden until the card has turned over. A mirror (`scaleX={-1}`) does not turn a layer away. A layer exactly edge-on counts as facing the viewer but draws nothing.
 
@@ -31,11 +31,13 @@ Children are flattened into their parent’s plane, as CSS `transform-style: fla
 <Group x={960} y={540} rotationY={frame * 4} perspective={1400}>
   <Group backfaceVisibility="hidden">
     <Rect x={-170} y={-235} width={340} height={470} cornerRadius={28} fill="#f4efe6" />
-    <Text anchorX={0.5} anchorY={0.5} style={{ fontSize: 64, align: 'center' }}>Front</Text>
+    <Text anchorX={0.5} anchorY={0.5}
+      style={{ fontSize: 64, align: 'center', fill: { type: 'solid', color: '#1d3557' } }}>Front</Text>
   </Group>
   <Group rotationY={180} backfaceVisibility="hidden">
     <Rect x={-170} y={-235} width={340} height={470} cornerRadius={28} fill="#1d3557" />
-    <Text anchorX={0.5} anchorY={0.5} style={{ fontSize: 64, align: 'center' }}>Back</Text>
+    <Text anchorX={0.5} anchorY={0.5}
+      style={{ fontSize: 64, align: 'center', fill: { type: 'solid', color: '#ffffff' } }}>Back</Text>
   </Group>
 </Group>
 ```

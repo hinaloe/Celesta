@@ -23,7 +23,7 @@
 
 変換は、レイヤーに近い側から順に `scale`、スキュー、`rotation`、`rotationY`、`rotationX`、`perspective`、最後に `x`/`y` の順で適用されます。`rotation` や `scale` と同じく、すべてアンカーを中心に働きます。`Group` には大きさがないため、自身の原点を中心に回転します。`perspective` の消失点もこの中心なので、レイヤーはキャンバスの中央ではなく自分のアンカーに向かって遠ざかります。
 
-`perspective` を伴わないスキューや 3D 回転は、レイヤーの形を変えるだけなので、非一様な拡縮と同程度のコストで描けます。`perspective` と 3D 回転の両方を持つレイヤーは、専用の絵に描いてから親へ投影します。この絵は最も手前（最も拡大される部分）に合わせた解像度で作られるため、近くの文字やパスは鮮明なままで、遠い側は縮小時にフィルタリングされるのでちらつきません。専用の絵になるので、`perspective` を持つ Group は独立（isolated）し、CSS と同じく、子の `blendMode` は子どうしの間でのみ混ざります。
+`perspective` を伴わないスキューや 3D 回転は、レイヤーの形を変えるだけなので、非一様な拡縮と同程度のコストで描けます。`perspective` と 3D 回転の両方を持つレイヤーは、専用の絵に描いてから親へ投影します。この絵は最も手前（最も拡大される部分）に合わせた解像度で作られるため、近くの文字やパスは鮮明なままで、遠い側は縮小時にフィルタリングされるのでちらつきません。専用の絵になるので、この方法で描かれる Group は分離され、CSS と同じく、子の `blendMode` は子どうしの間でのみ混ざります。
 
 子は CSS の `transform-style: flat` と同様に、親の平面に平らに畳まれます。回転した Group の子は奥行きで並べ替えられず、書いた順に、Group の平面の上へ描かれます。表と裏のあるカードは、それぞれの面を別の Group にして、背面が向いている側を隠してください。レイヤーが裏を向いているかは、すべての親の回転を重ねて判断します。180 度回転した Group の中の面は、カードが裏返るまで隠れたままです。ミラー（`scaleX={-1}`）では裏向きになりません。ちょうど真横を向いたレイヤーは表向きとして扱われますが、何も描かれません。
 
@@ -31,18 +31,20 @@
 <Group x={960} y={540} rotationY={frame * 4} perspective={1400}>
   <Group backfaceVisibility="hidden">
     <Rect x={-170} y={-235} width={340} height={470} cornerRadius={28} fill="#f4efe6" />
-    <Text anchorX={0.5} anchorY={0.5} style={{ fontSize: 64, align: 'center' }}>表</Text>
+    <Text anchorX={0.5} anchorY={0.5}
+      style={{ fontSize: 64, align: 'center', fill: { type: 'solid', color: '#1d3557' } }}>表</Text>
   </Group>
   <Group rotationY={180} backfaceVisibility="hidden">
     <Rect x={-170} y={-235} width={340} height={470} cornerRadius={28} fill="#1d3557" />
-    <Text anchorX={0.5} anchorY={0.5} style={{ fontSize: 64, align: 'center' }}>裏</Text>
+    <Text anchorX={0.5} anchorY={0.5}
+      style={{ fontSize: 64, align: 'center', fill: { type: 'solid', color: '#ffffff' } }}>裏</Text>
   </Group>
 </Group>
 ```
 
-`perspective` と 3D 回転を持つレイヤー自身の効果（`blur`、`shadow`、`glow`、色補正やスタイライズのフィルター）は、他の変換の後と同じく、投影のあとに出力ピクセル単位で適用されます。その内側のレイヤーの効果の大きさも出力ピクセルで測るため、レイヤーが回転してもぼかしの大きさは変わりません。一方、内側のレイヤーのカスタム `shader` や組み込みフィルターは、そのレイヤー自身の絵の上で動くため、ピクセルは絵のピクセルとなり、遠い側では投影に合わせて縮みます。ポインターの当たり判定は、投影後の形に従います。
+`perspective` と 3D 回転を持つレイヤー自身の効果（`blur`、`shadow`、`glow`、色補正やスタイライズのフィルタ）は、他の変換の後と同じく、投影のあとに出力ピクセル単位で適用されます。その内側のレイヤーの効果の大きさも出力ピクセルで測るため、レイヤーが回転してもぼかしの大きさは変わりません。一方、内側のレイヤーのカスタム `shader` や組み込みフィルタは、そのレイヤー自身の絵の上で動くため、ピクセルは絵のピクセルとなり、遠い側では投影に合わせて縮みます。ポインターの当たり判定は、投影後の形に従います。
 
-CPU リファレンスレンダラーはスキュー、`rotationX`、`rotationY` を描画せず、`rotation` と同じく、これらを使うシーンを拒否します。プレビュー、書き出し、ブラウザーエディターでは描画されます。カードの裏返し、傾いたカード、傾けたタイルの床は `examples/with-3d-transform.tsx` を参照してください。
+CPU リファレンスレンダラはスキュー、`rotationX`、`rotationY` を描画せず、`rotation` と同じく、これらを使うシーンを拒否します。プレビュー、書き出し、ブラウザのエディタでは描画されます。カードの裏返し、傾いたカード、傾けたタイルの床は `examples/with-3d-transform.tsx` を参照してください。
 
 ## 図形
 

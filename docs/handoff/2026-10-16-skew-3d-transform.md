@@ -96,7 +96,8 @@ Issue #300. Every layer and `Group` takes `skewX`/`skewY`, `rotationX`/
 ## Example and documentation
 
 - `packages/cli/examples/with-3d-transform.tsx` (1920x1080, 30 fps, 6 s): a
-  card that turns over every three seconds, three cards with `skewX={-12}`,
+  card that turns over every three seconds (`rotationY={frame * 4}`, so twice
+  over the clip), three cards with `skewX={-12}`,
   and a floor of tiles with `rotationX={60}` and a perspective of 900. Frames
   0, 30, 45, 60, and 120 of the GPU export were checked by eye: the front is
   crisp at 0 s, the back reads correctly (not mirrored) at 1.5 s and in
