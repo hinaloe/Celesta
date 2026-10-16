@@ -27,9 +27,10 @@ not doubled). The result is plain data: every hop's band levels and RMS.
   [low, high), the last band's upper edge included; a band narrower than a
   bin interpolates the power at its center between the two nearest bins.
 - Levels are 10·log10(power) mapped from `minDecibels` (−80) to
-  `maxDecibels` (−20) onto 0–1 and clamped. The defaults were chosen from the
-  example's score, where bass peaks near the top and the highs reach about a
-  third. RMS is linear, over the same window without the Hann weighting.
+  `maxDecibels` onto 0–1 and clamped. `maxDecibels` defaults to `'auto'`,
+  the highest band level at any hop before smoothing (#365; it was −20, which
+  pinned the bass of mastered music at 1 in 60–85% of frames). RMS is
+  linear, over the same window without the Hann weighting.
 - `smoothing` is one time constant in seconds or `{ attack, release }`,
   applied hop by hop as y += (1 − exp(−hop/τ))·(x − y), with τ chosen by
   whether the value rises or falls. Levels are smoothed after the dB mapping,
