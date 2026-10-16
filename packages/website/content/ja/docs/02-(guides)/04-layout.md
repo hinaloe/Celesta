@@ -10,6 +10,40 @@
 
 `scaleX` と `scaleY` は各軸の `scale` を上書きします。`opacity` はグループを通じて乗算されます。1 未満の `Group` は、CSS の `opacity` と同じく子をまとめて一枚の絵として半透明にするため、重なった子どうしが透けて見えることはありません。
 
+## スキューと 3D
+
+すべてのレイヤーと `Group` は、CSS の transform と同じように、傾けたり奥行き方向に回転させたりできます。
+
+| プロパティ | 意味 |
+| --- | --- |
+| `skewX`, `skewY` | 度単位のせん断で、CSS の `skew()` と同じです。`skewX` は縦の辺を、`skewY` は横の辺を斜めにします。 |
+| `rotationX`, `rotationY` | 水平軸・垂直軸まわりの回転（度）で、CSS の `rotateX()`、`rotateY()` と同じです。`rotationY` が正だと右の辺が奥へ、`rotationX` が正だと上の辺が奥へ傾きます。 |
+| `perspective` | そのレイヤー自身の 3D 回転に対する視点までの距離（ピクセル）で、CSS の `perspective()` と同じです。小さいほど遠近感が強くなります。指定しない場合（または正の値でない場合）は正射影になり、平行な辺は平行のままです。 |
+| `backfaceVisibility` | `"visible"`（既定）または `"hidden"`。`"hidden"` は、背面が視点側を向いている間そのレイヤー（Group なら中身すべて）を描きません。 |
+
+変換は、レイヤーに近い側から順に `scale`、スキュー、`rotation`、`rotationY`、`rotationX`、`perspective`、最後に `x`/`y` の順で適用されます。`rotation` や `scale` と同じく、すべてアンカーを中心に働きます。`Group` には大きさがないため、自身の原点を中心に回転します。`perspective` の消失点もこの中心なので、レイヤーはキャンバスの中央ではなく自分のアンカーに向かって遠ざかります。
+
+`perspective` を伴わないスキューや 3D 回転は、レイヤーの形を変えるだけなので、非一様な拡縮と同程度のコストで描けます。`perspective` と 3D 回転の両方を持つレイヤーは、専用の絵に描いてから親へ投影します。この絵は最も手前（最も拡大される部分）に合わせた解像度で作られるため、近くの文字やパスは鮮明なままで、遠い側は縮小時にフィルタリングされるのでちらつきません。専用の絵になるので、`perspective` を持つ Group は独立（isolated）し、CSS と同じく、子の `blendMode` は子どうしの間でのみ混ざります。
+
+子は CSS の `transform-style: flat` と同様に、親の平面に平らに畳まれます。回転した Group の子は奥行きで並べ替えられず、書いた順に、Group の平面の上へ描かれます。表と裏のあるカードは、それぞれの面を別の Group にして、背面が向いている側を隠してください。レイヤーが裏を向いているかは、すべての親の回転を重ねて判断します。180 度回転した Group の中の面は、カードが裏返るまで隠れたままです。ミラー（`scaleX={-1}`）では裏向きになりません。ちょうど真横を向いたレイヤーは表向きとして扱われますが、何も描かれません。
+
+```tsx title="裏返るカード"
+<Group x={960} y={540} rotationY={frame * 4} perspective={1400}>
+  <Group backfaceVisibility="hidden">
+    <Rect x={-170} y={-235} width={340} height={470} cornerRadius={28} fill="#f4efe6" />
+    <Text anchorX={0.5} anchorY={0.5} style={{ fontSize: 64, align: 'center' }}>表</Text>
+  </Group>
+  <Group rotationY={180} backfaceVisibility="hidden">
+    <Rect x={-170} y={-235} width={340} height={470} cornerRadius={28} fill="#1d3557" />
+    <Text anchorX={0.5} anchorY={0.5} style={{ fontSize: 64, align: 'center' }}>裏</Text>
+  </Group>
+</Group>
+```
+
+`perspective` と 3D 回転を持つレイヤー自身の効果（`blur`、`shadow`、`glow`、色補正やスタイライズのフィルター）は、他の変換の後と同じく、投影のあとに出力ピクセル単位で適用されます。その内側のレイヤーの効果の大きさも出力ピクセルで測るため、レイヤーが回転してもぼかしの大きさは変わりません。一方、内側のレイヤーのカスタム `shader` や組み込みフィルターは、そのレイヤー自身の絵の上で動くため、ピクセルは絵のピクセルとなり、遠い側では投影に合わせて縮みます。ポインターの当たり判定は、投影後の形に従います。
+
+CPU リファレンスレンダラーはスキュー、`rotationX`、`rotationY` を描画せず、`rotation` と同じく、これらを使うシーンを拒否します。プレビュー、書き出し、ブラウザーエディターでは描画されます。カードの裏返し、傾いたカード、傾けたタイルの床は `examples/with-3d-transform.tsx` を参照してください。
+
 ## 図形
 
 `Rect` は矩形を描き、任意の `cornerRadius`、`fill`、内側の `stroke` と `strokeWidth` を指定できます。色は `#RRGGBB` や `#RRGGBBAA` のような、アルファを付けられる 16 進文字列です。正方形の角丸を辺の半分にすると円になります。

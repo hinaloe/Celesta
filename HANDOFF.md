@@ -218,6 +218,12 @@ covered by the dated handoff notes.
 - `<Group mask>` / `<Mask>` show a group's children where another subtree
   draws, by alpha or luminance, optionally inverted. Masked groups are
   always isolated, in the GPU and CPU renderers and in `@celesta/web`.
+- Layers and groups take `skewX`/`skewY`, `rotationX`/`rotationY`,
+  `perspective`, and `backfaceVisibility`. Skew and orthographic 3D rotation
+  are affine; a layer with both a perspective and a 3D rotation draws through
+  a plane canvas and is projected onto its parent, in the GPU renderer and in
+  `@celesta/web`. The CPU reference renderer refuses skew and 3D rotation. See
+  [`docs/handoff/2026-10-16-skew-3d-transform.md`](docs/handoff/2026-10-16-skew-3d-transform.md).
 - Paths use SVG-style absolute commands with non-zero fill and stroked
   outlines. Their position is the origin; anchors are ignored. Ordinary GPU
   paths use tiled coverage; tiles exceeding 64 edges or paths exceeding the

@@ -10,6 +10,40 @@ The canvas origin is the top-left corner, measured in pixels. A layer’s `x` an
 
 `scaleX` and `scaleY` override `scale` on one axis. `opacity` multiplies down through groups. A `Group` below 1 fades its children together as one picture, as CSS `opacity` does, so overlapping children do not show through one another.
 
+## Skew and 3D
+
+Every layer and `Group` can lean and turn in depth, as CSS transforms do:
+
+| Prop | Meaning |
+| --- | --- |
+| `skewX`, `skewY` | Shear in degrees, as CSS `skew()`. `skewX` slants vertical edges, `skewY` horizontal ones. |
+| `rotationX`, `rotationY` | Turn in degrees about the horizontal and vertical axes, as CSS `rotateX()` and `rotateY()`. Positive `rotationY` turns the right edge away; positive `rotationX` tilts the top edge away. |
+| `perspective` | The viewing distance in pixels for the layer’s own 3D rotation, as CSS `perspective()`. Smaller values look more dramatic. Without it (or when it is not positive) the rotation is orthographic and parallel edges stay parallel. |
+| `backfaceVisibility` | `"visible"` (the default) or `"hidden"`, which skips the layer, and for a group everything in it, while its back faces the viewer. |
+
+The transforms apply in this order, from the layer outward: `scale`, skew, `rotation`, `rotationY`, `rotationX`, `perspective`, then `x`/`y`. As with `rotation` and `scale`, everything turns about the anchor. A `Group` has no size, so it turns about its own origin. The vanishing point of a `perspective` is that same pivot, so a layer recedes toward its anchor, not toward the center of the canvas.
+
+Skew and 3D rotation without a perspective only reshape the layer, so they cost no more than a non-uniform scale. A layer with both `perspective` and a 3D rotation is drawn through its own picture, which is then projected onto its parent. The picture is made at the sharpness of its nearest, most magnified part, so text and paths stay crisp up close, and the far side is filtered as it shrinks, without shimmer. Because it is a picture of its own, a group with a `perspective` is isolated: its children’s `blendMode`s mix only with each other, as in CSS.
+
+Children are flattened into their parent’s plane, as CSS `transform-style: flat` does. A turned group’s children are not sorted by depth: they draw in the order they are written, each in the plane of the group. To make a card with two faces, put each face in its own group and hide the one that faces away. Whether a layer faces away follows the turns of all its parents: a face inside a group turned 180 degrees is hidden until the card has turned over. A mirror (`scaleX={-1}`) does not turn a layer away. A layer exactly edge-on counts as facing the viewer but draws nothing.
+
+```tsx title="A card that turns over"
+<Group x={960} y={540} rotationY={frame * 4} perspective={1400}>
+  <Group backfaceVisibility="hidden">
+    <Rect x={-170} y={-235} width={340} height={470} cornerRadius={28} fill="#f4efe6" />
+    <Text anchorX={0.5} anchorY={0.5} style={{ fontSize: 64, align: 'center' }}>Front</Text>
+  </Group>
+  <Group rotationY={180} backfaceVisibility="hidden">
+    <Rect x={-170} y={-235} width={340} height={470} cornerRadius={28} fill="#1d3557" />
+    <Text anchorX={0.5} anchorY={0.5} style={{ fontSize: 64, align: 'center' }}>Back</Text>
+  </Group>
+</Group>
+```
+
+Effects on a layer with a `perspective` and a 3D rotation (`blur`, `shadow`, `glow`, and the color and stylize filters) apply after the projection, in output pixels, as they do after any other transform. Effects on layers inside it are measured in output pixels too, so a blur does not change size as the layer turns. Custom `shader`s and the built-in filters on those inner layers run in the layer’s own picture instead, so their pixels are the picture’s pixels, which shrink with the projection on the far side. Pointer hit tests follow the projected shape.
+
+The CPU reference renderer does not draw skew, `rotationX`, or `rotationY` and refuses a scene that uses them, as it does for `rotation`. Preview, export, and the browser editor draw them. See `examples/with-3d-transform.tsx` for a card flip, leaning cards, and a tilted floor of tiles.
+
 ## Shapes
 
 `Rect` draws a rectangle with an optional `cornerRadius`, `fill`, and inner `stroke` with `strokeWidth`. Colors are hex strings, with an optional alpha channel: `#RRGGBB` or `#RRGGBBAA`. A square with a corner radius of half its size makes a circle.
