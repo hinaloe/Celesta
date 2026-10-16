@@ -460,6 +460,9 @@ impl EffectProcessor {
     }
 }
 
+/// The largest blur radius an effect takes.
+const MAX_BLUR: f32 = 64.0;
+
 #[derive(Clone, Copy)]
 pub(crate) struct EffectShadow {
     pub(crate) color: [f32; 4],
@@ -508,7 +511,18 @@ impl EffectSpec {
     /// within the 64 `parse` clamps them to: the same effect measured in
     /// other pixels.
     pub(crate) fn scaled(self, factor: f32) -> Self {
-        let blur = |blur: f32| (blur * factor).clamp(0.0, 64.0);
+        self.scaled_within(factor, MAX_BLUR)
+    }
+
+    /// `scaled` without the cap, to measure the reach an effect may have
+    /// where a larger one is only conservative: a plane rasterized smaller
+    /// than it is measured at takes a blur further in local units.
+    pub(crate) fn scaled_uncapped(self, factor: f32) -> Self {
+        self.scaled_within(factor, f32::INFINITY)
+    }
+
+    fn scaled_within(self, factor: f32, cap: f32) -> Self {
+        let blur = |blur: f32| (blur * factor).clamp(0.0, cap);
         Self {
             blur: blur(self.blur),
             shadow: self.shadow.map(|shadow| EffectShadow {
@@ -532,14 +546,14 @@ impl EffectSpec {
                 .map(|value| f32::from(value) / 255.0))
         };
         Ok(Self {
-            blur: effects.blur.clamp(0.0, 64.0) as f32,
+            blur: effects.blur.clamp(0.0, f64::from(MAX_BLUR)) as f32,
             shadow: effects
                 .shadow
                 .as_ref()
                 .map(|shadow| -> Result<_, GpuRenderError> {
                     Ok(EffectShadow {
                         color: parse_color(&shadow.color)?,
-                        blur: shadow.blur.clamp(0.0, 64.0) as f32,
+                        blur: shadow.blur.clamp(0.0, f64::from(MAX_BLUR)) as f32,
                         offset: [shadow.offset_x as f32, shadow.offset_y as f32],
                     })
                 })
@@ -550,7 +564,7 @@ impl EffectSpec {
                 .map(|glow| -> Result<_, GpuRenderError> {
                     Ok(EffectShadow {
                         color: parse_color(&glow.color)?,
-                        blur: glow.blur.clamp(0.0, 64.0) as f32,
+                        blur: glow.blur.clamp(0.0, f64::from(MAX_BLUR)) as f32,
                         offset: [0.0, 0.0],
                     })
                 })
@@ -563,7 +577,7 @@ impl EffectSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use celesta_composition::{LayerGlow, LayerShadow};
+    use celesta_composition::{LayerEffects, LayerGlow, LayerShadow};
 
     #[test]
     fn reduces_only_blurs_that_stay_wide_enough() {
@@ -608,5 +622,16 @@ mod tests {
             ..LayerEffects::default()
         };
         assert_eq!(EffectSpec::parse(&huge).unwrap().scaled(2.0).blur, 64.0);
+    }
+
+    #[test]
+    fn scaling_to_measure_is_not_capped() {
+        let effects = LayerEffects {
+            blur: 40.0,
+            ..LayerEffects::default()
+        };
+        let spec = EffectSpec::parse(&effects).unwrap();
+        assert_eq!(spec.scaled_uncapped(4.0).blur, 160.0);
+        assert_eq!(spec.scaled(4.0).blur, 64.0);
     }
 }

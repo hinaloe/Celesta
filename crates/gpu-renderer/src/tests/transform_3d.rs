@@ -523,32 +523,66 @@ fn draws_nothing_closer_than_the_near_clip() {
     assert!(drawn > 0, "the part in front is drawn");
 }
 
+/// A group at `(x, y)` scaled by `scale`, holding a `size` rect of red
+/// blurred by `blur`, turned a hair under a perspective when `projective`.
+fn blurred_in_group(x: f64, scale: f64, size: f64, blur: f64, projective: bool) -> Layer {
+    let mut rect = centred_rect(0.0, 0.0, size, size, "#FF0000FF");
+    rect.effects.blur = blur;
+    let mut layer = transformed(group_at(x, 100.0, vec![rect]), |transform| {
+        transform.scale = Point { x: scale, y: scale };
+    });
+    if projective {
+        layer = in_perspective(layer, 0.01, 0.0, 1000.0);
+    }
+    layer
+}
+
+fn max_difference(a: &GpuFrame, b: &GpuFrame, columns: std::ops::Range<u32>) -> u8 {
+    let mut difference = 0;
+    for y in 0..a.height() {
+        for x in columns.clone() {
+            let (a, b) = (pixel_at(a, x, y), pixel_at(b, x, y));
+            difference = difference.max((0..4).map(|i| a[i].abs_diff(b[i])).max().unwrap());
+        }
+    }
+    difference
+}
+
 #[test]
 fn blurs_inside_a_plane_in_output_pixels() {
     let Some(mut renderer) = transparent_renderer() else {
         return;
     };
-    let scene = |projective: bool| {
-        let mut rect = centred_rect(0.0, 0.0, 30.0, 30.0, "#FF0000FF");
-        rect.effects.blur = 8.0;
-        let mut inner = group_at(50.0, 50.0, vec![rect]);
-        if projective {
-            inner = in_perspective(inner, 0.01, 0.0, 1000.0);
-        }
-        let outer = transformed(group_at(0.0, 0.0, vec![inner]), |transform| {
-            transform.scale = Point { x: 2.0, y: 2.0 };
-        });
-        sized_scene(200, 200, vec![outer])
+    // Scaled by 100, the plane is rasterized at the largest scale, 64, so
+    // its pixels are 100 / 64 output pixels wide and a blur is scaled to 0.64.
+    let scene = |projective| {
+        sized_scene(
+            200,
+            200,
+            vec![blurred_in_group(100.0, 100.0, 0.6, 8.0, projective)],
+        )
     };
     let flat = renderer.render(&scene(false)).unwrap();
     let projected = renderer.render(&scene(true)).unwrap();
-    assert!(flat.pixels().iter().any(|channel| *channel != 0));
-    let difference = flat
-        .pixels()
-        .iter()
-        .zip(projected.pixels())
-        .map(|(a, b)| a.abs_diff(*b))
-        .max()
+    assert_eq!(pixel_at(&flat, 100, 100), RED);
+    // Unscaled, the blur would be 12.5 output pixels, and differ by 25.
+    let difference = max_difference(&flat, &projected, 0..200);
+    assert!(difference <= 8, "{difference}");
+}
+
+#[test]
+fn effects_after_a_plane_keep_their_size() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    let sibling = || blurred_in_group(160.0, 1.0, 30.0, 8.0, false);
+    let alone = renderer
+        .render(&sized_scene(200, 200, vec![sibling()]))
         .unwrap();
-    assert!(difference <= 6, "{difference}");
+    let plane = blurred_in_group(60.0, 100.0, 0.6, 8.0, true);
+    let after = renderer
+        .render(&sized_scene(200, 200, vec![plane, sibling()]))
+        .unwrap();
+    assert!(pixel_at(&alone, 160, 100)[3] > 200);
+    assert_eq!(max_difference(&alone, &after, 130..200), 0);
 }

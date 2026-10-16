@@ -159,12 +159,18 @@ pub(crate) fn plane_raster(
     })
 }
 
+/// The inverse of the stretch of `forward` at the layer's origin (output
+/// pixels per local unit), 1 where it has none.
+fn stretch_ratio(forward: &Matrix3) -> f64 {
+    stretch_at(forward, 0.0, 0.0).map_or(1.0, f64::recip)
+}
+
 /// How much larger than its output size an effect's pixels are drawn on the
 /// plane `raster` rasterizes, measured at the layer's origin: a blur of `r`
 /// plane pixels spreads `r · effect_scale` output pixels, so effects scaled
 /// by it come out the size they would without the plane.
 pub(crate) fn effect_scale(forward: &Matrix3, raster: &PlaneRaster) -> f32 {
-    stretch_at(forward, 0.0, 0.0).map_or(1.0, |stretch| (raster.scale / stretch) as f32)
+    (raster.scale * stretch_ratio(forward)) as f32
 }
 
 /// The range of plane raster scales, as for text: `2^-6` to `2^6`.
@@ -221,14 +227,7 @@ impl GpuRenderer {
         // Effects are measured in the plane's pixels, which are local units
         // while measuring and `raster.scale` per unit once rasterized.
         let parent_scale = self.walk.effect_scale;
-        let unit = PlaneRaster {
-            scale: 1.0,
-            left: 0.0,
-            top: 0.0,
-            width: 0,
-            height: 0,
-        };
-        self.walk.effect_scale = parent_scale * effect_scale(&forward, &unit);
+        self.walk.effect_scale = parent_scale * stretch_ratio(&forward) as f32;
         let local = self.measure_plane(&inner, output);
         self.walk.effect_scale = parent_scale;
         let Some(local) = local? else {
