@@ -795,6 +795,19 @@ export interface AudioProps extends CommonProps {
    * falling silent. Defaults to false.
    */
   loop?: boolean;
+  /**
+   * Transposition in semitones, -24 to 24. Fractions are cents (0.5 is 50
+   * cents). Defaults to 0. Either a plain number or a generated
+   * `KeyframeAnimation` over seconds-into-the-sequence times, like
+   * `playbackRate`.
+   */
+  pitch?: AnimatedNumber;
+  /**
+   * When true, `playbackRate` changes only how long the clip takes, and the
+   * pitch is set by `pitch` alone. Defaults to false: speed and pitch move
+   * together, as before.
+   */
+  preservePitch?: boolean;
 }
 
 /**

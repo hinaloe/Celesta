@@ -35,6 +35,8 @@ fn static_clip(src: &str, start: f64, duration: f64, volume: f64) -> ReactAudioC
         duration,
         r#loop: false,
         video: false,
+        pitch: Animatable::Static(0.0),
+        preserve_pitch: false,
     }
 }
 
@@ -78,6 +80,8 @@ fn builds_a_react_audio_graph_with_ranges_and_keyframed_volume() {
         duration: 2.0,
         r#loop: false,
         video: false,
+        pitch: Animatable::Static(0.0),
+        preserve_pitch: false,
     }];
 
     let graph = build_audio_graph(&clips, Path::new("/entry/root"), None).unwrap();
@@ -105,6 +109,33 @@ fn builds_a_react_audio_graph_with_ranges_and_keyframed_volume() {
         Path::new("/entry/root/./voice.wav"),
         "relative sources resolve against the entry's own directory"
     );
+}
+
+#[test]
+fn builds_a_react_audio_graph_with_pitch() {
+    let clips = vec![ReactAudioClipDescriptor {
+        pitch: Animatable::Static(7.0),
+        preserve_pitch: true,
+        ..static_clip("./voice.wav", 0.0, 1.0, 1.0)
+    }];
+    let graph = build_audio_graph(&clips, Path::new("/entry/root"), None).unwrap();
+    assert_eq!(graph.clips[0].pitch, Animatable::Static(7.0));
+    assert!(graph.clips[0].preserve_pitch);
+}
+
+#[test]
+fn clips_differing_only_in_pitch_are_not_merged() {
+    let shifted = ReactAudioClipDescriptor {
+        pitch: Animatable::Static(2.0),
+        ..static_clip("./a.wav", 0.0, 1.0, 1.0)
+    };
+    let preserved = ReactAudioClipDescriptor {
+        preserve_pitch: true,
+        ..static_clip("./a.wav", 0.0, 1.0, 1.0)
+    };
+    let clips = vec![static_clip("./a.wav", 0.0, 1.0, 1.0), shifted, preserved];
+    let merged = merge_react_audio_clips(&clips);
+    assert_eq!(merged.len(), 3);
 }
 
 #[test]

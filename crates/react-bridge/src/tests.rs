@@ -278,6 +278,8 @@ fn deserializes_audio_clips_from_a_frame_response() {
             duration: 3.0,
             r#loop: false,
             video: false,
+            pitch: Animatable::Static(0.0),
+            preserve_pitch: false,
         }]
     );
 }
@@ -463,6 +465,8 @@ fn audio_descriptor(src: &str, start: f64) -> ReactAudioClipDescriptor {
         duration: 2.0,
         r#loop: false,
         video: false,
+        pitch: Animatable::Static(0.0),
+        preserve_pitch: false,
     }
 }
 
@@ -536,6 +540,52 @@ fn a_video_s_sound_is_reported_with_the_id_of_its_audio_clip() {
     );
     assert_eq!(built[1].asset.id, "./clip.mp4");
     assert_eq!(built[3].range.start.as_seconds().unwrap(), 1.0);
+}
+
+#[test]
+fn react_audio_clips_carry_pitch() {
+    let clips = vec![ReactAudioClipDescriptor {
+        pitch: Animatable::Static(5.0),
+        preserve_pitch: true,
+        ..audio_descriptor("./voice.wav", 0.0)
+    }];
+    let built = react_audio_clips(&clips, Path::new("/entry"));
+    assert_eq!(built[0].pitch, Animatable::Static(5.0));
+    assert!(built[0].preserve_pitch);
+}
+
+#[test]
+fn audio_clips_without_pitch_keys_default_to_no_shift_and_round_trip_without_them() {
+    let clip: ReactAudioClipDescriptor = serde_json::from_value(serde_json::json!({
+        "src": "./voice.wav",
+        "sourceStart": 0.0,
+        "playbackRate": 1.0,
+        "volume": 1.0,
+        "muted": false,
+        "start": 0.0,
+        "duration": 1.0
+    }))
+    .unwrap();
+    assert_eq!(clip.pitch, Animatable::Static(0.0));
+    assert!(!clip.preserve_pitch);
+    let json = serde_json::to_value(&clip).unwrap();
+    assert!(json.get("pitch").is_none());
+    assert!(json.get("preservePitch").is_none());
+
+    let shifted: ReactAudioClipDescriptor = serde_json::from_value(serde_json::json!({
+        "src": "./voice.wav",
+        "sourceStart": 0.0,
+        "playbackRate": 1.0,
+        "volume": 1.0,
+        "muted": false,
+        "start": 0.0,
+        "duration": 1.0,
+        "pitch": -3.0,
+        "preservePitch": true
+    }))
+    .unwrap();
+    assert_eq!(shifted.pitch, Animatable::Static(-3.0));
+    assert!(shifted.preserve_pitch);
 }
 
 #[test]

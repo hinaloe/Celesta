@@ -1,5 +1,5 @@
 use crate::types::ReactAudioClipDescriptor;
-use celesta_composition::{Animatable, AssetLocation, AudioClip, ResolvedAsset, Time, TimeRange};
+use celesta_composition::{AssetLocation, AudioClip, ResolvedAsset, Time, TimeRange};
 use celesta_remote::is_remote_url;
 use std::path::Path;
 
@@ -78,8 +78,8 @@ pub fn react_audio_clips(clips: &[ReactAudioClipDescriptor], entry_dir: &Path) -
                 volume: clip.volume,
                 muted: clip.muted,
                 r#loop: clip.r#loop,
-                pitch: Animatable::Static(0.0),
-                preserve_pitch: false,
+                pitch: clip.pitch.clone(),
+                preserve_pitch: clip.preserve_pitch,
             }
         })
         .collect()
