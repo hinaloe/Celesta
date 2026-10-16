@@ -69,6 +69,79 @@ impl Source {
             Source::Svg(tree) => (tree.size().width() as f64, tree.size().height() as f64),
         }
     }
+
+    /// The pixels of the frame showing at `animation` and its index; no
+    /// pixels for an SVG.
+    fn frame(&self, animation: Option<ImageAnimation>) -> (Option<&Arc<RgbaImage>>, usize) {
+        match self {
+            Source::Raster(pixels) => (Some(pixels), 0),
+            Source::Animated(frames) => {
+                let frame = animation.map_or(0, |animation| {
+                    animation_frame(
+                        &frames.ends,
+                        animation.source_time_seconds,
+                        animation.r#loop,
+                    )
+                });
+                (Some(&frames.frames[frame]), frame)
+            }
+            Source::Svg(_) => (None, 0),
+        }
+    }
+
+    /// How `ImageSources::render` lays out `self`, whose frame's pixels are
+    /// `raster`, in a `width` x `height` box at `density`.
+    fn layout(
+        &self,
+        raster: Option<&Arc<RgbaImage>>,
+        width: Option<f64>,
+        height: Option<f64>,
+        fit: Option<ImageFit>,
+        density: f64,
+    ) -> Result<ImageLayout, image::ImageError> {
+        let (sw, sh) = self.size();
+        let (w, h) = match (width, height) {
+            (Some(w), Some(h)) => (w, h),
+            (Some(w), None) => (w, w * sh / sw),
+            (None, Some(h)) => (h * sw / sh, h),
+            (None, None) => (sw, sh),
+        };
+        if !w.is_finite() || !h.is_finite() || w <= 0.0 || h <= 0.0 {
+            return Err(invalid("image dimensions must be finite and positive"));
+        }
+        if fit.is_none()
+            && let Some(pixels) = raster
+        {
+            return Ok(ImageLayout {
+                width: w,
+                height: h,
+                pixel_width: pixels.width(),
+                pixel_height: pixels.height(),
+            });
+        }
+        // SVG rasterization follows the
+        // complete parent transform, including animated scale and rotation.
+        let density = match self {
+            Source::Svg(_) => density.max(1.0),
+            Source::Raster(_) | Source::Animated(_) => 1.0,
+        };
+        let pw = (w * density).ceil();
+        let ph = (h * density).ceil();
+        if !pw.is_finite()
+            || !ph.is_finite()
+            || pw > 16384.0
+            || ph > 16384.0
+            || pw * ph > 64_000_000.0
+        {
+            return Err(invalid("image display size exceeds rasterization limits"));
+        }
+        Ok(ImageLayout {
+            width: w,
+            height: h,
+            pixel_width: pw as u32,
+            pixel_height: ph as u32,
+        })
+    }
 }
 
 /// The frames of a GIF, APNG, or animated WebP, each composited onto the
@@ -258,6 +331,17 @@ pub struct DisplayImage {
     pub frame: usize,
 }
 
+/// Where `ImageSources::render` lays an image out, without its pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ImageLayout {
+    /// The display size in layer units.
+    pub width: f64,
+    pub height: f64,
+    /// The size of the pixels `render` returns.
+    pub pixel_width: u32,
+    pub pixel_height: u32,
+}
+
 impl ImageSources {
     /// Adds decoded pixels, allowing callers to share an existing asset cache.
     pub fn insert_raster(&mut self, key: &str, pixels: RgbaImage) {
@@ -313,6 +397,26 @@ impl ImageSources {
         Ok(self.sources[key].size())
     }
 
+    /// Where `render` lays out the image at `key` (loading it from `path`
+    /// once), without rasterizing or resampling it: for an SVG, only its
+    /// size counts.
+    #[allow(clippy::too_many_arguments)]
+    pub fn layout(
+        &mut self,
+        key: &str,
+        path: &Path,
+        width: Option<f64>,
+        height: Option<f64>,
+        fit: Option<ImageFit>,
+        animation: Option<ImageAnimation>,
+        density: f64,
+    ) -> Result<ImageLayout, image::ImageError> {
+        self.load(key, path)?;
+        let source = &self.sources[key];
+        let (raster, _) = source.frame(animation);
+        source.layout(raster, width, height, fit, density)
+    }
+
     /// Lays out the image at `key` (loading it from `path` once) in a
     /// `width` x `height` box, drawing an animated image's frame at
     /// `animation`.
@@ -330,29 +434,13 @@ impl ImageSources {
         self.load(key, path)?;
         let source = &self.sources[key];
         let (sw, sh) = source.size();
-        let (raster, frame) = match source {
-            Source::Raster(pixels) => (Some(pixels), 0),
-            Source::Animated(frames) => {
-                let frame = animation.map_or(0, |animation| {
-                    animation_frame(
-                        &frames.ends,
-                        animation.source_time_seconds,
-                        animation.r#loop,
-                    )
-                });
-                (Some(&frames.frames[frame]), frame)
-            }
-            Source::Svg(_) => (None, 0),
-        };
-        let (w, h) = match (width, height) {
-            (Some(w), Some(h)) => (w, h),
-            (Some(w), None) => (w, w * sh / sw),
-            (None, Some(h)) => (h * sw / sh, h),
-            (None, None) => (sw, sh),
-        };
-        if !w.is_finite() || !h.is_finite() || w <= 0.0 || h <= 0.0 {
-            return Err(invalid("image dimensions must be finite and positive"));
-        }
+        let (raster, frame) = source.frame(animation);
+        let ImageLayout {
+            width: w,
+            height: h,
+            pixel_width: pw,
+            pixel_height: ph,
+        } = source.layout(raster, width, height, fit, density)?;
         if fit.is_none()
             && let Some(pixels) = raster
         {
@@ -364,23 +452,6 @@ impl ImageSources {
                 frame,
             });
         }
-        // SVG rasterization follows the
-        // complete parent transform, including animated scale and rotation.
-        let density = match source {
-            Source::Svg(_) => density.max(1.0),
-            Source::Raster(_) | Source::Animated(_) => 1.0,
-        };
-        let pw = (w * density).ceil();
-        let ph = (h * density).ceil();
-        if !pw.is_finite()
-            || !ph.is_finite()
-            || pw > 16384.0
-            || ph > 16384.0
-            || pw * ph > 64_000_000.0
-        {
-            return Err(invalid("image display size exceeds rasterization limits"));
-        }
-        let (pw, ph) = (pw as u32, ph as u32);
         let layout = format!("{w}:{h}:{fit:?}:{frame}");
         let renders = self.rendered.entry(key.to_owned()).or_default();
         // An animated SVG replaces its layout's render at a new resolution
@@ -1033,6 +1104,42 @@ mod tests {
             "fill:rgb(255, 0, 0)"
         );
     }
+    #[test]
+    fn lays_out_images_as_they_render_without_rasterizing_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("logo.svg");
+        std::fs::write(&path, r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="white"/></svg>"#).unwrap();
+        let mut sources = ImageSources::default();
+        sources.insert_raster("photo", RgbaImage::new(4, 2));
+        let cases = [
+            ("logo", Some(20.5), None, None, 1.0),
+            ("logo", Some(40.0), Some(7.3), Some(ImageFit::Contain), 2.5),
+            ("logo", None, None, None, 0.25),
+            ("photo", Some(9.0), None, None, 3.0),
+            ("photo", Some(4.0), Some(4.0), Some(ImageFit::Cover), 3.0),
+        ];
+        for (key, width, height, fit, density) in cases {
+            let layout = sources
+                .layout(key, &path, width, height, fit, None, density)
+                .unwrap();
+            assert!(!sources.rendered.contains_key(key), "{key} rendered");
+            let image = sources
+                .render(key, &path, width, height, fit, None, density)
+                .unwrap();
+            let rendered = ImageLayout {
+                width: image.width,
+                height: image.height,
+                pixel_width: image.pixels.width(),
+                pixel_height: image.pixels.height(),
+            };
+            assert_eq!(
+                layout, rendered,
+                "{key} {width:?} {height:?} {fit:?} {density}"
+            );
+            sources.rendered.clear();
+        }
+    }
+
     #[test]
     fn svg_uses_display_size_and_scale_and_straight_alpha() {
         let dir = tempfile::tempdir().unwrap();

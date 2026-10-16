@@ -2,6 +2,8 @@
 //! projective planes perspective layers draw through.
 
 use super::*;
+use crate::bounds::PixelBounds;
+use crate::plan::content_bounds;
 use celesta_composition::{BackfaceVisibility, multiply3, project};
 
 fn transformed(mut layer: Layer, edit: impl FnOnce(&mut EvaluatedTransform)) -> Layer {
@@ -773,4 +775,222 @@ fn hit_tests_a_projection_through_the_clip_of_its_parent() {
             "clipped at {x}"
         );
     }
+}
+
+/// An `Image` layer `id` showing the file at `path`, `width` units wide.
+fn image_layer(id: &str, path: &Path, width: f64) -> Layer {
+    Layer {
+        id: id.to_owned(),
+        transform: EvaluatedTransform::default(),
+        opacity: 1.0,
+        blend_mode: BlendMode::Normal,
+        effects: Default::default(),
+        content: LayerContent::Image {
+            asset: ResolvedAsset {
+                id: id.to_owned(),
+                location: AssetLocation::File {
+                    path: path.to_string_lossy().into_owned(),
+                },
+            },
+            width: Some(width),
+            height: None,
+            fit: None,
+            animation: None,
+        },
+    }
+}
+
+/// A `Psd` layer showing the lip-sync fixture, a 240x320 canvas.
+fn portrait() -> Layer {
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/assets/lipsync-fixture.psd");
+    Layer {
+        id: "portrait".to_owned(),
+        transform: EvaluatedTransform::default(),
+        opacity: 1.0,
+        blend_mode: BlendMode::Normal,
+        effects: Default::default(),
+        content: LayerContent::Psd {
+            asset: ResolvedAsset {
+                id: "fixture".to_owned(),
+                location: AssetLocation::File {
+                    path: fixture.to_string_lossy().into_owned(),
+                },
+            },
+            visible_layers: vec!["body".to_owned(), "body/base".to_owned()],
+            enabled_layers: Vec::new(),
+            disabled_layers: Vec::new(),
+        },
+    }
+}
+
+const WIDE_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="red"/></svg>"#;
+
+/// The textures the renderer holds whose keys start with `prefix`, as
+/// (width, height).
+fn cached_textures(renderer: &GpuRenderer, prefix: &str) -> Vec<(u32, u32)> {
+    renderer
+        .textures
+        .iter()
+        .filter(|(key, _)| key.starts_with(prefix))
+        .map(|(_, cached)| (cached.texture.width, cached.texture.height))
+        .collect()
+}
+
+#[test]
+fn measures_a_projective_svg_without_rasterizing_it() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("wide.svg");
+    std::fs::write(&path, WIDE_SVG).unwrap();
+    let svg = transformed(image_layer("svg", &path, 20.0), |transform| {
+        transform.position = Point { x: 100.0, y: 100.0 };
+        transform.scale = Point { x: 4.0, y: 4.0 };
+    });
+    let svg = in_perspective(svg, 0.0, 30.0, 600.0);
+    let frame = renderer.render(&sized_scene(200, 200, vec![svg])).unwrap();
+    assert_eq!(pixel_at(&frame, 100, 100), RED);
+    // Only the plane's raster: measuring it rasterizes nothing at 1x.
+    let textures = cached_textures(&renderer, "image\0");
+    assert_eq!(textures.len(), 1, "{textures:?}");
+    assert!(textures[0].0 > 20, "{textures:?}");
+}
+
+#[test]
+fn measures_a_projective_psd_without_compositing_it() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    let psd = transformed(portrait(), |transform| {
+        transform.position = Point { x: 120.0, y: 160.0 };
+        transform.scale = Point { x: 0.25, y: 0.25 };
+    });
+    let psd = in_perspective(psd, 0.0, 30.0, 600.0);
+    let frame = renderer.render(&sized_scene(240, 320, vec![psd])).unwrap();
+    assert!(pixel_at(&frame, 120, 160)[3] > 0);
+    // Only the plane's composite, reduced: measuring it composites nothing
+    // at full size.
+    let textures = cached_textures(&renderer, "psd\0");
+    assert_eq!(textures.len(), 1, "{textures:?}");
+    assert!(textures[0].0 < 240, "{textures:?}");
+}
+
+/// What `layer`, prepared alone at `scale`, covers: measured as a plane's
+/// content is when `measuring`, else drawn.
+fn covered(renderer: &mut GpuRenderer, layer: &Layer, scale: f32, measuring: bool) -> PixelBounds {
+    let mut items = Vec::new();
+    renderer.measuring_plane = measuring;
+    let parent = LayerState {
+        transform: Affine {
+            a: scale,
+            d: scale,
+            ..Affine::IDENTITY
+        },
+        ..LayerState::default()
+    };
+    let prepared = renderer.prepare_layer(layer, parent, &mut items);
+    renderer.measuring_plane = false;
+    prepared.unwrap();
+    assert!(
+        items
+            .iter()
+            .all(|item| matches!(item, PreparedItem::Layer(_))),
+        "only layers"
+    );
+    content_bounds(&items, |_| None).unwrap()
+}
+
+#[test]
+fn stand_ins_cover_what_their_content_draws() {
+    struct Decoder;
+
+    impl VideoFrameDecoder for Decoder {
+        fn decode_frame(&mut self, _: &Path, _: f64) -> Result<VideoFrame, MediaError> {
+            Ok(VideoFrame {
+                width: 150,
+                height: 75,
+                pixels: [255, 0, 0, 255].repeat(150 * 75).into(),
+            })
+        }
+    }
+
+    let Some(renderer) = transparent_renderer() else {
+        return;
+    };
+    let mut renderer = renderer.with_video_decoder(Decoder);
+    let video = Layer {
+        id: "video".to_owned(),
+        transform: EvaluatedTransform::default(),
+        opacity: 1.0,
+        blend_mode: BlendMode::Normal,
+        effects: Default::default(),
+        content: LayerContent::Video {
+            asset: ResolvedAsset {
+                id: "clip".to_owned(),
+                location: AssetLocation::File {
+                    path: "clip.mp4".to_owned(),
+                },
+            },
+            timing: MediaTiming {
+                local_time: Time::ZERO,
+                source_start: Time::ZERO,
+                source_time_seconds: 0.0,
+                playback_rate: 1.0,
+                r#loop: false,
+            },
+        },
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("wide.svg");
+    std::fs::write(&path, WIDE_SVG).unwrap();
+    renderer.max_texture_dimension = 100;
+    // An SVG 20.5 wide rasterizes 21 texels wide, so it is filtered and
+    // its quad reaches a texel past its edge; at 6x it is shrunk to the
+    // texture limit too. The portrait and the video's frame are shrunk to
+    // it at full size.
+    let layers = [
+        (image_layer("svg", &path, 20.5), 1.0),
+        (image_layer("svg", &path, 20.5), 6.0),
+        (portrait(), 1.0),
+        (portrait(), 0.3),
+        (video, 1.0),
+    ];
+    for (layer, scale) in &layers {
+        let textures = renderer.textures.len();
+        let measured = covered(&mut renderer, layer, *scale, true);
+        assert_eq!(renderer.textures.len(), textures, "{} at {scale}", layer.id);
+        let drawn = covered(&mut renderer, layer, *scale, false);
+        assert_eq!(measured, drawn, "{} at {scale}", layer.id);
+    }
+}
+
+#[test]
+fn a_projective_layer_with_effects_takes_its_opacity_and_mode_once() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    let background = corner_rect("background", 0.0, 0.0, 200.0, 200.0, "#FF0000FF");
+    let mut white = in_perspective(
+        centred_rect(100.0, 100.0, 100.0, 100.0, "#FFFFFFFF"),
+        0.0,
+        30.0,
+        600.0,
+    );
+    white.effects.blur = 1.0;
+    white.opacity = 0.5;
+    white.blend_mode = BlendMode::Difference;
+    let frame = renderer
+        .render(&sized_scene(200, 200, vec![background, white]))
+        .unwrap();
+    // Half of the difference with red, cyan, over red: drawn onto the
+    // effect's canvas at full opacity, blending normally, then blended once.
+    // Taken twice, the opacity would leave red at 191 and the others at 64.
+    let pixel = pixel_at(&frame, 100, 100);
+    assert_eq!(pixel[3], 255);
+    assert!(
+        pixel[..3].iter().all(|channel| channel.abs_diff(128) <= 1),
+        "{pixel:?}"
+    );
 }

@@ -76,6 +76,18 @@ Issue #300. Every layer and `Group` takes `skewX`/`skewY`, `rotationX`/
   maximum texture dimension and 4 times the scene's pixel area. The second
   pass prepares the content for real with base transform `Scale(s) ·
   Translate(-origin)`.
+- While measuring (`measuring_plane`), texture content is sized without
+  being drawn: an image, SVG, PSD, or video frame stands in as a texture of
+  the size the real one would have (`stand_in_texture`, sharing the
+  placeholder's handles), from `ImageSources::layout` and
+  `PsdSources::size_within` (the parsed PSD's canvas, the same level and
+  `fit_within` limit as `render_within`). So an SVG is not rasterized and a
+  PSD not composited at 1x only to be measured, nothing is uploaded, and the
+  measured box, filter margin included, is the one the real texture gives.
+  A video frame is still decoded once and kept for the second pass. Both
+  passes prepare the layer's content from the layer itself
+  (`prepare_plane_content`, then `prepare_content`), without cloning its
+  subtree.
 - The canvas draws onto its parent through the homography as one layer, with
   the layer's opacity and blend mode. The vertex shader writes
   `(x·w, y·w, 0, w)` so the rasterizer interpolates with perspective
@@ -171,9 +183,9 @@ Issue #300. Every layer and `Group` takes `skewX`/`skewY`, `rotationX`/
 - Blur radii inside a plane are capped at 64 plane pixels (see above).
 - The browser preview of large perspective planes is slow (see the web
   warp above).
-- Follow-ups already split off: density-banded planes, a subdivided affine
-  `drawImage` path for the web warp, and size-only stand-ins for images, SVG,
-  and PSD in plane measurement.
+- Follow-ups already split off: density-banded planes and a subdivided
+  affine `drawImage` path for the web warp. Size-only stand-ins for images,
+  SVG, and PSD in plane measurement are done (see above).
 
 ## Checks
 

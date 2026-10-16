@@ -84,6 +84,23 @@ impl GpuRenderer {
         Ok(())
     }
 
+    /// A texture `width`x`height` texels in size that holds none: it shares
+    /// the placeholder's handles, for content whose size alone counts, as
+    /// while a plane is measured. Nothing is uploaded.
+    pub(crate) fn stand_in_texture(&self, width: u32, height: u32) -> LayerTexture {
+        let placeholder = &self.placeholder_texture;
+        LayerTexture(Arc::new(TextureData {
+            _texture: placeholder._texture.clone(),
+            bind_group: placeholder.bind_group.clone(),
+            width,
+            height,
+            baseline_anchor: 0.0,
+            anchor_origin: (0.0, 0.0),
+            anchor_span: (1.0, 1.0),
+            raster_scale: 1.0,
+        }))
+    }
+
     pub(crate) fn upload_texture(&self, image: &DecodedImage, mipmaps: bool) -> LayerTexture {
         upload_texture(
             &self.device,

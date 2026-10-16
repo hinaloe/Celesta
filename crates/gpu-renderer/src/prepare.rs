@@ -18,10 +18,10 @@ use crate::transform::{Affine, CLIP_ENTRY_SIZE, ClipEntry, LayerState, MAX_CLIP_
 use crate::types::RenderQuality;
 use celesta_composition::{
     BackfaceVisibility, BlendMode, Clip, ImageAnimation, ImageFit, InstanceShape, Layer,
-    LayerContent, LayerEffects, Matrix3, Point, ResolvedAsset, Scene, faces_away, multiply3,
-    multiply3_flat,
+    LayerContent, Matrix3, Point, ResolvedAsset, Scene, faces_away, multiply3, multiply3_flat,
 };
 use celesta_renderer::image_source::{fit_within, resize_rgba};
+use celesta_renderer::psd_source::PsdSize;
 use celesta_renderer::{
     Color as CpuColor, FlattenedPath, flatten_path, rasterize_path, resolve_rect_paint,
 };
@@ -466,19 +466,17 @@ impl GpuRenderer {
             return Ok(());
         }
         self.walk.orientation = orientation;
-        let prepared = self.prepare_visible_layer(layer, parent, previous, &linear, output);
+        let prepared = self.prepare_visible_layer(layer, parent, &linear, output);
         self.walk = previous;
         prepared
     }
 
     /// `prepare_layer` once the layer faces the viewer (or shows its back):
-    /// `self.walk` describes the layer, `previous` its parent, and `linear`
-    /// is the layer's 3D linear part.
+    /// `self.walk` describes the layer, and `linear` is its 3D linear part.
     fn prepare_visible_layer(
         &mut self,
         layer: &Layer,
         parent: LayerState,
-        previous: Walk,
         linear: &Matrix3,
         output: &mut Vec<PreparedItem>,
     ) -> Result<(), GpuRenderError> {
@@ -490,7 +488,6 @@ impl GpuRenderer {
             return Ok(());
         }
         let blend_mode = layer.blend_mode;
-        let item = output.len();
         if !layer.effects.is_empty() {
             let effects = EffectSpec::parse(&layer.effects)?;
             let mut effects = if self.measuring_plane {
@@ -502,18 +499,23 @@ impl GpuRenderer {
                 self.shaders
                     .use_filters(&self.device, &layer.id, &layer.effects.filters)?;
             output.push(PreparedItem::BeginGroup);
-            let mut inner = layer.clone();
-            inner.opacity = 1.0;
-            inner.blend_mode = BlendMode::Normal;
-            inner.effects = LayerEffects::default();
-            // The inner layer is this one again: it adds its own orientation.
-            self.walk = previous;
-            self.prepare_layer(
-                &inner,
+            // The layer again onto the effect's canvas, at full opacity,
+            // blending normally, and without effects, but placed and turned
+            // as it is, so `self.walk` stays the layer's. At full opacity
+            // and normal blending, only a mask isolates a group, and
+            // `prepare_content` gives one a canvas before asking.
+            self.prepare_drawn(
+                layer,
                 LayerState {
                     opacity: 1.0,
                     ..parent
                 },
+                LayerState {
+                    opacity: 1.0,
+                    ..state
+                },
+                (1.0, BlendMode::Normal),
+                false,
                 output,
             )?;
             output.push(PreparedItem::EndEffect(
@@ -530,11 +532,52 @@ impl GpuRenderer {
             ));
             return Ok(());
         }
-        // Drawn through a canvas in its own plane; the effects above apply
-        // to that canvas once projected, through the inner layer they draw.
+        self.prepare_drawn(
+            layer,
+            parent,
+            state,
+            (layer.opacity, blend_mode),
+            layer.isolates_group(),
+            output,
+        )
+    }
+
+    /// `layer` without its effects, placed by `parent` and then its own
+    /// transform (`state`), drawn onto its parent at `opacity` with
+    /// `blend_mode`, which an effect sets to full and `Normal` for the copy
+    /// it draws onto its canvas: through a canvas in its own plane when it
+    /// is projective (the effects then apply to that canvas once
+    /// projected), else as its content, a group isolated when `isolated`.
+    fn prepare_drawn(
+        &mut self,
+        layer: &Layer,
+        parent: LayerState,
+        state: LayerState,
+        (opacity, blend_mode): (f64, BlendMode),
+        isolated: bool,
+        output: &mut Vec<PreparedItem>,
+    ) -> Result<(), GpuRenderError> {
         if layer.transform.perspective_distance().is_some() && layer.transform.is_projective() {
-            return self.prepare_plane(layer, parent, output);
+            return self.prepare_plane(layer, parent, (opacity, blend_mode), output);
         }
+        self.prepare_content(layer, state, blend_mode, isolated, output)
+    }
+
+    /// `layer`'s content, placed by `state` and drawn onto its parent with
+    /// `blend_mode`; a group's children draw onto a canvas of their own when
+    /// `isolated` (see `Layer::isolates_group`). The rest of
+    /// `prepare_visible_layer`, which a plane also prepares its content with,
+    /// as the layer again without its transform, opacity, blend mode, or
+    /// effects.
+    pub(crate) fn prepare_content(
+        &mut self,
+        layer: &Layer,
+        state: LayerState,
+        blend_mode: BlendMode,
+        isolated: bool,
+        output: &mut Vec<PreparedItem>,
+    ) -> Result<(), GpuRenderError> {
+        let item = output.len();
         match &layer.content {
             LayerContent::Group {
                 layers,
@@ -626,7 +669,7 @@ impl GpuRenderer {
                     )));
                     return Ok(());
                 }
-                if !layer.isolates_group() {
+                if !isolated {
                     for child in layers {
                         self.prepare_layer(child, child_state, output)?;
                     }
@@ -689,39 +732,51 @@ impl GpuRenderer {
             } => {
                 let path = self.local_asset_path(asset)?;
                 let density = f64::from(state.transform.stretch().0);
-                let image = self
-                    .psd_sources
-                    .render_within(
-                        &asset.id,
-                        &path,
-                        visible_layers,
-                        enabled_layers,
-                        disabled_layers,
-                        density,
-                        self.max_texture_dimension,
-                    )
-                    .map_err(GpuRenderError::Psd)?;
+                let (texture, size) = if self.measuring_plane {
+                    // Only its size counts there, which the parsed PSD gives
+                    // without compositing or uploading anything.
+                    let size = self
+                        .psd_sources
+                        .size_within(&asset.id, &path, density, self.max_texture_dimension)
+                        .map_err(GpuRenderError::Psd)?;
+                    (self.stand_in_texture(size.width, size.height), size)
+                } else {
+                    let image = self
+                        .psd_sources
+                        .render_within(
+                            &asset.id,
+                            &path,
+                            visible_layers,
+                            enabled_layers,
+                            disabled_layers,
+                            density,
+                            self.max_texture_dimension,
+                        )
+                        .map_err(GpuRenderError::Psd)?;
+                    let texture = self.cached_texture(
+                        // Keyed like the composite: a composite shrunk to the
+                        // limit can match another level's size with other
+                        // pixels.
+                        format!(
+                            "{}\0{}\0{}\0{}x{}",
+                            psd_key(asset, visible_layers, enabled_layers, disabled_layers),
+                            celesta_renderer::psd_source::level_for(density),
+                            self.max_texture_dimension,
+                            image.width,
+                            image.height
+                        ),
+                        true,
+                        |_| DecodedImage::shared(image.width, image.height, image.pixels.clone()),
+                    )?;
+                    (texture, PsdSize::from(&image))
+                };
                 let mut state = state;
-                let x = (f64::from(image.canvas_width) / f64::from(image.width)) as f32;
-                let y = (f64::from(image.canvas_height) / f64::from(image.height)) as f32;
+                let x = (f64::from(size.canvas_width) / f64::from(size.width)) as f32;
+                let y = (f64::from(size.canvas_height) / f64::from(size.height)) as f32;
                 state.transform.a *= x;
                 state.transform.b *= x;
                 state.transform.c *= y;
                 state.transform.d *= y;
-                let texture = self.cached_texture(
-                    // Keyed like the composite: a composite shrunk to the
-                    // limit can match another level's size with other pixels.
-                    format!(
-                        "{}\0{}\0{}\0{}x{}",
-                        psd_key(asset, visible_layers, enabled_layers, disabled_layers),
-                        celesta_renderer::psd_source::level_for(density),
-                        self.max_texture_dimension,
-                        image.width,
-                        image.height
-                    ),
-                    true,
-                    |_| DecodedImage::shared(image.width, image.height, image.pixels.clone()),
-                )?;
                 output.push(PreparedItem::Layer(PreparedLayer::new(
                     texture,
                     layer.transform.anchor,
@@ -760,35 +815,8 @@ impl GpuRenderer {
                         frame
                     }
                 };
-                if self.measuring_plane {
-                    // Only its size counts there, which a shape stands in
-                    // for without uploading the frame.
-                    output.push(PreparedItem::Layer(PreparedLayer {
-                        content: PreparedContent::Rect(RectShape {
-                            half_width: frame.width as f32 / 2.0,
-                            half_height: frame.height as f32 / 2.0,
-                            radius: 0.0,
-                            stroke_width: 0.0,
-                            fill: [0.0; 4],
-                            stroke: [0.0; 4],
-                        }),
-                        anchor: layer.transform.anchor,
-                        state,
-                        blend_mode,
-                        raster_scale: 1.0,
-                        shape: None,
-                    }));
-                    return Ok(());
-                }
                 let (width, height) =
                     fit_within(frame.width, frame.height, self.max_texture_dimension);
-                // Checked against its size before anything reads it.
-                let mut image = DecodedImage::shared(frame.width, frame.height, frame.pixels)?;
-                if (width, height) != (frame.width, frame.height) {
-                    let pixels =
-                        resize_rgba(frame.width, frame.height, &image.pixels, width, height);
-                    image = DecodedImage::new(width, height, pixels.into_raw())?;
-                }
                 let mut state = state;
                 let x = (f64::from(frame.width) / f64::from(width)) as f32;
                 let y = (f64::from(frame.height) / f64::from(height)) as f32;
@@ -796,12 +824,25 @@ impl GpuRenderer {
                 state.transform.b *= x;
                 state.transform.c *= y;
                 state.transform.d *= y;
-                // Every frame brings new pixels, so video is never cached,
-                // and its mipmaps would be rebuilt every frame: only a final
-                // render of a frame shrunk to half size or less pays for them.
-                let mipmaps = self.render_quality == RenderQuality::Final
-                    && state.transform.texels_per_pixel(1.0) >= 2.0;
-                let texture = self.upload_texture(&image, mipmaps);
+                let texture = if self.measuring_plane {
+                    // Only its size counts there: the frame is not uploaded.
+                    self.stand_in_texture(width, height)
+                } else {
+                    // Checked against its size before anything reads it.
+                    let mut image = DecodedImage::shared(frame.width, frame.height, frame.pixels)?;
+                    if (width, height) != (frame.width, frame.height) {
+                        let pixels =
+                            resize_rgba(frame.width, frame.height, &image.pixels, width, height);
+                        image = DecodedImage::new(width, height, pixels.into_raw())?;
+                    }
+                    // Every frame brings new pixels, so video is never
+                    // cached, and its mipmaps would be rebuilt every frame:
+                    // only a final render of a frame shrunk to half size or
+                    // less pays for them.
+                    let mipmaps = self.render_quality == RenderQuality::Final
+                        && state.transform.texels_per_pixel(1.0) >= 2.0;
+                    self.upload_texture(&image, mipmaps)
+                };
                 output.push(PreparedItem::Layer(PreparedLayer::new(
                     texture,
                     layer.transform.anchor,
@@ -1255,13 +1296,29 @@ impl GpuRenderer {
         svg_mipmaps: bool,
     ) -> Result<(LayerTexture, f64, f64), GpuRenderError> {
         let path = self.local_asset_path(asset)?;
+        let decode_error = |source| GpuRenderError::ImageDecode {
+            asset: asset.id.clone(),
+            source,
+        };
+        if self.measuring_plane {
+            // Only its size counts there: the texture it would draw from,
+            // stood in for without rasterizing or uploading it.
+            let layout = self
+                .image_sources
+                .layout(&asset.id, &path, width, height, fit, animation, density)
+                .map_err(decode_error)?;
+            let (texture_width, texture_height) = fit_within(
+                layout.pixel_width,
+                layout.pixel_height,
+                self.max_texture_dimension,
+            );
+            let texture = self.stand_in_texture(texture_width, texture_height);
+            return Ok((texture, layout.width, layout.height));
+        }
         let display = self
             .image_sources
             .render(&asset.id, &path, width, height, fit, animation, density)
-            .map_err(|source| GpuRenderError::ImageDecode {
-                asset: asset.id.clone(),
-                source,
-            })?;
+            .map_err(decode_error)?;
         let (texture_width, texture_height) = fit_within(
             display.pixels.width(),
             display.pixels.height(),
