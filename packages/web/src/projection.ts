@@ -202,28 +202,31 @@ function roundUpToEighthOctave(scale: number): number {
 }
 
 /**
+ * The convex polygon `polygon`, all of it in front of the viewer (see
+ * `clipInFront`), clipped to the part `m` maps into `target`. Each side of
+ * `target` is a half-plane in the plane too: `X/W ≥ left` is
+ * `X − left·W ≥ 0` where `W > 0`, which is linear in the point, so the clip
+ * is exact whether or not the plane's horizon shows.
+ */
+function clipToShown(m: Matrix3, polygon: [number, number][], [left, top, right, bottom]: Box): [number, number][] {
+  const row = (r: number, [x, y]: [number, number]) => m[r][0] * x + m[r][1] * y + m[r][2];
+  polygon = clipPolygon(polygon, p => row(0, p) - left * row(2, p));
+  polygon = clipPolygon(polygon, p => row(1, p) - top * row(2, p));
+  polygon = clipPolygon(polygon, p => right * row(2, p) - row(0, p));
+  return clipPolygon(polygon, p => bottom * row(2, p) - row(1, p));
+}
+
+/**
  * The raster of a plane whose content covers `local` (layer-local units),
  * drawn through `forward` (layer-local units to `target`'s space) onto a
  * space `target` covers; `null` when nothing of it can show. Only the part in
- * front of the viewer, and (when the whole of `target` is) the part `target`
- * can show, is rasterized, at the scale its most magnified corner needs,
- * rounded up as text raster scales are, and lowered to keep the canvas within
- * `maxSize` on either side and `maxArea` pixels in all.
+ * front of the viewer that lands in `target` is rasterized, at the scale its
+ * most magnified corner needs, rounded up as text raster scales are, and
+ * lowered to keep the canvas within `maxSize` on either side and `maxArea`
+ * pixels in all.
  */
 export function planeRaster(forward: Matrix3, local: Box, target: Box, maxSize: number, maxArea = Infinity): PlaneRaster | null {
-  let polygon = clipInFront(forward, corners(local));
-  // Where `target`'s corners come from in the plane; when one is at or
-  // behind the plane's horizon, the part shown is unbounded on that side.
-  const inverse = invert3(forward);
-  const shown = inverse && corners(target).map(([x, y]) => project(inverse, x, y));
-  const shownBox = shown && shown.every(([, , w]) => w > 0) ? boxOf(shown.map(([x, y]) => [x, y])) : null;
-  if (shownBox) {
-    const [left, top, right, bottom] = shownBox;
-    polygon = clipPolygon(polygon, ([x]) => x - left);
-    polygon = clipPolygon(polygon, ([, y]) => y - top);
-    polygon = clipPolygon(polygon, ([x]) => right - x);
-    polygon = clipPolygon(polygon, ([, y]) => bottom - y);
-  }
+  const polygon = clipToShown(forward, clipInFront(forward, corners(local)), target);
   const stretches = polygon.map(([x, y]) => stretchAt(forward, x, y)).filter((value): value is number => value !== null);
   if (!stretches.length) return null;
   const box = boxOf(polygon);

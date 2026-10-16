@@ -90,13 +90,27 @@ pub(crate) struct PlaneRaster {
     pub(crate) height: u32,
 }
 
+/// The convex polygon `polygon`, all of it in front of the viewer (see
+/// `clip_in_front`), clipped to the part `m` maps into `target`. Each side
+/// of `target` is a half-plane in the plane too: `X/W ≥ left` is
+/// `X − left·W ≥ 0` where `W > 0`, which is linear in the point, so the clip
+/// is exact whether or not the plane's horizon shows.
+fn clip_to_shown(m: &Matrix3, polygon: &[[f64; 2]], target: PixelBounds) -> Vec<[f64; 2]> {
+    let [left, top, right, bottom] = target.0.map(f64::from);
+    let row = |r: usize, [x, y]: [f64; 2]| m[r][0] * x + m[r][1] * y + m[r][2];
+    let polygon = clip_polygon(polygon, |p| row(0, p) - left * row(2, p));
+    let polygon = clip_polygon(&polygon, |p| row(1, p) - top * row(2, p));
+    let polygon = clip_polygon(&polygon, |p| right * row(2, p) - row(0, p));
+    clip_polygon(&polygon, |p| bottom * row(2, p) - row(1, p))
+}
+
 /// The raster of a plane whose content covers `local` (layer-local units),
 /// drawn through `forward` (layer-local units to `target`'s space) onto a
 /// space `target` covers; `None` when nothing of it can show. Only the part
-/// in front of the viewer, and (when the whole of `target` is) the part
-/// `target` can show, is rasterized, at the scale its most magnified corner
-/// needs, rounded up as text raster scales are, and lowered to keep the
-/// canvas within `max_texture` on either side and `max_area` pixels in all.
+/// in front of the viewer that lands in `target` is rasterized, at the scale
+/// its most magnified corner needs, rounded up as text raster scales are,
+/// and lowered to keep the canvas within `max_texture` on either side and
+/// `max_area` pixels in all.
 pub(crate) fn plane_raster(
     forward: &Matrix3,
     local: PixelBounds,
@@ -104,20 +118,8 @@ pub(crate) fn plane_raster(
     max_texture: u32,
     max_area: u64,
 ) -> Option<PlaneRaster> {
-    let mut polygon = clip_in_front(forward, &corners(local));
-    // Where `target`'s corners come from in the plane; when one is at or
-    // behind the plane's horizon, the part shown is unbounded on that side.
-    let shown =
-        invert3(forward).map(|inverse| corners(target).map(|[x, y]| project(&inverse, x, y)));
-    if let Some(shown) = shown
-        && shown.iter().all(|[_, _, w]| *w > 0.0)
-        && let Some([left, top, right, bottom]) = box_of(shown.map(|[x, y, _]| [x, y]))
-    {
-        polygon = clip_polygon(&polygon, |[x, _]| x - left);
-        polygon = clip_polygon(&polygon, |[_, y]| y - top);
-        polygon = clip_polygon(&polygon, |[x, _]| right - x);
-        polygon = clip_polygon(&polygon, |[_, y]| bottom - y);
-    }
+    let polygon = clip_in_front(forward, &corners(local));
+    let polygon = clip_to_shown(forward, &polygon, target);
     let stretch = polygon
         .iter()
         .filter_map(|&[x, y]| stretch_at(forward, x, y))
@@ -580,6 +582,71 @@ mod tests {
         )
         .unwrap();
         assert_eq!((raster.width, raster.height), (1922, 1082));
+    }
+
+    /// The example's floor, whose horizon shows: the screen's top corners
+    /// map behind it.
+    fn floor() -> Matrix3 {
+        EvaluatedTransform {
+            position: Point { x: 960.0, y: 800.0 },
+            rotation_x: 60.0,
+            perspective: Some(900.0),
+            ..EvaluatedTransform::default()
+        }
+        .homography()
+    }
+
+    #[test]
+    fn plane_raster_of_a_floor_is_scaled_by_what_shows_of_its_near_edge() {
+        // The near corners are far off either side of the screen.
+        let forward = floor();
+        let raster = plane_raster(
+            &forward,
+            PixelBounds([-900.0, -750.0, 900.0, 294.0]),
+            SCREEN,
+            8192,
+            u64::MAX,
+        )
+        .unwrap();
+        let shown_near_edge = (-64..=64)
+            .map(|i| f64::from(i) * 900.0 / 64.0)
+            .filter(|&x| (0.0..=1920.0).contains(&project(&forward, x, 294.0)[0]));
+        for x in shown_near_edge {
+            let stretch = stretch_at(&forward, x, 294.0).unwrap();
+            assert!(raster.scale >= stretch, "{} < {stretch}", raster.scale);
+        }
+        let off_screen = stretch_at(&forward, 900.0, 294.0).unwrap();
+        assert!(
+            raster.scale < off_screen,
+            "{} >= {off_screen}",
+            raster.scale
+        );
+    }
+
+    #[test]
+    fn plane_raster_of_a_floor_past_the_screen_bottom_is_scaled_by_the_bottom() {
+        // The near part runs off the bottom of the screen and then behind
+        // the viewer; what shows ends at the screen's bottom edge.
+        let forward = floor();
+        let raster = plane_raster(
+            &forward,
+            PixelBounds([-900.0, -750.0, 900.0, 1500.0]),
+            SCREEN,
+            8192,
+            u64::MAX,
+        )
+        .unwrap();
+        let inverse = invert3(&forward).unwrap();
+        let bottom = [0.0, 1920.0]
+            .map(|x| {
+                let [x, y, _] = project(&inverse, x, 1080.0);
+                stretch_at(&forward, x, y).unwrap()
+            })
+            .into_iter()
+            .reduce(f64::max)
+            .unwrap();
+        assert_eq!(raster.scale, round_up_to_eighth_octave(bottom));
+        assert!(raster.width < 8192 && raster.height < 8192, "{raster:?}");
     }
 
     #[test]

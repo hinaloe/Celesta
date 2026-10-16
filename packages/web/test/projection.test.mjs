@@ -105,6 +105,38 @@ test('the plane raster is limited to the visible part', () => {
   assert.deepEqual([raster.width, raster.height], [1922, 1082]);
 });
 
+// The example's floor, whose horizon shows: the screen's top corners map behind it.
+const floor = () => homography(transform({ position: { x: 960, y: 800 }, anchor: { x: 0, y: 0 }, rotationX: 60, perspective: 900 }));
+
+test('the plane raster of a floor is scaled by what shows of its near edge', () => {
+  // The near corners are far off either side of the screen.
+  const forward = floor();
+  const raster = planeRaster(forward, [-900, -750, 900, 294], SCREEN, 8192);
+  for (let i = -64; i <= 64; i++) {
+    const x = i * 900 / 64;
+    const screenX = project(forward, x, 294)[0];
+    if (screenX < 0 || screenX > 1920) continue;
+    const stretch = stretchAt(forward, x, 294);
+    assert.ok(raster.scale >= stretch, `${raster.scale} < ${stretch}`);
+  }
+  const offScreen = stretchAt(forward, 900, 294);
+  assert.ok(raster.scale < offScreen, `${raster.scale} >= ${offScreen}`);
+});
+
+test('the plane raster of a floor past the screen bottom is scaled by the bottom', () => {
+  // The near part runs off the bottom of the screen and then behind the
+  // viewer; what shows ends at the screen's bottom edge.
+  const forward = floor();
+  const raster = planeRaster(forward, [-900, -750, 900, 1500], SCREEN, 8192);
+  const inverse = invert3(forward);
+  const bottom = Math.max(...[0, 1920].map(x => {
+    const [lx, ly] = project(inverse, x, 1080);
+    return stretchAt(forward, lx, ly);
+  }));
+  assert.equal(raster.scale, 2 ** (Math.ceil(Math.log2(bottom) * 8) / 8));
+  assert.ok(raster.width < 8192 && raster.height < 8192, JSON.stringify(raster));
+});
+
 test('the plane raster stays within the size limit', () => {
   const raster = planeRaster(IDENTITY3, [0, 0, 10000, 10], [0, 0, 20000, 20000], 8192);
   assert.ok(raster.width <= 8192, String(raster.width));
