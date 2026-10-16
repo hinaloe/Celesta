@@ -1,5 +1,6 @@
 use crate::decoder::AudioDecoder;
 use crate::error::{AudioMixError, MediaError};
+use crate::stretch::{mix_stretched_clip, needs_stretch};
 use crate::types::{AudioBuffer, VideoStream};
 use celesta_composition::{AudioGraph, Time, TimeError, evaluate_f64, integrate_f64};
 use celesta_remote::resolve_asset_path;
@@ -80,6 +81,17 @@ pub fn mix_audio_graph_cancellable(
             .map(|duration| source_start_seconds + duration);
         let start = sample_ceil(clip.range.start, graph.sample_rate)?.clamp(0, frame_count as i64);
         let end = sample_ceil(clip.range.end()?, graph.sample_rate)?.clamp(0, frame_count as i64);
+        if needs_stretch(clip) {
+            mix_stretched_clip(
+                clip,
+                source,
+                graph.sample_rate,
+                start..end,
+                &mut output,
+                &mut is_cancelled,
+            )?;
+            continue;
+        }
         for output_frame in start..end {
             if output_frame & 2_047 == 0 && is_cancelled() {
                 return Err(AudioMixError::Cancelled);
