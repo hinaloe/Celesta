@@ -73,13 +73,17 @@ test('<Font google> uses the same stylesheet asset as src and googleFont(), incl
           <Font src={font} />
           <Font src={googleFont('M PLUS Rounded 1c', { weights: [400, 700], subsets: ['japanese'] })} name="rounded" />
           <Font google="Inter" />
+          <Font google="Noto Sans JP" weights={[500, 700]} text="字幕の字幕" />
+          <Font src={googleFont('Noto Sans JP', { weights: [700, 500], text: '幕の字' })} />
         </Assets>
       </Composition>;
     }
   `);
+  const subset = `https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@500;700&text=${encodeURIComponent('の字幕')}`;
   assert.deepEqual(scene.fonts, [
     { id: 'rounded', location: { type: 'url', url: 'https://fonts.googleapis.com/css?family=M+PLUS+Rounded+1c:400,700&subset=japanese' } },
     { id: 'https://fonts.googleapis.com/css2?family=Inter:wght@400', location: { type: 'url', url: 'https://fonts.googleapis.com/css2?family=Inter:wght@400' } },
+    { id: subset, location: { type: 'url', url: subset } },
   ]);
 });
 

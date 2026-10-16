@@ -148,8 +148,8 @@ installed fonts.
   matching does. A family loaded only in Bold therefore draws `fontWeight`
   400, or no weight, in Bold. Bold is never synthesized.
 - With Google Fonts, list every weight you use in the URL; a missing weight
-  uses the family's nearest one. A `text=` subset must include every
-  character the video draws.
+  uses the family's nearest one. A `text=` subset (`<Font google text>`)
+  must include every character the video draws.
 - A `fontFamily` with no installed or loaded face falls back to another
   font. The app lists it with the preview's warnings, and the exporter
   prints `warning: font family "…" (weight …) is not installed or loaded;

@@ -383,7 +383,7 @@ export interface AssetsProps {
 
 export type FontProps = {
   name?: string;
-} & ({ src: AssetInput; google?: never; weights?: never; subsets?: never }
+} & ({ src: AssetInput; google?: never; weights?: never; subsets?: never; text?: never }
   | ({ src?: never; google: string } & GoogleFontOptions));
 
 const AssetsContext = React.createContext(false);
