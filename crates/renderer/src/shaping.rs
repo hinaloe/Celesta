@@ -9,7 +9,7 @@ use crate::paint::{ResolvedPaint, resolve_paint};
 use crate::rect::dilate_mask;
 use crate::text::{AnchorBox, GlyphMetrics, RasterizedText, TextMetrics};
 use crate::types::{Color, RgbaFrame};
-use celesta_composition::{FontFamily, LineBreak, TextAlign, TextFontRun, TextStyle};
+use celesta_composition::{LineBreak, TextAlign, TextFontRun, TextStyle};
 use cosmic_text::{
     Align, Attrs, AttrsList, Buffer, BufferLine, Color as CosmicColor, Family, FontSystem,
     LayoutGlyph, LineEnding, LineIter, Metrics, PhysicalGlyph, Renderer, Shaping, SwashCache,
@@ -714,7 +714,7 @@ impl TextRasterizer {
             // beneath the text, not the stroke. Glyph and stroke then add up
             // side by side: drawing the glyphs over the stroke instead would
             // leave a seam of partial alpha along every antialiased edge.
-            for (index, pixel) in frame.pixels.chunks_exact_mut(4).enumerate() {
+            for (index, pixel) in frame.pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 let uncovered = 1.0 - f64::from(mask[index]) / 255.0;
                 let share = f64::from(stroke_mask[index]) / 255.0 * uncovered;
                 if share == 0.0 {
@@ -793,7 +793,7 @@ impl TextRasterizer {
 /// how many rows its top edge moved down (negative when padded).
 pub(crate) fn trim_transparent_rows(frame: RgbaFrame) -> (RgbaFrame, i32) {
     let row_bytes = frame.width as usize * 4;
-    let visible = |row: &[u8]| row.chunks_exact(4).any(|pixel| pixel[3] != 0);
+    let visible = |row: &[u8]| row.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0);
     let rows = || frame.pixels.chunks_exact(row_bytes);
     let (Some(min_y), Some(from_bottom)) =
         (rows().position(visible), rows().rev().position(visible))

@@ -15,7 +15,7 @@ pub(crate) fn prepare_preview_frame(frame: GpuPreviewFrame) -> PreviewPresentati
             let width = frame.width();
             let height = frame.height();
             let mut pixels = frame.into_pixels();
-            for pixel in pixels.chunks_exact_mut(4) {
+            for pixel in pixels.as_chunks_mut::<4>().0 {
                 pixel.swap(0, 2);
             }
             PreviewPresentation::Image(frame_to_image(CpuPreviewFrame {

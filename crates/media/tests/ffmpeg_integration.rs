@@ -65,7 +65,9 @@ fn probes_and_decodes_a_generated_video() {
     assert!(
         frame
             .pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .all(|pixel| { pixel[0] > 200 && pixel[1] < 20 && pixel[2] < 20 && pixel[3] == 255 })
     );
 

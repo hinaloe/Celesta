@@ -103,13 +103,15 @@ pub(crate) fn upload_texture(
     mipmaps: bool,
 ) -> LayerTexture {
     let mut levels = vec![(image.width, image.height, Arc::clone(&image.pixels))];
-    while mipmaps {
-        let (width, height, pixels) = levels.last().expect("level 0 exists");
-        if *width == 1 && *height == 1 {
-            break;
+    if mipmaps {
+        loop {
+            let (width, height, pixels) = levels.last().expect("level 0 exists");
+            if *width == 1 && *height == 1 {
+                break;
+            }
+            let next = downsample(*width, *height, pixels);
+            levels.push((next.0, next.1, Arc::new(next.2)));
         }
-        let next = downsample(*width, *height, pixels);
-        levels.push((next.0, next.1, Arc::new(next.2)));
     }
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Celesta layer texture"),

@@ -557,8 +557,10 @@ fn blends_layers_and_isolated_groups_like_the_cpu_renderer() {
         let frame = renderer.render(&scene).unwrap();
         for (index, (gpu, cpu)) in frame
             .pixels()
-            .chunks_exact(4)
-            .zip(expected.pixels().chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(expected.pixels().as_chunks::<4>().0.iter())
             .enumerate()
         {
             let (x, y) = (index % width, index / width);
@@ -681,8 +683,10 @@ fn fades_translucent_groups_as_one_layer_like_the_cpu_renderer() {
     let frame = renderer.render(&scene).unwrap();
     for (index, (gpu, cpu)) in frame
         .pixels()
-        .chunks_exact(4)
-        .zip(expected.pixels().chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(expected.pixels().as_chunks::<4>().0.iter())
         .enumerate()
     {
         let close = gpu
@@ -1030,7 +1034,7 @@ fn assert_rect_matches_cpu(
         .flat_map(|_| [10, 20, 30, 255])
         .collect();
     let image = &rasterized.image;
-    for (offset, texel) in image.pixels().chunks_exact(4).enumerate() {
+    for (offset, texel) in image.pixels().as_chunks::<4>().0.iter().enumerate() {
         let x = rasterized.left as usize + offset % image.width() as usize;
         let y = rasterized.top as usize + offset / image.width() as usize;
         let pixel = &mut expected[(y * scene.width as usize + x) * 4..][..3];
@@ -1617,7 +1621,9 @@ fn assert_paths_match(case: &str, gpu: &[u8], cpu: &[u8]) {
 // GPU canvases/readback are premultiplied; CPU frames are straight RGBA.
 fn premultiplied_pixels(pixels: &[u8]) -> Vec<u8> {
     pixels
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|pixel| {
             let alpha = u16::from(pixel[3]);
             [
@@ -2669,7 +2675,7 @@ fn shades_rotated_paths_like_the_cpu_rasterizer() {
         .flat_map(|_| [background.red, background.green, background.blue, 255])
         .collect();
     let image = &rasterized.image;
-    for (index, texel) in image.pixels().chunks_exact(4).enumerate() {
+    for (index, texel) in image.pixels().as_chunks::<4>().0.iter().enumerate() {
         let x = rasterized.left + (index as u32 % image.width()) as i32;
         let y = rasterized.top + (index as u32 / image.width()) as i32;
         let pixel = &mut cpu[(y as usize * scene.width as usize + x as usize) * 4..][..3];
@@ -2762,7 +2768,7 @@ fn exports_and_previews_paths_with_the_same_pixels() {
         .unwrap();
     let mapped = buffer.slice(..).get_mapped_range().unwrap();
     let mut previewed = layout.unpad(&mapped, scene.width, scene.height).unwrap();
-    for pixel in previewed.chunks_exact_mut(4) {
+    for pixel in previewed.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
     assert_eq!(previewed, rendered.pixels());
@@ -2928,7 +2934,7 @@ fn clips_groups_that_blend_like_the_cpu_renderer() {
             opacity: 0.8,
             ..clipped_group(
                 EvaluatedTransform::default(),
-                clip.clone(),
+                clip,
                 vec![
                     blend_rect("a", 0.0, 0.0, 30.0, "#3c6382", BlendMode::Normal),
                     blend_rect("b", 20.0, 10.0, 30.0, "#f8c291c0", BlendMode::Screen),
@@ -3151,14 +3157,16 @@ fn dithers_gentle_gradients_and_keeps_solid_fills() {
     // one row the pattern still leaves runs over half a code, as only every
     // eighth pixel has its lowest threshold, and values within 1/8 of a code
     // of a whole one are not dithered.
-    for row in red.chunks_exact(256) {
+    for row in red.as_chunks::<256>().0 {
         assert!(longest_run(row) <= 24, "{row:?}");
     }
     // The dither keeps the gradient's average: over the eight rows its
     // pattern repeats in, each band's mean stays near the values it rounds.
     for band in 0..8 {
         let sum: u32 = red
-            .chunks_exact(256)
+            .as_chunks::<256>()
+            .0
+            .iter()
             .flat_map(|row| &row[band * 32..band * 32 + 32])
             .map(|&value| u32::from(value))
             .sum();
@@ -3197,7 +3205,7 @@ fn dithers_gentle_gradients_converted_to_yuv420p() {
     // Luma rises 219/255 of a code per code of gray, so rounded alone it
     // would step about every 37 pixels.
     let luma = &frame.pixels()[..256 * 10];
-    for row in luma[..256 * 8].chunks_exact(256) {
+    for row in luma[..256 * 8].as_chunks::<256>().0 {
         assert!(longest_run(row) <= 28, "{row:?}");
         assert_eq!(row[0], 16);
     }
@@ -3388,7 +3396,9 @@ fn pipelines_yuv420p_frames_with_padded_plane_rows() {
 /// The little-endian 16-bit samples of `bytes`.
 fn samples16(bytes: &[u8]) -> Vec<u16> {
     bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|sample| u16::from_le_bytes([sample[0], sample[1]]))
         .collect()
 }
@@ -3449,7 +3459,7 @@ fn converts_frames_to_ten_bit_yuv420p() {
     assert!(renderer.submit(&gentle_gradient_scene()).unwrap().is_none());
     let frame = renderer.drain().unwrap().remove(0);
     let luma = samples16(&frame.pixels()[..256 * 10 * 2]);
-    for row in luma[..256 * 8].chunks_exact(256) {
+    for row in luma[..256 * 8].as_chunks::<256>().0 {
         // 64.05 and 91.4 before rounding.
         assert!(row[0].abs_diff(64) <= 1, "{}", row[0]);
         assert!(row[255].abs_diff(91) <= 1, "{}", row[255]);
@@ -3494,7 +3504,7 @@ fn reads_frames_back_in_sixteen_bits() {
     let last = f64::from(red[255]) / 257.0;
     assert!((last - 7.98).abs() < 0.05, "{last}");
     // #102030 within the half float's precision of 257 times each code.
-    for pixel in solid.chunks_exact(4) {
+    for pixel in solid.as_chunks::<4>().0 {
         for (value, code) in pixel.iter().zip([0x10_u16, 0x20, 0x30, 255]) {
             assert!(value.abs_diff(code * 257) <= 8, "{pixel:?}");
         }
@@ -3574,7 +3584,12 @@ fn straight_alpha_matches_premultiplied_divided_by_alpha() {
     assert_eq!(premultiplied.len(), straight.len());
     let mut checked = 0;
     let mut partial = 0;
-    for (premultiplied, straight) in premultiplied.chunks_exact(4).zip(straight.chunks_exact(4)) {
+    for (premultiplied, straight) in premultiplied
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(straight.as_chunks::<4>().0.iter())
+    {
         let alpha = u32::from(premultiplied[3]);
         if alpha < 4096 {
             continue;
@@ -3723,8 +3738,10 @@ fn renders_an_offscreen_background_when_a_gpu_is_available() {
     assert!(
         frame
             .pixels()
-            .chunks_exact(4)
-            .all(|pixel| pixel == [51, 102, 153, 255])
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| *pixel == [51, 102, 153, 255])
     );
 }
 
@@ -3759,8 +3776,10 @@ fn submit_and_drain_return_frames_in_submission_order_with_correct_content() {
         assert!(
             frame
                 .pixels()
-                .chunks_exact(4)
-                .all(|pixel| pixel == [color.red, color.green, color.blue, color.alpha])
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| *pixel == [color.red, color.green, color.blue, color.alpha])
         );
     }
 }
@@ -4360,13 +4379,17 @@ fn rasterizes_and_rotates_styled_text_on_the_gpu() {
     assert!(
         frame
             .pixels()
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| { pixel[3] > 0 && pixel[0] > pixel[1] && pixel[1] > pixel[2] })
     );
     assert!(
         frame
             .pixels()
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| { pixel[3] > 0 && pixel[2] > pixel[0] })
     );
 }
@@ -4699,8 +4722,8 @@ fn centers_visible_single_line_text_on_its_transform() {
     let mut min_y = u32::MAX;
     let mut max_x = 0;
     let mut max_y = 0;
-    for (index, pixel) in frame.pixels().chunks_exact(4).enumerate() {
-        if pixel != [20, 22, 28, 255] {
+    for (index, pixel) in frame.pixels().as_chunks::<4>().0.iter().enumerate() {
+        if *pixel != [20, 22, 28, 255] {
             let x = index as u32 % frame.width();
             let y = index as u32 / frame.width();
             min_x = min_x.min(x);
@@ -5066,7 +5089,7 @@ fn a_stroked_text_layer_keeps_its_place_and_its_whole_stroke() {
         });
         let frame = renderer.render(&scene).unwrap();
         let (mut ink, mut fill) = ((u32::MAX, 0), (u32::MAX, 0));
-        for (index, pixel) in frame.pixels().chunks_exact(4).enumerate() {
+        for (index, pixel) in frame.pixels().as_chunks::<4>().0.iter().enumerate() {
             let x = index as u32 % frame.width();
             if pixel[0] > 40 || pixel[1] > 40 {
                 ink = (ink.0.min(x), ink.1.max(x));
@@ -5295,8 +5318,10 @@ fn colored_text_and_reveals_match_cpu_through_cached_gpu_textures() {
         assert!(
             reference
                 .pixels()
-                .chunks_exact(4)
-                .zip(frame.pixels().chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(frame.pixels().as_chunks::<4>().0.iter())
                 .all(|(cpu, gpu)| {
                     (0..4).all(|channel| {
                         let expected = if channel == 3 {
@@ -5375,8 +5400,10 @@ fn font_run_text_matches_cpu() {
     assert!(
         reference
             .pixels()
-            .chunks_exact(4)
-            .zip(frame.pixels().chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(frame.pixels().as_chunks::<4>().0.iter())
             .all(|(cpu, gpu)| (0..4).all(|channel| {
                 let expected = if channel == 3 {
                     cpu[channel]

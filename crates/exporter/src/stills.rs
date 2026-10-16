@@ -552,7 +552,9 @@ impl Encoder {
 fn flatten(pixels: &[u8], background: Color) -> Vec<u8> {
     let behind = [background.red, background.green, background.blue];
     pixels
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|pixel| {
             let alpha = u16::from(pixel[3]);
             std::array::from_fn::<u8, 3, _>(|channel| {

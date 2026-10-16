@@ -311,8 +311,10 @@ impl CpuRenderer {
         draw(self, &mut isolated, inner)?;
         for (destination, source) in frame
             .pixels
-            .chunks_exact_mut(4)
-            .zip(isolated.pixels.chunks_exact(4))
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(isolated.pixels.as_chunks::<4>().0.iter())
         {
             let source = Color::rgba(source[0], source[1], source[2], source[3]);
             blend_with_mode(destination, source, state.opacity, state.blend_mode);
@@ -411,15 +413,19 @@ impl CpuRenderer {
         };
         for (destination, source) in result
             .pixels
-            .chunks_exact_mut(4)
-            .zip(source_pixels.chunks_exact(4))
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(source_pixels.as_chunks::<4>().0.iter())
         {
             blend(destination, unpremultiply_color(source), 1.0);
         }
         for (index, (destination, source)) in frame
             .pixels
-            .chunks_exact_mut(4)
-            .zip(result.pixels.chunks_exact(4))
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(result.pixels.as_chunks::<4>().0.iter())
             .enumerate()
         {
             let x = (index as u32 % frame.width) as i32;
@@ -478,9 +484,11 @@ impl CpuRenderer {
         }
         for ((destination, source), matte) in frame
             .pixels
-            .chunks_exact_mut(4)
-            .zip(children.pixels.chunks_exact(4))
-            .zip(matte.pixels.chunks_exact(4))
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(children.pixels.as_chunks::<4>().0.iter())
+            .zip(matte.pixels.as_chunks::<4>().0.iter())
         {
             let shown = mask_value(mask.mode, mask.invert, matte);
             if shown == 0.0 {

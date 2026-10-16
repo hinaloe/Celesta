@@ -216,7 +216,9 @@ fn halftone_dots_take_their_cells_color_and_area_from_luma() {
     let covered = |frame: &GpuFrame| {
         frame
             .pixels()
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|pixel| f64::from(pixel[3]) / 255.0)
             .sum::<f64>()
             / 1600.0
@@ -316,7 +318,7 @@ fn noise_is_the_same_for_the_same_seed_and_differs_between_seeds() {
     assert_ne!(first.pixels(), upper.pixels());
     let monochrome = render(&mut renderer, 32, noise(5, true));
     let mut total = 0.0;
-    for pixel in monochrome.pixels().chunks_exact(4) {
+    for pixel in monochrome.pixels().as_chunks::<4>().0 {
         assert!(pixel[0] == pixel[1] && pixel[1] == pixel[2], "{pixel:?}");
         assert!(pixel[0].abs_diff(128) <= 65 && pixel[3] == 255, "{pixel:?}");
         total += f64::from(pixel[0]);
@@ -326,7 +328,9 @@ fn noise_is_the_same_for_the_same_seed_and_differs_between_seeds() {
     assert!(
         first
             .pixels()
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| pixel[0] != pixel[1])
     );
 }

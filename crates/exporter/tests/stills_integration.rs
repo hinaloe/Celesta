@@ -889,11 +889,7 @@ export default function Root() {
     );
     assert!(result.status.success(), "{}", stderr(&result));
     let (_, _, sheet_pixels) = decode(&sheet);
-    assert!(
-        sheet_pixels
-            .chunks_exact(4)
-            .any(|pixel| pixel == [0, 255, 0, 255])
-    );
+    assert!(sheet_pixels.as_chunks::<4>().0.contains(&[0, 255, 0, 255]));
 
     let video = dir.path().join("film.mp4");
     let result = run(&["--debug-guides"], &video);
