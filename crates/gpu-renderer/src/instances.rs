@@ -3,7 +3,8 @@
 
 use crate::bounds::{CanvasRegion, PixelBounds};
 use crate::layer::{
-    InstanceBytes, InstanceFields, layer_instance, level_of_detail, pixel_aligned_translation,
+    AFFINE, InstanceBytes, InstanceFields, layer_instance, level_of_detail,
+    pixel_aligned_translation,
 };
 use crate::texture::LayerTexture;
 use crate::transform::{Affine, LayerState};
@@ -239,6 +240,7 @@ impl PreparedInstances {
             exact,
             level_of_detail: level_of_detail(particle.transform, 1.0, exact),
             raster_scale: 1.0,
+            projection: AFFINE,
         }
     }
 
@@ -285,6 +287,7 @@ impl PreparedInstances {
             exact,
             level_of_detail,
             raster_scale,
+            projection: AFFINE,
         }
     }
 }

@@ -44,8 +44,8 @@ pub(crate) struct Walk {
     /// drawn, so a blur or shadow radius follows the layer's projection.
     #[allow(dead_code, reason = "read once projective layers set it")]
     pub(crate) effect_scale: f32,
-    /// Index of the projective plane the layer is drawn onto, if any.
-    #[allow(dead_code, reason = "read once projective layers set it")]
+    /// Index into `GpuRenderer::plane_entries` of the projective plane the
+    /// layer is drawn onto, if any.
     pub(crate) plane: Option<u32>,
 }
 

@@ -158,7 +158,19 @@ impl GpuRenderer {
         draws: &PreparedDraws,
     ) {
         let format = self.canvas_format;
-        self.prepare_canvases(scene.width, scene.height);
+        // A blended draw copies what is beneath it into the backdrop at the
+        // same place, so the backdrop covers every canvas: a plane's can be
+        // larger than the scene.
+        let backdrop = draws.steps.iter().fold(
+            (scene.width, scene.height),
+            |(width, height), step| match step {
+                GpuStep::BeginGroup { canvas } => {
+                    (width.max(canvas.width), height.max(canvas.height))
+                }
+                _ => (width, height),
+            },
+        );
+        self.prepare_canvases(scene.width, scene.height, backdrop);
         self.ensure_pipeline(format, PipelineKind::Layer);
         self.ensure_pipeline(format, PipelineKind::Blend);
         // Each effect filters its shadow, glow and blur through at most

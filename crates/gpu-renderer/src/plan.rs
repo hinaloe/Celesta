@@ -2,6 +2,7 @@ use crate::bounds::{CanvasRegion, PixelBounds};
 use crate::effect::EffectSpec;
 use crate::layer::PreparedItem;
 use crate::mask::MaskSpec;
+use crate::plane::projected_bounds;
 use crate::texture::LayerTexture;
 use celesta_composition::BlendMode;
 
@@ -22,38 +23,91 @@ pub(crate) struct CompositePlan {
     pub(crate) blit_instance: u32,
 }
 
-/// The canvas an isolated group, an effect, or a mask and its group's
-/// children draw their layers onto.
+/// The canvas an isolated group, an effect, a mask and its group's
+/// children, or a plane draw their layers onto.
 #[derive(Clone, Copy)]
 pub(crate) struct GroupPlan {
     pub(crate) canvas: CanvasRegion,
-    /// What the group's layers cover, in scene pixels.
+    /// What the group's layers cover, in the pixels of the space it is drawn
+    /// in (the scene's, or an enclosing plane's).
     pub(crate) content: Option<PixelBounds>,
-    /// The box of the group's layers' shapes, in scene pixels: `content`
+    /// The box of the group's layers' shapes, in those pixels: `content`
     /// without the margins added for filtering and rounding.
     pub(crate) shape: Option<PixelBounds>,
     /// Whether anything of the group (or its effect) reaches the scene.
     /// When not, its layers still draw onto `canvas`, a single pixel none
     /// of them can touch, and the group draws nothing onto its parent.
     pub(crate) drawn: bool,
+    /// Where the group's canvas lands in its parent's space: the canvas's
+    /// own region, or a plane's canvas projected; `None` when it lands
+    /// nowhere.
+    pub(crate) lands: Option<PixelBounds>,
 }
 
-/// Plans the canvas of every isolated group, effect, and mask in `items`, in
-/// the order they begin, from the bounds of what their layers draw. A
-/// mask's canvas covers where its children show through it.
+impl GroupPlan {
+    /// The pixels of `target`, its parent's canvas, that the group's canvas
+    /// covers; `None` when it draws nothing there.
+    pub(crate) fn area(&self, target: CanvasRegion) -> Option<[u32; 4]> {
+        self.drawn
+            .then(|| self.lands.and_then(|lands| target.local_area(lands)))
+            .flatten()
+    }
+}
+
+/// Plans the canvas of every isolated group, effect, mask, and plane in
+/// `items`, in the order they begin, from the bounds of what their layers
+/// draw. A mask's canvas covers where its children show through it; a
+/// plane's is its own size, and the canvases inside it are in its pixels.
 pub(crate) fn plan_groups(items: &[PreparedItem], scene: CanvasRegion) -> Vec<GroupPlan> {
+    walk_groups(items, scene, |_| {
+        unreachable!("pending text and paths are resolved")
+    })
+    .0
+}
+
+/// What `items` (in one space, with text and paths possibly still pending)
+/// cover: the bounds the plans of `plan_groups` grow from, so nested groups,
+/// masks, effects, and planes count as they would be drawn. `pending`
+/// measures the pending item at an index of `items`.
+pub(crate) fn content_bounds(
+    items: &[PreparedItem],
+    pending: impl Fn(usize) -> Option<PixelBounds>,
+) -> Option<PixelBounds> {
+    // The canvases planned on the way are dropped, so any space will do.
+    let space = CanvasRegion::scene(1, 1);
+    walk_groups(items, space, |index| {
+        let bounds = pending(index);
+        Covered {
+            content: bounds,
+            shape: bounds,
+        }
+    })
+    .1
+    .content
+}
+
+/// `plan_groups`, which also returns what `items` cover as a whole, and
+/// measures pending items with `pending`.
+fn walk_groups(
+    items: &[PreparedItem],
+    scene: CanvasRegion,
+    pending: impl Fn(usize) -> Covered,
+) -> (Vec<GroupPlan>, Covered) {
     let mut plans: Vec<GroupPlan> = Vec::new();
-    // Each open group's index in `plans` and what its layers cover so far.
-    let mut open: Vec<(usize, Covered)> = Vec::new();
+    // Each open group's index in `plans` and what its layers cover so far,
+    // after what the items outside any group cover.
+    let mut open: Vec<(usize, Covered)> = vec![(usize::MAX, Covered::default())];
     // What each open mask drew, once its group's children have begun.
     let mut masks: Vec<Covered> = Vec::new();
+    // The space each open group's canvas is clamped to: the scene, or the
+    // innermost open plane.
+    let mut spaces = vec![scene];
     let cover = |open: &mut Vec<(usize, Covered)>, bounds: Covered| {
-        if let Some((_, covered)) = open.last_mut() {
-            *covered = covered.union(bounds);
-        }
+        let (_, covered) = open.last_mut().expect("the outermost items are open");
+        *covered = covered.union(bounds);
     };
-    let plan = |covered: Covered, output: Option<PixelBounds>| {
-        let canvas = CanvasRegion::covering(output, scene);
+    let plan = |covered: Covered, output: Option<PixelBounds>, space: CanvasRegion| {
+        let canvas = CanvasRegion::covering(output, space);
         GroupPlan {
             canvas: canvas.unwrap_or(CanvasRegion {
                 x: 0,
@@ -64,9 +118,11 @@ pub(crate) fn plan_groups(items: &[PreparedItem], scene: CanvasRegion) -> Vec<Gr
             content: covered.content,
             shape: covered.shape,
             drawn: canvas.is_some(),
+            lands: canvas.map(CanvasRegion::bounds),
         }
     };
-    for item in items {
+    for (index, item) in items.iter().enumerate() {
+        let space = *spaces.last().expect("the scene is always open");
         match item {
             PreparedItem::Layer(layer) => cover(
                 &mut open,
@@ -83,11 +139,23 @@ pub(crate) fn plan_groups(items: &[PreparedItem], scene: CanvasRegion) -> Vec<Gr
                 },
             ),
             PreparedItem::PendingText | PreparedItem::PendingPath => {
-                unreachable!("pending text and paths are resolved")
+                cover(&mut open, pending(index));
             }
             PreparedItem::BeginGroup | PreparedItem::BeginMask | PreparedItem::BeginAverage => {
                 open.push((plans.len(), Covered::default()));
-                plans.push(plan(Covered::default(), None));
+                plans.push(plan(Covered::default(), None, space));
+            }
+            PreparedItem::BeginPlane { width, height } => {
+                let canvas = CanvasRegion::scene(*width, *height);
+                open.push((plans.len(), Covered::default()));
+                plans.push(GroupPlan {
+                    canvas,
+                    content: None,
+                    shape: None,
+                    drawn: true,
+                    lands: None,
+                });
+                spaces.push(canvas);
             }
             // Every sample draws onto a canvas covering what any of them
             // covers.
@@ -110,12 +178,12 @@ pub(crate) fn plan_groups(items: &[PreparedItem], scene: CanvasRegion) -> Vec<Gr
                         shape: PixelBounds::intersection(children.shape, mask.shape),
                     }
                 };
-                plans[index] = plan(shown, shown.content);
+                plans[index] = plan(shown, shown.content, space);
                 cover(&mut open, shown);
             }
             PreparedItem::EndGroup(_) | PreparedItem::EndAverage(_) => {
                 let (index, covered) = open.pop().expect("every group was begun");
-                plans[index] = plan(covered, covered.content);
+                plans[index] = plan(covered, covered.content, space);
                 cover(&mut open, covered);
             }
             PreparedItem::EndEffect(_, effects) => {
@@ -123,7 +191,7 @@ pub(crate) fn plan_groups(items: &[PreparedItem], scene: CanvasRegion) -> Vec<Gr
                 let output = covered
                     .content
                     .map(|content| effects.output_bounds(content));
-                plans[index] = plan(covered, output);
+                plans[index] = plan(covered, output, space);
                 // A blur or a shadow spreads the pixels, not the shape.
                 cover(
                     &mut open,
@@ -133,9 +201,25 @@ pub(crate) fn plan_groups(items: &[PreparedItem], scene: CanvasRegion) -> Vec<Gr
                     },
                 );
             }
+            PreparedItem::EndPlane(layer) => {
+                let (index, covered) = open.pop().expect("every plane was begun");
+                let plane = spaces.pop().expect("every plane was begun");
+                let lands = projected_bounds(&layer.map(), plane.width, plane.height);
+                plans[index].content = covered.content;
+                plans[index].shape = covered.shape;
+                plans[index].lands = lands;
+                cover(
+                    &mut open,
+                    Covered {
+                        content: lands,
+                        shape: lands,
+                    },
+                );
+            }
         }
     }
-    plans
+    let (_, covered) = open.pop().expect("the outermost items are open");
+    (plans, covered)
 }
 
 /// What a group's layers cover so far: `GroupPlan::content` and `shape`.

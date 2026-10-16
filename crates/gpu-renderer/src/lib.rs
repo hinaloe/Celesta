@@ -18,6 +18,7 @@ mod mask;
 mod path;
 mod pipeline;
 mod plan;
+mod plane;
 mod prepare;
 mod quantize;
 mod readback;

@@ -9,6 +9,7 @@ use crate::mask::MaskPipelines;
 use crate::native_preview;
 use crate::path::PendingPath;
 use crate::pipeline::{PipelineKind, create_pipeline};
+use crate::plane::PlaneEntry;
 use crate::quantize::{QuantizeOutput, Quantizer};
 use crate::readback::{ReadbackLayout, ReadbackSlot, ReadbackWorker, SlotReadback, rgba_texture};
 use crate::shader::ShaderProcessor;
@@ -26,7 +27,7 @@ use crate::types::{
 use crate::yuv::YuvConverter;
 use crate::{BYTES_PER_PIXEL, PIPELINE_DEPTH};
 use celesta_composition::Scene;
-use celesta_media::VideoFrameDecoder;
+use celesta_media::{VideoFrame, VideoFrameDecoder};
 use celesta_renderer::{FontFallback, MissingGlyphs, TextRasterizer};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -90,7 +91,8 @@ pub struct GpuRenderer {
     /// clips' bind group and is reused like them.
     pub(crate) paths: wgpu::Buffer,
     pub(crate) path_entries: Vec<[f32; 4]>,
-    /// The size of the scene being prepared, which paths are cut to.
+    /// The size of the space being prepared: the scene's, or the plane's
+    /// whose content is being prepared. Paths are cut to it.
     pub(crate) scene_size: (u32, u32),
     /// Bound for draws that shade their content (rects) instead of sampling.
     pub(crate) placeholder_texture: LayerTexture,
@@ -153,6 +155,14 @@ pub struct GpuRenderer {
     pub(crate) walk: Walk,
     /// The leaf layers of the frame being prepared, for `hit_regions`.
     pub(crate) hit_leaves: Vec<HitLeaf>,
+    /// The planes of the frame being prepared, in the order they begin.
+    pub(crate) plane_entries: Vec<PlaneEntry>,
+    /// Whether a plane's content is being prepared only to measure it, in
+    /// its local units, where the space it can show is unbounded.
+    pub(crate) measuring_plane: bool,
+    /// The video frames decoded while planes were measured this frame, by
+    /// layer and source time, for those layers' draws in the planes.
+    pub(crate) plane_video_frames: Vec<(String, f64, VideoFrame)>,
     /// The last prepared frame's leaf layers, in painter's order.
     pub(crate) hit_regions: Vec<HitRegion>,
 }
@@ -374,6 +384,9 @@ impl GpuRenderer {
             record_hit_regions: false,
             walk: Walk::default(),
             hit_leaves: Vec::new(),
+            plane_entries: Vec::new(),
+            measuring_plane: false,
+            plane_video_frames: Vec::new(),
             hit_regions: Vec::new(),
         })
     }
