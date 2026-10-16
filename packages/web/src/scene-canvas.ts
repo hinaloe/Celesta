@@ -12,7 +12,7 @@ import { audioBytes } from './audio-decode';
 import type { AnimatedImage } from './animated-image';
 import {
   IDENTITY3, boxOf, clipInFront, corners, effectScale as planeEffectScale, facesAway, homography, invert3, isProjective,
-  linear, multiply3, planeRaster, project, projectedBounds, stretchAt, toPlane, warp,
+  linear, multiply3, planeRaster, project, projectedBounds, stretchAt, toPlane, turnFlat, turnsFlat, warp,
 } from './projection';
 import type { Box, Matrix3 } from './projection';
 
@@ -65,18 +65,15 @@ const MAX_CANVAS_AREA = 16_777_216;
 /** The largest blur, shadow, or glow radius drawn, as the GPU renderer's `MAX_BLUR`. */
 const MAX_BLUR = 64;
 
-/** Whether `t` only turns about the Z axis: no skew and no 3D rotation. */
-const turnsFlat = (t: Transform) => !(t.skew?.x || t.skew?.y || t.rotationX || t.rotationY);
-
 /**
  * The matrix a layer with transform `t` draws its content through under
  * `parent`: the 2x2 of its `linear` part `l` and its position, or today's
- * translate, rotate, and scale when it turns flat. A projective layer draws
- * through its plane instead.
+ * translate, rotate, and scale when it turns flat (`l` is `null`). A
+ * projective layer draws through its plane instead.
  */
-function layerMatrix(parent: DOMMatrix, t: Transform, l: Matrix3): DOMMatrix {
+function layerMatrix(parent: DOMMatrix, t: Transform, l: Matrix3 | null): DOMMatrix {
   const moved = parent.translate(t.position.x, t.position.y);
-  if (turnsFlat(t)) return moved.rotate(t.rotation).scale(t.scale.x, t.scale.y);
+  if (!l) return moved.rotate(t.rotation).scale(t.scale.x, t.scale.y);
   return moved.multiply(new DOMMatrix([l[0][0], l[1][0], l[0][1], l[1][1], 0, 0]));
 }
 
@@ -556,11 +553,12 @@ export class SceneCanvas {
    */
   private async layer(ctx: Context, layer: WebLayer, parent: DOMMatrix, opacity: number, orientation: Matrix3 = IDENTITY3, effectScale = 1): Promise<void> {
     const t = layer.transform;
-    const l = linear(t);
-    const own = multiply3(orientation, l);
+    // A flat layer, nearly every one, builds no 3x3 of its own.
+    const l = turnsFlat(t) ? null : linear(t);
+    const own = l ? multiply3(orientation, l) : turnFlat(orientation, t);
     if (t.backfaceVisibility === 'hidden' && facesAway(own)) return;
     const matrix = layerMatrix(parent, t, l);
-    if (!turnsFlat(t) && degenerate(matrix)) return;
+    if (l && degenerate(matrix)) return;
     const alpha = Math.max(0, Math.min(1, opacity * layer.opacity));
     if (!alpha) return;
     const content = layer.content;
@@ -624,7 +622,7 @@ export class SceneCanvas {
       source.canvas.width = result.canvas.width = 0;
       return;
     }
-    if (!turnsFlat(t) && isProjective(t, l)) {
+    if (l && isProjective(t, l)) {
       await this.plane(ctx, layer, homography(t, l), parent, alpha, own, effectScale);
       return;
     }
@@ -1013,13 +1011,14 @@ export class SceneCanvas {
    */
   private async shapeBox(ctx: Context, layer: WebLayer, parent: DOMMatrix, opacity: number, orientation: Matrix3 = IDENTITY3, effectScale = 1): Promise<Box | null> {
     const t = layer.transform;
-    const l = linear(t);
-    const own = multiply3(orientation, l);
+    // A flat layer, nearly every one, builds no 3x3 of its own.
+    const l = turnsFlat(t) ? null : linear(t);
+    const own = l ? multiply3(orientation, l) : turnFlat(orientation, t);
     if (t.backfaceVisibility === 'hidden' && facesAway(own)) return null;
     const matrix = layerMatrix(parent, t, l);
-    if (!turnsFlat(t) && degenerate(matrix)) return null;
+    if (l && degenerate(matrix)) return null;
     if (!(opacity * layer.opacity > 0)) return null;
-    if (!turnsFlat(t) && isProjective(t, l)) {
+    if (l && isProjective(t, l)) {
       const forward = multiply3(matrix3(parent), homography(t, l));
       const local = await this.planeBox(ctx, planeContent(layer), forward, own, effectScale);
       return local && boxOf(clipInFront(forward, corners(local)).map(([x, y]) => {

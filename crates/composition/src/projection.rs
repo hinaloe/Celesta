@@ -39,6 +39,14 @@ pub fn multiply3(a: &Matrix3, b: &Matrix3) -> Matrix3 {
     out
 }
 
+/// `a · b` for a flat `b`, whose z row and column are the identity's (see
+/// `EvaluatedTransform::is_flat`): what `multiply3` gives, in 12 products
+/// instead of 27.
+#[inline]
+pub fn multiply3_flat(a: &Matrix3, b: &Matrix3) -> Matrix3 {
+    a.map(|[x, y, z]| [x * b[0][0] + y * b[1][0], x * b[0][1] + y * b[1][1], z])
+}
+
 fn determinant3(m: &Matrix3) -> f64 {
     m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
         - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
@@ -139,8 +147,33 @@ impl EvaluatedTransform {
         self.perspective.filter(|d| d.is_finite() && *d > 0.0)
     }
 
+    /// Whether the transform only turns about the z axis and scales: no
+    /// skew and no 3D rotation, so `linear` is `Rz · S` and flat (its z row
+    /// and column are the identity's).
+    #[inline]
+    pub fn is_flat(&self) -> bool {
+        self.skew.x == 0.0 && self.skew.y == 0.0 && self.rotation_x == 0.0 && self.rotation_y == 0.0
+    }
+
     /// `Rx · Ry · Rz · K · S`: everything but position and perspective.
+    /// A flat transform's is built directly, as it is for nearly every
+    /// layer and particle of a frame.
+    #[inline]
     pub fn linear(&self) -> Matrix3 {
+        if !self.is_flat() {
+            return self.linear_3d();
+        }
+        let (s, c) = if self.rotation == 0.0 {
+            (0.0, 1.0)
+        } else {
+            self.rotation.to_radians().sin_cos()
+        };
+        let (x, y) = (self.scale.x, self.scale.y);
+        [[c * x, -s * y, 0.0], [s * x, c * y, 0.0], [0.0, 0.0, 1.0]]
+    }
+
+    /// `linear` the long way, for any transform.
+    pub(crate) fn linear_3d(&self) -> Matrix3 {
         let scale = [
             [self.scale.x, 0.0, 0.0],
             [0.0, self.scale.y, 0.0],

@@ -3,7 +3,7 @@ use crate::{
     AssetLocation, BackfaceVisibility, Clip, EvaluatedTransform, F32Column, GroupMask, IDENTITY3,
     ImageFit, InstanceShape, Layer, LayerContent, LetterSpacing, LineCap, LineDash, LineJoin,
     MaskMode, Matrix3, MediaTiming, Paint, PathCommand, Point, ResolvedAsset, Stroke, TextStyle,
-    U8Column, faces_away, multiply3, project, stretch_at,
+    U8Column, faces_away, multiply3, multiply3_flat, project, stretch_at,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -1004,6 +1004,51 @@ fn default_transform_is_the_identity() {
             "rotation": 0.0, "anchor": {"x": 0.5, "y": 0.5}
         })
     );
+}
+
+/// Rotations and scales a flat layer takes, mirrors and zeros included.
+fn flat_transforms() -> impl Iterator<Item = EvaluatedTransform> {
+    [0.0, -0.0, 30.0, -45.0, 90.0, 180.0, 360.0, 1234.5]
+        .into_iter()
+        .flat_map(|rotation| {
+            [(1.0, 1.0), (2.0, 0.5), (-1.0, 1.0), (0.0, 3.0)].map(|(x, y)| EvaluatedTransform {
+                position: Point { x: 12.0, y: -7.0 },
+                scale: Point { x, y },
+                rotation,
+                ..Default::default()
+            })
+        })
+}
+
+#[test]
+fn a_flat_linear_part_is_the_general_one() {
+    for t in flat_transforms() {
+        assert!(t.is_flat());
+        assert_eq!(t.linear(), t.linear_3d(), "{t:?}");
+    }
+    let tilted = EvaluatedTransform {
+        rotation_x: 1e-9,
+        ..Default::default()
+    };
+    assert!(!tilted.is_flat());
+}
+
+#[test]
+fn multiplying_by_a_flat_part_is_the_general_product() {
+    let orientation = EvaluatedTransform {
+        rotation_x: 30.0,
+        rotation_y: -60.0,
+        rotation: 10.0,
+        skew: Point { x: 5.0, y: 0.0 },
+        ..Default::default()
+    }
+    .linear();
+    for t in flat_transforms() {
+        let flat = t.linear();
+        for o in [IDENTITY3, orientation] {
+            assert_eq!(multiply3_flat(&o, &flat), multiply3(&o, &flat), "{t:?}");
+        }
+    }
 }
 
 #[test]

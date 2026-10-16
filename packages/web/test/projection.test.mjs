@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   IDENTITY3, effectScale, facesAway, homography, invert3, isProjective, linear, multiply3, perspectiveDistance,
-  planeRaster, project, projectedBounds, stretchAt, tapCount, warp,
+  planeRaster, project, projectedBounds, stretchAt, tapCount, turnFlat, turnsFlat, warp,
 } from '../src/projection.ts';
 
 // The values of `celesta_composition`'s and `celesta_gpu_renderer::plane`'s tests.
@@ -14,6 +14,38 @@ test('the default transform is the identity', () => {
   const t = transform();
   assert.ok(close(linear(t), IDENTITY3) && close(homography(t), IDENTITY3));
   assert.ok(!isProjective(t));
+});
+
+// Equal entry for entry, a zero of either sign matching either.
+const same = (a, b) => a.flat().every((value, i) => value === b.flat()[i]);
+// Rotations and scales a flat layer takes, mirrors and zeros included.
+const flatTransforms = [0, -0, 30, -45, 90, 180, 360, 1234.5].flatMap(rotation =>
+  [[1, 1], [2, 0.5], [-1, 1], [0, 3]].map(([x, y]) => transform({ position: { x: 12, y: -7 }, scale: { x, y }, rotation })));
+
+test('a flat linear part is the general one', () => {
+  const r = degrees => degrees * Math.PI / 180;
+  // `linear` the long way: Rx · Ry · Rz · K · S.
+  const general = t => {
+    const [sz, cz] = [Math.sin(r(t.rotation)), Math.cos(r(t.rotation))];
+    let m = multiply3([[1, Math.tan(r(0)), 0], [Math.tan(r(0)), 1, 0], [0, 0, 1]], [[t.scale.x, 0, 0], [0, t.scale.y, 0], [0, 0, 1]]);
+    m = multiply3([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]], m);
+    m = multiply3([[Math.cos(0), 0, Math.sin(0)], [0, 1, 0], [-Math.sin(0), 0, Math.cos(0)]], m);
+    return multiply3([[1, 0, 0], [0, Math.cos(0), -Math.sin(0)], [0, Math.sin(0), Math.cos(0)]], m);
+  };
+  for (const t of flatTransforms) {
+    assert.ok(turnsFlat(t));
+    assert.ok(same(linear(t), general(t)), JSON.stringify(t));
+  }
+  assert.ok(!turnsFlat(transform({ rotationX: 1e-9 })));
+});
+
+test('turning an orientation through a flat layer is the general product', () => {
+  const orientation = linear(transform({ rotationX: 30, rotationY: -60, rotation: 10, skew: { x: 5, y: 0 } }));
+  for (const t of flatTransforms) {
+    for (const o of [IDENTITY3, orientation]) assert.ok(same(turnFlat(o, t), multiply3(o, linear(t))), JSON.stringify(t));
+  }
+  // The identity's leaves the orientation itself.
+  assert.equal(turnFlat(orientation, transform()), orientation);
 });
 
 test('skew shears by the tangent', () => {

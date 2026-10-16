@@ -187,6 +187,25 @@ impl Affine {
         Self::from_linear(&transform.linear(), transform.position)
     }
 
+    /// `from_transform` of a transform that only turns by `rotation` degrees
+    /// and moves to `position`, as a particle's does, without building its
+    /// linear part.
+    pub(crate) fn turned(rotation: f64, position: Point) -> Self {
+        let (sin, cos) = if rotation == 0.0 {
+            (0.0, 1.0)
+        } else {
+            rotation.to_radians().sin_cos()
+        };
+        Self {
+            a: cos as f32,
+            b: sin as f32,
+            c: -sin as f32,
+            d: cos as f32,
+            tx: position.x as f32,
+            ty: position.y as f32,
+        }
+    }
+
     /// The transform of a layer whose 3D linear part is `linear`, with the
     /// z axis dropped.
     pub(crate) fn from_linear(linear: &Matrix3, position: Point) -> Self {
@@ -252,5 +271,31 @@ impl Affine {
             && self.b.abs() <= tolerance
             && self.c.abs() <= tolerance
             && (self.d - scale).abs() <= tolerance
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entries(affine: Affine) -> [f32; 6] {
+        [affine.a, affine.b, affine.c, affine.d, affine.tx, affine.ty]
+    }
+
+    #[test]
+    fn a_turn_is_the_unscaled_transform() {
+        for rotation in [0.0, -0.0, 30.0, -45.0, 90.0, 180.0, 1234.5] {
+            let position = Point { x: 12.0, y: -7.0 };
+            let general = Affine::from_transform(&EvaluatedTransform {
+                position,
+                rotation,
+                ..EvaluatedTransform::default()
+            });
+            assert_eq!(
+                entries(Affine::turned(rotation, position)),
+                entries(general),
+                "{rotation}"
+            );
+        }
     }
 }

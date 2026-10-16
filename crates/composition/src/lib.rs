@@ -32,5 +32,6 @@ pub use model::{
     Point, ResolvedAsset, Scene, ShaderParam, ShaderParamType, ShaderSource,
 };
 pub use projection::{
-    BackfaceVisibility, IDENTITY3, Matrix3, faces_away, invert3, multiply3, project, stretch_at,
+    BackfaceVisibility, IDENTITY3, Matrix3, faces_away, invert3, multiply3, multiply3_flat,
+    project, stretch_at,
 };

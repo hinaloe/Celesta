@@ -19,6 +19,7 @@ use crate::types::RenderQuality;
 use celesta_composition::{
     BackfaceVisibility, BlendMode, Clip, ImageAnimation, ImageFit, InstanceShape, Layer,
     LayerContent, LayerEffects, Matrix3, Point, ResolvedAsset, Scene, faces_away, multiply3,
+    multiply3_flat,
 };
 use celesta_renderer::image_source::{fit_within, resize_rgba};
 use celesta_renderer::{
@@ -454,7 +455,11 @@ impl GpuRenderer {
     ) -> Result<(), GpuRenderError> {
         let previous = self.walk;
         let linear = layer.transform.linear();
-        let orientation = multiply3(&previous.orientation, &linear);
+        let orientation = if layer.transform.is_flat() {
+            multiply3_flat(&previous.orientation, &linear)
+        } else {
+            multiply3(&previous.orientation, &linear)
+        };
         if layer.transform.backface_visibility == BackfaceVisibility::Hidden
             && faces_away(&orientation)
         {

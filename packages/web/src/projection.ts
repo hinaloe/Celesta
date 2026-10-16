@@ -111,8 +111,22 @@ export function perspectiveDistance(t: Transform): number | null {
   return typeof d === 'number' && Number.isFinite(d) && d > 0 ? d : null;
 }
 
-/** `Rx · Ry · Rz · K · S`: everything but position and perspective. */
+/**
+ * Whether `t` only turns about the Z axis and scales: no skew and no 3D
+ * rotation, so `linear` is `Rz · S` and flat (its Z row and column are the
+ * identity's).
+ */
+export const turnsFlat = (t: Transform) => !(t.skew?.x || t.skew?.y || t.rotationX || t.rotationY);
+
+/**
+ * `Rx · Ry · Rz · K · S`: everything but position and perspective. A flat
+ * transform's is built directly, as it is for nearly every layer.
+ */
 export function linear(t: Transform): Matrix3 {
+  if (turnsFlat(t)) {
+    const [s, c] = t.rotation === 0 ? [0, 1] : [Math.sin(radians(t.rotation)), Math.cos(radians(t.rotation))];
+    return [[c * t.scale.x, -s * t.scale.y, 0], [s * t.scale.x, c * t.scale.y, 0], [0, 0, 1]];
+  }
   const trig = (degrees: number) => [Math.sin(radians(degrees)), Math.cos(radians(degrees))];
   const [sx, cx] = trig(t.rotationX ?? 0), [sy, cy] = trig(t.rotationY ?? 0), [sz, cz] = trig(t.rotation);
   const skew = t.skew ?? { x: 0, y: 0 };
@@ -123,6 +137,16 @@ export function linear(t: Transform): Matrix3 {
   m = multiply3([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]], m);
   m = multiply3([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]], m);
   return multiply3([[1, 0, 0], [0, cx, -sx], [0, sx, cx]], m);
+}
+
+/**
+ * `multiply3(orientation, linear(t))` for a flat `t` (see `turnsFlat`), in
+ * fewer products; `orientation` itself when `t` neither turns nor scales.
+ */
+export function turnFlat(orientation: Matrix3, t: Transform): Matrix3 {
+  if (t.rotation === 0 && t.scale.x === 1 && t.scale.y === 1) return orientation;
+  const [[a, c], [b, d]] = linear(t);
+  return orientation.map(([x, y, z]) => [x * a + y * b, x * c + y * d, z]);
 }
 
 /**

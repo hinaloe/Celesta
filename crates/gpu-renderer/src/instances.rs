@@ -8,9 +8,7 @@ use crate::layer::{
 };
 use crate::texture::LayerTexture;
 use crate::transform::{Affine, LayerState};
-use celesta_composition::{
-    BlendMode, EvaluatedTransform, F32Column, Point, U8Column, instance_size,
-};
+use celesta_composition::{BlendMode, F32Column, Point, U8Column, instance_size};
 
 /// What every particle draws.
 pub(crate) enum PreparedInstanceShape {
@@ -153,13 +151,7 @@ impl PreparedInstances {
         {
             return None;
         }
-        let own = Affine::from_transform(&EvaluatedTransform {
-            position: Point { x, y },
-            scale: Point { x: 1.0, y: 1.0 },
-            rotation,
-            anchor: CENTRE,
-            ..Default::default()
-        });
+        let own = Affine::turned(rotation, Point { x, y });
         Some(Particle {
             transform: self.state.transform.multiply(own),
             width,
