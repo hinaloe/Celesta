@@ -130,11 +130,14 @@ For a clip covering output frames `start..end`:
 5. Each output frame is multiplied by `volume(t)` and added into the mix,
    exactly as the fast path does.
 
-Cancellation is checked once per block. Transposition changes per block
-(~10 ms at 48 kHz), which is smooth enough for animated pitch.
+Cancellation is checked once per block. The transposition factor is set per
+block; the stretcher picks it up at its ~30 ms analysis interval, which is
+smooth enough for animated pitch.
 
 A rate of 0 or below cannot be stretched; the stretch path treats a block
-with `n_in ≤ 0` as silence, matching how the fast path drops non-finite or
+with `n_in ≤ 0` as silence (still run through the stretcher with empty
+input so its output clock advances, but nothing is added to the mix),
+matching how the fast path drops non-finite or
 negative source positions.
 
 ## Browser runtime (`packages/web/src/export.ts`)

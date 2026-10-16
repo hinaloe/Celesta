@@ -12,7 +12,7 @@
 - Media placed inside a `Sequence` starts when the sequence does and stops when it ends.
 - `volume` and an audio `playbackRate` can be a number or keyframes. Keyframe times are seconds from the start of the enclosing sequence, written as `{ value, timescale }`.
 
-frameKeyframes(keys, { fps, origin? }) builds volume, playbackRate, or pitch keyframes from frame numbers. Times are (frame - origin) / fps on the enclosing sequence’s clock; origin defaults to 0. Use it for audio fades. The browser exporter only supports constant volume and playback rate, and no pitch.
+frameKeyframes(keys, { fps, origin? }) builds volume, playbackRate, or pitch keyframes from frame numbers. Times are (frame - origin) / fps on the enclosing sequence’s clock; origin defaults to 0. Use it for audio fades. The browser exporter supports only constant volume and playback rate, and does not support pitch.
 
 ## Change the pitch
 
@@ -24,7 +24,7 @@ By default an `Audio`'s pitch follows its speed, like tape: `playbackRate={1.25}
 
 - `pitch` transposes the clip in semitones. It defaults to 0 and ranges from −24 to 24; a fraction is cents, so `0.5` is 50 cents. It can be a number or keyframes, built with `frameKeyframes` like `volume`. Outside the range, the React path clamps to ±24 and a project JSON file fails validation.
 - `preservePitch` defaults to `false`: `playbackRate` changes speed and pitch together, as before. When `true`, `playbackRate` changes only how long the clip takes, and `pitch` alone sets the pitch.
-- The pitch you hear is raised by a factor of `2^(pitch / 12)`, times `playbackRate` unless `preservePitch` is set. `pitch={12}` is one octave up.
+- The pitch you hear is multiplied by `2^(pitch / 12)`, times `playbackRate` unless `preservePitch` is set. `pitch={12}` is one octave up.
 - Only `Audio` takes these props. The soundtrack of a `Video` and the voices of a `Dialogue` do not. The preview and the export sound the same, but the browser exporter in `@celesta/web` rejects a clip that uses them, with the error "Audio pitch and preservePitch are not supported by browser export yet."
 
 ## Size a scene to its media

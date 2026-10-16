@@ -695,7 +695,9 @@ fn exports_a_pitched_audio_clip() {
     let directory = tempfile::tempdir().unwrap();
     let mut project = transparent_project(directory.path());
     // Two seconds of 440 Hz at the project's sample rate; the item plays them
-    // at 2x in one second, and `pitch` lifts the result an octave to 880 Hz.
+    // at 2x in one second, which `preservePitch` keeps at 440 Hz, and `pitch` 7
+    // lifts it a fifth to 440 * 2^(7/12) = 659.26 Hz. Dropping either field
+    // gives 880 Hz, 1318 Hz or 440 Hz instead.
     FfmpegContext::builder()
         .input(Input::from("sine=frequency=440:sample_rate=8000:duration=2").set_format("lavfi"))
         .output(
@@ -741,7 +743,7 @@ fn exports_a_pitched_audio_clip() {
                 playback_rate: Some(Animatable::Static(2.0)),
                 volume: None,
                 muted: None,
-                pitch: Some(Animatable::Static(12.0)),
+                pitch: Some(Animatable::Static(7.0)),
                 preserve_pitch: Some(true),
             },
             enabled: None,
@@ -763,9 +765,10 @@ fn exports_a_pitched_audio_clip() {
         .filter(|pair| pair[0] < 0.0 && pair[1] >= 0.0)
         .count();
     let frequency = rising as f64 / 0.6;
+    let expected = 440.0 * (7.0_f64 / 12.0).exp2();
     assert!(
-        (880.0 * 0.97..=880.0 * 1.03).contains(&frequency),
-        "expected about 880 Hz, measured {frequency} Hz"
+        (expected * 0.97..=expected * 1.03).contains(&frequency),
+        "expected about {expected} Hz, measured {frequency} Hz"
     );
 }
 
