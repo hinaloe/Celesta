@@ -130,7 +130,10 @@ fn describe_transform(layer: &Value) -> String {
     if rotation_y != 0.0 {
         parts.push(format!("rotate Y {}°", fmt(rotation_y)));
     }
-    if let Some(perspective) = field("perspective").and_then(Value::as_f64) {
+    if let Some(perspective) = field("perspective")
+        .and_then(Value::as_f64)
+        .filter(|perspective| perspective.is_finite() && *perspective > 0.0)
+    {
         parts.push(format!("perspective {}", fmt(perspective)));
     }
     if field("backfaceVisibility").and_then(Value::as_str) == Some("hidden") {
@@ -748,6 +751,19 @@ mod tests {
              filters shader 1b0a62b2133ed451 → grayscale(1) → hue(30°) → tint(#704214, 0.35) → \
              vignette(0.6, radius 0.5, softness 0.25)\n"
         );
+    }
+
+    #[test]
+    fn omits_a_perspective_that_is_not_positive() {
+        for perspective in [0, -5] {
+            let mut flat = layer("p", json!({ "type": "rect", "width": 1, "height": 1 }));
+            flat["transform"]["perspective"] = json!(perspective);
+            let (output, _, _) = describe(vec![flat], vec![]);
+            assert_eq!(
+                output, "rect 1×1 at (10, 20)\n",
+                "perspective {perspective}"
+            );
+        }
     }
 
     #[test]

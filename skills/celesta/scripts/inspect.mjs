@@ -651,6 +651,14 @@ function describeTransform(layer, sources) {
   if (anchor.x !== 0 || anchor.y !== 0) parts.push(`anchor (${fmt(anchor.x)}, ${fmt(anchor.y)})`);
   if (scale.x !== 1 || scale.y !== 1) parts.push(scale.x === scale.y ? `scale ${fmt(scale.x)}` : `scale (${fmt(scale.x)}, ${fmt(scale.y)})`);
   if (rotation) parts.push(`rotate ${fmt(rotation)}°`);
+  // Compact JSON omits these at their defaults.
+  const skew = layer.transform.skew ?? { x: 0, y: 0 };
+  if (skew.x !== 0 || skew.y !== 0) parts.push(`skew (${fmt(skew.x)}°, ${fmt(skew.y)}°)`);
+  const { rotationX = 0, rotationY = 0, perspective, backfaceVisibility } = layer.transform;
+  if (rotationX) parts.push(`rotate X ${fmt(rotationX)}°`);
+  if (rotationY) parts.push(`rotate Y ${fmt(rotationY)}°`);
+  if (Number.isFinite(perspective) && perspective > 0) parts.push(`perspective ${fmt(perspective)}`);
+  if (backfaceVisibility === 'hidden') parts.push('backface hidden');
   if (layer.opacity !== 1) parts.push(`opacity ${fmt(layer.opacity)}`);
   if (layer.blendMode && layer.blendMode !== 'normal') parts.push(`blend ${layer.blendMode}`);
   const effects = layer.effects ?? {};
