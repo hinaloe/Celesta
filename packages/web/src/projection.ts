@@ -240,6 +240,21 @@ function clipToShown(m: Matrix3, polygon: [number, number][], [left, top, right,
   return clipPolygon(polygon, p => bottom * row(2, p) - row(1, p));
 }
 
+/** The part of the box `local` that `forward` maps in front of the viewer and into `target`: a convex polygon, empty when none of it shows. */
+function polygonShown(forward: Matrix3, local: Box, target: Box): [number, number][] {
+  return clipToShown(forward, clipInFront(forward, corners(local)), target);
+}
+
+/** The scale the most magnified corner of `polygon` needs, rounded up as text raster scales are and clamped; `null` without a corner in front of the viewer. */
+function neededScale(forward: Matrix3, polygon: [number, number][]): number | null {
+  const stretches = polygon.map(([x, y]) => stretchAt(forward, x, y)).filter((value): value is number => value !== null);
+  if (!stretches.length) return null;
+  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, roundUpToEighthOctave(Math.max(...stretches))));
+}
+
+/** `w` where `m` maps the point: 1 at the layer's origin, smaller nearer the viewer. */
+const wAt = (m: Matrix3, [x, y]: [number, number]) => m[2][0] * x + m[2][1] * y + m[2][2];
+
 /**
  * The raster of a plane whose content covers `local` (layer-local units),
  * drawn through `forward` (layer-local units to `target`'s space) onto a
@@ -250,15 +265,18 @@ function clipToShown(m: Matrix3, polygon: [number, number][], [left, top, right,
  * pixels in all.
  */
 export function planeRaster(forward: Matrix3, local: Box, target: Box, maxSize: number, maxArea = Infinity): PlaneRaster | null {
-  const polygon = clipToShown(forward, clipInFront(forward, corners(local)), target);
-  const stretches = polygon.map(([x, y]) => stretchAt(forward, x, y)).filter((value): value is number => value !== null);
-  if (!stretches.length) return null;
+  const polygon = polygonShown(forward, local, target);
+  const scale = neededScale(forward, polygon);
+  return scale === null ? null : rasterOf(polygon, scale, maxSize, maxArea);
+}
+
+/** The raster of the box of `polygon` at `scale`, lowered to keep the canvas within `maxSize` on either side and `maxArea` pixels in all. */
+function rasterOf(polygon: [number, number][], scale: number, maxSize: number, maxArea: number): PlaneRaster | null {
   const box = boxOf(polygon);
   if (!box) return null;
   const [left, top, right, bottom] = box;
   const width = right - left, height = bottom - top;
   if (!(Number.isFinite(width) && Number.isFinite(height))) return null;
-  let scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, roundUpToEighthOctave(Math.max(...stretches))));
   const side = (extent: number, scale: number) => Math.ceil(extent * scale) + 2;
   if (side(width, scale) > maxSize || side(height, scale) > maxSize) scale = (maxSize - 2) / Math.max(width, height);
   // A plane reaching to the horizon would otherwise fill the largest canvas:
@@ -271,6 +289,112 @@ export function planeRaster(forward: Matrix3, local: Box, target: Box, maxSize: 
   }
   // Rounding can leave the lowered scale a hair over the limit.
   return { scale, left, top, width: Math.min(side(width, scale), maxSize), height: Math.min(side(height, scale), maxSize) };
+}
+
+/** The most bands a plane is split into, as in the GPU renderer. */
+export const MAX_BANDS = 8;
+
+/** The texels a band's canvas reaches past its band on a side it shares with another. */
+const BAND_MARGIN = 4;
+
+/** One band of a plane: its raster, and the `w` it holds, from `near` up to but not including `far`, `null` where unbounded. */
+export type PlaneBand = { raster: PlaneRaster; near: number | null; far: number | null };
+
+/** The part of `polygon` whose `w` through `forward` is from `near` less `growNear` to `far` plus `growFar`, unbounded on a side that is `null`. */
+function partGrown(polygon: [number, number][], forward: Matrix3, near: number | null, far: number | null, growNear: number, growFar: number): [number, number][] {
+  let part = polygon;
+  if (near !== null) part = clipPolygon(part, point => wAt(forward, point) - (near - growNear));
+  if (far !== null) part = clipPolygon(part, point => far + growFar - wAt(forward, point));
+  return part;
+}
+
+/**
+ * How far half of the output pixel at local `(x, y)` reaches in local units
+ * along the direction `w` grows in: half the extent of its footprint, the
+ * pixel square mapped back through the inverse of the projection's Jacobian
+ * there. `null` behind the viewer.
+ */
+function halfFootprint(m: Matrix3, x: number, y: number): number | null {
+  const [px, py, w] = project(m, x, y);
+  if (!(w > 0)) return null;
+  const [a, c, b, d] = jacobian(m, px, py, w);
+  const det = a * d - b * c;
+  const length = Math.hypot(m[2][0], m[2][1]);
+  const nx = m[2][0] / length, ny = m[2][1] / length;
+  // The inverse's columns: a step of one output pixel across, then down.
+  const reach = 0.5 * (Math.abs(nx * d - ny * c) + Math.abs(-nx * b + ny * a)) / Math.abs(det);
+  return Number.isFinite(reach) ? reach : null;
+}
+
+/**
+ * The bands a plane is drawn in (see `planeRaster` for the arguments), as
+ * the GPU renderer's `plane_bands` picks them; empty when nothing of it can
+ * show. A plane whose one canvas would be lowered below the scale its most
+ * magnified corner needs is split, when `bandable`, along lines of equal
+ * `w` at steps of √2 in `w`, at most `MAX_BANDS`, each band at the scale its
+ * own most magnified corner needs. Each band's canvas reaches `BAND_MARGIN`
+ * texels, `reach` local units (how far effects inside spread), and the
+ * footprint of the `seam` target pixels a band draws and filters past its
+ * boundary (half a pixel, as on the GPU, by default) past the sides it
+ * shares, and together they stay within
+ * `maxArea` pixels, all lowered alike when they would not. Any other plane
+ * is one unbounded band, its raster `planeRaster`'s.
+ */
+export function planeBands(forward: Matrix3, local: Box, target: Box, maxSize: number, maxArea: number, reach: number, bandable: boolean, seam = 0.5): PlaneBand[] {
+  const polygon = polygonShown(forward, local, target);
+  const needed = neededScale(forward, polygon);
+  if (needed === null) return [];
+  const single = rasterOf(polygon, needed, maxSize, maxArea);
+  if (!single) return [];
+  const whole = [{ raster: single, near: null, far: null }];
+  if (!bandable || single.scale >= needed) return whole;
+  const ws = polygon.map(point => wAt(forward, point));
+  const nearest = Math.min(...ws), farthest = Math.max(...ws);
+  const ratio = farthest / nearest;
+  if (!(Number.isFinite(ratio) && ratio > 1)) return whole;
+  const count = Math.min(MAX_BANDS, Math.max(1, Math.ceil(Math.log(ratio) / Math.log(Math.SQRT2))));
+  if (count === 1) return whole;
+  // Each boundary once, so the bands meeting there share it exactly.
+  const boundaries = Array.from({ length: count - 1 }, (_, j) => nearest * ratio ** ((j + 1) / count));
+  const ranges = Array.from({ length: count }, (_, k): [number | null, number | null] => [k > 0 ? boundaries[k - 1] : null, k < count - 1 ? boundaries[k] : null]);
+  const scales = ranges.map(([near, far]) => neededScale(forward, partGrown(polygon, forward, near, far, 0, 0)));
+  if (scales.some(scale => scale === null)) return whole;
+  // How much `w` changes per local unit, across the bands.
+  const gradient = Math.hypot(forward[2][0], forward[2][1]);
+  // How far half of a pixel on each boundary reaches across it.
+  const reaches = boundaries.map(b => {
+    const onIt = clipPolygon(polygon, point => wAt(forward, point) - b).filter(point => Math.abs(wAt(forward, point) - b) <= 1e-9 * Math.max(Math.abs(b), 1));
+    return 2 * seam * onIt.reduce((most, [x, y]) => Math.max(most, halfFootprint(forward, x, y) ?? 0), 0);
+  });
+  const rasters = (factor: number) => {
+    const result: PlaneRaster[] = [];
+    for (let k = 0; k < count; k++) {
+      const [near, far] = ranges[k];
+      const scale = scales[k]! * factor;
+      const margin = BAND_MARGIN / scale + reach;
+      const grow = (side: number | null) => side === null ? 0 : gradient * (margin + reaches[side]);
+      const raster = rasterOf(partGrown(polygon, forward, near, far, grow(k > 0 ? k - 1 : null), grow(far === null ? null : k)), scale, maxSize, Infinity);
+      if (!raster) return null;
+      result.push(raster);
+    }
+    return result;
+  };
+  const area = (rasters: PlaneRaster[]) => rasters.reduce((sum, raster) => sum + raster.width * raster.height, 0);
+  let chosen = rasters(1);
+  if (!chosen) return whole;
+  if (area(chosen) > maxArea) {
+    // Lowered alike, from the factor the areas alone suggest down in small
+    // steps, as the margins do not shrink with the scale.
+    let factor = Math.sqrt(maxArea / area(chosen));
+    for (let step = 0; step < 64; step++) {
+      chosen = rasters(factor);
+      if (!chosen) return whole;
+      if (area(chosen) <= maxArea) break;
+      factor *= 0.99;
+    }
+    if (area(chosen) > maxArea) return whole;
+  }
+  return chosen.map((raster, k) => ({ raster, near: ranges[k][0], far: ranges[k][1] }));
 }
 
 /** The map from a plane's local units to its canvas pixels: `Translate(1 − left·scale, 1 − top·scale) · Scale(scale)`. */
