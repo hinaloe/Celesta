@@ -7,8 +7,8 @@ use celesta_composition::{
     Keyframe, KeyframeAnimation, KeyframeAnimationType, LayerContent, LayerFilter, Time,
 };
 use celesta_project::{
-    LipSyncCue, LipSyncDefinition, MouthShape, Project, SourceRange, TimelineContent,
-    TimelineEffects, TimelineGlow, TimelineShadow, TimelineTint, TimelineVignette,
+    Asset, AssetSource, LipSyncCue, LipSyncDefinition, MouthShape, Project, SourceRange,
+    TimelineContent, TimelineEffects, TimelineGlow, TimelineShadow, TimelineTint, TimelineVignette,
 };
 
 fn example() -> Project {
@@ -363,6 +363,8 @@ fn audio_graph_preserves_source_range_and_playback_mapping() {
         playback_rate: Some(Animatable::Static(2.0)),
         volume: None,
         muted: None,
+        pitch: None,
+        preserve_pitch: None,
     };
 
     let audio = Evaluator::new(&project).unwrap().audio_graph().unwrap();
@@ -370,6 +372,49 @@ fn audio_graph_preserves_source_range_and_playback_mapping() {
     assert_eq!(audio.clips[0].source_start, Time::new(1, 2));
     assert_eq!(audio.clips[0].source_duration, Some(Time::new(3, 2)));
     assert_eq!(audio.clips[0].playback_rate, Animatable::Static(2.0));
+}
+
+#[test]
+fn audio_graph_carries_pitch_and_preserve_pitch() {
+    let audio_content = |pitch, preserve_pitch| TimelineContent::Audio {
+        asset: "voice-001".to_owned(),
+        source_range: None,
+        playback_rate: None,
+        volume: None,
+        muted: None,
+        pitch,
+        preserve_pitch,
+    };
+    let mut project = example();
+    project.tracks[0].items[0].content = audio_content(Some(Animatable::Static(-3.0)), Some(true));
+    let audio = Evaluator::new(&project).unwrap().audio_graph().unwrap();
+    assert_eq!(audio.clips[0].pitch, Animatable::Static(-3.0));
+    assert!(audio.clips[0].preserve_pitch);
+
+    project.tracks[0].items[0].content = audio_content(None, None);
+    let audio = Evaluator::new(&project).unwrap().audio_graph().unwrap();
+    assert_eq!(audio.clips[0].pitch, Animatable::Static(0.0));
+    assert!(!audio.clips[0].preserve_pitch);
+
+    project.assets.insert(
+        "clip-001".to_owned(),
+        Asset::Video {
+            name: None,
+            source: AssetSource::File {
+                path: "./assets/clip.mp4".to_owned(),
+            },
+        },
+    );
+    project.tracks[0].items[0].content = TimelineContent::Video {
+        asset: "clip-001".to_owned(),
+        source_range: None,
+        playback_rate: None,
+        volume: None,
+        muted: None,
+    };
+    let audio = Evaluator::new(&project).unwrap().audio_graph().unwrap();
+    assert_eq!(audio.clips[0].pitch, Animatable::Static(0.0));
+    assert!(!audio.clips[0].preserve_pitch);
 }
 
 #[test]

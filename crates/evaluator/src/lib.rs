@@ -6,7 +6,8 @@ use celesta_composition::{
     TextStyle, Time,
 };
 use celesta_project::{
-    Asset, AssetSource, LipSyncCue, MouthShape, Project, TimelineContent, TimelineItem, Track,
+    Asset, AssetSource, LipSyncCue, MouthShape, Project, SourceRange, TimelineContent,
+    TimelineItem, Track,
 };
 
 mod error;
@@ -130,26 +131,35 @@ impl<'project> Evaluator<'project> {
                         playback_rate,
                         volume,
                         muted,
-                    }
-                    | TimelineContent::Audio {
+                    } => clips.push(self.media_clip(
+                        item,
+                        asset,
+                        *source_range,
+                        playback_rate,
+                        volume,
+                        *muted,
+                    )?),
+                    TimelineContent::Audio {
                         asset,
                         source_range,
                         playback_rate,
                         volume,
                         muted,
-                    } => clips.push(AudioClip {
-                        id: item.id.clone(),
-                        asset: self.asset(asset)?,
-                        range: item.range,
-                        source_start: source_start(*source_range),
-                        source_duration: source_duration(*source_range),
-                        playback_rate: playback_rate.clone().unwrap_or(Animatable::Static(1.0)),
-                        volume: volume.clone().unwrap_or(Animatable::Static(1.0)),
-                        muted: muted.unwrap_or(false),
-                        r#loop: false,
-                        pitch: Animatable::Static(0.0),
-                        preserve_pitch: false,
-                    }),
+                        pitch,
+                        preserve_pitch,
+                    } => {
+                        let mut clip = self.media_clip(
+                            item,
+                            asset,
+                            *source_range,
+                            playback_rate,
+                            volume,
+                            *muted,
+                        )?;
+                        clip.pitch = pitch.clone().unwrap_or(Animatable::Static(0.0));
+                        clip.preserve_pitch = preserve_pitch.unwrap_or(false);
+                        clips.push(clip);
+                    }
                     TimelineContent::Dialogue {
                         audio: Some(asset),
                         volume,
@@ -357,6 +367,31 @@ impl<'project> Evaluator<'project> {
             clip: None,
             mask: None,
             motion_blur: false,
+        })
+    }
+
+    /// Builds the clip shared by `video` and `audio` items; pitch stays neutral.
+    fn media_clip(
+        &self,
+        item: &TimelineItem,
+        asset: &str,
+        source_range: Option<SourceRange>,
+        playback_rate: &Option<Animatable<f64>>,
+        volume: &Option<Animatable<f64>>,
+        muted: Option<bool>,
+    ) -> Result<AudioClip, EvaluationError> {
+        Ok(AudioClip {
+            id: item.id.clone(),
+            asset: self.asset(asset)?,
+            range: item.range,
+            source_start: source_start(source_range),
+            source_duration: source_duration(source_range),
+            playback_rate: playback_rate.clone().unwrap_or(Animatable::Static(1.0)),
+            volume: volume.clone().unwrap_or(Animatable::Static(1.0)),
+            muted: muted.unwrap_or(false),
+            r#loop: false,
+            pitch: Animatable::Static(0.0),
+            preserve_pitch: false,
         })
     }
 
