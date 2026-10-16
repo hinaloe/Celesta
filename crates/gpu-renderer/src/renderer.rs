@@ -163,6 +163,8 @@ pub struct GpuRenderer {
     /// The pixel area of the scene being prepared, which a plane's canvas
     /// is limited by.
     pub(crate) scene_area: u64,
+    /// The most pixels a plane's canvases have together, in scene areas.
+    pub(crate) plane_area_limit: u64,
     /// The video frames decoded while planes were measured this frame, by
     /// layer and source time, for those layers' draws in the planes.
     pub(crate) plane_video_frames: Vec<(String, f64, VideoFrame)>,
@@ -390,6 +392,7 @@ impl GpuRenderer {
             plane_entries: Vec::new(),
             measuring_plane: false,
             scene_area: u64::MAX,
+            plane_area_limit: 4,
             plane_video_frames: Vec::new(),
             hit_regions: Vec::new(),
         })

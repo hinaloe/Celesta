@@ -6,12 +6,12 @@ use crate::bounds::PixelBounds;
 use crate::plan::content_bounds;
 use celesta_composition::{BackfaceVisibility, multiply3, project};
 
-fn transformed(mut layer: Layer, edit: impl FnOnce(&mut EvaluatedTransform)) -> Layer {
+pub(super) fn transformed(mut layer: Layer, edit: impl FnOnce(&mut EvaluatedTransform)) -> Layer {
     edit(&mut layer.transform);
     layer
 }
 
-fn transparent_renderer() -> Option<TestRenderer> {
+pub(super) fn transparent_renderer() -> Option<TestRenderer> {
     renderer(GpuRenderOptions {
         background: Color::TRANSPARENT,
         ..GpuRenderOptions::default()
@@ -152,7 +152,12 @@ fn centred_rect(x: f64, y: f64, width: f64, height: f64, color: &str) -> Layer {
 }
 
 /// `layer` turned by `rotation_x` and `rotation_y` under `perspective`.
-fn in_perspective(layer: Layer, rotation_x: f64, rotation_y: f64, perspective: f64) -> Layer {
+pub(super) fn in_perspective(
+    layer: Layer,
+    rotation_x: f64,
+    rotation_y: f64,
+    perspective: f64,
+) -> Layer {
     transformed(layer, |transform| {
         transform.rotation_x = rotation_x;
         transform.rotation_y = rotation_y;
@@ -161,7 +166,7 @@ fn in_perspective(layer: Layer, rotation_x: f64, rotation_y: f64, perspective: f
 }
 
 /// A group at `(x, y)` turning about its origin.
-fn group_at(x: f64, y: f64, layers: Vec<Layer>) -> Layer {
+pub(super) fn group_at(x: f64, y: f64, layers: Vec<Layer>) -> Layer {
     group(
         EvaluatedTransform {
             position: Point { x, y },
@@ -172,7 +177,7 @@ fn group_at(x: f64, y: f64, layers: Vec<Layer>) -> Layer {
     )
 }
 
-fn sized_scene(width: u32, height: u32, layers: Vec<Layer>) -> Scene {
+pub(super) fn sized_scene(width: u32, height: u32, layers: Vec<Layer>) -> Scene {
     let mut scene = empty_scene(width, height);
     scene.layers = layers;
     scene

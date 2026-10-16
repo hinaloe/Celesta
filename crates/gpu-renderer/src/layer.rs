@@ -24,6 +24,11 @@ pub(crate) enum PreparedContent {
         /// for every canvas but a plane's. Kept here, the only content that
         /// can be projective, so prepared items stay small.
         projection: [f32; 3],
+        /// The pixels of its target a plane's band draws, `(u, v, e_far,
+        /// e_near)` in target-space units: those where `s = u·x + v·y`
+        /// has `s + e_far > 0` and `s + e_near ≤ 0`. `WHOLE_BAND` for every
+        /// other canvas.
+        band: [f32; 4],
     },
 }
 
@@ -88,6 +93,9 @@ pub(crate) struct PreparedLayer {
 /// `PreparedLayer::projection` of an affine layer.
 pub(crate) const AFFINE: [f32; 3] = [0.0, 0.0, 1.0];
 
+/// The `band` of a canvas that draws every pixel it lands on.
+pub(crate) const WHOLE_BAND: [f32; 4] = [0.0, 0.0, 1.0, -1.0];
+
 impl PreparedLayer {
     pub(crate) fn new(
         texture: LayerTexture,
@@ -111,17 +119,19 @@ impl PreparedLayer {
         blend_mode: BlendMode,
         premultiplied: bool,
     ) -> Self {
-        Self::plane_or_canvas(state, blend_mode, premultiplied, AFFINE)
+        Self::plane_or_canvas(state, blend_mode, premultiplied, AFFINE, WHOLE_BAND)
     }
 
     /// A plane's premultiplied canvas, drawn through the map whose top two
-    /// rows are `state.transform` and whose bottom row is `projection`.
+    /// rows are `state.transform` and whose bottom row is `projection`, onto
+    /// the pixels of `band` (see `PreparedContent::Canvas`).
     pub(crate) const fn plane(
         state: LayerState,
         blend_mode: BlendMode,
         projection: [f32; 3],
+        band: [f32; 4],
     ) -> Self {
-        Self::plane_or_canvas(state, blend_mode, true, projection)
+        Self::plane_or_canvas(state, blend_mode, true, projection, band)
     }
 
     const fn plane_or_canvas(
@@ -129,11 +139,13 @@ impl PreparedLayer {
         blend_mode: BlendMode,
         premultiplied: bool,
         projection: [f32; 3],
+        band: [f32; 4],
     ) -> Self {
         Self {
             content: PreparedContent::Canvas {
                 premultiplied,
                 projection,
+                band,
             },
             anchor: Point { x: 0.0, y: 0.0 },
             state,
@@ -191,8 +203,18 @@ impl PreparedLayer {
             }
         );
         let (rect, fill, stroke) = match &self.content {
-            PreparedContent::Texture(_) | PreparedContent::Canvas { .. } => {
-                ([0.0; 4], [0.0; 4], [0.0; 4])
+            PreparedContent::Texture(_) => ([0.0; 4], [0.0; 4], [0.0; 4]),
+            // A band's values are in its target's space, and the shader
+            // tests the fragment's pixel in the target's canvas, which
+            // starts at `target`'s origin. Bands meeting at a boundary
+            // carry the same value for it and offset it alike here, so each
+            // pixel passes exactly one.
+            &PreparedContent::Canvas {
+                band: [u, v, far, near],
+                ..
+            } => {
+                let offset = u * target.x as f32 + v * target.y as f32;
+                ([0.0; 4], [u, v, far + offset, near + offset], [0.0; 4])
             }
             PreparedContent::Rect(rect) => (
                 [

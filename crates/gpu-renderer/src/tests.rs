@@ -36,6 +36,7 @@ mod builtin_effect;
 mod color_filter;
 mod instances;
 mod motion_blur;
+mod plane_bands;
 mod readback;
 mod shader;
 mod transform_3d;

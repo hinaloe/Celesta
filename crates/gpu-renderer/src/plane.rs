@@ -5,7 +5,7 @@
 use crate::bounds::{CanvasRegion, PixelBounds};
 use crate::error::GpuRenderError;
 use crate::hit::HitClip;
-use crate::layer::{PreparedItem, PreparedLayer};
+use crate::layer::{PreparedItem, PreparedLayer, WHOLE_BAND};
 use crate::plan::content_bounds;
 use crate::renderer::GpuRenderer;
 use crate::text::round_up_to_eighth_octave;
@@ -13,6 +13,7 @@ use crate::transform::{Affine, ClipEntry, LayerState};
 use celesta_composition::{
     BlendMode, IDENTITY3, Layer, Matrix3, Point, invert3, multiply3, project, stretch_at,
 };
+use std::collections::HashSet;
 
 /// The nearest a point may come to the viewer and still be drawn: points
 /// with `w` below it are behind the viewer, or so close they would fill the
@@ -134,6 +135,7 @@ fn w_at(m: &Matrix3, [x, y]: [f64; 2]) -> f64 {
 /// its most magnified corner needs, rounded up as text raster scales are,
 /// and lowered to keep the canvas within `max_texture` on either side and
 /// `max_area` pixels in all.
+#[cfg(test)]
 pub(crate) fn plane_raster(
     forward: &Matrix3,
     local: PixelBounds,
@@ -190,6 +192,47 @@ fn raster_of(
         width: side(width),
         height: side(height),
     })
+}
+
+/// The part of `polygon` whose `w` through `forward` is from `near` less
+/// `grow_near` to `far` plus `grow_far`, unbounded on a side that is `None`.
+fn part_grown(
+    polygon: &[[f64; 2]],
+    forward: &Matrix3,
+    near: Option<f64>,
+    far: Option<f64>,
+    grow_near: f64,
+    grow_far: f64,
+) -> Vec<[f64; 2]> {
+    let mut part = polygon.to_vec();
+    if let Some(near) = near {
+        part = clip_polygon(&part, |point| w_at(forward, point) - (near - grow_near));
+    }
+    if let Some(far) = far {
+        part = clip_polygon(&part, |point| far + grow_far - w_at(forward, point));
+    }
+    part
+}
+
+/// How far half of the output pixel at local `(x, y)` reaches in local
+/// units along the direction `w` grows in: half the extent of its
+/// footprint, the pixel square mapped back through the inverse of the
+/// projection's Jacobian there. `None` behind the viewer.
+fn half_footprint(forward: &Matrix3, x: f64, y: f64) -> Option<f64> {
+    let m = forward;
+    let [px, py, w] = project(m, x, y);
+    if !(w > 0.0) {
+        return None;
+    }
+    let jacobian = |row: usize, col: usize, p: f64| (m[row][col] - p * m[2][col]) / w;
+    let (a, b) = (jacobian(0, 0, px), jacobian(0, 1, px));
+    let (c, d) = (jacobian(1, 0, py), jacobian(1, 1, py));
+    let det = a * d - b * c;
+    let length = m[2][0].hypot(m[2][1]);
+    let (nx, ny) = (m[2][0] / length, m[2][1] / length);
+    // The inverse's columns: a step of one output pixel across, then down.
+    let reach = 0.5 * ((nx * d - ny * c).abs() + (-nx * b + ny * a).abs()) / det.abs();
+    reach.is_finite().then_some(reach)
 }
 
 /// The most bands a plane is split into.
@@ -275,34 +318,50 @@ pub(crate) fn plane_bands(
             )
         })
         .collect::<Vec<_>>();
-    // The part of the polygon from `near` to `far`, each grown by `grow`.
-    let part = |(near, far): (Option<f64>, Option<f64>), grow: f64| {
-        let mut part = polygon.clone();
-        if let Some(near) = near {
-            part = clip_polygon(&part, |point| w_at(forward, point) - (near - grow));
-        }
-        if let Some(far) = far {
-            part = clip_polygon(&part, |point| far + grow - w_at(forward, point));
-        }
-        part
-    };
     let Some(needed) = ranges
         .iter()
-        .map(|&range| needed_scale(forward, &part(range, 0.0)))
+        .map(|&(near, far)| {
+            needed_scale(forward, &part_grown(&polygon, forward, near, far, 0.0, 0.0))
+        })
         .collect::<Option<Vec<_>>>()
     else {
         return whole;
     };
     // How much `w` changes per local unit, across the bands.
     let gradient = forward[2][0].hypot(forward[2][1]);
+    // How far, in local units, half of a pixel on the boundary `b` reaches
+    // across it: the footprint the shader filters can span many texels
+    // where the plane recedes steeply, and the band on either side must
+    // hold what it reads.
+    let footprint = |b: f64| {
+        clip_polygon(&polygon, |point| w_at(forward, point) - b)
+            .into_iter()
+            .filter(|&point| (w_at(forward, point) - b).abs() <= 1e-9 * b.abs().max(1.0))
+            .filter_map(|[x, y]| half_footprint(forward, x, y))
+            .fold(0.0, f64::max)
+    };
+    let reaches = boundaries.iter().map(|&b| footprint(b)).collect::<Vec<_>>();
     let rasters = |factor: f64| {
         ranges
             .iter()
+            .enumerate()
             .zip(&needed)
-            .map(|(&range, &scale)| {
+            .map(|((k, &(near, far)), &scale)| {
                 let scale = scale * factor;
-                let grow = gradient * (BAND_MARGIN / scale + reach);
-                raster_of(&part(range, grow), scale, max_texture, u64::MAX)
+                let margin = BAND_MARGIN / scale + reach;
+                // The near side's boundary is `boundaries[k - 1]`, the far
+                // side's `boundaries[k]`.
+                let grow =
+                    |side: Option<usize>| side.map_or(0.0, |j| gradient * (margin + reaches[j]));
+                let part = part_grown(
+                    &polygon,
+                    forward,
+                    near,
+                    far,
+                    grow(k.checked_sub(1)),
+                    grow(far.map(|_| k)),
+                );
+                raster_of(&part, scale, max_texture, u64::MAX)
             })
             .collect::<Option<Vec<_>>>()
     };
@@ -444,19 +503,16 @@ pub(crate) fn hit_clips(
     Some(hit_clips)
 }
 
-/// The most pixels a plane's canvas has, in scene areas.
-const MAX_PLANE_AREA: u64 = 4;
-
 /// How far the space a plane can show reaches while its parent's content is
 /// only measured: unbounded, short of overflowing an f32.
 const UNBOUNDED: f32 = 1e9;
 
 impl GpuRenderer {
     /// Prepares the projective `layer`, drawn onto `parent`'s space at
-    /// `opacity` with `blend_mode`, as a canvas in its own plane: its
+    /// `opacity` with `blend_mode`, as canvases in its own plane: its
     /// content is prepared once in its local units to measure it (and
-    /// rolled back), then for real onto a canvas at the scale
-    /// `plane_raster` picks, which an `EndPlane` then draws through the
+    /// rolled back), then for real onto each band's canvas at the scale
+    /// `plane_bands` picks, which an `EndPlane` then draws through the
     /// layer's homography.
     pub(crate) fn prepare_plane(
         &mut self,
@@ -470,9 +526,9 @@ impl GpuRenderer {
         // while measuring and `raster.scale` per unit once rasterized.
         let parent_scale = self.walk.effect_scale;
         self.walk.effect_scale = parent_scale * stretch_ratio(&forward) as f32;
-        let local = self.measure_plane(layer, output);
+        let measured = self.measure_plane(layer, output);
         self.walk.effect_scale = parent_scale;
-        let Some(local) = local? else {
+        let Some(measured) = measured? else {
             return Ok(());
         };
         let target = if self.measuring_plane {
@@ -481,15 +537,68 @@ impl GpuRenderer {
             let (width, height) = self.scene_size;
             PixelBounds([0.0, 0.0, width as f32, height as f32])
         };
-        let Some(raster) = plane_raster(
+        let bands = plane_bands(
             &forward,
-            local,
+            measured.bounds,
             target,
             self.max_texture_dimension,
-            MAX_PLANE_AREA.saturating_mul(self.scene_area),
-        ) else {
+            self.plane_area_limit.saturating_mul(self.scene_area),
+            measured.reach,
+            measured.bandable && !self.measuring_plane,
+        );
+        // `1/W` is `u·x + v·y + t` at a point `(x, y)` of the parent's
+        // space; a band holds `w` from `near` to `far`, so it draws where
+        // `1/far < 1/W ≤ 1/near`. Each boundary is turned into `t − 1/b`
+        // once, by the same expression for both bands that meet there.
+        let Some([u, v, t]) = invert3(&forward).map(|inverse| inverse[2]) else {
             return Ok(());
         };
+        let edge = |boundary: Option<f64>, open: f64| boundary.map_or(open, |b| t - b.recip());
+        let plane = Plane {
+            layer,
+            parent,
+            opacity,
+            blend_mode,
+            forward,
+            parent_scale,
+        };
+        // A layer is one hit region however many bands draw it: the ones
+        // an earlier band recorded are left out of the later ones.
+        let first_leaf = self.hit_leaves.len();
+        for band in &bands {
+            let before = self.hit_leaves.len();
+            let values = if bands.len() == 1 {
+                WHOLE_BAND
+            } else {
+                [u, v, edge(band.far, BAND_OPEN), edge(band.near, -BAND_OPEN)]
+                    .map(|value| value as f32)
+            };
+            self.prepare_band(&plane, band.raster, values, output)?;
+            if before > first_leaf {
+                let recorded = self.hit_leaves[first_leaf..before]
+                    .iter()
+                    .map(|leaf| leaf.layer_id.clone())
+                    .collect::<HashSet<_>>();
+                let mut position = 0;
+                self.hit_leaves.retain(|leaf| {
+                    let keep = position < before || !recorded.contains(&leaf.layer_id);
+                    position += 1;
+                    keep
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Prepares one band of `plane` onto a canvas of its own, which its
+    /// `EndPlane` draws onto the parent.
+    fn prepare_band(
+        &mut self,
+        plane: &Plane,
+        raster: PlaneRaster,
+        band: [f32; 4],
+        output: &mut Vec<PreparedItem>,
+    ) -> Result<(), GpuRenderError> {
         // In steps, so a plane that changes size a little from frame to
         // frame reuses its canvas; the rest is transparent margin.
         let step = |extent: u32| {
@@ -499,9 +608,9 @@ impl GpuRenderer {
         };
         let (width, height) = (step(raster.width), step(raster.height));
         let to_plane = raster.to_plane();
-        let effect_scale = parent_scale * effect_scale(&forward, &raster);
+        let effect_scale = plane.parent_scale * effect_scale(&plane.forward, &raster);
         let to_parent = multiply3(
-            &forward,
+            &plane.forward,
             &invert3(&matrix(to_plane)).expect("a plane's raster scale is positive"),
         );
         let index = u32::try_from(self.plane_entries.len())
@@ -509,7 +618,7 @@ impl GpuRenderer {
         self.plane_entries.push(PlaneEntry {
             to_parent,
             parent: self.walk.plane,
-            clip: parent.clip,
+            clip: plane.parent.clip,
         });
         output.push(PreparedItem::BeginPlane { width, height });
         let (walk, space) = (self.walk, self.scene_size);
@@ -517,7 +626,7 @@ impl GpuRenderer {
         self.walk.effect_scale = effect_scale;
         self.scene_size = (width, height);
         let prepared = self.prepare_plane_content(
-            layer,
+            plane.layer,
             LayerState {
                 transform: to_plane,
                 opacity: 1.0,
@@ -538,11 +647,13 @@ impl GpuRenderer {
                     tx: top[2],
                     ty: middle[2],
                 },
-                opacity: (parent.opacity * opacity.clamp(0.0, 1.0) as f32).clamp(0.0, 1.0),
-                clip: parent.clip,
+                opacity: (plane.parent.opacity * plane.opacity.clamp(0.0, 1.0) as f32)
+                    .clamp(0.0, 1.0),
+                clip: plane.parent.clip,
             },
-            blend_mode,
+            plane.blend_mode,
             bottom,
+            band,
         )));
         Ok(())
     }
@@ -567,14 +678,14 @@ impl GpuRenderer {
         self.prepare_content(layer, state, BlendMode::Normal, false, output)
     }
 
-    /// The box the projective `layer`'s content covers in its local units,
+    /// What the projective `layer`'s content covers in its local units,
     /// prepared onto the end of `output` and rolled back; `None` when it
     /// draws nothing.
     fn measure_plane(
         &mut self,
         layer: &Layer,
         output: &mut Vec<PreparedItem>,
-    ) -> Result<Option<PixelBounds>, GpuRenderError> {
+    ) -> Result<Option<PlaneMeasure>, GpuRenderError> {
         let start = output.len();
         let texts = self.pending_texts.len();
         let paths = self.pending_paths.len();
@@ -586,7 +697,7 @@ impl GpuRenderer {
         let measuring = std::mem::replace(&mut self.measuring_plane, true);
         let prepared = self.prepare_plane_content(layer, LayerState::default(), output);
         self.measuring_plane = measuring;
-        let local = prepared.map(|()| {
+        let measured = prepared.map(|()| {
             // What the text and paths still pending cover, by item.
             let mut pending: Vec<(usize, Option<PixelBounds>)> = Vec::new();
             for text in &self.pending_texts[texts..] {
@@ -599,11 +710,31 @@ impl GpuRenderer {
                 pending.push((path.item, path.shape_box()));
             }
             pending.sort_unstable_by_key(|(item, _)| *item);
-            content_bounds(&output[start..], |index| {
+            let bounds = content_bounds(&output[start..], |index| {
                 let item = start + index;
                 pending
                     .binary_search_by_key(&item, |(item, _)| *item)
                     .map_or(None, |found| pending[found].1)
+            })?;
+            // How far past what it filters an effect inside spreads: the
+            // box an empty one's result can touch.
+            let reach = output[start..]
+                .iter()
+                .filter_map(|item| match item {
+                    PreparedItem::EndEffect(_, spec) => Some(
+                        spec.output_bounds(PixelBounds([0.0; 4]))
+                            .0
+                            .into_iter()
+                            .map(f32::abs)
+                            .fold(0.0, f32::max),
+                    ),
+                    _ => None,
+                })
+                .fold(0.0, f32::max);
+            Some(PlaneMeasure {
+                bounds,
+                reach: f64::from(reach),
+                bandable: !self.shaders.uses_pixel_grid_since(uses),
             })
         });
         output.truncate(start);
@@ -614,8 +745,32 @@ impl GpuRenderer {
         self.hit_leaves.truncate(leaves);
         self.plane_entries.truncate(planes);
         self.shaders.truncate_uses(uses);
-        local
+        measured
     }
+}
+
+/// What a plane's content covers, measured in its local units.
+struct PlaneMeasure {
+    bounds: PixelBounds,
+    /// How far an effect inside spreads past what it filters, in local
+    /// units.
+    reach: f64,
+    /// Whether its content may be drawn in bands: none of it runs a shader
+    /// that works in the plane's pixel grid.
+    bandable: bool,
+}
+
+/// A projective layer whose bands are being prepared.
+struct Plane<'a> {
+    layer: &'a Layer,
+    parent: LayerState,
+    /// The opacity and blend mode it is drawn onto its parent with.
+    opacity: f64,
+    blend_mode: BlendMode,
+    /// The map from its local units to its parent's space.
+    forward: Matrix3,
+    /// The parent's `Walk::effect_scale`.
+    parent_scale: f32,
 }
 
 impl PlaneRaster {
