@@ -43,6 +43,30 @@ test('the loudest band holds the tone, and RMS reads about 0.707 for a full-scal
   close(spectrumAt(analyzeAudioSpectrum(sine(1000, 1, 0.5)), 0.5).rms, Math.SQRT1_2 / 2, 1e-3);
 });
 
+test('by default the loudest band level in the file reads 1, however loud the file is', () => {
+  // A tone, then the same tone 20 dB louder.
+  const quiet = sine(1000, 1, 0.01);
+  const samples = new Float32Array(quiet.samples.length * 2);
+  samples.set(quiet.samples);
+  samples.set(quiet.samples.map((sample) => sample * 10), quiet.samples.length);
+  const audio = { sampleRate: RATE, samples };
+  const loudest = (spectrum, seconds) => Math.max(...spectrumAt(spectrum, seconds).bands);
+  // The louder tone's level in dB, read through a fixed range of 0 to -200 dB.
+  const peak = -200 + 200 * loudest(analyzeAudioSpectrum(audio, { bands: 16, minDecibels: -200, maxDecibels: 0 }), 1.5);
+
+  const spectrum = analyzeAudioSpectrum(audio, { bands: 16 });
+  assert.deepEqual(analyzeAudioSpectrum(audio, { bands: 16, maxDecibels: 'auto' }), spectrum);
+  close(loudest(spectrum, 1.5), 1, 1e-6);
+  close(loudest(spectrum, 0.5), (peak - 20 + 80) / (peak + 80), 1e-4);
+  // Ten times louder throughout: the peak still reads 1, and only the peak.
+  const louder = analyzeAudioSpectrum({ sampleRate: RATE, samples: samples.map((sample) => sample * 10) }, { bands: 16 });
+  close(loudest(louder, 1.5), 1, 1e-6);
+  close(loudest(louder, 0.5), (peak + 80) / (peak + 100), 1e-4);
+  // Below minDecibels throughout: zeros, as with a fixed ceiling.
+  const faint = analyzeAudioSpectrum(sine(1000, 1, 1e-6), { bands: 16 });
+  assert.deepEqual(spectrumAt(faint, 0.5).bands, new Array(16).fill(0));
+});
+
 test('silence and times outside the file read 0', () => {
   const silence = analyzeAudioSpectrum({ sampleRate: RATE, samples: new Float32Array(RATE) });
   assert.deepEqual(spectrumAt(silence, 0.5), { bands: new Array(32).fill(0), rms: 0 });
@@ -129,6 +153,7 @@ test('options are checked', () => {
   assert.throws(() => analyzeAudioSpectrum(audio, { minFrequency: 0 }), /minFrequency must be positive on the log scale/);
   assert.throws(() => analyzeAudioSpectrum(audio, { minFrequency: 30000 }), /must be above minFrequency/);
   assert.throws(() => analyzeAudioSpectrum(audio, { minDecibels: -10, maxDecibels: -20 }), /minDecibels/);
+  assert.throws(() => analyzeAudioSpectrum(audio, { minDecibels: Number.NaN }), /minDecibels must be a finite number/);
   assert.throws(() => analyzeAudioSpectrum(audio, { smoothing: { attack: -1, release: 0 } }), /smoothing attack/);
   assert.throws(() => analyzeAudioSpectrum(audio, { hopSeconds: 0 }), /hopSeconds must be positive/);
   assert.throws(() => analyzeAudioSpectrum({ sampleRate: 0, samples: new Float32Array(1) }), /positive sample rate/);

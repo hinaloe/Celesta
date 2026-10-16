@@ -32,8 +32,12 @@ export interface AudioSpectrumOptions {
   maxFrequency?: number;
   /** Band level that maps to 0, in dB relative to a full-scale sine. Defaults to -80. */
   minDecibels?: number;
-  /** Band level that maps to 1. Defaults to -20. */
-  maxDecibels?: number;
+  /**
+   * Band level that maps to 1. Defaults to `'auto'`: the loudest band level
+   * anywhere in the file, before smoothing, so only its peaks reach 1 however
+   * loud it was mastered.
+   */
+  maxDecibels?: number | 'auto';
   /**
    * Seconds, or separate attack and release times; 0 (the default) does not
    * smooth. Applies to the bands and the RMS.
@@ -73,7 +77,7 @@ interface ResolvedOptions {
   minFrequency: number;
   maxFrequency: number;
   minDecibels: number;
-  maxDecibels: number;
+  maxDecibels: number | 'auto';
   attack: number;
   release: number;
   hopSeconds: number;
@@ -86,7 +90,7 @@ function resolveOptions(options: AudioSpectrumOptions, sampleRate: number): Reso
     scale = 'log',
     minFrequency = 20,
     minDecibels = -80,
-    maxDecibels = -20,
+    maxDecibels = 'auto',
     smoothing = 0,
     hopSeconds = 1 / 240,
   } = options;
@@ -106,8 +110,10 @@ function resolveOptions(options: AudioSpectrumOptions, sampleRate: number): Reso
   if (!Number.isFinite(maxFrequency) || maxFrequency <= minFrequency) {
     throw new Error(`maxFrequency (${maxFrequency} Hz, at most half the ${sampleRate} Hz sample rate) must be above minFrequency (${minFrequency} Hz)`);
   }
-  if (!Number.isFinite(minDecibels) || !Number.isFinite(maxDecibels) || minDecibels >= maxDecibels) {
-    throw new Error(`minDecibels (${minDecibels}) must be below maxDecibels (${maxDecibels})`);
+  if (maxDecibels === 'auto') {
+    if (!Number.isFinite(minDecibels)) throw new Error(`minDecibels must be a finite number, got ${minDecibels}`);
+  } else if (!Number.isFinite(minDecibels) || !Number.isFinite(maxDecibels) || minDecibels >= maxDecibels) {
+    throw new Error(`minDecibels (${minDecibels}) must be below maxDecibels (${JSON.stringify(maxDecibels)})`);
   }
   const { attack, release } = typeof smoothing === 'number' ? { attack: smoothing, release: smoothing } : smoothing;
   for (const [name, value] of [['attack', attack], ['release', release]] as const) {
@@ -253,7 +259,7 @@ export function analyzeAudioSpectrum(audio: DecodedAudio, options: AudioSpectrum
     throw new Error(`analyzeAudioSpectrum() requires a positive sample rate, got ${sampleRate}`);
   }
   const resolved = resolveOptions(options, sampleRate);
-  const { fftSize, bands, minDecibels, maxDecibels, hopSeconds } = resolved;
+  const { fftSize, bands, minDecibels, hopSeconds } = resolved;
   const edges = bandEdges(resolved);
   const bins = bandBins(edges, resolved, sampleRate);
   const fftTable = tables(fftSize);
@@ -264,12 +270,13 @@ export function analyzeAudioSpectrum(audio: DecodedAudio, options: AudioSpectrum
   const re = new Float64Array(fftSize);
   const im = new Float64Array(fftSize);
   const power = new Float64Array(fftSize / 2 + 1);
-  const range = maxDecibels - minDecibels;
   // Per-hop smoothing coefficients; 1 follows the input exactly.
   const rise = resolved.attack > 0 ? 1 - Math.exp(-hopSeconds / resolved.attack) : 1;
   const fall = resolved.release > 0 ? 1 - Math.exp(-hopSeconds / resolved.release) : 1;
   const smooth = (previous: number, next: number) => previous + (next > previous ? rise : fall) * (next - previous);
 
+  // First every band's level in dB, and the RMS, unsmoothed.
+  let peakDecibels = -Infinity;
   for (let hop = 0; hop < hops; hop += 1) {
     // The window is centered on the hop's time; outside the file is silence.
     const start = Math.round(hop * hopSeconds * sampleRate) - fftSize / 2;
@@ -290,7 +297,6 @@ export function analyzeAudioSpectrum(audio: DecodedAudio, options: AudioSpectrum
     }
 
     const row = hop * bands;
-    const previousRow = row - bands;
     for (let band = 0; band < bands; band += 1) {
       const span = bins[band];
       let bandPower: number;
@@ -304,10 +310,23 @@ export function analyzeAudioSpectrum(audio: DecodedAudio, options: AudioSpectrum
         bandPower /= span.last - span.first + 1;
       }
       const decibels = bandPower > 0 ? 10 * Math.log10(bandPower) : -Infinity;
-      const level = Math.min(1, Math.max(0, (decibels - minDecibels) / range));
-      bandLevels[row + band] = smooth(hop === 0 ? 0 : bandLevels[previousRow + band], level);
+      bandLevels[row + band] = decibels;
+      if (decibels > peakDecibels) peakDecibels = decibels;
     }
-    rms[hop] = smooth(hop === 0 ? 0 : rms[hop - 1], Math.sqrt(squares / fftSize));
+    rms[hop] = Math.sqrt(squares / fftSize);
+  }
+
+  // Then onto 0–1, smoothed in order. A file whose loudest band is at or
+  // below minDecibels is all zeros, like silence.
+  const maxDecibels = resolved.maxDecibels === 'auto' ? peakDecibels : resolved.maxDecibels;
+  const range = maxDecibels - minDecibels;
+  for (let hop = 0; hop < hops; hop += 1) {
+    const row = hop * bands;
+    for (let band = 0; band < bands; band += 1) {
+      const level = range > 0 ? Math.min(1, Math.max(0, (bandLevels[row + band] - minDecibels) / range)) : 0;
+      bandLevels[row + band] = smooth(hop === 0 ? 0 : bandLevels[row - bands + band], level);
+    }
+    rms[hop] = smooth(hop === 0 ? 0 : rms[hop - 1], rms[hop]);
   }
   return { sampleRate, durationSeconds, hopSeconds, bandEdges: edges, bandLevels, rms };
 }

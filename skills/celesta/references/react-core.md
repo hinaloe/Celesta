@@ -738,8 +738,12 @@ function Bars() {
 
 - `bands` are 0–1: each band's mean FFT power in dB relative to a
   full-scale sine, mapped from `minDecibels` (default −80) to `maxDecibels`
-  (default −20) and clamped. `rms` is linear, about 0.707 for a full-scale
-  sine.
+  and clamped. `maxDecibels` defaults to `'auto'`, the loudest band level
+  anywhere in the file before smoothing, so only the file's peaks reach 1
+  however loud it was mastered. Pass a number for a fixed ceiling, e.g. to
+  give several files the same scale (`maxDecibels: -6`); a ceiling below
+  the music's peaks pins its loudest bands at 1. `rms` is linear, about
+  0.707 for a full-scale sine.
 - Options: `fftSize` (power of two, 32–32768, default 2048), `bands`
   (default 32), `scale` (`'log'` default, `'linear'`, `'mel'`),
   `minFrequency` (20 Hz) / `maxFrequency` (16 kHz, capped at Nyquist),
