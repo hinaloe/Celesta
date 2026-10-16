@@ -1,6 +1,8 @@
 //! Media probing and frame decoding through the linked FFmpeg libraries
 //! (`ez-ffmpeg`).
 
+mod color;
+mod converted;
 mod decoder;
 mod error;
 mod ffmpeg;
@@ -11,6 +13,7 @@ mod sequential;
 mod tests;
 mod types;
 
+pub use color::{DynamicRange, VideoColor};
 pub use decoder::{AudioDecoder, VideoFrameDecoder};
 pub use error::{AudioMixError, MediaError};
 pub use ffmpeg::FfmpegBackend;

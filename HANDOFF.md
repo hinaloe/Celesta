@@ -245,6 +245,10 @@ covered by the dated handoff notes.
   band. GPU gradients are not rounded to whole codes as the CPU renderer's
   are. See
   [`docs/handoff/2026-10-12-gradient-dither.md`](docs/handoff/2026-10-12-gradient-dither.md).
+- HDR (PQ, HLG) and BT.2020 video is decoded to 16-bit RGB and tone mapped
+  to 8-bit sRGB in `celesta-media`, matching Chrome's canvas drawing, so the
+  renderers only ever see SDR frames. See
+  [`docs/handoff/2026-10-16-hdr-video-import.md`](docs/handoff/2026-10-16-hdr-video-import.md).
 - Remote HTTP/HTTPS assets are downloaded once into the per-user cache and
   are not revalidated. Font loading supports stylesheet `@font-face` sources
   and WOFF/WOFF2 unpacking.

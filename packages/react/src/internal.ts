@@ -49,6 +49,7 @@ export type {
   MediaAnimationInfo,
   MediaAudioInfo,
   MediaInfo,
+  MediaVideoColor,
   MediaVideoInfo,
   ProbedMediaInfo,
 } from './media';
