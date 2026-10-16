@@ -33,7 +33,7 @@ mod contact_sheet;
 mod stills;
 
 pub use celesta_gpu_renderer::{GpuDriver, RenderQuality, UnknownGpuDriver, UnknownRenderQuality};
-pub use stills::{ContactSheet, FrameSelection, MAX_PNG_FRAMES, PngExport};
+pub use stills::{ContactSheet, FrameSelection, MAX_STILL_FILES, StillExport, StillFormat};
 
 /// Sample rate used to mix a React export's audio when no companion project
 /// supplies its own `AudioGraph.sample_rate` (the project format has no

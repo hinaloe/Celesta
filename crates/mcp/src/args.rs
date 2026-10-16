@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use celesta_exporter::{
     BitDepth, ContactSheet, EncoderPreset, ExportJob, ExportOptions, ExportRange, FrameSelection,
-    PngExport, VideoEncoding, VideoFormat, parse_timecode,
+    StillExport, StillFormat, VideoEncoding, VideoFormat, parse_timecode,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -48,9 +48,15 @@ pub struct RenderFramesArgs {
     /// React only: draw `<DebugOverlay>`, `<DebugBounds>`, and
     /// `useDebugGuides()` guides, which otherwise only the preview shows.
     debug_guides: Option<bool>,
-    /// The folder to write PNGs to; default: a temporary folder.
+    /// The image format to write and return: `png` (default, lossless),
+    /// `jpeg`, or `webp`.
+    format: Option<ImageFormat>,
+    /// JPEG or WebP quality, 1–100 (default 90); higher is sharper and
+    /// larger. Not accepted for PNG.
+    quality: Option<u8>,
+    /// The folder to write the images to; default: a temporary folder.
     output_dir: Option<PathBuf>,
-    /// Replace PNGs that already exist in `outputDir`.
+    /// Replace images that already exist in `outputDir`.
     overwrite: Option<bool>,
     /// Arguments no field above takes; any are a usage error.
     #[serde(flatten)]
@@ -74,7 +80,15 @@ pub struct ContactSheetArgs {
     tile_width: Option<u32>,
     /// React only: draw debug guides into the tiles.
     debug_guides: Option<bool>,
-    /// The `.png` to write; default: a temporary file.
+    /// The image format when `output` is left out: `png` (default,
+    /// lossless), `jpeg`, or `webp`. With `output`, it must match the
+    /// output's extension.
+    format: Option<ImageFormat>,
+    /// JPEG or WebP quality, 1–100 (default 90); higher is sharper and
+    /// larger. Not accepted for PNG.
+    quality: Option<u8>,
+    /// The `.png`, `.jpg`, `.jpeg`, or `.webp` to write; its extension picks
+    /// the format. Default: a temporary file.
     output: Option<PathBuf>,
     /// Replace `output` if it exists.
     overwrite: Option<bool>,
@@ -82,6 +96,27 @@ pub struct ContactSheetArgs {
     #[serde(flatten)]
     #[schemars(skip)]
     unknown: Map<String, Value>,
+}
+
+/// The image format of rendered stills.
+#[derive(Clone, Copy, Default, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ImageFormat {
+    #[default]
+    Png,
+    #[serde(alias = "jpg")]
+    Jpeg,
+    Webp,
+}
+
+impl From<ImageFormat> for StillFormat {
+    fn from(format: ImageFormat) -> Self {
+        match format {
+            ImageFormat::Png => Self::Png,
+            ImageFormat::Jpeg => Self::Jpeg,
+            ImageFormat::Webp => Self::Webp,
+        }
+    }
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -212,23 +247,35 @@ fn selection(
     }
 }
 
-fn png_path(output: &Path) -> Result<PathBuf, String> {
-    if !output
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("png"))
-    {
+/// `output` made absolute, with the still format its extension picks.
+fn still_path(output: &Path) -> Result<(PathBuf, StillFormat), String> {
+    let Some(format) = StillFormat::from_extension(output) else {
         return Err(format!(
-            "output must be a .png file, not {}",
+            "output must be a .png, .jpg, .jpeg or .webp file, not {}",
             output.display()
         ));
+    };
+    Ok((absolute(output), format))
+}
+
+/// `quality`, checked against the still format it would encode.
+fn still_quality(format: StillFormat, quality: Option<u8>) -> Result<Option<u8>, String> {
+    match quality {
+        Some(_) if !format.is_lossy() => {
+            Err("quality applies to JPEG and WebP output; PNG is lossless".into())
+        }
+        Some(quality) if !(1..=StillExport::MAX_QUALITY).contains(&quality) => Err(format!(
+            "quality must be 1 to {}, not {quality}",
+            StillExport::MAX_QUALITY
+        )),
+        quality => Ok(quality),
     }
-    Ok(absolute(output))
 }
 
 fn job(
     source: Source,
     output: PathBuf,
-    png: Option<PngExport>,
+    stills: Option<StillExport>,
     options: ExportOptions,
 ) -> ExportJob {
     ExportJob {
@@ -239,7 +286,7 @@ fn job(
         props_file: source.props_file,
         props: source.props,
         output,
-        png,
+        stills,
         options,
     }
 }
@@ -250,6 +297,8 @@ impl RenderFramesArgs {
         let debug_guides = self.debug_guides.unwrap_or(false);
         let source = self.source.check(debug_guides)?;
         let frames = selection(&self.frames, self.every, source.range.as_ref())?;
+        let format = StillFormat::from(self.format.unwrap_or_default());
+        let quality = still_quality(format, self.quality)?;
         let dir = match &self.output_dir {
             Some(dir) => {
                 let dir = absolute(dir);
@@ -264,12 +313,14 @@ impl RenderFramesArgs {
             range: source.range,
             ..ExportOptions::default()
         };
-        let png = PngExport {
+        let stills = StillExport {
             frames,
             contact_sheet: None,
             debug_guides,
+            quality,
         };
-        Ok(job(source, dir.join("frame.png"), Some(png), options))
+        let output = dir.join(format!("frame.{format}"));
+        Ok(job(source, output, Some(stills), options))
     }
 }
 
@@ -287,27 +338,41 @@ impl ContactSheetArgs {
         if tile_width == 0 {
             return Err("tileWidth must be at least 1".into());
         }
-        let output = match &self.output {
-            Some(output) => png_path(output)?,
-            None => outputs
-                .fresh()
-                .map_err(|error| error.to_string())?
-                .join("sheet.png"),
+        let (output, format) = match &self.output {
+            Some(output) => {
+                let (output, format) = still_path(output)?;
+                if let Some(given) = self.format
+                    && StillFormat::from(given) != format
+                {
+                    return Err(format!(
+                        "format {} disagrees with the output extension, which picks {format}; leave format out or change the extension",
+                        StillFormat::from(given)
+                    ));
+                }
+                (output, format)
+            }
+            None => {
+                let format = StillFormat::from(self.format.unwrap_or_default());
+                let dir = outputs.fresh().map_err(|error| error.to_string())?;
+                (dir.join(format!("sheet.{format}")), format)
+            }
         };
+        let quality = still_quality(format, self.quality)?;
         let options = ExportOptions {
             overwrite: self.overwrite.unwrap_or(false),
             range: source.range,
             ..ExportOptions::default()
         };
-        let png = PngExport {
+        let stills = StillExport {
             frames,
             contact_sheet: Some(ContactSheet {
                 columns,
                 tile_width,
             }),
             debug_guides,
+            quality,
         };
-        Ok(job(source, output, Some(png), options))
+        Ok(job(source, output, Some(stills), options))
     }
 }
 
@@ -317,7 +382,7 @@ impl ExportVideoArgs {
         let source = self.source.check(false)?;
         let Some(video_format) = VideoFormat::from_extension(&self.output) else {
             return Err(format!(
-                "output must be a .mp4, .mov or .webm file, not {}; use render_frames for PNG",
+                "output must be a .mp4, .mov or .webm file, not {}; use render_frames for still images",
                 self.output.display()
             ));
         };
@@ -467,13 +532,111 @@ mod tests {
     #[test]
     fn outputs_need_the_right_extension() {
         rejects(
-            sheet_job(json!({ "source": "a.tsx", "every": 5, "output": "a.jpg" })),
-            ".png",
+            sheet_job(json!({ "source": "a.tsx", "every": 5, "output": "a.gif" })),
+            ".png, .jpg, .jpeg or .webp",
         );
         rejects(
             video_job(json!({ "source": "a.tsx", "output": "a.png" })),
             ".mp4, .mov or .webm",
         );
+    }
+
+    #[test]
+    fn contact_sheet_output_extension_picks_the_format() {
+        for output in ["a.png", "a.jpg", "a.JPEG", "a.webp"] {
+            let job =
+                sheet_job(json!({ "source": "a.tsx", "every": 5, "output": output })).unwrap();
+            assert!(job.output.ends_with(output), "{}", job.output.display());
+        }
+        let job = sheet_job(json!({ "source": "a.tsx", "every": 5, "format": "webp" })).unwrap();
+        assert_eq!(job.output.file_name().unwrap(), "sheet.webp");
+        let job = sheet_job(json!({
+            "source": "a.tsx", "every": 5, "format": "jpeg", "output": "a.jpg"
+        }))
+        .unwrap();
+        assert!(job.output.ends_with("a.jpg"));
+        rejects(
+            sheet_job(json!({
+                "source": "a.tsx", "every": 5, "format": "webp", "output": "a.png"
+            })),
+            "format webp",
+        );
+    }
+
+    #[test]
+    fn render_frames_format_names_the_files() {
+        let output = |format: Value| {
+            frames_job(json!({ "source": "a.tsx", "frames": [0], "format": format }))
+                .unwrap()
+                .output
+        };
+        assert_eq!(output(json!("png")).file_name().unwrap(), "frame.png");
+        assert_eq!(output(json!("jpeg")).file_name().unwrap(), "frame.jpeg");
+        assert_eq!(output(json!("jpg")).file_name().unwrap(), "frame.jpeg");
+        assert_eq!(output(json!("webp")).file_name().unwrap(), "frame.webp");
+        let job = frames_job(json!({ "source": "a.tsx", "frames": [0] })).unwrap();
+        assert_eq!(job.output.file_name().unwrap(), "frame.png");
+        assert!(
+            serde_json::from_value::<RenderFramesArgs>(
+                json!({ "source": "a.tsx", "frames": [0], "format": "gif" })
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn quality_applies_to_jpeg_and_webp_only() {
+        let quality = |job: ExportJob| job.stills.unwrap().quality;
+        assert_eq!(
+            quality(
+                frames_job(
+                    json!({ "source": "a.tsx", "frames": [0], "format": "jpeg", "quality": 75 })
+                )
+                .unwrap()
+            ),
+            Some(75)
+        );
+        assert_eq!(
+            quality(
+                frames_job(json!({ "source": "a.tsx", "frames": [0], "format": "webp" })).unwrap()
+            ),
+            None
+        );
+        assert_eq!(
+            quality(
+                sheet_job(
+                    json!({ "source": "a.tsx", "every": 5, "output": "a.webp", "quality": 1 })
+                )
+                .unwrap()
+            ),
+            Some(1)
+        );
+        rejects(
+            frames_job(json!({ "source": "a.tsx", "frames": [0], "quality": 80 })),
+            "PNG is lossless",
+        );
+        rejects(
+            sheet_job(json!({ "source": "a.tsx", "every": 5, "quality": 80 })),
+            "PNG is lossless",
+        );
+        rejects(
+            sheet_job(json!({ "source": "a.tsx", "every": 5, "output": "a.png", "quality": 80 })),
+            "PNG is lossless",
+        );
+        for quality in [0, 101] {
+            rejects(
+                frames_job(json!({
+                    "source": "a.tsx", "frames": [0], "format": "jpeg", "quality": quality
+                })),
+                "quality must be 1 to 100",
+            );
+            rejects(
+                sheet_job(json!({
+                    "source": "a.tsx", "every": 5, "output": "a.webp", "quality": quality
+                })),
+                "quality must be 1 to 100",
+            );
+        }
     }
 
     #[test]
@@ -517,7 +680,7 @@ mod tests {
         .unwrap();
         assert_eq!(job.options.video.crf, 20);
         assert_eq!(job.options.video.bit_depth, BitDepth::Ten);
-        assert!(job.png.is_none());
+        assert!(job.stills.is_none());
         assert_eq!(job.options.subtitles, None);
         let job = video_job(json!({
             "source": "a.tsx", "output": "a.mp4", "subtitles": "a.srt"
@@ -533,7 +696,7 @@ mod tests {
         assert!(job.react);
         assert!(job.output.is_absolute());
         assert_eq!(
-            job.png.unwrap().frames,
+            job.stills.unwrap().frames,
             celesta_exporter::FrameSelection::FromEnd(vec![0, -1])
         );
         let job = frames_job(json!({ "source": "a.celesta.json", "every": 5 })).unwrap();

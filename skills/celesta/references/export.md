@@ -2,7 +2,8 @@
 
 The command-line exporter renders a React composition or a JSON project to
 an H.264 + AAC MP4, a transparent MOV or WebM (see
-[Transparent video](#transparent-video)), or PNG frames (see
+[Transparent video](#transparent-video)), or still images: PNG, JPEG, or
+WebP frames and contact sheets (see [Still images](#still-images) and
 [verify.md](verify.md)). Find it
 first: [setup.md](setup.md#find-the-celesta-tools). `Celesta-export` below
 stands for its path.
@@ -12,6 +13,7 @@ stands for its path.
 - [Commands](#commands)
 - [Options](#options)
 - [Transparent video](#transparent-video)
+- [Still images](#still-images)
 - [JSON results](#json-results)
 - [Progress output](#progress-output)
 - [Quality notes](#quality-notes)
@@ -64,8 +66,9 @@ Celesta-export --json --react scene.tsx out.mp4
 | `--render-quality <q>` | `final` (default) or `draft`. `draft` draws scaled text from a scale-1 texture, so it is softer; use it only to check timing. |
 | `--json` | No progress output; one line of JSON on stdout when the export ends. See [JSON results](#json-results). |
 | `--no-ui` | Plain text progress instead of the terminal dashboard (automatic when stderr is not a terminal). |
-| `--output-format <f>` | `png`, `mp4`, `mov`, or `webm`. Normally implied (PNG by a frame selection, video by the extension); one that disagrees with the output extension is a usage error. |
-| `--frame`, `--frames`, `--every`, `--contact-sheet`, `--columns`, `--tile-width`, `--debug-guides` | PNG output; see [verify.md](verify.md#look-at-real-frames). |
+| `--output-format <f>` | `png`, `jpeg`, `webp`, `mp4`, `mov`, or `webm`. Normally implied by the output extension; one that disagrees with it is a usage error. |
+| `--frame`, `--frames`, `--every`, `--contact-sheet`, `--columns`, `--tile-width`, `--debug-guides` | Still output; see [Still images](#still-images) and [verify.md](verify.md#look-at-real-frames). |
+| `--quality <n>` | 1–100, JPEG and WebP stills only (default 90). Higher is sharper and larger. |
 
 Video export needs non-zero, even `width` and `height`.
 
@@ -93,6 +96,36 @@ Celesta-export --json --react scene.tsx overlay.mov
   `preset`, `crf`, and `bitDepth` are rejected with `.mov` and `.webm`.
 - An FFmpeg build without the needed encoder fails with
   `encoder_unavailable`.
+
+## Still images
+
+A frame selection (`--frame`, `--frames`, or `--every`) writes still images
+instead of a video. The output extension picks the image format:
+
+| Extension | Format | `--quality` |
+| --- | --- | --- |
+| `.png` | Lossless 8-bit RGBA | not accepted |
+| `.jpg`, `.jpeg` | Baseline JPEG | 1–100, default 90 |
+| `.webp` | Lossy WebP | 1–100, default 90 |
+
+```sh
+Celesta-export --json --react scene.tsx --frame 90 --quality 85 thumbnail.jpg
+Celesta-export --json --react scene.tsx --every 150 --contact-sheet sheet.webp
+```
+
+- Stills are drawn over the same opaque background as an MP4, so they have
+  no transparent pixels; a JPEG, which has no alpha channel, loses nothing.
+- Several frames are written as `thumbnail-000090.jpg` and so on, keeping
+  the output's extension.
+- WebP holds at most 16383 pixels on each side; a larger contact sheet is
+  rejected before rendering.
+- Check frames for yourself as PNG ([verify.md](verify.md)); JPEG and WebP
+  compression can blur fine text and edges.
+- The MCP `render_frames` tool takes `format` (`png`, `jpeg`, or `webp`) and
+  `contact_sheet` takes the same extensions in `output`; both take `quality`
+  and return the images in the format they wrote. An image over 1568 pixels
+  on a side comes back as a downscaled PNG; the file keeps its size and
+  format.
 
 ## JSON results
 
@@ -123,15 +156,15 @@ props file, the result also has `propsFile` (its path) and `propsFileAuto`
     (whether the file has an audio stream), `format` (`"mp4"`, `"mov"`, or
     `"webm"`), and `alpha` (`true` when the format carries transparency:
     `mov` and `webm`);
-  - `frame`: one PNG, with `frame` and `time`;
+  - `frame`: one still image, with `frame` and `time`;
   - `subtitles`: the `--subtitles` file, with `format` (`"srt"` or `"vtt"`)
     and the number of `cues`;
-  - `contactSheet`: one PNG, with `columns` and the tile `frames` in
+  - `contactSheet`: one image, with `columns` and the tile `frames` in
     reading order.
 - `stats.renderFps` is the average rendering speed. Compare it between
   spans to find slow parts.
 - On failure, `status` is `"error"` and `error` has a stable `code`, the
-  `message`, and sometimes a `hint`. `outputs` still lists the PNGs written
+  `message`, and sometimes a `hint`. `outputs` still lists the images written
   before the failure. `composition` is included when the failure happened
   after the composition was loaded. A `usage` error report has only
   `status` and `error`.
@@ -140,9 +173,9 @@ props file, the result also has `propsFile` (its path) and `propsFileAuto`
 | --- | --- |
 | `usage` | The arguments were rejected (exit status 2). |
 | `output_exists` | An output file exists; add `--overwrite` only if you may replace it. |
-| `invalid_selection` | A frame is out of range or repeated, or the selection or contact sheet is too large. |
+| `invalid_selection` | A frame is out of range or repeated, the selection or contact sheet is too large, or a still output is not `.png`, `.jpg`, `.jpeg`, or `.webp`. |
 | `empty_range` | `--from`/`--to` cover no frames of the composition. |
-| `unsupported_output` | The output is not a `.mp4`, `.mov`, or `.webm` path and no frame selection (`--frame`, `--frames`, `--every`) makes it a PNG export. |
+| `unsupported_output` | The output is not a `.mp4`, `.mov`, or `.webm` path and no frame selection (`--frame`, `--frames`, `--every`) makes it a still export. |
 | `encoder_unavailable` | This FFmpeg build lacks an encoder the format needs (video: H.264, ProRes, or VP9; audio: AAC, PCM, or Opus). |
 | `unsupported_dimensions` | Video needs non-zero even width and height. |
 | `unsupported_subtitles` | The `--subtitles` path is not a `.srt` or `.vtt` file. |

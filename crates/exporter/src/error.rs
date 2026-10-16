@@ -28,8 +28,8 @@ pub enum ExportError {
         source: ez_ffmpeg::error::Error,
     },
     OutputExists(PathBuf),
-    /// The PNG frame selection, its output name, or its contact sheet
-    /// layout cannot be exported.
+    /// The still frame selection, its output name or quality, or its
+    /// contact sheet layout cannot be exported.
     InvalidSelection(String),
     /// The output path's extension is not the one `format` writes.
     UnsupportedOutput {
@@ -77,7 +77,7 @@ impl fmt::Display for ExportError {
                 write!(formatter, "output already exists: {}", path.display())
             }
             Self::InvalidSelection(message) => {
-                write!(formatter, "could not export PNG frames: {message}")
+                write!(formatter, "could not export still frames: {message}")
             }
             Self::UnsupportedOutput { path, format } => write!(
                 formatter,

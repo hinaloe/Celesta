@@ -41,16 +41,33 @@ fn project(dir: &std::path::Path, width: u32) -> std::path::PathBuf {
 }
 
 fn images(result: &CallToolResult) -> Vec<Vec<u8>> {
+    typed_images(result)
+        .into_iter()
+        .map(|(_, bytes)| bytes)
+        .collect()
+}
+
+/// Each image's MIME type and bytes.
+fn typed_images(result: &CallToolResult) -> Vec<(String, Vec<u8>)> {
     result
         .content
         .iter()
         .filter_map(|block| block.as_image())
         .map(|image| {
-            base64::engine::general_purpose::STANDARD
+            let bytes = base64::engine::general_purpose::STANDARD
                 .decode(&image.data)
-                .unwrap()
+                .unwrap();
+            (image.mime_type.clone(), bytes)
         })
         .collect()
+}
+
+fn is_jpeg(bytes: &[u8]) -> bool {
+    bytes.starts_with(&[0xff, 0xd8, 0xff])
+}
+
+fn is_webp(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP")
 }
 
 #[tokio::test]
@@ -246,11 +263,116 @@ async fn contact_sheet_returns_one_image() {
     )
     .await;
     assert!(!is_error(&result), "{}", text(&result));
-    let images = images(&result);
+    let images = typed_images(&result);
     assert_eq!(images.len(), 1);
-    assert!(images[0].starts_with(PNG_SIGNATURE));
+    assert_eq!(images[0].0, "image/png");
+    assert!(images[0].1.starts_with(PNG_SIGNATURE));
     assert_eq!(
         structured(&result)["outputs"][0]["frames"],
         json!([0, 5, 10, 15, 19])
     );
+}
+
+#[tokio::test]
+async fn render_frames_writes_and_returns_jpeg_and_webp() {
+    if !runtime_built() {
+        return;
+    }
+    let (_dir, entry) = entry(&scene(10));
+    let (client, _) = client().await;
+    for (format, extension, matches) in [
+        ("jpeg", ".jpeg", is_jpeg as fn(&[u8]) -> bool),
+        ("webp", ".webp", is_webp),
+    ] {
+        let result = call(
+            &client,
+            "render_frames",
+            json!({ "source": entry, "frames": [0, -1], "format": format, "quality": 60 }),
+        )
+        .await;
+        assert!(!is_error(&result), "{}", text(&result));
+        let images = typed_images(&result);
+        assert_eq!(images.len(), 2);
+        for (mime_type, bytes) in &images {
+            assert_eq!(mime_type, &format!("image/{format}"));
+            assert!(matches(bytes), "{format}");
+        }
+        for output in structured(&result)["outputs"].as_array().unwrap() {
+            let path = std::path::Path::new(output["path"].as_str().unwrap());
+            assert!(
+                path.to_str().unwrap().ends_with(extension),
+                "{}",
+                path.display()
+            );
+            assert!(matches(&std::fs::read(path).unwrap()), "{}", path.display());
+        }
+    }
+}
+
+#[tokio::test]
+async fn contact_sheet_writes_the_output_extension_format() {
+    if !runtime_built() {
+        return;
+    }
+    let (_dir, entry) = entry(&scene(20));
+    let out = tempfile::tempdir().unwrap();
+    let (client, _) = client().await;
+    let sheet = out.path().join("sheet.webp");
+    // Five 160-pixel tiles stay under the inline limit, so the image comes
+    // back as written rather than as a downscaled PNG.
+    let result = call(
+        &client,
+        "contact_sheet",
+        json!({ "source": entry, "every": 5, "tileWidth": 160, "output": sheet, "quality": 80 }),
+    )
+    .await;
+    assert!(!is_error(&result), "{}", text(&result));
+    let images = typed_images(&result);
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0].0, "image/webp");
+    assert!(is_webp(&images[0].1));
+    assert!(is_webp(&std::fs::read(&sheet).unwrap()));
+
+    let result = call(
+        &client,
+        "contact_sheet",
+        json!({ "source": entry, "every": 5, "tileWidth": 160, "format": "jpeg" }),
+    )
+    .await;
+    assert!(!is_error(&result), "{}", text(&result));
+    let images = typed_images(&result);
+    assert_eq!(images[0].0, "image/jpeg");
+    assert!(is_jpeg(&images[0].1));
+    let path = structured(&result)["outputs"][0]["path"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(path.ends_with("sheet.jpeg"), "{path}");
+}
+
+#[tokio::test]
+async fn still_quality_is_checked_before_rendering() {
+    let (client, _) = client().await;
+    for (tool, args) in [
+        (
+            "render_frames",
+            json!({ "source": "a.tsx", "frames": [0], "quality": 80 }),
+        ),
+        (
+            "render_frames",
+            json!({ "source": "a.tsx", "frames": [0], "format": "jpeg", "quality": 0 }),
+        ),
+        (
+            "contact_sheet",
+            json!({ "source": "a.tsx", "every": 5, "output": "a.png", "quality": 80 }),
+        ),
+        (
+            "contact_sheet",
+            json!({ "source": "a.tsx", "every": 5, "output": "a.gif" }),
+        ),
+    ] {
+        let result = call(&client, tool, args.clone()).await;
+        assert!(is_error(&result), "{args}");
+        assert_eq!(structured(&result)["error"]["code"], "usage", "{args}");
+    }
 }

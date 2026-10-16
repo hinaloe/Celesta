@@ -169,7 +169,9 @@ Celesta-export --react scene.tsx --project project.celesta.json --frame 90 /tmp/
 Then open the PNG (with your image-reading tool) and look at it.
 
 - `--frame` can be repeated; `--frames` takes comma-separated integers.
-  Either selects PNG output (`--output-format png` is optional).
+  Either selects still output; the `.png` extension makes it lossless PNG.
+  Keep PNG for checks: `.jpg` and `.webp` outputs are lossy, for
+  thumbnails ([export.md](export.md#still-images)).
 - One selected frame writes the exact output filename. Several produce
   `celesta-check-000000.png`, `celesta-check-000089.png`, … (at least six
   digits).
@@ -187,11 +189,11 @@ frame number. It cannot be combined with `--frame`/`--frames`.
 Celesta-export --react scene.tsx --every 15 --from 4 --to 6 /tmp/celesta-span.png
 ```
 
-One export writes at most 1000 separate PNGs; use a larger interval, a
+One export writes at most 1000 separate images; use a larger interval, a
 shorter span, or a contact sheet.
 
-PNG export uses the same GPU renderer as MP4 in `final` quality, with RGBA
-output including transparency, one `prepare()` call for all frames, no
+PNG export uses the same GPU renderer as MP4 in `final` quality, over the
+same opaque background, one `prepare()` call for all frames, no
 audio, and odd canvas sizes allowed. Debug guides (`DebugOverlay`,
 `DebugBounds`, anything gated on `useDebugGuides()`) are drawn only with
 `--debug-guides` (React entries; never in an MP4). Font fallback and

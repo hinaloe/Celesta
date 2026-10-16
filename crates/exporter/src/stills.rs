@@ -8,16 +8,20 @@ use crate::react::{CompanionProject, ReactRuntimeOptions};
 use crate::render::{ReportedFontWarnings, export_renderer, frame_count, report_font_fallbacks};
 use celesta_composition::{Rational, Time};
 use celesta_evaluator::{EvaluationError, Evaluator};
+use celesta_gpu_renderer::{Color, GpuRenderOptions};
 use celesta_project::Project;
 use celesta_react_bridge::ProjectFrame;
+use image::codecs::jpeg::JpegEncoder;
+use image::{ExtendedColorType, ImageEncoder};
 use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsStr;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 use crate::contact_sheet::Sheet;
 
-/// Which composition frames a PNG export renders.
+/// Which composition frames a still export renders.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FrameSelection {
     /// Exact zero-based composition frames, in this order. Cannot be combined
@@ -34,7 +38,7 @@ pub enum FrameSelection {
     Every(u64),
 }
 
-/// Lays the selected frames out on one PNG instead of one PNG per frame.
+/// Lays the selected frames out on one image instead of one image per frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ContactSheet {
     /// Tiles per row; fewer selected frames than this use one row.
@@ -61,32 +65,92 @@ impl Default for ContactSheet {
     }
 }
 
-/// What a PNG export renders and how it is written.
+/// What a still export renders and how it is written. The output's extension
+/// picks the image format (see [`StillFormat`]).
+///
+/// Stills are drawn over the same opaque background as an MP4 export, so a
+/// frame has no transparent pixels; a JPEG, which has no alpha channel, is
+/// flattened onto that background all the same.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PngExport {
+pub struct StillExport {
     pub frames: FrameSelection,
-    /// `None` writes one PNG per frame.
+    /// `None` writes one image per frame.
     pub contact_sheet: Option<ContactSheet>,
     /// Draws a React entry's debug guides (`<DebugOverlay>`, `<DebugBounds>`,
     /// `useDebugGuides()`) into the frames, which otherwise only the editor
     /// preview shows. A JSON project has none to draw.
     pub debug_guides: bool,
+    /// JPEG or WebP quality, 1 to 100; higher is sharper and larger. `None`
+    /// uses [`Self::DEFAULT_QUALITY`]. PNG is lossless and takes none.
+    pub quality: Option<u8>,
 }
 
-/// Most frames one export writes as separate PNG files.
-pub const MAX_PNG_FRAMES: usize = 1_000;
+impl StillExport {
+    pub const DEFAULT_QUALITY: u8 = 90;
+    pub const MAX_QUALITY: u8 = 100;
+}
+
+/// Most frames one export writes as separate image files.
+pub const MAX_STILL_FILES: usize = 1_000;
+
+/// The image format a still export writes, chosen by the output's extension.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum StillFormat {
+    /// Lossless 8-bit RGBA.
+    #[default]
+    Png,
+    /// Baseline JPEG, `.jpg` or `.jpeg`.
+    Jpeg,
+    /// Lossy WebP (VP8).
+    Webp,
+}
+
+impl StillFormat {
+    pub const ALL: [Self; 3] = [Self::Png, Self::Jpeg, Self::Webp];
+
+    /// The name `--output-format` takes.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Png => "png",
+            Self::Jpeg => "jpeg",
+            Self::Webp => "webp",
+        }
+    }
+
+    /// The format whose extension `path` has, ignoring case.
+    pub fn from_extension(path: &Path) -> Option<Self> {
+        let extension = path.extension().and_then(OsStr::to_str)?;
+        Self::ALL.into_iter().find(|format| {
+            format.as_str().eq_ignore_ascii_case(extension)
+                || (*format == Self::Jpeg && extension.eq_ignore_ascii_case("jpg"))
+        })
+    }
+
+    /// Whether the format takes a quality.
+    pub const fn is_lossy(self) -> bool {
+        !matches!(self, Self::Png)
+    }
+}
+
+impl std::fmt::Display for StillFormat {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
 
 fn invalid(message: impl Into<String>) -> ExportError {
     ExportError::InvalidSelection(message.into())
 }
 
-/// Checks the selection and output name shared by every PNG layout.
+/// Checks the selection and output name shared by every still layout.
 fn validate(frames: &[u64], total: u64, output: &Path) -> Result<(), ExportError> {
     if frames.is_empty() {
         return Err(invalid("select at least one frame"));
     }
-    if output.extension() != Some(OsStr::new("png")) {
-        return Err(invalid("PNG output must use the .png extension"));
+    if StillFormat::from_extension(output).is_none() {
+        return Err(invalid(
+            "still output must use the .png, .jpg, .jpeg or .webp extension",
+        ));
     }
     let mut seen = HashSet::new();
     for &frame in frames {
@@ -103,11 +167,11 @@ fn validate(frames: &[u64], total: u64, output: &Path) -> Result<(), ExportError
 }
 
 /// The most frames one export renders: one contact sheet's tiles, or
-/// separate PNG files.
+/// separate image files.
 fn frame_limit(contact_sheet: Option<ContactSheet>) -> (usize, &'static str) {
     match contact_sheet {
         Some(_) => (ContactSheet::MAX_FRAMES, "a contact sheet holds"),
-        None => (MAX_PNG_FRAMES, "one export writes as separate PNGs"),
+        None => (MAX_STILL_FILES, "one export writes as separate images"),
     }
 }
 
@@ -132,7 +196,7 @@ fn select(
         FrameSelection::Frames(frames) => {
             if range.is_some() {
                 return Err(invalid(
-                    "PNG frame selection cannot be combined with an export range",
+                    "a frame selection cannot be combined with an export range",
                 ));
             }
             if frames.len() > limit {
@@ -143,7 +207,7 @@ fn select(
         FrameSelection::FromEnd(frames) => {
             if range.is_some() {
                 return Err(invalid(
-                    "PNG frame selection cannot be combined with an export range",
+                    "a frame selection cannot be combined with an export range",
                 ));
             }
             let total = frame_count(duration, frame_rate)?;
@@ -195,15 +259,22 @@ fn select(
     }
 }
 
-/// Where rendered frames go: one PNG each, or tiles of one contact sheet.
-enum Destination {
+/// Where rendered frames go, and the format they are written in.
+struct Destination {
+    encoder: Encoder,
+    layout: Layout,
+}
+
+/// One image per frame, or tiles of one contact sheet.
+enum Layout {
     Files(Vec<PathBuf>),
     Sheet(Box<Sheet>),
 }
 
 impl Destination {
-    /// Validates the selection, its size limit, and every output path
-    /// before anything renders.
+    /// Validates the selection, its size limit, the quality, and every output
+    /// path before anything renders.
+    #[allow(clippy::too_many_arguments)]
     fn prepare(
         frames: &[u64],
         total: u64,
@@ -211,10 +282,17 @@ impl Destination {
         (width, height): (u32, u32),
         frame_rate: Rational,
         output: &Path,
+        quality: Option<u8>,
         overwrite: bool,
     ) -> Result<Self, ExportError> {
+        let encoder = Encoder::new(output, quality)?;
         let Some(contact_sheet) = contact_sheet else {
-            return outputs(frames, total, output, overwrite).map(Self::Files);
+            encoder.check_size(width, height)?;
+            let paths = outputs(frames, total, output, overwrite)?;
+            return Ok(Self {
+                encoder,
+                layout: Layout::Files(paths),
+            });
         };
         validate(frames, total, output)?;
         if contact_sheet.columns == 0 || contact_sheet.tile_width == 0 {
@@ -225,7 +303,7 @@ impl Destination {
         if !overwrite && output.exists() {
             return Err(ExportError::OutputExists(output.to_owned()));
         }
-        Sheet::new(
+        let sheet = Sheet::new(
             width,
             height,
             frames.len(),
@@ -234,8 +312,12 @@ impl Destination {
             ContactSheet::MAX_SIDE,
             frame_rate,
         )
-        .map(|sheet| Self::Sheet(Box::new(sheet)))
-        .map_err(invalid)
+        .map_err(invalid)?;
+        encoder.check_size(sheet.width(), sheet.height())?;
+        Ok(Self {
+            encoder,
+            layout: Layout::Sheet(Box::new(sheet)),
+        })
     }
 
     /// Writes or places the rendered `frame`; returns the file it wrote, if any.
@@ -246,15 +328,21 @@ impl Destination {
         rendered: &celesta_gpu_renderer::GpuFrame,
         overwrite: bool,
     ) -> Result<Option<ExportedFile>, ExportError> {
-        match self {
-            Self::Files(paths) => {
-                publish(rendered, &paths[index], overwrite)?;
+        match &mut self.layout {
+            Layout::Files(paths) => {
+                self.encoder.write(
+                    rendered.width(),
+                    rendered.height(),
+                    rendered.pixels(),
+                    &paths[index],
+                    overwrite,
+                )?;
                 Ok(Some(ExportedFile::Frame {
                     path: paths[index].clone(),
                     frame,
                 }))
             }
-            Self::Sheet(sheet) => sheet
+            Layout::Sheet(sheet) => sheet
                 .place(
                     index,
                     frame,
@@ -273,10 +361,10 @@ impl Destination {
         output: &Path,
         overwrite: bool,
     ) -> Result<Option<ExportedFile>, ExportError> {
-        match self {
-            Self::Files(_) => Ok(None),
-            Self::Sheet(sheet) => {
-                write_png(
+        match self.layout {
+            Layout::Files(_) => Ok(None),
+            Layout::Sheet(sheet) => {
+                self.encoder.write(
                     sheet.width(),
                     sheet.height(),
                     sheet.pixels(),
@@ -293,7 +381,7 @@ impl Destination {
     }
 }
 
-/// Resolves deterministic PNG paths and validates all selections before rendering.
+/// Resolves deterministic image paths and validates all selections before rendering.
 fn outputs(
     frames: &[u64],
     total: u64,
@@ -310,7 +398,8 @@ fn outputs(
                 .file_stem()
                 .ok_or_else(|| invalid("missing output filename"))?
                 .to_os_string();
-            name.push(format!("-{frame:06}.png"));
+            name.push(format!("-{frame:06}."));
+            name.push(output.extension().unwrap_or_default());
             output.with_file_name(name)
         };
         if !overwrite && path.exists() {
@@ -321,80 +410,165 @@ fn outputs(
     Ok(paths)
 }
 
-fn publish(
-    frame: &celesta_gpu_renderer::GpuFrame,
-    path: &Path,
-    overwrite: bool,
-) -> Result<(), ExportError> {
-    write_png(
-        frame.width(),
-        frame.height(),
-        frame.pixels(),
-        path,
-        overwrite,
-    )
+/// Encodes frames in the output's [`StillFormat`].
+#[derive(Debug)]
+struct Encoder {
+    format: StillFormat,
+    /// JPEG or WebP quality; PNG ignores it.
+    quality: u8,
 }
 
-fn write_png(
-    width: u32,
-    height: u32,
-    pixels: &[u8],
-    path: &Path,
-    overwrite: bool,
-) -> Result<(), ExportError> {
-    let parent = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent).map_err(|source| ExportError::Io {
-        operation: "create output directory",
-        source,
-    })?;
-    let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|source| ExportError::Io {
-        operation: "create temporary PNG",
-        source,
-    })?;
-    {
-        let mut encoder = png::Encoder::new(file.as_file_mut(), width, height);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        let mut writer = encoder.write_header().map_err(|e| ExportError::Io {
-            operation: "encode PNG",
-            source: io::Error::other(e),
+impl Encoder {
+    /// WebP stores each side in 14 bits.
+    const MAX_WEBP_SIDE: u32 = 16_383;
+
+    /// The encoder for `output`'s extension, checking `quality` against it.
+    fn new(output: &Path, quality: Option<u8>) -> Result<Self, ExportError> {
+        let format = StillFormat::from_extension(output).ok_or_else(|| {
+            invalid("still output must use the .png, .jpg, .jpeg or .webp extension")
         })?;
-        writer
-            .write_image_data(pixels)
-            .map_err(|e| ExportError::Io {
-                operation: "encode PNG",
-                source: io::Error::other(e),
+        let quality = match quality {
+            Some(_) if !format.is_lossy() => {
+                return Err(invalid(
+                    "quality applies to JPEG and WebP output; PNG is lossless",
+                ));
+            }
+            Some(quality) if !(1..=StillExport::MAX_QUALITY).contains(&quality) => {
+                return Err(invalid(format!(
+                    "quality must be 1 to {}, not {quality}",
+                    StillExport::MAX_QUALITY
+                )));
+            }
+            quality => quality.unwrap_or(StillExport::DEFAULT_QUALITY),
+        };
+        Ok(Self { format, quality })
+    }
+
+    /// Fails before rendering when the format cannot hold a `width`×`height` image.
+    fn check_size(&self, width: u32, height: u32) -> Result<(), ExportError> {
+        let max = Self::MAX_WEBP_SIDE;
+        if self.format == StillFormat::Webp && (width > max || height > max) {
+            return Err(invalid(format!(
+                "a {width}x{height} image is too large for WebP, which holds at most \
+                 {max} pixels on each side (write PNG or JPEG, or make the contact sheet smaller)"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Writes straight-alpha RGBA `pixels` to `path` through a temporary
+    /// file beside it, so a failed export never leaves a partial image.
+    fn write(
+        &self,
+        width: u32,
+        height: u32,
+        pixels: &[u8],
+        path: &Path,
+        overwrite: bool,
+    ) -> Result<(), ExportError> {
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        fs::create_dir_all(parent).map_err(|source| ExportError::Io {
+            operation: "create output directory",
+            source,
+        })?;
+        let mut file =
+            tempfile::NamedTempFile::new_in(parent).map_err(|source| ExportError::Io {
+                operation: "create temporary image",
+                source,
             })?;
-        writer.finish().map_err(|e| ExportError::Io {
-            operation: "finish PNG",
-            source: io::Error::other(e),
-        })?;
-    }
-    if overwrite {
-        file.persist(path)
-    } else {
-        file.persist_noclobber(path)
-    }
-    .map_err(|e| {
-        if e.error.kind() == io::ErrorKind::AlreadyExists {
-            ExportError::OutputExists(path.to_owned())
+        self.encode(file.as_file_mut(), width, height, pixels)?;
+        if overwrite {
+            file.persist(path)
         } else {
-            ExportError::Io {
-                operation: "publish PNG",
-                source: e.error,
+            file.persist_noclobber(path)
+        }
+        .map_err(|e| {
+            if e.error.kind() == io::ErrorKind::AlreadyExists {
+                ExportError::OutputExists(path.to_owned())
+            } else {
+                ExportError::Io {
+                    operation: "publish image",
+                    source: e.error,
+                }
+            }
+        })?;
+        Ok(())
+    }
+
+    fn encode(
+        &self,
+        file: &mut fs::File,
+        width: u32,
+        height: u32,
+        pixels: &[u8],
+    ) -> Result<(), ExportError> {
+        let failed = |operation: &'static str| {
+            move |error: Box<dyn std::error::Error + Send + Sync>| ExportError::Io {
+                operation,
+                source: io::Error::other(error),
+            }
+        };
+        match self.format {
+            StillFormat::Png => {
+                let mut encoder = png::Encoder::new(file, width, height);
+                encoder.set_color(png::ColorType::Rgba);
+                encoder.set_depth(png::BitDepth::Eight);
+                let mut writer = encoder
+                    .write_header()
+                    .map_err(|e| failed("encode PNG")(e.into()))?;
+                writer
+                    .write_image_data(pixels)
+                    .map_err(|e| failed("encode PNG")(e.into()))?;
+                writer.finish().map_err(|e| failed("finish PNG")(e.into()))
+            }
+            StillFormat::Jpeg => {
+                let rgb = flatten(pixels, GpuRenderOptions::default().background);
+                let mut writer = io::BufWriter::new(file);
+                JpegEncoder::new_with_quality(&mut writer, self.quality)
+                    .write_image(&rgb, width, height, ExtendedColorType::Rgb8)
+                    .map_err(|e| failed("encode JPEG")(e.into()))?;
+                writer.flush().map_err(|source| ExportError::Io {
+                    operation: "write JPEG",
+                    source,
+                })
+            }
+            StillFormat::Webp => {
+                let encoded = webp::Encoder::from_rgba(pixels, width, height)
+                    .encode_simple(false, f32::from(self.quality))
+                    .map_err(|e| failed("encode WebP")(format!("{e:?}").into()))?;
+                file.write_all(&encoded).map_err(|source| ExportError::Io {
+                    operation: "write WebP",
+                    source,
+                })
             }
         }
-    })?;
-    Ok(())
+    }
+}
+
+/// Straight-alpha RGBA `pixels` composited over `background`, as RGB.
+fn flatten(pixels: &[u8], background: Color) -> Vec<u8> {
+    let behind = [background.red, background.green, background.blue];
+    pixels
+        .chunks_exact(4)
+        .flat_map(|pixel| {
+            let alpha = u16::from(pixel[3]);
+            std::array::from_fn::<u8, 3, _>(|channel| {
+                ((u16::from(pixel[channel]) * alpha
+                    + u16::from(behind[channel]) * (255 - alpha)
+                    + 127)
+                    / 255) as u8
+            })
+        })
+        .collect()
 }
 
 impl Exporter {
     /// Exports exact zero-based project frames without video encoding or audio mixing.
     /// Multiple selections append `-000090` style frame numbers to the output stem.
-    pub fn export_project_png(
+    pub fn export_project_stills(
         &self,
         project: &Project,
         asset_root: &Path,
@@ -402,27 +576,28 @@ impl Exporter {
         output: &Path,
         progress: impl FnMut(ExportProgress),
     ) -> Result<(), ExportError> {
-        self.export_project_png_with(
+        self.export_project_stills_with(
             project,
             asset_root,
-            &PngExport {
+            &StillExport {
                 frames: FrameSelection::Frames(frames.to_vec()),
                 contact_sheet: None,
                 debug_guides: false,
+                quality: None,
             },
             output,
             progress,
         )
     }
 
-    /// Exports project frames chosen by `request` as separate PNGs or one
+    /// Exports project frames chosen by `request` as separate images or one
     /// contact sheet. An export range is only allowed with
     /// [`FrameSelection::Every`].
-    pub fn export_project_png_with(
+    pub fn export_project_stills_with(
         &self,
         project: &Project,
         asset_root: &Path,
-        request: &PngExport,
+        request: &StillExport,
         output: &Path,
         mut progress: impl FnMut(ExportProgress),
     ) -> Result<(), ExportError> {
@@ -449,10 +624,11 @@ impl Exporter {
             (project.settings.width, project.settings.height),
             frame_rate,
             output,
+            request.quality,
             self.options.overwrite,
         )?;
         let evaluator = Evaluator::new(project).map_err(ExportError::Evaluation)?;
-        // PNG frames keep an MP4 export's opaque background, read back as
+        // Stills keep an MP4 export's opaque background, read back as
         // 8-bit RGBA.
         let mut renderer = export_renderer(
             asset_root,
@@ -486,7 +662,7 @@ impl Exporter {
     }
 
     /// Exports selected React frames with one runtime/prepare call and shared font/asset caches.
-    pub fn export_react_png(
+    pub fn export_react_stills(
         &self,
         entry: &Path,
         runtime: &ReactRuntimeOptions,
@@ -495,28 +671,29 @@ impl Exporter {
         output: &Path,
         progress: impl FnMut(ExportProgress),
     ) -> Result<(), ExportError> {
-        self.export_react_png_with(
+        self.export_react_stills_with(
             entry,
             runtime,
             companion,
-            &PngExport {
+            &StillExport {
                 frames: FrameSelection::Frames(frames.to_vec()),
                 contact_sheet: None,
                 debug_guides: false,
+                quality: None,
             },
             output,
             progress,
         )
     }
 
-    /// [`Self::export_react_png`] for frames chosen by `request`, as separate
-    /// PNGs or one contact sheet.
-    pub fn export_react_png_with(
+    /// [`Self::export_react_stills`] for frames chosen by `request`, as separate
+    /// images or one contact sheet.
+    pub fn export_react_stills_with(
         &self,
         entry: &Path,
         runtime: &ReactRuntimeOptions,
         companion: Option<CompanionProject<'_>>,
-        request: &PngExport,
+        request: &StillExport,
         output: &Path,
         mut progress: impl FnMut(ExportProgress),
     ) -> Result<(), ExportError> {
@@ -562,6 +739,7 @@ impl Exporter {
             (metadata.width, metadata.height),
             metadata.frame_rate,
             output,
+            request.quality,
             self.options.overwrite,
         )?;
         let filtered_project = project.map(|(project, _)| visual_only_project(project));
@@ -584,7 +762,7 @@ impl Exporter {
             .map_err(ExportError::Evaluation)?
             .unwrap_or_default();
 
-        // PNG frames keep an MP4 export's opaque background, read back as
+        // Stills keep an MP4 export's opaque background, read back as
         // 8-bit RGBA.
         let mut renderer = export_renderer(
             asset_root,
@@ -803,6 +981,141 @@ mod tests {
                 .contains("401 frames selected; a contact sheet holds at most 400"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn the_output_extension_selects_the_still_format() {
+        let format = |name: &str| StillFormat::from_extension(Path::new(name));
+        assert_eq!(format("a.png"), Some(StillFormat::Png));
+        assert_eq!(format("a.JPG"), Some(StillFormat::Jpeg));
+        assert_eq!(format("a.jpeg"), Some(StillFormat::Jpeg));
+        assert_eq!(format("a.WebP"), Some(StillFormat::Webp));
+        assert_eq!(format("a.gif"), None);
+        assert_eq!(format("a"), None);
+    }
+
+    #[test]
+    fn separate_files_keep_the_output_extension() {
+        assert_eq!(
+            outputs(&[0, 89], 90, Path::new("thumb.jpg"), false).unwrap(),
+            [
+                PathBuf::from("thumb-000000.jpg"),
+                PathBuf::from("thumb-000089.jpg")
+            ]
+        );
+        assert_eq!(
+            outputs(&[3, 4], 90, Path::new("thumb.WEBP"), false).unwrap(),
+            [
+                PathBuf::from("thumb-000003.WEBP"),
+                PathBuf::from("thumb-000004.WEBP")
+            ]
+        );
+        let error = outputs(&[0], 90, Path::new("check.gif"), false).unwrap_err();
+        assert!(
+            error.to_string().contains(".png, .jpg, .jpeg or .webp"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn quality_applies_to_jpeg_and_webp_only() {
+        let encoder = |name: &str, quality| Encoder::new(Path::new(name), quality);
+        assert_eq!(
+            encoder("a.jpg", None).unwrap().quality,
+            StillExport::DEFAULT_QUALITY
+        );
+        assert_eq!(encoder("a.webp", Some(40)).unwrap().quality, 40);
+        assert!(encoder("a.jpg", Some(1)).is_ok());
+        assert!(encoder("a.jpg", Some(100)).is_ok());
+        for quality in [0, 101] {
+            let error = encoder("a.jpg", Some(quality)).unwrap_err();
+            assert!(error.to_string().contains("1 to 100"), "{error}");
+        }
+        let error = encoder("a.png", Some(80)).unwrap_err();
+        assert!(error.to_string().contains("PNG is lossless"), "{error}");
+        assert!(encoder("a.png", None).is_ok());
+    }
+
+    #[test]
+    fn webp_rejects_images_wider_than_it_can_hold() {
+        let encoder = |name: &str| Encoder::new(Path::new(name), None).unwrap();
+        assert!(encoder("a.webp").check_size(16_383, 16_383).is_ok());
+        let error = encoder("a.webp").check_size(16_384, 9).unwrap_err();
+        assert!(error.to_string().contains("too large for WebP"), "{error}");
+        assert!(encoder("a.jpg").check_size(16_384, 9).is_ok());
+        assert!(encoder("a.png").check_size(16_384, 9).is_ok());
+    }
+
+    #[test]
+    fn jpeg_flattens_transparency_onto_the_export_background() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.jpg");
+        // An opaque red pixel and a fully transparent white one, 8x8 each so
+        // chroma subsampling keeps them apart.
+        let mut pixels = Vec::new();
+        for _ in 0..8 {
+            for x in 0..16 {
+                pixels.extend_from_slice(if x < 8 {
+                    &[255, 0, 0, 255]
+                } else {
+                    &[255, 255, 255, 0]
+                });
+            }
+        }
+        Encoder::new(&path, Some(100))
+            .unwrap()
+            .write(16, 8, &pixels, &path, false)
+            .unwrap();
+        let decoded = image::load_from_memory(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(decoded.color(), image::ColorType::Rgb8);
+        let decoded = decoded.to_rgb8();
+        let near = |pixel: &image::Rgb<u8>, expected: [u8; 3]| {
+            pixel
+                .0
+                .iter()
+                .zip(expected)
+                .all(|(&value, expected)| value.abs_diff(expected) <= 4)
+        };
+        let background = GpuRenderOptions::default().background;
+        assert!(near(decoded.get_pixel(2, 4), [255, 0, 0]));
+        assert!(
+            near(
+                decoded.get_pixel(13, 4),
+                [background.red, background.green, background.blue]
+            ),
+            "{:?}",
+            decoded.get_pixel(13, 4)
+        );
+    }
+
+    #[test]
+    fn webp_is_lossy_at_the_requested_quality() {
+        let dir = tempfile::tempdir().unwrap();
+        // A noisy frame, so lower quality visibly saves bytes.
+        let pixels: Vec<u8> = (0u32..64 * 64)
+            .flat_map(|index| {
+                let value = (index.wrapping_mul(2_654_435_761) >> 24) as u8;
+                [value, value.wrapping_mul(3), 255 - value, 255]
+            })
+            .collect();
+        let write = |quality| {
+            let path = dir.path().join(format!("q{quality}.webp"));
+            Encoder::new(&path, Some(quality))
+                .unwrap()
+                .write(64, 64, &pixels, &path, false)
+                .unwrap();
+            fs::read(path).unwrap()
+        };
+        let (low, high) = (write(10), write(100));
+        for bytes in [&low, &high] {
+            assert_eq!(&bytes[..4], b"RIFF");
+            assert_eq!(&bytes[8..12], b"WEBP");
+            let image = webp::Decoder::new(bytes).decode().unwrap();
+            assert_eq!((image.width(), image.height()), (64, 64));
+        }
+        // VP8 (lossy), not VP8L (lossless).
+        assert_eq!(&high[12..16], b"VP8 ");
+        assert!(low.len() < high.len(), "{} >= {}", low.len(), high.len());
     }
 
     #[test]

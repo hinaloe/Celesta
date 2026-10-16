@@ -119,9 +119,11 @@ Only areas nothing draws on are transparent, so a layer that fills the whole fra
 
 If your FFmpeg build lacks the encoder for the chosen format, the export fails with the error code `encoder_unavailable`.
 
-## PNG frames and contact sheets
+## Still frames and contact sheets
 
 --frame / --frames selects zero-based frame numbers. Multiple frames create names such as check-000090.png. --every N selects every Nth frame of the --from/--to range (or the whole composition) and its last frame. Add --contact-sheet to place them in one labelled grid; --columns and --tile-width control its layout. Explicit frame numbers cannot be combined with --every, --from, or --to.
+
+The file extension picks the image format: `.png` is lossless PNG, `.jpg` or `.jpeg` is JPEG, and `.webp` is lossy WebP. JPEG and WebP are smaller, which suits thumbnails; `--quality` sets their quality from 1 to 100 (default 90), and PNG does not take it. Frames are drawn over the same opaque background as an MP4, so a JPEG, which has no alpha channel, loses nothing. WebP holds at most 16383 pixels on each side, so a larger contact sheet is rejected before rendering.
 
 ::::tabs[Exporter platform]{default="macOS"}
 :::tab[macOS]
@@ -132,6 +134,10 @@ If your FFmpeg build lacks the encoder for the chosen format, the export fails w
 
 ```sh title="Export a contact sheet"
 "/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react --every 30 --contact-sheet --columns 4 --tile-width 320 first-scene.tsx sheet.png
+```
+
+```sh title="Export a JPEG thumbnail"
+"/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react --frame 90 --quality 85 first-scene.tsx thumbnail.jpg
 ```
 
 :::
@@ -145,10 +151,14 @@ If your FFmpeg build lacks the encoder for the chosen format, the export fails w
 & "C:\path\to\Celesta\Celesta-export.exe" --react --every 30 --contact-sheet --columns 4 --tile-width 320 first-scene.tsx sheet.png
 ```
 
+```sh title="Export a JPEG thumbnail"
+& "C:\path\to\Celesta\Celesta-export.exe" --react --frame 90 --quality 85 first-scene.tsx thumbnail.jpg
+```
+
 :::
 ::::
 
-Add `--debug-guides` to draw a React composition's `<DebugOverlay>` and `<DebugBounds>` into the PNG frames or contact sheet, as the preview shows them. A video export never draws them.
+Add `--debug-guides` to draw a React composition's `<DebugOverlay>` and `<DebugBounds>` into the still frames or contact sheet, as the preview shows them. A video export never draws them.
 
 ::::tabs[Exporter platform]{default="macOS"}
 :::tab[macOS]

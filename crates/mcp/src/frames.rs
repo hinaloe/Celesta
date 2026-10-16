@@ -1,4 +1,4 @@
-//! Where rendered PNGs go when the caller names no output, and how they
+//! Where rendered stills go when the caller names no output, and how they
 //! come back as image content.
 
 use std::io;
@@ -6,16 +6,17 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use base64::Engine;
-use celesta_exporter::ExportedFile;
+use celesta_exporter::{ExportedFile, StillFormat};
+use image::{ImageFormat, ImageReader};
 use rmcp::model::ContentBlock;
 
 /// Most frames one `render_frames` call returns as images; the rest are
 /// listed in the report only.
 pub const MAX_INLINE_FRAMES: usize = 6;
 
-/// Longest side of an image returned inline; larger PNGs are sent
-/// downscaled (the file keeps its size), so clients' per-image limits are
-/// not exceeded.
+/// Longest side of an image returned inline; larger images are sent
+/// downscaled as PNG (the file keeps its size and format), so clients'
+/// per-image limits are not exceeded.
 pub const MAX_INLINE_EDGE: u32 = 1568;
 
 /// A temporary folder, removed when the server exits, with a new subfolder
@@ -43,7 +44,7 @@ impl OutputDirs {
     }
 }
 
-/// The written PNGs as image content, each after a line naming it: the
+/// The written stills as image content, each after a line naming it: the
 /// first [`MAX_INLINE_FRAMES`] frames, or a contact sheet.
 pub fn image_blocks(files: &[ExportedFile]) -> io::Result<Vec<ContentBlock>> {
     let mut blocks = Vec::new();
@@ -63,39 +64,54 @@ pub fn image_blocks(files: &[ExportedFile]) -> io::Result<Vec<ContentBlock>> {
             ),
             ExportedFile::Video { .. } | ExportedFile::Subtitles { .. } => continue,
         };
-        let (png, shown) = inline_png(path)?;
-        let label = match shown {
+        let image = inline_image(path)?;
+        let label = match image.shown {
             Some((width, height)) => format!("{label} (shown at {width}×{height})"),
             None => label,
         };
         blocks.push(ContentBlock::text(label));
         blocks.push(ContentBlock::image(
-            base64::engine::general_purpose::STANDARD.encode(png),
-            "image/png",
+            base64::engine::general_purpose::STANDARD.encode(image.bytes),
+            image.mime_type,
         ));
     }
     Ok(blocks)
 }
 
-/// PNG bytes to send inline, with the size they show when downscaled.
-type InlinePng = (Vec<u8>, Option<(u32, u32)>);
+/// An image to send inline.
+struct InlineImage {
+    bytes: Vec<u8>,
+    mime_type: &'static str,
+    /// The size it shows at when it was downscaled.
+    shown: Option<(u32, u32)>,
+}
 
-/// The PNG at `path`, downscaled when a side exceeds [`MAX_INLINE_EDGE`];
-/// the size it is shown at when it was.
-fn inline_png(path: &Path) -> io::Result<InlinePng> {
+/// The image at `path` as written, in the format its extension names; or,
+/// when a side exceeds [`MAX_INLINE_EDGE`], a downscaled PNG of it.
+fn inline_image(path: &Path) -> io::Result<InlineImage> {
+    let (format, mime_type) = match StillFormat::from_extension(path) {
+        Some(StillFormat::Png) => (ImageFormat::Png, "image/png"),
+        Some(StillFormat::Jpeg) => (ImageFormat::Jpeg, "image/jpeg"),
+        Some(StillFormat::Webp) => (ImageFormat::WebP, "image/webp"),
+        None => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{} is not a PNG, JPEG or WebP image", path.display()),
+            ));
+        }
+    };
     let bytes = std::fs::read(path)?;
-    let invalid = |error: png::DecodingError| io::Error::new(io::ErrorKind::InvalidData, error);
-    let mut reader = png::Decoder::new(io::Cursor::new(&bytes))
-        .read_info()
-        .map_err(invalid)?;
-    let info = reader.info();
-    let (width, height) = (info.width, info.height);
-    let rgba8 = info.color_type == png::ColorType::Rgba && info.bit_depth == png::BitDepth::Eight;
-    if width.max(height) <= MAX_INLINE_EDGE || !rgba8 {
-        return Ok((bytes, None));
+    let invalid = |error: image::ImageError| io::Error::new(io::ErrorKind::InvalidData, error);
+    let reader = || ImageReader::with_format(io::Cursor::new(&bytes), format);
+    let (width, height) = reader().into_dimensions().map_err(invalid)?;
+    if width.max(height) <= MAX_INLINE_EDGE {
+        return Ok(InlineImage {
+            bytes,
+            mime_type,
+            shown: None,
+        });
     }
-    let mut pixels = vec![0; reader.output_buffer_size().unwrap_or(0)];
-    reader.next_frame(&mut pixels).map_err(invalid)?;
+    let pixels = reader().decode().map_err(invalid)?.into_rgba8().into_raw();
     let longest = width.max(height);
     let scaled = |side: u32| {
         ((u64::from(side) * u64::from(MAX_INLINE_EDGE) + u64::from(longest) / 2)
@@ -137,7 +153,11 @@ fn inline_png(path: &Path) -> io::Result<InlinePng> {
         .map_err(encode)?
         .write_image_data(&small)
         .map_err(encode)?;
-    Ok((encoded, Some((small_width, small_height))))
+    Ok(InlineImage {
+        bytes: encoded,
+        mime_type: "image/png",
+        shown: Some((small_width, small_height)),
+    })
 }
 
 #[cfg(test)]
@@ -158,7 +178,21 @@ mod tests {
             .unwrap();
     }
 
+    /// A JPEG or WebP (by `path`'s extension) of the same pattern as
+    /// [`write_png`]; JPEG drops the alpha channel.
+    fn write_lossy(path: &std::path::Path, width: u32, height: u32) {
+        let image = image::RgbaImage::from_fn(width, height, |x, y| {
+            image::Rgba([((y * width + x) % 256) as u8, 0x40, 0x80, 0xff])
+        });
+        let image = image::DynamicImage::ImageRgba8(image);
+        match StillFormat::from_extension(path) {
+            Some(StillFormat::Jpeg) => image.to_rgb8().save(path).unwrap(),
+            _ => image.save(path).unwrap(),
+        }
+    }
+
     fn decoded_size(block: &ContentBlock) -> (u32, u32) {
+        assert_eq!(block.as_image().unwrap().mime_type, "image/png");
         let image = block.as_image().expect("an image block");
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(&image.data)
@@ -216,11 +250,74 @@ mod tests {
         let written = std::fs::read(&path).unwrap();
         let blocks = image_blocks(&[ExportedFile::Frame { path, frame: 0 }]).unwrap();
         let image = blocks[1].as_image().unwrap();
+        assert_eq!(image.mime_type, "image/png");
         assert_eq!(
             base64::engine::general_purpose::STANDARD
                 .decode(&image.data)
                 .unwrap(),
             written
         );
+    }
+
+    #[test]
+    fn small_jpeg_and_webp_are_sent_as_written_with_their_type() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, mime_type) in [
+            ("frame.jpeg", "image/jpeg"),
+            ("frame.JPG", "image/jpeg"),
+            ("frame.webp", "image/webp"),
+        ] {
+            let path = dir.path().join(name);
+            write_lossy(&path, 160, 90);
+            let written = std::fs::read(&path).unwrap();
+            let blocks = image_blocks(&[ExportedFile::Frame { path, frame: 0 }]).unwrap();
+            assert!(blocks[0].as_text().unwrap().text.ends_with(name));
+            let image = blocks[1].as_image().unwrap();
+            assert_eq!(image.mime_type, mime_type, "{name}");
+            assert_eq!(
+                base64::engine::general_purpose::STANDARD
+                    .decode(&image.data)
+                    .unwrap(),
+                written,
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn large_jpeg_and_webp_are_downscaled_to_png_inline() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, size, shown) in [
+            ("sheet.jpg", (3200, 1800), (1568, 882)),
+            ("sheet.webp", (2000, 100), (1568, 78)),
+        ] {
+            let path = dir.path().join(name);
+            write_lossy(&path, size.0, size.1);
+            let blocks = image_blocks(&[ExportedFile::ContactSheet {
+                path: path.clone(),
+                frames: vec![0],
+                columns: 1,
+            }])
+            .unwrap();
+            assert_eq!(decoded_size(&blocks[1]), shown, "{name}");
+            assert!(
+                blocks[0]
+                    .as_text()
+                    .unwrap()
+                    .text
+                    .ends_with(&format!("(shown at {}×{})", shown.0, shown.1))
+            );
+            let on_disk = image::image_dimensions(&path).unwrap();
+            assert_eq!(on_disk, size, "{name}");
+        }
+    }
+
+    #[test]
+    fn other_extensions_are_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("frame.gif");
+        std::fs::write(&path, b"GIF89a").unwrap();
+        let error = image_blocks(&[ExportedFile::Frame { path, frame: 0 }]).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 }
