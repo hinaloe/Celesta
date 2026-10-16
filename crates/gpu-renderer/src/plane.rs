@@ -103,6 +103,30 @@ fn clip_to_shown(m: &Matrix3, polygon: &[[f64; 2]], target: PixelBounds) -> Vec<
     clip_polygon(&polygon, |p| bottom * row(2, p) - row(1, p))
 }
 
+/// The part of the box `local` that `forward` maps in front of the viewer
+/// and into `target`: a convex polygon, empty when none of it shows.
+fn polygon_shown(forward: &Matrix3, local: PixelBounds, target: PixelBounds) -> Vec<[f64; 2]> {
+    let polygon = clip_in_front(forward, &corners(local));
+    clip_to_shown(forward, &polygon, target)
+}
+
+/// The scale the most magnified corner of `polygon` needs, rounded up as
+/// text raster scales are and clamped to `[MIN_SCALE, MAX_SCALE]`; `None`
+/// without a corner in front of the viewer.
+fn needed_scale(forward: &Matrix3, polygon: &[[f64; 2]]) -> Option<f64> {
+    let stretch = polygon
+        .iter()
+        .filter_map(|&[x, y]| stretch_at(forward, x, y))
+        .reduce(f64::max)?;
+    Some(round_up_to_eighth_octave(stretch).clamp(MIN_SCALE, MAX_SCALE))
+}
+
+/// `w` where `m` maps the point: its distance factor, 1 at the layer's
+/// origin and smaller nearer the viewer.
+fn w_at(m: &Matrix3, [x, y]: [f64; 2]) -> f64 {
+    m[2][0] * x + m[2][1] * y + m[2][2]
+}
+
 /// The raster of a plane whose content covers `local` (layer-local units),
 /// drawn through `forward` (layer-local units to `target`'s space) onto a
 /// space `target` covers; `None` when nothing of it can show. Only the part
@@ -117,18 +141,25 @@ pub(crate) fn plane_raster(
     max_texture: u32,
     max_area: u64,
 ) -> Option<PlaneRaster> {
-    let polygon = clip_in_front(forward, &corners(local));
-    let polygon = clip_to_shown(forward, &polygon, target);
-    let stretch = polygon
-        .iter()
-        .filter_map(|&[x, y]| stretch_at(forward, x, y))
-        .reduce(f64::max)?;
-    let [left, top, right, bottom] = box_of(polygon)?;
+    let polygon = polygon_shown(forward, local, target);
+    let scale = needed_scale(forward, &polygon)?;
+    raster_of(&polygon, scale, max_texture, max_area)
+}
+
+/// The raster of the box of `polygon` at `scale`, lowered to keep the canvas
+/// within `max_texture` on either side and `max_area` pixels in all.
+fn raster_of(
+    polygon: &[[f64; 2]],
+    scale: f64,
+    max_texture: u32,
+    max_area: u64,
+) -> Option<PlaneRaster> {
+    let [left, top, right, bottom] = box_of(polygon.iter().copied())?;
     let (width, height) = (right - left, bottom - top);
     if !(width.is_finite() && height.is_finite()) {
         return None;
     }
-    let mut scale = round_up_to_eighth_octave(stretch).clamp(MIN_SCALE, MAX_SCALE);
+    let mut scale = scale;
     let side = |extent: f64, scale: f64| (extent * scale).ceil() + 2.0;
     let limit = f64::from(max_texture);
     if side(width, scale) > limit || side(height, scale) > limit {
@@ -159,6 +190,154 @@ pub(crate) fn plane_raster(
         width: side(width),
         height: side(height),
     })
+}
+
+/// The most bands a plane is split into.
+pub(crate) const MAX_BANDS: usize = 8;
+
+/// The texels a band's canvas reaches past its band on a side it shares
+/// with another: the footprint filter's taps at a seam, and their bilinear
+/// neighbours.
+const BAND_MARGIN: f64 = 4.0;
+
+/// Stands for an unbounded side of a band in the values a band's canvas is
+/// drawn with: finite, as shaders may assume no infinities.
+pub(crate) const BAND_OPEN: f64 = 1e30;
+
+/// One band of a plane: its raster, and the `w` it holds, from `near` up to
+/// but not including `far`, `None` where unbounded.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PlaneBand {
+    pub(crate) raster: PlaneRaster,
+    pub(crate) near: Option<f64>,
+    pub(crate) far: Option<f64>,
+}
+
+/// The bands a plane is drawn in (see `plane_raster` for the arguments);
+/// empty when nothing of it can show. A plane whose one canvas would be
+/// lowered below the scale its most magnified corner needs is split, when
+/// `bandable`, along lines of equal `w` at steps of √2 in `w`, at most
+/// `MAX_BANDS`, each band rasterized at the scale its own most magnified
+/// corner needs. Each band's canvas reaches `BAND_MARGIN` texels and
+/// `reach` local units (how far effects inside spread) past the sides it
+/// shares, and together they stay within `max_area` pixels, all lowered
+/// alike when they would not. Any other plane is one unbounded band, its
+/// raster `plane_raster`'s.
+pub(crate) fn plane_bands(
+    forward: &Matrix3,
+    local: PixelBounds,
+    target: PixelBounds,
+    max_texture: u32,
+    max_area: u64,
+    reach: f64,
+    bandable: bool,
+) -> Vec<PlaneBand> {
+    let polygon = polygon_shown(forward, local, target);
+    let Some(needed) = needed_scale(forward, &polygon) else {
+        return Vec::new();
+    };
+    let Some(single) = raster_of(&polygon, needed, max_texture, max_area) else {
+        return Vec::new();
+    };
+    let whole = vec![PlaneBand {
+        raster: single,
+        near: None,
+        far: None,
+    }];
+    if !bandable || single.scale >= needed {
+        return whole;
+    }
+    let (nearest, farthest) = polygon
+        .iter()
+        .map(|&point| w_at(forward, point))
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(near, far), w| {
+            (near.min(w), far.max(w))
+        });
+    let ratio = farthest / nearest;
+    if !(ratio.is_finite() && ratio > 1.0) {
+        return whole;
+    }
+    let count = (ratio.ln() / std::f64::consts::SQRT_2.ln())
+        .ceil()
+        .clamp(1.0, MAX_BANDS as f64) as usize;
+    if count == 1 {
+        return whole;
+    }
+    // Each boundary once, so the bands meeting there share it exactly.
+    let boundaries = (1..count)
+        .map(|j| nearest * ratio.powf(j as f64 / count as f64))
+        .collect::<Vec<_>>();
+    let ranges = (0..count)
+        .map(|k| {
+            (
+                k.checked_sub(1).map(|j| boundaries[j]),
+                boundaries.get(k).copied(),
+            )
+        })
+        .collect::<Vec<_>>();
+    // The part of the polygon from `near` to `far`, each grown by `grow`.
+    let part = |(near, far): (Option<f64>, Option<f64>), grow: f64| {
+        let mut part = polygon.clone();
+        if let Some(near) = near {
+            part = clip_polygon(&part, |point| w_at(forward, point) - (near - grow));
+        }
+        if let Some(far) = far {
+            part = clip_polygon(&part, |point| far + grow - w_at(forward, point));
+        }
+        part
+    };
+    let Some(needed) = ranges
+        .iter()
+        .map(|&range| needed_scale(forward, &part(range, 0.0)))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return whole;
+    };
+    // How much `w` changes per local unit, across the bands.
+    let gradient = forward[2][0].hypot(forward[2][1]);
+    let rasters = |factor: f64| {
+        ranges
+            .iter()
+            .zip(&needed)
+            .map(|(&range, &scale)| {
+                let scale = scale * factor;
+                let grow = gradient * (BAND_MARGIN / scale + reach);
+                raster_of(&part(range, grow), scale, max_texture, u64::MAX)
+            })
+            .collect::<Option<Vec<_>>>()
+    };
+    let area = |rasters: &[PlaneRaster]| {
+        rasters
+            .iter()
+            .map(|raster| u64::from(raster.width) * u64::from(raster.height))
+            .sum::<u64>()
+    };
+    let Some(mut chosen) = rasters(1.0) else {
+        return whole;
+    };
+    if area(&chosen) > max_area {
+        // Lowered alike, from the factor the areas alone suggest down in
+        // small steps, as the margins do not shrink with the scale.
+        let mut factor = (max_area as f64 / area(&chosen) as f64).sqrt();
+        for _ in 0..64 {
+            let Some(lowered) = rasters(factor) else {
+                return whole;
+            };
+            chosen = lowered;
+            if area(&chosen) <= max_area {
+                break;
+            }
+            factor *= 0.99;
+        }
+        if area(&chosen) > max_area {
+            return whole;
+        }
+    }
+    chosen
+        .into_iter()
+        .zip(ranges)
+        .map(|(raster, (near, far))| PlaneBand { raster, near, far })
+        .collect()
 }
 
 /// The inverse of the stretch of `forward` at the layer's origin (output
@@ -691,6 +870,161 @@ mod tests {
             area > 3 * 100 * 100,
             "the scale is lowered no more than needed: {area}"
         );
+    }
+
+    /// A text crawl 20000 tall receding from near the screen's bottom.
+    fn crawl() -> Matrix3 {
+        EvaluatedTransform {
+            position: Point { x: 960.0, y: 900.0 },
+            rotation_x: 70.0,
+            perspective: Some(800.0),
+            ..EvaluatedTransform::default()
+        }
+        .homography()
+    }
+
+    const CRAWL: PixelBounds = PixelBounds([-600.0, -19724.0, 600.0, 276.0]);
+    const SCENE_AREA: u64 = 1920 * 1080;
+
+    fn crawl_bands(max_area: u64) -> Vec<PlaneBand> {
+        plane_bands(&crawl(), CRAWL, SCREEN, 16384, max_area, 0.0, true)
+    }
+
+    #[test]
+    fn an_uncapped_plane_is_one_band_equal_to_plane_raster() {
+        let local = PixelBounds([-900.0, -750.0, 900.0, 294.0]);
+        let bands = plane_bands(&floor(), local, SCREEN, 8192, u64::MAX, 0.0, true);
+        let raster = plane_raster(&floor(), local, SCREEN, 8192, u64::MAX).unwrap();
+        assert_eq!(
+            bands,
+            vec![PlaneBand {
+                raster,
+                near: None,
+                far: None
+            }]
+        );
+    }
+
+    #[test]
+    fn a_capped_crawl_is_split_into_eight_bands() {
+        let bands = crawl_bands(4 * SCENE_AREA);
+        assert_eq!(bands.len(), 8, "{bands:?}");
+        // The near corners need 2^(5/4), more than the 1.48 the near
+        // edge's middle does.
+        assert!((bands[0].raster.scale - 2.378).abs() < 1e-3, "{bands:?}");
+        assert!((bands[7].raster.scale - 0.068).abs() < 1e-3, "{bands:?}");
+        assert_eq!((bands[0].near, bands[7].far), (None, None));
+        let single = plane_raster(&crawl(), CRAWL, SCREEN, 16384, 4 * SCENE_AREA).unwrap();
+        assert!(
+            single.scale < 0.6,
+            "the single canvas is capped: {single:?}"
+        );
+    }
+
+    #[test]
+    fn bands_share_their_boundaries_geometrically() {
+        let bands = crawl_bands(4 * SCENE_AREA);
+        for pair in bands.windows(2) {
+            assert_eq!(pair[0].far, pair[1].near);
+            assert!(pair[0].far.is_some());
+        }
+        let ratios = bands[1..7]
+            .iter()
+            .map(|band| band.far.unwrap() / band.near.unwrap())
+            .collect::<Vec<_>>();
+        for ratio in &ratios {
+            assert!((ratio - ratios[0]).abs() < 1e-9, "{ratios:?}");
+        }
+        let first = bands[1].near.unwrap() / ratios[0];
+        assert!((first - 0.6758).abs() < 1e-3, "{first}");
+    }
+
+    #[test]
+    fn band_scales_cover_their_corners() {
+        let forward = crawl();
+        let polygon = polygon_shown(&forward, CRAWL, SCREEN);
+        for band in crawl_bands(4 * SCENE_AREA) {
+            let near = band.near.unwrap_or(f64::NEG_INFINITY);
+            let far = band.far.unwrap_or(f64::INFINITY);
+            let part = clip_polygon(&polygon, |p| w_at(&forward, p) - near);
+            let part = clip_polygon(&part, |p| far - w_at(&forward, p));
+            for [x, y] in part {
+                let stretch = stretch_at(&forward, x, y).unwrap();
+                assert!(band.raster.scale >= stretch - 1e-9, "{band:?} < {stretch}");
+            }
+        }
+    }
+
+    #[test]
+    fn bands_stay_within_the_budget() {
+        let bands = crawl_bands(1_000_000);
+        let area = bands
+            .iter()
+            .map(|band| u64::from(band.raster.width) * u64::from(band.raster.height))
+            .sum::<u64>();
+        assert!(area <= 1_000_000, "{area}");
+        assert!(
+            bands
+                .iter()
+                .all(|band| band.raster.width <= 16384 && band.raster.height <= 16384)
+        );
+        let single = plane_raster(&crawl(), CRAWL, SCREEN, 16384, 1_000_000).unwrap();
+        assert!(
+            bands[0].raster.scale > single.scale,
+            "{bands:?} vs {single:?}"
+        );
+    }
+
+    #[test]
+    fn bands_never_reach_past_the_near_clip() {
+        // Nothing below the screen's bottom cuts the plane, so the near
+        // clip does.
+        let target = PixelBounds([0.0, 0.0, 1920.0, UNBOUNDED]);
+        let local = PixelBounds([-600.0, -19724.0, 600.0, 2000.0]);
+        let bands = plane_bands(&crawl(), local, target, 16384, 4 * SCENE_AREA, 0.0, true);
+        assert!(bands.len() > 1, "{bands:?}");
+        let near_y = (1.0 - NEAR_W) * 800.0 / 70f64.to_radians().sin();
+        let raster = bands[0].raster;
+        let bottom = raster.top + (f64::from(raster.height) - 2.0) / raster.scale;
+        assert!(
+            bottom <= near_y + 1.0 / raster.scale + 1e-6,
+            "{bottom} > {near_y}: {raster:?}"
+        );
+    }
+
+    #[test]
+    fn unbandable_planes_stay_single() {
+        let bands = plane_bands(&crawl(), CRAWL, SCREEN, 16384, 4 * SCENE_AREA, 0.0, false);
+        let raster = plane_raster(&crawl(), CRAWL, SCREEN, 16384, 4 * SCENE_AREA).unwrap();
+        assert_eq!(
+            bands,
+            vec![PlaneBand {
+                raster,
+                near: None,
+                far: None
+            }]
+        );
+    }
+
+    #[test]
+    fn crossing_the_cap_keeps_the_near_scale() {
+        // A texture limit that does not bind, so only the area does.
+        let bands = |max_area| plane_bands(&crawl(), CRAWL, SCREEN, 65536, max_area, 0.0, true);
+        let single = plane_raster(&crawl(), CRAWL, SCREEN, 65536, u64::MAX).unwrap();
+        let need = u64::from(single.width) * u64::from(single.height);
+        let above = bands(need);
+        let below = bands(need - 1);
+        assert_eq!(above.len(), 1);
+        assert!(below.len() > 1);
+        assert_eq!(above[0].raster.scale, below[0].raster.scale);
+    }
+
+    #[test]
+    fn effects_reach_widens_the_overlap() {
+        let tight = crawl_bands(4 * SCENE_AREA);
+        let reaching = plane_bands(&crawl(), CRAWL, SCREEN, 16384, 4 * SCENE_AREA, 50.0, true);
+        assert!(reaching[1].raster.height > tight[1].raster.height);
+        assert_eq!(reaching[1].near, tight[1].near);
     }
 
     #[test]
