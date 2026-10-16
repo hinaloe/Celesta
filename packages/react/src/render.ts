@@ -21,6 +21,7 @@ import { type HostNode, type RootContainer, createRoot } from './reconciler';
 import { type LayerSourceEntry, sourceChain } from './source-chain';
 import { checkCue } from './subtitles';
 import type {
+  BackfaceVisibility,
   BlendMode,
   Clip,
   CompositionConfig,
@@ -358,22 +359,37 @@ function extractTransform(props: Record<string, unknown>): EvaluatedTransform {
     // `anchorX={0.5} anchorY={0.5}` to spin/scale a component about its centre
     // — `x`/`y` then address that centre instead.
     anchor: { x: numberOr(props.anchorX, 0), y: numberOr(props.anchorY, 0) },
+    skew: { x: numberOr(props.skewX, 0), y: numberOr(props.skewY, 0) },
+    rotationX: numberOr(props.rotationX, 0),
+    rotationY: numberOr(props.rotationY, 0),
+    // Not finite and positive means no perspective, as in Rust.
+    ...(typeof props.perspective === 'number' && Number.isFinite(props.perspective) && props.perspective > 0
+      ? { perspective: props.perspective }
+      : {}),
+    backfaceVisibility: extractBackfaceVisibility(props.backfaceVisibility),
   };
 }
 
 /**
  * `transform` without the fields equal to Rust's `EvaluatedTransform`
- * defaults (position 0, scale 1, rotation 0, anchor 0.5), which Rust fills
- * back in. React's own default anchor is the top-left corner, so it is
- * kept.
+ * defaults (position 0, scale 1, rotation 0, anchor 0.5, no skew, 3D
+ * rotation, or perspective, visible backfaces), which Rust fills back in.
+ * React's own default anchor is the top-left corner, so it is kept. A
+ * `rawTransform` from the evaluator already omits the new fields at their
+ * defaults, so they may be missing here.
  */
 function compactTransform(transform: EvaluatedTransform): EvaluatedTransform {
-  const { position, scale, rotation, anchor } = transform;
+  const { position, scale, rotation, anchor, skew, rotationX, rotationY, perspective, backfaceVisibility } = transform;
   const compact: Partial<EvaluatedTransform> = {};
   if (position.x !== 0 || position.y !== 0) compact.position = position;
   if (scale.x !== 1 || scale.y !== 1) compact.scale = scale;
   if (rotation !== 0) compact.rotation = rotation;
   if (anchor.x !== 0.5 || anchor.y !== 0.5) compact.anchor = anchor;
+  if (skew && (skew.x !== 0 || skew.y !== 0)) compact.skew = skew;
+  if (rotationX) compact.rotationX = rotationX;
+  if (rotationY) compact.rotationY = rotationY;
+  if (perspective !== undefined) compact.perspective = perspective;
+  if (backfaceVisibility && backfaceVisibility !== 'visible') compact.backfaceVisibility = backfaceVisibility;
   return compact as EvaluatedTransform;
 }
 
@@ -900,6 +916,20 @@ function extractBlendMode(value: unknown): BlendMode {
   return value as BlendMode;
 }
 
+const BACKFACE_VISIBILITIES: readonly BackfaceVisibility[] = ['visible', 'hidden'];
+
+function extractBackfaceVisibility(value: unknown): BackfaceVisibility {
+  if (value === undefined) {
+    return 'visible';
+  }
+  if (!BACKFACE_VISIBILITIES.includes(value as BackfaceVisibility)) {
+    throw new Error(
+      `unknown backfaceVisibility ${JSON.stringify(value)}; expected one of ${BACKFACE_VISIBILITIES.join(', ')}`,
+    );
+  }
+  return value as BackfaceVisibility;
+}
+
 /**
  * The `<Sequence>`-shifted walk context for this node's children, or null
  * when the sequence's window does not contain the currently rendered local
@@ -1080,6 +1110,10 @@ function identityTransform(context: WalkContext): EvaluatedTransform {
     scale: { x: 1, y: 1 },
     rotation: 0,
     anchor: { x: 0, y: 0 },
+    skew: { x: 0, y: 0 },
+    rotationX: 0,
+    rotationY: 0,
+    backfaceVisibility: 'visible',
   };
   return context.compact ? compactTransform(identity) : identity;
 }
