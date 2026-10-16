@@ -68,8 +68,9 @@ impl Default for LayerState {
     }
 }
 
-/// The largest magnitude an affine entry may have before the layer is not
-/// drawn.
+/// The largest magnitude a linear entry (`a`..`d`) of an affine may have
+/// before the layer is not drawn. The translation is not capped: a group
+/// moved far away can move its children back.
 const MAX_ENTRY: f32 = 1e7;
 
 /// The deepest nesting of clipped groups `layer.wgsl` walks (`MAX_CLIP_DEPTH`
@@ -213,11 +214,12 @@ impl Affine {
     /// Whether the transform collapses the layer to nothing, or is so
     /// stretched (a skew near ±90°) that drawing it would only overflow.
     pub(crate) fn is_degenerate(self) -> bool {
-        let entries = [self.a, self.b, self.c, self.d, self.tx, self.ty];
+        let linear = [self.a, self.b, self.c, self.d];
         let determinant = self.a * self.d - self.b * self.c;
-        entries
+        linear
             .iter()
             .any(|entry| !entry.is_finite() || entry.abs() > MAX_ENTRY)
+            || !(self.tx.is_finite() && self.ty.is_finite())
             || !determinant.is_finite()
             || determinant.abs() <= f32::EPSILON
     }

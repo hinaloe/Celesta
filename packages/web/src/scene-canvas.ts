@@ -80,14 +80,21 @@ function layerMatrix(parent: DOMMatrix, t: Transform, l: Matrix3): DOMMatrix {
   return moved.multiply(new DOMMatrix([l[0][0], l[1][0], l[0][1], l[1][1], 0, 0]));
 }
 
+/** The largest magnitude a linear entry may have before the layer is not drawn, as in the GPU renderer. */
+const MAX_ENTRY = 1e7;
+
 /**
- * Whether `matrix` collapses what it draws (edge-on to the viewer, say), as
+ * Whether `matrix` collapses what it draws (edge-on to the viewer, say), or
+ * is so stretched (a skew near ±90°) that drawing it would only overflow, as
  * the GPU renderer's `Affine::is_degenerate` tells: then the layer draws
- * nothing.
+ * nothing. The translation is not capped: a group moved far away can move
+ * its children back.
  */
 function degenerate(matrix: DOMMatrix): boolean {
-  const determinant = matrix.a * matrix.d - matrix.b * matrix.c;
-  return !Number.isFinite(determinant) || Math.abs(determinant) <= 2 ** -23;
+  const { a, b, c, d } = matrix;
+  const determinant = a * d - b * c;
+  return [a, b, c, d].some(entry => !(Math.abs(entry) <= MAX_ENTRY))
+    || !Number.isFinite(determinant) || Math.abs(determinant) <= 2 ** -23;
 }
 
 /** `matrix` as a 3x3 matrix. */

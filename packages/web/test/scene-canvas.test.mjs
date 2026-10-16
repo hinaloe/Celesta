@@ -643,6 +643,10 @@ test('a skewed layer draws through its linear part, and an edge-on one not at al
   assert.equal(rotations, 1, 'a flat layer keeps translate · rotate · scale');
   assert.equal((await fills(at(10, 20, { rotationY: 90 }))).length, 0);
   assert.equal((await fills(at(10, 20, { rotationX: 90 }))).length, 0);
+  // Skewed so far the linear part is past 1e7, as the GPU renderer's
+  // `Affine::is_degenerate` caps it; a far translation alone is not.
+  assert.equal((await fills(at(10, 20, { skew: { x: 90, y: 0 } }))).length, 0);
+  assert.equal((await fills(at(2e7, 20, { skew: { x: 45, y: 0 } }))).length, 1);
   assert.equal((await fills(at(10, 20, { rotationY: 60 }))).length, 1);
   renderer.dispose();
 });

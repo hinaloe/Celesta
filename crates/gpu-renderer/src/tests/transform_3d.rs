@@ -129,6 +129,19 @@ fn edge_on_layers_draw_nothing() {
     }
 }
 
+#[test]
+fn a_group_moved_far_away_still_draws_children_moved_back() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    // Only the linear entries are capped: a far translation is not a
+    // stretch, and this one cancels out.
+    let rect = corner_rect("rect", -2e7 + 10.0, 10.0, 40.0, 40.0, "#FF0000FF");
+    let far = group_at(2e7, 0.0, vec![rect]);
+    let frame = renderer.render(&scene_of(vec![far])).unwrap();
+    assert_eq!(pixel_at(&frame, 32, 32), [255, 0, 0, 255]);
+}
+
 /// A `width`x`height` rect of `color` centred on `(x, y)`.
 fn centred_rect(x: f64, y: f64, width: f64, height: f64, color: &str) -> Layer {
     let mut rect = corner_rect("rect", x, y, width, height, color);
