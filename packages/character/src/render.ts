@@ -13,16 +13,7 @@ import type { PsdCharacterBlink, PsdCharacterLipSync, PsdExpression } from './co
 import { resolveVisibleLayers } from './psd-preset';
 
 function identity(): EvaluatedTransform {
-  return {
-    position: { x: 0, y: 0 },
-    scale: { x: 1, y: 1 },
-    rotation: 0,
-    anchor: { x: 0, y: 0 },
-    skew: { x: 0, y: 0 },
-    rotationX: 0,
-    rotationY: 0,
-    backfaceVisibility: 'visible',
-  };
+  return { position: { x: 0, y: 0 }, scale: { x: 1, y: 1 }, rotation: 0, anchor: { x: 0, y: 0 } };
 }
 
 /** Per frame: the `<Dialogue>` props driving each `<CharacterView>` host node. */

@@ -1005,12 +1005,15 @@ pub struct EvaluatedTransform {
     pub anchor: Point,
     /// Shear angles in degrees along x and y.
     #[serde(skip_serializing_if = "is_zero_point")]
+    #[cfg_attr(feature = "codegen", ts(as = "Option<Point>", optional))]
     pub skew: Point,
     /// Rotation in degrees about the horizontal axis, as CSS `rotateX()`.
     #[serde(skip_serializing_if = "is_zero")]
+    #[cfg_attr(feature = "codegen", ts(as = "Option<f64>", optional))]
     pub rotation_x: f64,
     /// Rotation in degrees about the vertical axis, as CSS `rotateY()`.
     #[serde(skip_serializing_if = "is_zero")]
+    #[cfg_attr(feature = "codegen", ts(as = "Option<f64>", optional))]
     pub rotation_y: f64,
     /// Distance from the viewer to the layer plane; anything that is not
     /// finite and positive means no perspective.
@@ -1018,6 +1021,7 @@ pub struct EvaluatedTransform {
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub perspective: Option<f64>,
     #[serde(skip_serializing_if = "BackfaceVisibility::is_visible")]
+    #[cfg_attr(feature = "codegen", ts(as = "Option<BackfaceVisibility>", optional))]
     pub backface_visibility: BackfaceVisibility,
 }
 

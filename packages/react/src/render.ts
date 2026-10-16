@@ -374,9 +374,9 @@ function extractTransform(props: Record<string, unknown>): EvaluatedTransform {
  * `transform` without the fields equal to Rust's `EvaluatedTransform`
  * defaults (position 0, scale 1, rotation 0, anchor 0.5, no skew, 3D
  * rotation, or perspective, visible backfaces), which Rust fills back in.
- * React's own default anchor is the top-left corner, so it is kept. A
- * `rawTransform` from the evaluator already omits the new fields at their
- * defaults, so they may be missing here.
+ * React's own default anchor is the top-left corner, so it is kept. The
+ * skew, 3D rotation, and backface fields are optional, as a `rawTransform`
+ * from the evaluator omits them at their defaults.
  */
 function compactTransform(transform: EvaluatedTransform): EvaluatedTransform {
   const { position, scale, rotation, anchor, skew, rotationX, rotationY, perspective, backfaceVisibility } = transform;
@@ -1110,10 +1110,6 @@ function identityTransform(context: WalkContext): EvaluatedTransform {
     scale: { x: 1, y: 1 },
     rotation: 0,
     anchor: { x: 0, y: 0 },
-    skew: { x: 0, y: 0 },
-    rotationX: 0,
-    rotationY: 0,
-    backfaceVisibility: 'visible',
   };
   return context.compact ? compactTransform(identity) : identity;
 }
