@@ -11,7 +11,7 @@ const modulePath = join(directory, 'canvas.mjs');
 writeFileSync(modulePath, result.outputFiles[0].text);
 const { SceneCanvas } = await import(pathToFileURL(modulePath));
 rmSync(directory, { recursive: true });
-const { homography, planeRaster, stretchAt } = await import('../src/projection.ts');
+const { homography, planeBands, planeRaster, stretchAt } = await import('../src/projection.ts');
 
 test('file font URLs are reused across frames and isolated opacity is applied once', async t => {
   const faces = new Set(), operations = [];
@@ -567,6 +567,41 @@ test('a projective rect is drawn onto a canvas in its own plane, then onto its p
   const pieces = operations.filter(([kind, , from, , , , , clipped]) => kind === 'composite' && from === fill[1] && clipped);
   assert.ok(pieces.length > 1 && pieces.every(([, id]) => id === result || reaches(operations, id).has(result)), JSON.stringify(pieces));
   assert.deepEqual(operations.filter(([kind]) => kind === 'read'), []);
+  renderer.dispose();
+});
+
+test('a long plane draws through one canvas per band and composites once', async t => {
+  const { canvas, operations } = pixelCanvases(t);
+  const renderer = new SceneCanvas(new Map());
+  // A tenth of the GPU tests' crawl: 120 wide and 2000 deep, its near edge
+  // near the bottom of a 192x108 scene.
+  const transform = at(96, 90, { rotationX: 70, perspective: 80 });
+  const column = { opacity: 1, transform: at(0, -972), content: { type: 'rect', width: 120, height: 2000, cornerRadius: 0, fill: { type: 'solid', color: '#f00' } } };
+  const output = canvas();
+  output.width = 192;
+  output.height = 108;
+  await renderer.draw(output, { width: 192, height: 108, layers: [{ opacity: 0.5, transform, content: { type: 'group', layers: [column] } }] });
+
+  const bands = planeBands(homography(transform), [-60, -1972, 60, 28], [0, 0, 192, 108], 8192, 4 * 192 * 108, 0, true);
+  assert.ok(bands.length > 1, `${bands.length} bands`);
+  // Each band's canvas, its content drawn at its scale: the scales the GPU
+  // picks, or all lowered alike where the browser's wider seams (see
+  // `PLANE_SEAM`) take the bands past the budget.
+  const fills = operations.filter(([kind]) => kind === 'fill');
+  const scales = fills.map(([, , , , { a }]) => a);
+  assert.equal(scales.length, bands.length);
+  const ratios = scales.map((scale, k) => scale / bands[k].raster.scale);
+  assert.ok(ratios.every(ratio => ratio <= 1 && Math.abs(ratio - ratios[0]) < 1e-9), JSON.stringify(ratios));
+  // Each drawn piece by piece through clips onto one surface (or layers
+  // that add onto it), which reaches the output once, at the group's
+  // opacity.
+  const composites = operations.filter(([kind, id]) => kind === 'composite' && id === output.id);
+  assert.deepEqual(composites.map(([, , , alpha]) => alpha), [0.5]);
+  const result = composites[0][2];
+  for (const [, source] of fills) {
+    const pieces = operations.filter(([kind, , from, , , , , clipped]) => kind === 'composite' && from === source && clipped);
+    assert.ok(pieces.length > 0 && pieces.every(([, id]) => id === result || reaches(operations, id).has(result)), `canvas ${source}`);
+  }
   renderer.dispose();
 });
 
