@@ -215,8 +215,11 @@ impl PsdSources {
                     ((raster.top as usize + row) * width as usize + raster.left as usize) * 4;
                 let destination = &mut pixels[start..start + row_bytes];
                 let source = &raster.pixels[row * row_bytes..(row + 1) * row_bytes];
-                for (destination, source) in
-                    destination.chunks_exact_mut(4).zip(source.chunks_exact(4))
+                for (destination, source) in destination
+                    .as_chunks_mut::<4>()
+                    .0
+                    .iter_mut()
+                    .zip(source.as_chunks::<4>().0.iter())
                 {
                     if source[3] == 0 {
                         continue;

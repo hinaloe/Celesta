@@ -423,7 +423,7 @@ impl ImageSources {
                     &mut pixmap.as_mut(),
                 );
                 // tiny-skia uses premultiplied alpha; Celesta stores straight RGBA.
-                for pixel in pixmap.data_mut().chunks_exact_mut(4) {
+                for pixel in pixmap.data_mut().as_chunks_mut::<4>().0 {
                     if pixel[3] != 0 {
                         for channel in 0..3 {
                             pixel[channel] = ((pixel[channel] as u32 * 255 + pixel[3] as u32 / 2)
@@ -505,7 +505,9 @@ pub fn resize_rgba(
                 .iter()
                 .map(|(first, weights)| {
                     let mut sum = [0.0f32; 4];
-                    for (pixel, weight) in source[first * 4..].chunks_exact(4).zip(weights) {
+                    for (pixel, weight) in
+                        source[first * 4..].as_chunks::<4>().0.iter().zip(weights)
+                    {
                         let alpha = f32::from(pixel[3]) * weight;
                         for channel in 0..3 {
                             sum[channel] += f32::from(pixel[channel]) * alpha;

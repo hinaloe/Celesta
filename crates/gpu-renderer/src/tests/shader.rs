@@ -763,8 +763,10 @@ fn draws_nothing_for_a_layer_that_draws_nothing() {
     assert!(
         frame
             .pixels()
-            .chunks_exact(4)
-            .all(|pixel| pixel == [0, 0, 0, 255])
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| *pixel == [0, 0, 0, 255])
     );
 }
 

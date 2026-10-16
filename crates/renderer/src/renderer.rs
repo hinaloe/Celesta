@@ -58,7 +58,7 @@ impl CpuRenderer {
             height: scene.height,
             pixels: vec![0; pixel_count],
         };
-        for pixel in frame.pixels.chunks_exact_mut(4) {
+        for pixel in frame.pixels.as_chunks_mut::<4>().0 {
             pixel.copy_from_slice(&[
                 self.options.background.red,
                 self.options.background.green,

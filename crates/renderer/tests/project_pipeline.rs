@@ -25,7 +25,9 @@ fn renders_an_evaluated_project_scene() {
     assert!(
         frame
             .pixels()
-            .chunks_exact(4)
-            .any(|pixel| pixel != [20, 22, 28, 255])
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| *pixel != [20, 22, 28, 255])
     );
 }

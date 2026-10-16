@@ -104,7 +104,7 @@ impl Parser {
         };
 
         let mut boundaries = Vec::new();
-        for i in 1..length {
+        for (i, &offset) in offsets[..length].iter().enumerate().skip(1) {
             let mut score = 0;
             if i > 2 {
                 score += weight(UW1, i - 3, i - 2);
@@ -143,7 +143,7 @@ impl Parser {
             }
 
             if self.base_score + 2 * score > 0 {
-                boundaries.push(offsets[i]);
+                boundaries.push(offset);
             }
         }
         boundaries

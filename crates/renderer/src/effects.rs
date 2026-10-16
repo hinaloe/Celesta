@@ -6,7 +6,9 @@ use std::ops::RangeInclusive;
 
 pub(crate) fn premultiply_pixels(pixels: &[u8]) -> Vec<u8> {
     pixels
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|pixel| {
             let alpha = f64::from(pixel[3]) / 255.0;
             [

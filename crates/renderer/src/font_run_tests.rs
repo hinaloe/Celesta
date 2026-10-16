@@ -519,7 +519,9 @@ fn a_taller_run_is_not_clipped_by_a_tight_line_box() {
         let left = (x.floor() as usize).saturating_sub(1);
         let right = (x + width).ceil() as usize + 1;
         text.pixels()
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .enumerate()
             .filter(|(i, p)| {
                 let column = i % text.width() as usize;

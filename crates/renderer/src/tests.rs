@@ -144,7 +144,9 @@ fn rasterizes_color_emoji_glyphs_when_a_color_font_is_available() {
 
     let distinct_colors: std::collections::HashSet<[u8; 3]> = rasterized
         .pixels()
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[3] > 0)
         .map(|pixel| [pixel[0], pixel[1], pixel[2]])
         .collect();
@@ -201,8 +203,9 @@ fn renders_text_to_a_png() {
     assert!(
         frame
             .pixels()
-            .chunks_exact(4)
-            .any(|pixel| pixel == [255, 255, 255, 255])
+            .as_chunks::<4>()
+            .0
+            .contains(&[255, 255, 255, 255])
     );
 }
 
@@ -409,8 +412,10 @@ fn a_clip_without_area_hides_its_children() {
     assert!(
         frame
             .pixels()
-            .chunks_exact(4)
-            .all(|pixel| pixel == background())
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| *pixel == background())
     );
 }
 
@@ -574,7 +579,7 @@ fn a_stroke_without_fill_keeps_its_color_along_the_inner_edge() {
     };
     let ring = rasterize_rect(40.6, 40.6, 20.3, None, Some(&stroke)).unwrap();
     let mut inner_edge = 0;
-    for pixel in ring.pixels().chunks_exact(4) {
+    for pixel in ring.pixels().as_chunks::<4>().0 {
         if pixel[3] > 0 {
             assert_eq!(&pixel[..3], &[0xFF, 0xC0, 0x40], "pixel {pixel:?}");
             inner_edge += usize::from(pixel[3] < 255);
@@ -622,8 +627,8 @@ fn centers_visible_single_line_text_on_its_transform() {
     let mut min_y = u32::MAX;
     let mut max_x = 0;
     let mut max_y = 0;
-    for (index, pixel) in frame.pixels().chunks_exact(4).enumerate() {
-        if pixel != [20, 22, 28, 255] {
+    for (index, pixel) in frame.pixels().as_chunks::<4>().0.iter().enumerate() {
+        if *pixel != [20, 22, 28, 255] {
             let x = index as u32 % frame.width();
             let y = index as u32 / frame.width();
             min_x = min_x.min(x);
@@ -713,9 +718,11 @@ fn a_text_stroke_around_a_transparent_fill_leaves_the_glyphs_hollow() {
     let mut outline = 0;
     for ((filled, hollow), faint) in filled
         .pixels()
-        .chunks_exact(4)
-        .zip(hollow.pixels().chunks_exact(4))
-        .zip(faint.pixels().chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(hollow.pixels().as_chunks::<4>().0.iter())
+        .zip(faint.pixels().as_chunks::<4>().0.iter())
     {
         match filled {
             // Inside a glyph: before, the stroke's color showed through here.
@@ -772,7 +779,7 @@ fn a_text_stroke_does_not_move_the_text() {
         let frame = CpuRenderer::default().render(&scene).unwrap();
         // The white fill only: the stroke is black.
         let (mut min_x, mut max_x) = (u32::MAX, 0);
-        for (index, pixel) in frame.pixels().chunks_exact(4).enumerate() {
+        for (index, pixel) in frame.pixels().as_chunks::<4>().0.iter().enumerate() {
             if pixel[0] > 200 && pixel[1] > 200 {
                 let x = index as u32 % frame.width();
                 min_x = min_x.min(x);
@@ -897,12 +904,12 @@ fn gradient_text_fading_out_leaves_transparent_pixels_empty() {
         ..TextStyle::default()
     };
     let text = rasterizer.rasterize("MMMM", &style, None, 1.0).unwrap();
-    let pixels = text.pixels().chunks_exact(4);
+    let pixels = text.pixels().as_chunks::<4>().0.iter();
     assert!(pixels.clone().any(|pixel| pixel[3] > 200));
     assert!(
         pixels
             .filter(|pixel| pixel[3] == 0)
-            .all(|pixel| pixel == [0; 4])
+            .all(|pixel| *pixel == [0; 4])
     );
 }
 
@@ -918,7 +925,7 @@ fn solid_text_fill_alpha_scales_the_glyphs_alpha() {
             ..TextStyle::default()
         };
         let text = rasterizer.rasterize("MMMM", &style, None, 1.0).unwrap();
-        let pixels = text.pixels().chunks_exact(4);
+        let pixels = text.pixels().as_chunks::<4>().0.iter();
         assert!(
             pixels
                 .clone()
@@ -950,7 +957,9 @@ fn solid_text_fill_alpha_leaves_color_emoji_glyphs_alone() {
     };
     let (opaque, translucent) = (pixels("#FFFFFF"), pixels("#FFFFFF80"));
     let distinct_colors: std::collections::HashSet<[u8; 3]> = opaque
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[3] > 0)
         .map(|pixel| [pixel[0], pixel[1], pixel[2]])
         .collect();
@@ -1694,7 +1703,12 @@ fn rasterize_psd_without_a_preset_renders_nothing_when_every_folder_is_hidden() 
     let frame = rasterize_psd("fixture", &lipsync_fixture_psd(), &[], &[], &[]).unwrap();
     assert_eq!((frame.width, frame.height), (240, 320));
     assert!(
-        frame.pixels.chunks_exact(4).all(|pixel| pixel[3] == 0),
+        frame
+            .pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[3] == 0),
         "a saved-all-hidden PSD with no preset should compose to nothing"
     );
 }
@@ -2049,7 +2063,7 @@ fn transformed_rect(
         height: 16,
         pixels: vec![0; 32 * 16 * 4],
     };
-    for (index, texel) in rect.image.pixels().chunks_exact(4).enumerate() {
+    for (index, texel) in rect.image.pixels().as_chunks::<4>().0.iter().enumerate() {
         let x = rect.left as u32 + index as u32 % rect.image.width();
         let y = rect.top as u32 + index as u32 / rect.image.width();
         let offset = ((y * 32 + x) * 4) as usize;
@@ -2085,7 +2099,9 @@ fn coverage_over_offsets(width: f64, height: f64, transform: crate::PathTransfor
             let covered: f64 = rect
                 .image
                 .pixels()
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|pixel| f64::from(pixel[3]) / 255.0)
                 .sum();
             covered / area
@@ -2189,8 +2205,8 @@ fn a_stroke_filling_the_rect_hides_its_fill() {
         }),
     )
     .unwrap();
-    for pixel in rect.pixels().chunks_exact(4) {
-        assert_eq!(pixel, [255, 0, 0, 255]);
+    for pixel in rect.pixels().as_chunks::<4>().0 {
+        assert_eq!(*pixel, [255, 0, 0, 255]);
     }
 }
 
@@ -2228,11 +2244,15 @@ fn colored_runs_preserve_full_shaping_and_reveal_geometry() {
         assert_eq!(
             original
                 .pixels()
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|p| p[3])
                 .collect::<Vec<_>>(),
             full.pixels()
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|p| p[3])
                 .collect::<Vec<_>>()
         );
@@ -2394,7 +2414,9 @@ fn color_runs_paint_each_cluster_and_reveal_the_expected_prefix() {
         };
         let pixels: Vec<_> = full
             .pixels()
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .enumerate()
             .filter(|(i, p)| {
                 let x = (i % full.width() as usize) as f64;

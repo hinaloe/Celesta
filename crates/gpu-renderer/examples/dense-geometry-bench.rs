@@ -219,9 +219,12 @@ fn ribbon(time: f64, x: f64, y: f64, size: f64, strands: usize, geometry: Geomet
         .collect()
 }
 
+/// A ribbon segment: its projected ends (x, y, depth) and its mean depth.
+type Segment = ((f64, f64, f64), (f64, f64, f64), f64);
+
 /// The same segments as one `Instances` layer: each rect centred halfway
 /// along it, its opacity in its colour's alpha.
-fn ribbon_instances(segments: &[((f64, f64, f64), (f64, f64, f64), f64)]) -> Layer {
+fn ribbon_instances(segments: &[Segment]) -> Layer {
     let mut columns: [Vec<f32>; 5] = Default::default();
     let mut colors = Vec::with_capacity(segments.len() * 4);
     for &(a, b, depth) in segments {

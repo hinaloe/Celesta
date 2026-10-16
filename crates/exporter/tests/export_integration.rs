@@ -134,7 +134,9 @@ fn exports_frame_exact_mp4_with_silent_audio() {
     assert!(
         first_frame
             .pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| { pixel[0] != pixel[1] || pixel[1] != pixel[2] || pixel[0] != 0 })
     );
     assert_ne!(first_frame.pixels, second_frame.pixels);

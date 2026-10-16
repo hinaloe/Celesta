@@ -233,7 +233,9 @@ fn mixes_audio_at_exact_timeline_and_source_offsets() {
     assert_eq!((mixed.sample_rate, mixed.channels), (4, 2));
     let left = mixed
         .samples
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|frame| frame[0])
         .collect::<Vec<_>>();
     assert_eq!(left, vec![0.0, 0.0, 0.125, 0.25, 0.375, 0.5, 0.0, 0.0]);
@@ -249,7 +251,9 @@ fn mixes_audio_at_exact_timeline_and_source_offsets() {
         mix_audio_graph(&graph, Path::new("assets"), Time::new(2, 1), &mut Decoder).unwrap();
     let left = source_trimmed
         .samples
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|frame| frame[0])
         .collect::<Vec<_>>();
     assert_eq!(left, vec![0.0, 0.0, 0.125, 0.25, 0.0, 0.0, 0.0, 0.0]);
@@ -304,7 +308,9 @@ fn loops_audio_from_the_start_of_the_source_past_its_end() {
         mix_audio_graph(graph, Path::new("assets"), Time::new(2, 1), &mut Decoder)
             .unwrap()
             .samples
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|frame| frame[0])
             .collect::<Vec<_>>()
     };

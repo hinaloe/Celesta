@@ -171,7 +171,12 @@ pub fn rasterize_paths(
         for (outline, coverage) in &prepared {
             outline.composite(coverage, region, top, &mut band);
         }
-        for (source, destination) in band.chunks_exact(4).zip(pixels.chunks_exact_mut(4)) {
+        for (source, destination) in band
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(pixels.as_chunks_mut::<4>().0.iter_mut())
+        {
             let alpha = source[3];
             if alpha <= 0.0 {
                 continue;
@@ -345,8 +350,7 @@ fn curve_points(
     let steps = (factor * bend / FLATTEN_TOLERANCE)
         .sqrt()
         .ceil()
-        .max(1.0)
-        .min(MAX_CURVE_STEPS) as u32;
+        .clamp(1.0, MAX_CURVE_STEPS) as u32;
     let last = *points.last().expect("a curve has control points");
     (1..=steps).map(move |step| {
         if step == steps {
@@ -1059,13 +1063,22 @@ mod tests {
         let frame = render(40, 30, vec![layer(content, EvaluatedTransform::default())]);
         let total: f64 = frame
             .pixels()
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|pixel| f64::from(pixel[3]) / 255.0)
             .sum();
         // Ink equals the stroke's area (50 x 0.5) to within a few percent,
         // spread over partially covered pixels.
         assert!((total - 25.0).abs() < 1.5, "total coverage {total}");
-        assert!(frame.pixels().chunks_exact(4).all(|pixel| pixel[3] < 200));
+        assert!(
+            frame
+                .pixels()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] < 200)
+        );
     }
 
     #[test]
@@ -1304,7 +1317,7 @@ mod tests {
             );
         }
         let width = batch.image.width() as usize;
-        for (index, pixel) in batch.image.pixels().chunks_exact(4).enumerate() {
+        for (index, pixel) in batch.image.pixels().as_chunks::<4>().0.iter().enumerate() {
             let x = batch.left as usize + index % width;
             let y = batch.top as usize + index / width;
             let expected = &expected.pixels()[(y * 64 + x) * 4..][..4];

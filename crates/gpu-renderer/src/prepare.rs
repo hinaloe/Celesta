@@ -1139,6 +1139,10 @@ impl GpuRenderer {
     /// The texture `asset` draws from, rasterized (an SVG) for `density`
     /// output pixels per layer unit, and its display size in layer units.
     /// A raster image always has mipmaps; an SVG only with `svg_mipmaps`.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "mirrors the Image layer's fields, which `ImageSources::render` takes the same way"
+    )]
     pub(crate) fn image_texture(
         &mut self,
         asset: &ResolvedAsset,
