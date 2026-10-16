@@ -9,7 +9,7 @@ use crate::layer::{InstanceBytes, PreparedContent, PreparedItem, PreparedLayer};
 use crate::mask::MaskSpec;
 use crate::path::{PathEntries, PendingPath, path_entry_limit};
 use crate::plan::{CompositePlan, GpuDraw, GpuStep, GroupPlan, PreparedDraws, plan_groups};
-use crate::plane::{corners_to_scene, hit_clips, plane_to_scene};
+use crate::plane::{corners_to_scene, hit_clips};
 use crate::renderer::GpuRenderer;
 use crate::text::{PendingText, text_layer, text_raster_scale};
 use crate::texture::{DecodedImage, LayerTexture, TEXT_TEXTURE_PREFIX, canvas_texture, psd_key};
@@ -1215,19 +1215,10 @@ impl GpuRenderer {
                     _ => return None,
                 };
                 // A leaf in a plane is in the plane's canvas pixels.
-                let (corners, hole) = match leaf.plane {
-                    Some(plane) => {
-                        let to_scene = plane_to_scene(planes, plane);
-                        (
-                            corners_to_scene(&to_scene, corners)?,
-                            match hole {
-                                Some(hole) => Some(corners_to_scene(&to_scene, hole)?),
-                                None => None,
-                            },
-                        )
-                    }
-                    None => (corners, hole),
-                };
+                let corners = corners_to_scene(planes, leaf.plane, corners)?;
+                let hole = hole.map_or(Some(None), |hole| {
+                    corners_to_scene(planes, leaf.plane, hole).map(Some)
+                })?;
                 let region = HitRegion {
                     layer_id: leaf.layer_id,
                     corners,

@@ -11,8 +11,8 @@ use crate::renderer::GpuRenderer;
 use crate::text::round_up_to_eighth_octave;
 use crate::transform::{Affine, ClipEntry, LayerState};
 use celesta_composition::{
-    BlendMode, EvaluatedTransform, Layer, LayerEffects, Matrix3, Point, invert3, multiply3,
-    project, stretch_at,
+    BlendMode, EvaluatedTransform, IDENTITY3, Layer, LayerEffects, Matrix3, Point, invert3,
+    multiply3, project, stretch_at,
 };
 
 /// The nearest a point may come to the viewer and still be drawn: points
@@ -189,27 +189,30 @@ pub(crate) struct PlaneEntry {
     pub(crate) clip: Option<u32>,
 }
 
-/// The map from `plane`'s canvas pixels to the scene's.
-pub(crate) fn plane_to_scene(planes: &[PlaneEntry], plane: u32) -> Matrix3 {
-    let entry = &planes[plane as usize];
-    match entry.parent {
-        Some(parent) => multiply3(&plane_to_scene(planes, parent), &entry.to_parent),
-        None => entry.to_parent,
-    }
+/// The planes from `plane` outwards: it, its parent, and so on.
+fn plane_chain(planes: &[PlaneEntry], plane: Option<u32>) -> impl Iterator<Item = u32> + '_ {
+    std::iter::successors(plane, |&index| planes[index as usize].parent)
 }
 
-/// `corners` mapped through `to_scene` to scene pixels; `None` when any is
-/// behind the viewer.
-pub(crate) fn corners_to_scene(to_scene: &Matrix3, corners: [Point; 4]) -> Option<[Point; 4]> {
-    let mut mapped = corners;
-    for (mapped, corner) in mapped.iter_mut().zip(corners) {
-        let [x, y, w] = project(to_scene, corner.x, corner.y);
-        if w.is_nan() || w <= 0.0 {
-            return None;
+/// `corners`, in the canvas pixels of `plane`, mapped up through each
+/// plane's `to_parent` to scene pixels; `None` when any is behind the
+/// viewer at any level.
+pub(crate) fn corners_to_scene(
+    planes: &[PlaneEntry],
+    plane: Option<u32>,
+    corners: [Point; 4],
+) -> Option<[Point; 4]> {
+    let mut scene = corners;
+    for point in &mut scene {
+        for index in plane_chain(planes, plane) {
+            let [x, y, w] = project(&planes[index as usize].to_parent, point.x, point.y);
+            if w.is_nan() || w <= 0.0 {
+                return None;
+            }
+            *point = Point { x, y };
         }
-        *mapped = Point { x, y };
     }
-    Some(mapped)
+    Some(scene)
 }
 
 /// Every clip a leaf in `plane` is drawn through, innermost first: the
@@ -219,15 +222,27 @@ pub(crate) fn corners_to_scene(to_scene: &Matrix3, corners: [Point; 4]) -> Optio
 pub(crate) fn hit_clips(
     clips: &[ClipEntry],
     planes: &[PlaneEntry],
-    mut plane: Option<u32>,
-    mut clip: Option<u32>,
+    plane: Option<u32>,
+    clip: Option<u32>,
 ) -> Option<Vec<HitClip>> {
+    let chain = plane_chain(planes, plane).collect::<Vec<_>>();
+    // The map from each plane's canvas pixels to the scene's, built from
+    // the outermost plane in.
+    let mut to_scene = Vec::with_capacity(chain.len());
+    let mut composed = IDENTITY3;
+    for &index in chain.iter().rev() {
+        composed = multiply3(&composed, &planes[index as usize].to_parent);
+        to_scene.push(composed);
+    }
+    to_scene.reverse();
     let mut hit_clips = Vec::new();
-    loop {
-        let to_local = match plane {
-            Some(plane) => {
-                let [a, b, c] = invert3(&plane_to_scene(planes, plane))?;
-                Some([a, b, c].concat().try_into().ok()?)
+    let mut clip = clip;
+    // The leaf's own space, then each plane's parent's, down to the scene.
+    for level in 0..=chain.len() {
+        let to_local = match to_scene.get(level) {
+            Some(to_scene) => {
+                let [[a, b, c], [d, e, f], [g, h, i]] = invert3(to_scene)?;
+                Some([a, b, c, d, e, f, g, h, i])
             }
             None => None,
         };
@@ -239,12 +254,11 @@ pub(crate) fn hit_clips(
                 }
             }),
         );
-        let Some(index) = plane else {
-            return Some(hit_clips);
-        };
-        let entry = &planes[index as usize];
-        (plane, clip) = (entry.parent, entry.clip);
+        if let Some(&index) = chain.get(level) {
+            clip = planes[index as usize].clip;
+        }
     }
+    Some(hit_clips)
 }
 
 /// The most pixels a plane's canvas has, in scene areas.
@@ -443,6 +457,34 @@ mod tests {
     use celesta_composition::{EvaluatedTransform, IDENTITY3, Point, stretch_at};
 
     const SCREEN: PixelBounds = PixelBounds([0.0, 0.0, 1920.0, 1080.0]);
+
+    fn entry(to_parent: Matrix3, parent: Option<u32>) -> PlaneEntry {
+        PlaneEntry {
+            to_parent,
+            parent,
+            clip: None,
+        }
+    }
+
+    #[test]
+    fn corners_behind_the_viewer_at_any_level_are_dropped() {
+        // Each of these maps every point behind the viewer (w = -1); the
+        // two together map it back in front (w = 1).
+        let behind = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, -1.0]];
+        let front = IDENTITY3;
+        let corners = [Point { x: 1.0, y: 2.0 }; 4];
+        let planes = [
+            entry(behind, None),
+            entry(behind, Some(0)),
+            entry(front, None),
+            entry(front, Some(2)),
+        ];
+        assert!(corners_to_scene(&planes, Some(1), corners).is_none());
+        assert!(corners_to_scene(&planes, Some(0), corners).is_none());
+        assert!(corners_to_scene(&planes, Some(2), corners).is_some());
+        assert!(corners_to_scene(&planes, Some(3), corners).is_some());
+        assert!(corners_to_scene(&planes, None, corners).is_some());
+    }
 
     #[test]
     fn projected_bounds_of_an_affine_canvas_is_its_box() {

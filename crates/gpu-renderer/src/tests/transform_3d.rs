@@ -2,7 +2,7 @@
 //! projective planes perspective layers draw through.
 
 use super::*;
-use celesta_composition::{BackfaceVisibility, project};
+use celesta_composition::{BackfaceVisibility, multiply3, project};
 
 fn transformed(mut layer: Layer, edit: impl FnOnce(&mut EvaluatedTransform)) -> Layer {
     edit(&mut layer.transform);
@@ -660,4 +660,104 @@ fn hit_tests_a_clip_inside_a_projective_group() {
     };
     assert_eq!(at(-25.0), Some("rect"));
     assert_eq!(at(25.0), None, "inside the quad, outside the group's clip");
+}
+
+#[test]
+fn hit_tests_through_nested_planes() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    renderer.set_record_hit_regions(true);
+    // A projective group clipped to its left half, in a projective group.
+    let inner = in_perspective(
+        clipped_group(
+            EvaluatedTransform {
+                anchor: Point { x: 0.0, y: 0.0 },
+                ..EvaluatedTransform::default()
+            },
+            Clip {
+                x: -50.0,
+                y: -50.0,
+                width: 50.0,
+                height: 100.0,
+                corner_radius: 0.0,
+            },
+            vec![centred_rect(0.0, 0.0, 100.0, 100.0, "#FF0000FF")],
+        ),
+        0.0,
+        30.0,
+        600.0,
+    );
+    let inner_homography = inner.transform.homography();
+    let outer = in_perspective(group_at(100.0, 100.0, vec![inner]), 20.0, 0.0, 800.0);
+    let homography = multiply3(&outer.transform.homography(), &inner_homography);
+    renderer
+        .render(&sized_scene(200, 200, vec![outer]))
+        .unwrap();
+    let regions = renderer.hit_regions();
+    let at = |x: f64, y: f64| {
+        let [x, y, _] = project(&homography, x, y);
+        hit_test(regions, Point { x, y })
+    };
+    // The quad is the rect's corners through both planes.
+    let corners = [(-50.0, -50.0), (50.0, -50.0), (50.0, 50.0), (-50.0, 50.0)];
+    for (corner, (x, y)) in regions[0].corners.iter().zip(corners) {
+        let [x, y, _] = project(&homography, x, y);
+        assert!(
+            (corner.x - x).hypot(corner.y - y) < 0.01,
+            "{corner:?} {x} {y}"
+        );
+    }
+    // Close to the clip's edge, which a map a few pixels off would cross.
+    assert_eq!(at(-3.0, 0.0), Some("rect"));
+    assert_eq!(at(-3.0, 40.0), Some("rect"));
+    assert_eq!(at(3.0, 0.0), None, "outside the inner group's clip");
+    assert_eq!(at(3.0, 40.0), None);
+    // And to the rect's own, outside the clip's far side.
+    assert_eq!(at(-47.0, -47.0), Some("rect"));
+    assert_eq!(at(-53.0, 0.0), None, "outside the rect");
+}
+
+#[test]
+fn hit_tests_a_projection_through_the_clip_of_its_parent() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    renderer.set_record_hit_regions(true);
+    let rect = || {
+        in_perspective(
+            centred_rect(100.0, 100.0, 100.0, 100.0, "#FF0000FF"),
+            0.0,
+            30.0,
+            600.0,
+        )
+    };
+    let homography = rect().transform.homography();
+    let left_half = Clip {
+        x: 0.0,
+        y: 0.0,
+        width: 100.0,
+        height: 200.0,
+        corner_radius: 0.0,
+    };
+    let clipped = clipped_group(EvaluatedTransform::default(), left_half, vec![rect()]);
+    renderer
+        .render(&sized_scene(200, 200, vec![clipped]))
+        .unwrap();
+    let clipped_regions = renderer.take_hit_regions();
+    renderer
+        .render(&sized_scene(200, 200, vec![rect()]))
+        .unwrap();
+    let regions = renderer.hit_regions();
+    for x in [-20.0, 20.0] {
+        let [x, y, _] = project(&homography, x, 0.0);
+        let point = Point { x, y };
+        assert_eq!(hit_test(regions, point), Some("rect"), "unclipped at {x}");
+        let expected = (x < 100.0).then_some("rect");
+        assert_eq!(
+            hit_test(&clipped_regions, point),
+            expected,
+            "clipped at {x}"
+        );
+    }
 }
