@@ -1,4 +1,4 @@
-import type { Scene, Layer, Asset, BuiltinFilter, FontRun, LineDash, Paint, PathCommand, TextStyle } from './types';
+import type { Scene, Layer, Asset, BuiltinFilter, FontRun, LineDash, Paint, PathCommand, TextStyle, Transform } from './types';
 import { BLEND_MODES, blendPixels, coveredBox } from './blend-modes';
 import type { BlendMode } from './blend-modes';
 import { applyFilters } from './filters';
@@ -10,6 +10,11 @@ import type { RunPiece } from './text-layout';
 import { animationFrame, decodeAnimatedImage } from './animated-image';
 import { audioBytes } from './audio-decode';
 import type { AnimatedImage } from './animated-image';
+import {
+  IDENTITY3, boxOf, clipInFront, corners, effectScale as planeEffectScale, facesAway, homography, invert3, isProjective,
+  linear, multiply3, planeRaster, project, projectedBounds, toPlane, warp,
+} from './projection';
+import type { Matrix3 } from './projection';
 
 type Canvas = HTMLCanvasElement;
 type Context = CanvasRenderingContext2D;
@@ -52,6 +57,50 @@ function isolatesGroup(layer: WebLayer): boolean {
 }
 
 const grow = ([left, top, right, bottom]: Box, by: number): Box => [left - by, top - by, right + by, bottom + by];
+
+/** The largest side of a plane's canvas: the GPU renderer's usual texture limit. */
+const MAX_PLANE_SIDE = 8192;
+/** The most pixels a plane's canvas has, in scene areas, as in the GPU renderer. */
+const MAX_PLANE_AREA = 4;
+
+/** Whether `t` only turns about the Z axis: no skew and no 3D rotation. */
+const turnsFlat = (t: Transform) => !(t.skew?.x || t.skew?.y || t.rotationX || t.rotationY);
+
+/**
+ * The matrix a layer with transform `t` draws its content through under
+ * `parent`: the 2x2 of its `linear` part and its position, or today's
+ * translate, rotate, and scale when it turns flat. A projective layer draws
+ * through its plane instead.
+ */
+function layerMatrix(parent: DOMMatrix, t: Transform): DOMMatrix {
+  const moved = parent.translate(t.position.x, t.position.y);
+  if (turnsFlat(t)) return moved.rotate(t.rotation).scale(t.scale.x, t.scale.y);
+  const l = linear(t);
+  return moved.multiply(new DOMMatrix([l[0][0], l[1][0], l[0][1], l[1][1], 0, 0]));
+}
+
+/**
+ * Whether `matrix` collapses what it draws (edge-on to the viewer, say), as
+ * the GPU renderer's `Affine::is_degenerate` tells: then the layer draws
+ * nothing.
+ */
+function degenerate(matrix: DOMMatrix): boolean {
+  const determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+  return !Number.isFinite(determinant) || Math.abs(determinant) <= 2 ** -23;
+}
+
+/** `matrix` as a 3x3 matrix. */
+const matrix3 = (matrix: DOMMatrix): Matrix3 => [[matrix.a, matrix.c, matrix.e], [matrix.b, matrix.d, matrix.f], [0, 0, 1]];
+
+/**
+ * A projective layer's content in its own plane, as the GPU renderer's
+ * `prepare_plane` draws it: its transform reset but for the anchor, which
+ * still places it, at full opacity, blended normally, without effects.
+ */
+function planeContent(layer: WebLayer): WebLayer {
+  const transform = { position: { x: 0, y: 0 }, scale: { x: 1, y: 1 }, rotation: 0, anchor: layer.transform.anchor };
+  return { ...layer, transform, opacity: 1, blendMode: 'normal', effects: undefined };
+}
 
 /**
  * A path's dashes for `setLineDash`, as the native renderers draw them: an
@@ -172,6 +221,8 @@ export class SceneCanvas {
   private usedPatterns = new Set<string>();
   /** Where stroked text is composed; see `strokeSurface`. */
   private strokeCanvas?: Context;
+  /** The pixels of the scene being drawn, which bound a plane's canvas. */
+  private sceneArea = Infinity;
 
   constructor(private assets: Map<string, File> = new Map(), private baseURL?: string) {}
 
@@ -441,6 +492,7 @@ export class SceneCanvas {
       this.textLayouts.clear();
       this.fontKey = fontKey;
     }
+    this.sceneArea = scene.width * scene.height;
     if (canvas.width !== scene.width) canvas.width = scene.width;
     if (canvas.height !== scene.height) canvas.height = scene.height;
     const ctx = canvas.getContext('2d');
@@ -460,9 +512,18 @@ export class SceneCanvas {
     }
   }
 
-  private async layer(ctx: Context, layer: WebLayer, parent: DOMMatrix, opacity: number): Promise<void> {
+  /**
+   * Draws `layer` onto `ctx` under `parent` at `opacity`. `orientation` is
+   * the 3D orientation its ancestors accumulate, which decides whether it
+   * shows its back; `effectScale` how much larger than in output pixels an
+   * effect is drawn on `ctx`, more than 1 inside a magnified plane.
+   */
+  private async layer(ctx: Context, layer: WebLayer, parent: DOMMatrix, opacity: number, orientation: Matrix3 = IDENTITY3, effectScale = 1): Promise<void> {
     const t = layer.transform;
-    const matrix = parent.translate(t.position.x, t.position.y).rotate(t.rotation).scale(t.scale.x, t.scale.y);
+    const own = multiply3(orientation, linear(t));
+    if (t.backfaceVisibility === 'hidden' && facesAway(own)) return;
+    const matrix = layerMatrix(parent, t);
+    if (!turnsFlat(t) && degenerate(matrix)) return;
     const alpha = Math.max(0, Math.min(1, opacity * layer.opacity));
     if (!alpha) return;
     const content = layer.content;
@@ -477,27 +538,30 @@ export class SceneCanvas {
       // pixel by pixel as the native renderers do: Canvas's own modes round
       // differently, and its `lighter` is not their `add`.
       const source = this.surface(ctx);
-      await this.layer(source, { ...layer, opacity: 1, blendMode: 'normal' }, parent, 1);
+      await this.layer(source, { ...layer, opacity: 1, blendMode: 'normal' }, parent, 1, orientation, effectScale);
       this.blend(ctx, source, alpha, mode);
       source.canvas.width = 0;
       return;
     }
     if (effects && (effects.blur || effects.shadow || effects.glow || filters.length)) {
       const source = this.surface(ctx);
-      await this.layer(source, { ...layer, opacity: 1, blendMode: 'normal', effects: undefined }, parent, 1);
+      // The layer again, which adds its own orientation; a projective one
+      // draws through its plane, and the effects apply once it is projected.
+      await this.layer(source, { ...layer, opacity: 1, blendMode: 'normal', effects: undefined }, parent, 1, orientation, effectScale);
       if (filters.length) {
         const { width, height } = source.canvas;
         const pixels = source.getImageData(0, 0, width, height);
         // Surfaces are scene-sized, as a zoom blur's reach expects. Only
         // grids, centres, and `uv` read the box of the layer's shapes.
         const shape = filters.some(filter => READS_CONTENT_BOX.has(filter.type))
-          ? await this.shapeBox(source, { ...layer, effects: undefined }, parent, 1)
+          ? await this.shapeBox(source, { ...layer, effects: undefined }, parent, 1, orientation)
           : null;
         const box = applyFilters(pixels.data, width, filters as BuiltinFilter[], shape ? { content: shape } : {});
         if (box) source.putImageData(pixels, 0, 0, box[0], box[1], box[2] - box[0], box[3] - box[1]);
       }
       const result = this.surface(ctx);
       // Each effect reads the unmodified source, matching the native renderer.
+      // Inside a plane, sizes are in its pixels, `effectScale` per output pixel.
       for (const effect of [effects.shadow, effects.glow ? { ...effects.glow, offsetX: 0, offsetY: 0 } : null]) {
         if (!effect) continue;
         const mask = this.surface(ctx);
@@ -505,11 +569,13 @@ export class SceneCanvas {
         mask.globalCompositeOperation = 'source-in';
         mask.fillStyle = effect.color;
         mask.fillRect(0, 0, mask.canvas.width, mask.canvas.height);
-        result.filter = effect.blur > 0 ? `blur(${effect.blur}px)` : 'none';
-        result.drawImage(mask.canvas, effect.offsetX, effect.offsetY);
+        const blur = effect.blur * effectScale;
+        result.filter = blur > 0 ? `blur(${blur}px)` : 'none';
+        result.drawImage(mask.canvas, effect.offsetX * effectScale, effect.offsetY * effectScale);
         mask.canvas.width = 0;
       }
-      result.filter = effects.blur && effects.blur > 0 ? `blur(${effects.blur}px)` : 'none';
+      const blur = (effects.blur ?? 0) * effectScale;
+      result.filter = blur > 0 ? `blur(${blur}px)` : 'none';
       result.drawImage(source.canvas, 0, 0);
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -519,6 +585,10 @@ export class SceneCanvas {
       ctx.drawImage(result.canvas, 0, 0);
       ctx.restore();
       source.canvas.width = result.canvas.width = 0;
+      return;
+    }
+    if (isProjective(t)) {
+      await this.plane(ctx, layer, parent, alpha, own, effectScale);
       return;
     }
     if (content.type === 'group' && content.mask) {
@@ -535,10 +605,10 @@ export class SceneCanvas {
         shown.roundRect(clip.x, clip.y, clip.width, clip.height, clip.cornerRadius ?? 0);
         shown.clip();
       }
-      for (const child of content.layers) await this.layer(shown, child as WebLayer, matrix, 1);
+      for (const child of content.layers) await this.layer(shown, child as WebLayer, matrix, 1, own, effectScale);
       shown.restore();
       const matte = this.surface(ctx);
-      for (const child of content.mask.layers) await this.layer(matte, child as WebLayer, matrix, 1);
+      for (const child of content.mask.layers) await this.layer(matte, child as WebLayer, matrix, 1, own, effectScale);
       applyMask(shown, matte, content.mask.mode ?? 'alpha', content.mask.invert === true);
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -567,7 +637,7 @@ export class SceneCanvas {
         for (const sample of content.layers) {
           const surface = this.surface(ctx);
           clipTo(surface);
-          await this.layer(surface, sample as WebLayer, matrix, 1);
+          await this.layer(surface, sample as WebLayer, matrix, 1, own, effectScale);
           average.add(surface.getImageData(0, 0, width, height).data);
           surface.canvas.width = 0;
         }
@@ -590,7 +660,7 @@ export class SceneCanvas {
       target.save();
       clipTo(target);
       for (const child of content.layers) {
-        await this.layer(target, child as WebLayer, matrix, target === ctx ? alpha : 1);
+        await this.layer(target, child as WebLayer, matrix, target === ctx ? alpha : 1, own, effectScale);
       }
       target.restore();
       if (target !== ctx) {
@@ -780,6 +850,53 @@ export class SceneCanvas {
   }
 
   /**
+   * Draws the projective `layer`, whose own orientation accumulates to
+   * `orientation`, as the GPU renderer's `prepare_plane` does: its content
+   * (`planeContent`) onto a canvas in its own plane, at the scale
+   * `planeRaster` picks for the part of it `ctx` can show, then that canvas
+   * through the layer's homography onto a surface of `ctx`'s size (`warp`),
+   * which draws onto `ctx` at `alpha`. A blend mode has already drawn the
+   * layer apart (see `layer`), so the surface composites source-over.
+   */
+  private async plane(ctx: Context, layer: WebLayer, parent: DOMMatrix, alpha: number, orientation: Matrix3, effectScale: number): Promise<void> {
+    const inner = planeContent(layer);
+    const local = await this.shapeBox(ctx, inner, new DOMMatrix(), 1, orientation);
+    if (!local) return;
+    const forward = multiply3(matrix3(parent), homography(layer.transform));
+    const inverse = invert3(forward);
+    const { width, height } = ctx.canvas;
+    const raster = planeRaster(forward, local, [0, 0, width, height], MAX_PLANE_SIDE, MAX_PLANE_AREA * this.sceneArea);
+    if (!raster || !inverse) return;
+    const toCanvas = toPlane(raster);
+    const plane = this.surface(ctx, raster.width, raster.height);
+    const [[a, c, e], [b, d, f]] = toCanvas;
+    // Effects inside are drawn in the plane's pixels, as large as they
+    // would be in output pixels without the plane.
+    await this.layer(plane, inner, new DOMMatrix([a, b, c, d, e, f]), 1, orientation, effectScale * planeEffectScale(forward, raster));
+    const pixels = plane.getImageData(0, 0, raster.width, raster.height).data;
+    plane.canvas.width = 0;
+    const toSource = multiply3(toCanvas, inverse);
+    const toParent = invert3(toSource);
+    const lands = toParent && projectedBounds(toParent, raster.width, raster.height);
+    if (!lands) return;
+    const left = Math.max(0, Math.floor(lands[0])), top = Math.max(0, Math.floor(lands[1]));
+    const right = Math.min(width, Math.ceil(lands[2])), bottom = Math.min(height, Math.ceil(lands[3]));
+    if (!(right > left && bottom > top)) return;
+    const result = this.surface(ctx);
+    const image = result.createImageData(width, height);
+    warp(pixels, raster.width, raster.height, image.data, width, toSource, [left, top, right, bottom]);
+    result.putImageData(image, 0, 0, left, top, right - left, bottom - top);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = alpha;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.filter = 'none';
+    ctx.drawImage(result.canvas, 0, 0);
+    ctx.restore();
+    result.canvas.width = 0;
+  }
+
+  /**
    * `value` as a fill or stroke style for what `ctx` draws next inside
    * `box`, in its current coordinates, with the paint's origin at `x, y`.
    * A gradient Canvas draws differently (see `canvasDrawsAlike`) is
@@ -836,18 +953,30 @@ export class SceneCanvas {
    * The box of `layer`'s shapes in scene pixels, as the GPU renderer's
    * `PreparedLayer::shape` and a group's union of them give it: what
    * `uv` and a vignette span. Clips and effects do not change it. `null`
-   * when the layer draws nothing.
+   * when the layer draws nothing. A projective layer's is the box of where
+   * its content's box lands, the part in front of the viewer.
    */
-  private async shapeBox(ctx: Context, layer: WebLayer, parent: DOMMatrix, opacity: number): Promise<Box | null> {
+  private async shapeBox(ctx: Context, layer: WebLayer, parent: DOMMatrix, opacity: number, orientation: Matrix3 = IDENTITY3): Promise<Box | null> {
     const t = layer.transform;
-    const matrix = parent.translate(t.position.x, t.position.y).rotate(t.rotation).scale(t.scale.x, t.scale.y);
+    const own = multiply3(orientation, linear(t));
+    if (t.backfaceVisibility === 'hidden' && facesAway(own)) return null;
+    const matrix = layerMatrix(parent, t);
+    if (!turnsFlat(t) && degenerate(matrix)) return null;
     if (!(opacity * layer.opacity > 0)) return null;
+    if (isProjective(t)) {
+      const local = await this.shapeBox(ctx, planeContent(layer), new DOMMatrix(), 1, own);
+      const forward = multiply3(matrix3(parent), homography(t));
+      return local && boxOf(clipInFront(forward, corners(local)).map(([x, y]) => {
+        const [px, py] = project(forward, x, y);
+        return [px, py];
+      }));
+    }
     const content = layer.content;
     if (content.type === 'group') {
       const union = async (layers: Layer[], alpha: number): Promise<Box | null> => {
         let result: Box | null = null;
         for (const child of layers) {
-          const box = await this.shapeBox(ctx, child as WebLayer, matrix, alpha);
+          const box = await this.shapeBox(ctx, child as WebLayer, matrix, alpha, own);
           if (box) result = result ? [Math.min(result[0], box[0]), Math.min(result[1], box[1]), Math.max(result[2], box[2]), Math.max(result[3], box[3])] : box;
         }
         return result;
@@ -973,10 +1102,11 @@ export class SceneCanvas {
     ctx.restore();
   }
 
-  private surface(ctx: Context): Context {
+  /** A transparent canvas of `ctx`'s size, or of `width` by `height`. */
+  private surface(ctx: Context, width = ctx.canvas.width, height = ctx.canvas.height): Context {
     const canvas = document.createElement('canvas');
-    canvas.width = ctx.canvas.width;
-    canvas.height = ctx.canvas.height;
+    canvas.width = width;
+    canvas.height = height;
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Canvas 2D is unavailable.');
     return context;

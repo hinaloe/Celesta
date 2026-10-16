@@ -11,6 +11,7 @@ const modulePath = join(directory, 'canvas.mjs');
 writeFileSync(modulePath, result.outputFiles[0].text);
 const { SceneCanvas } = await import(pathToFileURL(modulePath));
 rmSync(directory, { recursive: true });
+const { homography, planeRaster, project } = await import('../src/projection.ts');
 
 test('file font URLs are reused across frames and isolated opacity is applied once', async t => {
   const faces = new Set(), operations = [];
@@ -423,5 +424,115 @@ test('text wrapped at maxWidth is anchored by its line boxes, as text broken wit
   const broken = await baselines('abc\ndef');
   assert.deepEqual(broken, [['abc', 30], ['def', 70]]);
   assert.deepEqual(await baselines('abc def'), broken);
+  renderer.dispose();
+});
+
+// A 2D affine matrix, as DOMMatrix behaves for the calls the renderer makes.
+class AffineMatrix {
+  constructor(init = [1, 0, 0, 1, 0, 0]) { const [a, b, c, d, e, f] = init; Object.assign(this, { a, b, c, d, e, f }); }
+  multiply(m) {
+    return new AffineMatrix([this.a * m.a + this.c * m.b, this.b * m.a + this.d * m.b, this.a * m.c + this.c * m.d,
+      this.b * m.c + this.d * m.d, this.a * m.e + this.c * m.f + this.e, this.b * m.e + this.d * m.f + this.f]);
+  }
+  translate(x, y) { return this.multiply(new AffineMatrix([1, 0, 0, 1, x, y])); }
+  scale(x, y) { return this.multiply(new AffineMatrix([x, 0, 0, y, 0, 0])); }
+  rotate(degrees) {
+    const r = degrees * Math.PI / 180;
+    return this.multiply(new AffineMatrix([Math.cos(r), Math.sin(r), -Math.sin(r), Math.cos(r), 0, 0]));
+  }
+  transformPoint(p) { return { x: this.a * p.x + this.c * p.y + this.e, y: this.b * p.x + this.d * p.y + this.f }; }
+}
+
+test('a hidden backface draws nothing when a parent group turns it away', async t => {
+  const originals = { document: globalThis.document, DOMMatrix: globalThis.DOMMatrix };
+  t.after(() => Object.assign(globalThis, originals));
+  globalThis.DOMMatrix = AffineMatrix;
+  const fills = [];
+  const canvas = () => {
+    const element = { width: 10, height: 10, getContext() { return context; } };
+    const context = {
+      canvas: element, globalAlpha: 1, filter: 'none', globalCompositeOperation: 'source-over',
+      save() {}, restore() {}, setTransform() {}, fillRect() {}, beginPath() {}, roundRect() {}, drawImage() {},
+      fill() { fills.push(this.fillStyle); },
+    };
+    return element;
+  };
+  globalThis.document = { fonts: new Set(), createElement: canvas };
+  const renderer = new SceneCanvas(new Map());
+  const at = (extra = {}) => ({ position: { x: 5, y: 5 }, scale: { x: 1, y: 1 }, anchor: { x: 0.5, y: 0.5 }, rotation: 0, ...extra });
+  const rect = (color, extra) => ({ opacity: 1, transform: at(extra), content: { type: 'rect', width: 4, height: 4, cornerRadius: 0, fill: { type: 'solid', color } } });
+  const group = rotationY => ({
+    opacity: 1, transform: at({ rotationY }),
+    content: { type: 'group', layers: [rect('#f00', { backfaceVisibility: 'hidden' }), rect('#0f0')] },
+  });
+  await renderer.draw(canvas(), { width: 10, height: 10, layers: [group(180)] });
+  assert.deepEqual(fills, ['#0f0'], 'only the face that may show its back draws');
+  fills.length = 0;
+  await renderer.draw(canvas(), { width: 10, height: 10, layers: [group(30)] });
+  assert.deepEqual(fills, ['#f00', '#0f0']);
+  renderer.dispose();
+});
+
+test('a projective rect is drawn onto a canvas in its own plane, then warped onto its parent once', async t => {
+  const originals = { document: globalThis.document, DOMMatrix: globalThis.DOMMatrix, DOMPoint: globalThis.DOMPoint };
+  t.after(() => Object.assign(globalThis, originals));
+  globalThis.DOMMatrix = AffineMatrix;
+  globalThis.DOMPoint = class { constructor(x, y) { this.x = x; this.y = y; } };
+  const operations = [];
+  let nextCanvas = 0;
+  const canvas = () => {
+    const element = { id: nextCanvas++, width: 100, height: 100, getContext() { return context; } };
+    let pixels;
+    const context = {
+      canvas: element, globalAlpha: 1, filter: 'none', globalCompositeOperation: 'source-over',
+      save() {}, restore() {}, setTransform(matrix) { this.transform = matrix; }, fillRect() {}, beginPath() {}, roundRect() {},
+      // A fill covers the whole canvas in opaque red.
+      fill() {
+        operations.push(['fill', element.id, element.width, element.height, this.transform]);
+        pixels = new Uint8ClampedArray(element.width * element.height * 4);
+        for (let i = 0; i < pixels.length; i += 4) pixels.set([255, 0, 0, 255], i);
+      },
+      getImageData(x, y, width, height) {
+        operations.push(['read', element.id, x, y, width, height]);
+        return { data: pixels ?? new Uint8ClampedArray(width * height * 4), width, height };
+      },
+      createImageData(width, height) { return { data: new Uint8ClampedArray(width * height * 4), width, height }; },
+      putImageData(image, x, y, dirtyX, dirtyY, dirtyWidth, dirtyHeight) {
+        operations.push(['write', element.id, image, dirtyX, dirtyY, dirtyWidth, dirtyHeight]);
+      },
+      drawImage(source) { operations.push(['composite', element.id, source.id, this.globalAlpha]); },
+    };
+    return element;
+  };
+  globalThis.document = { fonts: new Set(), createElement: canvas };
+  const renderer = new SceneCanvas(new Map());
+  const transform = { position: { x: 50, y: 50 }, scale: { x: 1, y: 1 }, anchor: { x: 0.5, y: 0.5 }, rotation: 0, rotationY: 30, perspective: 200 };
+  const rect = { opacity: 0.5, transform, content: { type: 'rect', width: 20, height: 20, cornerRadius: 0, fill: { type: 'solid', color: '#f00' } } };
+  const output = canvas();
+  await renderer.draw(output, { width: 100, height: 100, layers: [rect] });
+
+  const forward = homography(transform);
+  const raster = planeRaster(forward, [-10, -10, 10, 10], [0, 0, 100, 100], 8192, 4 * 100 * 100);
+  const [fill, ...others] = operations.filter(([kind]) => kind === 'fill');
+  assert.equal(others.length, 0);
+  // The plane's canvas is sized by `planeRaster`, its content drawn at the raster's scale.
+  assert.deepEqual(fill.slice(2, 4), [raster.width, raster.height]);
+  const { a, b, c, d, e, f } = fill[4];
+  assert.deepEqual([a, b, c, d, e, f], [raster.scale, 0, 0, raster.scale, 1 - raster.left * raster.scale, 1 - raster.top * raster.scale]);
+  // It is read once, warped onto a surface of the output's size, which
+  // reaches the output once, at the rect's opacity.
+  assert.deepEqual(operations.filter(([kind]) => kind === 'read').map(([, id]) => id), [fill[1]]);
+  const [write] = operations.filter(([kind]) => kind === 'write');
+  const composites = operations.filter(([kind, id]) => kind === 'composite' && id === output.id);
+  assert.deepEqual(composites, [['composite', output.id, write[1], 0.5]]);
+  assert.equal(write[2].width, 100);
+  // The centre of the rect lands at its position; the far right edge is
+  // nearer the middle than the near left one.
+  const at = (x, y) => Array.from(write[2].data.slice((y * 100 + x) * 4, (y * 100 + x) * 4 + 4));
+  assert.deepEqual(at(50, 50), [255, 0, 0, 255]);
+  const [right] = project(forward, 10, 0), [left] = project(forward, -10, 0);
+  assert.ok(right - 50 < 50 - left, `${left}, ${right}`);
+  assert.deepEqual(at(Math.floor(right) + 2, 50), [0, 0, 0, 0]);
+  assert.deepEqual(at(Math.floor(right) - 2, 50), [255, 0, 0, 255]);
   renderer.dispose();
 });
