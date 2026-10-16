@@ -14,8 +14,7 @@ use celesta_composition::{
     AssetLocation, BlendMode, Clip, EvaluatedTransform, GradientStop, GroupMask, ImageFit, Layer,
     LayerContent, LayerEffects, LayerFilter, LayerGlow, LayerShader, LayerShadow, LineBreak,
     LineCap, LineJoin, MaskMode, Paint, PathCommand, Point, Rational, ResolvedAsset, Scene,
-    ShaderParam,
-    ShaderParamType, ShaderSource, Stroke, TextStyle, Time,
+    ShaderParam, ShaderParamType, ShaderSource, Stroke, TextStyle, Time,
 };
 use celesta_react_bridge::{ReactBridge, runtime_paths};
 

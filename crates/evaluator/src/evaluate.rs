@@ -191,6 +191,7 @@ pub(crate) fn evaluate_transform(
         scale: evaluate_point(transform.scale.as_ref(), time, defaults.scale)?,
         rotation: evaluate_optional(&transform.rotation, time, defaults.rotation)?,
         anchor: evaluate_point(transform.anchor.as_ref(), time, defaults.anchor)?,
+        ..defaults
     })
 }
 

@@ -6,7 +6,7 @@ use serde_json::Value;
 use crate::blend::BlendMode;
 use crate::instances::{F32Column, InstanceShape, U8Column};
 use crate::tagged::TypeTagged;
-use crate::{Animatable, Paint, Rational, Stroke, TextStyle, Time, TimeRange};
+use crate::{Animatable, BackfaceVisibility, Paint, Rational, Stroke, TextStyle, Time, TimeRange};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
@@ -1003,6 +1003,26 @@ pub struct EvaluatedTransform {
     pub rotation: f64,
     /// Normalized coordinates where `(0.5, 0.5)` is the center.
     pub anchor: Point,
+    /// Shear angles in degrees along x and y.
+    #[serde(skip_serializing_if = "is_zero_point")]
+    pub skew: Point,
+    /// Rotation in degrees about the horizontal axis, as CSS `rotateX()`.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub rotation_x: f64,
+    /// Rotation in degrees about the vertical axis, as CSS `rotateY()`.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub rotation_y: f64,
+    /// Distance from the viewer to the layer plane; anything that is not
+    /// finite and positive means no perspective.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub perspective: Option<f64>,
+    #[serde(skip_serializing_if = "BackfaceVisibility::is_visible")]
+    pub backface_visibility: BackfaceVisibility,
+}
+
+fn is_zero_point(point: &Point) -> bool {
+    point.x == 0.0 && point.y == 0.0
 }
 
 impl Default for EvaluatedTransform {
@@ -1012,6 +1032,11 @@ impl Default for EvaluatedTransform {
             scale: Point { x: 1.0, y: 1.0 },
             rotation: 0.0,
             anchor: Point { x: 0.5, y: 0.5 },
+            skew: Point { x: 0.0, y: 0.0 },
+            rotation_x: 0.0,
+            rotation_y: 0.0,
+            perspective: None,
+            backface_visibility: BackfaceVisibility::Visible,
         }
     }
 }

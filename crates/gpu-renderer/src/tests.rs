@@ -413,6 +413,7 @@ fn blends_a_magnified_layer_against_its_whole_backdrop() {
         anchor: Point { x: 0.5, y: 0.5 },
         rotation: 20.0,
         scale: Point { x: 6.0, y: 6.0 },
+        ..Default::default()
     };
     scene.layers = vec![
         blend_rect("left", 0.0, 0.0, 32.0, "#203040", BlendMode::Normal),
@@ -1513,6 +1514,7 @@ fn benchmark_path_transform_matches_prepared_layer() {
             rotation: 37.123,
             scale: Point { x: 2.5, y: -0.75 },
             anchor: Point { x: 8.0, y: 12.0 },
+            ..Default::default()
         },
         opacity: 0.7,
         blend_mode: BlendMode::Normal,

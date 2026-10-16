@@ -167,6 +167,7 @@ fn instances_follow_a_scaled_rotated_parent() {
         scale: Point { x: 1.5, y: 1.5 },
         rotation: 30.0,
         anchor: Point { x: 0.0, y: 0.0 },
+        ..Default::default()
     };
     let rects = centred_rects(&content);
     assert_same_pixels(

@@ -157,6 +157,7 @@ impl PreparedInstances {
             scale: Point { x: 1.0, y: 1.0 },
             rotation,
             anchor: CENTRE,
+            ..Default::default()
         });
         Some(Particle {
             transform: self.state.transform.multiply(own),
