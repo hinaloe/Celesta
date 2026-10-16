@@ -12,7 +12,10 @@ struct LayerInstance {
     // canvas width, height; the blend mode index (see `blend`), and 1 when
     // `source_texture` holds premultiplied alpha (an isolated group's canvas)
     @location(3) canvas: vec4<f32>,
-    // half width, half height, corner radius, stroke width (0 without one)
+    // half width, half height, corner radius, stroke width (0 without one);
+    // for a projective layer (a plane's canvas, `clip_sampling.y` 2), the
+    // bottom row (g, h, i) of the map from its local units to its target,
+    // whose top two rows are `matrix` and the translation, then unused.
     @location(4) rect: vec4<f32>,
     // Straight-alpha RGBA in 0-255 code values, or a gradient in `paints`
     // (see `paint_color`).
@@ -26,10 +29,6 @@ struct LayerInstance {
     // The scene position of the canvas's top-left pixel (a group's canvas
     // only covers the part of the scene its layers draw on); unused, unused.
     @location(8) origin: vec4<f32>,
-    // The bottom row (g, h, i) of the map from the layer's local units to
-    // its target, whose top two rows are `matrix` and the translation:
-    // (0, 0, 1) for every affine layer; unused.
-    @location(9) projection: vec4<f32>,
 };
 
 // Read with `textureLoad` only: `layer_color` filters by hand.
@@ -117,6 +116,8 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, layer: LayerInstance) -> Ve
     );
     let size = layer.translation_size.zw;
     let sampling = layer.clip_sampling.yzw;
+    // The bottom row of the forward map: (0, 0, 1) for an affine layer.
+    let projection = select(vec3<f32>(0.0, 0.0, 1.0), layer.rect.xyz, sampling.x == 2.0);
     let corner = coordinates[vertex_index % 6u];
     var uv: vec2<f32>;
     var path_tile = 0u;
@@ -173,7 +174,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, layer: LayerInstance) -> Ve
     let hom = vec3<f32>(
         layer.matrix.x * local.x + layer.matrix.z * local.y + layer.translation_size.x,
         layer.matrix.y * local.x + layer.matrix.w * local.y + layer.translation_size.y,
-        dot(layer.projection.xy, local) + layer.projection.z,
+        dot(projection.xy, local) + projection.z,
     );
     let world = hom.xy / hom.z;
     let canvas_position = hom.xy - layer.origin.xy * hom.z;
@@ -201,7 +202,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, layer: LayerInstance) -> Ve
         path_tile,
         inverse,
         inverse_translation_caps,
-        layer.projection,
+        vec4<f32>(projection, 0.0),
     );
 }
 

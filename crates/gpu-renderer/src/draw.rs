@@ -1,9 +1,9 @@
 use celesta_renderer::{RectPaint, ResolvedPaint};
 
-/// Bytes of `LayerInstance` in `layer.wgsl`: ten `vec4<f32>`s.
-pub(crate) const LAYER_INSTANCE_SIZE: u64 = 10 * 4 * 4;
+/// Bytes of `LayerInstance` in `layer.wgsl`: nine `vec4<f32>`s.
+pub(crate) const LAYER_INSTANCE_SIZE: u64 = 9 * 4 * 4;
 
-pub(crate) const LAYER_INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 10] = wgpu::vertex_attr_array![
+pub(crate) const LAYER_INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 9] = wgpu::vertex_attr_array![
     0 => Float32x4,
     1 => Float32x4,
     2 => Float32x4,
@@ -13,7 +13,6 @@ pub(crate) const LAYER_INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 10] = wgpu::
     6 => Float32x4,
     7 => Float32x4,
     8 => Float32x4,
-    9 => Float32x4,
 ];
 
 pub(crate) fn instance_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {

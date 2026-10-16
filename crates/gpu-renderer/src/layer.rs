@@ -420,8 +420,8 @@ pub(crate) fn pixel_aligned_translation(
     )
 }
 
-/// Floats in one `LayerInstance` of `layer.wgsl`: ten `vec4<f32>`s.
-pub(crate) const LAYER_INSTANCE_FLOATS: usize = 40;
+/// Floats in one `LayerInstance` of `layer.wgsl`: nine `vec4<f32>`s.
+pub(crate) const LAYER_INSTANCE_FLOATS: usize = 36;
 
 /// A frame's `LayerInstance`s, written in order straight into the memory
 /// the queue uploads them from, so a frame of 100,000 layers is not first
@@ -479,7 +479,8 @@ pub(crate) struct InstanceFields {
     pub(crate) raster_scale: f32,
     /// The bottom row of the map `transform` is the top two rows of
     /// (`PreparedLayer::projection`); a projective one is filtered over each
-    /// pixel's footprint, whatever `exact` says.
+    /// pixel's footprint, whatever `exact` says, and carries it in the
+    /// `rect` slot, which a canvas leaves unused.
     pub(crate) projection: [f32; 3],
 }
 
@@ -504,7 +505,11 @@ pub(crate) fn layer_instance(fields: &InstanceFields) -> [f32; LAYER_INSTANCE_FL
         projection: [g, h, i],
     } = *fields;
     let projective = g != 0.0 || h != 0.0;
-    let [r0, r1, r2, r3] = rect;
+    debug_assert!(
+        !projective || rect == [0.0; 4],
+        "only a canvas is projective"
+    );
+    let [r0, r1, r2, r3] = if projective { [g, h, i, 0.0] } else { rect };
     let [f0, f1, f2, f3] = fill;
     let [s0, s1, s2, s3] = stroke;
     [
@@ -552,10 +557,6 @@ pub(crate) fn layer_instance(fields: &InstanceFields) -> [f32; LAYER_INSTANCE_FL
         target.y as f32,
         0.0,
         0.0,
-        g,
-        h,
-        i,
-        0.0,
     ]
 }
 
@@ -589,5 +590,42 @@ pub(crate) fn blend_mode_index(mode: BlendMode) -> f32 {
         BlendMode::Saturation => 14.0,
         BlendMode::Color => 15.0,
         BlendMode::Luminosity => 16.0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn canvas_fields(projection: [f32; 3]) -> InstanceFields {
+        InstanceFields {
+            transform: Affine::IDENTITY,
+            size: (10.0, 10.0),
+            anchor: [0.0, 0.0],
+            opacity: 1.0,
+            kind: 0.0,
+            target: CanvasRegion::scene(64, 64),
+            blend_mode: BlendMode::Normal,
+            premultiplied: true,
+            rect: [0.0; 4],
+            fill: [0.0; 4],
+            stroke: [0.0; 4],
+            clip: None,
+            exact: false,
+            level_of_detail: 0.0,
+            raster_scale: 1.0,
+            projection,
+        }
+    }
+
+    #[test]
+    fn a_plane_canvas_carries_its_projection_in_the_rect_slot() {
+        assert_eq!(LAYER_INSTANCE_FLOATS, 36);
+        let plane = layer_instance(&canvas_fields([0.25, -0.5, 2.0]));
+        assert_eq!(plane[16..20], [0.25, -0.5, 2.0, 0.0]);
+        assert_eq!(plane[29], 2.0, "averaged over each pixel's footprint");
+        let flat = layer_instance(&canvas_fields(AFFINE));
+        assert_eq!(flat[16..20], [0.0; 4]);
+        assert_eq!(flat[29], 1.0);
     }
 }
