@@ -14,11 +14,15 @@ pub enum MediaError {
         width: u32,
         height: u32,
     },
+    /// A decoded frame (`width`x`height`, `actual` bytes) that is not the
+    /// probed stream's size; `0x0` with no bytes when none was decoded.
     UnexpectedFrameSize {
         width: u32,
         height: u32,
-        expected: usize,
         actual: usize,
+        expected_width: u32,
+        expected_height: u32,
+        expected: usize,
     },
     InvalidAudioFormat {
         sample_rate: u32,
@@ -47,11 +51,14 @@ impl fmt::Display for MediaError {
             Self::UnexpectedFrameSize {
                 width,
                 height,
-                expected,
                 actual,
+                expected_width,
+                expected_height,
+                expected,
             } => write!(
                 formatter,
-                "decoded {width}x{height} RGBA frame has {actual} bytes, expected {expected}"
+                "decoded {width}x{height} RGBA frame has {actual} bytes, \
+                 expected {expected_width}x{expected_height} ({expected} bytes)"
             ),
             Self::InvalidAudioFormat {
                 sample_rate,

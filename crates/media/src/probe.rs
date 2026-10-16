@@ -38,16 +38,18 @@ pub(crate) fn probe_path(path: &Path) -> Result<MediaProbe, MediaError> {
                 r_frame_rate,
                 duration,
                 time_base,
+                rotate,
                 color_primaries,
                 color_transfer,
                 color_space,
                 ..
             } if video.is_none() => {
+                let (width, height) = displayed_size(width, height, rotate);
                 video = Some(VideoStream {
                     index: index.max(0) as u32,
                     codec: normalize_codec(codec_name),
-                    width: width.max(0) as u32,
-                    height: height.max(0) as u32,
+                    width,
+                    height,
                     frame_rate: video_frame_rate(avg_frame_rate, r_frame_rate),
                     duration: stream_duration(duration, time_base),
                     color: VideoColor::from_raw(color_primaries, color_transfer, color_space),
@@ -78,6 +80,19 @@ pub(crate) fn probe_path(path: &Path) -> Result<MediaProbe, MediaError> {
         video,
         audio,
     })
+}
+
+/// A video's size as displayed — what a browser reports as
+/// `videoWidth`/`videoHeight`, and what FFmpeg's input autorotation decodes
+/// it to: the coded size, turned on its side by a quarter-turn display
+/// rotation (every portrait phone recording).
+pub(crate) fn displayed_size(width: i32, height: i32, rotate: i32) -> (u32, u32) {
+    let (width, height) = (width.max(0) as u32, height.max(0) as u32);
+    if rotate.rem_euclid(180) == 90 {
+        (height, width)
+    } else {
+        (width, height)
+    }
 }
 
 pub(crate) fn normalize_codec(name: String) -> Option<String> {
