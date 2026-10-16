@@ -2,7 +2,7 @@ use crate::compositor::{Compositor, begin_pass};
 use crate::effect::PASSES_PER_FILTER;
 use crate::error::GpuRenderError;
 use crate::pipeline::{PipelineKind, create_pipeline};
-use crate::plan::{GpuStep, PreparedDraws};
+use crate::plan::{GpuStep, PreparedDraws, backdrop_size};
 use crate::quantize::QuantizeOutput;
 use crate::renderer::GpuRenderer;
 use crate::texture::{CanvasTexture, canvas_texture};
@@ -158,17 +158,10 @@ impl GpuRenderer {
         draws: &PreparedDraws,
     ) {
         let format = self.canvas_format;
-        // A blended draw copies what is beneath it into the backdrop at the
-        // same place, so the backdrop covers every canvas: a plane's can be
-        // larger than the scene.
-        let backdrop = draws.steps.iter().fold(
+        let backdrop = backdrop_size(
+            &draws.steps,
             (scene.width, scene.height),
-            |(width, height), step| match step {
-                GpuStep::BeginGroup { canvas } => {
-                    (width.max(canvas.width), height.max(canvas.height))
-                }
-                _ => (width, height),
-            },
+            self.max_texture_dimension,
         );
         self.prepare_canvases(scene.width, scene.height, backdrop);
         self.ensure_pipeline(format, PipelineKind::Layer);

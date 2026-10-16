@@ -51,6 +51,7 @@ impl GpuRenderer {
         self.paint_entries.clear();
         self.path_entries.clear();
         self.scene_size = (scene.width, scene.height);
+        self.scene_area = u64::from(scene.width) * u64::from(scene.height);
         self.font_fallbacks.clear();
         self.missing_glyphs.clear();
         self.hit_leaves.clear();

@@ -160,6 +160,9 @@ pub struct GpuRenderer {
     /// Whether a plane's content is being prepared only to measure it, in
     /// its local units, where the space it can show is unbounded.
     pub(crate) measuring_plane: bool,
+    /// The pixel area of the scene being prepared, which a plane's canvas
+    /// is limited by.
+    pub(crate) scene_area: u64,
     /// The video frames decoded while planes were measured this frame, by
     /// layer and source time, for those layers' draws in the planes.
     pub(crate) plane_video_frames: Vec<(String, f64, VideoFrame)>,
@@ -386,6 +389,7 @@ impl GpuRenderer {
             hit_leaves: Vec::new(),
             plane_entries: Vec::new(),
             measuring_plane: false,
+            scene_area: u64::MAX,
             plane_video_frames: Vec::new(),
             hit_regions: Vec::new(),
         })

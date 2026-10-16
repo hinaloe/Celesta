@@ -2,7 +2,7 @@
 //! content onto a canvas in its own plane (a plane), which then draws onto
 //! its parent through the layer's homography.
 
-use crate::bounds::PixelBounds;
+use crate::bounds::{CanvasRegion, PixelBounds};
 use crate::error::GpuRenderError;
 use crate::layer::{PreparedItem, PreparedLayer};
 use crate::plan::content_bounds;
@@ -95,12 +95,13 @@ pub(crate) struct PlaneRaster {
 /// in front of the viewer, and (when the whole of `target` is) the part
 /// `target` can show, is rasterized, at the scale its most magnified corner
 /// needs, rounded up as text raster scales are, and lowered to keep the
-/// canvas within `max_texture` on either side.
+/// canvas within `max_texture` on either side and `max_area` pixels in all.
 pub(crate) fn plane_raster(
     forward: &Matrix3,
     local: PixelBounds,
     target: PixelBounds,
     max_texture: u32,
+    max_area: u64,
 ) -> Option<PlaneRaster> {
     let mut polygon = clip_in_front(forward, &corners(local));
     // Where `target`'s corners come from in the plane; when one is at or
@@ -131,6 +132,22 @@ pub(crate) fn plane_raster(
     if side(width, scale) > limit || side(height, scale) > limit {
         scale = (limit - 2.0) / width.max(height);
     }
+    // A plane reaching to the horizon would otherwise fill the largest
+    // texture: the largest scale whose canvas, with its margin and the
+    // rounding up, fits `max_area`, a root of
+    // `(width·s + 3)(height·s + 3) = max_area`.
+    let max_area = max_area as f64;
+    if side(width, scale) * side(height, scale) > max_area {
+        let (a, b, c) = (width * height, 3.0 * (width + height), 9.0 - max_area);
+        let lowered = if a > 0.0 {
+            (-b + (b * b - 4.0 * a * c).sqrt()) / (2.0 * a)
+        } else {
+            -c / b
+        };
+        if lowered.is_finite() && lowered > 0.0 {
+            scale = scale.min(lowered);
+        }
+    }
     // Rounding can leave the lowered scale a hair over the limit.
     let side = |extent: f64| side(extent, scale).min(limit) as u32;
     Some(PlaneRaster {
@@ -159,6 +176,9 @@ pub(crate) struct PlaneEntry {
     #[allow(dead_code, reason = "read by hit testing through planes")]
     pub(crate) clip: Option<u32>,
 }
+
+/// The most pixels a plane's canvas has, in scene areas.
+const MAX_PLANE_AREA: u64 = 4;
 
 /// How far the space a plane can show reaches while its parent's content is
 /// only measured: unbounded, short of overflowing an f32.
@@ -199,9 +219,23 @@ impl GpuRenderer {
             let (width, height) = self.scene_size;
             PixelBounds([0.0, 0.0, width as f32, height as f32])
         };
-        let Some(raster) = plane_raster(&forward, local, target, self.max_texture_dimension) else {
+        let Some(raster) = plane_raster(
+            &forward,
+            local,
+            target,
+            self.max_texture_dimension,
+            MAX_PLANE_AREA.saturating_mul(self.scene_area),
+        ) else {
             return Ok(());
         };
+        // In steps, so a plane that changes size a little from frame to
+        // frame reuses its canvas; the rest is transparent margin.
+        let step = |extent: u32| {
+            (extent.div_ceil(CanvasRegion::STEP) * CanvasRegion::STEP)
+                .min(self.max_texture_dimension)
+                .max(extent)
+        };
+        let (width, height) = (step(raster.width), step(raster.height));
         let to_plane = raster.to_plane();
         let to_parent = multiply3(
             &forward,
@@ -214,13 +248,10 @@ impl GpuRenderer {
             parent: self.walk.plane,
             clip: parent.clip,
         });
-        output.push(PreparedItem::BeginPlane {
-            width: raster.width,
-            height: raster.height,
-        });
+        output.push(PreparedItem::BeginPlane { width, height });
         let (walk, space) = (self.walk, self.scene_size);
         self.walk.plane = Some(index);
-        self.scene_size = (raster.width, raster.height);
+        self.scene_size = (width, height);
         let prepared = self.prepare_layer(
             &inner,
             LayerState {
@@ -358,6 +389,7 @@ mod tests {
             PixelBounds([0.0, 0.0, 100.0, 50.0]),
             SCREEN,
             8192,
+            u64::MAX,
         )
         .unwrap();
         assert_eq!(
@@ -375,8 +407,14 @@ mod tests {
     #[test]
     fn plane_raster_follows_a_scale() {
         let scale = [[2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 1.0]];
-        let raster =
-            plane_raster(&scale, PixelBounds([0.0, 0.0, 100.0, 50.0]), SCREEN, 8192).unwrap();
+        let raster = plane_raster(
+            &scale,
+            PixelBounds([0.0, 0.0, 100.0, 50.0]),
+            SCREEN,
+            8192,
+            u64::MAX,
+        )
+        .unwrap();
         assert_eq!(raster.scale, 2.0);
         assert_eq!(raster.width, 202);
     }
@@ -395,6 +433,7 @@ mod tests {
             PixelBounds([-100.0, -100.0, 100.0, 100.0]),
             SCREEN,
             8192,
+            u64::MAX,
         )
         .unwrap();
         for (x, y) in [
@@ -417,6 +456,7 @@ mod tests {
             PixelBounds([-1e6, -1e6, 1e6, 1e6]),
             SCREEN,
             8192,
+            u64::MAX,
         )
         .unwrap();
         assert_eq!((raster.width, raster.height), (1922, 1082));
@@ -429,9 +469,29 @@ mod tests {
             PixelBounds([0.0, 0.0, 10000.0, 10.0]),
             PixelBounds([0.0, 0.0, 20000.0, 20000.0]),
             8192,
+            u64::MAX,
         )
         .unwrap();
         assert!(raster.width <= 8192, "{}", raster.width);
         assert!(raster.scale < 1.0, "{}", raster.scale);
+    }
+
+    #[test]
+    fn plane_raster_stays_within_the_area_limit() {
+        let raster = plane_raster(
+            &IDENTITY3,
+            PixelBounds([0.0, 0.0, 1000.0, 1000.0]),
+            PixelBounds([0.0, 0.0, 2000.0, 2000.0]),
+            8192,
+            4 * 100 * 100,
+        )
+        .unwrap();
+        let area = u64::from(raster.width) * u64::from(raster.height);
+        assert!(area <= 4 * 100 * 100, "{area}");
+        assert!(raster.scale < 1.0, "{}", raster.scale);
+        assert!(
+            area > 3 * 100 * 100,
+            "the scale is lowered no more than needed: {area}"
+        );
     }
 }

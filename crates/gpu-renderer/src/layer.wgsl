@@ -601,6 +601,18 @@ fn layer_color(input: VertexOutput) -> vec4<f32> {
     return vec4<f32>(color.rgb / color.a, color.a);
 }
 
+// Mirrors `NEAR_W` in plane.rs: the least `w` a projective layer is drawn at.
+const NEAR_W: f32 = 0.0625;
+
+// Whether the fragment is part of a projective layer behind its near clip:
+// behind the viewer, or so close it would be magnified past 16 times. A
+// plane's canvas holds the box of what is in front, which can reach past it.
+fn behind_near_clip(input: VertexOutput) -> bool {
+    let local = input.uv * input.size_opacity_kind.xy;
+    return input.sampling.x == 2.0
+        && dot(input.projection.xy, local) + input.projection.z < NEAR_W;
+}
+
 // Where a projective layer's `uv` lands in its target: through its forward
 // map, from its quad units (a plane's canvas is anchored at its top-left).
 fn projected_world(input: VertexOutput, uv: vec2<f32>) -> vec2<f32> {
@@ -681,6 +693,9 @@ fn saturate(color: vec4<f32>) -> vec4<f32> {
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let dx = dpdx(input.uv);
     let dy = dpdy(input.uv);
+    if behind_near_clip(input) {
+        discard;
+    }
     return saturate(source_color(input, dx, dy));
 }
 
@@ -825,6 +840,11 @@ fn blend(mode: u32, backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
 fn fs_blend(input: VertexOutput) -> @location(0) vec4<f32> {
     let dx = dpdx(input.uv);
     let dy = dpdy(input.uv);
+    // Discarded rather than drawn transparent: this pass replaces the
+    // pixel with the backdrop, which is only copied where the layer lands.
+    if behind_near_clip(input) {
+        discard;
+    }
     let source = source_color(input, dx, dy);
     let backdrop = textureLoad(backdrop_texture, vec2<i32>(floor(input.position.xy)), 0);
     var backdrop_color = vec3<f32>(0.0);

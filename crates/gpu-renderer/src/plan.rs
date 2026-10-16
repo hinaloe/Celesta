@@ -309,10 +309,98 @@ pub(crate) enum GpuStep {
     },
 }
 
+/// The size of backdrop the blended draws among `steps` need, at least the
+/// `scene`'s: a blended draw copies what is beneath it into the backdrop at
+/// the same place, so the backdrop covers every canvas one draws onto. Only
+/// a plane's canvas can be larger than the scene; past it, the backdrop is
+/// sized in `CanvasRegion::STEP`s (at most `limit`), so a plane that grows a
+/// little does not reallocate it.
+pub(crate) fn backdrop_size(steps: &[GpuStep], scene: (u32, u32), limit: u32) -> (u32, u32) {
+    let mut size = scene;
+    let mut cover = |(width, height): (u32, u32)| {
+        let step = |extent: u32, scene: u32| {
+            if extent <= scene {
+                scene
+            } else {
+                (extent.div_ceil(CanvasRegion::STEP) * CanvasRegion::STEP)
+                    .min(limit)
+                    .max(extent)
+            }
+        };
+        size = (
+            size.0.max(step(width, scene.0)),
+            size.1.max(step(height, scene.1)),
+        );
+    };
+    // The size of each open canvas, the root first.
+    let mut open = vec![scene];
+    for step in steps {
+        match step {
+            GpuStep::BeginGroup { canvas }
+            | GpuStep::BeginMask { canvas }
+            | GpuStep::BeginAverage { canvas } => open.push((canvas.width, canvas.height)),
+            GpuStep::Blend { .. } => cover(*open.last().expect("the root is always open")),
+            GpuStep::EndGroup { blend_mode, .. }
+            | GpuStep::EndEffect { blend_mode, .. }
+            | GpuStep::EndMask { blend_mode, .. }
+            | GpuStep::EndAverage { blend_mode, .. } => {
+                open.pop();
+                if !blend_mode.is_normal() {
+                    cover(*open.last().expect("the root is always open"));
+                }
+            }
+            GpuStep::Draw(_) | GpuStep::MaskContent | GpuStep::NextSample => {}
+        }
+    }
+    size
+}
+
 pub(crate) struct GpuDraw {
     pub(crate) texture: LayerTexture,
     /// `0..6` (one quad) except for a path, which draws a quad per tile it
     /// covers.
     pub(crate) vertices: std::ops::Range<u32>,
     pub(crate) instances: std::ops::Range<u32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn begin(width: u32, height: u32) -> GpuStep {
+        GpuStep::BeginGroup {
+            canvas: CanvasRegion::scene(width, height),
+        }
+    }
+
+    fn end(blend_mode: BlendMode) -> GpuStep {
+        GpuStep::EndGroup {
+            instance: 0,
+            blend_mode,
+            area: None,
+        }
+    }
+
+    #[test]
+    fn an_unblended_oversized_plane_needs_no_larger_backdrop() {
+        let steps = [begin(4000, 3000), end(BlendMode::Normal)];
+        assert_eq!(backdrop_size(&steps, (1920, 1080), 8192), (1920, 1080));
+    }
+
+    #[test]
+    fn a_blend_inside_an_oversized_plane_grows_the_backdrop_in_steps() {
+        let steps = [
+            begin(4000, 1000),
+            begin(64, 64),
+            end(BlendMode::Difference),
+            end(BlendMode::Normal),
+        ];
+        assert_eq!(backdrop_size(&steps, (1920, 1080), 8192), (4096, 1080));
+    }
+
+    #[test]
+    fn a_blended_plane_needs_only_its_parents_backdrop() {
+        let steps = [begin(4000, 3000), end(BlendMode::Multiply)];
+        assert_eq!(backdrop_size(&steps, (1920, 1080), 8192), (1920, 1080));
+    }
 }

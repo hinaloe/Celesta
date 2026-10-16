@@ -470,3 +470,55 @@ fn decodes_a_projective_video_once_per_frame() {
     assert_eq!(pixel_at(&frame, 100, 100), RED);
     assert_eq!(decodes.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
+
+#[test]
+fn draws_nothing_closer_than_the_near_clip() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    // Turned about two axes, the near clip crosses the rect at a slant, so
+    // the box of the part in front also holds some of what is too close.
+    let mut rect = in_perspective(
+        centred_rect(100.0, 100.0, 400.0, 40.0, "#FF0000FF"),
+        0.0,
+        80.0,
+        20.0,
+    );
+    rect.transform.rotation = 30.0;
+    let homography = rect.transform.homography();
+    let in_front = crate::plane::clip_in_front(
+        &homography,
+        &[
+            [-200.0, -20.0],
+            [200.0, -20.0],
+            [200.0, 20.0],
+            [-200.0, 20.0],
+        ],
+    );
+    let projected: Vec<[f64; 3]> = in_front
+        .iter()
+        .map(|&[x, y]| project(&homography, x, y))
+        .collect();
+    let bound = |pick: fn(&[f64; 3]) -> f64, fold: fn(f64, f64) -> f64, start: f64| {
+        projected.iter().map(pick).fold(start, fold)
+    };
+    let left = bound(|p| p[0], f64::min, f64::INFINITY) - 2.0;
+    let top = bound(|p| p[1], f64::min, f64::INFINITY) - 2.0;
+    let right = bound(|p| p[0], f64::max, f64::NEG_INFINITY) + 2.0;
+    let bottom = bound(|p| p[1], f64::max, f64::NEG_INFINITY) + 2.0;
+    let frame = renderer.render(&sized_scene(200, 200, vec![rect])).unwrap();
+    let mut drawn = 0;
+    for y in 0..200 {
+        for x in 0..200 {
+            let (centre_x, centre_y) = (f64::from(x) + 0.5, f64::from(y) + 0.5);
+            let inside = (left..=right).contains(&centre_x) && (top..=bottom).contains(&centre_y);
+            let alpha = pixel_at(&frame, x, y)[3];
+            assert!(
+                inside || alpha == 0,
+                "({x}, {y}) is drawn outside [{left}, {top}, {right}, {bottom}]"
+            );
+            drawn += usize::from(alpha > 0);
+        }
+    }
+    assert!(drawn > 0, "the part in front is drawn");
+}
