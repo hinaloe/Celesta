@@ -4,14 +4,15 @@
 
 use crate::bounds::{CanvasRegion, PixelBounds};
 use crate::error::GpuRenderError;
+use crate::hit::HitClip;
 use crate::layer::{PreparedItem, PreparedLayer};
 use crate::plan::content_bounds;
 use crate::renderer::GpuRenderer;
 use crate::text::round_up_to_eighth_octave;
-use crate::transform::{Affine, LayerState};
+use crate::transform::{Affine, ClipEntry, LayerState};
 use celesta_composition::{
-    BlendMode, EvaluatedTransform, Layer, LayerEffects, Matrix3, invert3, multiply3, project,
-    stretch_at,
+    BlendMode, EvaluatedTransform, Layer, LayerEffects, Matrix3, Point, invert3, multiply3,
+    project, stretch_at,
 };
 
 /// The nearest a point may come to the viewer and still be drawn: points
@@ -180,15 +181,70 @@ const MAX_SCALE: f64 = 64.0;
 /// A plane of the frame being prepared, for hit testing through it.
 pub(crate) struct PlaneEntry {
     /// The map from the plane's canvas pixels to its parent's space.
-    #[allow(dead_code, reason = "read by hit testing through planes")]
     pub(crate) to_parent: Matrix3,
     /// Index into `GpuRenderer::plane_entries` of the plane it is drawn
     /// onto, if any.
-    #[allow(dead_code, reason = "read by hit testing through planes")]
     pub(crate) parent: Option<u32>,
     /// The innermost clip its canvas is drawn through.
-    #[allow(dead_code, reason = "read by hit testing through planes")]
     pub(crate) clip: Option<u32>,
+}
+
+/// The map from `plane`'s canvas pixels to the scene's.
+pub(crate) fn plane_to_scene(planes: &[PlaneEntry], plane: u32) -> Matrix3 {
+    let entry = &planes[plane as usize];
+    match entry.parent {
+        Some(parent) => multiply3(&plane_to_scene(planes, parent), &entry.to_parent),
+        None => entry.to_parent,
+    }
+}
+
+/// `corners` mapped through `to_scene` to scene pixels; `None` when any is
+/// behind the viewer.
+pub(crate) fn corners_to_scene(to_scene: &Matrix3, corners: [Point; 4]) -> Option<[Point; 4]> {
+    let mut mapped = corners;
+    for (mapped, corner) in mapped.iter_mut().zip(corners) {
+        let [x, y, w] = project(to_scene, corner.x, corner.y);
+        if w.is_nan() || w <= 0.0 {
+            return None;
+        }
+        *mapped = Point { x, y };
+    }
+    Some(mapped)
+}
+
+/// Every clip a leaf in `plane` is drawn through, innermost first: the
+/// clips of `clip` and its parents in the plane's canvas, then those the
+/// plane's canvas is drawn through in its parent's space, and so on out to
+/// the scene. A plane that cannot be inverted (`None`) cannot be hit.
+pub(crate) fn hit_clips(
+    clips: &[ClipEntry],
+    planes: &[PlaneEntry],
+    mut plane: Option<u32>,
+    mut clip: Option<u32>,
+) -> Option<Vec<HitClip>> {
+    let mut hit_clips = Vec::new();
+    loop {
+        let to_local = match plane {
+            Some(plane) => {
+                let [a, b, c] = invert3(&plane_to_scene(planes, plane))?;
+                Some([a, b, c].concat().try_into().ok()?)
+            }
+            None => None,
+        };
+        hit_clips.extend(
+            std::iter::successors(clip, |&index| clips[index as usize].parent).map(|index| {
+                HitClip {
+                    to_local,
+                    ..clips[index as usize].hit_clip()
+                }
+            }),
+        );
+        let Some(index) = plane else {
+            return Some(hit_clips);
+        };
+        let entry = &planes[index as usize];
+        (plane, clip) = (entry.parent, entry.clip);
+    }
 }
 
 /// The most pixels a plane's canvas has, in scene areas.

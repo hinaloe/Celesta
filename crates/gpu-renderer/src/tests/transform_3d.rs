@@ -586,3 +586,78 @@ fn effects_after_a_plane_keep_their_size() {
     assert!(pixel_at(&alone, 160, 100)[3] > 200);
     assert_eq!(max_difference(&alone, &after, 130..200), 0);
 }
+
+#[test]
+fn hit_tests_through_a_projection() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    renderer.set_record_hit_regions(true);
+    let card = in_perspective(
+        centred_rect(100.0, 100.0, 100.0, 100.0, "#FF0000FF"),
+        0.0,
+        45.0,
+        300.0,
+    );
+    let homography = card.transform.homography();
+    let corners = [(-50.0, -50.0), (50.0, -50.0), (50.0, 50.0), (-50.0, 50.0)].map(|(x, y)| {
+        let [x, y, _] = project(&homography, x, y);
+        (x, y)
+    });
+    let [centre_x, centre_y, _] = project(&homography, 0.0, 0.0);
+    renderer.render(&sized_scene(200, 200, vec![card])).unwrap();
+    let regions = renderer.hit_regions();
+    let hit = |x: f64, y: f64| hit_test(regions, Point { x, y });
+    assert_eq!(hit(centre_x, centre_y), Some("rect"));
+
+    // The far edge is the shorter of the two vertical ones.
+    let length = |from: (f64, f64), to: (f64, f64)| (to.0 - from.0).hypot(to.1 - from.1);
+    let (from, to) = if length(corners[1], corners[2]) < length(corners[3], corners[0]) {
+        (corners[1], corners[2])
+    } else {
+        (corners[3], corners[0])
+    };
+    let middle = ((from.0 + to.0) / 2.0, (from.1 + to.1) / 2.0);
+    let outward = (middle.0 - centre_x).signum();
+    assert_eq!(hit(middle.0 - 3.0 * outward, middle.1), Some("rect"));
+    assert_eq!(hit(middle.0 + 3.0 * outward, middle.1), None);
+}
+
+#[test]
+fn hit_tests_a_clip_inside_a_projective_group() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    renderer.set_record_hit_regions(true);
+    let group = in_perspective(
+        clipped_group(
+            EvaluatedTransform {
+                position: Point { x: 100.0, y: 100.0 },
+                anchor: Point { x: 0.0, y: 0.0 },
+                ..EvaluatedTransform::default()
+            },
+            Clip {
+                x: -50.0,
+                y: -50.0,
+                width: 50.0,
+                height: 100.0,
+                corner_radius: 0.0,
+            },
+            vec![centred_rect(0.0, 0.0, 100.0, 100.0, "#FF0000FF")],
+        ),
+        0.0,
+        30.0,
+        600.0,
+    );
+    let homography = group.transform.homography();
+    renderer
+        .render(&sized_scene(200, 200, vec![group]))
+        .unwrap();
+    let regions = renderer.hit_regions();
+    let at = |x: f64| {
+        let [x, y, _] = project(&homography, x, 0.0);
+        hit_test(regions, Point { x, y })
+    };
+    assert_eq!(at(-25.0), Some("rect"));
+    assert_eq!(at(25.0), None, "inside the quad, outside the group's clip");
+}

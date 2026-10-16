@@ -9,6 +9,7 @@ use crate::layer::{InstanceBytes, PreparedContent, PreparedItem, PreparedLayer};
 use crate::mask::MaskSpec;
 use crate::path::{PathEntries, PendingPath, path_entry_limit};
 use crate::plan::{CompositePlan, GpuDraw, GpuStep, GroupPlan, PreparedDraws, plan_groups};
+use crate::plane::{corners_to_scene, hit_clips, plane_to_scene};
 use crate::renderer::GpuRenderer;
 use crate::text::{PendingText, text_layer, text_raster_scale};
 use crate::texture::{DecodedImage, LayerTexture, TEXT_TEXTURE_PREFIX, canvas_texture, psd_key};
@@ -1038,6 +1039,7 @@ impl GpuRenderer {
                 item,
                 layer_id: layer.id.clone(),
                 clip: state.clip,
+                plane: self.walk.plane,
             });
         }
         Ok(())
@@ -1202,7 +1204,7 @@ impl GpuRenderer {
     /// such as a rect 0 wide, records nothing either. The leaves were met
     /// in painter's order.
     fn resolve_hit_regions(&mut self, items: &[PreparedItem]) {
-        let clips = &self.clip_entries;
+        let (clips, planes) = (&self.clip_entries, &self.plane_entries);
         self.hit_regions = self
             .hit_leaves
             .drain(..)
@@ -1212,14 +1214,25 @@ impl GpuRenderer {
                     PreparedItem::Instances(particles) => (particles.shape().corners(), None),
                     _ => return None,
                 };
-                let clips = std::iter::successors(leaf.clip, |&index| clips[index as usize].parent)
-                    .map(|index| clips[index as usize].hit_clip())
-                    .collect();
+                // A leaf in a plane is in the plane's canvas pixels.
+                let (corners, hole) = match leaf.plane {
+                    Some(plane) => {
+                        let to_scene = plane_to_scene(planes, plane);
+                        (
+                            corners_to_scene(&to_scene, corners)?,
+                            match hole {
+                                Some(hole) => Some(corners_to_scene(&to_scene, hole)?),
+                                None => None,
+                            },
+                        )
+                    }
+                    None => (corners, hole),
+                };
                 let region = HitRegion {
                     layer_id: leaf.layer_id,
                     corners,
                     hole,
-                    clips,
+                    clips: hit_clips(clips, planes, leaf.plane, leaf.clip)?,
                 };
                 (region.area() > 0.0).then_some(region)
             })

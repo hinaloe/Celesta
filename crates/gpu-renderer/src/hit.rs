@@ -30,12 +30,29 @@ pub struct HitClip {
     pub(crate) inverse: [f32; 6],
     pub(crate) half: [f32; 2],
     pub(crate) radius: f32,
+    /// Maps a scene position into the space the clip is in, row-major, when
+    /// that is a projective plane's canvas; `None` for the scene itself.
+    pub(crate) to_local: Option<[f64; 9]>,
 }
 
 impl HitClip {
     /// Whether `point`, in scene pixels, is inside the clip: the rounded box
     /// `clip_coverage` in `layer.wgsl` measures, its edge counted inside.
     pub fn contains(&self, point: Point) -> bool {
+        let point = match self.to_local {
+            None => point,
+            Some([a, b, c, d, e, f, g, h, i]) => {
+                let w = g * point.x + h * point.y + i;
+                // Behind the viewer, or not a number.
+                if w.is_nan() || w <= 0.0 {
+                    return false;
+                }
+                Point {
+                    x: (a * point.x + b * point.y + c) / w,
+                    y: (d * point.x + e * point.y + f) / w,
+                }
+            }
+        };
         let [a, b, c, d, tx, ty] = self.inverse.map(f64::from);
         let local = [
             a * point.x + c * point.y + tx,
@@ -102,6 +119,10 @@ pub(crate) struct HitLeaf {
     pub(crate) layer_id: String,
     /// The innermost clip the layer is drawn through.
     pub(crate) clip: Option<u32>,
+    /// Index into `GpuRenderer::plane_entries` of the projective plane the
+    /// layer is drawn onto, if any: its corners and clips are in that
+    /// plane's canvas pixels.
+    pub(crate) plane: Option<u32>,
 }
 
 /// The id of the topmost region containing `point`: regions are in
@@ -179,6 +200,7 @@ mod tests {
             inverse: [1.0, 0.0, 0.0, 1.0, -12.5, -15.0],
             half: [2.5, 5.0],
             radius: 0.0,
+            to_local: None,
         });
         let regions = [clipped];
         assert_eq!(
@@ -186,6 +208,28 @@ mod tests {
             Some("clipped")
         );
         assert_eq!(hit_test(&regions, Point { x: 17.0, y: 15.0 }), None);
+    }
+
+    #[test]
+    fn clips_through_a_projective_map_only_in_front_of_the_viewer() {
+        // The square's clip, reached through w = 1 - x/20: a point at
+        // x >= 20 is behind the viewer and in no clip.
+        let mut clipped = square("clipped");
+        clipped.clips.push(HitClip {
+            inverse: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            half: [100.0, 100.0],
+            radius: 0.0,
+            to_local: Some([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, -0.05, 0.0, 1.0]),
+        });
+        let regions = [clipped];
+        assert_eq!(
+            hit_test(&regions, Point { x: 15.0, y: 15.0 }),
+            Some("clipped")
+        );
+        let mut behind = regions[0].clone();
+        behind.corners =
+            [(10.0, 10.0), (30.0, 10.0), (30.0, 20.0), (10.0, 20.0)].map(|(x, y)| Point { x, y });
+        assert_eq!(hit_test(&[behind], Point { x: 25.0, y: 15.0 }), None);
     }
 
     #[test]
@@ -197,11 +241,13 @@ mod tests {
             inverse: [1.0, 0.0, 0.0, 1.0, -12.5, -15.0],
             half: [2.5, 5.0],
             radius: 0.0,
+            to_local: None,
         });
         clipped.clips.push(HitClip {
             inverse: [1.0, 0.0, 0.0, 1.0, -17.5, -15.0],
             half: [2.5, 5.0],
             radius: 0.0,
+            to_local: None,
         });
         let regions = [clipped];
         assert_eq!(hit_test(&regions, Point { x: 12.0, y: 15.0 }), None);

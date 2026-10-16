@@ -144,6 +144,7 @@ impl ClipEntry {
             inverse: self.inverse,
             half: self.half,
             radius: self.radius,
+            to_local: None,
         }
     }
 }
