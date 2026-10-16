@@ -447,6 +447,8 @@ fn mixes_audio_at_exact_timeline_and_source_offsets() {
             volume: Animatable::Static(0.5),
             muted: false,
             r#loop: false,
+            pitch: Animatable::Static(0.0),
+            preserve_pitch: false,
         }],
     };
 
@@ -525,6 +527,8 @@ fn loops_audio_from_the_start_of_the_source_past_its_end() {
             volume: Animatable::Static(1.0),
             muted: false,
             r#loop: true,
+            pitch: Animatable::Static(0.0),
+            preserve_pitch: false,
         }],
     };
     let left = |graph: &AudioGraph| {

@@ -1,8 +1,8 @@
 use crate::error::ExportError;
 use crate::{AUDIO_SECONDS_TIMESCALE, DEFAULT_REACT_AUDIO_SAMPLE_RATE};
 use celesta_composition::{
-    AssetLocation, AudioClip, AudioGraph, InstanceShape, Layer, LayerContent, ResolvedAsset, Time,
-    TimeRange,
+    Animatable, AssetLocation, AudioClip, AudioGraph, InstanceShape, Layer, LayerContent,
+    ResolvedAsset, Time, TimeRange,
 };
 use celesta_evaluator::Evaluator;
 use celesta_project::{Project, TimelineContent};
@@ -97,6 +97,8 @@ pub(crate) fn build_audio_graph(
             volume: clip.volume.clone(),
             muted: clip.muted,
             r#loop: clip.r#loop,
+            pitch: Animatable::Static(0.0),
+            preserve_pitch: false,
         });
     }
 

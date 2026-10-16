@@ -29,7 +29,8 @@ pub use model::{
     AssetLocation, AudioClip, AudioGraph, Clip, DEFAULT_MITER_LIMIT, EvaluatedTransform, GroupMask,
     ImageAnimation, ImageFit, Layer, LayerContent, LayerEffects, LayerFilter, LayerGlow,
     LayerShader, LayerShadow, LineCap, LineDash, LineJoin, MaskMode, MediaTiming, PathCommand,
-    Point, ResolvedAsset, Scene, ShaderParam, ShaderParamType, ShaderSource,
+    Point, ResolvedAsset, Scene, ShaderParam, ShaderParamType, ShaderSource, is_zero_pitch,
+    zero_pitch,
 };
 pub use projection::{
     BackfaceVisibility, IDENTITY3, Matrix3, faces_away, invert3, multiply3, multiply3_flat,

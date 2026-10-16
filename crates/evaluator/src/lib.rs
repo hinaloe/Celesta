@@ -147,6 +147,8 @@ impl<'project> Evaluator<'project> {
                         volume: volume.clone().unwrap_or(Animatable::Static(1.0)),
                         muted: muted.unwrap_or(false),
                         r#loop: false,
+                        pitch: Animatable::Static(0.0),
+                        preserve_pitch: false,
                     }),
                     TimelineContent::Dialogue {
                         audio: Some(asset),
@@ -162,6 +164,8 @@ impl<'project> Evaluator<'project> {
                         volume: volume.clone().unwrap_or(Animatable::Static(1.0)),
                         muted: false,
                         r#loop: false,
+                        pitch: Animatable::Static(0.0),
+                        preserve_pitch: false,
                     }),
                     _ => {}
                 }

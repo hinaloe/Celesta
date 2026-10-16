@@ -394,6 +394,16 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// The default for [`AudioClip::pitch`]: no transposition.
+pub fn zero_pitch() -> Animatable<f64> {
+    Animatable::Static(0.0)
+}
+
+/// Whether `pitch` is the default, so [`AudioClip`] can leave it out.
+pub fn is_zero_pitch(pitch: &Animatable<f64>) -> bool {
+    matches!(pitch, Animatable::Static(value) if *value == 0.0)
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
 #[cfg_attr(feature = "codegen", ts(export))]
@@ -1153,6 +1163,15 @@ pub struct AudioClip {
     /// falling silent.
     #[serde(default, skip_serializing_if = "is_false")]
     pub r#loop: bool,
+    /// Transposition in semitones; fractions are cents. Animated over
+    /// clip-local seconds like `playback_rate`.
+    #[serde(default = "zero_pitch", skip_serializing_if = "is_zero_pitch")]
+    pub pitch: Animatable<f64>,
+    /// When true, `playback_rate` changes only how long the clip takes, and the
+    /// pitch is set by `pitch` alone. When false, speed and pitch move
+    /// together.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub preserve_pitch: bool,
 }
 
 /// The frame of an animated image to draw.

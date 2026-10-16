@@ -1,9 +1,9 @@
 use crate::time::{Rational, Time};
 use crate::{
-    AssetLocation, BackfaceVisibility, Clip, EvaluatedTransform, F32Column, GroupMask, IDENTITY3,
-    ImageFit, InstanceShape, Layer, LayerContent, LetterSpacing, LineCap, LineDash, LineJoin,
-    MaskMode, Matrix3, MediaTiming, Paint, PathCommand, Point, ResolvedAsset, Stroke, TextStyle,
-    U8Column, faces_away, multiply3, multiply3_flat, project, stretch_at,
+    Animatable, AssetLocation, AudioClip, BackfaceVisibility, Clip, EvaluatedTransform, F32Column,
+    GroupMask, IDENTITY3, ImageFit, InstanceShape, Layer, LayerContent, LetterSpacing, LineCap,
+    LineDash, LineJoin, MaskMode, Matrix3, MediaTiming, Paint, PathCommand, Point, ResolvedAsset,
+    Stroke, TextStyle, U8Column, faces_away, multiply3, multiply3_flat, project, stretch_at,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -1161,4 +1161,22 @@ fn new_transform_fields_round_trip() {
     ] {
         assert_eq!(back[key], json[key]);
     }
+}
+
+#[test]
+fn audio_clip_pitch_fields_default_and_stay_out_of_json() {
+    let json = r#"{"id":"a","asset":{"id":"a","location":{"type":"file","path":"a.wav"}},"range":{"start":{"value":0,"timescale":1},"duration":{"value":1,"timescale":1}},"sourceStart":{"value":0,"timescale":1},"playbackRate":1.0,"volume":1.0,"muted":false}"#;
+    let clip: AudioClip = serde_json::from_str(json).unwrap();
+    assert_eq!(clip.pitch, Animatable::Static(0.0));
+    assert!(!clip.preserve_pitch);
+    assert_eq!(serde_json::to_string(&clip).unwrap(), json);
+
+    let shifted = AudioClip {
+        pitch: Animatable::Static(-2.5),
+        preserve_pitch: true,
+        ..clip
+    };
+    let text = serde_json::to_string(&shifted).unwrap();
+    assert!(text.contains(r#""pitch":-2.5"#) && text.contains(r#""preservePitch":true"#));
+    assert_eq!(serde_json::from_str::<AudioClip>(&text).unwrap(), shifted);
 }

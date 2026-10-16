@@ -180,6 +180,8 @@ fn clip_waveforms_follow_source_ranges_and_playback_rate() {
         volume: Animatable::Static(1.0),
         muted: false,
         r#loop: false,
+        pitch: Animatable::Static(0.0),
+        preserve_pitch: false,
     };
     let peaks = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
 
@@ -230,6 +232,8 @@ fn react_audio_clips_take_one_track_per_file_and_more_only_to_overlap() {
         volume: Animatable::Static(0.5),
         muted,
         r#loop: false,
+        pitch: Animatable::Static(0.0),
+        preserve_pitch: false,
     };
     let tracks = react_tracks(
         &[
@@ -301,6 +305,8 @@ fn react_videos_take_video_tracks_and_keep_their_sound_on_audio_tracks() {
         volume: Animatable::Static(1.0),
         muted,
         r#loop: false,
+        pitch: Animatable::Static(0.0),
+        preserve_pitch: false,
     };
     let videos = HashMap::from([
         ("react-audio:1".to_owned(), true),
