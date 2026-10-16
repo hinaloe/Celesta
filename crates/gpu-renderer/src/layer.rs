@@ -6,19 +6,24 @@ use crate::mask::MaskSpec;
 use crate::path::ShadedPath;
 use crate::texture::LayerTexture;
 use crate::transform::{Affine, LayerState};
-use celesta_composition::{BlendMode, Point};
+use celesta_composition::{BlendMode, Matrix3, Point};
 
 pub(crate) enum PreparedContent {
     Texture(LayerTexture),
     Rect(RectShape),
     Path(ShadedPath),
     /// A whole canvas: a finished isolated group, a masked group's children
-    /// shown through its mask, or the root canvas being copied onto the
-    /// target.
+    /// shown through its mask, a plane, or the root canvas being copied onto
+    /// the target.
     Canvas {
         /// Whether the canvas holds premultiplied alpha (an isolated group)
         /// that the shader must unpremultiply.
         premultiplied: bool,
+        /// The bottom row of the map from the canvas's pixels to its target,
+        /// whose top two rows are the layer's `state.transform`: `AFFINE`
+        /// for every canvas but a plane's. Kept here, the only content that
+        /// can be projective, so prepared items stay small.
+        projection: [f32; 3],
     },
 }
 
@@ -48,6 +53,16 @@ pub(crate) enum PreparedItem {
     NextSample,
     /// Draws the averaged samples' canvas onto the group's parent.
     EndAverage(PreparedLayer),
+    /// The items up to the matching `EndPlane` are a projective layer's
+    /// content, drawn onto a transparent `width`x`height` canvas in its own
+    /// plane, whose pixels they are placed in.
+    BeginPlane {
+        width: u32,
+        height: u32,
+    },
+    /// Draws the finished plane's canvas onto its parent through the
+    /// layer's homography (`PreparedLayer::projection`).
+    EndPlane(PreparedLayer),
     /// A text layer `place_texts` replaces with a `Layer` before anything
     /// else reads the items.
     PendingText,
@@ -69,6 +84,9 @@ pub(crate) struct PreparedLayer {
     /// (`PendingPath::shape_box`), whose quad covers its outline's pixels.
     pub(crate) shape: Option<PixelBounds>,
 }
+
+/// `PreparedLayer::projection` of an affine layer.
+pub(crate) const AFFINE: [f32; 3] = [0.0, 0.0, 1.0];
 
 impl PreparedLayer {
     pub(crate) fn new(
@@ -93,14 +111,60 @@ impl PreparedLayer {
         blend_mode: BlendMode,
         premultiplied: bool,
     ) -> Self {
+        Self::plane_or_canvas(state, blend_mode, premultiplied, AFFINE)
+    }
+
+    /// A plane's premultiplied canvas, drawn through the map whose top two
+    /// rows are `state.transform` and whose bottom row is `projection`.
+    pub(crate) const fn plane(
+        state: LayerState,
+        blend_mode: BlendMode,
+        projection: [f32; 3],
+    ) -> Self {
+        Self::plane_or_canvas(state, blend_mode, true, projection)
+    }
+
+    const fn plane_or_canvas(
+        state: LayerState,
+        blend_mode: BlendMode,
+        premultiplied: bool,
+        projection: [f32; 3],
+    ) -> Self {
         Self {
-            content: PreparedContent::Canvas { premultiplied },
+            content: PreparedContent::Canvas {
+                premultiplied,
+                projection,
+            },
             anchor: Point { x: 0.0, y: 0.0 },
             state,
             blend_mode,
             raster_scale: 1.0,
             shape: None,
         }
+    }
+
+    /// The bottom row of the map from the layer's quad units to its target,
+    /// whose top two rows are `state.transform`: `AFFINE` for every layer
+    /// but a plane's canvas.
+    pub(crate) const fn projection(&self) -> [f32; 3] {
+        match self.content {
+            PreparedContent::Canvas { projection, .. } => projection,
+            _ => AFFINE,
+        }
+    }
+
+    /// Whether the layer is drawn through a homography rather than an
+    /// affine map: a plane's canvas.
+    pub(crate) fn is_projective(&self) -> bool {
+        let [g, h, _] = self.projection();
+        g != 0.0 || h != 0.0
+    }
+
+    /// The map from the layer's quad units to its target: the rows of
+    /// `state.transform`, then `projection`.
+    pub(crate) fn map(&self) -> Matrix3 {
+        let t = self.state.transform;
+        [[t.a, t.c, t.tx], [t.b, t.d, t.ty], self.projection()].map(|row| row.map(f64::from))
     }
 
     /// Appends this layer's `LayerInstance` (`LAYER_INSTANCE_SIZE` bytes),
@@ -122,7 +186,8 @@ impl PreparedLayer {
         let premultiplied = matches!(
             self.content,
             PreparedContent::Canvas {
-                premultiplied: true
+                premultiplied: true,
+                ..
             }
         );
         let (rect, fill, stroke) = match &self.content {
@@ -150,10 +215,16 @@ impl PreparedLayer {
         // A layer whose texels land one to one on canvas pixels is copied
         // exactly; anything scaled or rotated is filtered. A rect has no
         // texels: it is shaded wherever it lands, so it is never moved onto
-        // a whole pixel.
-        let exact = transform.is_uniform_scale(self.raster_scale);
+        // a whole pixel. A plane's canvas is filtered over each pixel's
+        // footprint at its own level (it has no mips).
+        let projective = self.is_projective();
+        let exact = !projective && transform.is_uniform_scale(self.raster_scale);
         let is_rect = matches!(self.content, PreparedContent::Rect(_));
-        let level_of_detail = level_of_detail(transform, self.raster_scale, exact);
+        let level_of_detail = if projective {
+            0.0
+        } else {
+            level_of_detail(transform, self.raster_scale, exact)
+        };
         if exact && !is_rect {
             (transform.tx, transform.ty) =
                 self.pixel_aligned_translation(transform, texel_width, texel_height);
@@ -174,6 +245,7 @@ impl PreparedLayer {
             exact,
             level_of_detail,
             raster_scale: self.raster_scale,
+            projection: self.projection(),
         });
         output.push(&instance);
     }
@@ -405,6 +477,11 @@ pub(crate) struct InstanceFields {
     pub(crate) level_of_detail: f32,
     /// Texels per layer unit.
     pub(crate) raster_scale: f32,
+    /// The bottom row of the map `transform` is the top two rows of
+    /// (`PreparedLayer::projection`); a projective one is filtered over each
+    /// pixel's footprint, whatever `exact` says, and carries it in the
+    /// `rect` slot, which a canvas leaves unused.
+    pub(crate) projection: [f32; 3],
 }
 
 /// `fields` in `layer.wgsl`'s `LayerInstance` order.
@@ -425,8 +502,14 @@ pub(crate) fn layer_instance(fields: &InstanceFields) -> [f32; LAYER_INSTANCE_FL
         exact,
         level_of_detail,
         raster_scale,
+        projection: [g, h, i],
     } = *fields;
-    let [r0, r1, r2, r3] = rect;
+    let projective = g != 0.0 || h != 0.0;
+    debug_assert!(
+        !projective || rect == [0.0; 4],
+        "only a canvas is projective"
+    );
+    let [r0, r1, r2, r3] = if projective { [g, h, i, 0.0] } else { rect };
     let [f0, f1, f2, f3] = fill;
     let [s0, s1, s2, s3] = stroke;
     [
@@ -459,10 +542,15 @@ pub(crate) fn layer_instance(fields: &InstanceFields) -> [f32; LAYER_INSTANCE_FL
         s2,
         s3,
         // The innermost clip the layer is drawn through (-1 without one),
-        // whether to filter, the mip level to filter at, and texels per
+        // how to filter (0 copies, 1 filters, 2 averages the footprint of a
+        // projective layer), the mip level to filter at, and texels per
         // layer unit.
         clip.map_or(-1.0, |index| index as f32),
-        f32::from(u8::from(!exact)),
+        if projective {
+            2.0
+        } else {
+            f32::from(u8::from(!exact))
+        },
         level_of_detail,
         raster_scale,
         target.x as f32,
@@ -502,5 +590,42 @@ pub(crate) fn blend_mode_index(mode: BlendMode) -> f32 {
         BlendMode::Saturation => 14.0,
         BlendMode::Color => 15.0,
         BlendMode::Luminosity => 16.0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn canvas_fields(projection: [f32; 3]) -> InstanceFields {
+        InstanceFields {
+            transform: Affine::IDENTITY,
+            size: (10.0, 10.0),
+            anchor: [0.0, 0.0],
+            opacity: 1.0,
+            kind: 0.0,
+            target: CanvasRegion::scene(64, 64),
+            blend_mode: BlendMode::Normal,
+            premultiplied: true,
+            rect: [0.0; 4],
+            fill: [0.0; 4],
+            stroke: [0.0; 4],
+            clip: None,
+            exact: false,
+            level_of_detail: 0.0,
+            raster_scale: 1.0,
+            projection,
+        }
+    }
+
+    #[test]
+    fn a_plane_canvas_carries_its_projection_in_the_rect_slot() {
+        assert_eq!(LAYER_INSTANCE_FLOATS, 36);
+        let plane = layer_instance(&canvas_fields([0.25, -0.5, 2.0]));
+        assert_eq!(plane[16..20], [0.25, -0.5, 2.0, 0.0]);
+        assert_eq!(plane[29], 2.0, "averaged over each pixel's footprint");
+        let flat = layer_instance(&canvas_fields(AFFINE));
+        assert_eq!(flat[16..20], [0.0; 4]);
+        assert_eq!(flat[29], 1.0);
     }
 }

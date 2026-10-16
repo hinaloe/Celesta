@@ -457,6 +457,7 @@ impl Validator<'_> {
             ("position", &transform.position),
             ("scale", &transform.scale),
             ("anchor", &transform.anchor),
+            ("skew", &transform.skew),
         ] {
             if let Some(point) = point {
                 if let Some(x) = &point.x {
@@ -477,12 +478,26 @@ impl Validator<'_> {
                 }
             }
         }
-        if let Some(rotation) = &transform.rotation {
+        for (name, angle) in [
+            ("rotation", &transform.rotation),
+            ("rotationX", &transform.rotation_x),
+            ("rotationY", &transform.rotation_y),
+        ] {
+            if let Some(angle) = angle {
+                self.animatable(
+                    &format!("{path}.{name}"),
+                    angle,
+                    |v| v.is_finite(),
+                    "must be finite",
+                );
+            }
+        }
+        if let Some(perspective) = &transform.perspective {
             self.animatable(
-                &format!("{path}.rotation"),
-                rotation,
-                |v| v.is_finite(),
-                "must be finite",
+                &format!("{path}.perspective"),
+                perspective,
+                |v| v.is_finite() && *v > 0.0,
+                "must be finite and positive",
             );
         }
     }

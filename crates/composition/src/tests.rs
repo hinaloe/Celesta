@@ -1,8 +1,9 @@
 use crate::time::{Rational, Time};
 use crate::{
-    AssetLocation, Clip, EvaluatedTransform, F32Column, GroupMask, ImageFit, InstanceShape, Layer,
-    LayerContent, LetterSpacing, LineCap, LineDash, LineJoin, MaskMode, MediaTiming, Paint,
-    PathCommand, Point, ResolvedAsset, Stroke, TextStyle, U8Column,
+    AssetLocation, BackfaceVisibility, Clip, EvaluatedTransform, F32Column, GroupMask, IDENTITY3,
+    ImageFit, InstanceShape, Layer, LayerContent, LetterSpacing, LineCap, LineDash, LineJoin,
+    MaskMode, Matrix3, MediaTiming, Paint, PathCommand, Point, ResolvedAsset, Stroke, TextStyle,
+    U8Column, faces_away, multiply3, multiply3_flat, project, stretch_at,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -965,11 +966,12 @@ fn a_layer_without_opacity_is_opaque() {
 
 /// A frame of 100,000 layers is moved and copied layer by layer while it is
 /// parsed and rendered; the rarely used text style and effects live behind
-/// boxes so every layer stays small.
+/// boxes so every layer stays small. The 3D transform fields took it from 312
+/// to 368 bytes.
 #[test]
 fn layers_stay_small() {
     assert!(
-        std::mem::size_of::<Layer>() <= 320,
+        std::mem::size_of::<Layer>() <= 368,
         "Layer is {} bytes",
         std::mem::size_of::<Layer>()
     );
@@ -981,4 +983,182 @@ fn static_ref_round_trips() {
     let content: LayerContent = serde_json::from_str(json).unwrap();
     assert_eq!(content, LayerContent::StaticRef { key: 7 });
     assert_eq!(serde_json::to_string(&content).unwrap(), json);
+}
+
+fn close(a: &Matrix3, b: &Matrix3) -> bool {
+    a.iter()
+        .flatten()
+        .zip(b.iter().flatten())
+        .all(|(x, y)| (x - y).abs() < 1e-9)
+}
+
+#[test]
+fn default_transform_is_the_identity() {
+    let t = EvaluatedTransform::default();
+    assert!(close(&t.linear(), &IDENTITY3) && close(&t.homography(), &IDENTITY3));
+    assert!(!t.is_projective());
+    assert_eq!(
+        serde_json::to_value(t).unwrap(),
+        serde_json::json!({
+            "position": {"x": 0.0, "y": 0.0}, "scale": {"x": 1.0, "y": 1.0},
+            "rotation": 0.0, "anchor": {"x": 0.5, "y": 0.5}
+        })
+    );
+}
+
+/// Rotations and scales a flat layer takes, mirrors and zeros included.
+fn flat_transforms() -> impl Iterator<Item = EvaluatedTransform> {
+    [0.0, -0.0, 30.0, -45.0, 90.0, 180.0, 360.0, 1234.5]
+        .into_iter()
+        .flat_map(|rotation| {
+            [(1.0, 1.0), (2.0, 0.5), (-1.0, 1.0), (0.0, 3.0)].map(|(x, y)| EvaluatedTransform {
+                position: Point { x: 12.0, y: -7.0 },
+                scale: Point { x, y },
+                rotation,
+                ..Default::default()
+            })
+        })
+}
+
+#[test]
+fn a_flat_linear_part_is_the_general_one() {
+    for t in flat_transforms() {
+        assert!(t.is_flat());
+        assert_eq!(t.linear(), t.linear_3d(), "{t:?}");
+    }
+    let tilted = EvaluatedTransform {
+        rotation_x: 1e-9,
+        ..Default::default()
+    };
+    assert!(!tilted.is_flat());
+}
+
+#[test]
+fn multiplying_by_a_flat_part_is_the_general_product() {
+    let orientation = EvaluatedTransform {
+        rotation_x: 30.0,
+        rotation_y: -60.0,
+        rotation: 10.0,
+        skew: Point { x: 5.0, y: 0.0 },
+        ..Default::default()
+    }
+    .linear();
+    for t in flat_transforms() {
+        let flat = t.linear();
+        for o in [IDENTITY3, orientation] {
+            assert_eq!(multiply3_flat(&o, &flat), multiply3(&o, &flat), "{t:?}");
+        }
+    }
+}
+
+#[test]
+fn skew_shears_by_the_tangent() {
+    let t = EvaluatedTransform {
+        skew: Point { x: 45.0, y: 0.0 },
+        ..Default::default()
+    };
+    assert!(close(
+        &t.linear(),
+        &[[1.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    ));
+}
+
+#[test]
+fn orthographic_rotation_y_is_affine() {
+    let t = EvaluatedTransform {
+        rotation_y: 60.0,
+        ..Default::default()
+    };
+    assert!(close(
+        &t.homography(),
+        &[[0.5, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    ));
+    assert!(!t.is_projective());
+}
+
+#[test]
+fn perspective_rotation_y_turns_the_right_edge_away() {
+    let t = EvaluatedTransform {
+        position: Point { x: 10.0, y: 20.0 },
+        rotation_y: 90.0,
+        perspective: Some(1000.0),
+        ..Default::default()
+    };
+    let h = t.homography();
+    assert!((h[2][0] - 0.001).abs() < 1e-12 && h[2][1].abs() < 1e-12 && h[2][2] == 1.0);
+    assert!((h[0][2] - 10.0).abs() < 1e-12 && (h[1][2] - 20.0).abs() < 1e-12);
+    assert!(t.is_projective());
+    assert!(project(&h, 100.0, 0.0)[2] > 1.0); // farther
+}
+
+#[test]
+fn perspective_distance_must_be_finite_and_positive() {
+    for (value, expected) in [
+        (500.0, Some(500.0)),
+        (0.0, None),
+        (-1.0, None),
+        (f64::NAN, None),
+        (f64::INFINITY, None),
+    ] {
+        let t = EvaluatedTransform {
+            perspective: Some(value),
+            rotation_y: 30.0,
+            ..Default::default()
+        };
+        assert_eq!(t.perspective_distance(), expected);
+        assert_eq!(t.is_projective(), expected.is_some());
+    }
+}
+
+#[test]
+fn skew_of_ninety_degrees_is_not_projective() {
+    let t = EvaluatedTransform {
+        skew: Point { x: 90.0, y: 0.0 },
+        perspective: Some(500.0),
+        ..Default::default()
+    };
+    assert!(!t.is_projective());
+}
+
+#[test]
+fn facing_follows_the_accumulated_orientation() {
+    let o = |t: EvaluatedTransform| t.linear();
+    let ry = |deg| EvaluatedTransform {
+        rotation_y: deg,
+        ..Default::default()
+    };
+    assert!(!faces_away(&IDENTITY3));
+    assert!(!faces_away(&o(EvaluatedTransform {
+        scale: Point { x: -1.0, y: 1.0 },
+        ..Default::default()
+    })));
+    assert!(faces_away(&o(ry(180.0))));
+    assert!(!faces_away(&o(ry(90.0))));
+    assert!(!faces_away(&multiply3(&o(ry(100.0)), &o(ry(180.0)))));
+    assert!(faces_away(&multiply3(&o(ry(30.0)), &o(ry(180.0)))));
+}
+
+#[test]
+fn stretch_is_none_behind_the_viewer() {
+    let h = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.01, 0.0, 1.0]];
+    assert!((stretch_at(&h, 0.0, 0.0).unwrap() - 1.0).abs() < 1e-9);
+    assert_eq!(stretch_at(&h, -200.0, 0.0), None);
+}
+
+#[test]
+fn new_transform_fields_round_trip() {
+    let json = serde_json::json!({"skew": {"x": 10.0, "y": -5.0}, "rotationX": 15.0, "rotationY": 30.0,
+        "perspective": 800.0, "backfaceVisibility": "hidden"});
+    let t: EvaluatedTransform = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(t.backface_visibility, BackfaceVisibility::Hidden);
+    let back = serde_json::to_value(t).unwrap();
+    for key in [
+        "skew",
+        "rotationX",
+        "rotationY",
+        "perspective",
+        "backfaceVisibility",
+    ] {
+        assert_eq!(back[key], json[key]);
+    }
 }

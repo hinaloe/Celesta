@@ -9,15 +9,17 @@ use crate::layer::{InstanceBytes, PreparedContent, PreparedItem, PreparedLayer};
 use crate::mask::MaskSpec;
 use crate::path::{PathEntries, PendingPath, path_entry_limit};
 use crate::plan::{CompositePlan, GpuDraw, GpuStep, GroupPlan, PreparedDraws, plan_groups};
+use crate::plane::{corners_to_scene, hit_clips};
 use crate::renderer::GpuRenderer;
 use crate::text::{PendingText, text_layer, text_raster_scale};
 use crate::texture::{DecodedImage, LayerTexture, TEXT_TEXTURE_PREFIX, canvas_texture, psd_key};
 use crate::texture::{rasterize_texts, text_jobs};
-use crate::transform::{Affine, CLIP_ENTRY_SIZE, ClipEntry, LayerState, MAX_CLIP_DEPTH};
+use crate::transform::{Affine, CLIP_ENTRY_SIZE, ClipEntry, LayerState, MAX_CLIP_DEPTH, Walk};
 use crate::types::RenderQuality;
 use celesta_composition::{
-    BlendMode, Clip, ImageAnimation, ImageFit, InstanceShape, Layer, LayerContent, LayerEffects,
-    Point, ResolvedAsset, Scene,
+    BackfaceVisibility, BlendMode, Clip, ImageAnimation, ImageFit, InstanceShape, Layer,
+    LayerContent, LayerEffects, Matrix3, Point, ResolvedAsset, Scene, faces_away, multiply3,
+    multiply3_flat,
 };
 use celesta_renderer::image_source::{fit_within, resize_rgba};
 use celesta_renderer::{
@@ -51,10 +53,15 @@ impl GpuRenderer {
         self.paint_entries.clear();
         self.path_entries.clear();
         self.scene_size = (scene.width, scene.height);
+        self.scene_area = u64::from(scene.width) * u64::from(scene.height);
         self.font_fallbacks.clear();
         self.missing_glyphs.clear();
         self.hit_leaves.clear();
         self.hit_regions.clear();
+        self.plane_entries.clear();
+        self.plane_video_frames.clear();
+        self.measuring_plane = false;
+        self.walk = Walk::default();
         let mut items = Vec::new();
         let prepared = scene
             .layers
@@ -71,12 +78,12 @@ impl GpuRenderer {
         let texts = std::mem::take(&mut self.pending_texts);
         let paths = std::mem::take(&mut self.pending_paths);
         let jobs = text_jobs(&texts);
-        let (limit, size) = (self.max_texture_dimension, self.scene_size);
+        let limit = self.max_texture_dimension;
         let entry_limit = path_entry_limit(&self.device.limits());
         let (rasterizer, workers) = (&mut self.text_rasterizer, &mut self.text_workers);
         let (images, outlines) = rayon::join(
             || rasterize_texts(rasterizer, workers, &jobs, limit),
-            || outline_paths(&paths, size, entry_limit),
+            || outline_paths(&paths, entry_limit),
         );
         self.place_texts(&texts, &jobs, images, &mut items)?;
         self.place_paths(&paths, outlines?, &mut items)?;
@@ -106,7 +113,8 @@ impl GpuRenderer {
                 | PreparedItem::BeginMask
                 | PreparedItem::MaskContent
                 | PreparedItem::BeginAverage
-                | PreparedItem::NextSample => 0,
+                | PreparedItem::NextSample
+                | PreparedItem::BeginPlane { .. } => 0,
                 PreparedItem::EndEffect(..) => 2,
                 PreparedItem::Instances(instances) => instances.count() as usize,
                 _ => 1,
@@ -149,6 +157,7 @@ impl GpuRenderer {
             content: None,
             shape: None,
             drawn: true,
+            lands: Some(root.bounds()),
         }];
         for item in items {
             let target = open.last().expect("the root canvas is always open").canvas;
@@ -168,7 +177,8 @@ impl GpuRenderer {
                 PreparedItem::PendingText | PreparedItem::PendingPath => {
                     unreachable!("pending text and paths are resolved")
                 }
-                PreparedItem::BeginGroup => {
+                // A plane draws onto a canvas of its own as a group does.
+                PreparedItem::BeginGroup | PreparedItem::BeginPlane { .. } => {
                     let group = groups.next().expect("plan_groups plans every group");
                     steps.push(GpuStep::BeginGroup {
                         canvas: group.canvas,
@@ -209,10 +219,7 @@ impl GpuRenderer {
                     steps.push(GpuStep::EndAverage {
                         instance: index,
                         blend_mode: layer.blend_mode,
-                        area: group
-                            .drawn
-                            .then(|| target.local_area(group.canvas.bounds()))
-                            .flatten(),
+                        area: group.area(target),
                     });
                     index += 1;
                     continue;
@@ -225,25 +232,19 @@ impl GpuRenderer {
                         instance: index,
                         blend_mode: layer.blend_mode,
                         mask: *mask,
-                        area: group
-                            .drawn
-                            .then(|| target.local_area(group.canvas.bounds()))
-                            .flatten(),
+                        area: group.area(target),
                     });
                     index += 1;
                     continue;
                 }
-                PreparedItem::EndGroup(layer) => {
+                PreparedItem::EndGroup(layer) | PreparedItem::EndPlane(layer) => {
                     let group = open.pop().expect("every group was begun");
                     let target = open.last().expect("the root canvas is always open").canvas;
                     layer.write_instance(target, group.canvas, &mut instances);
                     steps.push(GpuStep::EndGroup {
                         instance: index,
                         blend_mode: layer.blend_mode,
-                        area: group
-                            .drawn
-                            .then(|| target.local_area(group.canvas.bounds()))
-                            .flatten(),
+                        area: group.area(target),
                     });
                     index += 1;
                     continue;
@@ -264,7 +265,7 @@ impl GpuRenderer {
                             .filter(|_| group.drawn)
                             .map(|content| group.canvas.local(content)),
                         shape: group.shape,
-                        area: target.local_area(group.canvas.bounds()),
+                        area: group.lands.and_then(|lands| target.local_area(lands)),
                     });
                     index += 2;
                     continue;
@@ -380,8 +381,9 @@ impl GpuRenderer {
 }
 
 impl GpuRenderer {
-    /// Makes sure the root canvas and the backdrop exist at `width`x`height`.
-    pub(crate) fn prepare_canvases(&mut self, width: u32, height: u32) {
+    /// Makes sure the root canvas exists at `width`x`height`, and the
+    /// backdrop at `backdrop` (width, height) or larger.
+    pub(crate) fn prepare_canvases(&mut self, width: u32, height: u32, backdrop: (u32, u32)) {
         let size = wgpu::Extent3d {
             width,
             height,
@@ -400,11 +402,23 @@ impl GpuRenderer {
                 height,
             ));
         }
-        if self
+        // A backdrop grown for a plane larger than the scene is kept while
+        // planes need it, so one that grows and shrinks does not reallocate
+        // it every frame, and is scene-sized again once none does.
+        let current = self
             .backdrop
             .as_ref()
-            .is_none_or(|backdrop| backdrop.texture.size() != size)
-        {
+            .map(|backdrop| backdrop.texture.size());
+        if current.is_none_or(|current| {
+            let current = (current.width, current.height);
+            let too_small = current.0 < backdrop.0 || current.1 < backdrop.1;
+            too_small || (backdrop == (width, height) && current != backdrop)
+        }) {
+            let size = wgpu::Extent3d {
+                width: backdrop.0,
+                height: backdrop.1,
+                depth_or_array_layers: 1,
+            };
             let texture = self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Celesta backdrop"),
                 size,
@@ -439,14 +453,51 @@ impl GpuRenderer {
         parent: LayerState,
         output: &mut Vec<PreparedItem>,
     ) -> Result<(), GpuRenderError> {
-        let state = parent.then(&layer.transform, layer.opacity);
+        let previous = self.walk;
+        let linear = layer.transform.linear();
+        let orientation = if layer.transform.is_flat() {
+            multiply3_flat(&previous.orientation, &linear)
+        } else {
+            multiply3(&previous.orientation, &linear)
+        };
+        if layer.transform.backface_visibility == BackfaceVisibility::Hidden
+            && faces_away(&orientation)
+        {
+            return Ok(());
+        }
+        self.walk.orientation = orientation;
+        let prepared = self.prepare_visible_layer(layer, parent, previous, &linear, output);
+        self.walk = previous;
+        prepared
+    }
+
+    /// `prepare_layer` once the layer faces the viewer (or shows its back):
+    /// `self.walk` describes the layer, `previous` its parent, and `linear`
+    /// is the layer's 3D linear part.
+    fn prepare_visible_layer(
+        &mut self,
+        layer: &Layer,
+        parent: LayerState,
+        previous: Walk,
+        linear: &Matrix3,
+        output: &mut Vec<PreparedItem>,
+    ) -> Result<(), GpuRenderError> {
+        let state = parent.then_affine(
+            Affine::from_linear(linear, layer.transform.position),
+            layer.opacity,
+        );
         if state.opacity == 0.0 || state.transform.is_degenerate() {
             return Ok(());
         }
         let blend_mode = layer.blend_mode;
         let item = output.len();
         if !layer.effects.is_empty() {
-            let mut effects = EffectSpec::parse(&layer.effects)?;
+            let effects = EffectSpec::parse(&layer.effects)?;
+            let mut effects = if self.measuring_plane {
+                effects.scaled_uncapped(self.walk.effect_scale)
+            } else {
+                effects.scaled(self.walk.effect_scale)
+            };
             effects.shaders =
                 self.shaders
                     .use_filters(&self.device, &layer.id, &layer.effects.filters)?;
@@ -455,6 +506,8 @@ impl GpuRenderer {
             inner.opacity = 1.0;
             inner.blend_mode = BlendMode::Normal;
             inner.effects = LayerEffects::default();
+            // The inner layer is this one again: it adds its own orientation.
+            self.walk = previous;
             self.prepare_layer(
                 &inner,
                 LayerState {
@@ -476,6 +529,11 @@ impl GpuRenderer {
                 Box::new(effects),
             ));
             return Ok(());
+        }
+        // Drawn through a canvas in its own plane; the effects above apply
+        // to that canvas once projected, through the inner layer they draw.
+        if layer.transform.perspective_distance().is_some() && layer.transform.is_projective() {
+            return self.prepare_plane(layer, parent, output);
         }
         match &layer.content {
             LayerContent::Group {
@@ -682,7 +740,46 @@ impl GpuRenderer {
                 } else {
                     timing.source_time_seconds
                 };
-                let frame = decoder.decode_frame_for(&layer.id, &path, source_time_seconds)?;
+                // A plane's content is prepared once to measure it and once
+                // to draw it: the frame decoded for the first serves both.
+                let measured = self.plane_video_frames.iter().find(|(id, time, _)| {
+                    *id == layer.id && time.to_bits() == source_time_seconds.to_bits()
+                });
+                let frame = match measured {
+                    Some((_, _, frame)) => frame.clone(),
+                    None => {
+                        let frame =
+                            decoder.decode_frame_for(&layer.id, &path, source_time_seconds)?;
+                        if self.measuring_plane {
+                            self.plane_video_frames.push((
+                                layer.id.clone(),
+                                source_time_seconds,
+                                frame.clone(),
+                            ));
+                        }
+                        frame
+                    }
+                };
+                if self.measuring_plane {
+                    // Only its size counts there, which a shape stands in
+                    // for without uploading the frame.
+                    output.push(PreparedItem::Layer(PreparedLayer {
+                        content: PreparedContent::Rect(RectShape {
+                            half_width: frame.width as f32 / 2.0,
+                            half_height: frame.height as f32 / 2.0,
+                            radius: 0.0,
+                            stroke_width: 0.0,
+                            fill: [0.0; 4],
+                            stroke: [0.0; 4],
+                        }),
+                        anchor: layer.transform.anchor,
+                        state,
+                        blend_mode,
+                        raster_scale: 1.0,
+                        shape: None,
+                    }));
+                    return Ok(());
+                }
                 let (width, height) =
                     fit_within(frame.width, frame.height, self.max_texture_dimension);
                 // Checked against its size before anything reads it.
@@ -827,6 +924,7 @@ impl GpuRenderer {
                     line_dash: line_dash.clone(),
                     state,
                     blend_mode,
+                    space: self.scene_size,
                 });
                 output.push(PreparedItem::PendingPath);
             }
@@ -946,6 +1044,7 @@ impl GpuRenderer {
                 item,
                 layer_id: layer.id.clone(),
                 clip: state.clip,
+                plane: self.walk.plane,
             });
         }
         Ok(())
@@ -1002,7 +1101,7 @@ impl GpuRenderer {
     ) -> Result<(), GpuRenderError> {
         let paths = std::mem::take(&mut self.pending_paths);
         let entry_limit = path_entry_limit(&self.device.limits());
-        let outlines = outline_paths(&paths, self.scene_size, entry_limit)?;
+        let outlines = outline_paths(&paths, entry_limit)?;
         self.place_paths(&paths, outlines, items)?;
         items.retain(|item| !matches!(item, PreparedItem::PendingPath));
         Ok(())
@@ -1021,7 +1120,6 @@ impl GpuRenderer {
         if pending.is_empty() {
             return Ok(());
         }
-        let (width, height) = self.scene_size;
         let entry_limit = path_entry_limit(&self.device.limits());
         // The shaded paths' entries and where they go, in order.
         let mut placed = Vec::new();
@@ -1045,6 +1143,7 @@ impl GpuRenderer {
                 }
                 // Dense tiles or a full storage buffer use the CPU rasterizer.
                 _ => {
+                    let (width, height) = path.space;
                     let Some(rasterized) =
                         rasterize_path(&path.shape(), path.state.transform.into(), width, height)
                             .map_err(GpuRenderError::Text)?
@@ -1110,7 +1209,7 @@ impl GpuRenderer {
     /// such as a rect 0 wide, records nothing either. The leaves were met
     /// in painter's order.
     fn resolve_hit_regions(&mut self, items: &[PreparedItem]) {
-        let clips = &self.clip_entries;
+        let (clips, planes) = (&self.clip_entries, &self.plane_entries);
         self.hit_regions = self
             .hit_leaves
             .drain(..)
@@ -1120,14 +1219,16 @@ impl GpuRenderer {
                     PreparedItem::Instances(particles) => (particles.shape().corners(), None),
                     _ => return None,
                 };
-                let clips = std::iter::successors(leaf.clip, |&index| clips[index as usize].parent)
-                    .map(|index| clips[index as usize].hit_clip())
-                    .collect();
+                // A leaf in a plane is in the plane's canvas pixels.
+                let corners = corners_to_scene(planes, leaf.plane, corners)?;
+                let hole = hole.map_or(Some(None), |hole| {
+                    corners_to_scene(planes, leaf.plane, hole).map(Some)
+                })?;
                 let region = HitRegion {
                     layer_id: leaf.layer_id,
                     corners,
                     hole,
-                    clips,
+                    clips: hit_clips(clips, planes, leaf.plane, leaf.clip)?,
                 };
                 (region.area() > 0.0).then_some(region)
             })
@@ -1249,17 +1350,18 @@ fn push_draw(
 /// CPU rasterization; `None` when it covers no pixel.
 pub(crate) type PathOutline = Option<(FlattenedPath, Option<PathEntries>)>;
 
-/// Outlines, flattens and bins `pending` into tiles, building the entries of
-/// those that fit `entry_limit`. Each path is independent of the others, and
-/// a frame of animated paths has dozens, so they spread over rayon's threads.
+/// Outlines, flattens and bins `pending` into tiles, each cut to its space,
+/// building the entries of those that fit `entry_limit`. Each path is
+/// independent of the others, and a frame of animated paths has dozens, so
+/// they spread over rayon's threads.
 pub(crate) fn outline_paths(
     pending: &[PendingPath],
-    (width, height): (u32, u32),
     entry_limit: usize,
 ) -> Result<Vec<PathOutline>, GpuRenderError> {
     pending
         .par_iter()
         .map(|path| {
+            let (width, height) = path.space;
             let flattened = flatten_path(&path.shape(), path.state.transform.into(), width, height)
                 .map_err(GpuRenderError::Text)?;
             Ok(flattened.map(|flattened| {

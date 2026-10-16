@@ -12,15 +12,19 @@ struct LayerInstance {
     // canvas width, height; the blend mode index (see `blend`), and 1 when
     // `source_texture` holds premultiplied alpha (an isolated group's canvas)
     @location(3) canvas: vec4<f32>,
-    // half width, half height, corner radius, stroke width (0 without one)
+    // half width, half height, corner radius, stroke width (0 without one);
+    // for a projective layer (a plane's canvas, `clip_sampling.y` 2), the
+    // bottom row (g, h, i) of the map from its local units to its target,
+    // whose top two rows are `matrix` and the translation, then unused.
     @location(4) rect: vec4<f32>,
     // Straight-alpha RGBA in 0-255 code values, or a gradient in `paints`
     // (see `paint_color`).
     @location(5) fill: vec4<f32>,
     @location(6) stroke: vec4<f32>,
     // The index of the innermost clip the layer is drawn through (-1 without
-    // one); 1 to filter (the layer is scaled or rotated) or 0 to copy texel
-    // for texel; the mip level to filter at; texels per layer unit.
+    // one); 1 to filter (the layer is scaled or rotated), 0 to copy texel
+    // for texel, or 2 to average each pixel's footprint (a projective layer:
+    // a plane's canvas); the mip level to filter at; texels per layer unit.
     @location(7) clip_sampling: vec4<f32>,
     // The scene position of the canvas's top-left pixel (a group's canvas
     // only covers the part of the scene its layers draw on); unused, unused.
@@ -92,9 +96,12 @@ struct VertexOutput {
     // A rect's inverse map, from scene pixels to its own units from its
     // top-left corner: the linear part (du/dx, dv/dx, du/dy, dv/dy), then
     // the translation and the most of a pixel the rect and the box inside
-    // its stroke can cover (see `rect_coverage_cap`).
+    // its stroke can cover (see `rect_coverage_cap`). A projective layer's
+    // forward map instead: `matrix`, then the translation.
     @location(10) @interpolate(flat) inverse: vec4<f32>,
     @location(11) @interpolate(flat) inverse_translation_caps: vec4<f32>,
+    // A projective layer's `projection`, completing its forward map.
+    @location(12) @interpolate(flat) projection: vec4<f32>,
 };
 
 @vertex
@@ -109,6 +116,8 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, layer: LayerInstance) -> Ve
     );
     let size = layer.translation_size.zw;
     let sampling = layer.clip_sampling.yzw;
+    // The bottom row of the forward map: (0, 0, 1) for an affine layer.
+    let projection = select(vec3<f32>(0.0, 0.0, 1.0), layer.rect.xyz, sampling.x == 2.0);
     let corner = coordinates[vertex_index % 6u];
     var uv: vec2<f32>;
     var path_tile = 0u;
@@ -158,17 +167,29 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, layer: LayerInstance) -> Ve
     if layer.anchor_opacity_kind.w != 1.0 {
         local = (uv - anchor) * size;
     }
-    let world = vec2<f32>(
+    // Homogeneous: `hom.z` is 1 for an affine layer. Written as clip-space
+    // `(x·w, y·w, 0, w)`, a projective layer's texture coordinates are
+    // interpolated with perspective correction, and the part of it behind
+    // the viewer (`w < 0`) is clipped away.
+    let hom = vec3<f32>(
         layer.matrix.x * local.x + layer.matrix.z * local.y + layer.translation_size.x,
         layer.matrix.y * local.x + layer.matrix.w * local.y + layer.translation_size.y,
+        dot(projection.xy, local) + projection.z,
     );
-    let canvas_position = world - layer.origin.xy;
+    let world = hom.xy / hom.z;
+    let canvas_position = hom.xy - layer.origin.xy * hom.z;
     let clip = vec2<f32>(
-        canvas_position.x / layer.canvas.x * 2.0 - 1.0,
-        1.0 - canvas_position.y / layer.canvas.y * 2.0,
+        canvas_position.x / layer.canvas.x * 2.0 - hom.z,
+        hom.z - canvas_position.y / layer.canvas.y * 2.0,
     );
+    if sampling.x == 2.0 {
+        // The fragments place themselves through the forward map, as their
+        // interpolated `world` is not linear across a projection.
+        inverse = layer.matrix;
+        inverse_translation_caps = vec4<f32>(layer.translation_size.xy, 0.0, 0.0);
+    }
     return VertexOutput(
-        vec4<f32>(clip, 0.0, 1.0),
+        vec4<f32>(clip, 0.0, hom.z),
         uv,
         vec4<f32>(size, layer.anchor_opacity_kind.zw),
         layer.rect,
@@ -181,6 +202,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, layer: LayerInstance) -> Ve
         path_tile,
         inverse,
         inverse_translation_caps,
+        vec4<f32>(projection, 0.0),
     );
 }
 
@@ -580,14 +602,83 @@ fn layer_color(input: VertexOutput) -> vec4<f32> {
     return vec4<f32>(color.rgb / color.a, color.a);
 }
 
-// The layer's non-premultiplied color, with its opacity applied to alpha.
-fn source_color(input: VertexOutput) -> vec4<f32> {
-    var color = layer_color(input);
+// Mirrors `NEAR_W` in plane.rs: the least `w` a projective layer is drawn at.
+const NEAR_W: f32 = 0.0625;
+
+// Whether the fragment is part of a projective layer behind its near clip:
+// behind the viewer, or so close it would be magnified past 16 times. A
+// plane's canvas holds the box of what is in front, which can reach past it.
+fn behind_near_clip(input: VertexOutput) -> bool {
+    let local = input.uv * input.size_opacity_kind.xy;
+    return input.sampling.x == 2.0
+        && dot(input.projection.xy, local) + input.projection.z < NEAR_W;
+}
+
+// Where a projective layer's `uv` lands in its target: through its forward
+// map, from its quad units (a plane's canvas is anchored at its top-left).
+fn projected_world(input: VertexOutput, uv: vec2<f32>) -> vec2<f32> {
+    let local = uv * input.size_opacity_kind.xy;
+    let m = input.inverse;
+    let hom = vec3<f32>(
+        m.x * local.x + m.z * local.y + input.inverse_translation_caps.x,
+        m.y * local.x + m.w * local.y + input.inverse_translation_caps.y,
+        dot(input.projection.xy, local) + input.projection.z,
+    );
+    return hom.xy / hom.z;
+}
+
+// How many taps across `d` (a pixel's step in texture coordinates) the
+// footprint filter takes: one per texel crossed, 1 to 8.
+fn footprint_taps(d: vec2<f32>, texels: vec2<f32>) -> i32 {
+    let crossed = ceil(length(d * texels));
+    // Also 1 for a derivative that is not finite.
+    if !(crossed > 1.0) {
+        return 1;
+    }
+    return i32(min(crossed, 8.0));
+}
+
+// A projective layer's non-premultiplied color: the average of a grid of
+// bilinear taps over the pixel's footprint in its texture, the
+// parallelogram `uv ± (dx, dy) / 2`. It has no mips, and a projection
+// shrinks it unevenly and more along one direction than the other, so each
+// pixel averages about one tap per texel it covers, up to 8 by 8. Kept out of
+// `texel`, which DX12's FXC compiler inlines for every tap.
+fn footprint_color(input: VertexOutput, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
+    let texels = vec2<f32>(texel_size(input, 0));
+    let columns = footprint_taps(dx, texels);
+    let rows = footprint_taps(dy, texels);
+    var sum = vec4<f32>(0.0);
+    for (var row = 0; row < rows; row++) {
+        let v = (f32(row) + 0.5) / f32(rows) - 0.5;
+        for (var column = 0; column < columns; column++) {
+            let u = (f32(column) + 0.5) / f32(columns) - 0.5;
+            sum += bilinear(input, input.uv + u * dx + v * dy, 0);
+        }
+    }
+    let color = sum / f32(columns * rows);
+    if color.a <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    return vec4<f32>(color.rgb / color.a, color.a);
+}
+
+// The layer's non-premultiplied color, with its opacity applied to alpha;
+// `dx` and `dy` are the screen derivatives of `input.uv`.
+fn source_color(input: VertexOutput, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
+    var color: vec4<f32>;
+    var world = input.world;
+    if input.sampling.x == 2.0 {
+        color = footprint_color(input, dx, dy);
+        world = projected_world(input, input.uv);
+    } else {
+        color = layer_color(input);
+    }
     if input.size_opacity_kind.w == 3.0 {
         // An image particle: its texels times the particle's colour.
         color *= input.fill / 255.0;
     }
-    let coverage = clip_coverage(input.world, input.clip);
+    let coverage = clip_coverage(world, input.clip);
     return vec4<f32>(color.rgb, color.a * input.size_opacity_kind.z * coverage);
 }
 
@@ -597,9 +688,16 @@ fn saturate(color: vec4<f32>) -> vec4<f32> {
     return clamp(color, vec4<f32>(0.0), vec4<f32>(1.0));
 }
 
+// Derivatives need uniform control flow, so every entry point takes them
+// first.
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    return saturate(source_color(input));
+    let dx = dpdx(input.uv);
+    let dy = dpdy(input.uv);
+    if behind_near_clip(input) {
+        discard;
+    }
+    return saturate(source_color(input, dx, dy));
 }
 
 fn screen(backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
@@ -741,7 +839,14 @@ fn blend(mode: u32, backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
 // does, keeping the canvas premultiplied.
 @fragment
 fn fs_blend(input: VertexOutput) -> @location(0) vec4<f32> {
-    let source = source_color(input);
+    let dx = dpdx(input.uv);
+    let dy = dpdy(input.uv);
+    // Discarded rather than drawn transparent: this pass replaces the
+    // pixel with the backdrop, which is only copied where the layer lands.
+    if behind_near_clip(input) {
+        discard;
+    }
+    let source = source_color(input, dx, dy);
     let backdrop = textureLoad(backdrop_texture, vec2<i32>(floor(input.position.xy)), 0);
     var backdrop_color = vec3<f32>(0.0);
     if backdrop.a > 0.0 {

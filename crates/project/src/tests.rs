@@ -195,6 +195,59 @@ fn validates_and_round_trips_color_filters() {
 }
 
 #[test]
+fn validates_the_3d_transform_fields() {
+    let project =
+        Project::from_json(include_str!("../../../examples/voiceroid.celesta.json")).unwrap();
+    let with_transform = |transform: serde_json::Value| {
+        let mut broken = project.clone();
+        let mut item = serde_json::to_value(&broken.tracks[0].items[0]).unwrap();
+        item["transform"] = transform;
+        broken.tracks[0].items[0] = serde_json::from_value(item).unwrap();
+        broken
+    };
+
+    with_transform(serde_json::json!({
+        "skew": { "x": 10 },
+        "rotationX": 30,
+        "rotationY": -20,
+        "perspective": 800,
+        "backfaceVisibility": "hidden",
+    }))
+    .validate()
+    .unwrap();
+
+    let errors = with_transform(serde_json::json!({ "rotationX": 30, "perspective": 0 }))
+        .validate()
+        .unwrap_err()
+        .to_string();
+    assert!(errors.contains("transform.perspective"), "{errors}");
+    assert!(errors.contains("must be finite and positive"), "{errors}");
+    assert!(!errors.contains("rotationX"), "{errors}");
+
+    let mut broken = with_transform(serde_json::json!({ "skew": { "y": 1 } }));
+    broken.tracks[0].items[0]
+        .transform
+        .as_mut()
+        .unwrap()
+        .skew
+        .as_mut()
+        .unwrap()
+        .x = Some(Animatable::Keyframes(
+        celesta_composition::KeyframeAnimation {
+            kind: celesta_composition::KeyframeAnimationType::Keyframes,
+            keyframes: vec![celesta_composition::Keyframe {
+                time: Time::ZERO,
+                value: f64::INFINITY,
+                easing: None,
+            }],
+        },
+    ));
+    let errors = broken.validate().unwrap_err().to_string();
+    assert!(errors.contains("transform.skew.x"), "{errors}");
+    assert!(errors.contains("must be finite"), "{errors}");
+}
+
+#[test]
 fn validates_project_master_volume() {
     let mut project =
         Project::from_json(include_str!("../../../examples/voiceroid.celesta.json")).unwrap();

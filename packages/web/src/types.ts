@@ -15,7 +15,20 @@ export type Paint =
 export type Stroke = { paint: Paint; width: number };
 export type LineDash = { pattern: number[]; offset?: number };
 export type Point = { x: number; y: number };
-export type Transform = { position: Point; scale: Point; rotation: number; anchor: Point };
+export type Transform = {
+  position: Point;
+  scale: Point;
+  rotation: number;
+  anchor: Point;
+  /** Degrees, as CSS `skew(x, y)`; absent is 0. */
+  skew?: Point;
+  /** Degrees, as CSS `rotateX()` and `rotateY()`; absent is 0. */
+  rotationX?: number;
+  rotationY?: number;
+  /** Viewing distance for the layer's own 3D rotation; absent, or not finite and positive, is none. */
+  perspective?: number;
+  backfaceVisibility?: 'visible' | 'hidden';
+};
 export type PathCommand =
   | { type: 'moveTo' | 'lineTo'; x: number; y: number }
   | { type: 'quadTo'; x1: number; y1: number; x: number; y: number }

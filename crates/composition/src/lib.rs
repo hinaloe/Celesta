@@ -20,6 +20,7 @@ mod animation;
 mod blend;
 mod instances;
 mod model;
+mod projection;
 
 pub use animation::{AnimationError, evaluate_f64, integrate_f64};
 pub use blend::BlendMode;
@@ -29,4 +30,8 @@ pub use model::{
     ImageAnimation, ImageFit, Layer, LayerContent, LayerEffects, LayerFilter, LayerGlow,
     LayerShader, LayerShadow, LineCap, LineDash, LineJoin, MaskMode, MediaTiming, PathCommand,
     Point, ResolvedAsset, Scene, ShaderParam, ShaderParamType, ShaderSource,
+};
+pub use projection::{
+    BackfaceVisibility, IDENTITY3, Matrix3, faces_away, invert3, multiply3, multiply3_flat,
+    project, stretch_at,
 };

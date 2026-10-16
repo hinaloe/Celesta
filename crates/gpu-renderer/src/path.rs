@@ -18,6 +18,9 @@ pub(crate) struct PendingPath {
     pub(crate) line_dash: Option<Box<LineDash>>,
     pub(crate) state: LayerState,
     pub(crate) blend_mode: BlendMode,
+    /// The size of the space the path is drawn in (the scene's, or a
+    /// plane's), which it is cut to.
+    pub(crate) space: (u32, u32),
 }
 
 impl PendingPath {

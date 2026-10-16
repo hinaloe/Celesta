@@ -9,7 +9,7 @@ import {
   RootRuntimeContext,
   resolveTextLanguage,
 } from './hooks';
-import type { Animatable, BlendMode, LineCap, Paint, PathCommand, TextStyle, LayerShadow, LayerGlow } from './scene';
+import type { Animatable, BackfaceVisibility, BlendMode, LineCap, Paint, PathCommand, TextStyle, LayerShadow, LayerGlow } from './scene';
 import type {
   LayerChromaKey, LayerChromaticAberration, LayerHalftone, LayerNoise, LayerPixelate, LayerScanlines, LayerTint,
   LayerVignette, LayerWave, LayerZoomBlur, ShaderEffect,
@@ -45,6 +45,47 @@ export interface CommonProps {
   anchorX?: number;
   /** Vertical pivot: 0 top, 1 bottom, 0.5 centre. Defaults to 0. See `anchorX`. */
   anchorY?: number;
+  /**
+   * Shear along the x axis, in degrees: points slide sideways in
+   * proportion to their height. Defaults to 0. Like CSS `skewX()`. See
+   * `rotationX` for how it composes with the other transform props.
+   */
+  skewX?: number;
+  /** Shear along the y axis, in degrees. Defaults to 0. See `skewX`. */
+  skewY?: number;
+  /**
+   * Tilt about the horizontal axis, in degrees, like CSS `rotateX()`: a
+   * positive angle turns the top away from the viewer. Defaults to 0.
+   * Without `perspective` the tilt is orthographic and only foreshortens.
+   *
+   * The transform composes as position · perspective · rotationX ·
+   * rotationY · rotation · skew · scale, rightmost first, so the object
+   * is scaled, then skewed, then turned, then tilted, then projected and
+   * placed. A `Group` turns about its origin, other layers about their
+   * anchor, which is also the vanishing point. Children flatten into the
+   * parent's plane: a rotated `Group` carries its children as one flat
+   * picture, with no depth sorting between them.
+   */
+  rotationX?: number;
+  /**
+   * Turn about the vertical axis, in degrees, like CSS `rotateY()`. Defaults
+   * to 0. See `rotationX`.
+   */
+  rotationY?: number;
+  /**
+   * Distance from the viewer to the layer plane, in pixels, like CSS
+   * `perspective()`: smaller values exaggerate the depth. Anything that is
+   * not finite and positive means none, the default. A projective layer
+   * (a 3D rotation with a perspective) is isolated: it is drawn as one flat
+   * picture first and then projected.
+   */
+  perspective?: number;
+  /**
+   * Whether the object shows while its back faces the viewer, like CSS
+   * `backface-visibility`. Defaults to `'visible'`; `'hidden'` skips the
+   * object (and a `Group`'s children) once a 3D rotation turns it away.
+   */
+  backfaceVisibility?: BackfaceVisibility;
   /**
    * 0–1, multiplied down through groups. A `Group` below 1 is isolated like
    * one with a `blendMode`, as under CSS `opacity`: its children composite

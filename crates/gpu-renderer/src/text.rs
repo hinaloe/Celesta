@@ -1,3 +1,4 @@
+use crate::bounds::PixelBounds;
 use crate::error::GpuRenderError;
 use crate::layer::PreparedLayer;
 use crate::texture::{DecodedImage, LayerTexture};
@@ -19,6 +20,50 @@ pub(crate) struct PendingText {
     pub(crate) baseline_anchor: bool,
     pub(crate) state: LayerState,
     pub(crate) blend_mode: BlendMode,
+}
+
+impl PendingText {
+    /// The box the text covers once rasterized, placed by its state, from
+    /// its layout measured without drawing it: the layout box (as the
+    /// texture's anchor box) grown by the stroke's width and half the font
+    /// size, room for glyphs that reach past their line box and for the
+    /// raster's rounding.
+    pub(crate) fn measured_bounds(&self, rasterizer: &mut TextRasterizer) -> PixelBounds {
+        let metrics = rasterizer.measure(&self.text, &self.style, self.max_width);
+        let width = self.max_width.unwrap_or(metrics.width);
+        let height = metrics.height;
+        let anchor_x = self.anchor.x * width;
+        let anchor_y = if self.baseline_anchor {
+            metrics.ascent
+        } else {
+            self.anchor.y * height
+        };
+        let stroke = self
+            .style
+            .stroke
+            .as_ref()
+            .map_or(0.0, |stroke| stroke.width.max(0.0));
+        let font_size = self.style.font_size.unwrap_or(32.0).abs();
+        let reach = stroke + font_size / 2.0;
+        let [left, top, right, bottom] = [
+            -anchor_x - reach,
+            -anchor_y - reach,
+            width - anchor_x + reach,
+            height - anchor_y + reach,
+        ]
+        .map(|value| value as f32);
+        let t = self.state.transform;
+        let corners = [(left, top), (right, top), (left, bottom), (right, bottom)]
+            .map(|(x, y)| (t.a * x + t.c * y + t.tx, t.b * x + t.d * y + t.ty));
+        let min = |values: [f32; 4]| values.into_iter().fold(f32::INFINITY, f32::min);
+        let max = |values: [f32; 4]| values.into_iter().fold(f32::NEG_INFINITY, f32::max);
+        PixelBounds([
+            min(corners.map(|(x, _)| x)),
+            min(corners.map(|(_, y)| y)),
+            max(corners.map(|(x, _)| x)),
+            max(corners.map(|(_, y)| y)),
+        ])
+    }
 }
 
 /// Rasterizes `job` at its scale, or smaller when that would exceed `limit`
@@ -77,16 +122,21 @@ pub(crate) fn text_layer(
 /// eight per doubling) instead of rasterizing every frame, and the texture
 /// is at most 9% larger than drawn. Exactly 1 for unscaled text.
 pub(crate) fn text_raster_scale(transform: Affine) -> f32 {
-    const STEPS_PER_OCTAVE: f32 = 8.0;
     let (largest, _) = transform.stretch();
-    let steps = largest.log2() * STEPS_PER_OCTAVE;
+    // Keep absurd scales finite; the texture size is limited separately.
+    round_up_to_eighth_octave(f64::from(largest)).clamp(1.0 / 64.0, 64.0) as f32
+}
+
+/// `scale` rounded up to the next eighth of an octave (a power of `2^(1/8)`);
+/// a scale that already is one (2, 0.5) stays.
+pub(crate) fn round_up_to_eighth_octave(scale: f64) -> f64 {
+    const STEPS_PER_OCTAVE: f64 = 8.0;
+    let steps = scale.log2() * STEPS_PER_OCTAVE;
     let nearest = steps.round();
-    // A scale that already is a step (2, 0.5) should not round up past it.
     let steps = if (steps - nearest).abs() < 1e-3 {
         nearest
     } else {
         steps.ceil()
     };
-    // Keep absurd scales finite; the texture size is limited separately.
-    (steps.clamp(-6.0 * STEPS_PER_OCTAVE, 6.0 * STEPS_PER_OCTAVE) / STEPS_PER_OCTAVE).exp2()
+    (steps / STEPS_PER_OCTAVE).exp2()
 }

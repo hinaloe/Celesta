@@ -118,6 +118,27 @@ fn describe_transform(layer: &Value) -> String {
     if rotation != 0.0 {
         parts.push(format!("rotate {}°", fmt(rotation)));
     }
+    let (skew_x, skew_y) = point(field("skew"), 0.0);
+    if skew_x != 0.0 || skew_y != 0.0 {
+        parts.push(format!("skew ({}°, {}°)", fmt(skew_x), fmt(skew_y)));
+    }
+    let rotation_x = field("rotationX").map_or(0.0, num);
+    if rotation_x != 0.0 {
+        parts.push(format!("rotate X {}°", fmt(rotation_x)));
+    }
+    let rotation_y = field("rotationY").map_or(0.0, num);
+    if rotation_y != 0.0 {
+        parts.push(format!("rotate Y {}°", fmt(rotation_y)));
+    }
+    if let Some(perspective) = field("perspective")
+        .and_then(Value::as_f64)
+        .filter(|perspective| perspective.is_finite() && *perspective > 0.0)
+    {
+        parts.push(format!("perspective {}", fmt(perspective)));
+    }
+    if field("backfaceVisibility").and_then(Value::as_str) == Some("hidden") {
+        parts.push("backface hidden".to_owned());
+    }
     let opacity = layer.get("opacity").map_or(1.0, num);
     if opacity != 1.0 {
         parts.push(format!("opacity {}", fmt(opacity)));
@@ -730,6 +751,40 @@ mod tests {
              filters shader 1b0a62b2133ed451 → grayscale(1) → hue(30°) → tint(#704214, 0.35) → \
              vignette(0.6, radius 0.5, softness 0.25)\n"
         );
+    }
+
+    #[test]
+    fn omits_a_perspective_that_is_not_positive() {
+        for perspective in [0, -5] {
+            let mut flat = layer("p", json!({ "type": "rect", "width": 1, "height": 1 }));
+            flat["transform"]["perspective"] = json!(perspective);
+            let (output, _, _) = describe(vec![flat], vec![]);
+            assert_eq!(
+                output, "rect 1×1 at (10, 20)\n",
+                "perspective {perspective}"
+            );
+        }
+    }
+
+    #[test]
+    fn describes_skew_and_3d_transforms() {
+        let mut tilted = layer("s", json!({ "type": "rect", "width": 1, "height": 1 }));
+        tilted["transform"]["rotation"] = json!(45);
+        tilted["transform"]["skew"] = json!({ "x": 10, "y": 0 });
+        tilted["transform"]["rotationX"] = json!(15);
+        tilted["transform"]["rotationY"] = json!(30);
+        tilted["transform"]["perspective"] = json!(800);
+        tilted["transform"]["backfaceVisibility"] = json!("hidden");
+        let (output, _, _) = describe(vec![tilted], vec![]);
+        assert_eq!(
+            output,
+            "rect 1×1 at (10, 20) rotate 45° skew (10°, 0°) rotate X 15° rotate Y 30° \
+             perspective 800 backface hidden\n"
+        );
+
+        let flat = layer("f", json!({ "type": "rect", "width": 1, "height": 1 }));
+        let (output, _, _) = describe(vec![flat], vec![]);
+        assert_eq!(output, "rect 1×1 at (10, 20)\n");
     }
 
     #[test]

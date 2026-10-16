@@ -107,6 +107,11 @@ function padding(filter: BuiltinFilter, diagonal: number): number {
   return clamp(reach, 0, MAX_PADDING);
 }
 
+/** How far `filters` together may write beyond what they read, in a scene whose diagonal is `diagonal`. */
+export function filtersPadding(filters: readonly BuiltinFilter[], diagonal: number): number {
+  return filters.reduce((sum, filter) => sum + padding(filter, diagonal), 0);
+}
+
 /** PCG's output permutation of `v`'s state step: a 32-bit integer hash, as `builtin_effect.wgsl`'s `pcg`. */
 function pcg(v: number): number {
   const state = (Math.imul(v, 747796405) + 2891336453) >>> 0;

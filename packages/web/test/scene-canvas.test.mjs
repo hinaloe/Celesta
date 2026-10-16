@@ -11,6 +11,7 @@ const modulePath = join(directory, 'canvas.mjs');
 writeFileSync(modulePath, result.outputFiles[0].text);
 const { SceneCanvas } = await import(pathToFileURL(modulePath));
 rmSync(directory, { recursive: true });
+const { homography, planeRaster, project, stretchAt } = await import('../src/projection.ts');
 
 test('file font URLs are reused across frames and isolated opacity is applied once', async t => {
   const faces = new Set(), operations = [];
@@ -423,5 +424,229 @@ test('text wrapped at maxWidth is anchored by its line boxes, as text broken wit
   const broken = await baselines('abc\ndef');
   assert.deepEqual(broken, [['abc', 30], ['def', 70]]);
   assert.deepEqual(await baselines('abc def'), broken);
+  renderer.dispose();
+});
+
+// A 2D affine matrix, as DOMMatrix behaves for the calls the renderer makes.
+class AffineMatrix {
+  constructor(init = [1, 0, 0, 1, 0, 0]) { const [a, b, c, d, e, f] = init; Object.assign(this, { a, b, c, d, e, f }); }
+  multiply(m) {
+    return new this.constructor([this.a * m.a + this.c * m.b, this.b * m.a + this.d * m.b, this.a * m.c + this.c * m.d,
+      this.b * m.c + this.d * m.d, this.a * m.e + this.c * m.f + this.e, this.b * m.e + this.d * m.f + this.f]);
+  }
+  translate(x, y) { return this.multiply(new AffineMatrix([1, 0, 0, 1, x, y])); }
+  scale(x, y) { return this.multiply(new AffineMatrix([x, 0, 0, y, 0, 0])); }
+  rotate(degrees) {
+    const r = degrees * Math.PI / 180;
+    return this.multiply(new AffineMatrix([Math.cos(r), Math.sin(r), -Math.sin(r), Math.cos(r), 0, 0]));
+  }
+  transformPoint(p) { return { x: this.a * p.x + this.c * p.y + this.e, y: this.b * p.x + this.d * p.y + this.f }; }
+}
+
+test('a hidden backface draws nothing when a parent group turns it away', async t => {
+  const originals = { document: globalThis.document, DOMMatrix: globalThis.DOMMatrix };
+  t.after(() => Object.assign(globalThis, originals));
+  globalThis.DOMMatrix = AffineMatrix;
+  const fills = [];
+  const canvas = () => {
+    const element = { width: 10, height: 10, getContext() { return context; } };
+    const context = {
+      canvas: element, globalAlpha: 1, filter: 'none', globalCompositeOperation: 'source-over',
+      save() {}, restore() {}, setTransform() {}, fillRect() {}, beginPath() {}, roundRect() {}, drawImage() {},
+      fill() { fills.push(this.fillStyle); },
+    };
+    return element;
+  };
+  globalThis.document = { fonts: new Set(), createElement: canvas };
+  const renderer = new SceneCanvas(new Map());
+  const at = (extra = {}) => ({ position: { x: 5, y: 5 }, scale: { x: 1, y: 1 }, anchor: { x: 0.5, y: 0.5 }, rotation: 0, ...extra });
+  const rect = (color, extra) => ({ opacity: 1, transform: at(extra), content: { type: 'rect', width: 4, height: 4, cornerRadius: 0, fill: { type: 'solid', color } } });
+  const group = rotationY => ({
+    opacity: 1, transform: at({ rotationY }),
+    content: { type: 'group', layers: [rect('#f00', { backfaceVisibility: 'hidden' }), rect('#0f0')] },
+  });
+  await renderer.draw(canvas(), { width: 10, height: 10, layers: [group(180)] });
+  assert.deepEqual(fills, ['#0f0'], 'only the face that may show its back draws');
+  fills.length = 0;
+  await renderer.draw(canvas(), { width: 10, height: 10, layers: [group(30)] });
+  assert.deepEqual(fills, ['#f00', '#0f0']);
+  renderer.dispose();
+});
+
+/**
+ * Canvases whose pixels follow what is drawn, coarsely: a fill, or drawing
+ * a canvas that holds anything, covers the whole canvas in opaque red.
+ * `operations` records fills, reads, writes, clips, and composites.
+ */
+function pixelCanvases(t) {
+  const originals = { document: globalThis.document, DOMMatrix: globalThis.DOMMatrix, DOMPoint: globalThis.DOMPoint };
+  t.after(() => Object.assign(globalThis, originals));
+  globalThis.DOMMatrix = AffineMatrix;
+  globalThis.DOMPoint = class { constructor(x, y) { this.x = x; this.y = y; } };
+  const operations = [];
+  let nextCanvas = 0;
+  const canvas = () => {
+    const element = { id: nextCanvas++, width: 100, height: 100, getContext() { return context; } };
+    const paint = () => {
+      element.painted = true;
+      context.pixels = new Uint8ClampedArray(element.width * element.height * 4);
+      for (let i = 0; i < context.pixels.length; i += 4) context.pixels.set([255, 0, 0, 255], i);
+    };
+    const stack = [];
+    const context = {
+      canvas: element, globalAlpha: 1, filter: 'none', globalCompositeOperation: 'source-over', clipped: false,
+      save() { stack.push({ globalAlpha: this.globalAlpha, filter: this.filter, globalCompositeOperation: this.globalCompositeOperation, clipped: this.clipped }); },
+      restore() { Object.assign(this, stack.pop()); },
+      setTransform(matrix) { this.transform = matrix; }, fillRect() {}, beginPath() {}, roundRect() {},
+      clip() { this.clipped = true; },
+      fill() {
+        operations.push(['fill', element.id, element.width, element.height, this.transform]);
+        paint();
+      },
+      getImageData(x, y, width, height) {
+        operations.push(['read', element.id, x, y, width, height]);
+        return { data: this.pixels ?? new Uint8ClampedArray(width * height * 4), width, height };
+      },
+      createImageData(width, height) { return { data: new Uint8ClampedArray(width * height * 4), width, height }; },
+      putImageData(image, x, y, ...dirty) {
+        operations.push(['write', element.id, image, x, y, ...dirty]);
+        element.painted = true;
+      },
+      drawImage(source, x, y) {
+        operations.push(['composite', element.id, source.id, this.globalAlpha, this.filter, x, y, this.clipped]);
+        if (source.painted) paint();
+      },
+    };
+    return element;
+  };
+  globalThis.document = { fonts: new Set(), createElement: canvas };
+  return { canvas, operations };
+}
+
+const at = (x, y, extra = {}) => ({ position: { x, y }, scale: { x: 1, y: 1 }, anchor: { x: 0.5, y: 0.5 }, rotation: 0, ...extra });
+const square = (transform, extra = {}) => ({ opacity: 1, transform, content: { type: 'rect', width: 20, height: 20, cornerRadius: 0, fill: { type: 'solid', color: '#f00' } }, ...extra });
+
+test('a projective rect is drawn onto a canvas in its own plane, then warped onto its parent once', async t => {
+  const { canvas, operations } = pixelCanvases(t);
+  const renderer = new SceneCanvas(new Map());
+  const transform = at(50, 50, { rotationY: 30, perspective: 200 });
+  const output = canvas();
+  await renderer.draw(output, { width: 100, height: 100, layers: [square(transform, { opacity: 0.5 })] });
+
+  const forward = homography(transform);
+  const raster = planeRaster(forward, [-10, -10, 10, 10], [0, 0, 100, 100], 8192, 4 * 100 * 100);
+  const [fill, ...others] = operations.filter(([kind]) => kind === 'fill');
+  assert.equal(others.length, 0);
+  // The plane's canvas is sized by `planeRaster`, its content drawn at the raster's scale.
+  assert.deepEqual(fill.slice(2, 4), [raster.width, raster.height]);
+  const { a, b, c, d, e, f } = fill[4];
+  assert.deepEqual([a, b, c, d, e, f], [raster.scale, 0, 0, raster.scale, 1 - raster.left * raster.scale, 1 - raster.top * raster.scale]);
+  // It is read once, warped onto a surface over where it lands, which
+  // reaches the output once, at the rect's opacity.
+  assert.deepEqual(operations.filter(([kind]) => kind === 'read').map(([, id]) => id), [fill[1]]);
+  const [write] = operations.filter(([kind]) => kind === 'write');
+  const composites = operations.filter(([kind, id]) => kind === 'composite' && id === output.id);
+  assert.deepEqual(composites.map(([, , from, alpha]) => [from, alpha]), [[write[1], 0.5]]);
+  const [, , image, left, top] = write;
+  assert.ok(image.width < 100 && left > 0 && top > 0, `${image.width} at ${left}, ${top}`);
+  // The centre of the rect lands at its position; the far right edge is
+  // nearer the middle than the near left one.
+  const pixel = (x, y) => Array.from(image.data.slice(((y - top) * image.width + x - left) * 4, ((y - top) * image.width + x - left) * 4 + 4));
+  assert.deepEqual(pixel(50, 50), [255, 0, 0, 255]);
+  const [right] = project(forward, 10, 0), [near] = project(forward, -10, 0);
+  assert.ok(right - 50 < 50 - near, `${near}, ${right}`);
+  assert.deepEqual(pixel(Math.floor(right) + 2, 50), [0, 0, 0, 0]);
+  assert.deepEqual(pixel(Math.floor(right) - 2, 50), [255, 0, 0, 255]);
+  renderer.dispose();
+});
+
+test('effects inside a plane are drawn at its scale, on a canvas grown to hold them', async t => {
+  const { canvas, operations } = pixelCanvases(t);
+  const renderer = new SceneCanvas(new Map());
+  const transform = at(50, 50, { rotationY: 30, perspective: 200 });
+  const effects = { blur: 2, shadow: { color: '#000', blur: 3, offsetX: 6, offsetY: 4 } };
+  const group = { opacity: 1, transform, content: { type: 'group', layers: [square(at(0, 0), { effects })] } };
+  await renderer.draw(canvas(), { width: 100, height: 100, layers: [group] });
+
+  const forward = homography(transform);
+  const [fill] = operations.filter(([kind]) => kind === 'fill');
+  const [, source, width, height, { a: scale, e: left, f: top }] = fill;
+  const effectScale = scale / stretchAt(forward, 0, 0);
+  assert.ok(effectScale > 1, String(effectScale));
+  // The shadow, then the blurred layer, onto the layer's result, at the plane's scale.
+  const blurOf = filter => Number(/blur\((.*)px\)/.exec(filter)?.[1] ?? 0);
+  const result = operations.find(([kind, , from, , filter]) => kind === 'composite' && from === source && filter !== 'none')[1];
+  const drawn = operations.filter(([kind, id]) => kind === 'composite' && id === result).map(([, , , , filter, x, y]) => [blurOf(filter), x, y]);
+  const close = (a, b) => Math.abs(a - b) < 1e-9;
+  assert.ok(drawn.some(([blur, x, y]) => close(blur, 3 * effectScale) && close(x, 6 * effectScale) && close(y, 4 * effectScale)), JSON.stringify(drawn));
+  assert.ok(drawn.some(([blur, x, y]) => close(blur, 2 * effectScale) && x === 0 && y === 0), JSON.stringify(drawn));
+  // Larger than the shapes alone need, so the shifted shadow's blur stays on it.
+  const shapes = planeRaster(forward, [-10, -10, 10, 10], [0, 0, 100, 100], 8192, 4 * 100 * 100);
+  assert.ok(width > shapes.width && height > shapes.height, `${width}x${height} vs ${shapes.width}x${shapes.height}`);
+  assert.ok(left + scale * 10 + (6 + 3 * 3) * effectScale <= width, `${left}, ${scale}, ${width}`);
+  assert.ok(top + scale * 10 + (4 + 3 * 3) * effectScale <= height, `${top}, ${scale}, ${height}`);
+  renderer.dispose();
+});
+
+test('blurs are drawn no larger than the GPU renderer draws them', async t => {
+  const { canvas, operations } = pixelCanvases(t);
+  const renderer = new SceneCanvas(new Map());
+  const effects = { blur: 100, glow: { color: '#fff', blur: 80 } };
+  await renderer.draw(canvas(), { width: 100, height: 100, layers: [square(at(50, 50), { effects })] });
+  const filters = operations.filter(([kind, , , , filter]) => kind === 'composite' && filter !== 'none').map(([, , , , filter]) => filter);
+  assert.deepEqual(filters, ['blur(64px)', 'blur(64px)']);
+  renderer.dispose();
+});
+
+test('a plane draws within its parent\'s clip, and through its blend mode', async t => {
+  const { canvas, operations } = pixelCanvases(t);
+  const renderer = new SceneCanvas(new Map());
+  const transform = at(50, 50, { rotationY: 30, perspective: 200 });
+  const output = canvas();
+  const clip = { x: 0, y: 0, width: 50, height: 100 };
+  await renderer.draw(output, { width: 100, height: 100, layers: [{ opacity: 1, transform: at(0, 0), content: { type: 'group', clip, layers: [square(transform)] } }] });
+  const clipped = operations.filter(([kind, id]) => kind === 'composite' && id === output.id);
+  assert.equal(clipped.length, 1);
+  assert.equal(clipped[0].at(-1), true, 'drawn inside the group\'s clip');
+
+  operations.length = 0;
+  await renderer.draw(output, { width: 100, height: 100, layers: [square(transform, { opacity: 0.5, blendMode: 'multiply' })] });
+  // The plane is warped onto a surface of its own, which then blends over
+  // the backdrop it reads, at the layer's opacity.
+  const [warped] = operations.filter(([kind]) => kind === 'write');
+  const blended = operations.find(([kind, id, from]) => kind === 'composite' && from === warped[1]);
+  assert.notEqual(blended[1], output.id);
+  assert.ok(operations.some(([kind, id]) => kind === 'read' && id === output.id), 'the backdrop is read');
+  assert.deepEqual(operations.filter(([kind, id]) => kind === 'composite' && id === output.id).map(([, , from, alpha]) => [from, alpha]), [[blended[1], 0.5]]);
+  renderer.dispose();
+});
+
+test('a skewed layer draws through its linear part, and an edge-on one not at all', async t => {
+  const { canvas, operations } = pixelCanvases(t);
+  let rotations = 0;
+  globalThis.DOMMatrix = class extends AffineMatrix {
+    rotate(degrees) { rotations++; return super.rotate(degrees); }
+  };
+  const renderer = new SceneCanvas(new Map());
+  const fills = async transform => {
+    operations.length = 0;
+    rotations = 0;
+    await renderer.draw(canvas(), { width: 100, height: 100, layers: [square(transform)] });
+    return operations.filter(([kind]) => kind === 'fill');
+  };
+  const [skewed] = await fills(at(10, 20, { skew: { x: 45, y: 0 } }));
+  const { a, b, c, d, e, f } = skewed[4];
+  assert.deepEqual([a, b, d, e, f], [1, 0, 1, 10, 20]);
+  assert.ok(Math.abs(c - 1) < 1e-12, String(c));
+  assert.equal(rotations, 0, 'not through translate · rotate · scale');
+  assert.equal((await fills(at(10, 20, { rotation: 30 }))).length, 1);
+  assert.equal(rotations, 1, 'a flat layer keeps translate · rotate · scale');
+  assert.equal((await fills(at(10, 20, { rotationY: 90 }))).length, 0);
+  assert.equal((await fills(at(10, 20, { rotationX: 90 }))).length, 0);
+  // Skewed so far the linear part is past 1e7, as the GPU renderer's
+  // `Affine::is_degenerate` caps it; a far translation alone is not.
+  assert.equal((await fills(at(10, 20, { skew: { x: 90, y: 0 } }))).length, 0);
+  assert.equal((await fills(at(2e7, 20, { skew: { x: 45, y: 0 } }))).length, 1);
+  assert.equal((await fills(at(10, 20, { rotationY: 60 }))).length, 1);
   renderer.dispose();
 });

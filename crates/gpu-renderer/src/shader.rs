@@ -521,6 +521,17 @@ impl ShaderProcessor {
         Ok(padding)
     }
 
+    /// How many uses the frame has recorded so far.
+    pub(crate) fn use_count(&self) -> usize {
+        self.uses.len()
+    }
+
+    /// Forgets the frame's uses after the first `count`, recorded by layers
+    /// that were rolled back.
+    pub(crate) fn truncate_uses(&mut self, count: usize) {
+        self.uses.truncate(count);
+    }
+
     /// Records `layer`'s use of `shader`, returning its padding.
     fn use_shader(&mut self, layer: &str, shader: &LayerShader) -> Result<f32, GpuRenderError> {
         let error = |message: String| GpuRenderError::Shader {
