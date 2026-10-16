@@ -116,10 +116,12 @@ impl SequentialVideoSession {
                         return Ok(frame);
                     }
                     return Err(MediaError::UnexpectedFrameSize {
-                        width: self.width,
-                        height: self.height,
-                        expected: frame_byte_len(self.width, self.height)?,
+                        width: 0,
+                        height: 0,
                         actual: 0,
+                        expected_width: self.width,
+                        expected_height: self.height,
+                        expected: frame_byte_len(self.width, self.height)?,
                     });
                 }
                 Some(Err(error)) => return Err(error),
@@ -169,10 +171,12 @@ fn checked_frame(
     let expected = frame_byte_len(expected_width, expected_height)?;
     if width != expected_width || height != expected_height || pixels.len() != expected {
         return Err(MediaError::UnexpectedFrameSize {
-            width: expected_width,
-            height: expected_height,
-            expected,
+            width,
+            height,
             actual: pixels.len(),
+            expected_width,
+            expected_height,
+            expected,
         });
     }
     Ok(VideoFrame {
