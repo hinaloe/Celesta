@@ -37,6 +37,26 @@ pub struct PsdImage {
     pub canvas_height: u32,
 }
 
+/// A composite's size: a [`PsdImage`] without its pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PsdSize {
+    pub width: u32,
+    pub height: u32,
+    pub canvas_width: u32,
+    pub canvas_height: u32,
+}
+
+impl From<&PsdImage> for PsdSize {
+    fn from(image: &PsdImage) -> Self {
+        Self {
+            width: image.width,
+            height: image.height,
+            canvas_width: image.canvas_width,
+            canvas_height: image.canvas_height,
+        }
+    }
+}
+
 pub struct PsdSources {
     budget: usize,
     bytes: usize,
@@ -174,14 +194,7 @@ impl PsdSources {
         let use_preset = !visible.is_empty();
 
         let psd = &document.psd;
-        // A level that would still exceed `max_dimension` after one more
-        // halving is skipped, so the composite is at most 2x too large and
-        // the resampling below shrinks it no more than it has to.
-        let largest_at = |level: u32| psd.width().max(psd.height()).div_ceil(1 << level);
-        let mut level = requested;
-        while level < MAX_LEVEL && largest_at(level + 1) > max_dimension {
-            level += 1;
-        }
+        let level = level_within(psd.width(), psd.height(), requested, max_dimension);
         let factor = 1 << level;
         let width = psd.width().div_ceil(factor);
         let height = psd.height().div_ceil(factor);
@@ -246,6 +259,39 @@ impl PsdSources {
         };
         self.insert(key, Value::Composite(image.clone()), image.pixels.len());
         Ok(image)
+    }
+
+    /// The size of the composite [`Self::render_within`] returns for
+    /// `density` and `max_dimension`, from the parsed PSD alone: nothing is
+    /// decoded or composited, and the layers asked for are not checked.
+    pub fn size_within(
+        &mut self,
+        asset: &str,
+        path: &Path,
+        density: f64,
+        max_dimension: u32,
+    ) -> Result<PsdSize, RenderError> {
+        self.tick += 1;
+        let document = self.document(asset, path)?;
+        let (canvas_width, canvas_height) = (document.psd.width(), document.psd.height());
+        let level = level_within(
+            canvas_width,
+            canvas_height,
+            level_for(density),
+            max_dimension,
+        );
+        let factor = 1 << level;
+        let (width, height) = fit_within(
+            canvas_width.div_ceil(factor),
+            canvas_height.div_ceil(factor),
+            max_dimension,
+        );
+        Ok(PsdSize {
+            width,
+            height,
+            canvas_width,
+            canvas_height,
+        })
     }
 
     /// Bytes currently cached.
@@ -329,6 +375,19 @@ impl PsdSources {
             self.bytes -= evicted.bytes;
         }
     }
+}
+
+/// The level a `width` x `height` canvas is composited at for the
+/// `requested` one: a level that would still exceed `max_dimension` after
+/// one more halving is skipped, so the composite is at most 2x too large and
+/// the resampling after it shrinks it no more than it has to.
+fn level_within(width: u32, height: u32, requested: u32, max_dimension: u32) -> u32 {
+    let largest_at = |level: u32| width.max(height).div_ceil(1 << level);
+    let mut level = requested;
+    while level < MAX_LEVEL && largest_at(level + 1) > max_dimension {
+        level += 1;
+    }
+    level
 }
 
 /// The number of halvings that leave a portrait drawn at `density` output
@@ -488,6 +547,30 @@ mod tests {
         assert_eq!(level_for(0.0), MAX_LEVEL);
         assert_eq!(level_for(f64::NAN), MAX_LEVEL);
         assert_eq!(level_for(1e-9), MAX_LEVEL);
+    }
+
+    #[test]
+    fn sizes_a_composite_without_compositing_it() {
+        let mut sources = PsdSources::default();
+        for (density, max) in [(1.0, u32::MAX), (0.3, u32::MAX), (1.0, 100), (2.0, 80)] {
+            let size = sources
+                .size_within("fixture", &fixture(), density, max)
+                .unwrap();
+            assert!(
+                !sources
+                    .entries
+                    .keys()
+                    .any(|key| key.starts_with("composite")),
+                "{density} {max}"
+            );
+            let image = sources
+                .render_within("fixture", &fixture(), &preset(), &[], &[], density, max)
+                .unwrap();
+            assert_eq!(size, PsdSize::from(&image), "{density} {max}");
+            sources
+                .entries
+                .retain(|key, _| !key.starts_with("composite"));
+        }
     }
 
     #[test]

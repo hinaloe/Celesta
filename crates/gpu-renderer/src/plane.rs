@@ -11,8 +11,7 @@ use crate::renderer::GpuRenderer;
 use crate::text::round_up_to_eighth_octave;
 use crate::transform::{Affine, ClipEntry, LayerState};
 use celesta_composition::{
-    BlendMode, EvaluatedTransform, IDENTITY3, Layer, LayerEffects, Matrix3, Point, invert3,
-    multiply3, project, stretch_at,
+    BlendMode, IDENTITY3, Layer, Matrix3, Point, invert3, multiply3, project, stretch_at,
 };
 
 /// The nearest a point may come to the viewer and still be drawn: points
@@ -286,24 +285,11 @@ impl GpuRenderer {
         output: &mut Vec<PreparedItem>,
     ) -> Result<(), GpuRenderError> {
         let forward = multiply3(&matrix(parent.transform), &layer.transform.homography());
-        // The layer's content in its own plane, where the anchor still
-        // places it. `self.walk` already holds the layer's orientation.
-        let inner = Layer {
-            id: layer.id.clone(),
-            transform: EvaluatedTransform {
-                anchor: layer.transform.anchor,
-                ..EvaluatedTransform::default()
-            },
-            opacity: 1.0,
-            blend_mode: BlendMode::Normal,
-            effects: LayerEffects::default(),
-            content: layer.content.clone(),
-        };
         // Effects are measured in the plane's pixels, which are local units
         // while measuring and `raster.scale` per unit once rasterized.
         let parent_scale = self.walk.effect_scale;
         self.walk.effect_scale = parent_scale * stretch_ratio(&forward) as f32;
-        let local = self.measure_plane(&inner, output);
+        let local = self.measure_plane(layer, output);
         self.walk.effect_scale = parent_scale;
         let Some(local) = local? else {
             return Ok(());
@@ -349,8 +335,8 @@ impl GpuRenderer {
         self.walk.plane = Some(index);
         self.walk.effect_scale = effect_scale;
         self.scene_size = (width, height);
-        let prepared = self.prepare_layer(
-            &inner,
+        let prepared = self.prepare_plane_content(
+            layer,
             LayerState {
                 transform: to_plane,
                 opacity: 1.0,
@@ -380,12 +366,32 @@ impl GpuRenderer {
         Ok(())
     }
 
-    /// The box `inner`, a plane's content, covers in its local units,
+    /// The content of the projective `layer` in its own plane, placed by
+    /// `state`: what `prepare_layer` prepares of the layer again with only
+    /// its anchor, at full opacity, with normal blending, and without
+    /// effects, without copying the layer. Such a layer is flat and faces
+    /// the viewer, so `self.walk`, which already holds the layer's
+    /// orientation, is left as it is, and `state` places it unchanged.
+    fn prepare_plane_content(
+        &mut self,
+        layer: &Layer,
+        state: LayerState,
+        output: &mut Vec<PreparedItem>,
+    ) -> Result<(), GpuRenderError> {
+        if state.opacity == 0.0 || state.transform.is_degenerate() {
+            return Ok(());
+        }
+        // At full opacity and normal blending, only a mask isolates a group,
+        // and `prepare_content` gives one a canvas before asking.
+        self.prepare_content(layer, state, BlendMode::Normal, false, output)
+    }
+
+    /// The box the projective `layer`'s content covers in its local units,
     /// prepared onto the end of `output` and rolled back; `None` when it
     /// draws nothing.
     fn measure_plane(
         &mut self,
-        inner: &Layer,
+        layer: &Layer,
         output: &mut Vec<PreparedItem>,
     ) -> Result<Option<PixelBounds>, GpuRenderError> {
         let start = output.len();
@@ -397,7 +403,7 @@ impl GpuRenderer {
         let planes = self.plane_entries.len();
         let uses = self.shaders.use_count();
         let measuring = std::mem::replace(&mut self.measuring_plane, true);
-        let prepared = self.prepare_layer(inner, LayerState::default(), output);
+        let prepared = self.prepare_plane_content(layer, LayerState::default(), output);
         self.measuring_plane = measuring;
         let local = prepared.map(|()| {
             // What the text and paths still pending cover, by item.
