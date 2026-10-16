@@ -38,6 +38,7 @@ mod instances;
 mod motion_blur;
 mod readback;
 mod shader;
+mod transform_3d;
 
 fn empty_scene(width: u32, height: u32) -> Scene {
     Scene {

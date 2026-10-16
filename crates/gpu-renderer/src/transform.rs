@@ -1,5 +1,5 @@
 use crate::hit::HitClip;
-use celesta_composition::{Clip, EvaluatedTransform};
+use celesta_composition::{Clip, EvaluatedTransform, IDENTITY3, Matrix3, multiply3};
 use celesta_renderer::PathTransform;
 
 /// Evaluates an unparented Path layer's transform using the GPU renderer's
@@ -16,6 +16,14 @@ pub(crate) struct LayerState {
     /// Index into `GpuRenderer::clip_entries` of the innermost clip the
     /// layer is drawn through.
     pub(crate) clip: Option<u32>,
+    /// The accumulated 3D linear part of the layer's ancestors and itself,
+    /// which decides whether its back faces the viewer.
+    pub(crate) orientation: Matrix3,
+    /// How much larger than its layer-space size an effect's pixels are
+    /// drawn, so a blur or shadow radius follows the layer's projection.
+    pub(crate) effect_scale: f32,
+    /// Index of the projective plane the layer is drawn onto, if any.
+    pub(crate) plane: Option<u32>,
 }
 
 impl LayerState {
@@ -24,6 +32,9 @@ impl LayerState {
             transform: self.transform.multiply(Affine::from_transform(transform)),
             opacity: (self.opacity * opacity.clamp(0.0, 1.0) as f32).clamp(0.0, 1.0),
             clip: self.clip,
+            orientation: multiply3(&self.orientation, &transform.linear()),
+            effect_scale: self.effect_scale,
+            plane: self.plane,
         }
     }
 }
@@ -34,9 +45,16 @@ impl Default for LayerState {
             transform: Affine::IDENTITY,
             opacity: 1.0,
             clip: None,
+            orientation: IDENTITY3,
+            effect_scale: 1.0,
+            plane: None,
         }
     }
 }
+
+/// The largest magnitude an affine entry may have before the layer is not
+/// drawn.
+const MAX_ENTRY: f32 = 1e7;
 
 /// The deepest nesting of clipped groups `layer.wgsl` walks (`MAX_CLIP_DEPTH`
 /// there).
@@ -148,15 +166,12 @@ impl Affine {
     };
 
     pub(crate) fn from_transform(transform: &EvaluatedTransform) -> Self {
-        let radians = transform.rotation.to_radians() as f32;
-        let (sin, cos) = radians.sin_cos();
-        let scale_x = transform.scale.x as f32;
-        let scale_y = transform.scale.y as f32;
+        let linear = transform.linear();
         Self {
-            a: cos * scale_x,
-            b: sin * scale_x,
-            c: -sin * scale_y,
-            d: cos * scale_y,
+            a: linear[0][0] as f32,
+            b: linear[1][0] as f32,
+            c: linear[0][1] as f32,
+            d: linear[1][1] as f32,
             tx: transform.position.x as f32,
             ty: transform.position.y as f32,
         }
@@ -173,8 +188,15 @@ impl Affine {
         }
     }
 
+    /// Whether the transform collapses the layer to nothing, or is so
+    /// stretched (a skew near ±90°) that drawing it would only overflow.
     pub(crate) fn is_degenerate(self) -> bool {
-        (self.a * self.d - self.b * self.c).abs() <= f32::EPSILON
+        let entries = [self.a, self.b, self.c, self.d, self.tx, self.ty];
+        entries
+            .iter()
+            .any(|entry| !entry.is_finite() || entry.abs() > MAX_ENTRY)
+            || !(self.a * self.d - self.b * self.c).is_finite()
+            || (self.a * self.d - self.b * self.c).abs() <= f32::EPSILON
     }
 
     /// The largest and smallest factors the transform stretches a length by

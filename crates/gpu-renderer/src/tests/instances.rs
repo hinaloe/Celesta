@@ -585,11 +585,12 @@ fn one_sprite_dimension_keeps_the_images_aspect_ratio() {
 }
 
 /// A frame pushes one `PreparedItem` per layer and copies it at least once
-/// more; 100,000 layers make its size show in a frame's time.
+/// more; 100,000 layers make its size show in a frame's time. (The layer
+/// state's 3D orientation, a 72-byte matrix, took it from 160 to 240.)
 #[test]
 fn prepared_items_stay_small() {
     let size = std::mem::size_of::<PreparedItem>();
-    assert!(size <= 160, "PreparedItem is {size} bytes");
+    assert!(size <= 240, "PreparedItem is {size} bytes");
 }
 
 #[test]

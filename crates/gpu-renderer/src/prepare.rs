@@ -16,8 +16,8 @@ use crate::texture::{rasterize_texts, text_jobs};
 use crate::transform::{Affine, CLIP_ENTRY_SIZE, ClipEntry, LayerState, MAX_CLIP_DEPTH};
 use crate::types::RenderQuality;
 use celesta_composition::{
-    BlendMode, Clip, ImageAnimation, ImageFit, InstanceShape, Layer, LayerContent, LayerEffects,
-    Point, ResolvedAsset, Scene,
+    BackfaceVisibility, BlendMode, Clip, ImageAnimation, ImageFit, InstanceShape, Layer,
+    LayerContent, LayerEffects, Point, ResolvedAsset, Scene, faces_away, multiply3,
 };
 use celesta_renderer::image_source::{fit_within, resize_rgba};
 use celesta_renderer::{
@@ -439,6 +439,11 @@ impl GpuRenderer {
         parent: LayerState,
         output: &mut Vec<PreparedItem>,
     ) -> Result<(), GpuRenderError> {
+        if layer.transform.backface_visibility == BackfaceVisibility::Hidden
+            && faces_away(&multiply3(&parent.orientation, &layer.transform.linear()))
+        {
+            return Ok(());
+        }
         let state = parent.then(&layer.transform, layer.opacity);
         if state.opacity == 0.0 || state.transform.is_degenerate() {
             return Ok(());
@@ -469,6 +474,7 @@ impl GpuRenderer {
                         transform: Affine::IDENTITY,
                         opacity: state.opacity,
                         clip: parent.clip,
+                        ..LayerState::default()
                     },
                     blend_mode,
                     true,
@@ -522,6 +528,7 @@ impl GpuRenderer {
                                 transform: Affine::IDENTITY,
                                 opacity: 1.0,
                                 clip: None,
+                                ..LayerState::default()
                             },
                             BlendMode::Normal,
                             true,
@@ -537,6 +544,7 @@ impl GpuRenderer {
                                 transform: Affine::IDENTITY,
                                 opacity: state.opacity,
                                 clip: None,
+                                ..LayerState::default()
                             },
                             blend_mode,
                             true,
@@ -562,6 +570,7 @@ impl GpuRenderer {
                             transform: Affine::IDENTITY,
                             opacity: state.opacity,
                             clip: None,
+                            ..LayerState::default()
                         },
                         blend_mode,
                         true,
@@ -590,6 +599,7 @@ impl GpuRenderer {
                         transform: Affine::IDENTITY,
                         opacity: state.opacity,
                         clip: None,
+                        ..LayerState::default()
                     },
                     blend_mode,
                     true,
@@ -928,6 +938,7 @@ impl GpuRenderer {
                             transform: Affine::IDENTITY,
                             opacity: state.opacity,
                             clip: None,
+                            ..LayerState::default()
                         },
                         blend_mode,
                         true,
