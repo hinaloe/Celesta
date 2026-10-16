@@ -12,8 +12,9 @@ import { audioBytes } from './audio-decode';
 import type { AnimatedImage } from './animated-image';
 import {
   IDENTITY3, boxOf, clipInFront, corners, effectScale as planeEffectScale, facesAway, homography, invert3, isProjective,
-  linear, multiply3, planeRaster, project, projectedBounds, stretchAt, toPlane, turnFlat, turnsFlat, warp,
+  linear, multiply3, planeRaster, project, projectedBounds, stretchAt, toPlane, turnFlat, turnsFlat,
 } from './projection';
+import { drawPlane } from './plane-pieces';
 import type { Box, Matrix3 } from './projection';
 
 type Canvas = HTMLCanvasElement;
@@ -890,7 +891,7 @@ export class SceneCanvas {
    * as the GPU renderer's `prepare_plane` does: its content (`planeContent`)
    * onto a canvas in its own plane, at the scale `planeRaster` picks for the
    * part of it `ctx` can show, then that canvas through the layer's
-   * homography onto a surface over where it lands (`warp`), which draws onto
+   * homography onto a surface over where it lands (`drawPlane`), which draws onto
    * `ctx` at `alpha`. A blend mode has already drawn the layer apart (see
    * `layer`), so the surface composites source-over.
    */
@@ -910,21 +911,19 @@ export class SceneCanvas {
     // Effects inside are drawn in the plane's pixels, as large as they
     // would be in output pixels without the plane.
     await this.layer(plane, inner, new DOMMatrix([a, b, c, d, e, f]), 1, orientation, effectScale * planeEffectScale(forward, raster));
-    const pixels = plane.getImageData(0, 0, raster.width, raster.height).data;
-    plane.canvas.width = 0;
     const toSource = multiply3(toCanvas, inverse);
     const toParent = invert3(toSource);
     const lands = toParent && projectedBounds(toParent, raster.width, raster.height);
-    if (!lands) return;
-    const left = Math.max(0, Math.floor(lands[0])), top = Math.max(0, Math.floor(lands[1]));
-    const right = Math.min(width, Math.ceil(lands[2])), bottom = Math.min(height, Math.ceil(lands[3]));
-    if (!(right > left && bottom > top)) return;
-    // Only where it lands: the surface's pixels from `left, top`.
+    const left = Math.max(0, Math.floor(lands?.[0] ?? 0)), top = Math.max(0, Math.floor(lands?.[1] ?? 0));
+    const right = Math.min(width, Math.ceil(lands?.[2] ?? 0)), bottom = Math.min(height, Math.ceil(lands?.[3] ?? 0));
+    if (!(right > left && bottom > top)) {
+      plane.canvas.width = 0;
+      return;
+    }
+    // Only where it lands.
     const result = this.surface(ctx);
-    const image = result.createImageData(right - left, bottom - top);
-    const fromLanded = multiply3(toSource, [[1, 0, left], [0, 1, top], [0, 0, 1]]);
-    warp(pixels, raster.width, raster.height, image.data, right - left, fromLanded, [0, 0, right - left, bottom - top]);
-    result.putImageData(image, left, top);
+    drawPlane(result, plane, toSource, [left, top, right, bottom], (w, h) => this.surface(ctx, w, h));
+    plane.canvas.width = 0;
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = alpha;

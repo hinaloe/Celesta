@@ -174,7 +174,7 @@ export function isProjective(t: Transform, l: Matrix3 = linear(t)): boolean {
  * Sutherland–Hodgman: the convex polygon `corners` clipped to where the
  * affine function `inside` is at least 0.
  */
-function clipPolygon(corners: [number, number][], inside: (point: [number, number]) => number): [number, number][] {
+export function clipPolygon(corners: [number, number][], inside: (point: [number, number]) => number): [number, number][] {
   const clipped: [number, number][] = [];
   corners.forEach((current, index) => {
     const next = corners[(index + 1) % corners.length];
@@ -318,11 +318,12 @@ export function tapCount(toSource: Matrix3, x: number, y: number): [number, numb
  * premultiplied bilinear taps over its footprint (`tapCount`), with
  * transparent texels past the source's edges. A pixel whose footprint
  * covers only transparent texels is skipped, and one whose taps all fall
- * inside the source reads them without bounds checks.
+ * inside the source reads them without bounds checks. With `mask` (an
+ * entry per target pixel), only the pixels it marks are drawn.
  */
 export function warp(
   source: Uint8ClampedArray, sourceWidth: number, sourceHeight: number,
-  target: Uint8ClampedArray, targetWidth: number, toSource: Matrix3, box: Box,
+  target: Uint8ClampedArray, targetWidth: number, toSource: Matrix3, box: Box, mask?: Uint8Array,
 ): void {
   const targetHeight = target.length / 4 / targetWidth;
   const [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] = toSource;
@@ -333,6 +334,7 @@ export function warp(
   const right = Math.min(targetWidth, Math.ceil(box[2])), bottom = Math.min(targetHeight, Math.ceil(box[3]));
   for (let y = top; y < bottom; y++) {
     for (let x = left; x < right; x++) {
+      if (mask && !mask[y * targetWidth + x]) continue;
       // `project` and `jacobian` at the pixel's centre, inline: this runs
       // for every pixel a plane lands on.
       const cx = x + 0.5, cy = y + 0.5;
