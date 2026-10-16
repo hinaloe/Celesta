@@ -45,18 +45,10 @@ export interface CommonProps {
   anchorX?: number;
   /** Vertical pivot: 0 top, 1 bottom, 0.5 centre. Defaults to 0. See `anchorX`. */
   anchorY?: number;
-  /*
-   * The transform composes as position · perspective · rotationX ·
-   * rotationY · rotation · skew · scale, rightmost first, so the object
-   * is scaled, then skewed, then turned, then tilted, then projected and
-   * placed. A `Group` turns about its origin, other layers about their
-   * anchor, which is also the vanishing point. Children flatten into the
-   * parent's plane: a rotated `Group` carries its children as one flat
-   * picture, with no depth sorting between them.
-   */
   /**
    * Shear along the x axis, in degrees: points slide sideways in
-   * proportion to their height. Defaults to 0. Like CSS `skewX()`.
+   * proportion to their height. Defaults to 0. Like CSS `skewX()`. See
+   * `rotationX` for how it composes with the other transform props.
    */
   skewX?: number;
   /** Shear along the y axis, in degrees. Defaults to 0. See `skewX`. */
@@ -65,6 +57,14 @@ export interface CommonProps {
    * Tilt about the horizontal axis, in degrees, like CSS `rotateX()`: a
    * positive angle turns the top away from the viewer. Defaults to 0.
    * Without `perspective` the tilt is orthographic and only foreshortens.
+   *
+   * The transform composes as position · perspective · rotationX ·
+   * rotationY · rotation · skew · scale, rightmost first, so the object
+   * is scaled, then skewed, then turned, then tilted, then projected and
+   * placed. A `Group` turns about its origin, other layers about their
+   * anchor, which is also the vanishing point. Children flatten into the
+   * parent's plane: a rotated `Group` carries its children as one flat
+   * picture, with no depth sorting between them.
    */
   rotationX?: number;
   /**

@@ -163,15 +163,18 @@ pub(crate) fn plane_raster(
 }
 
 /// The inverse of the stretch of `forward` at the layer's origin (output
-/// pixels per local unit), 1 where it has none.
+/// pixels per local unit). `forward` maps the origin to `w = 1`, in front of
+/// the viewer, so the fallback of 1 only covers a stretch that is not
+/// finite.
 fn stretch_ratio(forward: &Matrix3) -> f64 {
     stretch_at(forward, 0.0, 0.0).map_or(1.0, f64::recip)
 }
 
 /// How much larger than its output size an effect's pixels are drawn on the
-/// plane `raster` rasterizes, measured at the layer's origin: a blur of `r`
-/// plane pixels spreads `r · effect_scale` output pixels, so effects scaled
-/// by it come out the size they would without the plane.
+/// plane `raster` rasterizes, measured at the layer's origin: `raster.scale`
+/// plane pixels per local unit over the output pixels per local unit there,
+/// so a blur of `r · effect_scale` plane pixels spreads `r` output pixels
+/// and effects scaled by it come out the size they would without the plane.
 pub(crate) fn effect_scale(forward: &Matrix3, raster: &PlaneRaster) -> f32 {
     (raster.scale * stretch_ratio(forward)) as f32
 }
