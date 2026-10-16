@@ -486,7 +486,7 @@ impl GpuRenderer {
         let blend_mode = layer.blend_mode;
         let item = output.len();
         if !layer.effects.is_empty() {
-            let mut effects = EffectSpec::parse(&layer.effects)?;
+            let mut effects = EffectSpec::parse(&layer.effects)?.scaled(self.walk.effect_scale);
             effects.shaders =
                 self.shaders
                     .use_filters(&self.device, &layer.id, &layer.effects.filters)?;

@@ -159,6 +159,14 @@ pub(crate) fn plane_raster(
     })
 }
 
+/// How much larger than its output size an effect's pixels are drawn on the
+/// plane `raster` rasterizes, measured at the layer's origin: a blur of `r`
+/// plane pixels spreads `r · effect_scale` output pixels, so effects scaled
+/// by it come out the size they would without the plane.
+pub(crate) fn effect_scale(forward: &Matrix3, raster: &PlaneRaster) -> f32 {
+    stretch_at(forward, 0.0, 0.0).map_or(1.0, |stretch| (raster.scale / stretch) as f32)
+}
+
 /// The range of plane raster scales, as for text: `2^-6` to `2^6`.
 const MIN_SCALE: f64 = 1.0 / 64.0;
 const MAX_SCALE: f64 = 64.0;
@@ -210,7 +218,20 @@ impl GpuRenderer {
             effects: LayerEffects::default(),
             content: layer.content.clone(),
         };
-        let Some(local) = self.measure_plane(&inner, output)? else {
+        // Effects are measured in the plane's pixels, which are local units
+        // while measuring and `raster.scale` per unit once rasterized.
+        let parent_scale = self.walk.effect_scale;
+        let unit = PlaneRaster {
+            scale: 1.0,
+            left: 0.0,
+            top: 0.0,
+            width: 0,
+            height: 0,
+        };
+        self.walk.effect_scale = parent_scale * effect_scale(&forward, &unit);
+        let local = self.measure_plane(&inner, output);
+        self.walk.effect_scale = parent_scale;
+        let Some(local) = local? else {
             return Ok(());
         };
         let target = if self.measuring_plane {
@@ -237,6 +258,7 @@ impl GpuRenderer {
         };
         let (width, height) = (step(raster.width), step(raster.height));
         let to_plane = raster.to_plane();
+        let effect_scale = parent_scale * effect_scale(&forward, &raster);
         let to_parent = multiply3(
             &forward,
             &invert3(&matrix(to_plane)).expect("a plane's raster scale is positive"),
@@ -251,6 +273,7 @@ impl GpuRenderer {
         output.push(PreparedItem::BeginPlane { width, height });
         let (walk, space) = (self.walk, self.scene_size);
         self.walk.plane = Some(index);
+        self.walk.effect_scale = effect_scale;
         self.scene_size = (width, height);
         let prepared = self.prepare_layer(
             &inner,
@@ -493,5 +516,32 @@ mod tests {
             area > 3 * 100 * 100,
             "the scale is lowered no more than needed: {area}"
         );
+    }
+
+    #[test]
+    fn effect_scale_is_one_for_a_flat_plane() {
+        let raster = PlaneRaster {
+            scale: 1.0,
+            left: 0.0,
+            top: 0.0,
+            width: 10,
+            height: 10,
+        };
+        assert_eq!(effect_scale(&IDENTITY3, &raster), 1.0);
+    }
+
+    #[test]
+    fn effect_scale_follows_the_raster_against_the_projection() {
+        // Rasterized 25% finer than the layer is drawn, so a plane pixel
+        // is 80% of an output pixel.
+        let forward = [[2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 1.0]];
+        let raster = PlaneRaster {
+            scale: 2.5,
+            left: 0.0,
+            top: 0.0,
+            width: 10,
+            height: 10,
+        };
+        assert_eq!(effect_scale(&forward, &raster), 1.25);
     }
 }

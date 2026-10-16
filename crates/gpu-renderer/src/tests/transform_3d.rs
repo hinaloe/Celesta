@@ -522,3 +522,33 @@ fn draws_nothing_closer_than_the_near_clip() {
     }
     assert!(drawn > 0, "the part in front is drawn");
 }
+
+#[test]
+fn blurs_inside_a_plane_in_output_pixels() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    let scene = |projective: bool| {
+        let mut rect = centred_rect(0.0, 0.0, 30.0, 30.0, "#FF0000FF");
+        rect.effects.blur = 8.0;
+        let mut inner = group_at(50.0, 50.0, vec![rect]);
+        if projective {
+            inner = in_perspective(inner, 0.01, 0.0, 1000.0);
+        }
+        let outer = transformed(group_at(0.0, 0.0, vec![inner]), |transform| {
+            transform.scale = Point { x: 2.0, y: 2.0 };
+        });
+        sized_scene(200, 200, vec![outer])
+    };
+    let flat = renderer.render(&scene(false)).unwrap();
+    let projected = renderer.render(&scene(true)).unwrap();
+    assert!(flat.pixels().iter().any(|channel| *channel != 0));
+    let difference = flat
+        .pixels()
+        .iter()
+        .zip(projected.pixels())
+        .map(|(a, b)| a.abs_diff(*b))
+        .max()
+        .unwrap();
+    assert!(difference <= 6, "{difference}");
+}
