@@ -115,15 +115,23 @@ def collect_licenses(resources, target):
     for package in metadata["packages"]:
         inventory.append({key: package.get(key) for key in ("name", "version", "license", "repository")})
         directory = Path(package["manifest_path"]).parent
-        texts = [path for path in directory.iterdir()
-                 if path.is_file() and re.match(r"LICENSE|COPYING|NOTICE", path.name, re.I)]
+        texts = {path.name: path for path in directory.iterdir()
+                 if path.is_file() and re.match(r"LICENSE|COPYING|NOTICE", path.name, re.I)}
         if package.get("license_file"):
-            texts.append(directory / package["license_file"])
+            license_file = directory / package["license_file"]
+            texts[license_file.name] = license_file
+        # Vendored libraries keep their own notices one directory down
+        # (signalsmith-stretch bundles two C++ libraries); the directory name
+        # keeps same-named files apart.
+        for path in directory.glob("*/*"):
+            if (path.is_file() and path.suffix != ".rs"
+                    and re.match(r"LICENSE|COPYING|NOTICE", path.name, re.I)):
+                texts[f"{path.parent.name}-{path.name}"] = path
         if texts:
             destination = licenses / "rust" / f'{package["name"]}-{package["version"]}'
             destination.mkdir(parents=True)
-            for path in texts:
-                shutil.copy2(path, destination / path.name)
+            for name, path in texts.items():
+                shutil.copy2(path, destination / name)
     (licenses / "rust-packages.json").write_text(json.dumps(inventory, indent=2), encoding="utf-8")
     # Include the installed FFmpeg dependency closure's notices, including static dependencies.
     formulas = [FFMPEG_FORMULA, *run("brew", "deps", "--installed", FFMPEG_FORMULA, capture=True).splitlines()]

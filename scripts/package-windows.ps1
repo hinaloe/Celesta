@@ -122,10 +122,19 @@ try {
         $directory = Split-Path $crate.manifest_path -Parent
         $texts = @(Get-ChildItem -LiteralPath $directory -File | Where-Object Name -Match '^(LICENSE|COPYING|NOTICE)')
         if ($crate.license_file) { $texts += Get-Item -LiteralPath (Join-Path $directory $crate.license_file) }
-        if ($texts.Count) {
+        # Vendored libraries keep their own notices one directory down
+        # (signalsmith-stretch bundles two C++ libraries); the directory name
+        # keeps same-named files apart.
+        $vendored = @(Get-ChildItem -LiteralPath $directory -Directory |
+            ForEach-Object { Get-ChildItem -LiteralPath $_.FullName -File } |
+            Where-Object { $_.Extension -ne '.rs' -and $_.Name -match '^(LICENSE|COPYING|NOTICE)' })
+        if ($texts.Count -or $vendored.Count) {
             $destination = Join-Path $licenses "rust/$($crate.name)-$($crate.version)"
             New-Item -ItemType Directory -Force $destination | Out-Null
             $texts | Copy-Item -Destination $destination
+            foreach ($file in $vendored) {
+                Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $destination "$($file.Directory.Name)-$($file.Name)")
+            }
         }
     }
     Invoke-Checked "$runtime/node.exe" @("$PSScriptRoot/test-package.mjs", $package)
