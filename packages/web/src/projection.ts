@@ -127,10 +127,9 @@ export function linear(t: Transform): Matrix3 {
 
 /**
  * The map from the layer plane (relative to its anchor) to the parent's
- * plane, folding position and perspective into the linear part.
+ * plane, folding position and perspective into the linear part `l`.
  */
-export function homography(t: Transform): Matrix3 {
-  const l = linear(t);
+export function homography(t: Transform, l: Matrix3 = linear(t)): Matrix3 {
   const { x: px, y: py } = t.position;
   const d = perspectiveDistance(t);
   const inverse = d === null ? 0 : 1 / d;
@@ -141,9 +140,9 @@ export function homography(t: Transform): Matrix3 {
   ];
 }
 
-/** Whether the transform needs a homography rather than an affine map. */
-export function isProjective(t: Transform): boolean {
-  const h = homography(t);
+/** Whether the transform needs a homography rather than an affine map; `l` is its `linear` part. */
+export function isProjective(t: Transform, l: Matrix3 = linear(t)): boolean {
+  const h = homography(t, l);
   return h.flat().every(Number.isFinite) && Math.abs(h[2][0]) + Math.abs(h[2][1]) > EPSILON;
 }
 
@@ -296,50 +295,54 @@ export function warp(
   target: Uint8ClampedArray, targetWidth: number, toSource: Matrix3, box: Box,
 ): void {
   const targetHeight = target.length / 4 / targetWidth;
-  const m = toSource;
-  const color = [0, 0, 0, 0];
+  const [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] = toSource;
+  // Premultiplied (0–255²) red, green, and blue, and alpha (0–255), summed over a pixel's taps.
+  let red = 0, green = 0, blue = 0, coverage = 0;
   // Adds the premultiplied texel at `x, y` (none past the edges) times `weight`.
   const texel = (x: number, y: number, weight: number) => {
     if (x < 0 || y < 0 || x >= sourceWidth || y >= sourceHeight || weight === 0) return;
     const i = (y * sourceWidth + x) * 4, alpha = source[i + 3] * weight;
-    color[0] += source[i] * alpha;
-    color[1] += source[i + 1] * alpha;
-    color[2] += source[i + 2] * alpha;
-    color[3] += alpha;
+    red += source[i] * alpha;
+    green += source[i + 1] * alpha;
+    blue += source[i + 2] * alpha;
+    coverage += alpha;
   };
   const left = Math.max(0, Math.floor(box[0])), top = Math.max(0, Math.floor(box[1]));
   const right = Math.min(targetWidth, Math.ceil(box[2])), bottom = Math.min(targetHeight, Math.ceil(box[3]));
   for (let y = top; y < bottom; y++) {
     for (let x = left; x < right; x++) {
-      const [sx, sy, w] = project(m, x + 0.5, y + 0.5);
+      // `project` and `jacobian` at the pixel's centre, inline: this runs
+      // for every pixel a plane lands on.
+      const cx = x + 0.5, cy = y + 0.5;
+      const w = m20 * cx + m21 * cy + m22;
       if (!(w > 0) || 1 / w < NEAR_W) continue;
+      const sx = (m00 * cx + m01 * cy + m02) / w, sy = (m10 * cx + m11 * cy + m12) / w;
       if (!(sx >= 0 && sy >= 0 && sx <= sourceWidth && sy <= sourceHeight)) continue;
-      const [xx, xy, yx, yy] = jacobian(m, sx, sy, w);
+      const xx = (m00 - sx * m20) / w, xy = (m10 - sy * m20) / w, yx = (m01 - sx * m21) / w, yy = (m11 - sy * m21) / w;
       const columns = taps(xx, xy), rows = taps(yx, yy);
-      color.fill(0);
+      red = green = blue = coverage = 0;
       for (let row = 0; row < rows; row++) {
         const v = (row + 0.5) / rows - 0.5;
         for (let column = 0; column < columns; column++) {
           const u = (column + 0.5) / columns - 0.5;
           // Bilinear, about the texel centres.
           const px = sx + u * xx + v * yx - 0.5, py = sy + u * xy + v * yy - 0.5;
-          const cx = Math.floor(px), cy = Math.floor(py), fx = px - cx, fy = py - cy;
-          texel(cx, cy, (1 - fx) * (1 - fy));
-          texel(cx + 1, cy, fx * (1 - fy));
-          texel(cx, cy + 1, (1 - fx) * fy);
-          texel(cx + 1, cy + 1, fx * fy);
+          const fx0 = Math.floor(px), fy0 = Math.floor(py), fx = px - fx0, fy = py - fy0;
+          texel(fx0, fy0, (1 - fx) * (1 - fy));
+          texel(fx0 + 1, fy0, fx * (1 - fy));
+          texel(fx0, fy0 + 1, (1 - fx) * fy);
+          texel(fx0 + 1, fy0 + 1, fx * fy);
         }
       }
       const count = columns * rows;
-      // Premultiplied (0–255²) and covering (0–255) sums of `count` taps.
-      const sa = color[3] / count / 255;
+      const sa = coverage / count / 255;
       if (!(sa > 0)) continue;
       const i = (y * targetWidth + x) * 4;
-      const da = target[i + 3] / 255, out = sa + da * (1 - sa);
-      for (let channel = 0; channel < 3; channel++) {
-        const premultiplied = color[channel] / count / 255 / 255;
-        target[i + channel] = (premultiplied + target[i + channel] / 255 * da * (1 - sa)) / out * 255;
-      }
+      const da = target[i + 3] / 255, kept = da * (1 - sa), out = sa + kept;
+      const scale = count * 255 * 255;
+      target[i] = (red / scale + target[i] / 255 * kept) / out * 255;
+      target[i + 1] = (green / scale + target[i + 1] / 255 * kept) / out * 255;
+      target[i + 2] = (blue / scale + target[i + 2] / 255 * kept) / out * 255;
       target[i + 3] = out * 255;
     }
   }
