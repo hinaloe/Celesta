@@ -581,9 +581,16 @@ to the file's MaxCLL (1000 nits without one). Export is SDR.
 | `src` | Path or URL. Any file FFmpeg can decode, including a video file's audio. |
 | `startFrom` | Seconds into the file. Default `0`. |
 | `playbackRate` | Number or [keyframes](#keyframe-values). Default `1`. |
+| `pitch` | Semitones, number or [keyframes](#keyframe-values). Default `0`, range −24…24; fractions are cents (`0.5` = 50 cents). Values outside ±24 are clamped. |
+| `preservePitch` | Default `false`: `playbackRate` moves speed and pitch together. `true`: `playbackRate` changes only the duration and `pitch` alone sets the pitch. Heard transposition is `2^(pitch/12) × (preservePitch ? 1 : playbackRate)`. |
 | `volume` | Linear gain, number or [keyframes](#keyframe-values). Default `1`. |
 | `muted` | Default `false`. |
 | `loop` | Past the end of the file, starts over from its beginning. Default `false`: silence. |
+
+`pitch` and `preservePitch` apply to `<Audio>` only, not to a `<Video>`'s
+soundtrack or `<Dialogue>` voices. Preview and export sound the same;
+`@celesta/web`'s `exportMp4` rejects a clip that uses them ("Audio pitch and
+preservePitch are not supported by browser export yet.").
 
 Bare, an `<Audio>` spans the whole composition. Inside a `<Sequence>` it
 starts when the sequence starts and stops when it ends. An `<Audio>` behind a
@@ -772,8 +779,8 @@ function Bars() {
 
 ## Keyframe values
 
-`Audio` `volume`/`playbackRate` and `Dialogue` `volume`/`playbackRate` accept
-a number or keyframes. Keyframe times are **seconds from the start of the
+`Audio` `volume`/`playbackRate`/`pitch` and `Dialogue` `volume`/`playbackRate`
+accept a number or keyframes. Keyframe times are **seconds from the start of the
 enclosing sequence**, written as rationals:
 
 ```tsx
