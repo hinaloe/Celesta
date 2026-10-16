@@ -18,8 +18,7 @@ use crate::transform::{Affine, CLIP_ENTRY_SIZE, ClipEntry, LayerState, MAX_CLIP_
 use crate::types::RenderQuality;
 use celesta_composition::{
     BackfaceVisibility, BlendMode, Clip, ImageAnimation, ImageFit, InstanceShape, Layer,
-    LayerContent, LayerEffects, Matrix3, Point, ResolvedAsset, Scene, faces_away, multiply3,
-    multiply3_flat,
+    LayerContent, Matrix3, Point, ResolvedAsset, Scene, faces_away, multiply3, multiply3_flat,
 };
 use celesta_renderer::image_source::{fit_within, resize_rgba};
 use celesta_renderer::psd_source::PsdSize;
@@ -467,19 +466,17 @@ impl GpuRenderer {
             return Ok(());
         }
         self.walk.orientation = orientation;
-        let prepared = self.prepare_visible_layer(layer, parent, previous, &linear, output);
+        let prepared = self.prepare_visible_layer(layer, parent, &linear, output);
         self.walk = previous;
         prepared
     }
 
     /// `prepare_layer` once the layer faces the viewer (or shows its back):
-    /// `self.walk` describes the layer, `previous` its parent, and `linear`
-    /// is the layer's 3D linear part.
+    /// `self.walk` describes the layer, and `linear` is its 3D linear part.
     fn prepare_visible_layer(
         &mut self,
         layer: &Layer,
         parent: LayerState,
-        previous: Walk,
         linear: &Matrix3,
         output: &mut Vec<PreparedItem>,
     ) -> Result<(), GpuRenderError> {
@@ -502,18 +499,23 @@ impl GpuRenderer {
                 self.shaders
                     .use_filters(&self.device, &layer.id, &layer.effects.filters)?;
             output.push(PreparedItem::BeginGroup);
-            let mut inner = layer.clone();
-            inner.opacity = 1.0;
-            inner.blend_mode = BlendMode::Normal;
-            inner.effects = LayerEffects::default();
-            // The inner layer is this one again: it adds its own orientation.
-            self.walk = previous;
-            self.prepare_layer(
-                &inner,
+            // The layer again onto the effect's canvas, at full opacity,
+            // blending normally, and without effects, but placed and turned
+            // as it is, so `self.walk` stays the layer's. At full opacity
+            // and normal blending, only a mask isolates a group, and
+            // `prepare_content` gives one a canvas before asking.
+            self.prepare_drawn(
+                layer,
                 LayerState {
                     opacity: 1.0,
                     ..parent
                 },
+                LayerState {
+                    opacity: 1.0,
+                    ..state
+                },
+                (1.0, BlendMode::Normal),
+                false,
                 output,
             )?;
             output.push(PreparedItem::EndEffect(
@@ -530,12 +532,35 @@ impl GpuRenderer {
             ));
             return Ok(());
         }
-        // Drawn through a canvas in its own plane; the effects above apply
-        // to that canvas once projected, through the inner layer they draw.
+        self.prepare_drawn(
+            layer,
+            parent,
+            state,
+            (layer.opacity, blend_mode),
+            layer.isolates_group(),
+            output,
+        )
+    }
+
+    /// `layer` without its effects, placed by `parent` and then its own
+    /// transform (`state`), drawn onto its parent at `opacity` with
+    /// `blend_mode`, which an effect sets to full and `Normal` for the copy
+    /// it draws onto its canvas: through a canvas in its own plane when it
+    /// is projective (the effects then apply to that canvas once
+    /// projected), else as its content, a group isolated when `isolated`.
+    fn prepare_drawn(
+        &mut self,
+        layer: &Layer,
+        parent: LayerState,
+        state: LayerState,
+        (opacity, blend_mode): (f64, BlendMode),
+        isolated: bool,
+        output: &mut Vec<PreparedItem>,
+    ) -> Result<(), GpuRenderError> {
         if layer.transform.perspective_distance().is_some() && layer.transform.is_projective() {
-            return self.prepare_plane(layer, parent, output);
+            return self.prepare_plane(layer, parent, (opacity, blend_mode), output);
         }
-        self.prepare_content(layer, state, blend_mode, layer.isolates_group(), output)
+        self.prepare_content(layer, state, blend_mode, isolated, output)
     }
 
     /// `layer`'s content, placed by `state` and drawn onto its parent with

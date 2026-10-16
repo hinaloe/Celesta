@@ -273,15 +273,17 @@ const MAX_PLANE_AREA: u64 = 4;
 const UNBOUNDED: f32 = 1e9;
 
 impl GpuRenderer {
-    /// Prepares the projective `layer`, drawn onto `parent`'s space, as a
-    /// canvas in its own plane: its content is prepared once in its local
-    /// units to measure it (and rolled back), then for real onto a canvas
-    /// at the scale `plane_raster` picks, which an `EndPlane` then draws
-    /// through the layer's homography.
+    /// Prepares the projective `layer`, drawn onto `parent`'s space at
+    /// `opacity` with `blend_mode`, as a canvas in its own plane: its
+    /// content is prepared once in its local units to measure it (and
+    /// rolled back), then for real onto a canvas at the scale
+    /// `plane_raster` picks, which an `EndPlane` then draws through the
+    /// layer's homography.
     pub(crate) fn prepare_plane(
         &mut self,
         layer: &Layer,
         parent: LayerState,
+        (opacity, blend_mode): (f64, BlendMode),
         output: &mut Vec<PreparedItem>,
     ) -> Result<(), GpuRenderError> {
         let forward = multiply3(&matrix(parent.transform), &layer.transform.homography());
@@ -357,10 +359,10 @@ impl GpuRenderer {
                     tx: top[2],
                     ty: middle[2],
                 },
-                opacity: (parent.opacity * layer.opacity.clamp(0.0, 1.0) as f32).clamp(0.0, 1.0),
+                opacity: (parent.opacity * opacity.clamp(0.0, 1.0) as f32).clamp(0.0, 1.0),
                 clip: parent.clip,
             },
-            layer.blend_mode,
+            blend_mode,
             bottom,
         )));
         Ok(())

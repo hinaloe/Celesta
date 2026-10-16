@@ -965,3 +965,32 @@ fn stand_ins_cover_what_their_content_draws() {
         assert_eq!(measured, drawn, "{} at {scale}", layer.id);
     }
 }
+
+#[test]
+fn a_projective_layer_with_effects_takes_its_opacity_and_mode_once() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    let background = corner_rect("background", 0.0, 0.0, 200.0, 200.0, "#FF0000FF");
+    let mut white = in_perspective(
+        centred_rect(100.0, 100.0, 100.0, 100.0, "#FFFFFFFF"),
+        0.0,
+        30.0,
+        600.0,
+    );
+    white.effects.blur = 1.0;
+    white.opacity = 0.5;
+    white.blend_mode = BlendMode::Difference;
+    let frame = renderer
+        .render(&sized_scene(200, 200, vec![background, white]))
+        .unwrap();
+    // Half of the difference with red, cyan, over red: drawn onto the
+    // effect's canvas at full opacity, blending normally, then blended once.
+    // Taken twice, the opacity would leave red at 191 and the others at 64.
+    let pixel = pixel_at(&frame, 100, 100);
+    assert_eq!(pixel[3], 255);
+    assert!(
+        pixel[..3].iter().all(|channel| channel.abs_diff(128) <= 1),
+        "{pixel:?}"
+    );
+}
