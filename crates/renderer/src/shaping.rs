@@ -7,7 +7,7 @@ use crate::linebreak::{
 };
 use crate::paint::{ResolvedPaint, resolve_paint};
 use crate::rect::dilate_mask;
-use crate::text::{AnchorBox, GlyphMetrics, RasterizedText, TextMetrics};
+use crate::text::{AnchorBox, GlyphMetrics, RasterizedText, TextMetrics, TextWindow};
 use crate::types::{Color, RgbaFrame};
 use celesta_composition::{LineBreak, TextAlign, TextFontRun, TextStyle};
 use cosmic_text::{
@@ -542,6 +542,22 @@ impl TextRasterizer {
         max_width: Option<f64>,
         scale: f32,
     ) -> Result<RasterizedText, RenderError> {
+        self.rasterize_window(text, style, max_width, scale, None)
+    }
+
+    /// [`Self::rasterize`], but only the pixels of `window` (in layout
+    /// units from the layout box's top-left), laid out exactly as the whole
+    /// text is: the image covers the window, and its anchor box and baseline
+    /// are where the whole text's would be relative to it. A single line
+    /// ignores the window, as its rows are trimmed to its ink.
+    pub fn rasterize_window(
+        &mut self,
+        text: &str,
+        style: &TextStyle,
+        max_width: Option<f64>,
+        scale: f32,
+        window: Option<TextWindow>,
+    ) -> Result<RasterizedText, RenderError> {
         validate_font_runs(text, style)?;
         let scale = scale.abs();
         let width = max_width.map(|width| width as f32 * scale);
@@ -592,8 +608,36 @@ impl TextRasterizer {
         let pad = stroke_radius;
         // Rows above the layout box's top edge in the image.
         let pad_top = pad + overflow_top;
-        let mask_width = layout_width + 2 * pad;
-        let mask_height = layout_height + 2 * pad + overflow_top + overflow_bottom;
+        let image_width = layout_width + 2 * pad;
+        let image_height = layout_height + 2 * pad + overflow_top + overflow_bottom;
+        // Lines wrapped at `max_width` count as several lines too.
+        let single_line = !text.contains('\n') && buffer.layout_runs().nth(1).is_none();
+        // The whole image's pixels this raster keeps, `[left, top, right,
+        // bottom)`, and those it draws: grown by the stroke, which the glyphs
+        // just outside the window reach into.
+        let kept = window.filter(|_| !single_line).map_or(
+            [0, 0, image_width, image_height],
+            |[left, top, right, bottom]| {
+                let pixel = |value: f64, offset: u32, limit: u32, round: fn(f64) -> f64| {
+                    (round(value * f64::from(scale)) + f64::from(offset))
+                        .clamp(0.0, f64::from(limit)) as u32
+                };
+                let x0 = pixel(left, pad, image_width, f64::floor);
+                let y0 = pixel(top, pad_top, image_height, f64::floor);
+                let x1 = pixel(right, pad, image_width, f64::ceil).max(x0 + 1);
+                let y1 = pixel(bottom, pad_top, image_height, f64::ceil).max(y0 + 1);
+                [x0, y0, x1.min(image_width), y1.min(image_height)]
+            },
+        );
+        let drawn = [
+            kept[0].saturating_sub(stroke_radius),
+            kept[1].saturating_sub(stroke_radius),
+            (kept[2] + stroke_radius).min(image_width),
+            (kept[3] + stroke_radius).min(image_height),
+        ];
+        let (origin_x, origin_y) = (drawn[0], drawn[1]);
+        let mask_width = drawn[2] - drawn[0];
+        let mask_height = drawn[3] - drawn[1];
         let fill_paint =
             resolve_paint(style.fill.as_ref())?.map(|paint| paint.scaled(f64::from(scale)));
         // A gradient is painted over white glyphs below.
@@ -643,8 +687,8 @@ impl TextRasterizer {
             gradient: None,
             visible: true,
             callback: |x: i32, y: i32, coverage: u8, color: CosmicColor, visible: bool| {
-                let pixel_x = x + pad as i32;
-                let pixel_y = y + pad_top as i32;
+                let pixel_x = x + pad as i32 - origin_x as i32;
+                let pixel_y = y + pad_top as i32 - origin_y as i32;
                 if pixel_x < 0
                     || pixel_y < 0
                     || pixel_x >= mask_width as i32
@@ -668,8 +712,22 @@ impl TextRasterizer {
                 );
             },
         };
+        // A line's glyphs reach at most a line past its box (font runs
+        // aside, which `overflow_top` and `overflow_bottom` cover).
+        let (reach_up, reach_down) = (
+            f64::from(overflow_top + pad_top),
+            f64::from(overflow_bottom + pad),
+        );
         for (line_index, run) in buffer.layout_runs().enumerate() {
             let run_y = line_y(line_index, run.line_y);
+            let line_top = f64::from(run.line_top) + f64::from(pad_top);
+            let line_bottom = line_top + f64::from(run.line_height);
+            let slack = f64::from(run.line_height);
+            if line_bottom + reach_down + slack < f64::from(origin_y)
+                || line_top - reach_up - slack > f64::from(origin_y + mask_height)
+            {
+                continue;
+            }
             for glyph in run.glyphs {
                 let start = offsets
                     .as_ref()
@@ -720,7 +778,10 @@ impl TextRasterizer {
                 if share == 0.0 {
                     continue;
                 }
-                let (x, y) = (index as u32 % mask_width, index as u32 / mask_width);
+                let (x, y) = (
+                    index as u32 % mask_width + origin_x,
+                    index as u32 / mask_width + origin_y,
+                );
                 let color = stroke_paint.color_at(
                     f64::from(x) - f64::from(pad) + 0.5,
                     f64::from(y) - f64::from(pad_top) + 0.5,
@@ -744,12 +805,21 @@ impl TextRasterizer {
                 pixel[3] = (total.min(1.0) * 255.0).round() as u8;
             }
         }
+        // Only the window: what the stroke needed past it is dropped.
+        if drawn != kept {
+            frame = crop(
+                frame,
+                kept[0] - origin_x,
+                kept[1] - origin_y,
+                kept[2] - kept[0],
+                kept[3] - kept[1],
+            );
+        }
+        let (kept_x, kept_y) = (kept[0] as i32, kept[1] as i32);
         // Single-line text keeps its advance width, so leading and trailing
         // spaces still take up room, but drops the empty rows above and below
         // its ink: `anchorY` 0.5 centers the letters, not the line box.
         let mut top = 0;
-        // Lines wrapped at `max_width` count as several lines too.
-        let single_line = !text.contains('\n') && buffer.layout_runs().nth(1).is_none();
         if single_line {
             if (!style.color_runs.is_empty() || style.visible_characters.is_some())
                 && let Some((min, max)) = ink_rows
@@ -765,15 +835,15 @@ impl TextRasterizer {
         // several lines by their line boxes.
         let anchor_box = if single_line {
             AnchorBox {
-                left: pad,
+                left: pad as i32,
                 top: 0,
                 width: layout_width,
                 height: frame.height,
             }
         } else {
             AnchorBox {
-                left: pad,
-                top: pad_top,
+                left: pad as i32 - kept_x,
+                top: pad_top as i32 - kept_y,
                 width: layout_width,
                 height: layout_height,
             }
@@ -781,10 +851,25 @@ impl TextRasterizer {
         Ok(RasterizedText {
             width: frame.width,
             height: frame.height,
-            baseline: baseline + pad_top as f32 - top as f32,
+            baseline: baseline + pad_top as f32 - top as f32 - kept_y as f32,
             pixels: frame.pixels,
             anchor_box,
         })
+    }
+}
+
+/// The `width`x`height` pixels of `frame` from `left`, `top`.
+fn crop(frame: RgbaFrame, left: u32, top: u32, width: u32, height: u32) -> RgbaFrame {
+    let row = frame.width as usize * 4;
+    let mut pixels = Vec::with_capacity(width as usize * height as usize * 4);
+    for y in top..top + height {
+        let start = y as usize * row + left as usize * 4;
+        pixels.extend_from_slice(&frame.pixels[start..start + width as usize * 4]);
+    }
+    RgbaFrame {
+        width,
+        height,
+        pixels,
     }
 }
 
