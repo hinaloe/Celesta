@@ -204,7 +204,7 @@ fn paragraph(id: &str, y: f64) -> Layer {
         text, max_width, ..
     } = &mut layer.content
     {
-        *text = vec!["HELIOS CRAWL HHHH IIII MMMM"; 10].join("\n");
+        *text = ["HELIOS CRAWL HHHH IIII MMMM"; 10].join("\n");
         *max_width = Some(1200.0);
     }
     layer
@@ -239,4 +239,168 @@ fn a_crawl_of_many_text_layers_is_sharp_near_its_edge() {
     let (long, short) = (near_sharpness(&long), near_sharpness(&short));
     assert!(short > 5.0, "the short plane's text is sharp: {short}");
     assert!(long >= 0.9 * short, "long {long} vs short {short}");
+}
+
+/// One text layer of `lines` lines of capital letters, 1200 wide and 48
+/// per line, white, its top-left at `(x, y)`.
+fn column(id: &str, x: f64, y: f64, lines: usize) -> Layer {
+    let mut layer = text_layer(id, Point { x, y }, 1.0, 40.0);
+    if let LayerContent::Text {
+        text, max_width, ..
+    } = &mut layer.content
+    {
+        *text = vec!["HELIOS CRAWL HHHH IIII MMMM"; lines].join("\n");
+        *max_width = Some(1200.0);
+    }
+    layer
+}
+
+#[test]
+fn a_crawl_of_one_text_layer_is_sharp_near_its_edge() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    // Both end at local y 256, 400 lines (19200) and 15 lines tall.
+    let long = renderer
+        .render(&sized_scene(
+            1920,
+            1080,
+            vec![crawl(vec![column(
+                "crawl",
+                -600.0,
+                256.0 - 48.0 * 400.0,
+                400,
+            )])],
+        ))
+        .unwrap();
+    let short = renderer
+        .render(&sized_scene(
+            1920,
+            1080,
+            vec![crawl(vec![column(
+                "crawl",
+                -600.0,
+                256.0 - 48.0 * 15.0,
+                15,
+            )])],
+        ))
+        .unwrap();
+    let (long, short) = (near_sharpness(&long), near_sharpness(&short));
+    assert!(short > 5.0, "the short plane's text is sharp: {short}");
+    assert!(long >= 0.9 * short, "long {long} vs short {short}");
+}
+
+/// The mean step in alpha between horizontal neighbours over rows 400 to
+/// 600 and the middle 800 columns.
+fn middle_sharpness(frame: &GpuFrame) -> f64 {
+    let steps = (400..600)
+        .flat_map(|y| (560..1360).map(move |x| (x, y)))
+        .map(|(x, y)| f64::from(pixel_at(frame, x, y)[3].abs_diff(pixel_at(frame, x - 1, y)[3])))
+        .collect::<Vec<_>>();
+    steps.iter().sum::<f64>() / steps.len() as f64
+}
+
+/// A flat text 420 lines (20160) tall, more than any texture holds, its
+/// line 200 at y 300.
+fn tall_text(y: f64) -> Layer {
+    column("tall", 360.0, y - 48.0 * 200.0, 420)
+}
+
+#[test]
+fn tall_flat_text_keeps_its_scale() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    let tall = renderer
+        .render(&sized_scene(1920, 1080, vec![tall_text(300.0)]))
+        .unwrap();
+    // Ten of the same lines where the tall text's lines 200 to 209 are.
+    let short = renderer
+        .render(&sized_scene(
+            1920,
+            1080,
+            vec![column("short", 360.0, 300.0, 10)],
+        ))
+        .unwrap();
+    let (tall, short) = (middle_sharpness(&tall), middle_sharpness(&short));
+    assert!(short > 5.0, "{short}");
+    assert!(tall >= 0.95 * short, "tall {tall} vs short {short}");
+}
+
+#[test]
+fn scrolling_text_reuses_its_window() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    let text_keys = |renderer: &TestRenderer| {
+        renderer
+            .textures
+            .keys()
+            .filter(|key| key.starts_with(crate::texture::TEXT_TEXTURE_PREFIX))
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    renderer
+        .render(&sized_scene(1920, 1080, vec![tall_text(300.0)]))
+        .unwrap();
+    let before = text_keys(&renderer);
+    assert_eq!(before.len(), 1, "{before:?}");
+    assert!(
+        before.iter().all(|key| key.ends_with(']')),
+        "the tall text is windowed"
+    );
+    renderer
+        .render(&sized_scene(1920, 1080, vec![tall_text(299.5)]))
+        .unwrap();
+    assert_eq!(text_keys(&renderer), before);
+}
+
+#[test]
+fn hits_windowed_text_anywhere() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    renderer.set_record_hit_regions(true);
+    renderer
+        .render(&sized_scene(1920, 1080, vec![tall_text(300.0)]))
+        .unwrap();
+    let region = renderer
+        .hit_regions()
+        .iter()
+        .find(|region| region.layer_id == "tall")
+        .expect("the tall text is a hit region");
+    let ys = region.corners.map(|corner| corner.y);
+    let (top, bottom) = (
+        ys.into_iter().fold(f64::INFINITY, f64::min),
+        ys.into_iter().fold(f64::NEG_INFINITY, f64::max),
+    );
+    assert!(top < -9000.0 && bottom > 10000.0, "{top}..{bottom}");
+}
+
+#[test]
+fn texts_outside_a_band_are_not_rasterized_for_it() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    // Forty different paragraphs, so each band's rasterization of each is
+    // a texture of its own.
+    let paragraphs = (0..40)
+        .map(|index| {
+            let mut layer = paragraph(&format!("p{index}"), -224.0 - 500.0 * index as f64);
+            if let LayerContent::Text { text, .. } = &mut layer.content {
+                text.push_str(&format!(" {index}"));
+            }
+            layer
+        })
+        .collect::<Vec<_>>();
+    renderer
+        .render(&sized_scene(1920, 1080, vec![crawl(paragraphs)]))
+        .unwrap();
+    let texts = renderer
+        .textures
+        .keys()
+        .filter(|key| key.starts_with(crate::texture::TEXT_TEXTURE_PREFIX))
+        .count();
+    // Each paragraph lands in one band, or two where it straddles a seam.
+    assert!(texts <= 80, "{texts} text textures");
 }

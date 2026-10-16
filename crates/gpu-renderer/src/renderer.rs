@@ -13,7 +13,7 @@ use crate::plane::PlaneEntry;
 use crate::quantize::{QuantizeOutput, Quantizer};
 use crate::readback::{ReadbackLayout, ReadbackSlot, ReadbackWorker, SlotReadback, rgba_texture};
 use crate::shader::ShaderProcessor;
-use crate::text::PendingText;
+use crate::text::{PendingText, TextSize};
 use crate::texture::{
     CachedTexture, CanvasTexture, DecodedImage, LayerTexture, canvas_format, upload_texture,
 };
@@ -136,6 +136,10 @@ pub struct GpuRenderer {
     /// a mostly static frame. Entries a frame does not use are dropped at
     /// the end of that frame's `prepare_draws`.
     pub(crate) textures: HashMap<String, CachedTexture>,
+    /// The layouts of the text layers recent frames drew, by text, style,
+    /// and width, which decide whether a text's raster fits a texture.
+    /// Evicted with `textures`.
+    pub(crate) text_sizes: HashMap<String, TextSize>,
     /// Incremented by every `prepare_draws`; a cache entry's `last_used`
     /// equals it when the frame being prepared uses that entry.
     pub(crate) texture_generation: u64,
@@ -382,6 +386,7 @@ impl GpuRenderer {
             readback_format: ReadbackFormat::Rgba8,
             yuv_converters: HashMap::new(),
             textures: HashMap::new(),
+            text_sizes: HashMap::new(),
             texture_generation: 0,
             text_font_count: 0,
             font_fallbacks: Vec::new(),

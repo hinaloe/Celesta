@@ -221,7 +221,7 @@ fn part_grown(
 fn half_footprint(forward: &Matrix3, x: f64, y: f64) -> Option<f64> {
     let m = forward;
     let [px, py, w] = project(m, x, y);
-    if !(w > 0.0) {
+    if w.is_nan() || w <= 0.0 {
         return None;
     }
     let jacobian = |row: usize, col: usize, p: f64| (m[row][col] - p * m[2][col]) / w;

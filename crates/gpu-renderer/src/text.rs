@@ -4,7 +4,7 @@ use crate::layer::PreparedLayer;
 use crate::texture::{DecodedImage, LayerTexture};
 use crate::transform::{Affine, LayerState};
 use celesta_composition::{BlendMode, Point, TextStyle};
-use celesta_renderer::TextRasterizer;
+use celesta_renderer::{TextMetrics, TextRasterizer, TextWindow};
 
 /// A text layer whose texture was not cached when `prepare_layer` reached
 /// it, holding what is needed to rasterize it and to replace `item`.
@@ -20,41 +20,128 @@ pub(crate) struct PendingText {
     pub(crate) baseline_anchor: bool,
     pub(crate) state: LayerState,
     pub(crate) blend_mode: BlendMode,
+    /// The part of it to rasterize, when not all of it fits a texture.
+    pub(crate) window: Option<TextWindow>,
+    /// The whole text's box in its target, for a windowed text, whose quad
+    /// is only the window's.
+    pub(crate) shape: Option<PixelBounds>,
 }
 
 impl PendingText {
     /// The box the text covers once rasterized, placed by its state, from
-    /// its layout measured without drawing it: the layout box (as the
-    /// texture's anchor box) grown by the stroke's width and half the font
-    /// size, room for glyphs that reach past their line box and for the
-    /// raster's rounding.
+    /// its layout measured without drawing it (see `TextPlacement`).
     pub(crate) fn measured_bounds(&self, rasterizer: &mut TextRasterizer) -> PixelBounds {
         let metrics = rasterizer.measure(&self.text, &self.style, self.max_width);
-        let width = self.max_width.unwrap_or(metrics.width);
-        let height = metrics.height;
-        let anchor_x = self.anchor.x * width;
-        let anchor_y = if self.baseline_anchor {
-            metrics.ascent
-        } else {
-            self.anchor.y * height
-        };
-        let stroke = self
-            .style
+        TextPlacement::new(
+            &TextSize::of(&metrics, 0),
+            &self.style,
+            self.max_width,
+            self.anchor,
+            self.baseline_anchor,
+        )
+        .bounds(self.state.transform)
+    }
+}
+
+/// A text layer's layout, measured once and kept while frames use it
+/// (`GpuRenderer::text_sizes`).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TextSize {
+    pub(crate) width: f64,
+    pub(crate) height: f64,
+    /// The first line's top edge to its baseline.
+    pub(crate) ascent: f64,
+    /// Whether it is more than one line, which a raster window needs.
+    pub(crate) multiline: bool,
+    /// `GpuRenderer::texture_generation` when a frame last used it.
+    pub(crate) last_used: u64,
+}
+
+impl TextSize {
+    pub(crate) fn of(metrics: &TextMetrics, generation: u64) -> Self {
+        Self {
+            width: metrics.width,
+            height: metrics.height,
+            ascent: metrics.ascent,
+            multiline: metrics.lines > 1,
+            last_used: generation,
+        }
+    }
+}
+
+/// How much of a text layer to rasterize.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Windowed {
+    /// All of it: its raster fits a texture.
+    Whole,
+    /// Only this window of it, which its target shows.
+    Window(TextWindow),
+    /// None: its raster would not fit, and its target shows none of it.
+    Hidden,
+}
+
+/// The raster pixels a text window's sides are snapped out to, so a text
+/// that moves a little from frame to frame keeps its window.
+pub(crate) const TEXT_WINDOW_STEP: f64 = 512.0;
+
+/// A text layer laid out in its layer's units: the layout box (as the
+/// texture's anchor box) from `(-anchor_x, -anchor_y)`, and how far its
+/// glyphs can reach past it: the stroke's width and half the font size,
+/// room for glyphs that reach past their line box and for the raster's
+/// rounding.
+pub(crate) struct TextPlacement {
+    width: f64,
+    height: f64,
+    anchor_x: f64,
+    anchor_y: f64,
+    reach: f64,
+}
+
+impl TextPlacement {
+    pub(crate) fn new(
+        size: &TextSize,
+        style: &TextStyle,
+        max_width: Option<f64>,
+        anchor: Point,
+        baseline_anchor: bool,
+    ) -> Self {
+        let width = max_width.unwrap_or(size.width);
+        let stroke = style
             .stroke
             .as_ref()
             .map_or(0.0, |stroke| stroke.width.max(0.0));
-        let font_size = self.style.font_size.unwrap_or(32.0).abs();
-        let reach = stroke + font_size / 2.0;
-        let [left, top, right, bottom] = [
-            -anchor_x - reach,
-            -anchor_y - reach,
-            width - anchor_x + reach,
-            height - anchor_y + reach,
+        let font_size = style.font_size.unwrap_or(32.0).abs();
+        Self {
+            width,
+            height: size.height,
+            anchor_x: anchor.x * width,
+            anchor_y: if baseline_anchor {
+                size.ascent
+            } else {
+                anchor.y * size.height
+            },
+            reach: stroke + font_size / 2.0,
+        }
+    }
+
+    /// The layout box grown by `reach`, in layout units from its top-left.
+    fn reached(&self) -> [f64; 4] {
+        [
+            -self.reach,
+            -self.reach,
+            self.width + self.reach,
+            self.height + self.reach,
         ]
-        .map(|value| value as f32);
-        let t = self.state.transform;
-        let corners = [(left, top), (right, top), (left, bottom), (right, bottom)]
-            .map(|(x, y)| (t.a * x + t.c * y + t.tx, t.b * x + t.d * y + t.ty));
+    }
+
+    /// The box the text covers once rasterized, placed by `transform`.
+    pub(crate) fn bounds(&self, transform: Affine) -> PixelBounds {
+        let [left, top, right, bottom] = self.reached();
+        let t = transform;
+        let corners = [(left, top), (right, top), (left, bottom), (right, bottom)].map(|(x, y)| {
+            let (x, y) = ((x - self.anchor_x) as f32, (y - self.anchor_y) as f32);
+            (t.a * x + t.c * y + t.tx, t.b * x + t.d * y + t.ty)
+        });
         let min = |values: [f32; 4]| values.into_iter().fold(f32::INFINITY, f32::min);
         let max = |values: [f32; 4]| values.into_iter().fold(f32::NEG_INFINITY, f32::max);
         PixelBounds([
@@ -63,6 +150,68 @@ impl PendingText {
             max(corners.map(|(x, _)| x)),
             max(corners.map(|(_, y)| y)),
         ])
+    }
+
+    /// How much of the text to rasterize at `raster_scale` when placed by
+    /// `transform` onto a `target`-sized space: all of it while its raster
+    /// fits `limit` on either side (and always a single line, whose rows
+    /// the rasterizer trims to its ink); otherwise the part `target` shows,
+    /// snapped out to `TEXT_WINDOW_STEP` raster pixels.
+    pub(crate) fn windowed(
+        &self,
+        multiline: bool,
+        transform: Affine,
+        raster_scale: f32,
+        target: (u32, u32),
+        limit: u32,
+    ) -> Windowed {
+        let scale = f64::from(raster_scale);
+        let [left, top, right, bottom] = self.reached();
+        let limit = f64::from(limit);
+        if !multiline || ((right - left) * scale <= limit && (bottom - top) * scale <= limit) {
+            return Windowed::Whole;
+        }
+        let [a, b, c, d, tx, ty] = [
+            transform.a,
+            transform.b,
+            transform.c,
+            transform.d,
+            transform.tx,
+            transform.ty,
+        ]
+        .map(f64::from);
+        let det = a * d - b * c;
+        if det == 0.0 || !det.is_finite() {
+            return Windowed::Whole;
+        }
+        let (width, height) = (f64::from(target.0), f64::from(target.1));
+        let corners = [(0.0, 0.0), (width, 0.0), (0.0, height), (width, height)].map(|(x, y)| {
+            let (x, y) = (x - tx, y - ty);
+            (
+                (d * x - c * y) / det + self.anchor_x,
+                (a * y - b * x) / det + self.anchor_y,
+            )
+        });
+        let min = |values: [f64; 4]| values.into_iter().fold(f64::INFINITY, f64::min);
+        let max = |values: [f64; 4]| values.into_iter().fold(f64::NEG_INFINITY, f64::max);
+        let step = TEXT_WINDOW_STEP / scale;
+        let window = [
+            (min(corners.map(|(x, _)| x)) / step).floor() * step,
+            (min(corners.map(|(_, y)| y)) / step).floor() * step,
+            (max(corners.map(|(x, _)| x)) / step).ceil() * step,
+            (max(corners.map(|(_, y)| y)) / step).ceil() * step,
+        ];
+        let window = [
+            window[0].max(left),
+            window[1].max(top),
+            window[2].min(right),
+            window[3].min(bottom),
+        ];
+        if window[0] < window[2] && window[1] < window[3] {
+            Windowed::Window(window)
+        } else {
+            Windowed::Hidden
+        }
     }
 }
 
@@ -76,7 +225,7 @@ pub(crate) fn rasterize_text(
     let mut scale = job.raster_scale;
     let text = loop {
         let text = rasterizer
-            .rasterize(&job.text, &job.style, job.max_width, scale)
+            .rasterize_window(&job.text, &job.style, job.max_width, scale, job.window)
             .map_err(GpuRenderError::Text)?;
         let largest = text.width().max(text.height());
         if largest <= limit {
