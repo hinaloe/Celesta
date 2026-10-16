@@ -97,6 +97,8 @@ pub(crate) fn build_audio_graph(
             volume: clip.volume.clone(),
             muted: clip.muted,
             r#loop: clip.r#loop,
+            pitch: clip.pitch.clone(),
+            preserve_pitch: clip.preserve_pitch,
         });
     }
 

@@ -30,4 +30,9 @@ rust-version = "1.89"
 ez-ffmpeg = { version = "0.18" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+signalsmith-stretch = "0.1.3"
 ts-rs = { version = "12.0", features = ["serde-json-impl"] }
+
+[profile.dev.package.signalsmith-stretch]
+# The bundled C++ is unusably slow at -O0.
+opt-level = 3

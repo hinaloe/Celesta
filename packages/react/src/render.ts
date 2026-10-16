@@ -123,6 +123,10 @@ export interface AudioClipDescriptor {
   duration: number;
   /** Starts the source over from its beginning past its end. Present only when set. */
   loop?: true;
+  /** Transposition in semitones. Present only when not 0. */
+  pitch?: AnimatedNumber;
+  /** Playback rate changes duration only, not pitch. Present only when set. */
+  preservePitch?: true;
   /** The soundtrack of a `<Video>`, not an `<Audio>`. Present only when set. */
   video?: true;
 }
@@ -1167,6 +1171,8 @@ function collectAudioClip(
   const startFrom = numberOr(props.startFrom, 0);
   const playbackRate = animatedNumber(props.playbackRate, 1);
   const volume = animatedNumber(props.volume, 1);
+  // A `<Video>`'s soundtrack has no pitch controls.
+  const pitch = video ? 0 : animatedNumber(props.pitch, 0);
   // When the window clips the clip's head (an outer sequence started before
   // this clip's local zero, or negative `from`s stacked up), both the
   // source position and any animation keyframes shift by the clipped
@@ -1181,6 +1187,8 @@ function collectAudioClip(
     start: startSec,
     duration: endSec - startSec,
     ...(props.loop === true ? { loop: true } : {}),
+    ...(pitch !== 0 ? { pitch: shiftAnimated(pitch, -clipped) } : {}),
+    ...(!video && props.preservePitch === true ? { preservePitch: true } : {}),
     ...(video ? { video: true } : {}),
   });
 }

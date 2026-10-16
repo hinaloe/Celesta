@@ -96,6 +96,16 @@ pub struct ReactAudioClipDescriptor {
     /// when set.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub r#loop: bool,
+    /// Transposition in semitones. Reported only when not 0.
+    #[serde(
+        default = "celesta_composition::zero_pitch",
+        skip_serializing_if = "celesta_composition::is_zero_pitch"
+    )]
+    pub pitch: Animatable<f64>,
+    /// Playback rate changes duration only, not pitch. Reported only when
+    /// set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub preserve_pitch: bool,
     /// The soundtrack of a `<Video>`, not an `<Audio>`. Reported only when
     /// set.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

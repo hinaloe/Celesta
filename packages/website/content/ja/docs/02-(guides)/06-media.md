@@ -12,7 +12,20 @@
 - `Sequence` 内のメディアはシーケンスの開始と同時に始まり、終了時に止まります。
 - `volume` と音声の `playbackRate` には数値またはキーフレームを使えます。時刻は親シーケンスの開始からの秒数で、`{ value, timescale }` の形式です。
 
-frameKeyframes(keys, { fps, origin? }) は、フレーム番号から音量や再生速度のキーフレームを作ります。時刻は Audio を囲む Sequence の時計で (frame - origin) / fps 秒となり、origin の既定値は 0 です。音声のフェードなどに使えます。ブラウザでの書き出しは、固定の音量と再生速度に限られます。
+frameKeyframes(keys, { fps, origin? }) は、フレーム番号から音量・再生速度・ピッチのキーフレームを作ります。時刻は Audio を囲む Sequence の時計で (frame - origin) / fps 秒となり、origin の既定値は 0 です。音声のフェードなどに使えます。ブラウザでの書き出しは、固定の音量と再生速度に限られ、ピッチは使えません。
+
+## ピッチを変える
+
+`Audio` のピッチは既定では速度に連動します。テープと同じで、`playbackRate={1.25}` にすると速く、高くなります。2 つの props で切り離せます。
+
+```tsx
+<Audio src="bgm.mp3" playbackRate={1.25} preservePitch pitch={-2} />
+```
+
+- `pitch` はクリップを半音単位で移調します。既定値は 0、範囲は −24〜24 で、小数はセント（`0.5` は 50 セント）です。数値またはキーフレームを指定でき、キーフレームは `volume` と同じく `frameKeyframes` で作れます。範囲外の値は、React では ±24 に丸められ、プロジェクト JSON では検証エラーになります。
+- `preservePitch` の既定値は `false` で、`playbackRate` は従来どおり速度とピッチを一緒に変えます。`true` にすると、`playbackRate` は再生時間だけを変え、ピッチは `pitch` だけで決まります。
+- 聞こえる音は `2^(pitch / 12)` 倍の周波数になり、`preservePitch` を指定しないときはさらに `playbackRate` 倍になります。`pitch={12}` で 1 オクターブ上がります。
+- 指定できるのは `Audio` だけです。`Video` の音声や `Dialogue` の声には使えません。プレビューと書き出しは同じ音になりますが、`@celesta/web` のブラウザ書き出しは、これらを使ったクリップを「Audio pitch and preservePitch are not supported by browser export yet.」のエラーで拒否します。
 
 ## メディアに合わせてシーンの長さを決める
 

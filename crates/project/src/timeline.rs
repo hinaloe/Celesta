@@ -172,6 +172,10 @@ pub enum TimelineContent {
         volume: Option<Animatable<f64>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         muted: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pitch: Option<Animatable<f64>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preserve_pitch: Option<bool>,
     },
     Image {
         asset: AssetId,

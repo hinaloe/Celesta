@@ -5,6 +5,7 @@ use crate::ffmpeg::FfmpegBackend;
 use crate::mix::{frame_byte_len, mix_audio_graph, mix_audio_graph_cancellable};
 use crate::probe::displayed_size;
 use crate::sequential::path_to_url;
+use crate::stretch::needs_stretch;
 use crate::types::{AudioBuffer, VideoFrame};
 use celesta_composition::{AudioGraph, Rational, Time};
 use ez_ffmpeg::Input;
@@ -13,7 +14,10 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use celesta_composition::{Animatable, AssetLocation, AudioClip, ResolvedAsset, TimeRange};
+use celesta_composition::{
+    Animatable, AssetLocation, AudioClip, Keyframe, KeyframeAnimation, KeyframeAnimationType,
+    ResolvedAsset, TimeRange, integrate_f64,
+};
 use ez_ffmpeg::{FfmpegContext, Output};
 
 /// Renders a synthetic `lavfi` source to a lossless MKV fixture through
@@ -447,6 +451,8 @@ fn mixes_audio_at_exact_timeline_and_source_offsets() {
             volume: Animatable::Static(0.5),
             muted: false,
             r#loop: false,
+            pitch: Animatable::Static(0.0),
+            preserve_pitch: false,
         }],
     };
 
@@ -525,6 +531,8 @@ fn loops_audio_from_the_start_of_the_source_past_its_end() {
             volume: Animatable::Static(1.0),
             muted: false,
             r#loop: true,
+            pitch: Animatable::Static(0.0),
+            preserve_pitch: false,
         }],
     };
     let left = |graph: &AudioGraph| {
@@ -578,4 +586,369 @@ fn cancels_audio_mix_before_decoding() {
     .unwrap_err();
 
     assert!(matches!(error, AudioMixError::Cancelled));
+}
+
+/// Hands every clip the same in-memory source.
+struct BufferDecoder(AudioBuffer);
+
+impl AudioDecoder for BufferDecoder {
+    fn decode_audio(&mut self, _: &Path, _: u32, _: u16) -> Result<AudioBuffer, MediaError> {
+        Ok(self.0.clone())
+    }
+}
+
+const RATE: u32 = 48_000;
+
+fn seconds(value: f64) -> Time {
+    Time::samples((value * f64::from(RATE)).round() as i64, RATE)
+}
+
+/// A 48 kHz stereo sine of amplitude 0.5 sounding over `[from_s, to_s)` of
+/// a `total_s` source, silent elsewhere.
+fn tone(hz: f64, from_s: f64, to_s: f64, total_s: f64) -> AudioBuffer {
+    let frames = (total_s * f64::from(RATE)).round() as usize;
+    let samples = (0..frames)
+        .flat_map(|frame| {
+            let time = frame as f64 / f64::from(RATE);
+            let sample = if (from_s..to_s).contains(&time) {
+                (0.5 * (std::f64::consts::TAU * hz * time).sin()) as f32
+            } else {
+                0.0
+            };
+            [sample, sample]
+        })
+        .collect();
+    AudioBuffer {
+        sample_rate: RATE,
+        channels: 2,
+        samples,
+    }
+}
+
+fn clip(range_start_s: f64, duration_s: f64) -> AudioClip {
+    AudioClip {
+        id: "tone".to_owned(),
+        asset: ResolvedAsset {
+            id: "tone".to_owned(),
+            location: AssetLocation::File {
+                path: "tone.wav".to_owned(),
+            },
+        },
+        range: TimeRange {
+            start: seconds(range_start_s),
+            duration: seconds(duration_s),
+        },
+        source_start: Time::ZERO,
+        source_duration: None,
+        playback_rate: Animatable::Static(1.0),
+        volume: Animatable::Static(1.0),
+        muted: false,
+        r#loop: false,
+        pitch: Animatable::Static(0.0),
+        preserve_pitch: false,
+    }
+}
+
+fn linear(from: f64, to: f64, over_s: f64) -> Animatable<f64> {
+    Animatable::Keyframes(KeyframeAnimation {
+        kind: KeyframeAnimationType::Keyframes,
+        keyframes: vec![
+            Keyframe {
+                time: Time::ZERO,
+                value: from,
+                easing: None,
+            },
+            Keyframe {
+                time: seconds(over_s),
+                value: to,
+                easing: None,
+            },
+        ],
+    })
+}
+
+/// The left channel of a `duration_s` timeline holding only `clip`.
+fn mix_left(clip: AudioClip, source: AudioBuffer, duration_s: f64) -> Vec<f32> {
+    let graph = AudioGraph {
+        sample_rate: RATE,
+        master_volume: 1.0,
+        clips: vec![clip],
+    };
+    mix_audio_graph(
+        &graph,
+        Path::new("assets"),
+        seconds(duration_s),
+        &mut BufferDecoder(source),
+    )
+    .unwrap()
+    .samples
+    .as_chunks::<2>()
+    .0
+    .iter()
+    .map(|frame| frame[0])
+    .collect()
+}
+
+fn window(left: &[f32], from_s: f64, to_s: f64) -> &[f32] {
+    let frame = |time: f64| ((time * f64::from(RATE)).round() as usize).min(left.len());
+    &left[frame(from_s)..frame(to_s)]
+}
+
+/// Rising zero crossings per second over `[from_s, to_s)`.
+fn frequency(left: &[f32], from_s: f64, to_s: f64) -> f64 {
+    let crossings = window(left, from_s, to_s)
+        .windows(2)
+        .filter(|pair| pair[0] < 0.0 && pair[1] >= 0.0)
+        .count();
+    crossings as f64 / (to_s - from_s)
+}
+
+fn onset(left: &[f32]) -> Option<usize> {
+    left.iter().position(|sample| sample.abs() > 0.05)
+}
+
+fn rms(left: &[f32], from_s: f64, to_s: f64) -> f32 {
+    let samples = window(left, from_s, to_s);
+    (samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32).sqrt()
+}
+
+#[track_caller]
+fn assert_near(actual: f64, expected: f64, tolerance: f64) {
+    assert!(
+        (actual - expected).abs() <= expected.abs() * tolerance,
+        "{actual} is not within {}% of {expected}",
+        tolerance * 100.0
+    );
+}
+
+#[test]
+fn fast_path_is_chosen_without_pitch_work() {
+    let base = clip(0.0, 1.0);
+    let with = |change: fn(&mut AudioClip)| {
+        let mut clip = base.clone();
+        change(&mut clip);
+        needs_stretch(&clip)
+    };
+
+    assert!(!needs_stretch(&base));
+    assert!(!with(|clip| clip.playback_rate = Animatable::Static(2.0)));
+    assert!(!with(|clip| {
+        clip.playback_rate = Animatable::Static(2.0);
+        clip.pitch = Animatable::Static(0.0);
+        clip.preserve_pitch = false;
+    }));
+    assert!(!with(|clip| clip.preserve_pitch = true));
+    assert!(with(|clip| clip.pitch = Animatable::Static(1.0)));
+    assert!(with(|clip| {
+        clip.playback_rate = Animatable::Static(2.0);
+        clip.preserve_pitch = true;
+    }));
+}
+
+#[test]
+fn pitch_up_an_octave_doubles_frequency() {
+    let mut clip = clip(0.0, 1.0);
+    clip.pitch = Animatable::Static(12.0);
+
+    let left = mix_left(clip, tone(440.0, 0.0, 1.0, 1.0), 1.0);
+
+    assert_near(frequency(&left, 0.2, 0.8), 880.0, 0.02);
+}
+
+#[test]
+fn preserved_pitch_at_double_rate_halves_length() {
+    let mut clip = clip(0.0, 1.0);
+    clip.playback_rate = Animatable::Static(2.0);
+    clip.preserve_pitch = true;
+
+    let left = mix_left(clip, tone(440.0, 0.0, 0.5, 1.0), 1.0);
+
+    assert_near(frequency(&left, 0.05, 0.2), 440.0, 0.02);
+    assert!(rms(&left, 0.3, 1.0) < 0.01);
+    assert!(rms(&left, 0.05, 0.2) > 0.2);
+}
+
+#[test]
+fn tape_rate_with_pitch_down_an_octave_cancels() {
+    let mut clip = clip(0.0, 1.0);
+    clip.playback_rate = Animatable::Static(2.0);
+    clip.pitch = Animatable::Static(-12.0);
+
+    let left = mix_left(clip, tone(440.0, 0.0, 2.0, 2.0), 1.0);
+
+    assert_near(frequency(&left, 0.2, 0.8), 440.0, 0.02);
+}
+
+#[test]
+fn keyframed_pitch_rises_over_the_clip() {
+    let mut clip = clip(0.0, 1.0);
+    clip.pitch = linear(0.0, 12.0, 1.0);
+
+    let left = mix_left(clip, tone(440.0, 0.0, 1.0, 1.0), 1.0);
+
+    let first = frequency(&left, 0.05, 0.15);
+    let last = frequency(&left, 0.85, 0.95);
+    assert!(first < last, "{first} Hz does not rise to {last} Hz");
+    assert_near(last, 440.0 * 2.0_f64.powf(0.9), 0.03);
+}
+
+#[test]
+fn stretched_onset_matches_the_fast_path() {
+    let source = tone(440.0, 0.25, 1.0, 1.0);
+    let mut shifted = clip(0.0, 1.0);
+    shifted.pitch = Animatable::Static(1.0);
+
+    let fast = onset(&mix_left(clip(0.0, 1.0), source.clone(), 1.0)).unwrap();
+    let stretched = onset(&mix_left(shifted, source, 1.0)).unwrap();
+
+    assert!(
+        fast.abs_diff(stretched) <= 240,
+        "stretched onset {stretched} is not near {fast}"
+    );
+}
+
+#[test]
+fn stretched_clip_honors_loop_and_source_duration() {
+    let mut looped = clip(0.0, 1.0);
+    looped.r#loop = true;
+    looped.pitch = Animatable::Static(12.0);
+    let left = mix_left(looped, tone(440.0, 0.0, 0.25, 0.25), 1.0);
+    assert!(rms(&left, 0.85, 0.95) > 0.2);
+
+    let mut trimmed = clip(0.0, 1.0);
+    trimmed.source_duration = Some(seconds(0.25));
+    trimmed.pitch = Animatable::Static(12.0);
+    let left = mix_left(trimmed, tone(440.0, 0.0, 1.0, 1.0), 1.0);
+    assert!(rms(&left, 0.35, 1.0) < 0.01);
+}
+
+#[test]
+fn cancels_a_stretched_clip_between_blocks() {
+    let mut clip = clip(0.0, 2.0);
+    clip.pitch = Animatable::Static(12.0);
+    let graph = AudioGraph {
+        sample_rate: RATE,
+        master_volume: 1.0,
+        clips: vec![clip],
+    };
+    let mut calls = 0;
+
+    // Before the mix, per clip, after decoding, then the first block.
+    let error = mix_audio_graph_cancellable(
+        &graph,
+        Path::new("assets"),
+        seconds(2.0),
+        &mut BufferDecoder(tone(440.0, 0.0, 2.0, 2.0)),
+        || {
+            calls += 1;
+            calls >= 4
+        },
+    )
+    .unwrap_err();
+
+    assert!(matches!(error, AudioMixError::Cancelled));
+}
+
+#[test]
+fn clamps_pitch_beyond_two_octaves() {
+    let source = tone(110.0, 0.0, 1.0, 1.0);
+    let mut beyond = clip(0.0, 1.0);
+    beyond.pitch = Animatable::Static(48.0);
+    let mut limit = clip(0.0, 1.0);
+    limit.pitch = Animatable::Static(24.0);
+
+    let beyond = frequency(&mix_left(beyond, source.clone(), 1.0), 0.2, 0.8);
+    let limit = frequency(&mix_left(limit, source, 1.0), 0.2, 0.8);
+
+    assert_near(beyond, limit, 0.02);
+    assert_near(limit, 440.0, 0.02);
+}
+
+#[test]
+fn short_stretched_clip_stays_inside_its_range() {
+    // 240 frames, far fewer than the stretcher's latency.
+    let mut clip = clip(0.1, 0.005);
+    clip.pitch = Animatable::Static(12.0);
+
+    let left = mix_left(clip, tone(440.0, 0.0, 1.0, 1.0), 0.2);
+
+    assert_eq!(rms(&left, 0.0, 0.099), 0.0);
+    assert_eq!(rms(&left, 0.106, 0.2), 0.0);
+}
+
+#[test]
+fn stretched_clip_starting_before_zero_plays_from_its_offset() {
+    let mut clip = clip(-0.5, 1.0);
+    clip.pitch = Animatable::Static(1.0);
+
+    let left = mix_left(clip, tone(440.0, 0.5, 1.0, 1.0), 0.5);
+
+    let onset = onset(&left).unwrap();
+    assert!(onset <= 240, "onset {onset} is not near frame 0");
+}
+
+#[test]
+fn animated_rate_with_preserved_pitch_does_not_drift() {
+    let mut clip = clip(0.0, 2.0);
+    clip.playback_rate = linear(1.0, 2.0, 2.0);
+    clip.preserve_pitch = true;
+    // The first frame whose source position reaches the tone at 1.5 s.
+    let expected = (0..2 * RATE as i64)
+        .find(|&frame| {
+            integrate_f64(&clip.playback_rate, Time::samples(frame, RATE)).unwrap() >= 1.5
+        })
+        .unwrap() as usize;
+
+    let left = mix_left(clip, tone(440.0, 1.5, 3.0, 3.0), 2.0);
+
+    // Stretching at a rate other than 1 smears the tone's attack over the
+    // stretcher's window, so its first 10 % arrives ~12 ms early whatever the
+    // drift; a drifting source position would move the half-level point too.
+    let onset = left.iter().position(|sample| sample.abs() > 0.25).unwrap();
+    assert!(
+        onset.abs_diff(expected) <= 240,
+        "onset {onset} is not near {expected}"
+    );
+}
+
+#[test]
+fn slow_rate_with_preserved_pitch_keeps_pitch_and_stays_continuous() {
+    let mut clip = clip(0.0, 2.0);
+    clip.playback_rate = Animatable::Static(0.5);
+    clip.preserve_pitch = true;
+
+    let left = mix_left(clip, tone(440.0, 0.0, 1.0, 1.0), 2.0);
+
+    assert_near(frequency(&left, 0.2, 1.8), 440.0, 0.02);
+    for start in (0..36).map(|index| 0.1 + f64::from(index) * 0.05) {
+        let level = rms(&left, start, start + 0.05);
+        assert!(level > 0.2, "rms {level} at {start} s");
+    }
+}
+
+#[test]
+fn stretching_refuses_sample_rates_signalsmith_cannot_run_at() {
+    let mut clip = clip(0.0, 1.0);
+    clip.pitch = Animatable::Static(12.0);
+    let mut source = tone(440.0, 0.0, 1.0, 1.0);
+    source.sample_rate = 4000;
+    let graph = AudioGraph {
+        sample_rate: 4000,
+        master_volume: 1.0,
+        clips: vec![clip],
+    };
+
+    let error = mix_audio_graph(
+        &graph,
+        Path::new("assets"),
+        seconds(1.0),
+        &mut BufferDecoder(source),
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        AudioMixError::PitchNeedsSampleRate { sample_rate: 4000 }
+    ));
+    assert!(error.to_string().contains("at least 8000 Hz"));
 }

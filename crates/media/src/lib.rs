@@ -9,6 +9,7 @@ mod ffmpeg;
 mod mix;
 mod probe;
 mod sequential;
+mod stretch;
 #[cfg(test)]
 mod tests;
 mod types;

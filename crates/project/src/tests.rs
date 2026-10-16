@@ -1,5 +1,6 @@
 use crate::character::{LipSyncCue, LipSyncDefinition, MouthShape};
 use crate::document::{Project, ProjectVersion};
+use crate::error::LoadError;
 use crate::timeline::{TimelineContent, TimelineEffects, TimelineItem, TimelineShadow};
 use crate::{Animatable, BlendMode, Time};
 use serde_json::Value;
@@ -256,6 +257,89 @@ fn validates_project_master_volume() {
     let errors = project.validate().unwrap_err();
 
     assert_eq!(errors.as_slice()[0].path, "settings.masterVolume");
+}
+
+fn audio_project_json(pitch: Option<Value>) -> String {
+    let mut json: Value =
+        serde_json::from_str(include_str!("../../../examples/voiceroid.celesta.json")).unwrap();
+    let mut content = serde_json::json!({"type": "audio", "asset": "voice-001"});
+    if let Some(pitch) = pitch {
+        content["pitch"] = pitch;
+    }
+    json["tracks"][0]["items"][0]["content"] = content;
+    json.to_string()
+}
+
+fn audio_pitch_keyframes(values: [f64; 2]) -> Value {
+    serde_json::json!({
+        "type": "keyframes",
+        "keyframes": [
+            {"time": {"value": 0, "timescale": 60}, "value": values[0]},
+            {"time": {"value": 60, "timescale": 60}, "value": values[1]},
+        ],
+    })
+}
+
+#[test]
+fn validates_audio_pitch_range() {
+    let pitch_path = "tracks[0].items[0].content.pitch";
+    let rejected_path = |pitch: Value| {
+        let LoadError::Validation(errors) =
+            Project::from_json(&audio_project_json(Some(pitch))).unwrap_err()
+        else {
+            panic!("expected validation error");
+        };
+        assert_eq!(errors.as_slice().len(), 1);
+        errors.as_slice()[0].path.clone()
+    };
+
+    assert_eq!(rejected_path(serde_json::json!(24.5)), pitch_path);
+    assert_eq!(
+        rejected_path(audio_pitch_keyframes([0.0, -25.0])),
+        format!("{pitch_path}.keyframes[1].value")
+    );
+
+    // JSON cannot carry NaN, so set it on a valid project in memory.
+    let mut project = Project::from_json(&audio_project_json(None)).unwrap();
+    let TimelineContent::Audio { pitch, .. } = &mut project.tracks[0].items[0].content else {
+        panic!("expected an audio item");
+    };
+    *pitch = Some(Animatable::Static(f64::NAN));
+    let errors = project.validate().unwrap_err();
+    assert_eq!(errors.as_slice().len(), 1);
+    assert_eq!(errors.as_slice()[0].path, pitch_path);
+
+    for pitch in [
+        serde_json::json!(-24.0),
+        serde_json::json!(24.0),
+        audio_pitch_keyframes([0.0, 24.0]),
+    ] {
+        Project::from_json(&audio_project_json(Some(pitch)))
+            .unwrap()
+            .validate()
+            .unwrap();
+    }
+}
+
+#[test]
+fn audio_items_without_pitch_round_trip_unchanged() {
+    let project = Project::from_json(&audio_project_json(None)).unwrap();
+    let first = project.to_json().unwrap();
+    let second = Project::from_json(&first).unwrap().to_json().unwrap();
+
+    assert_eq!(first, second);
+    assert!(!first.contains("pitch"));
+    assert!(!first.contains("preservePitch"));
+
+    let mut json: Value = serde_json::from_str(&first).unwrap();
+    json["tracks"][0]["items"][0]["content"]["pitch"] = serde_json::json!(-3.0);
+    json["tracks"][0]["items"][0]["content"]["preservePitch"] = serde_json::json!(true);
+    let saved = Project::from_json(&json.to_string())
+        .unwrap()
+        .to_json()
+        .unwrap();
+    assert!(saved.contains("\"pitch\": -3.0"));
+    assert!(saved.contains("\"preservePitch\": true"));
 }
 
 #[test]

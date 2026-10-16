@@ -9,7 +9,7 @@ use celesta_exporter::{
 use celesta_gpu_renderer::GpuRenderError;
 use celesta_media::{FfmpegBackend, VideoFrameDecoder};
 use celesta_project::{
-    Asset, AssetSource, Project, TimelineContent, TimelineItem, Track, TrackKind,
+    Animatable, Asset, AssetSource, Project, TimelineContent, TimelineItem, Track, TrackKind,
 };
 use ez_ffmpeg::stream_info::{StreamInfo, find_audio_stream_info, find_video_stream_info};
 use ez_ffmpeg::{FfmpegContext, Input, Output};
@@ -599,9 +599,9 @@ fn audio_stream(url: &str) -> (String, i32) {
     (codec_name, sample_rate)
 }
 
-/// How many seconds of audio `path` decodes to, after the decoder drops the
-/// encoder's priming samples.
-fn decoded_audio_seconds(path: &Path) -> f64 {
+/// `path`'s first audio stream decoded to mono `f32` samples, with the sample
+/// rate the stream reports (the decoder drops the encoder's priming samples).
+fn decoded_audio(path: &Path) -> (Vec<f32>, u32) {
     let raw = path.with_extension("f32");
     FfmpegContext::builder()
         .input(Input::from(path.to_string_lossy().into_owned()))
@@ -619,7 +619,21 @@ fn decoded_audio_seconds(path: &Path) -> f64 {
         .wait()
         .unwrap();
     let (_, sample_rate) = audio_stream(&path.to_string_lossy());
-    std::fs::metadata(raw).unwrap().len() as f64 / 4.0 / f64::from(sample_rate)
+    let bytes = std::fs::read(raw).unwrap();
+    let samples = bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|bytes| f32::from_le_bytes(*bytes))
+        .collect();
+    (samples, sample_rate as u32)
+}
+
+/// How many seconds of audio `path` decodes to, after the decoder drops the
+/// encoder's priming samples.
+fn decoded_audio_seconds(path: &Path) -> f64 {
+    let (samples, sample_rate) = decoded_audio(path);
+    samples.len() as f64 / f64::from(sample_rate)
 }
 
 /// The red quadrant keeps its straight color and half alpha (within
@@ -674,6 +688,88 @@ fn exports_transparent_vp9_webm() {
     assert_eq!(audio_stream(&url), ("opus".to_owned(), 48_000));
     // 4:2:0 chroma blurs the quadrant's color a little more.
     assert_transparent_quadrant(&decode_rgba64(&output, Some("libvpx-vp9")), 6 * 257);
+}
+
+#[test]
+fn exports_a_pitched_audio_clip() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut project = transparent_project(directory.path());
+    // Two seconds of 440 Hz at the project's sample rate; the item plays them
+    // at 2x in one second, which `preservePitch` keeps at 440 Hz, and `pitch` 7
+    // lifts it a fifth to 440 * 2^(7/12) = 659.26 Hz. Dropping either field
+    // gives 880 Hz, 1318 Hz or 440 Hz instead.
+    FfmpegContext::builder()
+        .input(Input::from("sine=frequency=440:sample_rate=8000:duration=2").set_format("lavfi"))
+        .output(
+            directory
+                .path()
+                .join("tone.wav")
+                .to_string_lossy()
+                .into_owned(),
+        )
+        .build()
+        .unwrap()
+        .start()
+        .unwrap()
+        .wait()
+        .unwrap();
+    project.assets.insert(
+        "tone".to_owned(),
+        Asset::Audio {
+            name: None,
+            source: AssetSource::File {
+                path: "tone.wav".to_owned(),
+            },
+        },
+    );
+    project.tracks.push(Track {
+        id: "audio".to_owned(),
+        name: "Audio".to_owned(),
+        kind: TrackKind::Audio,
+        enabled: None,
+        locked: None,
+        muted: None,
+        solo: None,
+        items: vec![TimelineItem {
+            id: "tone".to_owned(),
+            name: None,
+            range: TimeRange {
+                start: Time::ZERO,
+                duration: Time::new(1, 1),
+            },
+            content: TimelineContent::Audio {
+                asset: "tone".to_owned(),
+                source_range: None,
+                playback_rate: Some(Animatable::Static(2.0)),
+                volume: None,
+                muted: None,
+                pitch: Some(Animatable::Static(7.0)),
+                preserve_pitch: Some(true),
+            },
+            enabled: None,
+            transform: None,
+            opacity: None,
+            blend_mode: None,
+            effects: None,
+        }],
+    });
+    let Some(output) = export_as(&project, directory.path(), VideoFormat::Mp4, "clip.mp4") else {
+        return;
+    };
+
+    let (samples, sample_rate) = decoded_audio(&output);
+    let rate = f64::from(sample_rate);
+    let window = &samples[(0.2 * rate) as usize..(0.8 * rate) as usize];
+    let rising = window
+        .windows(2)
+        .filter(|pair| pair[0] < 0.0 && pair[1] >= 0.0)
+        .count();
+    let frequency = rising as f64 / 0.6;
+    let expected = 440.0 * (7.0_f64 / 12.0).exp2();
+    assert!(
+        (expected * 0.97..=expected * 1.03).contains(&frequency),
+        "expected about {expected} Hz, measured {frequency} Hz"
+    );
 }
 
 #[test]

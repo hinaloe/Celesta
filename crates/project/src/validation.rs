@@ -279,10 +279,19 @@ impl Validator<'_> {
                 source_range,
                 playback_rate,
                 volume,
+                pitch,
                 ..
             } => {
                 self.asset_ref(&format!("{path}.content.asset"), asset, AssetKind::Audio);
                 self.media_fields(path, source_range, playback_rate, volume);
+                if let Some(pitch) = pitch {
+                    self.animatable(
+                        &format!("{path}.content.pitch"),
+                        pitch,
+                        |v| v.is_finite() && (-24.0..=24.0).contains(v),
+                        "must be finite and between -24 and 24",
+                    );
+                }
             }
             TimelineContent::Image {
                 asset,

@@ -118,5 +118,7 @@ export type AudioClip = {
   start: number;
   duration: number;
   loop?: boolean;
+  pitch?: number | { type: 'keyframes'; keyframes: unknown[] };
+  preservePitch?: boolean;
 };
 export type Frame = { scene: Scene; audio: AudioClip[] };

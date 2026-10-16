@@ -13,6 +13,7 @@ ez-ffmpeg.workspace = true
 # The same FFmpeg bindings ez-ffmpeg links, for reading decoded frames.
 ffmpeg-sys-next = "8.1.0"
 rayon = "1.12.0"
+signalsmith-stretch.workspace = true
 
 # macOS packages bundle Homebrew dylibs; retain static linking elsewhere.
 [target.'cfg(not(target_os = "macos"))'.dependencies]

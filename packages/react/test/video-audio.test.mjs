@@ -80,3 +80,29 @@ test('loop reaches the picture and the sound of <Video>, and the sound of <Audio
   expect(mount(root(30, h(Video, { src: './clip.mp4' }))).renderAt({ value: 0, timescale: 30 }, null)
     .scene.layers[0].content.timing).not.toHaveProperty('loop');
 });
+
+test('<Audio> pitch and preservePitch reach its clip, shifted like volume', () => {
+  const curve = frameKeyframes([{ frame: 0, value: 0 }, { frame: 30, value: 12 }], { fps: 30 });
+  const composition = mount(root(60,
+    h(Sequence, { from: -15 },
+      h(Audio, { src: './a.wav', pitch: curve, preservePitch: true, playbackRate: 2 }),
+      h(Audio, { src: './a.wav', volume: curve })),
+    h(Audio, { src: './b.wav', pitch: -3 }),
+    h(Audio, { src: './c.wav', pitch: 0 })));
+  const [a, sameAsVolume, b, c] = at(composition, 0).audio;
+  expect(a.preservePitch).toBe(true);
+  // The head is clipped by half a second, which moves every keyframe the
+  // same way it moves a volume curve's.
+  expect(a.pitch).toEqual(sameAsVolume.volume);
+  expect(a.pitch.keyframes.map((keyframe) => keyframe.time)).not.toEqual(curve.keyframes.map((keyframe) => keyframe.time));
+  expect(b).toMatchObject({ pitch: -3 });
+  expect(b.preservePitch).toBeUndefined();
+  expect('pitch' in c).toBe(false);
+  expect('preservePitch' in c).toBe(false);
+});
+
+test('<Video> never reports pitch', () => {
+  const composition = mount(root(30, h(Video, { src: './clip.mp4', playbackRate: 2, pitch: 4, preservePitch: true })));
+  const [clip] = at(composition, 0).audio;
+  expect('pitch' in clip || 'preservePitch' in clip).toBe(false);
+});

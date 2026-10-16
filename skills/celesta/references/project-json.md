@@ -176,7 +176,13 @@ head (seconds into the file); optional `sourceRange.duration` limits it.
 
 ### audio
 
-Same fields as `video`, referencing an `audio` asset. No picture.
+Same fields as `video`, referencing an `audio` asset. No picture. Also takes
+optional `pitch` (semitones, number or keyframes, default 0, −24…24; fractions
+are cents) and `preservePitch` (boolean, default false: `playbackRate` moves
+speed and pitch together; true: it changes only the duration and `pitch` alone
+sets the pitch). Heard transposition is
+`2^(pitch/12) × (preservePitch ? 1 : playbackRate)`. `video` items do not take
+them, and `@celesta/web`'s `exportMp4` rejects them.
 
 ### image
 
@@ -251,7 +257,7 @@ exactly.
   For a 1920×1080 canvas, the center is `{ "x": 960, "y": 540 }`.
 - `scale` defaults to 1, `rotation` is in degrees clockwise.
 - Every number (each `x`/`y`, `rotation`, `opacity`, `volume`,
-  `playbackRate`) can be a plain number or keyframes.
+  `playbackRate`, audio `pitch`) can be a plain number or keyframes.
 
 ## Keyframes
 
@@ -306,8 +312,8 @@ Celesta rejects the project if any of these fail:
 - Every asset reference exists and has the right kind (`video` item → video
   asset, `audio` → audio, `image` → image, portrait expressions and mouths →
   image, dialogue `audio` → audio).
-- `opacity` values within 0–1; `volume` ≥ 0; `playbackRate` > 0; transform
-  numbers finite.
+- `opacity` values within 0–1; `volume` ≥ 0; `playbackRate` > 0; audio `pitch`
+  finite within −24…24; transform numbers finite.
 - Keyframe lists non-empty, times ≥ 0 and ascending.
 - Effects: blur radii 0–64; shadow and glow colors and the tint color
   exactly `#RRGGBB` or `#RRGGBBAA`; `brightness`, `contrast`,

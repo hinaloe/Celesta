@@ -2,6 +2,7 @@ import { AudioBufferSource, BufferTarget, CanvasSource, Mp4OutputFormat, Output,
 import type { AudioClip, CompositionConfig } from './types';
 import { SceneCanvas } from './scene-canvas';
 import { Engine } from './engine';
+import { assertBrowserMixable } from './audio-support';
 
 async function mixAudio(clips: AudioClip[], renderer: SceneCanvas, duration: number): Promise<AudioBuffer> {
   const sampleRate = 48_000;
@@ -9,10 +10,7 @@ async function mixAudio(clips: AudioClip[], renderer: SceneCanvas, duration: num
   const decoded = new Map<string, AudioBuffer>();
   for (const clip of clips) {
     if (clip.muted || clip.volume === 0) continue;
-    if (typeof clip.playbackRate !== 'number' || typeof clip.volume !== 'number') {
-      throw new Error('Animated audio volume and playback rate are not supported by browser export yet.');
-    }
-    if (!(clip.playbackRate > 0)) throw new Error('Audio playback rate must be positive.');
+    assertBrowserMixable(clip);
     let buffer = decoded.get(clip.src);
     if (!buffer) {
       buffer = await context.decodeAudioData(await renderer.audioBytes(clip.src));
