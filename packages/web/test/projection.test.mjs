@@ -247,3 +247,16 @@ test('a minified pixel takes a tap per texel it covers, up to 8 by 8', () => {
   assert.deepEqual(tapCount([[20, 0, 0], [0, 0.5, 0], [0, 0, 1]], 0.5, 0.5), [8, 1]);
   assert.deepEqual(tapCount(IDENTITY3, 0.5, 0.5), [1, 1]);
 });
+
+test('warping skips footprints over transparent texels only, and reads texels at the edges', () => {
+  // Shown texels only at a corner and in the middle of a 64×64 source,
+  // minified 4× so each pixel's footprint spans 4×4 texels.
+  const source = new Uint8ClampedArray(64 * 64 * 4);
+  for (const [x, y] of [[0, 0], [41, 41]]) source.set([255, 0, 0, 255], (y * 64 + x) * 4);
+  const target = filled(16, 16, [0, 0, 255, 255]);
+  warp(source, 64, 64, target, 16, [[4, 0, 0], [0, 4, 0], [0, 0, 1]], [0, 0, 16, 16]);
+  const at = (x, y) => [...target.subarray((y * 16 + x) * 4, (y * 16 + x) * 4 + 4)];
+  assert.ok(at(0, 0)[0] > 0, `the corner texel shows: ${at(0, 0)}`);
+  assert.ok(at(10, 10)[0] > 0, `the middle texel shows: ${at(10, 10)}`);
+  assert.deepEqual(at(5, 5), [0, 0, 255, 255], 'nothing drawn over transparent texels');
+});

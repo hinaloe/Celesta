@@ -291,7 +291,8 @@ export function effectScale(forward: Matrix3, raster: PlaneRaster): number {
 
 /** How many taps across `d` (a pixel's step in source pixels) the footprint filter takes: one per pixel crossed, 1 to 8. */
 function taps(dx: number, dy: number): number {
-  const crossed = Math.ceil(Math.hypot(dx, dy));
+  // Not `Math.hypot`, which is several times slower; the steps are small.
+  const crossed = Math.ceil(Math.sqrt(dx * dx + dy * dy));
   // Also 1 for a step that is not finite.
   return crossed > 1 ? Math.min(crossed, MAX_TAPS) : 1;
 }
@@ -315,7 +316,9 @@ export function tapCount(toSource: Matrix3, x: number, y: number): [number, numb
  * source point is `1 / W`, and a pixel nearer the viewer than `NEAR_W` (or
  * behind it) is left as it was. Each pixel averages an `nx × ny` grid of
  * premultiplied bilinear taps over its footprint (`tapCount`), with
- * transparent texels past the source's edges.
+ * transparent texels past the source's edges. A pixel whose footprint
+ * covers only transparent texels is skipped, and one whose taps all fall
+ * inside the source reads them without bounds checks.
  */
 export function warp(
   source: Uint8ClampedArray, sourceWidth: number, sourceHeight: number,
@@ -323,17 +326,9 @@ export function warp(
 ): void {
   const targetHeight = target.length / 4 / targetWidth;
   const [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] = toSource;
-  // Premultiplied (0–255²) red, green, and blue, and alpha (0–255), summed over a pixel's taps.
-  let red = 0, green = 0, blue = 0, coverage = 0;
-  // Adds the premultiplied texel at `x, y` (none past the edges) times `weight`.
-  const texel = (x: number, y: number, weight: number) => {
-    if (x < 0 || y < 0 || x >= sourceWidth || y >= sourceHeight || weight === 0) return;
-    const i = (y * sourceWidth + x) * 4, alpha = source[i + 3] * weight;
-    red += source[i] * alpha;
-    green += source[i + 1] * alpha;
-    blue += source[i + 2] * alpha;
-    coverage += alpha;
-  };
+  const stride = sourceWidth * 4;
+  const shown = occupiedTiles(source, sourceWidth, sourceHeight);
+  const tileColumns = Math.ceil(sourceWidth / TILE) + 1;
   const left = Math.max(0, Math.floor(box[0])), top = Math.max(0, Math.floor(box[1]));
   const right = Math.min(targetWidth, Math.ceil(box[2])), bottom = Math.min(targetHeight, Math.ceil(box[3]));
   for (let y = top; y < bottom; y++) {
@@ -347,18 +342,67 @@ export function warp(
       if (!(sx >= 0 && sy >= 0 && sx <= sourceWidth && sy <= sourceHeight)) continue;
       const xx = (m00 - sx * m20) / w, xy = (m10 - sy * m20) / w, yx = (m01 - sx * m21) / w, yy = (m11 - sy * m21) / w;
       const columns = taps(xx, xy), rows = taps(yx, yy);
-      red = green = blue = coverage = 0;
+      // The texels the taps can read: half the footprint either side of
+      // the centre, the bilinear neighbours, and a texel more for rounding.
+      const reachX = (Math.abs(xx) + Math.abs(yx)) / 2, reachY = (Math.abs(xy) + Math.abs(yy)) / 2;
+      const x0 = Math.floor(sx - reachX - 0.5) - 1, x1 = Math.floor(sx + reachX - 0.5) + 2;
+      const y0 = Math.floor(sy - reachY - 0.5) - 1, y1 = Math.floor(sy + reachY - 0.5) + 2;
+      if (!(x1 >= 0 && y1 >= 0 && x0 < sourceWidth && y0 < sourceHeight)) continue;
+      const tx0 = Math.max(0, x0) >> TILE_BITS, tx1 = (Math.min(sourceWidth - 1, x1) >> TILE_BITS) + 1;
+      const ty0 = Math.max(0, y0) >> TILE_BITS, ty1 = (Math.min(sourceHeight - 1, y1) >> TILE_BITS) + 1;
+      if (shown[ty1 * tileColumns + tx1] - shown[ty0 * tileColumns + tx1] - shown[ty1 * tileColumns + tx0] + shown[ty0 * tileColumns + tx0] === 0) continue;
+      const inside = x0 >= 0 && y0 >= 0 && x1 < sourceWidth && y1 < sourceHeight;
+      const offsetsX = TAP_OFFSETS[columns], offsetsY = TAP_OFFSETS[rows];
+      // Premultiplied (0–255²) red, green, and blue, and alpha (0–255),
+      // summed over the pixel's taps. Locals, not captured by a closure,
+      // so they stay unboxed.
+      let red = 0, green = 0, blue = 0, coverage = 0;
       for (let row = 0; row < rows; row++) {
-        const v = (row + 0.5) / rows - 0.5;
+        const v = offsetsY[row];
         for (let column = 0; column < columns; column++) {
-          const u = (column + 0.5) / columns - 0.5;
+          const u = offsetsX[column];
           // Bilinear, about the texel centres.
           const px = sx + u * xx + v * yx - 0.5, py = sy + u * xy + v * yy - 0.5;
           const fx0 = Math.floor(px), fy0 = Math.floor(py), fx = px - fx0, fy = py - fy0;
-          texel(fx0, fy0, (1 - fx) * (1 - fy));
-          texel(fx0 + 1, fy0, fx * (1 - fy));
-          texel(fx0, fy0 + 1, (1 - fx) * fy);
-          texel(fx0 + 1, fy0 + 1, fx * fy);
+          const i = fy0 * stride + fx0 * 4, j = i + stride;
+          if (!inside) {
+            // Each texel past the source's edges is transparent.
+            const left = fx0 >= 0 && fx0 < sourceWidth, right = fx0 + 1 >= 0 && fx0 + 1 < sourceWidth;
+            const upper = fy0 >= 0 && fy0 < sourceHeight, lower = fy0 + 1 >= 0 && fy0 + 1 < sourceHeight;
+            for (const [shown, k, weight] of [
+              [left && upper, i, (1 - fx) * (1 - fy)],
+              [right && upper, i + 4, fx * (1 - fy)],
+              [left && lower, j, (1 - fx) * fy],
+              [right && lower, j + 4, fx * fy],
+            ] as const) {
+              if (!shown) continue;
+              const alpha = source[k + 3] * weight;
+              red += source[k] * alpha;
+              green += source[k + 1] * alpha;
+              blue += source[k + 2] * alpha;
+              coverage += alpha;
+            }
+            continue;
+          }
+          // The four texels, all in the source, in the order above.
+          const a00 = source[i + 3] * ((1 - fx) * (1 - fy)), a10 = source[i + 7] * (fx * (1 - fy));
+          const a01 = source[j + 3] * ((1 - fx) * fy), a11 = source[j + 7] * (fx * fy);
+          red += source[i] * a00;
+          green += source[i + 1] * a00;
+          blue += source[i + 2] * a00;
+          coverage += a00;
+          red += source[i + 4] * a10;
+          green += source[i + 5] * a10;
+          blue += source[i + 6] * a10;
+          coverage += a10;
+          red += source[j] * a01;
+          green += source[j + 1] * a01;
+          blue += source[j + 2] * a01;
+          coverage += a01;
+          red += source[j + 4] * a11;
+          green += source[j + 5] * a11;
+          blue += source[j + 6] * a11;
+          coverage += a11;
         }
       }
       const count = columns * rows;
@@ -373,4 +417,42 @@ export function warp(
       target[i + 3] = out * 255;
     }
   }
+}
+
+/** The side of the source tiles `warp` skips when nothing in them shows: 16 texels. */
+const TILE_BITS = 4;
+const TILE = 1 << TILE_BITS;
+
+/**
+ * Where each of `n` taps across a footprint sits, as a fraction of it from
+ * its centre, for `n` from 1 to `MAX_TAPS`: `(k + 0.5) / n − 0.5`.
+ */
+const TAP_OFFSETS = Array.from({ length: MAX_TAPS + 1 }, (_, n) => Array.from({ length: n }, (_, k) => (k + 0.5) / n - 0.5));
+
+/**
+ * The summed-area table of which `TILE`×`TILE` tiles of `source` hold a
+ * texel that is not transparent: entry `(ty, tx)` of a
+ * `(rows + 1)×(columns + 1)` grid counts those above and left of it.
+ */
+function occupiedTiles(source: Uint8ClampedArray, width: number, height: number): Int32Array {
+  const columns = Math.ceil(width / TILE), rows = Math.ceil(height / TILE);
+  const table = new Int32Array((rows + 1) * (columns + 1));
+  for (let ty = 0; ty < rows; ty++) {
+    let row = 0;
+    for (let tx = 0; tx < columns; tx++) {
+      let occupied = 0;
+      const right = Math.min(width, (tx + 1) * TILE);
+      for (let y = ty * TILE, last = Math.min(height, y + TILE); y < last && !occupied; y++) {
+        for (let i = (y * width + tx * TILE) * 4 + 3, end = (y * width + right) * 4; i < end; i += 4) {
+          if (source[i]) {
+            occupied = 1;
+            break;
+          }
+        }
+      }
+      row += occupied;
+      table[(ty + 1) * (columns + 1) + tx + 1] = table[ty * (columns + 1) + tx + 1] + row;
+    }
+  }
+  return table;
 }
