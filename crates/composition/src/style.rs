@@ -81,6 +81,10 @@ pub struct TextStyle {
     /// When omitted, uses the system locale. Does not select a BudouX model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lang: Option<String>,
+    /// Where characters the `fontFamily` stack has no glyph for are drawn
+    /// from. Omitted means `System`. Has no effect without `fontFamily`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_fallback: Option<FontFallbackMode>,
     /// A family name, or a font stack tried per grapheme cluster.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_family: Option<FontFamily>,
@@ -170,6 +174,21 @@ pub enum TextAlign {
     Left,
     Center,
     Right,
+}
+
+/// Where characters a text's `fontFamily` stack has no glyph for are drawn
+/// from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub enum FontFallbackMode {
+    /// Installed fonts chosen for `lang`.
+    #[default]
+    System,
+    /// Fonts loaded with `<Font>` first, in the order the composition
+    /// declares them, then installed fonts.
+    Loaded,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -279,5 +298,18 @@ impl<'de> Deserialize<'de> for FontFamily {
             )),
             Def::Stack(names) => Ok(Self::Stack(names)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn font_fallback_reads_and_omits_like_other_optional_fields() {
+        let style: TextStyle = serde_json::from_str(r#"{"fontFallback":"loaded"}"#).unwrap();
+        assert_eq!(style.font_fallback, Some(FontFallbackMode::Loaded));
+        assert_eq!(serde_json::to_string(&TextStyle::default()).unwrap(), "{}");
+        assert!(serde_json::from_str::<TextStyle>(r#"{"fontFallback":"fonts"}"#).is_err());
     }
 }
