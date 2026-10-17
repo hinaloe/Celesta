@@ -44,6 +44,13 @@ prepare() で planDialogue(lines, { fps, gap, sceneLeadIn }) を呼ぶと、音�
 
 holdThroughGap は、台詞の後の間も字幕と表情を保持します。holdSubtitle は、subtitle.render で描く字幕の背景を台詞の間も表示し、held でその状態を判別できます。subtitle.render には text、character（displayName を含む）、metrics、style、maxWidth、frame、durationInFrames が渡されるので、文字の大きさに合う字幕パネルを作れます。全体の例はリポジトリの with-dialogue-series.tsx を参照してください。
 
+1 行の途中で表情を変えるには、`expression` に名前の代わりに `{ at, expression }` の切り替えのリストを渡します。`at` は `lipSync` と同じく、行の頭（音声の最初のサンプル）からの秒数です。最初の切り替えより前はビュー自身の表情、それ以降は直前の切り替えの表情になり、最後の表情は行の終わりまで（holdThroughGap では行間まで）続きます。`at` は 0 以上で、小さい順に並べます。秒数を手で書く代わりに、`timingFromVoicevox(query).pauses[0].start`（読点の間の始まり）のように声から取ると、音声を作り直してもずれません。ほかの部品から同じ表情を読むには `expressionAt(expression, seconds)` を使います。
+
+```ts
+{ id: 'psd-2', speaker: 'kiritan', audio: './voices/psd-2.wav', text: '…',
+  expression: [{ at: 0, expression: 'smile' }, { at: timing.pauses[0].start, expression: 'smug' }] }
+```
+
 VOICEVOX や AivisSpeech で生成した音声には、WAV に文字起こしの母音を均等に割り振る代わりに、合成に使った AudioQuery と [@celesta/voicevox](/ja/docs/voicevox/) または [@celesta/aivis-speech](/ja/docs/aivis-speech/) を利用できます。
 
 ## 実際の素材で確認
