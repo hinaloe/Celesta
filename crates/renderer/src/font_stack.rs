@@ -243,18 +243,36 @@ impl TextRasterizer {
     }
 
     /// The font list's families at `weight` that `faces` does not already
-    /// have, with the face that weight matches, in list order.
+    /// have, with the face that weight matches, in list order. A
+    /// stylesheet face's private family has that one face, so, as in
+    /// [`Self::stack_faces`], it counts only when its weight is the one its
+    /// CSS family matches.
     fn fallback_faces(
         &mut self,
         faces: &[(Arc<str>, Arc<Font>)],
         weight: u16,
     ) -> Vec<(Arc<str>, Arc<Font>)> {
         let families = Arc::clone(&self.fallback_families);
-        families
-            .iter()
-            .filter(|name| !faces.iter().any(|(face, _)| face == *name))
-            .filter_map(|name| Some((Arc::clone(name), self.matched_face(name, weight)?)))
-            .collect()
+        let mut fallback = Vec::new();
+        for name in families.iter() {
+            if faces.iter().any(|(face, _)| face == name) {
+                continue;
+            }
+            let alias = self
+                .stylesheet_faces
+                .iter()
+                .find(|(_, privates)| privates.contains(name))
+                .map(|(alias, _)| alias.clone());
+            if let Some(alias) = alias
+                && self.matched_weight(name, weight) != self.matched_weight(&alias, weight)
+            {
+                continue;
+            }
+            if let Some(font) = self.matched_face(name, weight) {
+                fallback.push((Arc::clone(name), font));
+            }
+        }
+        fallback
     }
 }
 

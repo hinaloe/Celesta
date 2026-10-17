@@ -309,3 +309,51 @@ fn without_the_option_runs_are_unchanged() {
     }
     assert!(rasterizer.face_runs("AБ", &bebas(48.0)).is_empty());
 }
+
+/// `IBMPlexMono-Regular.ttf` with its OS/2 weight class set to `weight`,
+/// so one family can have two weights with the same glyphs.
+fn plex_at_weight(weight: u16) -> Vec<u8> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/prism/assets/fonts/IBMPlexMono-Regular.ttf");
+    let mut data = fs::read(path).unwrap();
+    let tables = u16::from_be_bytes([data[4], data[5]]) as usize;
+    let os2 = (0..tables)
+        .map(|index| 12 + index * 16)
+        .find(|&record| &data[record..record + 4] == b"OS/2")
+        .map(|record| {
+            u32::from_be_bytes(data[record + 8..record + 12].try_into().unwrap()) as usize
+        })
+        .unwrap();
+    data[os2 + 4..os2 + 6].copy_from_slice(&weight.to_be_bytes());
+    data
+}
+
+#[test]
+fn a_stylesheet_falls_back_with_the_face_its_weight_matches() {
+    let directory = fixture();
+    fs::write(directory.path().join("plex-400.ttf"), plex_at_weight(400)).unwrap();
+    fs::write(directory.path().join("plex-700.ttf"), plex_at_weight(700)).unwrap();
+    fs::write(
+        directory.path().join("weights.css"),
+        "@font-face {font-family: 'Two Weights'; font-weight: 400; src: url(plex-400.ttf)}
+         @font-face {font-family: 'Two Weights'; font-weight: 700; src: url(plex-700.ttf)}",
+    )
+    .unwrap();
+    let mut rasterizer = TextRasterizer::new();
+    load(&mut rasterizer, &directory, &["bebas.ttf", "weights.css"]);
+    for weight in [400, 700] {
+        let style = loaded(TextStyle {
+            font_weight: Some(weight),
+            ..bebas(48.0)
+        });
+        let buffer = rasterizer.shaped_buffer("AБ", &style, None, 1.0);
+        let database = rasterizer.font_system.db();
+        let drawn = buffer
+            .layout_runs()
+            .flat_map(|run| run.glyphs.iter())
+            .find(|glyph| glyph.start == 1)
+            .map(|glyph| database.face(glyph.font_id).unwrap().weight.0)
+            .unwrap();
+        assert_eq!(drawn, weight);
+    }
+}
