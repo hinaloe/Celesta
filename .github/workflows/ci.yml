@@ -112,6 +112,8 @@ jobs:
           pnpm run test:runtime
           pnpm --dir templates test
           pnpm --dir packages/website test
+          pnpm --dir packages/exporter run build
+          pnpm --dir packages/exporter test
 
       # Type checks have no timeouts, so they run beside the Rust build and
       # use the cores it leaves idle while it links.
