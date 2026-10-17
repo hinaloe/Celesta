@@ -13,6 +13,7 @@ stands for its path.
 - [Commands](#commands)
 - [Options](#options)
 - [Transparent video](#transparent-video)
+- [Looping video](#looping-video)
 - [Still images](#still-images)
 - [JSON results](#json-results)
 - [Progress output](#progress-output)
@@ -63,6 +64,7 @@ Celesta-export --json --react scene.tsx out.mp4
 | `--crf <n>` | 0–51, lower is better quality (default 18). MP4 only. |
 | `--color-conversion <w>` | `auto` (default), `gpu`, or `encoder`: where RGB becomes YUV. MP4 only. |
 | `--bit-depth <n>` | `8` (default) or `10`. `10` encodes H.264 High 10 (`yuv420p10le`): smoother dark gradients, but fewer players decode it; keep `8` for files meant for phones, browsers, or social media. MP4 only. |
+| `--loop` | The video plays in a loop (Shorts, TikTok): the AAC sound is encoded to run from its end into its start. MP4 only. See [Looping video](#looping-video). |
 | `--render-quality <q>` | `final` (default) or `draft`. `draft` draws scaled text from a scale-1 texture, so it is softer; use it only to check timing. |
 | `--json` | No progress output; one line of JSON on stdout when the export ends. See [JSON results](#json-results). |
 | `--no-ui` | Plain text progress instead of the terminal dashboard (automatic when stderr is not a terminal). |
@@ -90,12 +92,38 @@ Celesta-export --json --react scene.tsx overlay.mov
   layer makes the output opaque.
 - Alpha is straight (unassociated). Color is converted and tagged BT.709
   (limited range).
-- `--preset`, `--crf`, `--bit-depth`, and `--color-conversion` apply to MP4
-  only; with `.mov` or `.webm` they are usage errors.
+- `--preset`, `--crf`, `--bit-depth`, `--color-conversion`, and `--loop`
+  apply to MP4 only; with `.mov` or `.webm` they are usage errors.
 - The MCP `export_video` tool takes the same three extensions in `output`;
-  `preset`, `crf`, and `bitDepth` are rejected with `.mov` and `.webm`.
+  `preset`, `crf`, `bitDepth`, and `loop` are rejected with `.mov` and
+  `.webm`.
 - An FFmpeg build without the needed encoder fails with
   `encoder_unavailable`.
+
+## Looping video
+
+Add `--loop` when the MP4 is made to play on repeat, as Shorts and TikTok
+play it, and its last frame runs into its first
+([loops.md](loops.md)):
+
+```sh
+Celesta-export --json --loop --react film.tsx film.mp4
+```
+
+- An AAC encoder starts from silence, so without `--loop` a hit on frame 0
+  (a kick, a downbeat) comes out smeared for about 10 ms, and a looping
+  player repeats that on every pass. With `--loop`, the encoder first takes
+  the end of the soundtrack, so the start comes out as cleanly as any other
+  bar line. The extra lead-in is hidden by the MP4's edit list: the file
+  still decodes to exactly the soundtrack, as long as the video.
+- The soundtrack itself must loop: sound that rings past the end belongs at
+  the start ([loops.md](loops.md#sound)). `--loop` does not fold it there.
+- With `--from`/`--to`, the span's own end leads into its start.
+- MP4 only. A `.mov`'s PCM runs from its end into its start without help,
+  and `--loop` with `.mov`, `.webm`, stills, or no output video is a usage
+  error. The MCP `export_video` tool takes `loop: true`.
+- Without `--loop`, the export is unchanged: right for a video that plays
+  once, where silence does come before the start.
 
 ## Still images
 

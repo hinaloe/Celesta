@@ -111,11 +111,32 @@ MP4 uses libx264 with --preset medium and --crf 18 by default. Faster presets su
 :::
 ::::
 
+## Videos that play on repeat
+
+Shorts and TikTok play a video on repeat. When its last frame runs into its first, add `--loop` so the sound does too. An AAC encoder starts from silence, so without it a hit on the first frame, such as a kick, comes out smeared for about 10 ms, and the player repeats that on every pass. With `--loop`, the encoder first takes the end of the soundtrack, and the MP4's edit list hides that lead-in: the sound still lasts exactly as long as the video. The soundtrack itself must loop, with anything that rings past the end mixed into the start. `--loop` applies to MP4 only; a `.mov`'s PCM audio loops without it.
+
+::::tabs[Exporter platform]{default="macOS"}
+:::tab[macOS]
+
+```sh title="Export a video that plays on repeat"
+"/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react --loop first-scene.tsx loop.mp4
+```
+
+:::
+:::tab[Windows]
+
+```sh title="Export a video that plays on repeat"
+& "C:\path\to\Celesta\Celesta-export.exe" --react --loop first-scene.tsx loop.mp4
+```
+
+:::
+::::
+
 ## Transparent video
 
 The file extension picks the video format. A `.mp4` file is H.264 with AAC audio, as above. A `.mov` file is ProRes 4444 (`yuva444p10le`) with 24-bit PCM audio, and a `.webm` file is VP9 with alpha (`yuva420p`, CRF 20) with 48 kHz Opus audio. In the app, choose the extension in the save dialog; there is no separate format menu. On the command line, run the same command as above with an output such as `overlay.mov` or `overlay.webm`. `--output-format mp4|mov|webm` states the format explicitly; one that disagrees with the extension is a usage error.
 
-Only areas nothing draws on are transparent, so a layer that fills the whole frame, such as a full-frame background, makes the output opaque. The alpha is straight (unassociated), and colors are converted and tagged as BT.709 (limited range). `--preset`, `--crf`, `--bit-depth`, and `--color-conversion` apply to MP4 only and are usage errors with `.mov` or `.webm`.
+Only areas nothing draws on are transparent, so a layer that fills the whole frame, such as a full-frame background, makes the output opaque. The alpha is straight (unassociated), and colors are converted and tagged as BT.709 (limited range). `--preset`, `--crf`, `--bit-depth`, `--color-conversion`, and `--loop` apply to MP4 only and are usage errors with `.mov` or `.webm`.
 
 If your FFmpeg build lacks the encoder for the chosen format, the export fails with the error code `encoder_unavailable`.
 
