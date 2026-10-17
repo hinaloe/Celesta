@@ -33,6 +33,23 @@ export function requireLoadedFonts(assets: Asset[], resolve: (asset: Asset) => s
   if (missing) throw new Error('Browser text measurements require preloaded fonts. Call await measureText(..., { fonts }) in prepare() before useTextMetrics(..., { fonts }).');
 }
 
+/**
+ * The families the fonts in `assets` added, in list order without
+ * duplicates: what `fontFallback: 'loaded'` text falls back to.
+ */
+export function loadedFamilies(assets: readonly Asset[], resolve: (asset: Asset) => string): string[] {
+  const families: string[] = [];
+  for (const asset of assets) {
+    let url: string;
+    try { url = resolve(asset); }
+    catch { continue; }
+    for (const face of loaded.get(url)?.faces ?? []) {
+      if (!families.includes(face.family)) families.push(face.family);
+    }
+  }
+  return families;
+}
+
 export function releaseFonts(urls: Iterable<string>): void {
   for (const url of urls) {
     for (const face of loaded.get(url)?.faces ?? []) fontSet().delete(face);

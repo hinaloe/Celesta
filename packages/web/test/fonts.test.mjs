@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { loadFonts, requireLoadedFonts, resetFonts } from '../src/fonts.ts';
+import { loadFonts, loadedFamilies, requireLoadedFonts, resetFonts } from '../src/fonts.ts';
 
 // A minimal OpenType name table with only a Unicode-platform family record.
 function unicodeFont() {
@@ -101,4 +101,25 @@ test('Google Fonts loads every Japanese split face and reports unknown names wit
     }
   }
   assert.equal(hits, 5);
+});
+
+test('loadedFamilies lists the families of each font in list order', async t => {
+  const originals = { fetch: globalThis.fetch, FontFace: globalThis.FontFace, fonts: globalThis.fonts };
+  t.after(() => { resetFonts(); Object.assign(globalThis, originals); });
+  globalThis.fonts = new Set();
+  globalThis.FontFace = class {
+    constructor(family) { this.family = family; }
+    async load() { return this; }
+  };
+  globalThis.fetch = async url => url.endsWith('a.css')
+    ? new Response('@font-face {font-family: Alpha; src: url(a1.woff)} @font-face {font-family: Alpha; src: url(a2.woff)} @font-face {font-family: Beta; src: url(b.woff)}', { headers: { 'content-type': 'text/css' } })
+    : new Response(unicodeFont());
+  const asset = path => ({ id: path, location: { type: 'url', url: `https://fonts.test/${path}` } });
+  const resolve = asset => asset.location.url;
+  const unresolved = { id: 'local', location: { type: 'file', path: 'local.ttf' } };
+  const fonts = [asset('a.css'), asset('unicode.ttf')];
+  await loadFonts(fonts, resolve);
+  assert.deepEqual(loadedFamilies(fonts, resolve), ['Alpha', 'Beta', 'UnicodeFamily']);
+  assert.deepEqual(loadedFamilies([...fonts].reverse(), resolve), ['UnicodeFamily', 'Alpha', 'Beta']);
+  assert.deepEqual(loadedFamilies([unresolved], () => { throw new Error('No media directory'); }), []);
 });
