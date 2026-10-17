@@ -103,6 +103,7 @@ compositions: no package a composition imports depends on them, though
 | `packages/voicevox` (`@celesta/voicevox`) | VOICEVOX AudioQuery lip sync. |
 | `packages/aivis-speech` (`@celesta/aivis-speech`) | AivisSpeech AudioQuery and WAV lip sync. |
 | `packages/cli` (`@celesta/cli`) | Entry CLI the bridge spawns; depends on every package it serves. |
+| `packages/exporter` (`@celesta/exporter`) | Node.js API that runs `celesta-exporter --json` for scripts; not part of the runtime. |
 
 Useful entry points:
 
