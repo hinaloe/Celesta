@@ -793,6 +793,154 @@ fn every_format_muxes_audio_as_long_as_the_video() {
     }
 }
 
+/// `project` with a one-second clip of `lavfi` audio from 0 s, written to
+/// `name` in `dir`.
+fn with_audio(mut project: Project, dir: &Path, lavfi: &str, name: &str) -> Project {
+    FfmpegContext::builder()
+        .input(Input::from(lavfi).set_format("lavfi"))
+        .output(dir.join(name).to_string_lossy().into_owned())
+        .build()
+        .unwrap()
+        .start()
+        .unwrap()
+        .wait()
+        .unwrap();
+    project.assets.insert(
+        "sound".to_owned(),
+        Asset::Audio {
+            name: None,
+            source: AssetSource::File {
+                path: name.to_owned(),
+            },
+        },
+    );
+    project.tracks.push(Track {
+        id: "audio".to_owned(),
+        name: "Audio".to_owned(),
+        kind: TrackKind::Audio,
+        enabled: None,
+        locked: None,
+        muted: None,
+        solo: None,
+        items: vec![TimelineItem {
+            id: "sound".to_owned(),
+            name: None,
+            range: TimeRange {
+                start: Time::ZERO,
+                duration: Time::new(1, 1),
+            },
+            content: TimelineContent::Audio {
+                asset: "sound".to_owned(),
+                source_range: None,
+                playback_rate: None,
+                volume: None,
+                muted: None,
+                pitch: None,
+                preserve_pitch: None,
+            },
+            enabled: None,
+            transform: None,
+            opacity: None,
+            blend_mode: None,
+            effects: None,
+        }],
+    });
+    project
+}
+
+#[test]
+fn a_looping_mp4_starts_its_sound_from_its_end() {
+    let directory = tempfile::tempdir().unwrap();
+    // Four hits a second, each a chord at full strength from its first
+    // sample: played on repeat, the last one runs into the first as each
+    // runs into the next. One second is not a whole number of AAC frames.
+    let hit = |t: f64| {
+        let tau = std::f64::consts::TAU;
+        0.2 * (-40.0 * t).exp()
+            * ((tau * 1000.0 * t).cos()
+                + (tau * 2500.0 * t).sin()
+                + (tau * 4400.0 * t).sin()
+                + (tau * 6000.0 * t).cos())
+    };
+    let mut project = transparent_project(directory.path());
+    project.settings.sample_rate = 48_000;
+    let project = with_audio(
+        project,
+        directory.path(),
+        "aevalsrc=exprs='0.2*exp(-40*mod(t,0.25))*(cos(2*PI*1000*mod(t,0.25))+sin(2*PI*2500*mod(t,0.25))+sin(2*PI*4400*mod(t,0.25))+cos(2*PI*6000*mod(t,0.25)))':sample_rate=48000:duration=1",
+        "hits.wav",
+    );
+    let export = |looping, name: &str| {
+        let output = directory.path().join(name);
+        match Exporter::new(ExportOptions {
+            looping,
+            ..ExportOptions::default()
+        })
+        .export_project(&project, directory.path(), &output)
+        {
+            Ok(()) => Some(output),
+            Err(ExportError::Render(GpuRenderError::RequestAdapter(error))) => {
+                eprintln!("skipping live export test: no GPU adapter is available: {error}");
+                None
+            }
+            Err(error) => panic!("export failed: {error}"),
+        }
+    };
+    let (Some(once), Some(looped)) = (export(false, "once.mp4"), export(true, "looped.mp4")) else {
+        return;
+    };
+
+    // The edit list hides the lead-in: the sound still starts at 0 and lasts
+    // exactly the video's second.
+    let Some(StreamInfo::Audio {
+        start_time,
+        duration,
+        time_base,
+        ..
+    }) = find_audio_stream_info(looped.to_string_lossy().into_owned()).unwrap()
+    else {
+        panic!("the looping export has no audio stream");
+    };
+    assert_eq!(start_time, 0);
+    assert_eq!(
+        duration * i64::from(time_base.num),
+        i64::from(time_base.den),
+        "the sound lasts {duration} x {}/{} s",
+        time_base.num,
+        time_base.den
+    );
+    let (once, _) = decoded_audio(&once);
+    let (looped, sample_rate) = decoded_audio(&looped);
+    // FFmpeg's decoder keeps the last AAC frame's padding, with or without
+    // the lead-in.
+    assert_eq!(looped.len(), once.len(), "the lead-in decodes to nothing");
+
+    // Each hit's first 1024 samples against the source, relative to their
+    // energy.
+    let hit_error = |decoded: &[f32], start: usize| -> f64 {
+        let (mut error, mut energy) = (0.0, 0.0);
+        for (n, &sample) in decoded.iter().enumerate().skip(start).take(1024) {
+            let expected = hit((n % 12_000) as f64 / f64::from(sample_rate));
+            error += (f64::from(sample) - expected).powi(2);
+            energy += expected.powi(2);
+        }
+        error / energy
+    };
+    let later = [12_000, 24_000, 36_000].map(|start| hit_error(&looped, start));
+    let worst_later = later.into_iter().fold(0.0, f64::max);
+    let (first_once, first_looped) = (hit_error(&once, 0), hit_error(&looped, 0));
+    // From the end of the loop, the first hit comes out like the others;
+    // encoded from silence, it smears (about six times the error here).
+    assert!(
+        first_looped < worst_later,
+        "with the lead-in the first hit is off by {first_looped}, the later ones by up to {worst_later}"
+    );
+    assert!(
+        first_once > 3.0 * first_looped,
+        "without the lead-in the first hit is off by {first_once}, with it by {first_looped}"
+    );
+}
+
 #[test]
 fn exports_a_silent_react_entry_to_webm() {
     let runtime_path = workspace_root().join("packages/cli/dist/cli.js");
