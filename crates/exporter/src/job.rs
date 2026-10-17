@@ -32,7 +32,7 @@ pub struct ExportJob {
 }
 
 impl ExportJob {
-    /// Runs the export. Only video and subtitle exports check `cancellation`.
+    /// Runs the export, checking `cancellation` between frames.
     pub fn run(
         &self,
         cancellation: &ExportCancellation,
@@ -49,14 +49,7 @@ impl ExportJob {
             project,
             project_asset_root: asset_root(path),
         });
-        let runtime = || {
-            ReactRuntimeOptions::for_entry(
-                &self.source,
-                self.props_file.as_deref(),
-                self.props.as_deref(),
-            )
-            .map(|runtime| runtime.with_composition(self.composition_id.clone()))
-        };
+        let runtime = || self.runtime();
         let Some(output) = &self.output else {
             if self.stills.is_some() {
                 return Err(ExportError::InvalidSelection(
@@ -82,6 +75,7 @@ impl ExportJob {
                 companion,
                 stills,
                 output,
+                cancellation,
                 progress,
             ),
             (Some(stills), false) => exporter.export_project_stills_with(
@@ -89,6 +83,7 @@ impl ExportJob {
                 asset_root(&self.source),
                 stills,
                 output,
+                cancellation,
                 progress,
             ),
             (None, true) => {
@@ -119,6 +114,41 @@ impl ExportJob {
                 progress,
             ),
         }
+    }
+
+    /// Reports the composition — its size, rate, and length, and a React
+    /// entry's roots — as [`Self::run`] does before it renders, then stops.
+    /// `output`, `stills`, and `options` are not used.
+    pub fn describe(&self, progress: &mut dyn FnMut(ExportProgress)) -> Result<(), ExportError> {
+        let exporter = Exporter::new(self.options.clone());
+        if !self.react {
+            let project = Project::load(&self.source).map_err(ExportError::Project)?;
+            return exporter.describe_project(&project, progress);
+        }
+        let companion = self
+            .companion
+            .as_deref()
+            .map(|path| Project::load(path).map(|project| (project, path)))
+            .transpose()
+            .map_err(ExportError::Project)?;
+        exporter.describe_react_entry(
+            &self.source,
+            &self.runtime()?,
+            companion.as_ref().map(|(project, path)| CompanionProject {
+                project,
+                project_asset_root: asset_root(path),
+            }),
+            progress,
+        )
+    }
+
+    fn runtime(&self) -> Result<ReactRuntimeOptions, ExportError> {
+        ReactRuntimeOptions::for_entry(
+            &self.source,
+            self.props_file.as_deref(),
+            self.props.as_deref(),
+        )
+        .map(|runtime| runtime.with_composition(self.composition_id.clone()))
     }
 }
 

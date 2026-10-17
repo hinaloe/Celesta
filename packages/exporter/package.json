@@ -1,0 +1,33 @@
+{
+  "name": "@celesta/exporter",
+  "version": "0.7.0",
+  "private": true,
+  "description": "Typed Node.js API for exporting Celesta compositions to video and stills through celesta-exporter.",
+  "license": "MIT OR Apache-2.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.6",
+    "typescript": "^5.7.3"
+  }
+}

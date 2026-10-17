@@ -1,11 +1,13 @@
-use crate::control::{CompositionInfo, ExportProgress, ExportedFile};
+use crate::control::{CompositionInfo, ExportCancellation, ExportProgress, ExportedFile};
 use crate::error::ExportError;
 use crate::exporter::Exporter;
 use crate::options::{BitDepth, ColorConversion, VideoFormat};
 use crate::project::{absolutize_fonts, absolutize_layers, visual_only_project};
 use crate::range::{ExportRange, resolve_window};
 use crate::react::{CompanionProject, ReactRuntimeOptions};
-use crate::render::{ReportedFontWarnings, export_renderer, frame_count, report_font_fallbacks};
+use crate::render::{
+    ReportedFontWarnings, ensure_not_cancelled, export_renderer, frame_count, report_font_fallbacks,
+};
 use celesta_composition::{Rational, Time};
 use celesta_evaluator::{EvaluationError, Evaluator};
 use celesta_gpu_renderer::{Color, GpuRenderOptions};
@@ -588,19 +590,22 @@ impl Exporter {
                 quality: None,
             },
             output,
+            &ExportCancellation::default(),
             progress,
         )
     }
 
     /// Exports project frames chosen by `request` as separate images or one
     /// contact sheet. An export range is only allowed with
-    /// [`FrameSelection::Every`].
+    /// [`FrameSelection::Every`]. `cancellation` is checked before each frame;
+    /// stills already written stay in place.
     pub fn export_project_stills_with(
         &self,
         project: &Project,
         asset_root: &Path,
         request: &StillExport,
         output: &Path,
+        cancellation: &ExportCancellation,
         mut progress: impl FnMut(ExportProgress),
     ) -> Result<(), ExportError> {
         let duration = project.effective_duration().map_err(ExportError::Time)?;
@@ -643,6 +648,7 @@ impl Exporter {
         )?;
         let mut fallbacks = ReportedFontWarnings::default();
         for (index, &frame) in frames.iter().enumerate() {
+            ensure_not_cancelled(cancellation)?;
             progress(ExportProgress::Rendering {
                 frame: index as u64 + 1,
                 total: frames.len() as u64,
@@ -684,12 +690,15 @@ impl Exporter {
                 quality: None,
             },
             output,
+            &ExportCancellation::default(),
             progress,
         )
     }
 
     /// [`Self::export_react_stills`] for frames chosen by `request`, as separate
-    /// images or one contact sheet.
+    /// images or one contact sheet. `cancellation` is checked before each
+    /// frame, as in [`Self::export_project_stills_with`].
+    #[allow(clippy::too_many_arguments)]
     pub fn export_react_stills_with(
         &self,
         entry: &Path,
@@ -697,6 +706,7 @@ impl Exporter {
         companion: Option<CompanionProject<'_>>,
         request: &StillExport,
         output: &Path,
+        cancellation: &ExportCancellation,
         mut progress: impl FnMut(ExportProgress),
     ) -> Result<(), ExportError> {
         let asset_root = entry.parent().unwrap_or_else(|| Path::new("."));
@@ -777,6 +787,7 @@ impl Exporter {
         )?;
         let mut fallbacks = ReportedFontWarnings::default();
         for (index, &frame) in frames.iter().enumerate() {
+            ensure_not_cancelled(cancellation)?;
             progress(ExportProgress::Rendering {
                 frame: index as u64 + 1,
                 total: frames.len() as u64,

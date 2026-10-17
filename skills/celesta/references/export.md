@@ -67,6 +67,9 @@ Celesta-export --json --react scene.tsx out.mp4
 | `--loop` | The video plays in a loop (Shorts, TikTok): the AAC sound is encoded to run from its end into its start. MP4 only. See [Looping video](#looping-video). |
 | `--render-quality <q>` | `final` (default) or `draft`. `draft` draws scaled text from a scale-1 texture, so it is softer; use it only to check timing. |
 | `--json` | No progress output; one line of JSON on stdout when the export ends. See [JSON results](#json-results). |
+| `--json-progress` | With `--json`, also one JSON line per progress event before the result. See [Progress events and cancellation](#progress-events-and-cancellation). |
+| `--stdin-cancel` | Cancel the export when stdin reads a `cancel` line or closes. |
+| `--info` | Report the composition's size, frame rate, length, and a React entry's compositions without rendering; takes no output. With `--json`, the result has `outputs: []`. |
 | `--no-ui` | Plain text progress instead of the terminal dashboard (automatic when stderr is not a terminal). |
 | `--output-format <f>` | `png`, `jpeg`, `webp`, `mp4`, `mov`, or `webm`. Normally implied by the output extension; one that disagrees with it is a usage error. |
 | `--frame`, `--frames`, `--every`, `--contact-sheet`, `--columns`, `--tile-width`, `--debug-guides` | Still output; see [Still images](#still-images) and [verify.md](verify.md#look-at-real-frames). |
@@ -217,11 +220,42 @@ props file, the result also has `propsFile` (its path) and `propsFileAuto`
 | `project_validation` | The project is invalid; `error.issues` lists each `{path, message}`. |
 | `react` | The React entry failed to load or render; read `message` and look it up in [errors.md](errors.md). |
 | `evaluation`, `render`, `audio`, `ffmpeg`, `io`, `time` | The export failed at that stage; read `message`. |
+| `cancelled` | The export was cancelled (`--stdin-cancel`); what it was writing was removed. |
 
 The exit status is 0 on success, 1 when the export fails, and 2 for usage
 errors. An installed Celesta older than this option rejects it with
 `unexpected argument '--json'`; then use `--no-ui` and read the text output
 below.
+
+### Progress events and cancellation
+
+For a script that shows progress, `--json --json-progress` prints one JSON
+line per event before the result. Each has an `event`; the result line has
+none:
+
+```json
+{"event":"compositions","compositionId":"default","compositions":[{"id":"default","width":1920,"height":1080,"frameRate":{"numerator":30,"denominator":1},"durationInFrames":150}]}
+{"event":"composition","composition":{"width":1920,"height":1080,"fps":30.0,"frames":150,"duration":5.0}}
+{"event":"rendering","frame":1,"total":150}
+{"event":"warning","message":"…"}
+{"event":"mixingAudio"}
+{"event":"muxing"}
+{"event":"wrote","output":{"type":"video","path":"/work/out.mp4","firstFrame":0,"frames":150,"start":0.0,"duration":5.0,"audio":true,"format":"mp4","alpha":false}}
+```
+
+`rendering` counts from 1 the frame that has started; `total` is the number
+of frames the export renders (the selected stills, for a still export). The
+`composition`, `compositions`, `warning`, and `wrote` events carry what the
+result reports under the same names.
+
+With `--stdin-cancel`, writing a `cancel` line to the exporter's stdin, or
+closing it, stops the export before its next frame: the result is a
+`cancelled` error, and the partial video is removed. Stills already written
+stay. Since a closed stdin also cancels, an exporter started this way stops
+when the process that started it exits.
+
+From Node.js, `@celesta/exporter` (`packages/exporter`) runs the exporter
+this way and returns the result as typed objects; see its README.
 
 ## Progress output
 

@@ -79,7 +79,7 @@ struct Issue {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Composition {
+pub struct Composition {
     width: u32,
     height: u32,
     fps: f64,
@@ -97,7 +97,7 @@ struct Composition {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
-enum Output {
+pub enum Output {
     Video {
         path: PathBuf,
         first_frame: u64,
@@ -186,13 +186,7 @@ pub fn build(
         source: Some(absolute(source)),
         props_file_auto: props_file.as_ref().map(|choice| choice.auto),
         props_file: props_file.map(|choice| choice.path),
-        composition: composition.map(|info| Composition {
-            width: info.width,
-            height: info.height,
-            fps: fps(info.frame_rate),
-            frames: info.frames,
-            duration: seconds(info.frames, info.frame_rate),
-        }),
+        composition: composition.map(composition_report),
         outputs: Some(
             files
                 .into_iter()
@@ -206,6 +200,76 @@ pub fn build(
         }),
     };
     (report, result.is_ok())
+}
+
+/// One `--json-progress` line: an export event as it happens, before the
+/// report. Each line has an `event` naming its kind; the report has none.
+#[derive(Serialize)]
+#[serde(
+    tag = "event",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Event {
+    /// The report's `composition`, as soon as it is known.
+    Composition {
+        composition: Composition,
+    },
+    /// The report's `compositionId` and `compositions`.
+    Compositions {
+        composition_id: String,
+        compositions: Vec<celesta_react_bridge::ReactCompositionInfo>,
+    },
+    /// Frame `frame` of `total` has started, counting from 1.
+    Rendering {
+        frame: u64,
+        total: u64,
+    },
+    MixingAudio,
+    Muxing,
+    Warning {
+        message: String,
+    },
+    /// One of the report's `outputs`, once it is in place.
+    Wrote {
+        output: Output,
+    },
+}
+
+/// Turns export events into [`Event`]s, keeping the frame rate the times of
+/// written files are counted in.
+#[derive(Default)]
+pub struct Events {
+    frame_rate: Option<Rational>,
+}
+
+impl Events {
+    pub fn event(&mut self, event: &ExportProgress) -> Event {
+        match event {
+            ExportProgress::Composition(info) => {
+                self.frame_rate = Some(info.frame_rate);
+                Event::Composition {
+                    composition: composition_report(*info),
+                }
+            }
+            ExportProgress::ReactCompositions {
+                selected,
+                compositions,
+            } => Event::Compositions {
+                composition_id: selected.clone(),
+                compositions: compositions.clone(),
+            },
+            &ExportProgress::Rendering { frame, total } => Event::Rendering { frame, total },
+            ExportProgress::MixingAudio => Event::MixingAudio,
+            ExportProgress::Muxing => Event::Muxing,
+            ExportProgress::Warning(message) => Event::Warning {
+                message: message.clone(),
+            },
+            ExportProgress::Wrote(file) => Event::Wrote {
+                output: output(file.clone(), self.frame_rate),
+            },
+        }
+    }
 }
 
 /// How long an export took and how fast it rendered, measured the way the
@@ -296,6 +360,16 @@ pub fn usage(message: &str) -> Report {
         outputs: None,
         warnings: None,
         stats: None,
+    }
+}
+
+fn composition_report(info: CompositionInfo) -> Composition {
+    Composition {
+        width: info.width,
+        height: info.height,
+        fps: fps(info.frame_rate),
+        frames: info.frames,
+        duration: seconds(info.frames, info.frame_rate),
     }
 }
 
@@ -696,6 +770,50 @@ mod tests {
         assert!(
             message.contains("libvpx-vp9") && message.contains("webm"),
             "{message}"
+        );
+    }
+
+    #[test]
+    fn progress_events_match_the_report() {
+        let mut events = Events::default();
+        let mut line = |event| serde_json::to_value(events.event(&event)).unwrap();
+        assert_eq!(
+            line(ExportProgress::Composition(CompositionInfo {
+                width: 1920,
+                height: 1080,
+                frame_rate: Rational::new(30, 1),
+                frames: 90,
+            })),
+            serde_json::json!({
+                "event": "composition",
+                "composition": { "width": 1920, "height": 1080, "fps": 30.0, "frames": 90, "duration": 3.0 }
+            })
+        );
+        assert_eq!(
+            line(ExportProgress::Rendering {
+                frame: 1,
+                total: 90
+            }),
+            serde_json::json!({ "event": "rendering", "frame": 1, "total": 90 })
+        );
+        assert_eq!(
+            line(ExportProgress::MixingAudio),
+            serde_json::json!({ "event": "mixingAudio" })
+        );
+        assert_eq!(
+            line(ExportProgress::Warning("fallback font".into())),
+            serde_json::json!({ "event": "warning", "message": "fallback font" })
+        );
+        // Written files are timed in the composition's frame rate.
+        assert_eq!(
+            line(ExportProgress::Wrote(ExportedFile::Frame {
+                path: PathBuf::from("/tmp/check-000045.png"),
+                frame: 45,
+            })),
+            serde_json::json!({
+                "event": "wrote",
+                "output": { "type": "frame", "path": absolute(Path::new("/tmp/check-000045.png")), "frame": 45, "time": 1.5 }
+            })
         );
     }
 }
