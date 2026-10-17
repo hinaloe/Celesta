@@ -131,8 +131,8 @@ at explicit break characters (an ideographic space `　`, a dash), so
 `第一章　はじめに` can wrap after `　`. A phrase wider than `maxWidth` wraps
 inside itself as `'normal'` text would. It works the same for `<Text>`,
 character subtitles (`subtitle={{ maxWidth, style: { lineBreak: 'phrase' } }}`),
-`TextBox`, `measureText()`/`useTextMetrics()`, and `.celesta.json` text
-styles. The browser canvas renderer (`@celesta/web`) ignores it and wraps
+`TextBox`, `<TextReveal maxWidth>`, `measureText()`/`useTextMetrics()`, and
+`.celesta.json` text styles. The browser canvas renderer (`@celesta/web`) ignores it and wraps
 only at whitespace.
 
 ## Fonts, fallback, and emoji
@@ -275,13 +275,40 @@ is omitted or lacks a character. **Set it for any CJK video:**
 ### `<TextReveal>`
 
 Each line of a string slides up from behind its own mask (`Group clip`),
-staggered. Props: `children` (text, which may hold `<Span>`; `\n`
-separates lines, and a span crossing `\n` continues on the next line), `style`,
-`lineHeight` (mask height and line spacing; defaults to `style.lineHeight`,
-then `fontSize`), `baseline` (0.8: baseline position inside each line box),
-`align` (0/0.5/1 pivot of each line), `from`, `stagger` (4),
-`durationInFrames` (20), `easing` (`easeOutExpo`), `direction` (`'in'` or
-`'out'`), plus common props. `x`/`y` are the top-left of the first line box.
+staggered. Props: `children` (text, which may hold `<Span>`; a span crossing
+a line break continues on the next line), `style`, `maxWidth` (wrap width,
+see below), `lineHeight` (mask height and line spacing; defaults to
+`style.lineHeight`, then `fontSize`), `baseline` (0.8: baseline position
+inside each line box), `align` (0/0.5/1 pivot of each line), `from`,
+`stagger` (4), `durationInFrames` (20), `easing` (`easeOutExpo`),
+`direction` (`'in'` or `'out'`), plus common props. `x`/`y` are the
+top-left of the first line box.
+
+- Without `maxWidth`, lines break only at `\n`: a long line runs past the
+  frame instead of wrapping.
+- With `maxWidth`, lines also wrap at that width, at the same places as
+  `<Text maxWidth>` with the same `style` and content, and each wrapped
+  line is revealed on its own. `\n` still forces a break. Set
+  `style.lineBreak: 'phrase'` to wrap Japanese only between phrases (文節),
+  so copy that changes (a project property, a translated title) wraps
+  without hand-placed `\n`. The spaces at a wrap are dropped, so `align`
+  pivots the visible text.
+- Each line is still drawn as its own single-line `Text` at `x`, pivoted by
+  `align`; `style.align` and the `maxWidth` box do not move it. For
+  centered lines, use `align={0.5}` with `x` at the center.
+- `maxWidth` measures the text during render, like
+  [`useTextMetrics`](#measure-text), so it needs the editor, exporter, or
+  browser preview runtime. The browser preview ignores `lineBreak` (see
+  [Line breaking](#line-breaking)), so its breaks can differ from export.
+
+```tsx
+<Composition width={1080} height={1920} fps={30} durationInFrames={90} lang="ja-JP">
+  <TextReveal x={540} y={700} align={0.5} maxWidth={880} lineHeight={150}
+    style={{ fontFamily: 'Noto Sans JP', fontWeight: 900, fontSize: 120, lineBreak: 'phrase' }}>
+    {getProjectProperty('headline')}
+  </TextReveal>
+</Composition>
+```
 
 ### `useTypewriter(text, { from?, framesPerChar?, blinkFrames? })`
 
