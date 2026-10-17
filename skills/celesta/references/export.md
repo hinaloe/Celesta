@@ -162,8 +162,12 @@ props file, the result also has `propsFile` (its path) and `propsFileAuto`
     and `lang` when the subtitles have a language;
   - `contactSheet`: one image, with `columns` and the tile `frames` in
     reading order.
-- `stats.renderFps` is the average rendering speed. Compare it between
-  spans to find slow parts.
+- `stats.renderFps` is the average speed of the whole export in frames per
+  second: rendering and video encoding run side by side, so it is the speed
+  of whichever is slower. At large sizes the default `--preset medium` can
+  encode slower than Celesta renders, and `renderFps` then shows the encoding
+  speed. To compare rendering speeds, export an `.mp4` with `--preset ultrafast`
+  ([performance.md](performance.md#find-slow-parts)).
 - On failure, `status` is `"error"` and `error` has a stable `code`, the
   `message`, and sometimes a `hint`. `outputs` still lists the images written
   before the failure. `composition` is included when the failure happened

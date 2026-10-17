@@ -64,15 +64,22 @@ average for the whole export. In text mode (outside a terminal, or with
 `rendering frame 300/1530  58.5 fps  elapsed 00:00:05  eta 00:00:21` to
 stderr; the `fps` is the average so far.
 
+Both speeds count video encoding too. The encoder works on earlier frames
+while Celesta renders the next ones, so the export runs at the speed of the
+slower of the two. With the default `--preset medium`, encoding a large video
+(1080 × 1920, for example) can be the slower one; the speed then stays about
+the same when you add or remove effects. `--preset ultrafast` encodes fast
+enough to keep encoding out of the measurement, so use it whenever you
+compare rendering speeds.
+
 To find which part of a video is slow, export spans of a few seconds and
-compare their speeds. `--preset ultrafast` keeps encoding
-time out of the measurement. Choose start times that fit inside the video;
+compare their speeds. Choose start times that fit inside the video;
 this example is for one at least 44 s long:
 
 ```sh
 for t in 0 10 20 30 40; do
   Celesta-export --json --overwrite --preset ultrafast --from $t --to $((t + 4)) \
-    --react scene.tsx /tmp/celesta-speed.mp4 2>&1 | grep 'rendering frame' | tail -1
+    --react scene.tsx /tmp/celesta-speed.mp4 | grep -o '"renderFps":[0-9.]*'
 done
 ```
 

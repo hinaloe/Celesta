@@ -133,7 +133,8 @@ enum Output {
 #[serde(rename_all = "camelCase")]
 struct Stats {
     elapsed_seconds: f64,
-    /// Average rendering speed in frames per second.
+    /// Average export speed in frames per second. Encoding runs alongside
+    /// rendering, so this is the speed of the slower of the two.
     #[serde(skip_serializing_if = "Option::is_none")]
     render_fps: Option<f64>,
 }
