@@ -2879,3 +2879,102 @@ fn perspective_and_hidden_backface_alone_render_like_a_plain_rect() {
     assert!(is_red(&flat, 20, 20));
     assert_eq!(plain.pixels(), flat.pixels());
 }
+
+/// Thirty lines of text 300 wide, stroked, in `fill`.
+fn windowed_style(fill: Paint) -> TextStyle {
+    TextStyle {
+        font_size: Some(24.0),
+        fill: Some(fill),
+        stroke: Some(celesta_composition::Stroke {
+            paint: Paint::Solid {
+                color: "#FF0000FF".to_owned(),
+            },
+            width: 2.0,
+        }),
+        ..TextStyle::default()
+    }
+}
+
+const WINDOWED_TEXT: &str = "Window HHHH Window HHHH";
+
+/// Asserts that `window`'s pixels are the whole raster's where the two
+/// place the same layout point, and returns that offset.
+fn assert_window_matches_whole(fill: Paint) -> (i64, i64) {
+    let text = vec![WINDOWED_TEXT; 30].join("\n");
+    let style = windowed_style(fill);
+    let mut rasterizer = TextRasterizer::new();
+    let whole = rasterizer
+        .rasterize(&text, &style, Some(300.0), 1.5)
+        .unwrap();
+    let window = rasterizer
+        .rasterize_window(
+            &text,
+            &style,
+            Some(300.0),
+            1.5,
+            Some([40.0, 200.0, 260.0, 420.0]),
+        )
+        .unwrap();
+    assert!(window.width() < whole.width() && window.height() < whole.height() / 2);
+    assert!(
+        (window.width() as f64 - 220.0 * 1.5).abs() <= 2.0,
+        "{}",
+        window.width()
+    );
+    // The layout box's top-left, in each image's pixels.
+    let ox = i64::from(whole.anchor_box.left) - i64::from(window.anchor_box.left);
+    let oy = i64::from(whole.anchor_box.top) - i64::from(window.anchor_box.top);
+    assert_eq!(whole.baseline() - window.baseline(), oy as f32);
+    let pixel = |image: &crate::RasterizedText, x: i64, y: i64| {
+        let offset = (y as usize * image.width() as usize + x as usize) * 4;
+        image.pixels()[offset..offset + 4].to_vec()
+    };
+    let mut inked = 0;
+    for y in 0..i64::from(window.height()) {
+        for x in 0..i64::from(window.width()) {
+            let windowed = pixel(&window, x, y);
+            assert_eq!(windowed, pixel(&whole, x + ox, y + oy), "at ({x}, {y})");
+            inked += usize::from(windowed[3] > 0);
+        }
+    }
+    assert!(inked > 1000, "{inked}");
+    (ox, oy)
+}
+
+#[test]
+fn a_text_window_is_the_same_pixels_as_the_whole_raster() {
+    let (ox, oy) = assert_window_matches_whole(Paint::Solid {
+        color: "#FFFFFFFF".to_owned(),
+    });
+    assert!(ox > 0 && oy > 0, "({ox}, {oy})");
+}
+
+#[test]
+fn a_window_keeps_gradient_fills_in_place() {
+    assert_window_matches_whole(Paint::Linear {
+        start: Point { x: 0.0, y: 0.0 },
+        end: Point { x: 300.0, y: 700.0 },
+        stops: vec![stop(0.0, "#ff0000"), stop(1.0, "#0000ff")],
+    });
+}
+
+#[test]
+fn single_line_text_ignores_the_window() {
+    let style = windowed_style(Paint::Solid {
+        color: "#FFFFFFFF".to_owned(),
+    });
+    let mut rasterizer = TextRasterizer::new();
+    let whole = rasterizer
+        .rasterize(WINDOWED_TEXT, &style, None, 1.5)
+        .unwrap();
+    let window = rasterizer
+        .rasterize_window(
+            WINDOWED_TEXT,
+            &style,
+            None,
+            1.5,
+            Some([40.0, 0.0, 100.0, 10.0]),
+        )
+        .unwrap();
+    assert_eq!(window, whole);
+}

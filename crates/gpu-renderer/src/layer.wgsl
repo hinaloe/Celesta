@@ -19,6 +19,8 @@ struct LayerInstance {
     @location(4) rect: vec4<f32>,
     // Straight-alpha RGBA in 0-255 code values, or a gradient in `paints`
     // (see `paint_color`).
+    // For a plane's canvas instead, the band of its target it draws:
+    // `(u, v, e_far, e_near)`, see `outside_band`.
     @location(5) fill: vec4<f32>,
     @location(6) stroke: vec4<f32>,
     // The index of the innermost clip the layer is drawn through (-1 without
@@ -614,6 +616,17 @@ fn behind_near_clip(input: VertexOutput) -> bool {
         && dot(input.projection.xy, local) + input.projection.z < NEAR_W;
 }
 
+// Whether the fragment is outside the band of its target a plane's canvas
+// draws: `1/w` is `s + e` at the pixel's centre for `s = u·x + v·y`, and a
+// band draws where `s + e_far > 0` and `s + e_near <= 0`. Computed from the
+// exact pixel position and values the bands meeting at a boundary share,
+// so each pixel passes for exactly one band. Every other canvas draws its
+// whole quad: `(0, 0, 1, -1)` always passes.
+fn outside_band(input: VertexOutput) -> bool {
+    let s = dot(input.fill.xy, input.position.xy);
+    return input.sampling.x == 2.0 && !(s + input.fill.z > 0.0 && s + input.fill.w <= 0.0);
+}
+
 // Where a projective layer's `uv` lands in its target: through its forward
 // map, from its quad units (a plane's canvas is anchored at its top-left).
 fn projected_world(input: VertexOutput, uv: vec2<f32>) -> vec2<f32> {
@@ -694,7 +707,7 @@ fn saturate(color: vec4<f32>) -> vec4<f32> {
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let dx = dpdx(input.uv);
     let dy = dpdy(input.uv);
-    if behind_near_clip(input) {
+    if behind_near_clip(input) || outside_band(input) {
         discard;
     }
     return saturate(source_color(input, dx, dy));
@@ -843,7 +856,7 @@ fn fs_blend(input: VertexOutput) -> @location(0) vec4<f32> {
     let dy = dpdy(input.uv);
     // Discarded rather than drawn transparent: this pass replaces the
     // pixel with the backdrop, which is only copied where the layer lands.
-    if behind_near_clip(input) {
+    if behind_near_clip(input) || outside_band(input) {
         discard;
     }
     let source = source_color(input, dx, dy);

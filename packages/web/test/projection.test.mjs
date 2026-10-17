@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   IDENTITY3, effectScale, facesAway, homography, invert3, isProjective, linear, multiply3, perspectiveDistance,
-  planeRaster, project, projectedBounds, stretchAt, tapCount, turnFlat, turnsFlat, warp,
+  planeBands, planeRaster, project, projectedBounds, stretchAt, tapCount, turnFlat, turnsFlat, warp,
 } from '../src/projection.ts';
 
 // The values of `celesta_composition`'s and `celesta_gpu_renderer::plane`'s tests.
@@ -259,4 +259,50 @@ test('warping skips footprints over transparent texels only, and reads texels at
   assert.ok(at(0, 0)[0] > 0, `the corner texel shows: ${at(0, 0)}`);
   assert.ok(at(10, 10)[0] > 0, `the middle texel shows: ${at(10, 10)}`);
   assert.deepEqual(at(5, 5), [0, 0, 255, 255], 'nothing drawn over transparent texels');
+});
+
+// The crawl of `celesta_gpu_renderer::plane`'s band tests: a column 20000
+// tall receding from near the screen's bottom.
+const crawl = homography(transform({ position: { x: 960, y: 900 }, rotationX: 70, perspective: 800, anchor: { x: 0, y: 0 } }));
+const CRAWL = [-600, -19724, 600, 276];
+const SCENE_AREA = 1920 * 1080;
+const crawlBands = maxArea => planeBands(crawl, CRAWL, SCREEN, 16384, maxArea, 0, true);
+
+test('an uncapped plane is one band, its raster planeRaster\'s', () => {
+  const forward = homography(transform({ position: { x: 960, y: 800 }, rotationX: 60, perspective: 900 }));
+  const local = [-900, -750, 900, 294];
+  assert.deepEqual(planeBands(forward, local, SCREEN, 8192, Infinity, 0, true), [{ raster: planeRaster(forward, local, SCREEN, 8192), near: null, far: null }]);
+});
+
+test('a capped crawl is split into eight bands, as on the GPU', () => {
+  const bands = crawlBands(4 * SCENE_AREA);
+  assert.equal(bands.length, 8);
+  assert.ok(Math.abs(bands[0].raster.scale - 2.378) < 1e-3, `${bands[0].raster.scale}`);
+  assert.ok(Math.abs(bands[7].raster.scale - 0.068) < 1e-3, `${bands[7].raster.scale}`);
+  assert.equal(bands[0].near, null);
+  assert.equal(bands[7].far, null);
+  assert.ok(planeRaster(crawl, CRAWL, SCREEN, 16384, 4 * SCENE_AREA).scale < 0.6);
+});
+
+test('bands share their boundaries, in equal steps of w', () => {
+  const bands = crawlBands(4 * SCENE_AREA);
+  for (let k = 0; k + 1 < bands.length; k++) assert.equal(bands[k].far, bands[k + 1].near);
+  const ratios = bands.slice(1, 7).map(band => band.far / band.near);
+  for (const ratio of ratios) assert.ok(Math.abs(ratio - ratios[0]) < 1e-9);
+  assert.ok(Math.abs(bands[1].near / ratios[0] - 0.6758) < 1e-3);
+});
+
+test('bands stay within the budget, and unbandable planes stay one canvas', () => {
+  const bands = crawlBands(1_000_000);
+  const area = bands.reduce((sum, band) => sum + band.raster.width * band.raster.height, 0);
+  assert.ok(area <= 1_000_000, `${area}`);
+  assert.ok(bands[0].raster.scale > planeRaster(crawl, CRAWL, SCREEN, 16384, 1_000_000).scale);
+  assert.deepEqual(planeBands(crawl, CRAWL, SCREEN, 16384, 4 * SCENE_AREA, 0, false), [{ raster: planeRaster(crawl, CRAWL, SCREEN, 16384, 4 * SCENE_AREA), near: null, far: null }]);
+});
+
+test('a wider seam widens the bands\' overlap but not their boundaries or scales', () => {
+  const tight = crawlBands(4 * SCENE_AREA);
+  const wide = planeBands(crawl, CRAWL, SCREEN, 16384, 4 * SCENE_AREA, 0, true, 5.5);
+  assert.deepEqual(wide.map(({ near, far, raster }) => [near, far, raster.scale]), tight.map(({ near, far, raster }) => [near, far, raster.scale]));
+  assert.ok(wide[1].raster.height > tight[1].raster.height, `${wide[1].raster.height} vs ${tight[1].raster.height}`);
 });

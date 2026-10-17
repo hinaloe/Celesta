@@ -5,7 +5,7 @@
 use crate::bounds::{CanvasRegion, PixelBounds};
 use crate::error::GpuRenderError;
 use crate::hit::HitClip;
-use crate::layer::{PreparedItem, PreparedLayer};
+use crate::layer::{PreparedItem, PreparedLayer, WHOLE_BAND};
 use crate::plan::content_bounds;
 use crate::renderer::GpuRenderer;
 use crate::text::round_up_to_eighth_octave;
@@ -13,6 +13,7 @@ use crate::transform::{Affine, ClipEntry, LayerState};
 use celesta_composition::{
     BlendMode, IDENTITY3, Layer, Matrix3, Point, invert3, multiply3, project, stretch_at,
 };
+use std::collections::HashSet;
 
 /// The nearest a point may come to the viewer and still be drawn: points
 /// with `w` below it are behind the viewer, or so close they would fill the
@@ -103,6 +104,30 @@ fn clip_to_shown(m: &Matrix3, polygon: &[[f64; 2]], target: PixelBounds) -> Vec<
     clip_polygon(&polygon, |p| bottom * row(2, p) - row(1, p))
 }
 
+/// The part of the box `local` that `forward` maps in front of the viewer
+/// and into `target`: a convex polygon, empty when none of it shows.
+fn polygon_shown(forward: &Matrix3, local: PixelBounds, target: PixelBounds) -> Vec<[f64; 2]> {
+    let polygon = clip_in_front(forward, &corners(local));
+    clip_to_shown(forward, &polygon, target)
+}
+
+/// The scale the most magnified corner of `polygon` needs, rounded up as
+/// text raster scales are and clamped to `[MIN_SCALE, MAX_SCALE]`; `None`
+/// without a corner in front of the viewer.
+fn needed_scale(forward: &Matrix3, polygon: &[[f64; 2]]) -> Option<f64> {
+    let stretch = polygon
+        .iter()
+        .filter_map(|&[x, y]| stretch_at(forward, x, y))
+        .reduce(f64::max)?;
+    Some(round_up_to_eighth_octave(stretch).clamp(MIN_SCALE, MAX_SCALE))
+}
+
+/// `w` where `m` maps the point: its distance factor, 1 at the layer's
+/// origin and smaller nearer the viewer.
+fn w_at(m: &Matrix3, [x, y]: [f64; 2]) -> f64 {
+    m[2][0] * x + m[2][1] * y + m[2][2]
+}
+
 /// The raster of a plane whose content covers `local` (layer-local units),
 /// drawn through `forward` (layer-local units to `target`'s space) onto a
 /// space `target` covers; `None` when nothing of it can show. Only the part
@@ -110,6 +135,7 @@ fn clip_to_shown(m: &Matrix3, polygon: &[[f64; 2]], target: PixelBounds) -> Vec<
 /// its most magnified corner needs, rounded up as text raster scales are,
 /// and lowered to keep the canvas within `max_texture` on either side and
 /// `max_area` pixels in all.
+#[cfg(test)]
 pub(crate) fn plane_raster(
     forward: &Matrix3,
     local: PixelBounds,
@@ -117,18 +143,25 @@ pub(crate) fn plane_raster(
     max_texture: u32,
     max_area: u64,
 ) -> Option<PlaneRaster> {
-    let polygon = clip_in_front(forward, &corners(local));
-    let polygon = clip_to_shown(forward, &polygon, target);
-    let stretch = polygon
-        .iter()
-        .filter_map(|&[x, y]| stretch_at(forward, x, y))
-        .reduce(f64::max)?;
-    let [left, top, right, bottom] = box_of(polygon)?;
+    let polygon = polygon_shown(forward, local, target);
+    let scale = needed_scale(forward, &polygon)?;
+    raster_of(&polygon, scale, max_texture, max_area)
+}
+
+/// The raster of the box of `polygon` at `scale`, lowered to keep the canvas
+/// within `max_texture` on either side and `max_area` pixels in all.
+fn raster_of(
+    polygon: &[[f64; 2]],
+    scale: f64,
+    max_texture: u32,
+    max_area: u64,
+) -> Option<PlaneRaster> {
+    let [left, top, right, bottom] = box_of(polygon.iter().copied())?;
     let (width, height) = (right - left, bottom - top);
     if !(width.is_finite() && height.is_finite()) {
         return None;
     }
-    let mut scale = round_up_to_eighth_octave(stretch).clamp(MIN_SCALE, MAX_SCALE);
+    let mut scale = scale;
     let side = |extent: f64, scale: f64| (extent * scale).ceil() + 2.0;
     let limit = f64::from(max_texture);
     if side(width, scale) > limit || side(height, scale) > limit {
@@ -159,6 +192,211 @@ pub(crate) fn plane_raster(
         width: side(width),
         height: side(height),
     })
+}
+
+/// The part of `polygon` whose `w` through `forward` is from `near` less
+/// `grow_near` to `far` plus `grow_far`, unbounded on a side that is `None`.
+fn part_grown(
+    polygon: &[[f64; 2]],
+    forward: &Matrix3,
+    near: Option<f64>,
+    far: Option<f64>,
+    grow_near: f64,
+    grow_far: f64,
+) -> Vec<[f64; 2]> {
+    let mut part = polygon.to_vec();
+    if let Some(near) = near {
+        part = clip_polygon(&part, |point| w_at(forward, point) - (near - grow_near));
+    }
+    if let Some(far) = far {
+        part = clip_polygon(&part, |point| far + grow_far - w_at(forward, point));
+    }
+    part
+}
+
+/// How far half of the output pixel at local `(x, y)` reaches in local
+/// units along the direction `w` grows in: half the extent of its
+/// footprint, the pixel square mapped back through the inverse of the
+/// projection's Jacobian there. `None` behind the viewer.
+fn half_footprint(forward: &Matrix3, x: f64, y: f64) -> Option<f64> {
+    let m = forward;
+    let [px, py, w] = project(m, x, y);
+    if w.is_nan() || w <= 0.0 {
+        return None;
+    }
+    let jacobian = |row: usize, col: usize, p: f64| (m[row][col] - p * m[2][col]) / w;
+    let (a, b) = (jacobian(0, 0, px), jacobian(0, 1, px));
+    let (c, d) = (jacobian(1, 0, py), jacobian(1, 1, py));
+    let det = a * d - b * c;
+    let length = m[2][0].hypot(m[2][1]);
+    let (nx, ny) = (m[2][0] / length, m[2][1] / length);
+    // The inverse's columns: a step of one output pixel across, then down.
+    let reach = 0.5 * ((nx * d - ny * c).abs() + (-nx * b + ny * a).abs()) / det.abs();
+    reach.is_finite().then_some(reach)
+}
+
+/// The most bands a plane is split into.
+pub(crate) const MAX_BANDS: usize = 8;
+
+/// The texels a band's canvas reaches past its band on a side it shares
+/// with another: the footprint filter's taps at a seam, and their bilinear
+/// neighbours.
+const BAND_MARGIN: f64 = 4.0;
+
+/// Stands for an unbounded side of a band in the values a band's canvas is
+/// drawn with: finite, as shaders may assume no infinities.
+pub(crate) const BAND_OPEN: f64 = 1e30;
+
+/// One band of a plane: its raster, and the `w` it holds, from `near` up to
+/// but not including `far`, `None` where unbounded.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PlaneBand {
+    pub(crate) raster: PlaneRaster,
+    pub(crate) near: Option<f64>,
+    pub(crate) far: Option<f64>,
+}
+
+/// The bands a plane is drawn in (see `plane_raster` for the arguments);
+/// empty when nothing of it can show. A plane whose one canvas would be
+/// lowered below the scale its most magnified corner needs is split, when
+/// `bandable`, along lines of equal `w` at steps of √2 in `w`, at most
+/// `MAX_BANDS`, each band rasterized at the scale its own most magnified
+/// corner needs. Each band's canvas reaches `BAND_MARGIN` texels and
+/// `reach` local units (how far effects inside spread) past the sides it
+/// shares, and together they stay within `max_area` pixels, all lowered
+/// alike when they would not. Any other plane is one unbounded band, its
+/// raster `plane_raster`'s.
+pub(crate) fn plane_bands(
+    forward: &Matrix3,
+    local: PixelBounds,
+    target: PixelBounds,
+    max_texture: u32,
+    max_area: u64,
+    reach: f64,
+    bandable: bool,
+) -> Vec<PlaneBand> {
+    let polygon = polygon_shown(forward, local, target);
+    let Some(needed) = needed_scale(forward, &polygon) else {
+        return Vec::new();
+    };
+    let Some(single) = raster_of(&polygon, needed, max_texture, max_area) else {
+        return Vec::new();
+    };
+    let whole = vec![PlaneBand {
+        raster: single,
+        near: None,
+        far: None,
+    }];
+    if !bandable || single.scale >= needed {
+        return whole;
+    }
+    let (nearest, farthest) = polygon
+        .iter()
+        .map(|&point| w_at(forward, point))
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(near, far), w| {
+            (near.min(w), far.max(w))
+        });
+    let ratio = farthest / nearest;
+    if !(ratio.is_finite() && ratio > 1.0) {
+        return whole;
+    }
+    let count = (ratio.ln() / std::f64::consts::SQRT_2.ln())
+        .ceil()
+        .clamp(1.0, MAX_BANDS as f64) as usize;
+    if count == 1 {
+        return whole;
+    }
+    // Each boundary once, so the bands meeting there share it exactly.
+    let boundaries = (1..count)
+        .map(|j| nearest * ratio.powf(j as f64 / count as f64))
+        .collect::<Vec<_>>();
+    let ranges = (0..count)
+        .map(|k| {
+            (
+                k.checked_sub(1).map(|j| boundaries[j]),
+                boundaries.get(k).copied(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let Some(needed) = ranges
+        .iter()
+        .map(|&(near, far)| {
+            needed_scale(forward, &part_grown(&polygon, forward, near, far, 0.0, 0.0))
+        })
+        .collect::<Option<Vec<_>>>()
+    else {
+        return whole;
+    };
+    // How much `w` changes per local unit, across the bands.
+    let gradient = forward[2][0].hypot(forward[2][1]);
+    // How far, in local units, half of a pixel on the boundary `b` reaches
+    // across it: the footprint the shader filters can span many texels
+    // where the plane recedes steeply, and the band on either side must
+    // hold what it reads.
+    let footprint = |b: f64| {
+        clip_polygon(&polygon, |point| w_at(forward, point) - b)
+            .into_iter()
+            .filter(|&point| (w_at(forward, point) - b).abs() <= 1e-9 * b.abs().max(1.0))
+            .filter_map(|[x, y]| half_footprint(forward, x, y))
+            .fold(0.0, f64::max)
+    };
+    let reaches = boundaries.iter().map(|&b| footprint(b)).collect::<Vec<_>>();
+    let rasters = |factor: f64| {
+        ranges
+            .iter()
+            .enumerate()
+            .zip(&needed)
+            .map(|((k, &(near, far)), &scale)| {
+                let scale = scale * factor;
+                let margin = BAND_MARGIN / scale + reach;
+                // The near side's boundary is `boundaries[k - 1]`, the far
+                // side's `boundaries[k]`.
+                let grow =
+                    |side: Option<usize>| side.map_or(0.0, |j| gradient * (margin + reaches[j]));
+                let part = part_grown(
+                    &polygon,
+                    forward,
+                    near,
+                    far,
+                    grow(k.checked_sub(1)),
+                    grow(far.map(|_| k)),
+                );
+                raster_of(&part, scale, max_texture, u64::MAX)
+            })
+            .collect::<Option<Vec<_>>>()
+    };
+    let area = |rasters: &[PlaneRaster]| {
+        rasters
+            .iter()
+            .map(|raster| u64::from(raster.width) * u64::from(raster.height))
+            .sum::<u64>()
+    };
+    let Some(mut chosen) = rasters(1.0) else {
+        return whole;
+    };
+    if area(&chosen) > max_area {
+        // Lowered alike, from the factor the areas alone suggest down in
+        // small steps, as the margins do not shrink with the scale.
+        let mut factor = (max_area as f64 / area(&chosen) as f64).sqrt();
+        for _ in 0..64 {
+            let Some(lowered) = rasters(factor) else {
+                return whole;
+            };
+            chosen = lowered;
+            if area(&chosen) <= max_area {
+                break;
+            }
+            factor *= 0.99;
+        }
+        if area(&chosen) > max_area {
+            return whole;
+        }
+    }
+    chosen
+        .into_iter()
+        .zip(ranges)
+        .map(|(raster, (near, far))| PlaneBand { raster, near, far })
+        .collect()
 }
 
 /// The inverse of the stretch of `forward` at the layer's origin (output
@@ -265,19 +503,16 @@ pub(crate) fn hit_clips(
     Some(hit_clips)
 }
 
-/// The most pixels a plane's canvas has, in scene areas.
-const MAX_PLANE_AREA: u64 = 4;
-
 /// How far the space a plane can show reaches while its parent's content is
 /// only measured: unbounded, short of overflowing an f32.
 const UNBOUNDED: f32 = 1e9;
 
 impl GpuRenderer {
     /// Prepares the projective `layer`, drawn onto `parent`'s space at
-    /// `opacity` with `blend_mode`, as a canvas in its own plane: its
+    /// `opacity` with `blend_mode`, as canvases in its own plane: its
     /// content is prepared once in its local units to measure it (and
-    /// rolled back), then for real onto a canvas at the scale
-    /// `plane_raster` picks, which an `EndPlane` then draws through the
+    /// rolled back), then for real onto each band's canvas at the scale
+    /// `plane_bands` picks, which an `EndPlane` then draws through the
     /// layer's homography.
     pub(crate) fn prepare_plane(
         &mut self,
@@ -291,9 +526,9 @@ impl GpuRenderer {
         // while measuring and `raster.scale` per unit once rasterized.
         let parent_scale = self.walk.effect_scale;
         self.walk.effect_scale = parent_scale * stretch_ratio(&forward) as f32;
-        let local = self.measure_plane(layer, output);
+        let measured = self.measure_plane(layer, output);
         self.walk.effect_scale = parent_scale;
-        let Some(local) = local? else {
+        let Some(measured) = measured? else {
             return Ok(());
         };
         let target = if self.measuring_plane {
@@ -302,15 +537,68 @@ impl GpuRenderer {
             let (width, height) = self.scene_size;
             PixelBounds([0.0, 0.0, width as f32, height as f32])
         };
-        let Some(raster) = plane_raster(
+        let bands = plane_bands(
             &forward,
-            local,
+            measured.bounds,
             target,
             self.max_texture_dimension,
-            MAX_PLANE_AREA.saturating_mul(self.scene_area),
-        ) else {
+            self.plane_area_limit.saturating_mul(self.scene_area),
+            measured.reach,
+            measured.bandable && !self.measuring_plane,
+        );
+        // `1/W` is `u·x + v·y + t` at a point `(x, y)` of the parent's
+        // space; a band holds `w` from `near` to `far`, so it draws where
+        // `1/far < 1/W ≤ 1/near`. Each boundary is turned into `t − 1/b`
+        // once, by the same expression for both bands that meet there.
+        let Some([u, v, t]) = invert3(&forward).map(|inverse| inverse[2]) else {
             return Ok(());
         };
+        let edge = |boundary: Option<f64>, open: f64| boundary.map_or(open, |b| t - b.recip());
+        let plane = Plane {
+            layer,
+            parent,
+            opacity,
+            blend_mode,
+            forward,
+            parent_scale,
+        };
+        // A layer is one hit region however many bands draw it: the ones
+        // an earlier band recorded are left out of the later ones.
+        let first_leaf = self.hit_leaves.len();
+        for band in &bands {
+            let before = self.hit_leaves.len();
+            let values = if bands.len() == 1 {
+                WHOLE_BAND
+            } else {
+                [u, v, edge(band.far, BAND_OPEN), edge(band.near, -BAND_OPEN)]
+                    .map(|value| value as f32)
+            };
+            self.prepare_band(&plane, band.raster, values, output)?;
+            if before > first_leaf {
+                let recorded = self.hit_leaves[first_leaf..before]
+                    .iter()
+                    .map(|leaf| leaf.layer_id.clone())
+                    .collect::<HashSet<_>>();
+                let mut position = 0;
+                self.hit_leaves.retain(|leaf| {
+                    let keep = position < before || !recorded.contains(&leaf.layer_id);
+                    position += 1;
+                    keep
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Prepares one band of `plane` onto a canvas of its own, which its
+    /// `EndPlane` draws onto the parent.
+    fn prepare_band(
+        &mut self,
+        plane: &Plane,
+        raster: PlaneRaster,
+        band: [f32; 4],
+        output: &mut Vec<PreparedItem>,
+    ) -> Result<(), GpuRenderError> {
         // In steps, so a plane that changes size a little from frame to
         // frame reuses its canvas; the rest is transparent margin.
         let step = |extent: u32| {
@@ -320,9 +608,9 @@ impl GpuRenderer {
         };
         let (width, height) = (step(raster.width), step(raster.height));
         let to_plane = raster.to_plane();
-        let effect_scale = parent_scale * effect_scale(&forward, &raster);
+        let effect_scale = plane.parent_scale * effect_scale(&plane.forward, &raster);
         let to_parent = multiply3(
-            &forward,
+            &plane.forward,
             &invert3(&matrix(to_plane)).expect("a plane's raster scale is positive"),
         );
         let index = u32::try_from(self.plane_entries.len())
@@ -330,7 +618,7 @@ impl GpuRenderer {
         self.plane_entries.push(PlaneEntry {
             to_parent,
             parent: self.walk.plane,
-            clip: parent.clip,
+            clip: plane.parent.clip,
         });
         output.push(PreparedItem::BeginPlane { width, height });
         let (walk, space) = (self.walk, self.scene_size);
@@ -338,7 +626,7 @@ impl GpuRenderer {
         self.walk.effect_scale = effect_scale;
         self.scene_size = (width, height);
         let prepared = self.prepare_plane_content(
-            layer,
+            plane.layer,
             LayerState {
                 transform: to_plane,
                 opacity: 1.0,
@@ -359,11 +647,13 @@ impl GpuRenderer {
                     tx: top[2],
                     ty: middle[2],
                 },
-                opacity: (parent.opacity * opacity.clamp(0.0, 1.0) as f32).clamp(0.0, 1.0),
-                clip: parent.clip,
+                opacity: (plane.parent.opacity * plane.opacity.clamp(0.0, 1.0) as f32)
+                    .clamp(0.0, 1.0),
+                clip: plane.parent.clip,
             },
-            blend_mode,
+            plane.blend_mode,
             bottom,
+            band,
         )));
         Ok(())
     }
@@ -388,14 +678,14 @@ impl GpuRenderer {
         self.prepare_content(layer, state, BlendMode::Normal, false, output)
     }
 
-    /// The box the projective `layer`'s content covers in its local units,
+    /// What the projective `layer`'s content covers in its local units,
     /// prepared onto the end of `output` and rolled back; `None` when it
     /// draws nothing.
     fn measure_plane(
         &mut self,
         layer: &Layer,
         output: &mut Vec<PreparedItem>,
-    ) -> Result<Option<PixelBounds>, GpuRenderError> {
+    ) -> Result<Option<PlaneMeasure>, GpuRenderError> {
         let start = output.len();
         let texts = self.pending_texts.len();
         let paths = self.pending_paths.len();
@@ -407,7 +697,7 @@ impl GpuRenderer {
         let measuring = std::mem::replace(&mut self.measuring_plane, true);
         let prepared = self.prepare_plane_content(layer, LayerState::default(), output);
         self.measuring_plane = measuring;
-        let local = prepared.map(|()| {
+        let measured = prepared.map(|()| {
             // What the text and paths still pending cover, by item.
             let mut pending: Vec<(usize, Option<PixelBounds>)> = Vec::new();
             for text in &self.pending_texts[texts..] {
@@ -420,11 +710,31 @@ impl GpuRenderer {
                 pending.push((path.item, path.shape_box()));
             }
             pending.sort_unstable_by_key(|(item, _)| *item);
-            content_bounds(&output[start..], |index| {
+            let bounds = content_bounds(&output[start..], |index| {
                 let item = start + index;
                 pending
                     .binary_search_by_key(&item, |(item, _)| *item)
                     .map_or(None, |found| pending[found].1)
+            })?;
+            // How far past what it filters an effect inside spreads: the
+            // box an empty one's result can touch.
+            let reach = output[start..]
+                .iter()
+                .filter_map(|item| match item {
+                    PreparedItem::EndEffect(_, spec) => Some(
+                        spec.output_bounds(PixelBounds([0.0; 4]))
+                            .0
+                            .into_iter()
+                            .map(f32::abs)
+                            .fold(0.0, f32::max),
+                    ),
+                    _ => None,
+                })
+                .fold(0.0, f32::max);
+            Some(PlaneMeasure {
+                bounds,
+                reach: f64::from(reach),
+                bandable: !self.shaders.uses_pixel_grid_since(uses),
             })
         });
         output.truncate(start);
@@ -435,8 +745,32 @@ impl GpuRenderer {
         self.hit_leaves.truncate(leaves);
         self.plane_entries.truncate(planes);
         self.shaders.truncate_uses(uses);
-        local
+        measured
     }
+}
+
+/// What a plane's content covers, measured in its local units.
+struct PlaneMeasure {
+    bounds: PixelBounds,
+    /// How far an effect inside spreads past what it filters, in local
+    /// units.
+    reach: f64,
+    /// Whether its content may be drawn in bands: none of it runs a shader
+    /// that works in the plane's pixel grid.
+    bandable: bool,
+}
+
+/// A projective layer whose bands are being prepared.
+struct Plane<'a> {
+    layer: &'a Layer,
+    parent: LayerState,
+    /// The opacity and blend mode it is drawn onto its parent with.
+    opacity: f64,
+    blend_mode: BlendMode,
+    /// The map from its local units to its parent's space.
+    forward: Matrix3,
+    /// The parent's `Walk::effect_scale`.
+    parent_scale: f32,
 }
 
 impl PlaneRaster {
@@ -691,6 +1025,161 @@ mod tests {
             area > 3 * 100 * 100,
             "the scale is lowered no more than needed: {area}"
         );
+    }
+
+    /// A text crawl 20000 tall receding from near the screen's bottom.
+    fn crawl() -> Matrix3 {
+        EvaluatedTransform {
+            position: Point { x: 960.0, y: 900.0 },
+            rotation_x: 70.0,
+            perspective: Some(800.0),
+            ..EvaluatedTransform::default()
+        }
+        .homography()
+    }
+
+    const CRAWL: PixelBounds = PixelBounds([-600.0, -19724.0, 600.0, 276.0]);
+    const SCENE_AREA: u64 = 1920 * 1080;
+
+    fn crawl_bands(max_area: u64) -> Vec<PlaneBand> {
+        plane_bands(&crawl(), CRAWL, SCREEN, 16384, max_area, 0.0, true)
+    }
+
+    #[test]
+    fn an_uncapped_plane_is_one_band_equal_to_plane_raster() {
+        let local = PixelBounds([-900.0, -750.0, 900.0, 294.0]);
+        let bands = plane_bands(&floor(), local, SCREEN, 8192, u64::MAX, 0.0, true);
+        let raster = plane_raster(&floor(), local, SCREEN, 8192, u64::MAX).unwrap();
+        assert_eq!(
+            bands,
+            vec![PlaneBand {
+                raster,
+                near: None,
+                far: None
+            }]
+        );
+    }
+
+    #[test]
+    fn a_capped_crawl_is_split_into_eight_bands() {
+        let bands = crawl_bands(4 * SCENE_AREA);
+        assert_eq!(bands.len(), 8, "{bands:?}");
+        // The near corners need 2^(5/4), more than the 1.48 the near
+        // edge's middle does.
+        assert!((bands[0].raster.scale - 2.378).abs() < 1e-3, "{bands:?}");
+        assert!((bands[7].raster.scale - 0.068).abs() < 1e-3, "{bands:?}");
+        assert_eq!((bands[0].near, bands[7].far), (None, None));
+        let single = plane_raster(&crawl(), CRAWL, SCREEN, 16384, 4 * SCENE_AREA).unwrap();
+        assert!(
+            single.scale < 0.6,
+            "the single canvas is capped: {single:?}"
+        );
+    }
+
+    #[test]
+    fn bands_share_their_boundaries_geometrically() {
+        let bands = crawl_bands(4 * SCENE_AREA);
+        for pair in bands.windows(2) {
+            assert_eq!(pair[0].far, pair[1].near);
+            assert!(pair[0].far.is_some());
+        }
+        let ratios = bands[1..7]
+            .iter()
+            .map(|band| band.far.unwrap() / band.near.unwrap())
+            .collect::<Vec<_>>();
+        for ratio in &ratios {
+            assert!((ratio - ratios[0]).abs() < 1e-9, "{ratios:?}");
+        }
+        let first = bands[1].near.unwrap() / ratios[0];
+        assert!((first - 0.6758).abs() < 1e-3, "{first}");
+    }
+
+    #[test]
+    fn band_scales_cover_their_corners() {
+        let forward = crawl();
+        let polygon = polygon_shown(&forward, CRAWL, SCREEN);
+        for band in crawl_bands(4 * SCENE_AREA) {
+            let near = band.near.unwrap_or(f64::NEG_INFINITY);
+            let far = band.far.unwrap_or(f64::INFINITY);
+            let part = clip_polygon(&polygon, |p| w_at(&forward, p) - near);
+            let part = clip_polygon(&part, |p| far - w_at(&forward, p));
+            for [x, y] in part {
+                let stretch = stretch_at(&forward, x, y).unwrap();
+                assert!(band.raster.scale >= stretch - 1e-9, "{band:?} < {stretch}");
+            }
+        }
+    }
+
+    #[test]
+    fn bands_stay_within_the_budget() {
+        let bands = crawl_bands(1_000_000);
+        let area = bands
+            .iter()
+            .map(|band| u64::from(band.raster.width) * u64::from(band.raster.height))
+            .sum::<u64>();
+        assert!(area <= 1_000_000, "{area}");
+        assert!(
+            bands
+                .iter()
+                .all(|band| band.raster.width <= 16384 && band.raster.height <= 16384)
+        );
+        let single = plane_raster(&crawl(), CRAWL, SCREEN, 16384, 1_000_000).unwrap();
+        assert!(
+            bands[0].raster.scale > single.scale,
+            "{bands:?} vs {single:?}"
+        );
+    }
+
+    #[test]
+    fn bands_never_reach_past_the_near_clip() {
+        // Nothing below the screen's bottom cuts the plane, so the near
+        // clip does.
+        let target = PixelBounds([0.0, 0.0, 1920.0, UNBOUNDED]);
+        let local = PixelBounds([-600.0, -19724.0, 600.0, 2000.0]);
+        let bands = plane_bands(&crawl(), local, target, 16384, 4 * SCENE_AREA, 0.0, true);
+        assert!(bands.len() > 1, "{bands:?}");
+        let near_y = (1.0 - NEAR_W) * 800.0 / 70f64.to_radians().sin();
+        let raster = bands[0].raster;
+        let bottom = raster.top + (f64::from(raster.height) - 2.0) / raster.scale;
+        assert!(
+            bottom <= near_y + 1.0 / raster.scale + 1e-6,
+            "{bottom} > {near_y}: {raster:?}"
+        );
+    }
+
+    #[test]
+    fn unbandable_planes_stay_single() {
+        let bands = plane_bands(&crawl(), CRAWL, SCREEN, 16384, 4 * SCENE_AREA, 0.0, false);
+        let raster = plane_raster(&crawl(), CRAWL, SCREEN, 16384, 4 * SCENE_AREA).unwrap();
+        assert_eq!(
+            bands,
+            vec![PlaneBand {
+                raster,
+                near: None,
+                far: None
+            }]
+        );
+    }
+
+    #[test]
+    fn crossing_the_cap_keeps_the_near_scale() {
+        // A texture limit that does not bind, so only the area does.
+        let bands = |max_area| plane_bands(&crawl(), CRAWL, SCREEN, 65536, max_area, 0.0, true);
+        let single = plane_raster(&crawl(), CRAWL, SCREEN, 65536, u64::MAX).unwrap();
+        let need = u64::from(single.width) * u64::from(single.height);
+        let above = bands(need);
+        let below = bands(need - 1);
+        assert_eq!(above.len(), 1);
+        assert!(below.len() > 1);
+        assert_eq!(above[0].raster.scale, below[0].raster.scale);
+    }
+
+    #[test]
+    fn effects_reach_widens_the_overlap() {
+        let tight = crawl_bands(4 * SCENE_AREA);
+        let reaching = plane_bands(&crawl(), CRAWL, SCREEN, 16384, 4 * SCENE_AREA, 50.0, true);
+        assert!(reaching[1].raster.height > tight[1].raster.height);
+        assert_eq!(reaching[1].near, tight[1].near);
     }
 
     #[test]

@@ -11,7 +11,7 @@ use crate::path::{PathEntries, PendingPath, path_entry_limit};
 use crate::plan::{CompositePlan, GpuDraw, GpuStep, GroupPlan, PreparedDraws, plan_groups};
 use crate::plane::{corners_to_scene, hit_clips};
 use crate::renderer::GpuRenderer;
-use crate::text::{PendingText, text_layer, text_raster_scale};
+use crate::text::{PendingText, TextPlacement, TextSize, Windowed, text_layer, text_raster_scale};
 use crate::texture::{DecodedImage, LayerTexture, TEXT_TEXTURE_PREFIX, canvas_texture, psd_key};
 use crate::texture::{rasterize_texts, text_jobs};
 use crate::transform::{Affine, CLIP_ENTRY_SIZE, ClipEntry, LayerState, MAX_CLIP_DEPTH, Walk};
@@ -43,6 +43,7 @@ impl GpuRenderer {
         if font_count != self.text_font_count {
             self.textures
                 .retain(|key, _| !key.starts_with(TEXT_TEXTURE_PREFIX));
+            self.text_sizes.clear();
             self.text_workers.clear();
             self.text_font_count = font_count;
         }
@@ -72,6 +73,8 @@ impl GpuRenderer {
         let generation = self.texture_generation;
         self.textures
             .retain(|_, cached| cached.last_used == generation);
+        self.text_sizes
+            .retain(|_, size| size.last_used == generation);
         prepared?;
         // The text the cache did not have and the paths, prepared on rayon's
         // threads at the same time.
@@ -879,19 +882,63 @@ impl GpuRenderer {
                 };
                 // `{:?}` spells out every style field and prints floats
                 // exactly, so equal keys always mean equal rasterizer input.
-                let key = format!(
-                    "{TEXT_TEXTURE_PREFIX}{text}\0{style:?}\0{max_width:?}\0{raster_scale:?}"
-                );
+                let layout = format!("{text}\0{style:?}\0{max_width:?}");
+                let mut key = format!("{TEXT_TEXTURE_PREFIX}{layout}\0{raster_scale:?}");
+                let (mut window, mut shape) = (None, None);
+                // A band of a plane draws only the text its canvas shows.
+                let in_band = self.walk.plane.is_some() && !self.measuring_plane;
+                // A text whose whole raster is cached fits a texture; any
+                // other is measured (once) to see whether it does.
+                if in_band || !self.textures.contains_key(&key) {
+                    let size = self.text_size(layout, text, style, *max_width);
+                    let placement = TextPlacement::new(
+                        &size,
+                        style,
+                        *max_width,
+                        layer.transform.anchor,
+                        *baseline_anchor,
+                    );
+                    let bounds = placement.bounds(state.transform);
+                    let (width, height) = self.scene_size;
+                    let [left, top, right, bottom] = bounds.0;
+                    if in_band
+                        && (right <= 0.0
+                            || bottom <= 0.0
+                            || left >= width as f32
+                            || top >= height as f32)
+                    {
+                        return Ok(());
+                    }
+                    if !self.measuring_plane {
+                        match placement.windowed(
+                            size.multiline,
+                            state.transform,
+                            raster_scale,
+                            self.scene_size,
+                            self.max_texture_dimension,
+                        ) {
+                            Windowed::Whole => {}
+                            Windowed::Hidden => return Ok(()),
+                            Windowed::Window(part) => {
+                                key = format!("{key}\0{part:?}");
+                                window = Some(part);
+                                shape = Some(bounds);
+                            }
+                        }
+                    }
+                }
                 let generation = self.texture_generation;
                 if let Some(cached) = self.textures.get_mut(&key) {
                     cached.last_used = generation;
-                    output.push(PreparedItem::Layer(text_layer(
+                    let mut prepared = text_layer(
                         cached.texture.clone(),
                         layer.transform.anchor,
                         *baseline_anchor,
                         state,
                         blend_mode,
-                    )));
+                    );
+                    prepared.shape = shape;
+                    output.push(PreparedItem::Layer(prepared));
                 } else {
                     // Rasterized with the frame's other new text once every
                     // layer is prepared; see `rasterize_texts`.
@@ -906,6 +953,8 @@ impl GpuRenderer {
                         baseline_anchor: *baseline_anchor,
                         state,
                         blend_mode,
+                        window,
+                        shape,
                     });
                     output.push(PreparedItem::PendingText);
                 }
@@ -1089,6 +1138,24 @@ impl GpuRenderer {
             });
         }
         Ok(())
+    }
+
+    /// The layout of `text`, measured the first time a frame needs it and
+    /// kept while frames use it; `layout` is its text, style, and width.
+    fn text_size(
+        &mut self,
+        layout: String,
+        text: &str,
+        style: &celesta_composition::TextStyle,
+        max_width: Option<f64>,
+    ) -> TextSize {
+        let generation = self.texture_generation;
+        let rasterizer = &mut self.text_rasterizer;
+        let size = self.text_sizes.entry(layout).or_insert_with(|| {
+            TextSize::of(&rasterizer.measure(text, style, max_width), generation)
+        });
+        size.last_used = generation;
+        *size
     }
 
     /// Begins a motion-blurred group's canvas and prepares its `samples`,

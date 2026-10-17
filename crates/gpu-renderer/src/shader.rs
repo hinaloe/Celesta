@@ -526,6 +526,14 @@ impl ShaderProcessor {
         self.uses.len()
     }
 
+    /// Whether a use after the first `first` works in its canvas's pixel
+    /// grid: anything but a color filter, which maps each pixel alone.
+    pub(crate) fn uses_pixel_grid_since(&self, first: usize) -> bool {
+        self.uses[first..]
+            .iter()
+            .any(|shader_use| !matches!(shader_use.pipeline, UsePipeline::ColorFilter))
+    }
+
     /// Forgets the frame's uses after the first `count`, recorded by layers
     /// that were rolled back.
     pub(crate) fn truncate_uses(&mut self, count: usize) {

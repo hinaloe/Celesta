@@ -41,7 +41,9 @@ pub use paint::{GradientStop, ResolvedPaint};
 pub use rect::{RectPaint, rasterize_rect, rasterize_rect_transformed, resolve_rect_paint};
 pub use renderer::CpuRenderer;
 pub use shaping::validate_font_runs;
-pub use text::{FontFallback, GlyphMetrics, MissingGlyphs, RasterizedText, TextMetrics};
+pub use text::{
+    FontFallback, GlyphMetrics, MissingGlyphs, RasterizedText, TextMetrics, TextWindow,
+};
 pub use types::{Color, RenderOptions, RgbaFrame};
 
 pub mod image_source;

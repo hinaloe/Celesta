@@ -41,6 +41,63 @@ const OVERLAP = 1;
  * an affine piece beside them reaches into, `OVERLAP` and its antialiasing.
  */
 const WARP_REACH = 2;
+/**
+ * How far past its boundaries a band's canvas holds its content, in target
+ * pixels (`planeBands`'s `seam`): the pixel `drawBand` grows its strip by and
+ * that pixel's antialiasing, and, as the band's plane is drawn whole, room
+ * for its pieces' `OVERLAP`, the pixel more a layered piece holds, and
+ * `warp`'s reach where the canvas ends, and half a pixel's footprint.
+ */
+export const PLANE_SEAM = 1 + 1 + OVERLAP + 1 + WARP_REACH + 0.5;
+
+/** The part of a plane a band holds: its `w` from `near` to `far`, `null` where unbounded. */
+export type DepthRange = [number | null, number | null];
+
+/**
+ * The part of the target `box` where `toSource` (target pixels to a plane's
+ * pixels) shows the plane's `w` within `depth`, grown by `by` target pixels:
+ * a convex polygon, as `1/w` is affine in target pixels (`toSource`'s
+ * bottom row). Empty when none of it is in `box`.
+ */
+export function bandStrip(toSource: Matrix3, [near, far]: DepthRange, box: Box, by: number): [number, number][] {
+  const [g, h, i] = toSource[2];
+  const q = ([x, y]: [number, number]) => g * x + h * y + i;
+  const slack = by * Math.hypot(g, h);
+  let strip = corners(box);
+  if (far !== null) strip = clipPolygon(strip, p => q(p) - 1 / far + slack);
+  if (near !== null) strip = clipPolygon(strip, p => 1 / near + slack - q(p));
+  return strip.length >= 3 ? strip : [];
+}
+
+/**
+ * Draws the band `depth` of a plane: the plane drawn whole from `source`,
+ * the band's canvas, onto a layer of its own, which then replaces what is
+ * on `target` within the band's strip grown by a pixel (`bandStrip`):
+ * cleared there, then added, the clip's coverage blending it with what is
+ * there. Clipping the plane's pieces at the band instead would leave slivers
+ * along it that filter unlike their neighbours. The band's canvas holds its
+ * content `PLANE_SEAM` pixels past the strip, so at a seam both bands are
+ * right, and a pixel either draws, or both in part, is.
+ */
+function drawBand(target: Surface, source: Surface, toSource: Matrix3, box: Box, surface: (width: number, height: number) => Surface, depth: DepthRange): void {
+  const strip = bandStrip(toSource, depth, box, 1);
+  if (!strip.length) return;
+  const [left, top, right, bottom] = box;
+  const layer = surface(target.canvas.width, target.canvas.height);
+  drawPlane(layer, source, toSource, box, surface);
+  const path = new Path2D();
+  strip.forEach(([x, y], k) => (k ? path.lineTo(x, y) : path.moveTo(x, y)));
+  path.closePath();
+  target.save();
+  target.setTransform(1, 0, 0, 1, 0, 0);
+  target.clip(path);
+  target.globalCompositeOperation = 'destination-out';
+  target.fillRect(left, top, right - left, bottom - top);
+  target.globalCompositeOperation = 'lighter';
+  target.drawImage(layer.canvas as never, 0, 0);
+  target.restore();
+  layer.canvas.width = 0;
+}
 
 /**
  * A triangle of a plane drawn by an affine map: its corners on the target;
@@ -456,9 +513,15 @@ type Level = { surface: Surface; offset: [number, number]; scale: [number, numbe
  * Draws `source`, a plane's canvas, onto `target`, which is transparent,
  * where `toSource` (from target pixels to source pixels) projects it inside
  * `box`, as `warp` and the GPU's footprint filter do: see `planePieces`.
- * `surface` makes a canvas of a size.
+ * `surface` makes a canvas of a size. With `depth`, only that band of the
+ * plane is drawn, onto a target other bands may have drawn onto already
+ * (see `drawBand`).
  */
-export function drawPlane(target: Surface, source: Surface, toSource: Matrix3, box: Box, surface: (width: number, height: number) => Surface): void {
+export function drawPlane(target: Surface, source: Surface, toSource: Matrix3, box: Box, surface: (width: number, height: number) => Surface, depth?: DepthRange): void {
+  if (depth) {
+    drawBand(target, source, toSource, box, surface, depth);
+    return;
+  }
   const pieces = planePieces(toSource, source.canvas.width, source.canvas.height, box);
   // Each copy draws the one before it at half the size along an axis, a
   // pixel in, so a bilinear tap at each new pixel's centre averages a pair

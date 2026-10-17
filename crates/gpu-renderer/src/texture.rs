@@ -73,13 +73,15 @@ impl GpuRenderer {
         }
         for text in pending {
             let texture = self.textures[&text.key].texture.clone();
-            items[text.item] = PreparedItem::Layer(text_layer(
+            let mut layer = text_layer(
                 texture,
                 text.anchor,
                 text.baseline_anchor,
                 text.state,
                 text.blend_mode,
-            ));
+            );
+            layer.shape = text.shape;
+            items[text.item] = PreparedItem::Layer(layer);
         }
         Ok(())
     }

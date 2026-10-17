@@ -14,11 +14,16 @@ pub struct RasterizedText {
     pub(crate) anchor_box: AnchorBox,
 }
 
+/// A part of a text layer's layout box to rasterize, in its layout units
+/// (scale 1) from the layout box's top-left: `[left, top, right, bottom]`.
+pub type TextWindow = [f64; 4];
+
 /// A rectangle in image pixels; see [`RasterizedText::anchor_in_image`].
+/// A window's image can start inside it, so its corner can be negative.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct AnchorBox {
-    pub(crate) left: u32,
-    pub(crate) top: u32,
+    pub(crate) left: i32,
+    pub(crate) top: i32,
     pub(crate) width: u32,
     pub(crate) height: u32,
 }

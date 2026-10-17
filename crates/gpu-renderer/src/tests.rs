@@ -36,6 +36,7 @@ mod builtin_effect;
 mod color_filter;
 mod instances;
 mod motion_blur;
+mod plane_bands;
 mod readback;
 mod shader;
 mod transform_3d;
@@ -5452,6 +5453,8 @@ fn an_unwrapped_colored_line_fits_the_gpu_texture_limit() {
         anchor: Point { x: 0.0, y: 0.0 },
         baseline_anchor: true,
         state: LayerState::default(),
+        window: None,
+        shape: None,
         blend_mode: BlendMode::Normal,
     };
     let image = rasterize_text(&mut rasterizer, &job, 1024).unwrap();

@@ -12,9 +12,9 @@ import { audioBytes } from './audio-decode';
 import type { AnimatedImage } from './animated-image';
 import {
   IDENTITY3, boxOf, clipInFront, corners, effectScale as planeEffectScale, facesAway, homography, invert3, isProjective,
-  linear, multiply3, planeRaster, project, projectedBounds, stretchAt, toPlane, turnFlat, turnsFlat,
+  linear, multiply3, planeBands, project, projectedBounds, stretchAt, toPlane, turnFlat, turnsFlat,
 } from './projection';
-import { drawPlane } from './plane-pieces';
+import { PLANE_SEAM, drawPlane } from './plane-pieces';
 import type { Box, Matrix3 } from './projection';
 
 type Canvas = HTMLCanvasElement;
@@ -131,6 +131,27 @@ function effectReach(layer: WebLayer, scale: number, diagonal: number): number {
     effects.glow ? blur(effects.glow.blur) : 0,
   );
   return children + filtersPadding(filters as BuiltinFilter[], diagonal) + reach;
+}
+
+/** What a plane's content covers in its local units (see `SceneCanvas.planeBox`). */
+type PlaneMeasure = {
+  /** Its shapes, grown by `reach`. */
+  box: Box;
+  /** How far its effects spread past its shapes, in local units. */
+  reach: number;
+  /** Whether it may be drawn in bands: no filter in it works in the plane's pixel grid. */
+  bandable: boolean;
+};
+
+/** The filters that map each pixel alone, which draw alike in any band of a plane. */
+const COLOR_FILTERS = new Set(['brightness', 'contrast', 'saturation', 'hue', 'grayscale', 'invert', 'tint', 'vignette']);
+
+/** Whether `layer` or anything in it has a filter that works in its canvas's pixel grid. */
+function drawsInPixelGrid(layer: WebLayer): boolean {
+  if ((layer.effects?.filters ?? []).some(filter => !COLOR_FILTERS.has(filter.type))) return true;
+  const content = layer.content;
+  if (content.type !== 'group') return false;
+  return [...content.layers, ...(content.mask?.layers ?? [])].some(child => drawsInPixelGrid(child as WebLayer));
 }
 
 /** A blur, shadow, or glow radius drawn at `scale` times its size, within `MAX_BLUR`. */
@@ -889,41 +910,50 @@ export class SceneCanvas {
    * Draws the projective `layer`, mapped onto its parent's plane by
    * `toParentPlane` (its `homography`) and whose own orientation accumulates to `orientation`,
    * as the GPU renderer's `prepare_plane` does: its content (`planeContent`)
-   * onto a canvas in its own plane, at the scale `planeRaster` picks for the
-   * part of it `ctx` can show, then that canvas through the layer's
-   * homography onto a surface over where it lands (`drawPlane`), which draws onto
+   * onto a canvas in its own plane for each band `planeBands` picks for the
+   * part of it `ctx` can show, at that band's scale, then each canvas
+   * through the layer's homography onto one surface over where they land
+   * (`drawPlane`, each band onto its part of the plane), which draws onto
    * `ctx` at `alpha`. A blend mode has already drawn the layer apart (see
    * `layer`), so the surface composites source-over.
    */
   private async plane(ctx: Context, layer: WebLayer, toParentPlane: Matrix3, parent: DOMMatrix, alpha: number, orientation: Matrix3, effectScale: number): Promise<void> {
     const forward = multiply3(matrix3(parent), toParentPlane);
     const inner = planeContent(layer);
-    const local = await this.planeBox(ctx, inner, forward, orientation, effectScale);
+    const measured = await this.planeBox(ctx, inner, forward, orientation, effectScale);
     const inverse = invert3(forward);
-    if (!local || !inverse) return;
+    if (!measured || !inverse) return;
     const { width, height } = ctx.canvas;
     const maxArea = Math.min(MAX_PLANE_AREA * this.sceneArea, MAX_CANVAS_AREA);
-    const raster = planeRaster(forward, local, [0, 0, width, height], MAX_PLANE_SIDE, maxArea);
-    if (!raster) return;
-    const toCanvas = toPlane(raster);
-    const plane = this.surface(ctx, raster.width, raster.height);
-    const [[a, c, e], [b, d, f]] = toCanvas;
-    // Effects inside are drawn in the plane's pixels, as large as they
-    // would be in output pixels without the plane.
-    await this.layer(plane, inner, new DOMMatrix([a, b, c, d, e, f]), 1, orientation, effectScale * planeEffectScale(forward, raster));
-    const toSource = multiply3(toCanvas, inverse);
-    const toParent = invert3(toSource);
-    const lands = toParent && projectedBounds(toParent, raster.width, raster.height);
-    const left = Math.max(0, Math.floor(lands?.[0] ?? 0)), top = Math.max(0, Math.floor(lands?.[1] ?? 0));
-    const right = Math.min(width, Math.ceil(lands?.[2] ?? 0)), bottom = Math.min(height, Math.ceil(lands?.[3] ?? 0));
-    if (!(right > left && bottom > top)) {
-      plane.canvas.width = 0;
-      return;
-    }
+    const bands = planeBands(forward, measured.box, [0, 0, width, height], MAX_PLANE_SIDE, maxArea, measured.reach, measured.bandable, PLANE_SEAM);
+    // Where each band lands, and one surface over all of it.
+    const placed = bands.flatMap(band => {
+      const toCanvas = toPlane(band.raster);
+      const toSource = multiply3(toCanvas, inverse);
+      const toParent = invert3(toSource);
+      const lands = toParent && projectedBounds(toParent, band.raster.width, band.raster.height);
+      return lands ? [{ band, toCanvas, toSource, lands }] : [];
+    });
+    if (!placed.length) return;
+    const left = Math.max(0, Math.floor(Math.min(...placed.map(({ lands }) => lands[0]))));
+    const top = Math.max(0, Math.floor(Math.min(...placed.map(({ lands }) => lands[1]))));
+    const right = Math.min(width, Math.ceil(Math.max(...placed.map(({ lands }) => lands[2]))));
+    const bottom = Math.min(height, Math.ceil(Math.max(...placed.map(({ lands }) => lands[3]))));
+    if (!(right > left && bottom > top)) return;
     // Only where it lands.
     const result = this.surface(ctx);
-    drawPlane(result, plane, toSource, [left, top, right, bottom], (w, h) => this.surface(ctx, w, h));
-    plane.canvas.width = 0;
+    for (const { band, toCanvas, toSource } of placed) {
+      const { raster } = band;
+      const plane = this.surface(ctx, raster.width, raster.height);
+      const [[a, c, e], [b, d, f]] = toCanvas;
+      // Effects inside are drawn in the plane's pixels, as large as they
+      // would be in output pixels without the plane.
+      await this.layer(plane, inner, new DOMMatrix([a, b, c, d, e, f]), 1, orientation, effectScale * planeEffectScale(forward, raster));
+      // Each band draws only its part of the plane, a seam's width past it
+      // over its neighbour, which its canvas holds too.
+      drawPlane(result, plane, toSource, [left, top, right, bottom], (w, h) => this.surface(ctx, w, h), bands.length > 1 ? [band.near, band.far] : undefined);
+      plane.canvas.width = 0;
+    }
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = alpha;
@@ -941,10 +971,12 @@ export class SceneCanvas {
    * children's effects reach, measured as the GPU renderer measures a plane
    * (local units, effects at `effectScale` over the stretch at its origin).
    */
-  private async planeBox(ctx: Context, inner: WebLayer, forward: Matrix3, orientation: Matrix3, effectScale: number): Promise<Box | null> {
+  private async planeBox(ctx: Context, inner: WebLayer, forward: Matrix3, orientation: Matrix3, effectScale: number): Promise<PlaneMeasure | null> {
     const scale = effectScale / (stretchAt(forward, 0, 0) ?? 1);
     const local = await this.shapeBox(ctx, inner, new DOMMatrix(), 1, orientation, scale);
-    return local && grow(local, effectReach(inner, scale, Math.hypot(ctx.canvas.width, ctx.canvas.height)));
+    if (!local) return null;
+    const reach = effectReach(inner, scale, Math.hypot(ctx.canvas.width, ctx.canvas.height));
+    return { box: grow(local, reach), reach, bandable: !drawsInPixelGrid(inner) };
   }
 
   /**
@@ -1019,7 +1051,7 @@ export class SceneCanvas {
     if (!(opacity * layer.opacity > 0)) return null;
     if (l && isProjective(t, l)) {
       const forward = multiply3(matrix3(parent), homography(t, l));
-      const local = await this.planeBox(ctx, planeContent(layer), forward, own, effectScale);
+      const local = (await this.planeBox(ctx, planeContent(layer), forward, own, effectScale))?.box ?? null;
       return local && boxOf(clipInFront(forward, corners(local)).map(([x, y]) => {
         const [px, py] = project(forward, x, y);
         return [px, py];

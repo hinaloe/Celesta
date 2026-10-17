@@ -224,6 +224,10 @@ covered by the dated handoff notes.
   a plane canvas and is projected onto its parent, in the GPU renderer and in
   `@celesta/web`. The CPU reference renderer refuses skew and 3D rotation. See
   [`docs/handoff/2026-10-16-skew-3d-transform.md`](docs/handoff/2026-10-16-skew-3d-transform.md).
+  A plane too large for one canvas at the scale its nearest part needs is
+  drawn in bands of equal depth, and a GPU text layer too large for one
+  texture is rasterized only where it shows; see
+  [`docs/handoff/2026-10-16-plane-density-bands.md`](docs/handoff/2026-10-16-plane-density-bands.md).
 - Paths use SVG-style absolute commands with non-zero fill and stroked
   outlines. Their position is the origin; anchors are ignored. Ordinary GPU
   paths use tiled coverage; tiles exceeding 64 edges or paths exceeding the

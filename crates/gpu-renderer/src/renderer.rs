@@ -13,7 +13,7 @@ use crate::plane::PlaneEntry;
 use crate::quantize::{QuantizeOutput, Quantizer};
 use crate::readback::{ReadbackLayout, ReadbackSlot, ReadbackWorker, SlotReadback, rgba_texture};
 use crate::shader::ShaderProcessor;
-use crate::text::PendingText;
+use crate::text::{PendingText, TextSize};
 use crate::texture::{
     CachedTexture, CanvasTexture, DecodedImage, LayerTexture, canvas_format, upload_texture,
 };
@@ -136,6 +136,10 @@ pub struct GpuRenderer {
     /// a mostly static frame. Entries a frame does not use are dropped at
     /// the end of that frame's `prepare_draws`.
     pub(crate) textures: HashMap<String, CachedTexture>,
+    /// The layouts of the text layers recent frames drew, by text, style,
+    /// and width, which decide whether a text's raster fits a texture.
+    /// Evicted with `textures`.
+    pub(crate) text_sizes: HashMap<String, TextSize>,
     /// Incremented by every `prepare_draws`; a cache entry's `last_used`
     /// equals it when the frame being prepared uses that entry.
     pub(crate) texture_generation: u64,
@@ -163,6 +167,8 @@ pub struct GpuRenderer {
     /// The pixel area of the scene being prepared, which a plane's canvas
     /// is limited by.
     pub(crate) scene_area: u64,
+    /// The most pixels a plane's canvases have together, in scene areas.
+    pub(crate) plane_area_limit: u64,
     /// The video frames decoded while planes were measured this frame, by
     /// layer and source time, for those layers' draws in the planes.
     pub(crate) plane_video_frames: Vec<(String, f64, VideoFrame)>,
@@ -380,6 +386,7 @@ impl GpuRenderer {
             readback_format: ReadbackFormat::Rgba8,
             yuv_converters: HashMap::new(),
             textures: HashMap::new(),
+            text_sizes: HashMap::new(),
             texture_generation: 0,
             text_font_count: 0,
             font_fallbacks: Vec::new(),
@@ -390,6 +397,7 @@ impl GpuRenderer {
             plane_entries: Vec::new(),
             measuring_plane: false,
             scene_area: u64::MAX,
+            plane_area_limit: 4,
             plane_video_frames: Vec::new(),
             hit_regions: Vec::new(),
         })

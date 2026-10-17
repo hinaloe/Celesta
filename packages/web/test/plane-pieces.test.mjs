@@ -10,9 +10,9 @@ const directory = mkdtempSync(fileURLToPath(new URL('../node_modules/.plane-test
 const result = await build({ entryPoints: [fileURLToPath(new URL('../src/plane-pieces.ts', import.meta.url))], bundle: true, write: false, format: 'esm' });
 const modulePath = join(directory, 'plane-pieces.mjs');
 writeFileSync(modulePath, result.outputFiles[0].text);
-const { drawPlane, planePieces } = await import(pathToFileURL(modulePath));
+const { PLANE_SEAM, bandStrip, drawPlane, planePieces } = await import(pathToFileURL(modulePath));
 rmSync(directory, { recursive: true });
-const { NEAR_W, homography, invert3, multiply3, planeRaster, project, projectedBounds, toPlane, warp } = await import('../src/projection.ts');
+const { NEAR_W, homography, invert3, multiply3, planeBands, planeRaster, project, projectedBounds, toPlane, warp } = await import('../src/projection.ts');
 globalThis.Path2D = SoftwarePath;
 
 const WIDTH = 200, HEIGHT = 140;
@@ -249,4 +249,61 @@ test('the pieces of a solid plane leave no seams or bands', () => {
       }
     }
   }
+});
+
+/**
+ * A plane receding far, drawn as `SceneCanvas` draws one too large for a
+ * canvas: in bands, each from a canvas of its own onto one target; drawn
+ * whole from one canvas, uncapped; and warped whole, as the GPU draws it.
+ */
+function bandedAndWhole(color) {
+  const forward = homography({ position: { x: 100, y: 120 }, scale: { x: 1, y: 1 }, rotation: 0, anchor: { x: 0, y: 0 }, rotationX: 70, perspective: 80 });
+  const local = [-60, -2000, 60, 30], screen = [0, 0, WIDTH, HEIGHT];
+  const bands = planeBands(forward, local, screen, 8192, WIDTH * HEIGHT, 0, true, PLANE_SEAM);
+  const banded = surface(WIDTH, HEIGHT);
+  for (const band of bands) {
+    const toSource = multiply3(toPlane(band.raster), invert3(forward));
+    drawPlane(banded, surface(band.raster.width, band.raster.height, content(band.raster, color)), toSource, screen, (w, h) => surface(w, h), [band.near, band.far]);
+  }
+  const raster = planeRaster(forward, local, screen, 1 << 20, Infinity);
+  const whole = { raster, toSource: multiply3(toPlane(raster), invert3(forward)), box: screen };
+  const pixels = content(raster, color);
+  return { bands, banded: banded.getImageData(0, 0, WIDTH, HEIGHT).data, whole, drawnWhole: drawn(whole, pixels), warpedWhole: warped(whole, pixels) };
+}
+
+test('a plane drawn in bands is as close to the GPU as the plane drawn whole, seams included', () => {
+  for (const color of [() => [43, 58, 85, 255], smooth]) {
+    const { bands, banded, whole, drawnWhole, warpedWhole } = bandedAndWhole(color);
+    assert.ok(bands.length > 2, `${bands.length} bands`);
+    const ours = [], one = [];
+    for (let y = 0; y < HEIGHT; y++) {
+      for (let x = 0; x < WIDTH; x++) {
+        const i = (y * WIDTH + x) * 4;
+        if (!inside(whole, x, y, true, 3)) continue;
+        ours.push(difference(banded, warpedWhole, i));
+        one.push(difference(drawnWhole, warpedWhole, i));
+      }
+    }
+    ours.sort((a, b) => a - b);
+    one.sort((a, b) => a - b);
+    assert.ok(ours.length > 2000, `${ours.length} pixels`);
+    // A seam would show as a line missing much of its coverage, or of
+    // another band's colors: far past what drawing the plane whole strays.
+    for (const q of [0.5, 0.9, 0.99]) assert.ok(quantile(ours, q) <= quantile(one, q) + 1, `${q}: ${quantile(ours, q)} vs ${quantile(one, q)}`);
+    assert.ok(ours.at(-1) <= Math.max(2, one.at(-1) + 2), `largest ${ours.at(-1)} vs ${one.at(-1)}`);
+  }
+});
+
+test('a band\'s strip is where the plane\'s w is within the band, grown by a pixel', () => {
+  const forward = homography({ position: { x: 100, y: 120 }, scale: { x: 1, y: 1 }, rotation: 0, anchor: { x: 0, y: 0 }, rotationX: 70, perspective: 80 });
+  const toSource = invert3(forward);
+  const strip = bandStrip(toSource, [2, 4], [0, 0, WIDTH, HEIGHT], 1);
+  assert.ok(strip.length >= 4);
+  const slope = Math.hypot(toSource[2][0], toSource[2][1]);
+  for (const point of strip) {
+    const [, , q] = project(toSource, point[0], point[1]);
+    assert.ok(q >= 1 / 4 - slope - 1e-9 && q <= 1 / 2 + slope + 1e-9, `${q}`);
+  }
+  // Nearer than any of the plane that lands on the target.
+  assert.deepEqual(bandStrip(toSource, [0.01, 0.02], [0, 0, WIDTH, HEIGHT], 1), []);
 });
