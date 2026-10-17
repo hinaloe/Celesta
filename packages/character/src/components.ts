@@ -6,7 +6,7 @@
 import * as React from 'react';
 import type { ReactNode } from 'react';
 
-import { Group } from '@celesta/react';
+import { Group, useCurrentTime } from '@celesta/react';
 import type { AnimatedNumber, AssetInput, AssetReference, CommonProps, TextMetrics, TextStyle } from '@celesta/react';
 import {
   CompositionRuntimeContext,
@@ -228,10 +228,64 @@ export interface SubtitleRenderProps {
   /** Frames the subtitle stays up in all, counted like `frame`. Use it to fade the band out. */
   durationInFrames: number;
 }
+/** A change of expression within a line; see `DialogueExpression`. */
+export interface ExpressionCue {
+  /** Seconds from the start of the line, the clock `lipSync` uses. */
+  at: number;
+  /** A key of the portrait's `expressions`. */
+  expression: string;
+}
+
+/**
+ * The expression a line gives its view: one name for the whole line, or
+ * cues that change it partway through, in order of `at`. Before the first
+ * cue the view shows its own expression; from each cue on, that cue's, up
+ * to the line's end (through the gap under `holdThroughGap`).
+ */
+export type DialogueExpression = string | readonly ExpressionCue[];
+
+/**
+ * The expression `expression` picks `seconds` into its line, or undefined
+ * when it picks none (the view's own shows). The same lookup `<Dialogue>`
+ * does, for parts that follow the speaker's face.
+ */
+export function expressionAt(expression: DialogueExpression | undefined, seconds: number): string | undefined {
+  if (expression === undefined || typeof expression === 'string') {
+    return expression;
+  }
+  let current: string | undefined;
+  for (const cue of checkedCues(expression)) {
+    if (cue.at > seconds) break;
+    current = cue.expression;
+  }
+  return current;
+}
+
+function checkedCues(cues: readonly ExpressionCue[]): readonly ExpressionCue[] {
+  if (!Array.isArray(cues)) {
+    throw new Error('expression must be a name or a list of { at, expression } cues');
+  }
+  let previous = 0;
+  cues.forEach((cue, index) => {
+    if (typeof cue?.expression !== 'string') {
+      throw new Error(`expression cue ${index} needs an \`expression\` name`);
+    }
+    if (typeof cue.at !== 'number' || !Number.isFinite(cue.at) || cue.at < 0) {
+      throw new Error(`expression cue ${index} ("${cue.expression}") needs \`at\` in seconds >= 0, got ${cue.at}`);
+    }
+    if (cue.at < previous) {
+      throw new Error(`expression cue ${index} ("${cue.expression}") at ${cue.at} s comes before the cue before it (${previous} s); list cues in order`);
+    }
+    previous = cue.at;
+  });
+  return cues;
+}
+
 export interface DialogueProps extends CommonProps {
   character: React.RefObject<CharacterViewReference | null>;
   children: ReactNode;
-  expression?: string;
+  /** The view's expression while the line is up; cues change it partway through. */
+  expression?: DialogueExpression;
   mouth?: CharacterViewProps['mouth'];
   lipSync?: LipSyncTrack;
   audio?: AssetInput;
@@ -345,8 +399,9 @@ export const CharacterView = React.forwardRef<CharacterViewReference, CharacterV
 
 /** Renders a character portrait and its configured subtitle as one layer. */
 export function Dialogue(props: DialogueProps): ReturnType<typeof React.createElement> {
-  const { children, lipSync, mouth, ...rest } = props;
+  const { children, lipSync, mouth, expression, ...rest } = props;
   const tracked = useOptionalLipSync(lipSync);
+  const time = useCurrentTime();
   const scope = useViewScope();
   const character = scope && props.character
     ? (scopedViewReference(scope, props.character) as DialogueProps['character'])
@@ -359,6 +414,7 @@ export function Dialogue(props: DialogueProps): ReturnType<typeof React.createEl
       character,
       text: children,
       mouth: mouth ?? tracked,
+      expression: expressionAt(expression, time.value / time.timescale),
     },
     subtitle,
   );

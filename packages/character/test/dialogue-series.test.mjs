@@ -7,7 +7,7 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 
-import { planDialogue } from '../dist/index.js';
+import { expressionAt, planDialogue } from '../dist/index.js';
 import { setMediaProbe } from '@celesta/react/internal';
 
 const cli = fileURLToPath(new URL('../../cli/bin/celesta-react-render.js', import.meta.url));
@@ -255,6 +255,84 @@ test('DialogueSeries plays each planned line in its window with its voice and sp
   assert.deepEqual(clips(frames[2]), []);
   assert.deepEqual(clips(frames[4]), [{ src: 'b.wav', start: 53, frames: 15, volume: 1 }]);
   assert.deepEqual(clips(frames[7]), [{ src: 'a.wav', start: 76, frames: 30, volume: 0.5 }]);
+});
+
+test('expression cues change the face within a line and hold through the gap', async (t) => {
+  const source = (holdThroughGap) => `
+    import * as React from 'react';
+    import { Assets, Composition, Sequence } from '@celesta/react';
+    import { Character, CharacterView, Dialogue, DialogueSeries, planDialogue } from '@celesta/character';
+    const mira = React.createRef();
+    const hana = React.createRef();
+    const miraView = React.createRef();
+    const hanaView = React.createRef();
+    let plan;
+    export async function prepare() {
+      plan = await planDialogue([
+        { id: 'one', text: 'First', audio: './a.wav', speaker: 'mira', gap: 0.5,
+          expression: [{ at: 0.2, expression: 'smile' }, { at: 0.6, expression: 'smug' }] },
+        { id: 'two', text: 'Second', audio: './b.wav', speaker: 'mira' },
+      ], { fps: 30 });
+    }
+    const portrait = (name) => ({ defaultExpression: 'calm',
+      expressions: { calm: name + '-calm.png', smile: name + '-smile.png', smug: name + '-smug.png' } });
+    export default function Root() {
+      return (
+        <Composition width={320} height={180} fps={30} durationInFrames={plan.durationInFrames}>
+          <Assets>
+            <Character ref={mira} name="Mira" portrait={portrait('mira')} />
+            <Character ref={hana} name="Hana" portrait={portrait('hana')} />
+          </Assets>
+          <CharacterView ref={miraView} character={mira} />
+          <CharacterView ref={hanaView} character={hana} />
+          <DialogueSeries plan={plan} views={{ mira: miraView }} holdThroughGap={${holdThroughGap}} />
+          {/* A hand-placed line counts from its own Sequence. */}
+          <Sequence from={10} durationInFrames={20}>
+            <Dialogue character={hanaView} expression={[{ at: 0, expression: 'smile' }, { at: 0.5, expression: 'smug' }]}>Hi</Dialogue>
+          </Sequence>
+        </Composition>
+      );
+    }
+    `;
+  // one: 0–30, its gap 30–45; two starts at 45 with no expression.
+  const frames = [0, 5, 6, 9, 10, 17, 18, 24, 25, 29, 30, 44, 45];
+  const faces = (result) => result.frames.map((frame) => images(frame.scene.layers).map((name) => name.split('-')[1]));
+  assert.deepEqual(faces(await renderEntry(t, source(true), frames)), [
+    ['calm', 'calm'], // before the first cue, the view's own face
+    ['calm', 'calm'],
+    ['smile', 'calm'], // 0.2 s
+    ['smile', 'calm'],
+    ['smile', 'smile'], // hana's line starts at frame 10
+    ['smile', 'smile'],
+    ['smug', 'smile'], // 0.6 s
+    ['smug', 'smile'],
+    ['smug', 'smug'], // hana 0.5 s into her line
+    ['smug', 'smug'],
+    ['smug', 'calm'], // the voice has ended; holdThroughGap keeps the last face
+    ['smug', 'calm'],
+    ['calm', 'calm'], // the next line has no expression
+  ].map(([a, b]) => [`${a}.png`, `${b}.png`]));
+  const unheld = faces(await renderEntry(t, source(false), [29, 30]));
+  assert.deepEqual(unheld, [['smug.png', 'smug.png'], ['calm.png', 'calm.png']]);
+});
+
+test('expressionAt picks the last cue at or before the time', () => {
+  const cues = [{ at: 0, expression: 'smile' }, { at: 1.237, expression: 'smug' }];
+  assert.equal(expressionAt(undefined, 3), undefined);
+  assert.equal(expressionAt('smile', 3), 'smile');
+  assert.equal(expressionAt([], 3), undefined);
+  assert.equal(expressionAt([{ at: 0.5, expression: 'smile' }], 0.4), undefined);
+  assert.equal(expressionAt(cues, 0), 'smile');
+  assert.equal(expressionAt(cues, 1.236), 'smile');
+  assert.equal(expressionAt(cues, 1.237), 'smug');
+  assert.equal(expressionAt(cues, 99), 'smug');
+  assert.throws(() => expressionAt([{ at: -1, expression: 'smile' }], 0), /cue 0 \("smile"\) needs `at` in seconds >= 0, got -1/);
+  assert.throws(() => expressionAt([{ at: Number.NaN, expression: 'smile' }], 0), /needs `at` in seconds/);
+  assert.throws(() => expressionAt([{ at: 0 }], 0), /cue 0 needs an `expression` name/);
+  assert.throws(
+    () => expressionAt([{ at: 1, expression: 'smile' }, { at: 0.5, expression: 'smug' }], 2),
+    /cue 1 \("smug"\) at 0.5 s comes before the cue before it \(1 s\)/,
+  );
 });
 
 test('DialogueSeries can hold subtitles through the gap and reports unmapped speakers', async (t) => {

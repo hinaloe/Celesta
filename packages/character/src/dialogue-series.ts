@@ -7,7 +7,7 @@ import { entryRelativePath, isRemoteUrl } from '@celesta/react/internal';
 import { mediaDurationInFrames, preloadMedia } from '@celesta/media-utils';
 
 import { Dialogue, SubtitleRunContext } from './components';
-import type { CharacterViewProps, CharacterViewReference, DialogueProps } from './components';
+import type { CharacterViewProps, CharacterViewReference, DialogueExpression, DialogueProps } from './components';
 import type { LipSyncTrack } from './lipsync';
 
 /** One line of a script, as passed to `planDialogue()`. */
@@ -40,7 +40,12 @@ export interface DialogueLine {
   speaker?: string;
   /** The `<CharacterView>` ref that speaks this line. */
   character?: React.RefObject<CharacterViewReference | null>;
-  expression?: string;
+  /**
+   * The speaker's expression while the line is up: a name, or
+   * `{ at, expression }` cues in seconds from the line's start to change it
+   * partway through (see `DialogueExpression`).
+   */
+  expression?: DialogueExpression;
   mouth?: CharacterViewProps['mouth'];
   lipSync?: LipSyncTrack;
   volume?: AnimatedNumber;

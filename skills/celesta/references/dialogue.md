@@ -19,6 +19,7 @@ Dialogue scenes combine three pieces:
 
 - [React: a two-line conversation](#react-a-two-line-conversation)
 - [Timing a script from its voices](#timing-a-script-from-its-voices)
+- [Changing the face within a line](#changing-the-face-within-a-line)
 - [Drawing the subtitle yourself](#drawing-the-subtitle-yourself)
 - [React props](#react-props)
 - [Automatic lip sync](#automatic-lip-sync)
@@ -166,7 +167,8 @@ Each line:
 | `leadIn` | Seconds of silence before the line. Defaults to `sceneLeadIn` on the first line of a new `scene` (not the script's first line), else 0. |
 | `scene` | Groups consecutive lines into a scene. |
 | `speaker` / `character` | Who speaks: a key of `<DialogueSeries views>`, or the `<CharacterView>` ref itself. |
-| `expression`, `mouth`, `lipSync`, `volume`, `muted` | Passed to the line's `<Dialogue>`. |
+| `expression` | The speaker's face: a name, or `{ at, expression }` cues to change it partway through ([below](#changing-the-face-within-a-line)). |
+| `mouth`, `lipSync`, `volume`, `muted` | Passed to the line's `<Dialogue>`. |
 
 Lines may carry extra fields of your own; the plan keeps the original line
 as `planned.line`.
@@ -204,6 +206,50 @@ For lip sync, load each track in `prepare()` and put it on the line:
 
 A missing voice file fails `prepare()` with
 `planDialogue(): voice file for line "how" not found: ./voices/03.wav (looked at …)`.
+
+## Changing the face within a line
+
+`expression` on a line (or on `<Dialogue>`) can be a list of cues instead of
+one name, to change the face partway through without splitting the voice or
+the subtitle. `at` is seconds from the start of the line, the clock
+`lipSync` uses (time 0 is the first sample of `audio`):
+
+```ts
+{ id: 'psd-2', speaker: 'kiritan', audio: './voices/psd-2.wav', text: '…',
+  expression: [{ at: 0, expression: 'smile' }, { at: 1.237, expression: 'smug' }] }
+```
+
+- Each cue holds until the next; before the first cue (when its `at` is
+  above 0) the view shows its own expression.
+- The last cue holds to the end of the line, and under
+  `<DialogueSeries holdThroughGap>` through the gap after it. With
+  `holdSubtitle` alone the face returns to the view's own in the gap, as
+  for a single name.
+- Cues must be in order of `at` (equal times are allowed; the later one
+  wins), with `at` a finite number >= 0; anything else throws, naming the
+  cue. An unknown expression name throws as usual.
+- A plain string keeps working as before.
+
+Seconds written by hand drift when the script is edited and the voice
+regenerated. Time the cues from the voice instead: a clause boundary is
+where a pause starts in [`timingFromVoicevox`](#mora-and-phoneme-timing-from-voicevox)
+(or [`timingFromAivisSpeech`](#lip-sync-from-aivisspeech)):
+
+```ts
+const timing = timingFromVoicevox(query);
+const line = {
+  id: 'psd-2', speaker: 'kiritan', audio: './voices/psd-2.wav', text: '…',
+  lipSync: lipSyncFromVoicevox(timing),
+  // 'smile' for the first clause, 'smug' from the pause at 「、」 on.
+  expression: [{ at: 0, expression: 'smile' }, { at: timing.pauses[0].start, expression: 'smug' }],
+};
+```
+
+Other parts that follow the speaker's face (a panel naming the expression,
+an effect on a face change) can read it with
+`expressionAt(expression, seconds)`, the same lookup `<Dialogue>` does: it
+returns the name in effect `seconds` into the line, or `undefined` when the
+view's own shows. With a plan, `seconds` is `(frame - planned.from) / fps`.
 
 ## Drawing the subtitle yourself
 
@@ -309,7 +355,8 @@ portrait is drawn at its natural size; use `scale` for large artwork.
 | --- | --- |
 | `character` | The **view** ref. Required. |
 | children | Subtitle text; may hold [`<Span>`](text.md#rich-text-with-span) to emphasize part of it: `この機能、<Span style={{ fill: '#ffd447', fontWeight: 700 }}>ぜひ一度</Span>試してね`. |
-| `expression`, `mouth`, `lipSync` | Applied to the view while the line is active. |
+| `expression` | Applied to the view while the line is active: a name, or `{ at, expression }` cues in seconds from the line's start ([above](#changing-the-face-within-a-line)). |
+| `mouth`, `lipSync` | Applied to the view while the line is active. |
 | `audio` | Voice file path. |
 | `volume`, `playbackRate` | Number or keyframes, as on `<Audio>`. |
 | `startFrom`, `muted` | As on `<Audio>`. |
@@ -432,7 +479,7 @@ const line = {
 // Per frame, inside the line: seconds since the voice started.
 const seconds = (frame - planned.from) / fps;
 const current = timing.moras.find((m) => m.start <= seconds && seconds < m.end);
-const secondClause = timing.pauses[0]?.start ?? Infinity; // face change point
+const secondClause = timing.pauses[0]?.start ?? Infinity; // face change point, see expression cues
 ```
 
 - `timing.moras` lists every mora in order; `timing.accentPhrases[i].moras[j]`
@@ -448,7 +495,7 @@ const secondClause = timing.pauses[0]?.start ?? Infinity; // face change point
   `lipSyncFromVoicevox(timing, options)` throws.
 
 `examples/shorts-explainer/voice.ts` uses this for its lit mora panel and its
-in-line face changes.
+in-line face changes ([expression cues](#changing-the-face-within-a-line)).
 
 ### Lip sync from AivisSpeech
 

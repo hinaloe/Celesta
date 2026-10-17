@@ -3,8 +3,8 @@ import type { ReactNode } from 'react';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Span } from '@celesta/react';
-import { planDialogue } from '@celesta/character';
-import type { DialogueLine, DialoguePlan, LipSyncTrack, MouthShape, PlannedDialogueLine } from '@celesta/character';
+import { expressionAt, planDialogue } from '@celesta/character';
+import type { DialogueLine, DialoguePlan, ExpressionCue, LipSyncTrack, MouthShape, PlannedDialogueLine } from '@celesta/character';
 import { lipSyncFromVoicevox, timingFromVoicevox, voicevoxVowelShape } from '@celesta/voicevox';
 import type { VoicevoxAudioQuery } from '@celesta/voicevox';
 import { CAST } from './character';
@@ -24,8 +24,9 @@ export type VoicedLine = DialogueLine & {
   script: ScriptLine;
   lipSync: LipSyncTrack;
   moras: Mora[];
-  // The speaker's face from `at` seconds into the voice on.
-  faces: { at: number; face: Face }[];
+  // The speaker's face from `at` seconds into the voice on; <DialogueSeries>
+  // puts it on the portrait.
+  expression: ExpressionCue[];
 };
 
 export let plan: DialoguePlan<VoicedLine>;
@@ -52,29 +53,24 @@ export async function prepareVoices() {
       script: line,
       text: emphasize(line.text, CAST[line.speaker].accent),
       audio: `./voices/${line.id}.wav`,
-      // No `expression` here: Stage sets the face on the view (faceAt), so
-      // it can change within a line.
       gap: line.gap,
       lipSync: lipSyncFromVoicevox(timing),
       moras: timing.moras.map((mora) => ({
         text: mora.text, start: mora.start, end: mora.end, mouth: voicevoxVowelShape(mora.vowel.phoneme),
       })),
-      faces: faces.map((face, i) => ({ at: i === 0 ? 0 : timing.pauses[i - 1].start, face })),
+      expression: faces.map((face, i) => ({ at: i === 0 ? 0 : timing.pauses[i - 1].start, expression: face })),
     };
   }));
   // Lines follow each other tightly; a new scene waits a beat for its panel.
   plan = await planDialogue(lines, { fps: FPS, gap: 0.18, sceneLeadIn: 0.3 });
 }
 
-// The face a line's speaker shows at an absolute frame (the first face
-// before the voice starts, the last one through the gap after it).
+// The face a line's speaker shows at an absolute frame, as <DialogueSeries
+// holdThroughGap> puts it on the portrait: the last one through the gap
+// after the voice, then the portrait's own.
 export function faceAt(planned: PlannedDialogueLine<VoicedLine>, frame: number): Face {
-  const seconds = (frame - planned.from) / FPS;
-  let face = planned.line.faces[0].face;
-  for (const cue of planned.line.faces) {
-    if (cue.at <= seconds) face = cue.face;
-  }
-  return face;
+  if (frame >= planned.from + planned.spanInFrames) return 'normal';
+  return (expressionAt(planned.line.expression, (frame - planned.from) / FPS) as Face | undefined) ?? 'normal';
 }
 
 // 【word】 in the script becomes a <Span> in the speaker's color.

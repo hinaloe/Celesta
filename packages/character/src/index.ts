@@ -1,4 +1,4 @@
-export { Character, CharacterView, Dialogue } from './components';
+export { Character, CharacterView, Dialogue, expressionAt } from './components';
 export type {
   CharacterLipSync,
   CharacterPortrait,
@@ -7,7 +7,9 @@ export type {
   CharacterSubtitle,
   CharacterViewProps,
   CharacterViewReference,
+  DialogueExpression,
   DialogueProps,
+  ExpressionCue,
   ImageCharacterBlink,
   ImageCharacterPortrait,
   PsdCharacterBlink,

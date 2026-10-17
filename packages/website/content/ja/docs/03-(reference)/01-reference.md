@@ -54,7 +54,8 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `Assets` / `Character` | `@celesta/react` `@celesta/character` | 立ち絵・表情・口パクの口・字幕のスタイルを宣言します。 |
 | `CharacterView` | `@celesta/character` | キャラクターの立ち絵を配置します。`expression`、`mouth`、`lipSync` を取ります。 |
 | `DialogueSeries` / `planDialogue` | `@celesta/character` | 音声の長さをもとにタイミングを計算し、会話を順に描画します。詳しくは[キャラクターの台詞](/ja/docs/dialogue/)を参照してください。 |
-| `Dialogue` | `@celesta/character` | 字幕を表示し、`audio` を再生し、有効な間の表情を変更します。 |
+| `Dialogue` | `@celesta/character` | 字幕を表示し、`audio` を再生し、有効な間の表情を変更します。行の途中の時刻で表情を切り替えることもできます。 |
+| `expressionAt` | `@celesta/character` | 行の `expression`（名前、または `{ at, expression }` の切り替え）が、行の中のある時刻に選ぶ表情を返します。 |
 | `loadLipSync` / `useLipSync` | `@celesta/character` | WAV から口の形を生成し、現在の形を取得します。 |
 | `loadPsdPreset` | `@celesta/character` | PSDTool の `.pfv` のお気に入りから、表示レイヤーを読み込みます。 |
 

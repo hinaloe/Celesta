@@ -44,6 +44,13 @@ Call planDialogue(lines, { fps, gap, sceneLeadIn }) in prepare(). It measures ea
 
 holdThroughGap keeps the previous line’s text and expression through its gap. holdSubtitle lets a custom subtitle.render keep its background between lines; its held flag identifies the gap. subtitle.render receives text, character (including displayName), metrics, style, maxWidth, frame, and durationInFrames so you can draw a measured subtitle panel. See the repository’s with-dialogue-series.tsx for a complete example.
 
+To change the face partway through a line, give `expression` a list of `{ at, expression }` cues instead of one name. `at` is seconds from the start of the line (the first sample of its voice), the clock `lipSync` uses. Before the first cue the view shows its own expression; from each cue on, that cue’s, and the last one holds to the end of the line (through the gap under holdThroughGap). Cues need `at` >= 0, in order. Rather than writing seconds by hand, take them from the voice, such as `timingFromVoicevox(query).pauses[0].start` (where the pause at a comma starts), so they follow a regenerated voice. Other parts can read the same face with `expressionAt(expression, seconds)`.
+
+```ts
+{ id: 'psd-2', speaker: 'kiritan', audio: './voices/psd-2.wav', text: '…',
+  expression: [{ at: 0, expression: 'smile' }, { at: timing.pauses[0].start, expression: 'smug' }] }
+```
+
 For voices generated with VOICEVOX or AivisSpeech, use the synthesis AudioQuery with [@celesta/voicevox](/en/docs/voicevox/) or [@celesta/aivis-speech](/en/docs/aivis-speech/) instead of spreading the transcript’s vowels over the WAV.
 
 ## See it with real artwork
