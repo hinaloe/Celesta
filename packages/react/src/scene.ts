@@ -27,6 +27,7 @@ export type { LayerShader } from './generated/LayerShader';
 export type { LayerContent } from './generated/LayerContent';
 export type { LetterSpacing } from './generated/LetterSpacing';
 export type { LineBreak } from './generated/LineBreak';
+export type { FontFallbackMode } from './generated/FontFallbackMode';
 export type { LineCap } from './generated/LineCap';
 export type { LineDash } from './generated/LineDash';
 export type { LineJoin } from './generated/LineJoin';

@@ -4,10 +4,10 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 
 | API | パッケージ | 用途 |
 | --- | --- | --- |
-| `Composition` | `@celesta/react` | `width`、`height`、`fps`、`durationInFrames` を設定します。任意の `lang` で既定のテキスト言語を指定し、default export からひとつだけ返します。 |
+| `Composition` | `@celesta/react` | `width`、`height`、`fps`、`durationInFrames` を設定します。任意の `lang` で既定のテキスト言語を、`fontFallback="loaded"` で `<Font>` の書体を OS の書体より先に探すことを指定し、default export からひとつだけ返します。 |
 | `Rect` | `@celesta/react` | `width`、`height`、任意の `fill`、`stroke`、`strokeWidth`、`cornerRadius` を持つ矩形。`dash`、`dashOffset`、`cap` で stroke を破線にできます。 |
 | `Text` | `@celesta/react` | 文字列・数値の子を `style` で装飾し、`maxWidth` で折り返します。`lang` で言語を選び、`style.lang` はさらに優先されます。[テキストとフォント](/ja/docs/text-fonts/)を参照。 |
-| `Group` | `@celesta/react` | 子のレイヤーに共通の位置・拡縮・回転・スキュー・3D 回転（`rotationX`、`rotationY`、`perspective`）・透明度を適用します。`lang` で既定のテキスト言語を、`clip` で矩形を、`mask` で任意の描画を指定して子の見える範囲を決められます。[図形とレイアウト](/ja/docs/layout/)を参照。 |
+| `Group` | `@celesta/react` | 子のレイヤーに共通の位置・拡縮・回転・スキュー・3D 回転（`rotationX`、`rotationY`、`perspective`）・透明度を適用します。`lang` で既定のテキスト言語を、`fontFallback` でフォールバック先を、`clip` で矩形を、`mask` で任意の描画を指定して子の見える範囲を決められます。[図形とレイアウト](/ja/docs/layout/)を参照。 |
 | `Mask` | `@celesta/react` | `Group` のマスクの読み方を決めます。`mode="luminance"` と `invert` を指定できます。 |
 | `Image` / `Video` / `Audio` | `@celesta/react` | `src` でローカルファイルや HTTP(S) の素材を指定します。[画像・動画・音声](/ja/docs/media/)も参照してください。 |
 | `defineShader` | `@celesta/shader` | WGSL のカスタムフィルタを定義します。パラメータを渡して呼び出し、結果を `shader` に渡します。 |
@@ -19,7 +19,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 
 | API | パッケージ | 用途 |
 | --- | --- | --- |
-| `Sequence` | `@celesta/react` | `from` と任意の `durationInFrames` で子の時間を配置します。`lang` で既定のテキスト言語も指定できます。 |
+| `Sequence` | `@celesta/react` | `from` と任意の `durationInFrames` で子の時間を配置します。`lang` で既定のテキスト言語を、`fontFallback` でフォールバック先も指定できます。 |
 | `FreezeFrame` | `@celesta/react` | 子要素を、コンポジション全体の `frame` 時点（絶対フレーム）の状態で、音声なしで描画します。 |
 | `MotionBlur` | `@celesta/react` | フレームを中心に開いたシャッター（`shutterAngle`、既定 180）の間の `samples` 時点（既定 8）で子要素を描き、平均します。 |
 | `Trail` | `@celesta/react` | 子要素の下に、`lagInFrames` ずつ古く薄い複製を `copies` 個描きます。 |

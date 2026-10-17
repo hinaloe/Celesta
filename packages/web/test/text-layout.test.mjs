@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cssFont, letterSpacingPx, measureLine, runPieces, textLines, textLineRanges, textMeasurer, textStyle } from '../src/text-layout.ts';
+import { cssFont, letterSpacingPx, measureLine, runPieces, textLines, textLineRanges, textMeasurer, textStyle, withLoadedFallback } from '../src/text-layout.ts';
 
 test('wrapping uses the requested language, including with older canvas contexts', t => {
   const locales = [], Segmenter = Intl.Segmenter;
@@ -147,4 +147,31 @@ test('wrapped ranges retain source code-point offsets across trimmed spaces and 
   assert.deepEqual(textLineRanges(ctx, '😀 AV   AV\r\né', 5, 'en'), [
     { text: '😀 AV', start: 0 }, { text: 'AV', start: 7 }, { text: 'é', start: 11 },
   ]);
+});
+
+test('fontFallback "loaded" appends loaded families to the stack', () => {
+  const loaded = { fontFamily: 'JetBrains Mono', fontFallback: 'loaded' };
+  assert.equal(cssFont(withLoadedFallback(loaded, ['Noto Sans JP'])), '400 32px "JetBrains Mono", "Noto Sans JP", system-ui, sans-serif');
+  const system = { fontFamily: 'JetBrains Mono' };
+  assert.equal(withLoadedFallback(system, ['Noto Sans JP']), system);
+  const unnamed = { fontFallback: 'loaded' };
+  assert.equal(withLoadedFallback(unnamed, ['Noto Sans JP']), unnamed);
+  assert.equal(withLoadedFallback(loaded, []), loaded);
+  const stacked = {
+    fontFamily: ['JetBrains Mono', 'Noto Sans JP'], fontFallback: 'loaded',
+    fontRuns: [{ start: 0, end: 1, fontFamily: 'Inter' }, { start: 1, end: 2, fontWeight: 700 }],
+  };
+  const resolved = withLoadedFallback(stacked, ['Noto Sans JP', 'Noto Emoji']);
+  assert.deepEqual(resolved.fontFamily, ['JetBrains Mono', 'Noto Sans JP', 'Noto Emoji']);
+  assert.deepEqual(resolved.fontRuns, [
+    { start: 0, end: 1, fontFamily: ['Inter', 'Noto Sans JP', 'Noto Emoji'] },
+    { start: 1, end: 2, fontWeight: 700 },
+  ]);
+});
+
+test('fontFallback "loaded" extends a span family when the text has none', () => {
+  const style = { fontFallback: 'loaded', fontRuns: [{ start: 0, end: 2, fontFamily: 'JetBrains Mono' }] };
+  const resolved = withLoadedFallback(style, ['Noto Sans JP']);
+  assert.deepEqual(resolved.fontRuns, [{ start: 0, end: 2, fontFamily: ['JetBrains Mono', 'Noto Sans JP'] }]);
+  assert.equal(resolved.fontFamily, undefined);
 });

@@ -61,8 +61,11 @@ For Japanese comments and strings, which monospaced Latin fonts lack, give
 a [font stack](text.md#font-stacks-和欧混植) with the monospaced font first:
 `style={{ fontFamily: ['JetBrains Mono', 'Noto Sans JP'] }}`, with both
 loaded by `<Font>` and `lang="ja-JP"` on the composition. Without one, the
-Japanese is drawn with a system font even when Noto Sans JP is loaded. The
-line widths and the highlight band follow the stack.
+Japanese is drawn with a system font even when Noto Sans JP is loaded,
+unless the composition (or an enclosing `<Group>`/`<Sequence>`) sets
+`fontFallback="loaded"`, which tries loaded fonts first; see
+[text.md](text.md#fonts-fallback-and-emoji). The line widths and the
+highlight band follow the stack.
 
 ## Typing animation
 

@@ -51,6 +51,7 @@ export type {
   CompositionConfig,
   CompositionInfo,
   EvaluatedTransform,
+  FontFallbackMode,
   FontFamily,
   GradientStop,
   GroupMask,

@@ -39,6 +39,8 @@ export type FontFamily = string | readonly string[];
 export type FontRun = { start: number; end: number; fontWeight?: number | null; fontFamily?: FontFamily | null };
 export type TextStyle = {
   lang?: string | null;
+  /** `'loaded'` appends the scene's loaded font families to `fontFamily`. */
+  fontFallback?: 'system' | 'loaded' | null;
   fontFamily?: FontFamily | null;
   fontSize?: number | null;
   fontWeight?: number | null;

@@ -9,8 +9,8 @@
 import * as React from 'react';
 
 import { isRemoteUrl } from './entry-dir';
-import { CompositionRuntimeContext, CompositionSelectionContext, RerenderRequestContext, RootRuntimeContext, resolveTextLanguage } from './hooks';
-import { TextMetricsFontsContext, withTextLanguage } from './text-measure';
+import { CompositionRuntimeContext, CompositionSelectionContext, RerenderRequestContext, RootRuntimeContext, resolveFontFallback, resolveTextLanguage } from './hooks';
+import { type InheritedText, TextMetricsFontsContext, withInheritedText } from './text-measure';
 import { flattenTextContent, withTextRuns } from './rich-text';
 import { ProjectLayersContext, ProjectTrackLayersContext } from './hooks';
 import { type HostWalk, hasHostElementPreparation, hostElement } from './host-elements';
@@ -27,6 +27,7 @@ import type {
   CompositionConfig,
   CompositionInfo,
   EvaluatedTransform,
+  FontFallbackMode,
   GroupMask,
   KeyframeAnimation,
   Layer,
@@ -165,6 +166,7 @@ export interface SubtitleDescriptor {
  */
 interface WalkContext {
   lang?: string;
+  fontFallback?: FontFallbackMode;
   time: Time;
   fps: number;
   originSec: number;
@@ -306,11 +308,19 @@ function readCompositionConfig(instance: HostNode): CompositionConfig {
   };
 }
 
+/** What text inherits from a `<Composition>` instance's props. */
+function compositionText(instance: HostNode): InheritedText {
+  return {
+    lang: resolveTextLanguage(instance.props.lang),
+    fontFallback: resolveFontFallback(instance.props.fontFallback),
+  };
+}
+
 function rootWalkContext(
   fps: number,
   durationInFrames: number,
   time: Time,
-  lang?: string,
+  text: InheritedText = {},
   openEnd = false,
   compact = false,
   statics: StaticWalk | null = null,
@@ -319,7 +329,8 @@ function rootWalkContext(
 ): WalkContext {
   const endSec = durationInFrames / fps;
   return {
-    lang,
+    lang: text.lang,
+    fontFallback: text.fontFallback,
     time,
     fps,
     originSec: 0,
@@ -669,9 +680,9 @@ function buildLayer(
       type: 'text',
       text: flatString(flat.text),
       style: withTextRuns(
-        withTextLanguage(
+        withInheritedText(
           (props.style as TextStyle | undefined) ?? {},
-          resolveTextLanguage(props.lang, context.lang),
+          { lang: resolveTextLanguage(props.lang, context.lang), fontFallback: context.fontFallback },
         ),
         flat,
         '<Text>',
@@ -981,6 +992,7 @@ function childSequenceContext(node: HostNode, context: WalkContext): WalkContext
   return {
     time,
     lang: context.lang,
+    fontFallback: context.fontFallback,
     fps,
     originSec,
     rangeStartSec,
@@ -1016,6 +1028,7 @@ function childFreezeContext(node: HostNode, context: WalkContext, layerId: strin
   return {
     time,
     lang: context.lang,
+    fontFallback: context.fontFallback,
     fps: context.fps,
     originSec: 0,
     rangeStartSec: 0,
@@ -1263,11 +1276,14 @@ function walkNode(
   if ((node.type === 'group' || node.type === 'sequence') && node.props.lang !== undefined) {
     context = { ...context, lang: resolveTextLanguage(node.props.lang, context.lang) };
   }
+  if ((node.type === 'group' || node.type === 'sequence') && node.props.fontFallback !== undefined) {
+    context = { ...context, fontFallback: resolveFontFallback(node.props.fontFallback, context.fontFallback) };
+  }
   if (node.type === 'rawLayers') {
     if (audioOnly) {
       return [];
     }
-    const layers = inheritTextLanguage((node.props.layers as Layer[] | undefined) ?? [], context.lang);
+    const layers = inheritText((node.props.layers as Layer[] | undefined) ?? [], context);
     recordBuiltLayers(context, layers, node);
     return layers;
   }
@@ -1362,7 +1378,7 @@ function sameLocation(left: ResolvedAsset, right: ResolvedAsset): boolean {
 function staticLayer(node: HostNode, path: string, context: WalkContext, audio: AudioClipDescriptor[]): Layer {
   const { statics } = context;
   recordLayerNode(context, path, node);
-  const key = { path, lang: context.lang, idPrefix: context.idPrefix, compact: context.compact };
+  const key = { path, lang: context.lang, fontFallback: context.fontFallback, idPrefix: context.idPrefix, compact: context.compact };
   // The children are walked with a frame state of their own, so the custom
   // shaders they use are known and can be listed again on frames that reuse
   // their layers. No host element, the other user of frame state, can be
@@ -1415,20 +1431,20 @@ function walkChildren(
 }
 
 /** Includes text supplied by a project timeline and its nested groups. */
-function inheritTextLanguage(layers: Layer[], lang?: string): Layer[] {
-  if (lang === undefined) return layers;
+function inheritText(layers: Layer[], inherited: InheritedText): Layer[] {
+  if (inherited.lang === undefined && inherited.fontFallback === undefined) return layers;
   return layers.map((layer) => {
     const content = layer.content;
     if (content.type === 'text') {
-      return { ...layer, content: { ...content, style: withTextLanguage(content.style, lang) } };
+      return { ...layer, content: { ...content, style: withInheritedText(content.style, inherited) } };
     }
     if (content.type === 'group') {
       return {
         ...layer,
         content: {
           ...content,
-          layers: inheritTextLanguage(content.layers, lang),
-          ...(content.mask ? { mask: { ...content.mask, layers: inheritTextLanguage(content.mask.layers, lang) } } : {}),
+          layers: inheritText(content.layers, inherited),
+          ...(content.mask ? { mask: { ...content.mask, layers: inheritText(content.mask.layers, inherited) } } : {}),
         },
       };
     }
@@ -1568,7 +1584,7 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
       config.frameRate.numerator,
       config.durationInFrames,
       time,
-      resolveTextLanguage(instance.props.lang),
+      compositionText(instance),
       openEnd,
       compact,
       audioOnly ? null : { cache: staticSubtrees, refer: statics !== undefined, referenced: new Set() },
@@ -1660,7 +1676,7 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
         config.frameRate.numerator,
         config.durationInFrames,
         time,
-        resolveTextLanguage(instance.props.lang),
+        compositionText(instance),
         false,
         false,
         null,
@@ -1804,7 +1820,7 @@ export function createResolver(lang?: string): Resolver {
         runtimeValue.fps,
         runtimeValue.durationInFrames,
         runtime?.time ?? ZERO_TIME,
-        runtimeValue.lang,
+        { lang: runtimeValue.lang },
       );
       const components = container.children.map((child, index) => {
         // An unresolved name renders the empty 'rawLayers' marker; anything

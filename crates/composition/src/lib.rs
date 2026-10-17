@@ -10,8 +10,8 @@ mod transform;
 
 pub use keyframe::{Animatable, Easing, Keyframe, KeyframeAnimation, KeyframeAnimationType};
 pub use style::{
-    FontFamily, GradientStop, LetterSpacing, LineBreak, Paint, Stroke, TextAlign, TextColorRun,
-    TextFontRun, TextStyle,
+    FontFallbackMode, FontFamily, GradientStop, LetterSpacing, LineBreak, Paint, Stroke, TextAlign,
+    TextColorRun, TextFontRun, TextStyle,
 };
 pub use time::{Rational, Time, TimeError, TimeRange};
 pub use transform::{AnimatablePoint, Transform};

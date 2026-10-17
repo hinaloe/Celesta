@@ -1,6 +1,6 @@
 import * as React from 'react';
 
-import type { Layer, Time } from './scene';
+import type { FontFallbackMode, Layer, Time } from './scene';
 
 /** @internal undefined outside a mount, null while discovering roots. */
 export const CompositionSelectionContext = React.createContext<string | null | undefined>(undefined);
@@ -21,6 +21,8 @@ export interface CompositionRuntimeContextValue extends VideoConfig {
    */
   debugGuides?: boolean;
   lang?: string;
+  /** Where text's missing characters are drawn from; see `TextStyle.fontFallback`. */
+  fontFallback?: FontFallbackMode;
   /**
    * True while a frame past the composition's end is evaluated as if the
    * video went on (inspect.mjs --loop compares frame N with frame 0), and
@@ -88,6 +90,15 @@ export const ProjectTrackLayersContext = React.createContext<Record<string, Laye
  * `<Dialogue>` mounted together with its `<CharacterView>`, say).
  */
 export const RerenderRequestContext = React.createContext<() => void>(() => {});
+
+/** @internal Shared `fontFallback` inheritance for React providers and the scene walker. */
+export function resolveFontFallback(value: unknown, inherited?: FontFallbackMode): FontFallbackMode | undefined {
+  if (value === undefined) return inherited;
+  if (value !== 'system' && value !== 'loaded') {
+    throw new Error("Celesta components require `fontFallback` to be 'system' or 'loaded'");
+  }
+  return value;
+}
 
 /** @internal Shared language inheritance for React providers and the scene walker. */
 export function resolveTextLanguage(lang: unknown, inherited?: string): string | undefined {

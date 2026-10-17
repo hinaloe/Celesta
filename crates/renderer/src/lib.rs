@@ -10,6 +10,8 @@ mod composite;
 mod effects;
 mod error;
 #[cfg(test)]
+mod font_fallback_tests;
+#[cfg(test)]
 mod font_run_tests;
 mod font_stack;
 #[cfg(test)]

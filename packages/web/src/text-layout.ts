@@ -1,4 +1,4 @@
-import type { Asset, FontRun, TextStyle } from './types';
+import type { Asset, FontFamily, FontRun, TextStyle } from './types';
 export type { FontRun };
 
 type MeasureTextRequest = { text: string; style: TextStyle; maxWidth?: number; fonts: Asset[] };
@@ -18,6 +18,26 @@ export function cssFont(style: TextStyle, run?: FontRun): string {
   const family = run?.fontFamily ?? style.fontFamily;
   const families = (Array.isArray(family) ? family : family ? [family] : []).map(name => JSON.stringify(name) + ', ');
   return `${run?.fontWeight ?? style.fontWeight ?? 400} ${style.fontSize ?? 32}px ${families.join('')}system-ui, sans-serif`;
+}
+
+/**
+ * `style` with `families`, the scene's loaded font families, after its own
+ * stack and each font run's when it sets `fontFallback: 'loaded'`, so the
+ * browser tries them before the system's fonts. Native rendering does the
+ * same per grapheme cluster; the browser chooses per character.
+ */
+export function withLoadedFallback(style: TextStyle, families: readonly string[]): TextStyle {
+  if (style.fontFallback !== 'loaded' || families.length === 0) return style;
+  if (style.fontFamily == null && !style.fontRuns?.some(run => run.fontFamily != null)) return style;
+  const extend = (family: FontFamily): string[] => {
+    const names = typeof family === 'string' ? [family] : [...family];
+    return [...names, ...families.filter(name => !names.includes(name))];
+  };
+  return {
+    ...style,
+    ...(style.fontFamily != null ? { fontFamily: extend(style.fontFamily) } : {}),
+    ...(style.fontRuns ? { fontRuns: style.fontRuns.map(run => run.fontFamily == null ? run : { ...run, fontFamily: extend(run.fontFamily) }) } : {}),
+  };
 }
 
 /** `style.letterSpacing` in px, resolving `{ em }` against the font size. */

@@ -4,12 +4,13 @@
 // that carried them is known to be decoded on the Rust side.
 
 import { type HostNode, hostRevision } from './reconciler';
-import type { Layer, ShaderSource } from './scene';
+import type { FontFallbackMode, Layer, ShaderSource } from './scene';
 
 /** What a `<Static>`'s cached layers depend on besides its subtree. */
 export interface StaticContext {
   path: string;
   lang: string | undefined;
+  fontFallback: FontFallbackMode | undefined;
   idPrefix: string;
   compact: boolean;
 }
@@ -53,6 +54,7 @@ export class StaticSubtrees {
       node.changedAt <= entry.walkedAt &&
       entry.path === context.path &&
       entry.lang === context.lang &&
+      entry.fontFallback === context.fontFallback &&
       entry.idPrefix === context.idPrefix &&
       entry.compact === context.compact
     ) {

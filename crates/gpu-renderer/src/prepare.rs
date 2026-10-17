@@ -39,13 +39,13 @@ impl GpuRenderer {
             .load_fonts(&scene.fonts, &self.asset_root)
             .map_err(GpuRenderError::Text)?;
         self.shaders.begin_scene(&self.device, scene)?;
-        let font_count = self.text_rasterizer.loaded_font_count();
-        if font_count != self.text_font_count {
+        let fonts_revision = self.text_rasterizer.fonts_revision();
+        if fonts_revision != self.text_fonts_revision {
             self.textures
                 .retain(|key, _| !key.starts_with(TEXT_TEXTURE_PREFIX));
             self.text_sizes.clear();
             self.text_workers.clear();
-            self.text_font_count = font_count;
+            self.text_fonts_revision = fonts_revision;
         }
         self.pending_texts.clear();
         self.pending_paths.clear();

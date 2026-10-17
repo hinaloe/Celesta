@@ -104,12 +104,33 @@ Fonts keep their own licenses; downloading or caching them does not relicense th
 </Composition>
 ```
 
-Families that are not installed or loaded are skipped. The first family that is sets the baselines, so a paragraph keeps even line spacing whether or not a line has Japanese. Characters that no family in the list has fall back to an installed system font chosen for `lang`. Fonts loaded with `<Font>` are never used as fallbacks, so list them in the stack. Measuring and wrapping follow the stack, and `<Code>` takes one too: `style={{ fontFamily: ['JetBrains Mono', 'Noto Sans JP'] }}`. `<Span style={{ fontFamily }}>` accepts a stack as well. The export warns when no family in the stack is installed or loaded, and names the characters that none of them has. The browser preview passes the list to the browser as a CSS font-family list, so characters that no family has can look different from the export.
+Families that are not installed or loaded are skipped. The first family that is sets the baselines, so a paragraph keeps even line spacing whether or not a line has Japanese. Characters that no family in the list has fall back to an installed system font chosen for `lang`. By default, fonts loaded with `<Font>` are not used as fallbacks, so list them in the stack, or set `fontFallback` as described below. Measuring and wrapping follow the stack, and `<Code>` takes one too: `style={{ fontFamily: ['JetBrains Mono', 'Noto Sans JP'] }}`. `<Span style={{ fontFamily }}>` accepts a stack as well. The export warns when no family in the stack is installed or loaded, and names the characters that none of them has. The browser preview passes the list to the browser as a CSS font-family list, so characters that no family has can look different from the export.
 
 - `maxWidth` wraps text at word boundaries, and `align` positions each line within that width. Use `\n` in a string to break a line yourself.
 - Japanese normally wraps between most characters, splitting a word such as フレーム, while line-break rules keep punctuation such as 、 and 。 off the start of a line. Set `lineBreak: 'phrase'` in the style to wrap only between phrases, found with [BudouX](https://github.com/google/budoux)’s Japanese model; `lang` currently selects fallback fonts only. A phrase wider than `maxWidth` wraps inside itself as normal text does. The browser preview ignores `lineBreak` and wraps only at whitespace.
 - Single-line text is anchored vertically by its visible glyphs, so `anchorY={0.5}` centers the letters themselves rather than an invisible line box. Its width is the advance width, so leading and trailing spaces still take up room. Text with several lines, broken with a newline or wrapped at maxWidth, is anchored by its line boxes instead, where measureText puts them.
 - `anchorY="baseline"` anchors text on its first line’s baseline instead. Text layers with the same `y` then share a baseline, whatever their letters or font sizes.
+
+### Fall back to loaded fonts
+
+Set `fontFallback="loaded"` to try the fonts loaded with `<Font>` before the system's, without listing them in every stack. A character that no family of `fontFamily` has is then drawn with the first loaded font, in `<Font>` declaration order, that has it, and with a system font only when none does. The glyphs then no longer depend on the fonts installed where the video is exported.
+
+```tsx title="Japanese from the loaded font, not the system's"
+<Composition width={1920} height={1080} fps={30} durationInFrames={90} lang="ja-JP" fontFallback="loaded">
+  <Assets>
+    <Font google="JetBrains Mono" />
+    <Font google="Noto Sans JP" subsets={['japanese']} />
+  </Assets>
+  <Text style={{ fontFamily: 'JetBrains Mono', fontSize: 64 }}>let 名前 = "値";</Text>
+</Composition>
+```
+
+- `<Group>` and `<Sequence>` also take `fontFallback`, and children inherit the nearest one, like `lang`. `style.fontFallback` takes priority. The default is `'system'`.
+- It applies only to text with a `fontFamily`, its own or a `<Span>`'s; text without one keeps the system's default font.
+- `measureText()` and `fitText()` in `prepare()` run before the composition, so pass `fontFallback: 'loaded'` in their style there, as with `lang`.
+- Measuring, wrapping, and baselines follow the same choice as drawing.
+- The export does not warn about characters a loaded font draws. Characters that no loaded font has are still reported.
+- The browser preview adds the loaded families to the end of the CSS font-family list. The browser picks a font per character rather than per cluster, so an accent can come from a different font than its letter.
 
 ## Emphasize part of a text
 

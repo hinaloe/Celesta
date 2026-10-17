@@ -4,8 +4,8 @@ import type { BlendMode } from './blend-modes';
 import { applyFilters, filtersPadding } from './filters';
 import { canvasDrawsAlike, gradientPixels } from './gradients';
 import { SampleAverage } from './motion-blur';
-import { loadFonts, releaseFonts } from './fonts';
-import { checkFontRuns, cssFont, letterSpacingPx, measureLine, runPieces, textLineRanges, textStyle } from './text-layout';
+import { loadFonts, loadedFamilies, releaseFonts } from './fonts';
+import { checkFontRuns, cssFont, letterSpacingPx, measureLine, runPieces, textLineRanges, textStyle, withLoadedFallback } from './text-layout';
 import type { RunPiece } from './text-layout';
 import { animationFrame, decodeAnimatedImage } from './animated-image';
 import { audioBytes } from './audio-decode';
@@ -269,6 +269,8 @@ export class SceneCanvas {
   private styledText = new Map<string, HTMLCanvasElement>();
   private textLayouts = new Map<string, { mask: HTMLCanvasElement; stroke?: HTMLCanvasElement; probe?: ImageData; regions: { start: number; end: number; x: number; width: number }[] }>();
   private fontKey = '';
+  /** The scene's loaded font families, for `fontFallback: 'loaded'` text. */
+  private fallbackFamilies: string[] = [];
   private usedLayouts = new Set<string>();
   private usedText = new Set<string>();
   /** Gradients computed by `paint`, which a still frame draws again unchanged. */
@@ -541,6 +543,7 @@ export class SceneCanvas {
     this.usedText.clear();
     this.usedPatterns.clear();
     await loadFonts(scene.fonts ?? [], asset => this.src(asset));
+    this.fallbackFamilies = loadedFamilies(scene.fonts ?? [], asset => this.src(asset));
     const fontKey = JSON.stringify(scene.fonts ?? []);
     if (fontKey !== this.fontKey) {
       this.styledText.clear();
@@ -785,7 +788,7 @@ export class SceneCanvas {
         ctx.stroke();
       }
     } else if (content.type === 'text') {
-      const style = content.style;
+      const style = withLoadedFallback(content.style, this.fallbackFamilies);
       const count = Array.from(content.text).length;
       let previousEnd = 0;
       for (const run of style.colorRuns ?? []) {
@@ -1135,7 +1138,7 @@ export class SceneCanvas {
    * moves it by. Sets `ctx`'s text state.
    */
   private textLayout(ctx: Context, content: TextContent, anchor: { x: number; y: number }) {
-    const style = content.style;
+    const style = withLoadedFallback(content.style, this.fallbackFamilies);
     const fontRuns = style.fontRuns ?? [];
     // Canvas language selection is available in newer browsers.
     const size = style.fontSize ?? 32;

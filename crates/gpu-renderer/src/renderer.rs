@@ -143,9 +143,10 @@ pub struct GpuRenderer {
     /// Incremented by every `prepare_draws`; a cache entry's `last_used`
     /// equals it when the frame being prepared uses that entry.
     pub(crate) texture_generation: u64,
-    /// `TextRasterizer::loaded_font_count` when the cached text textures
-    /// were rasterized; a newly loaded font can change their layout.
-    pub(crate) text_font_count: usize,
+    /// `TextRasterizer::fonts_revision` when the cached text textures were
+    /// rasterized; a newly loaded font, or a font list that falls back
+    /// differently, can change their layout.
+    pub(crate) text_fonts_revision: u64,
     /// The last prepared frame's text layers that use a fallback font, one
     /// per family and weight.
     pub(crate) font_fallbacks: Vec<FontFallback>,
@@ -388,7 +389,7 @@ impl GpuRenderer {
             textures: HashMap::new(),
             text_sizes: HashMap::new(),
             texture_generation: 0,
-            text_font_count: 0,
+            text_fonts_revision: 0,
             font_fallbacks: Vec::new(),
             missing_glyphs: Vec::new(),
             record_hit_regions: false,
