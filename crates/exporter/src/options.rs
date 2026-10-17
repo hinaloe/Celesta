@@ -31,6 +31,12 @@ pub struct ExportOptions {
     /// language in its place (`und` for subtitles without one); a path
     /// without it takes subtitles of one language only.
     pub subtitles: Vec<PathBuf>,
+    /// The video is played in a loop, so its sound runs from its end into
+    /// its start. An MP4's AAC encoder then starts from the end of the mix
+    /// instead of silence, which keeps the first hit from smearing on every
+    /// pass; the decoded sound is still exactly the mix. MOV's PCM needs
+    /// nothing, and WebM's Opus is written as without it.
+    pub looping: bool,
 }
 
 /// The container (and, with it, the codecs) an exported video is written in.

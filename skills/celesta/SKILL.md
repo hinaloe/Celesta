@@ -214,7 +214,7 @@ Load only the one you need; each is self-contained.
 | Subtitle files: reading SRT/WebVTT (`parseSubtitles`), `<Subtitles>`, writing them with `formatSubtitles` or `--subtitles` on export | [subtitles.md](references/subtitles.md) |
 | Syntax-highlighted code, typing code, highlighted lines, carets, drawing code lines yourself (`@celesta/code`) | [code.md](references/code.md) |
 | Seeded random, noise, clamp/lerp/remap, waves, angles, points (`@celesta/math`) | [math.md](references/math.md) |
-| A seamless loop (Shorts, TikTok): loop length from beats and bars, periodic motion, looping noise, folding the music's tail back, `inspect.mjs --loop` | [loops.md](references/loops.md) |
+| A seamless loop (Shorts, TikTok): loop length from beats and bars, periodic motion, looping noise, folding the music's tail back, `inspect.mjs --loop`, exporting with `--loop` | [loops.md](references/loops.md) |
 | Custom WGSL filters: ripples, glitches, color grades (`@celesta/shader`, the `shader` prop); ordering built-in filters among them | [shader.md](references/shader.md) |
 | Characters, portraits, subtitles (incl. custom `subtitle.render` bands and name plates), voices, `planDialogue`/`DialogueSeries`, lip sync (WAV, VOICEVOX, or AivisSpeech), PSD portraits, blinking, in React and JSON | [dialogue.md](references/dialogue.md) |
 | `.celesta.json` schema, time values, tracks, item types, transforms, keyframes, easing names, validation rules, full example | [project-json.md](references/project-json.md) |

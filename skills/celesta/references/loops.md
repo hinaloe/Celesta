@@ -157,10 +157,12 @@ The radius (`0.8`) sets how much the field changes over one loop. See
   too; then one `<Audio>` is enough.
 - **A short loop file** (ambience, a one-bar beat) repeats with
   `<Audio loop>`. Its length times a whole number must be `LOOP` frames.
-- **AAC at the seam.** The exporter's AAC encoder starts from silence, so a
-  loud hit exactly on frame 0 can come out slightly smeared in the first few
-  milliseconds, and a looping player repeats that on every pass. Listen to
-  the exported MP4 around the restart.
+- **Export with `--loop`.** An AAC encoder starts from silence, so a hit
+  exactly on frame 0 comes out smeared for about 10 ms, and a looping player
+  repeats that on every pass. `--loop` encodes the end of the soundtrack
+  ahead of its start and hides it, so the restart sounds like any other bar
+  line ([export.md](export.md#looping-video)). It does not fold the overhang
+  for you; do that as above.
 
 ## Check the loop
 
@@ -211,6 +213,6 @@ The radius (`0.8`) sets how much the field changes over one loop. See
    The jump from 383 to 0 should look like the jump from 95 to 96. Tiles
    follow the listed order, so `383,0` puts the last frame first.
 
-3. **Listen to the restart.** Export the MP4 ([export.md](export.md)), check
-   its length with `ffprobe` (`duration` equals `LOOP / FPS`), and play it on
-   repeat around the seam.
+3. **Listen to the restart.** Export the MP4 with `--loop`
+   ([export.md](export.md#looping-video)), check its length with `ffprobe`
+   (`duration` equals `LOOP / FPS`), and play it on repeat around the seam.

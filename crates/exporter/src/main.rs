@@ -54,6 +54,12 @@ A .mov output is ProRes 4444 with 24-bit PCM audio and a .webm output VP9
 with Opus; both keep transparency where nothing is drawn (straight alpha,
 BT.709). --preset, --crf, --bit-depth and --color-conversion apply to MP4 only.
 
+--loop is for a video played in a loop, as Shorts and TikTok play one: the
+MP4's AAC encoder starts from the end of the soundtrack instead of silence,
+so the first hit is not smeared on every pass. The decoded sound is still
+exactly as long as the video. It applies to MP4 only; a .mov's PCM already
+runs from its end into its start unchanged.
+
 --json prints one line of JSON on stdout when the export ends, and nothing
 else: status, the composition's size, fps and frame count, every written
 file with its frame numbers, warnings, and on failure an error code and
@@ -90,7 +96,7 @@ struct Cli {
             "output", "project", "overwrite", "from", "to", "frames", "every",
             "contact_sheet", "columns", "tile_width", "output_format", "quality", "preset",
             "crf", "color_conversion", "bit_depth", "render_quality", "driver", "no_ui",
-            "json", "debug_guides", "subtitles",
+            "json", "debug_guides", "subtitles", "looping",
         ]
     )]
     inspect: bool,
@@ -206,6 +212,10 @@ struct Cli {
         value_parser = names(&BitDepth::ALL, BitDepth::as_str)
     )]
     bit_depth: BitDepth,
+    /// The MP4 plays in a loop: encode its sound to run from its end into
+    /// its start.
+    #[arg(long = "loop")]
+    looping: bool,
     /// How carefully scaled and rotated layers are drawn; draft skips
     /// re-rasterizing scaled text and is meant for quick timing checks.
     #[arg(
@@ -474,6 +484,9 @@ fn output_choice(cli: &Cli, explicit: &dyn Fn(&str) -> bool) -> Result<OutputCho
         if cli.bit_depth != BitDepth::Eight {
             return Err("--bit-depth applies to MP4 output; stills are 8-bit".into());
         }
+        if cli.looping {
+            return Err("--loop applies to MP4 output, not still frames".into());
+        }
         // An output with no still extension is left to the exporter, which
         // reports it as `invalid_selection`.
         let format = StillFormat::from_extension(output);
@@ -514,6 +527,11 @@ fn output_choice(cli: &Cli, explicit: &dyn Fn(&str) -> bool) -> Result<OutputCho
         None => named.unwrap_or_default(),
     };
     if format.has_alpha() {
+        if cli.looping {
+            return Err(format!(
+                "--loop applies to MP4 (AAC) output; .{format} output does not use it"
+            ));
+        }
         for (id, flag) in [
             ("preset", "--preset"),
             ("crf", "--crf"),
@@ -545,6 +563,7 @@ fn subtitles_only_choice(explicit: &dyn Fn(&str) -> bool) -> Result<OutputChoice
         ("crf", "--crf"),
         ("bit_depth", "--bit-depth"),
         ("color_conversion", "--color-conversion"),
+        ("looping", "--loop"),
         ("render_quality", "--render-quality"),
         ("driver", "--driver"),
     ] {
@@ -591,6 +610,7 @@ fn export(
             render_quality: cli.render_quality,
             driver: cli.driver,
             subtitles: cli.subtitles.clone(),
+            looping: cli.looping,
         },
     };
     job.run(&ExportCancellation::default(), on_progress)
@@ -780,6 +800,23 @@ mod tests {
                 message.contains("--quality applies to JPEG and WebP stills"),
                 "{message}"
             );
+        }
+    }
+
+    #[test]
+    fn loop_applies_to_mp4_only() {
+        assert_eq!(
+            choice(&["out.mp4", "--loop"]),
+            Ok(OutputChoice::Video(VideoFormat::Mp4))
+        );
+        for args in [
+            ["out.mov", "--loop"].as_slice(),
+            &["out.webm", "--loop"],
+            &["--frame", "0", "--loop", "out.png"],
+            &["--subtitles", "a.srt", "--loop"],
+        ] {
+            let message = error(args);
+            assert!(message.contains("--loop"), "{message}");
         }
     }
 

@@ -8,7 +8,8 @@ use crate::project::absolutize_layers;
 use crate::project::{build_audio_graph, merge_react_audio_clips, visual_only_project};
 use crate::range::{ExportRange, resolve_window, shifted_audio_graph};
 use crate::render::{
-    ensure_encoders, frame_count, open_video_writer, validate_dimensions, validate_output,
+    LOOP_LEAD_IN_FRAMES, ensure_encoders, frame_count, loop_lead_in, open_video_writer,
+    validate_dimensions, validate_output,
 };
 use crate::timecode::{TimecodeError, parse_timecode};
 use celesta_composition::{
@@ -527,4 +528,25 @@ fn linked_ffmpeg_has_every_format_encoder() {
     for format in VideoFormat::ALL {
         ensure_encoders(format).unwrap_or_else(|error| panic!("{format}: {error}"));
     }
+}
+
+#[test]
+fn a_loop_lead_in_is_the_end_of_the_mix() {
+    let mix = |frames: usize| celesta_media::AudioBuffer {
+        sample_rate: 48_000,
+        channels: 2,
+        samples: (0..frames)
+            .flat_map(|frame| [frame as f32, -(frame as f32)])
+            .collect(),
+    };
+    let long = loop_lead_in(&mix(LOOP_LEAD_IN_FRAMES + 3));
+    assert_eq!(long.len(), 2 * LOOP_LEAD_IN_FRAMES);
+    assert_eq!(long[..2], [3.0, -3.0]);
+    let last = LOOP_LEAD_IN_FRAMES as f32 + 2.0;
+    assert_eq!(long[long.len() - 2..], [last, -last]);
+    // A mix shorter than the lead-in repeats, still ending on its last frame.
+    let short = loop_lead_in(&mix(3));
+    assert_eq!(short.len(), 2 * LOOP_LEAD_IN_FRAMES);
+    assert_eq!(short[short.len() - 6..], [0.0, -0.0, 1.0, -1.0, 2.0, -2.0]);
+    assert!(loop_lead_in(&mix(0)).is_empty());
 }

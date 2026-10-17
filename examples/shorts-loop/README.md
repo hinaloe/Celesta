@@ -13,10 +13,9 @@ The composition is `film.tsx` (the one scene in `scenes/`, its pieces in
 `components/`, the shaders in `shaders/`); `poster.jpg` is a frame from the
 finished film.
 
-The commands below need Celesta and `ffmpeg`. `inspect.mjs` uses the React
-runtime of a source build, or of an installed Celesta app when there is none.
-`render.py` uses the exporter at `target/release/celesta-exporter` unless
-`--exporter` names another. To build both from a fresh checkout:
+The commands below need Celesta. `inspect.mjs` uses the React runtime of a
+source build, or of an installed Celesta app when there is none. To build
+both the runtime and the exporter from a fresh checkout:
 
 ```sh
 pnpm install && pnpm --dir packages/react run codegen && pnpm run build:runtime
@@ -28,15 +27,15 @@ Then, from the repository root:
 ```sh
 python3 examples/shorts-loop/make-score.py
 node skills/celesta/scripts/inspect.mjs examples/shorts-loop/film.tsx --every 30
-python3 examples/shorts-loop/render.py
+target/release/celesta-exporter --loop --react examples/shorts-loop/film.tsx examples/shorts-loop/shorts-loop.mp4
 ```
 
-With the macOS app instead of a build, skip the build and run
-`python3 examples/shorts-loop/render.py --exporter /Applications/Celesta.app/Contents/MacOS/Celesta-export`.
+With a macOS app recent enough to take `--loop`, skip the build and export
+with `/Applications/Celesta.app/Contents/MacOS/Celesta-export` in place of
+`target/release/celesta-exporter`.
 
-`render.py` writes `shorts-loop.mp4`. The soundtrack and MP4 are generated
-and ignored by Git. Run the score generator before opening the composition on
-a fresh checkout. Bebas Neue and IBM Plex Mono are referenced from
+The soundtrack and `shorts-loop.mp4` are generated and ignored by Git. Run
+the score generator before opening the composition on a fresh checkout. Bebas Neue and IBM Plex Mono are referenced from
 `../afterimage/assets/fonts/` (SIL Open Font License).
 
 ## How it loops
@@ -58,10 +57,10 @@ a fresh checkout. Bebas Neue and IBM Plex Mono are referenced from
   the end of bar four wrap to the start of bar one, as they would on a second
   pass.
 - **The AAC soundtrack too.** An AAC encoder starts from silence, which
-  smears the first kick of the exporter's soundtrack for about 10 ms, and a
-  looping player repeats that smear on every pass. `render.py` keeps the
-  exporter's picture and re-encodes the score with the loop's last four AAC
-  frames ahead of its start, which the MP4's edit list then hides.
+  smears the first kick of the soundtrack for about 10 ms, and a looping
+  player repeats that smear on every pass. `--loop` makes the exporter
+  encode the end of the score ahead of its start, which the MP4's edit list
+  then hides, so the restart sounds like any other bar line.
 
 ## Layout
 

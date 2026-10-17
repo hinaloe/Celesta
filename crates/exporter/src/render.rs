@@ -260,7 +260,7 @@ impl Exporter {
     /// and encoding the format's audio codec — the library-linked equivalent
     /// of a second `ffmpeg -i video -f f32le -i pcm -c:v copy -c:a <codec>`
     /// pass: AAC 192k for MP4, 24-bit PCM for MOV, and Opus 192k at 48 kHz
-    /// for WebM.
+    /// for WebM. A looping MP4 encodes [`loop_lead_in`] ahead of the mix.
     pub(crate) fn mux_audio(
         &self,
         video: &Path,
@@ -277,7 +277,14 @@ impl Exporter {
                     source,
                 })?,
             );
-        for sample in &audio.samples {
+        // A looping MP4's AAC encoder first takes the end of the mix, which
+        // the edit list then hides as it hides the encoder's own priming.
+        let lead_in = if self.options.looping && self.options.video_format == VideoFormat::Mp4 {
+            loop_lead_in(audio)
+        } else {
+            Vec::new()
+        };
+        for sample in lead_in.iter().chain(&audio.samples) {
             pcm.write_all(&sample.to_le_bytes())
                 .map_err(|source| ExportError::Io {
                     operation: "stage mixed audio",
@@ -303,6 +310,14 @@ impl Exporter {
         let muxed = Output::from(path_to_url(output))
             .add_stream_map_with_copy("0:v:0")
             .add_stream_map("1:a:0");
+        // The lead-in's timestamps go before 0, which the MP4 muxer turns
+        // into the edit list.
+        let muxed = if lead_in.is_empty() {
+            muxed
+        } else {
+            let frames = lead_in.len() / usize::from(audio.channels);
+            muxed.set_audio_filter(format!("asetpts=PTS-{frames}/SR/TB"))
+        };
         let context = FfmpegContext::builder()
             .input(Input::from(path_to_url(video)))
             .input(
@@ -341,6 +356,29 @@ impl Exporter {
         let _ = fs::remove_file(&pcm_path);
         result
     }
+}
+
+/// Sample frames of the mix's end a looping MP4 encodes ahead of its start:
+/// sixteen AAC frames. The encoder settles its bit allocation over its first
+/// frames: after four, a loud first hit still came out worse than with no
+/// lead-in at all, and from sixteen on as cleanly as the same hit later.
+pub(crate) const LOOP_LEAD_IN_FRAMES: usize = 16 * 1024;
+
+/// The [`LOOP_LEAD_IN_FRAMES`] sample frames that precede the mix's start
+/// when it plays in a loop: its end, repeated as many times as a short mix
+/// needs.
+pub(crate) fn loop_lead_in(audio: &celesta_media::AudioBuffer) -> Vec<f32> {
+    let channels = usize::from(audio.channels);
+    let frames = audio.frame_count();
+    if frames == 0 {
+        return Vec::new();
+    }
+    (0..LOOP_LEAD_IN_FRAMES)
+        .flat_map(|frame| {
+            let source = (frames - LOOP_LEAD_IN_FRAMES % frames + frame) % frames * channels;
+            audio.samples[source..source + channels].iter().copied()
+        })
+        .collect()
 }
 
 pub(crate) fn validate_output(

@@ -137,6 +137,11 @@ pub struct ExportVideoArgs {
     /// 8 (default, plays everywhere) or 10 (smoother gradients, fewer
     /// hardware decoders).
     bit_depth: Option<u8>,
+    /// The MP4 plays in a loop (Shorts, TikTok): encode its AAC sound to
+    /// run from its end into its start, so the first hit is not smeared on
+    /// every pass. MP4 only; a .mov's PCM loops unchanged.
+    #[serde(rename = "loop")]
+    looping: Option<bool>,
     /// Also write the subtitles (`<Subtitles>` cues, `<Dialogue>` lines, or
     /// a project's dialogue items) to this .srt or .vtt file, or to each of
     /// a list of them, timed like the video. `{lang}` in a path writes one
@@ -413,6 +418,7 @@ impl ExportVideoArgs {
                 ("preset", self.preset.is_some()),
                 ("crf", self.crf.is_some()),
                 ("bitDepth", self.bit_depth.is_some()),
+                ("loop", self.looping.is_some()),
             ];
             if let Some((field, _)) = given.into_iter().find(|(_, given)| *given) {
                 return Err(format!(
@@ -438,6 +444,7 @@ impl ExportVideoArgs {
                 ("preset", self.preset.is_some()),
                 ("crf", self.crf.is_some()),
                 ("bitDepth", self.bit_depth.is_some()),
+                ("loop", self.looping.is_some()),
             ];
             if let Some((field, _)) = given.into_iter().find(|(_, given)| *given) {
                 return Err(format!("{field} applies to MP4 output only"));
@@ -469,6 +476,7 @@ impl ExportVideoArgs {
                 ..defaults
             },
             subtitles,
+            looping: self.looping.unwrap_or(false),
             ..ExportOptions::default()
         };
         Ok(job(source, Some(absolute(output)), None, options))
@@ -710,6 +718,23 @@ mod tests {
         rejects(
             video_job(json!({ "source": "a.tsx", "output": "a.mov", "bitDepth": 10 })),
             "bitDepth applies to MP4",
+        );
+        rejects(
+            video_job(json!({ "source": "a.tsx", "output": "a.webm", "loop": true })),
+            "loop applies to MP4",
+        );
+    }
+
+    #[test]
+    fn a_looping_mp4_is_asked_for_with_loop() {
+        let looping = |args: Value| video_job(args).unwrap().options.looping;
+        assert!(looping(
+            json!({ "source": "a.tsx", "output": "a.mp4", "loop": true })
+        ));
+        assert!(!looping(json!({ "source": "a.tsx", "output": "a.mp4" })));
+        rejects(
+            video_job(json!({ "source": "a.tsx", "subtitles": "a.srt", "loop": true })),
+            "loop needs an output video",
         );
     }
 
