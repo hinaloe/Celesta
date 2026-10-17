@@ -154,7 +154,8 @@ block of entrances:
 `[from, from + durationInFrames)` in the parent's frames (default: until the
 parent's end). Inside, frames and media restart at 0. Sequences nest and
 accept common layer props, plus `lang` (default text language for the
-children).
+children) and `fontFallback` (`'loaded'` tries `<Font>` fonts before system
+fonts for the children's text; see text.md).
 
 Children are unmounted outside this window, so their component code and
 hooks do not run. Entering the window again mounts them afresh, resetting

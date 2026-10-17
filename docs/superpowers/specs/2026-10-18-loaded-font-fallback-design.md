@@ -97,9 +97,11 @@ and sequence props in `walkNode`, `inheritTextLanguage` for raw layers, and
 - `CompositionRuntimeContext` and the walker's context gain `fontFallback`,
   set from `<Composition>`, `<Group>`, and `<Sequence>` exactly where `lang`
   is. `render.ts` validates the `<Composition>` prop (`'system' | 'loaded'`).
-- Measurement (`useTextMetrics`, `measureText()`, `useFitText`, `TextBox`,
-  `<TextReveal>`) reads it from the context with `lang`, so measured and drawn
-  styles match.
+- Measurement inside the composition (`useTextMetrics`, `useFitText`,
+  `TextBox`, `<TextReveal>`) reads it from the context with `lang`, so
+  measured and drawn styles match. `measureText()`/`fitText()` in
+  `prepare()` have no context; callers pass `fontFallback` in the style,
+  as they pass `lang`.
 - The static-subtree cache (`static.ts`) keys on `fontFallback` beside `lang`.
 
 ### Renderer candidates (`crates/renderer/src/fonts.rs`)

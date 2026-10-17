@@ -180,7 +180,10 @@ installed fonts.
   composition loads, tried in `<Font>` declaration order (the first with
   every character of the cluster wins), and from a system font only when
   none has it. Characters a loaded font draws are not reported as missing.
-  It applies only to text with a `fontFamily`. `<Group>` and `<Sequence>`
+  It applies only to text with a `fontFamily` (its own or a `<Span>`'s).
+  `measureText()`/`fitText()` in `prepare()` run outside the composition,
+  so pass `fontFallback: 'loaded'` in their style there, as with `lang`.
+  `<Group>` and `<Sequence>`
   take `fontFallback` too and their children inherit it, like `lang`;
   `style.fontFallback` takes priority. Measuring and wrapping follow it.
   The browser preview appends the loaded families to the CSS font list,

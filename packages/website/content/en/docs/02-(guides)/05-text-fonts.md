@@ -126,7 +126,8 @@ Set `fontFallback="loaded"` to try the fonts loaded with `<Font>` before the sys
 ```
 
 - `<Group>` and `<Sequence>` also take `fontFallback`, and children inherit the nearest one, like `lang`. `style.fontFallback` takes priority. The default is `'system'`.
-- It applies only to text with a `fontFamily`; text without one keeps the system's default font.
+- It applies only to text with a `fontFamily`, its own or a `<Span>`'s; text without one keeps the system's default font.
+- `measureText()` and `fitText()` in `prepare()` run before the composition, so pass `fontFallback: 'loaded'` in their style there, as with `lang`.
 - Measuring, wrapping, and baselines follow the same choice as drawing.
 - The export does not warn about characters a loaded font draws. Characters that no loaded font has are still reported.
 - The browser preview adds the loaded families to the end of the CSS font-family list. The browser picks a font per character rather than per cluster, so an accent can come from a different font than its letter.
