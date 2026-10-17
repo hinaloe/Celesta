@@ -115,11 +115,10 @@ Run on macOS (Apple silicon, Metal) with Homebrew `ffmpeg@8` on
 - `cargo fmt --all -- --check`, `git diff --check`: clean.
 - `cargo test -p celesta-composition -p celesta-gpu-renderer -p
   celesta-renderer -p celesta-project -p celesta-evaluator -p celesta-mcp`:
-  all pass (`celesta-gpu-renderer` 227 passed, 1 ignored, the GPU pixel
-  tests ran; `celesta-renderer` 190 + 1).
-- `cargo clippy --no-deps --all-targets -- -D warnings`: the same
-  pre-existing counts as the 3D handoff (`celesta-gpu-renderer` 2 lib and
-  33 lib test, `celesta-renderer` 21 and 44), none in the changed code.
+  all pass (`celesta-gpu-renderer` 231 passed, 1 ignored, the GPU pixel
+  tests ran; `celesta-renderer` 192 + 1), rebased onto `main` after #394.
+- `cargo clippy --no-deps --all-targets -- -D warnings`: clean for
+  `celesta-gpu-renderer` and `celesta-renderer`.
 - `pnpm --dir packages/web test`: 105 passed. `tsc --noEmit` in
   `packages/web`: clean.
 - `pnpm run test:runtime`: pass (`@celesta/react` 157, among others).
