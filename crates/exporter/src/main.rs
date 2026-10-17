@@ -991,6 +991,7 @@ mod tests {
             &["film.tsx", "--info", "--crf", "20"],
             &["film.tsx", "--info", "--frame", "0"],
             &["film.tsx", "--info", "--subtitles", "film.srt"],
+            &["film.tsx", "--info", "--loop"],
         ] {
             assert!(!parses(args), "{args:?}");
         }
