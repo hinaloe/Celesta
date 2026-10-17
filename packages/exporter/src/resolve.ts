@@ -23,8 +23,9 @@ export function installedExporters(
 ): string[] {
   switch (platform) {
     case 'darwin':
-      return ['/Applications', path.join(homedir(), 'Applications')].map((apps) =>
-        path.join(apps, 'Celesta.app/Contents/MacOS/Celesta-export'),
+      // Each platform's own separators, whichever platform this runs on.
+      return ['/Applications', path.posix.join(homedir(), 'Applications')].map((apps) =>
+        path.posix.join(apps, 'Celesta.app/Contents/MacOS/Celesta-export'),
       );
     case 'win32':
       return env.LOCALAPPDATA
