@@ -13,8 +13,8 @@ mod progress;
 
 use celesta_composition::Time;
 use celesta_exporter::{
-    BitDepth, ColorConversion, ContactSheet, EncoderPreset, ExportCancellation, ExportError,
-    ExportJob, ExportOptions, ExportProgress, ExportRange, ExportedFile, FrameSelection, GpuDriver,
+    BitDepth, ColorConversion, ContactSheet, EncoderPreset, ExportCancellation, ExportJob,
+    ExportOptions, ExportProgress, ExportRange, ExportedFile, FrameSelection, GpuDriver,
     ReactRuntimeOptions, RenderQuality, StillExport, StillFormat, VideoEncoding, VideoFormat,
     parse_timecode,
 };
@@ -63,7 +63,11 @@ runs from its end into its start unchanged.
 --json prints one line of JSON on stdout when the export ends, and nothing
 else: status, the composition's size, fps and frame count, every written
 file with its frame numbers, warnings, and on failure an error code and
-message. It suits scripts and AI agents.
+message. It suits scripts and AI agents. --json-progress adds a JSON line
+for each progress event before the result, and --stdin-cancel cancels the
+export when stdin reads a `cancel` line or closes; @celesta/exporter uses
+both. --info prints the composition's size, frame rate and length (and a
+React entry's compositions) without rendering.
 
 --inspect evaluates a React entry's frames without rendering pixels, with
 the same text shaping and media probing as an export. It reads one JSON
@@ -86,7 +90,7 @@ struct Cli {
     /// The .mp4, .mov (ProRes 4444 with alpha) or .webm (VP9 with alpha) file to
     /// write, or the .png, .jpg/.jpeg or .webp file for frame exports. Leave
     /// it out to write only the --subtitles files.
-    #[arg(required_unless_present_any = ["inspect", "subtitles"])]
+    #[arg(required_unless_present_any = ["inspect", "info", "subtitles"])]
     output: Option<PathBuf>,
     /// Evaluate frames requested on stdin as JSON lines instead of exporting.
     #[arg(
@@ -96,10 +100,22 @@ struct Cli {
             "output", "project", "overwrite", "from", "to", "frames", "every",
             "contact_sheet", "columns", "tile_width", "output_format", "quality", "preset",
             "crf", "color_conversion", "bit_depth", "render_quality", "driver", "no_ui",
-            "json", "debug_guides", "subtitles", "looping",
+            "json", "debug_guides", "subtitles", "looping", "info", "stdin_cancel",
         ]
     )]
     inspect: bool,
+    /// Print the composition's size, frame rate and length, and a React
+    /// entry's compositions, without rendering anything.
+    #[arg(
+        long,
+        conflicts_with_all = [
+            "output", "overwrite", "from", "to", "frames", "every", "contact_sheet",
+            "columns", "tile_width", "output_format", "quality", "preset", "crf",
+            "color_conversion", "bit_depth", "render_quality", "driver", "debug_guides",
+            "subtitles", "looping",
+        ]
+    )]
+    info: bool,
     /// The React runtime's cli.js for --inspect (default: the bundled one).
     #[arg(long, value_name = "CLI_JS")]
     runtime: Option<PathBuf>,
@@ -238,6 +254,14 @@ struct Cli {
     /// Print only a JSON result on stdout, with no progress output.
     #[arg(long)]
     json: bool,
+    /// With --json, also print each progress event as a JSON line on stdout
+    /// before the result.
+    #[arg(long, requires = "json")]
+    json_progress: bool,
+    /// Cancel the export when stdin reads a `cancel` line or closes; what was
+    /// being written is removed, as on any failure.
+    #[arg(long)]
+    stdin_cancel: bool,
 }
 
 impl Cli {
@@ -322,20 +346,28 @@ fn main() -> ExitCode {
             "--runtime and --node require --inspect",
         );
     }
-    let explicit = |id: &str| matches.value_source(id) == Some(ValueSource::CommandLine);
-    let format = output_choice(&cli, &explicit)
-        .unwrap_or_else(|error| usage_error(cli.json, ErrorKind::ArgumentConflict, &error));
-    let range = export_range(cli.from, cli.to)
-        .unwrap_or_else(|error| usage_error(cli.json, ErrorKind::ValueValidation, &error));
-    let export =
-        |on_progress: &mut dyn FnMut(ExportProgress)| export(&cli, format, range, on_progress);
+    let cancellation = ExportCancellation::default();
+    if cli.stdin_cancel {
+        cancel_on_stdin(cancellation.clone());
+    }
     // JSON projects carry their own properties, so only React exports have a props file.
     let props_file = cli
         .react
         .then(|| resolve_props_file(&cli.source, cli.props_file.as_deref()))
         .flatten();
+    if cli.info {
+        return info(&cli, props_file);
+    }
+    let explicit = |id: &str| matches.value_source(id) == Some(ValueSource::CommandLine);
+    let format = output_choice(&cli, &explicit)
+        .unwrap_or_else(|error| usage_error(cli.json, ErrorKind::ArgumentConflict, &error));
+    let range = export_range(cli.from, cli.to)
+        .unwrap_or_else(|error| usage_error(cli.json, ErrorKind::ValueValidation, &error));
+    let export = |on_progress: &mut dyn FnMut(ExportProgress)| {
+        job(&cli, format, range).run(&cancellation, on_progress)
+    };
     if cli.json {
-        return if json::run(&cli.source, props_file, export) {
+        return if json::run(&cli.source, props_file, cli.json_progress, export) {
             ExitCode::SUCCESS
         } else {
             ExitCode::FAILURE
@@ -376,6 +408,74 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// `--info`: reports the composition, as JSON with `--json`.
+fn info(cli: &Cli, props_file: Option<PropsFileChoice>) -> ExitCode {
+    let job = job(cli, OutputChoice::SubtitlesOnly, None);
+    if cli.json {
+        let ok = json::run(&cli.source, props_file, cli.json_progress, |on_progress| {
+            job.describe(on_progress)
+        });
+        return if ok {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
+    }
+    let result = job.describe(&mut |event| match event {
+        ExportProgress::Composition(info) => {
+            let rate = info.frame_rate;
+            let fps = f64::from(rate.numerator) / f64::from(rate.denominator);
+            let seconds = info.frames as f64 / fps;
+            println!("size: {}x{}", info.width, info.height);
+            if rate.denominator == 1 {
+                println!("fps: {}", rate.numerator);
+            } else {
+                println!("fps: {}/{} ({fps:.3})", rate.numerator, rate.denominator);
+            }
+            println!("frames: {}", info.frames);
+            println!("duration: {seconds:.3}s");
+        }
+        ExportProgress::ReactCompositions {
+            selected,
+            compositions,
+        } => {
+            let ids: Vec<_> = compositions
+                .iter()
+                .map(|root| {
+                    if root.id == selected {
+                        format!("{} (selected)", root.id)
+                    } else {
+                        root.id.clone()
+                    }
+                })
+                .collect();
+            println!("compositions: {}", ids.join(", "));
+        }
+        _ => {}
+    });
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("Celesta export: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Cancels `cancellation` once stdin reads a `cancel` line, closes, or fails.
+fn cancel_on_stdin(cancellation: ExportCancellation) {
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lines() {
+            match line {
+                Ok(line) if line.trim() == "cancel" => break,
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        cancellation.cancel();
+    });
 }
 
 fn inspect(cli: &Cli) -> ExitCode {
@@ -576,13 +676,9 @@ fn subtitles_only_choice(explicit: &dyn Fn(&str) -> bool) -> Result<OutputChoice
     Ok(OutputChoice::SubtitlesOnly)
 }
 
-fn export(
-    cli: &Cli,
-    format: OutputChoice,
-    range: Option<ExportRange>,
-    on_progress: &mut dyn FnMut(ExportProgress),
-) -> Result<(), ExportError> {
-    let job = ExportJob {
+/// The export `cli` describes.
+fn job(cli: &Cli, format: OutputChoice, range: Option<ExportRange>) -> ExportJob {
+    ExportJob {
         source: cli.source.clone(),
         react: cli.react,
         composition_id: cli.composition.clone(),
@@ -612,8 +708,7 @@ fn export(
             subtitles: cli.subtitles.clone(),
             looping: cli.looping,
         },
-    };
-    job.run(&ExportCancellation::default(), on_progress)
+    }
 }
 
 /// Builds an [`ExportRange`] from the `--from` / `--to` timecodes. Returns
@@ -871,5 +966,51 @@ mod tests {
                 .is_err(),
             "an export with neither <OUTPUT> nor --subtitles is a usage error"
         );
+    }
+
+    fn parses(args: &[&str]) -> bool {
+        Cli::command()
+            .try_get_matches_from(["celesta-exporter"].into_iter().chain(args.iter().copied()))
+            .is_ok()
+    }
+
+    #[test]
+    fn info_needs_no_output_and_takes_no_render_flags() {
+        assert!(parses(&["film.tsx", "--react", "--info"]));
+        assert!(parses(&[
+            "film.tsx",
+            "--react",
+            "--info",
+            "--json",
+            "--composition",
+            "intro"
+        ]));
+        assert!(parses(&["project.celesta.json", "--info", "--json"]));
+        for args in [
+            ["film.tsx", "--info", "out.mp4"].as_slice(),
+            &["film.tsx", "--info", "--crf", "20"],
+            &["film.tsx", "--info", "--frame", "0"],
+            &["film.tsx", "--info", "--subtitles", "film.srt"],
+        ] {
+            assert!(!parses(args), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn json_progress_needs_json_and_stdin_cancel_stays_off_inspect() {
+        assert!(parses(&[
+            "film.tsx",
+            "out.mp4",
+            "--json",
+            "--json-progress"
+        ]));
+        assert!(!parses(&["film.tsx", "out.mp4", "--json-progress"]));
+        assert!(parses(&["film.tsx", "out.mp4", "--stdin-cancel"]));
+        assert!(!parses(&[
+            "film.tsx",
+            "--react",
+            "--inspect",
+            "--stdin-cancel"
+        ]));
     }
 }

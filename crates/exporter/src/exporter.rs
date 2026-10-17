@@ -208,6 +208,23 @@ impl Exporter {
         Ok(())
     }
 
+    /// Reports the project's size, rate, and length, as an export does
+    /// before it renders.
+    pub fn describe_project(
+        &self,
+        project: &Project,
+        mut progress: impl FnMut(ExportProgress),
+    ) -> Result<(), ExportError> {
+        let duration = project.effective_duration().map_err(ExportError::Time)?;
+        progress(ExportProgress::Composition(CompositionInfo {
+            width: project.settings.width,
+            height: project.settings.height,
+            frame_rate: project.settings.frame_rate,
+            frames: frame_count(duration, project.settings.frame_rate)?,
+        }));
+        Ok(())
+    }
+
     /// Writes only the project's subtitle files (`ExportOptions::subtitles`),
     /// timed as a video export of the same range would time them, without
     /// rendering anything.

@@ -346,6 +346,29 @@ impl Exporter {
         self.write_subtitles(&subtitles::react_cues(&reports, window), &mut progress)
     }
 
+    /// Reports a React entry's compositions and the selected one's size and
+    /// length, as an export does before it renders, without evaluating a
+    /// frame. `companion` supplies project properties as in a video export.
+    pub fn describe_react_entry(
+        &self,
+        entry: impl AsRef<Path>,
+        react_runtime: &ReactRuntimeOptions,
+        companion: Option<CompanionProject<'_>>,
+        mut progress: impl FnMut(ExportProgress),
+    ) -> Result<(), ExportError> {
+        let project = canonical_project(
+            companion.map(|companion| (companion.project, companion.project_asset_root)),
+        );
+        let bridge = react_runtime.spawn(
+            entry.as_ref(),
+            project
+                .as_ref()
+                .map(|(project, root)| (*project, root.as_path())),
+        )?;
+        report_composition(bridge.metadata(), &mut progress);
+        Ok(())
+    }
+
     /// The first frame, the number of frames, and the start time of the
     /// span of the entry an export covers.
     fn react_window(
