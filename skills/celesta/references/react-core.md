@@ -144,7 +144,9 @@ integers. Use even `width`/`height` for video export. Exactly one, at the root.
 These props are read once when the entry loads, so they must not depend on
 the current frame or `useVideoConfig()`. Optional `lang` (for example
 `"ja-JP"`) sets the default text language, which picks fallback fonts; see
-[text.md](text.md#language-and-fallback-fonts).
+[text.md](text.md#language-and-fallback-fonts). Optional `fontFallback="loaded"`
+tries fonts loaded with `<Font>` before system fonts; see
+[text.md](text.md#fonts-fallback-and-emoji).
 
 ## Rect and paints (gradients)
 
@@ -356,6 +358,7 @@ group's `x`/`y`, and its rotation, scale, and opacity apply to all of them.
 | Prop | Notes |
 | --- | --- |
 | `lang` | Default text language for the children (inherited, overridable). |
+| `fontFallback` | `'loaded'` or `'system'`: where the children's text finds characters its `fontFamily` lacks (inherited, overridable). |
 | `clip` | `{ x, y, width, height, cornerRadius }`: draw the children only inside this rectangle. `x`/`y` (default `0`) are its top-left corner and `cornerRadius` (default `0`) rounds it, both in the group's own coordinates, so the clip moves, scales, and rotates with the group. |
 | `mask` | A drawing (or `<Mask mode invert>`) that decides where the children show; see "Masks" below. |
 

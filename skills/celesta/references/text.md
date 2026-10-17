@@ -99,6 +99,7 @@ type TextStyle = {
   letterSpacing?: number | { em: number };  // px, or a multiple of fontSize, after each glyph; may be negative
   lineBreak?: 'normal' | 'phrase';  // where maxWidth may wrap; default 'normal'
   lang?: string;           // language for fallback fonts, e.g. 'ja-JP'; overrides inherited lang
+  fontFallback?: 'system' | 'loaded';  // 'loaded': <Font> fonts before system fonts; overrides inherited
 };
 ```
 
@@ -161,10 +162,30 @@ installed fonts.
   "…"; text layer "…" draws them with a fallback font` (the first 10
   characters, then `and N more characters`). Emoji drawn by a color emoji
   font, whitespace, and invisible characters are not reported.
-- **Fonts loaded with `<Font>` are not fallback candidates.** With
-  `fontFamily: 'JetBrains Mono'` and Noto Sans JP loaded, Japanese is still
-  drawn with a system font (Hiragino Sans on macOS). To draw it with a
-  loaded font, list that font in a [font stack](#font-stacks-和欧混植).
+- **By default, fonts loaded with `<Font>` are not fallback candidates.**
+  With `fontFamily: 'JetBrains Mono'` and Noto Sans JP loaded, Japanese is
+  still drawn with a system font (Hiragino Sans on macOS), so the result
+  depends on the machine that exports. Either list the loaded font in a
+  [font stack](#font-stacks-和欧混植), or set `fontFallback="loaded"`:
+
+  ```tsx
+  <Composition width={1920} height={1080} fps={30} durationInFrames={90}
+    lang="ja-JP" fontFallback="loaded">
+    <Font google="Noto Sans JP" />
+    <Text style={{ fontFamily: 'JetBrains Mono' }}>let 名前 = "値";</Text>
+  </Composition>
+  ```
+
+  A character no family of the stack has is then drawn from the fonts the
+  composition loads, tried in `<Font>` declaration order (the first with
+  every character of the cluster wins), and from a system font only when
+  none has it. Characters a loaded font draws are not reported as missing.
+  It applies only to text with a `fontFamily`. `<Group>` and `<Sequence>`
+  take `fontFallback` too and their children inherit it, like `lang`;
+  `style.fontFallback` takes priority. Measuring and wrapping follow it.
+  The browser preview appends the loaded families to the CSS font list,
+  so the browser picks per character rather than per cluster, and a
+  combining mark can come from a different font than its base.
 - Emoji meant to look like emoji (🎉, a character followed by U+FE0F such
   as ❤️ or 1️⃣, flags, skin tones, ZWJ sequences) are drawn with the first
   installed color emoji font of Apple Color Emoji, Segoe UI Emoji, Noto
