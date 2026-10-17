@@ -5,15 +5,31 @@ import type { ReactNode } from 'react';
 
 import { Easings, Group, Text, progress, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import type { CommonProps, TextStyle } from '@celesta/react';
-import { flattenTextContent, sliceTextRuns, withTextRuns } from '@celesta/react/internal';
+import {
+  CompositionRuntimeContext,
+  flattenTextContent,
+  sliceTextRuns,
+  synchronousMeasurer,
+  useMeasurementFonts,
+  withTextLanguage,
+  withTextRuns,
+} from '@celesta/react/internal';
+import type { FlatText, MeasureTextRequest } from '@celesta/react/internal';
 
 export interface TextRevealProps extends CommonProps {
   /**
    * The text; may hold `<Span>`. `\n` starts a new line, and each line is
-   * revealed on its own; a span crossing `\n` continues on the next line.
+   * revealed on its own; a span crossing a line break continues on the next
+   * line.
    */
   children: ReactNode;
+  /** `style.lineBreak` chooses where `maxWidth` wraps, as for `<Text>`. */
   style?: TextStyle;
+  /**
+   * Wrap lines at this width, at the same places as `<Text maxWidth>`, and
+   * reveal each wrapped line on its own. Without it, only `\n` breaks lines.
+   */
+  maxWidth?: number;
   /**
    * Height of each line's mask, and the distance between baselines. Defaults
    * to `style.lineHeight`, else `style.fontSize`, else 48.
@@ -54,6 +70,7 @@ export interface TextRevealProps extends CommonProps {
 export function TextReveal({
   children,
   style,
+  maxWidth,
   lineHeight,
   baseline = 0.8,
   align = 0,
@@ -75,14 +92,11 @@ export function TextReveal({
   // Each line is its own single-line Text, so the multi-line spacing is ours.
   const { lineHeight: _lineHeight, ...lineStyle } = style ?? {};
   // Each line keeps the runs inside it, rebased to its first code point.
-  const lines: { text: string; style: TextStyle }[] = [];
-  let start = 0;
-  for (const line of flat.text.split('\n')) {
-    const end = start + Array.from(line).length;
-    lines.push({ text: line, style: withTextRuns(lineStyle, sliceTextRuns(flat, start, end), '<TextReveal>') });
-    start = end + 1;
-  }
-  // Lines are never measured, so the mask spans far past any line's width.
+  const lines = useLineRanges(flat, style ?? {}, maxWidth).map(([start, end]) => {
+    const line = sliceTextRuns(flat, start, end);
+    return { text: line.text, style: withTextRuns(lineStyle, line, '<TextReveal>') };
+  });
+  // Line widths are not needed, so the mask spans far past any line's width.
   const maskWidth = width * 4;
   return React.createElement(
     Group,
@@ -103,6 +117,47 @@ export function TextReveal({
       );
     }),
   );
+}
+
+/**
+ * The code-point range of each line: split at `\n`, and also wrapped at
+ * `maxWidth` by measuring the whole text as `<Text maxWidth>` lays it out.
+ * The `\n` ending a line, and the spaces before a wrap, belong to no line.
+ */
+function useLineRanges(flat: FlatText, style: TextStyle, maxWidth: number | undefined): [number, number][] {
+  if (maxWidth !== undefined && (!Number.isFinite(maxWidth) || maxWidth <= 0)) {
+    throw new Error('<TextReveal> requires a positive `maxWidth`');
+  }
+  const lang = React.useContext(CompositionRuntimeContext)?.lang;
+  const fonts = useMeasurementFonts();
+  // Color does not move a break, so a span whose color animates reuses the
+  // measurement, as `useTextMetrics` does.
+  const { colorRuns, visibleCharacters, fill, stroke, ...layoutStyle } = withTextRuns(
+    withTextLanguage(style, lang), { ...flat, colorRuns: [] }, '<TextReveal>',
+  );
+  const key = maxWidth === undefined
+    ? null
+    : JSON.stringify({ text: flat.text, style: layoutStyle, maxWidth, fonts });
+  const lineStarts = React.useMemo(() => {
+    if (key === null) return null;
+    const metrics = synchronousMeasurer('<TextReveal maxWidth>')(JSON.parse(key) as MeasureTextRequest);
+    if (!metrics.lineStarts) {
+      throw new Error('<TextReveal maxWidth> requires a text measurer that reports line starts');
+    }
+    return metrics.lineStarts;
+  }, [key]);
+
+  const characters = Array.from(flat.text);
+  const starts = lineStarts ?? [0, ...characters.flatMap((c, i) => c === '\n' ? [i + 1] : [])];
+  return starts.map((start, index) => {
+    let end = starts[index + 1] ?? characters.length;
+    if (characters[end - 1] === '\n') {
+      end -= 1;
+    } else if (index + 1 < starts.length) {
+      while (end > start && /\s/u.test(characters[end - 1])) end -= 1;
+    }
+    return [start, end];
+  });
 }
 
 export interface TypewriterOptions {
