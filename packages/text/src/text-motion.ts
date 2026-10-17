@@ -11,7 +11,7 @@ import {
   sliceTextRuns,
   synchronousMeasurer,
   useMeasurementFonts,
-  withTextLanguage,
+  withInheritedText,
   withTextRuns,
 } from '@celesta/react/internal';
 import type { FlatText, MeasureTextRequest } from '@celesta/react/internal';
@@ -128,12 +128,12 @@ function useLineRanges(flat: FlatText, style: TextStyle, maxWidth: number | unde
   if (maxWidth !== undefined && (!Number.isFinite(maxWidth) || maxWidth <= 0)) {
     throw new Error('<TextReveal> requires a positive `maxWidth`');
   }
-  const lang = React.useContext(CompositionRuntimeContext)?.lang;
+  const runtime = React.useContext(CompositionRuntimeContext);
   const fonts = useMeasurementFonts();
   // Color does not move a break, so a span whose color animates reuses the
   // measurement, as `useTextMetrics` does.
   const { colorRuns, visibleCharacters, fill, stroke, ...layoutStyle } = withTextRuns(
-    withTextLanguage(style, lang), { ...flat, colorRuns: [] }, '<TextReveal>',
+    withInheritedText(style, runtime ?? {}), { ...flat, colorRuns: [] }, '<TextReveal>',
   );
   const key = maxWidth === undefined
     ? null

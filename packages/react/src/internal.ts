@@ -27,6 +27,7 @@ export {
   ProjectTrackLayersContext,
   RerenderRequestContext,
   RootRuntimeContext,
+  resolveFontFallback,
   resolveTextLanguage,
 } from './hooks';
 export type { CompositionRuntimeContextValue } from './hooks';
@@ -37,9 +38,9 @@ export {
   setTextMeasurer,
   synchronousMeasurer,
   useMeasurementFonts,
-  withTextLanguage,
+  withInheritedText,
 } from './text-measure';
-export type { MeasureTextRequest } from './text-measure';
+export type { InheritedText, MeasureTextRequest } from './text-measure';
 export { flattenTextContent, sliceTextRuns, withTextRuns } from './rich-text';
 export type { FlatText } from './rich-text';
 

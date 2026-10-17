@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { entryRelativePath, isRemoteUrl } from './entry-dir';
 import { flattenTextContent, withTextRuns } from './rich-text';
 import { CompositionRuntimeContext } from './hooks';
-import type { ResolvedAsset, TextStyle } from './scene';
+import type { FontFallbackMode, ResolvedAsset, TextStyle } from './scene';
 
 /** One shaped glyph cluster (a ligature or combining sequence is one entry). */
 export interface GlyphMetrics {
@@ -61,9 +61,22 @@ let measureSync: ((request: MeasureTextRequest) => TextMetrics) | undefined;
 /** @internal Fonts collected from the composition, shared with component previews. */
 export const TextMetricsFontsContext = React.createContext<readonly ResolvedAsset[]>([]);
 
-/** @internal Resolves the same language for text layers and their measurements. */
-export function withTextLanguage(style: TextStyle, lang?: string): TextStyle {
-  return lang !== undefined && style.lang == null ? { ...style, lang } : style;
+/** What text inherits from the `<Composition>`, `<Group>`, or `<Sequence>` around it. */
+export interface InheritedText {
+  lang?: string;
+  fontFallback?: FontFallbackMode;
+}
+
+/**
+ * @internal Resolves the same language and font fallback for text layers and
+ * their measurements: each inherited value the style leaves unset.
+ */
+export function withInheritedText(style: TextStyle, inherited: InheritedText): TextStyle {
+  const { lang, fontFallback } = inherited;
+  const fillLang = lang !== undefined && style.lang == null;
+  const fillFallback = fontFallback !== undefined && style.fontFallback == null;
+  if (!fillLang && !fillFallback) return style;
+  return { ...style, ...(fillLang ? { lang } : {}), ...(fillFallback ? { fontFallback } : {}) };
 }
 
 /** @internal Installed by the Celesta CLI before an entry's `prepare()` runs. */
@@ -144,9 +157,9 @@ export function useTextMetrics(
   style: TextStyle = {},
   options: MeasureTextOptions = {},
 ): TextMetrics {
-  const lang = React.useContext(CompositionRuntimeContext)?.lang;
+  const runtime = React.useContext(CompositionRuntimeContext);
   const flat = flattenTextContent(content, 'useTextMetrics() text');
-  const resolvedStyle = withTextRuns(withTextLanguage(style, lang), flat, 'useTextMetrics()');
+  const resolvedStyle = withTextRuns(withInheritedText(style, runtime ?? {}), flat, 'useTextMetrics()');
   const fonts = useMeasurementFonts(options.fonts);
   const { colorRuns, visibleCharacters, fill, stroke, ...layoutStyle } = resolvedStyle;
   const key = JSON.stringify({ text: flat.text, style: layoutStyle, maxWidth: options.maxWidth, fonts });

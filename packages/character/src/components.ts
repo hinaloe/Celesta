@@ -16,7 +16,7 @@ import {
   secondsFromTime,
   synchronousMeasurer,
   useMeasurementFonts,
-  withTextLanguage,
+  withInheritedText,
   withTextRuns,
 } from '@celesta/react/internal';
 import type { MeasureTextRequest } from '@celesta/react/internal';
@@ -393,7 +393,7 @@ function useRenderedSubtitle(
   const render = subtitle?.render;
   const flat = render ? flattenTextContent(children, '<Dialogue> children') : null;
   const text = flat?.text ?? '';
-  const style = withTextLanguage(subtitle?.style ?? {}, runtime?.lang);
+  const style = withInheritedText(subtitle?.style ?? {}, runtime ?? {});
   const maxWidth = subtitle?.maxWidth;
   const key = flat
     ? JSON.stringify({

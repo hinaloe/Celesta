@@ -7,9 +7,10 @@ import {
   CompositionSelectionContext,
   FreezeFrameContext,
   RootRuntimeContext,
+  resolveFontFallback,
   resolveTextLanguage,
 } from './hooks';
-import type { Animatable, BackfaceVisibility, BlendMode, LineCap, Paint, PathCommand, TextStyle, LayerShadow, LayerGlow } from './scene';
+import type { Animatable, BackfaceVisibility, BlendMode, FontFallbackMode, LineCap, Paint, PathCommand, TextStyle, LayerShadow, LayerGlow } from './scene';
 import type {
   LayerChromaKey, LayerChromaticAberration, LayerHalftone, LayerNoise, LayerPixelate, LayerScanlines, LayerTint,
   LayerVignette, LayerWave, LayerZoomBlur, ShaderEffect,
@@ -178,6 +179,12 @@ export interface CompositionProps {
   durationInFrames: number;
   /** Default text language for font fallback; overridden by `style.lang`. */
   lang?: string;
+  /**
+   * Where characters a text's `fontFamily` lacks are drawn from, for text
+   * within: `'loaded'` tries fonts loaded with `<Font>` first, in declaration
+   * order. Defaults to `'system'`, installed fonts only; `style.fontFallback` takes priority.
+   */
+  fontFallback?: FontFallbackMode;
   children?: ReactNode;
 }
 
@@ -204,6 +211,12 @@ export interface MaskProps {
 export interface GroupProps extends CommonProps {
   /** Default text language within this group; inherited when omitted. */
   lang?: string;
+  /**
+   * Where characters a text's `fontFamily` lacks are drawn from, for text
+   * within: `'loaded'` tries fonts loaded with `<Font>` first, in declaration
+   * order. Inherited when omitted; `style.fontFallback` takes priority.
+   */
+  fontFallback?: FontFallbackMode;
   /**
    * Draws the children only inside this rectangle, in the group's own
    * coordinate space (the space the children's `x`/`y` are given in), so it
@@ -475,11 +488,12 @@ export function Composition(props: CompositionProps): ReturnType<typeof React.cr
   const runtime = React.useContext(CompositionRuntimeContext);
   const selection = React.useContext(CompositionSelectionContext);
   const lang = resolveTextLanguage(props.lang);
+  const fontFallback = resolveFontFallback(props.fontFallback);
   if (selection === null) return React.createElement('composition', { ...props, children: undefined });
   if (selection !== undefined && selection !== (props.id ?? 'default')) return null;
   return React.createElement(
     CompositionRuntimeContext.Provider,
-    { value: runtime ? { ...runtime, lang } : null },
+    { value: runtime ? { ...runtime, lang, fontFallback } : null },
     React.createElement('composition', props),
   );
 }
@@ -487,6 +501,7 @@ export function Composition(props: CompositionProps): ReturnType<typeof React.cr
 export function Group({ mask, children, ...props }: GroupProps): ReturnType<typeof React.createElement> {
   const runtime = React.useContext(CompositionRuntimeContext);
   const lang = resolveTextLanguage(props.lang, runtime?.lang);
+  const fontFallback = resolveFontFallback(props.fontFallback, runtime?.fontFallback);
   // The mask goes after the children, always in the same slot, so turning it
   // on or off changes neither their tree-path ids nor their state. The
   // fragment keeps React from asking the children, often a static list, for
@@ -497,8 +512,8 @@ export function Group({ mask, children, ...props }: GroupProps): ReturnType<type
     React.createElement(React.Fragment, null, children),
     maskElement(mask),
   );
-  return runtime && props.lang !== undefined
-    ? React.createElement(CompositionRuntimeContext.Provider, { value: { ...runtime, lang } }, element)
+  return runtime && (props.lang !== undefined || props.fontFallback !== undefined)
+    ? React.createElement(CompositionRuntimeContext.Provider, { value: { ...runtime, lang, fontFallback } }, element)
     : element;
 }
 
@@ -638,6 +653,12 @@ export interface SequenceProps extends CommonProps {
   /** Default text language within this sequence; inherited when omitted. */
   lang?: string;
   /**
+   * Where characters a text's `fontFamily` lacks are drawn from, for text
+   * within: `'loaded'` tries fonts loaded with `<Font>` first, in declaration
+   * order. Inherited when omitted; `style.fontFallback` takes priority.
+   */
+  fontFallback?: FontFallbackMode;
+  /**
    * Frame this sequence starts at, in the enclosing timeline's own frame
    * numbering (the root composition's clock, or its parent `<Sequence>`'s
    * shifted clock when nested). Defaults to 0.
@@ -671,6 +692,7 @@ export function Sequence(props: SequenceProps): ReturnType<typeof React.createEl
     throw new Error('<Sequence> must be called from within a Celesta <Composition>');
   }
   const lang = resolveTextLanguage(props.lang, context.lang);
+  const fontFallback = resolveFontFallback(props.fontFallback, context.fontFallback);
   const fps = context.fps;
   const localSeconds = secondsFromTime(context.time);
   const from = typeof props.from === 'number' && Number.isFinite(props.from) ? props.from : 0;
@@ -698,6 +720,7 @@ export function Sequence(props: SequenceProps): ReturnType<typeof React.createEl
       value: {
         ...context,
         lang,
+        fontFallback,
         time: shiftedTime,
         durationInFrames: duration,
         openEnd,
@@ -751,6 +774,7 @@ export function FreezeFrame(props: FreezeFrameProps): ReturnType<typeof React.cr
   const frozen = {
     ...root,
     lang: context.lang,
+    fontFallback: context.fontFallback,
     time,
     openEnd: secondsFromTime(time) >= root.durationInFrames / root.fps,
   };

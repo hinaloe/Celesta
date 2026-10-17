@@ -10,7 +10,7 @@ import {
   prepareFonts,
   synchronousMeasurer,
   useMeasurementFonts,
-  withTextLanguage,
+  withInheritedText,
   withTextRuns,
 } from '@celesta/react/internal';
 import type { FlatText, MeasureTextRequest } from '@celesta/react/internal';
@@ -83,8 +83,8 @@ export function useFitText(content: ReactNode, options: FitTextOptions): FitText
 }
 
 function useFitFlatText(flat: FlatText, options: FitTextOptions, owner: string): FitTextResult {
-  const lang = React.useContext(CompositionRuntimeContext)?.lang;
-  const style = withTextLanguage(options.style ?? {}, lang);
+  const runtime = React.useContext(CompositionRuntimeContext);
+  const style = withInheritedText(options.style ?? {}, runtime ?? {});
   // Refuse mixed run sources with the real runs, before the key drops color.
   withTextRuns(style, flat, owner);
   const fonts = useMeasurementFonts(options.fonts);
