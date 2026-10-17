@@ -3,7 +3,7 @@ export type { FontRun };
 
 type MeasureTextRequest = { text: string; style: TextStyle; maxWidth?: number; fonts: Asset[] };
 type TextMetrics = {
-  width: number; height: number; ascent: number; descent: number; lineHeight: number; lines: number;
+  width: number; height: number; ascent: number; descent: number; lineHeight: number; lines: number; lineStarts: number[];
   glyphs: { text: string; x: number; width: number; line: number; start: number; end: number; rtl: boolean }[];
 };
 
@@ -155,6 +155,7 @@ export function textMeasurer() {
     const widths = ranges.map(range => measure(range.text, range.start));
     return {
       width: Math.max(0, ...widths), height: lines.length * lineHeight, ascent, descent: lineHeight - ascent, lineHeight, lines: lines.length,
+      lineStarts: ranges.map(range => range.start),
       // Canvas exposes whole-run measurements, but no portable shaped-cluster API.
       // Access fails explicitly so prepare() can select a fallback without using
       // grapheme/prefix estimates as native GlyphMetrics.
