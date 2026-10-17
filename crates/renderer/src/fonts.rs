@@ -1,6 +1,6 @@
 use crate::assets::{is_sfnt_or_woff, local_asset_path, read_asset};
 use crate::error::RenderError;
-use crate::font_stack::FaceRun;
+use crate::font_stack::{FaceRun, falls_back_to_loaded};
 use crate::linebreak::{is_emoji_cluster, is_visible_character};
 use crate::shaping::{source_offsets, usable_font_runs};
 use crate::text::{FontFallback, MissingGlyphs};
@@ -434,7 +434,12 @@ impl TextRasterizer {
             text.to_owned(),
             format!(
                 "{:?}",
-                (&style.font_family, style.font_weight, &style.font_runs)
+                (
+                    &style.font_family,
+                    style.font_weight,
+                    &style.font_runs,
+                    style.font_fallback
+                )
             ),
         );
         let groups = match self.missing_characters.get(&key) {
@@ -495,6 +500,10 @@ impl TextRasterizer {
                 .unwrap_or(400);
             Some((family, weight))
         };
+        // Loaded fonts the style falls back to draw what they have as
+        // intended, like a family of the stack.
+        let fallback = falls_back_to_loaded(style).then(|| Arc::clone(&self.fallback_families));
+        let fallback = fallback.as_deref().unwrap_or_default();
         let database = self.font_system.db();
         let mut groups: MissingByFace = Vec::new();
         for run in buffer.layout_runs() {
@@ -515,7 +524,9 @@ impl TextRasterizer {
                 let drawn = glyph.glyph_id != 0;
                 let from_family = drawn
                     && database.face(glyph.font_id).is_some_and(|face| {
-                        face.families.iter().any(|(name, _)| family.contains(name))
+                        face.families.iter().any(|(name, _)| {
+                            family.contains(name) || fallback.iter().any(|loaded| **loaded == *name)
+                        })
                     });
                 let Some(cluster) = run.text.get(glyph.start..glyph.end) else {
                     continue;

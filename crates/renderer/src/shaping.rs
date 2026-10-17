@@ -42,6 +42,7 @@ impl TextRasterizer {
                     style.letter_spacing,
                     style.line_break,
                     &style.font_runs,
+                    style.font_fallback,
                 )
             )
         });

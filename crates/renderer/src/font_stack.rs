@@ -3,7 +3,7 @@
 use crate::fonts::{COLOR_EMOJI_FAMILIES, TextRasterizer};
 use crate::linebreak::{emoji_presentation_spans, is_visible_character};
 use crate::shaping::usable_font_runs;
-use celesta_composition::{FontFamily, TextFontRun, TextStyle};
+use celesta_composition::{FontFallbackMode, FontFamily, TextFontRun, TextStyle};
 use cosmic_text::{Family, Font, Weight, fontdb};
 use std::sync::Arc;
 use unicode_segmentation::UnicodeSegmentation;
@@ -26,6 +26,9 @@ struct StackFaces<'a> {
     family: &'a FontFamily,
     weight: u16,
     faces: Vec<(Arc<str>, Arc<Font>)>,
+    /// With `fontFallback: 'loaded'`, the font list's other families at
+    /// this weight, in list order, tried before the system's fonts.
+    fallback: Vec<(Arc<str>, Arc<Font>)>,
 }
 
 impl TextRasterizer {
@@ -64,8 +67,9 @@ impl TextRasterizer {
 
     /// `style`'s font runs, and the ranges its font stacks (its own and its
     /// runs') draw with a family other than the text's primary one, in
-    /// order. Without a stack or split stylesheet these are `style`'s
-    /// usable font runs as they are.
+    /// order, including ranges drawn with a loaded font when `style` falls
+    /// back to them. Without a stack, split stylesheet, or loaded fallback
+    /// these are `style`'s usable font runs as they are.
     pub(crate) fn face_runs(&mut self, text: &str, style: &TextStyle) -> Arc<[FaceRun]> {
         let spans = if style.font_runs.is_empty() {
             Vec::new()
@@ -80,10 +84,14 @@ impl TextRasterizer {
                         .is_some_and(|faces| faces.len() > 1)
                 })
         };
+        let falls_back = falls_back_to_loaded(style) && !self.fallback_families.is_empty();
         let stacked = style.font_family.as_ref().is_some_and(needs_selection)
             || spans
                 .iter()
-                .any(|run| run.font_family.as_ref().is_some_and(needs_selection));
+                .any(|run| run.font_family.as_ref().is_some_and(needs_selection))
+            || (falls_back
+                && (style.font_family.is_some()
+                    || spans.iter().any(|run| run.font_family.is_some())));
         if !stacked {
             return spans
                 .iter()
@@ -101,13 +109,18 @@ impl TextRasterizer {
         let key = (text.len() <= 100_000).then(|| {
             format!(
                 "{text:?}\0{:?}",
-                (&style.font_family, style.font_weight, &style.font_runs)
+                (
+                    &style.font_family,
+                    style.font_weight,
+                    &style.font_runs,
+                    style.font_fallback
+                )
             )
         });
         if let Some(runs) = key.as_ref().and_then(|key| self.stacked_runs.get(key)) {
             return Arc::clone(runs);
         }
-        let runs: Arc<[FaceRun]> = self.resolve_stacks(text, style, &spans).into();
+        let runs: Arc<[FaceRun]> = self.resolve_stacks(text, style, &spans, falls_back).into();
         if let Some(key) = key {
             if self.stacked_runs.len() >= 64 {
                 self.stacked_runs.clear();
@@ -117,13 +130,15 @@ impl TextRasterizer {
         runs
     }
 
-    /// [`Self::face_runs`] for text with a font stack: each grapheme
-    /// cluster's family, from its span's stack or the text's.
+    /// [`Self::face_runs`] for text with a font stack or loaded fallback:
+    /// each grapheme cluster's family, from its span's stack or the text's,
+    /// or from the font list when `falls_back`.
     fn resolve_stacks(
         &mut self,
         text: &str,
         style: &TextStyle,
         spans: &[&TextFontRun],
+        falls_back: bool,
     ) -> Vec<FaceRun> {
         let requested = style.font_weight.unwrap_or(400);
         let primary = style
@@ -158,10 +173,16 @@ impl TextRasterizer {
                         Some(index) => index,
                         None => {
                             let faces = self.stack_faces(family, weight);
+                            let fallback = if falls_back {
+                                self.fallback_faces(&faces, weight)
+                            } else {
+                                Vec::new()
+                            };
                             stacks.push(StackFaces {
                                 family,
                                 weight,
                                 faces,
+                                fallback,
                             });
                             stacks.len() - 1
                         }
@@ -220,19 +241,42 @@ impl TextRasterizer {
         }
         faces
     }
+
+    /// The font list's families at `weight` that `faces` does not already
+    /// have, with the face that weight matches, in list order.
+    fn fallback_faces(
+        &mut self,
+        faces: &[(Arc<str>, Arc<Font>)],
+        weight: u16,
+    ) -> Vec<(Arc<str>, Arc<Font>)> {
+        let families = Arc::clone(&self.fallback_families);
+        families
+            .iter()
+            .filter(|name| !faces.iter().any(|(face, _)| face == *name))
+            .filter_map(|name| Some((Arc::clone(name), self.matched_face(name, weight)?)))
+            .collect()
+    }
+}
+
+/// Whether `style` falls back to the font list's loaded fonts before the
+/// system's.
+pub(crate) fn falls_back_to_loaded(style: &TextStyle) -> bool {
+    style.font_fallback == Some(FontFallbackMode::Loaded)
 }
 
 /// The family of `stack` a grapheme `cluster` is drawn with: the first one
 /// with a glyph for every visible character of it, so combining marks and
-/// variation selectors stay with their base; failing that, the first with
-/// its first character; failing that, the primary family, where the
-/// system's fallback fonts draw it. An emoji takes a color emoji font of
-/// the stack first, if one has it.
+/// variation selectors stay with their base; failing that, the first loaded
+/// fallback font with every one; failing that, the first family with its
+/// first character; failing that, the primary family, where the system's
+/// fallback fonts draw it. An emoji takes a color emoji font of the stack
+/// first, if one has it.
 fn cluster_family<'a>(stack: &'a StackFaces<'_>, cluster: &str, is_emoji: bool) -> &'a str {
-    let Some((primary, _)) = stack.faces.first() else {
-        return stack.family.first();
-    };
-    if stack.faces.len() == 1 {
+    let primary = stack
+        .faces
+        .first()
+        .map_or(stack.family.first(), |(name, _)| name);
+    if stack.faces.len() <= 1 && stack.fallback.is_empty() {
         return primary;
     }
     let has = |font: &Font, character: char| font.as_swash().charmap().map(character) != 0;
@@ -250,7 +294,12 @@ fn cluster_family<'a>(stack: &'a StackFaces<'_>, cluster: &str, is_emoji: bool) 
     {
         return name;
     }
-    if let Some((name, _)) = stack.faces.iter().find(|(_, font)| covers(font)) {
+    if let Some((name, _)) = stack
+        .faces
+        .iter()
+        .chain(&stack.fallback)
+        .find(|(_, font)| covers(font))
+    {
         return name;
     }
     cluster

@@ -1,5 +1,7 @@
+use crate::font_run_tests::{bebas, glyph_families};
 use crate::fonts::TextRasterizer;
-use celesta_composition::{AssetLocation, ResolvedAsset};
+use crate::text::MissingGlyphs;
+use celesta_composition::{AssetLocation, FontFallbackMode, FontFamily, ResolvedAsset, TextStyle};
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
@@ -122,4 +124,188 @@ fn a_fork_keeps_the_fallback_families() {
     let fork = rasterizer.fork();
     assert_eq!(names(&fork), names(&rasterizer));
     assert_eq!(fork.fonts_revision(), rasterizer.fonts_revision());
+}
+
+fn loaded(style: TextStyle) -> TextStyle {
+    TextStyle {
+        font_fallback: Some(FontFallbackMode::Loaded),
+        ..style
+    }
+}
+
+/// Each glyph's source code point and first family name, on one line.
+fn families_by_point(
+    rasterizer: &mut TextRasterizer,
+    text: &str,
+    style: &TextStyle,
+) -> Vec<(usize, String)> {
+    glyph_families(rasterizer, text, style, None)
+        .into_iter()
+        .map(|(_, _, point, family)| (point, family))
+        .collect()
+}
+
+/// Every family name of the face that draws the glyph at code point `point`.
+fn face_families_at(
+    rasterizer: &mut TextRasterizer,
+    text: &str,
+    style: &TextStyle,
+    point: usize,
+) -> Vec<String> {
+    let buffer = rasterizer.shaped_buffer(text, style, None, 1.0);
+    let offsets = crate::shaping::source_offsets(&buffer, text, style);
+    let database = rasterizer.font_system.db();
+    buffer
+        .layout_runs()
+        .flat_map(|run| run.glyphs.iter().map(move |glyph| (run.line_i, glyph)))
+        .find(|(line, glyph)| offsets[*line][glyph.start] == point)
+        .map(|(_, glyph)| {
+            database
+                .face(glyph.font_id)
+                .unwrap()
+                .families
+                .iter()
+                .map(|(name, _)| name.clone())
+                .collect()
+        })
+        .unwrap()
+}
+
+fn bebas_and_plex() -> (TempDir, TextRasterizer) {
+    let directory = fixture();
+    let mut rasterizer = TextRasterizer::new();
+    load(&mut rasterizer, &directory, &["bebas.ttf", "plex.ttf"]);
+    (directory, rasterizer)
+}
+
+#[test]
+fn a_character_the_family_lacks_comes_from_a_loaded_font() {
+    let (_directory, mut rasterizer) = bebas_and_plex();
+    assert_eq!(
+        families_by_point(&mut rasterizer, "AБ", &loaded(bebas(48.0))),
+        [
+            (0, "Bebas Neue".to_owned()),
+            (1, "IBM Plex Mono".to_owned())
+        ]
+    );
+    let system = families_by_point(&mut rasterizer, "AБ", &bebas(48.0));
+    assert_ne!(system[1].1, "IBM Plex Mono");
+}
+
+#[test]
+fn reordering_the_font_list_swaps_the_fallback() {
+    let directory = fixture();
+    let mut rasterizer = TextRasterizer::new();
+    let style = loaded(bebas(48.0));
+    load(
+        &mut rasterizer,
+        &directory,
+        &["bebas.ttf", "a.css", "b.css"],
+    );
+    let families = face_families_at(&mut rasterizer, "AБ", &style, 1);
+    assert!(families.contains(&"Fallback A".to_owned()), "{families:?}");
+    load(
+        &mut rasterizer,
+        &directory,
+        &["bebas.ttf", "b.css", "a.css"],
+    );
+    let families = face_families_at(&mut rasterizer, "AБ", &style, 1);
+    assert!(families.contains(&"Fallback B".to_owned()), "{families:?}");
+}
+
+#[test]
+fn measuring_follows_the_loaded_fallback() {
+    let (_directory, mut rasterizer) = bebas_and_plex();
+    let plex = TextStyle {
+        font_family: Some("IBM Plex Mono".into()),
+        ..bebas(48.0)
+    };
+    let pair = rasterizer.measure("A", &bebas(48.0), None).width
+        + rasterizer.measure("Б", &plex, None).width;
+    let style = loaded(bebas(48.0));
+    let one_line = rasterizer.measure("AБ AБ", &style, None);
+    let space = rasterizer.measure(" ", &bebas(48.0), None).width;
+    assert!(
+        (one_line.width - (2.0 * pair + space)).abs() < 0.5,
+        "{} vs {}",
+        one_line.width,
+        2.0 * pair + space
+    );
+    let wrapped = rasterizer.measure("AБ AБ", &style, Some(pair + space / 2.0));
+    assert_eq!(wrapped.line_starts, [0, 3]);
+}
+
+#[test]
+fn loaded_fallback_characters_are_not_reported_missing() {
+    let (_directory, mut rasterizer) = bebas_and_plex();
+    assert_eq!(
+        rasterizer.missing_glyphs("layer", "AБ", &loaded(bebas(48.0))),
+        []
+    );
+    assert_eq!(
+        rasterizer.missing_glyphs("layer", "AБ", &bebas(48.0)),
+        [MissingGlyphs {
+            layer: "layer".to_owned(),
+            families: vec!["Bebas Neue".to_owned()],
+            weight: 400,
+            characters: vec!['Б'],
+        }]
+    );
+}
+
+#[test]
+fn characters_no_loaded_font_has_are_still_reported() {
+    let (_directory, mut rasterizer) = bebas_and_plex();
+    let missing = rasterizer.missing_glyphs("layer", "AБ日", &loaded(bebas(48.0)));
+    assert_eq!(missing.len(), 1, "{missing:?}");
+    assert_eq!(missing[0].characters, ['日']);
+}
+
+#[test]
+fn a_loaded_family_in_the_stack_is_not_repeated() {
+    let (_directory, mut rasterizer) = bebas_and_plex();
+    let stacked = TextStyle {
+        font_family: Some(FontFamily::Stack(vec!["Bebas Neue".to_owned()])),
+        ..loaded(bebas(48.0))
+    };
+    let named = loaded(bebas(48.0));
+    assert_eq!(
+        rasterizer.face_runs("AБA", &stacked),
+        rasterizer.face_runs("AБA", &named)
+    );
+    let families = FontFamily::Stack(vec!["Bebas Neue".to_owned()]);
+    assert_eq!(rasterizer.primary_family(&families, 400), "Bebas Neue");
+}
+
+#[test]
+fn text_without_a_family_ignores_loaded_fallback() {
+    let (_directory, mut rasterizer) = bebas_and_plex();
+    assert!(
+        rasterizer
+            .face_runs("AБ", &loaded(TextStyle::default()))
+            .is_empty()
+    );
+}
+
+#[test]
+fn without_the_option_runs_are_unchanged() {
+    let (_directory, mut rasterizer) = bebas_and_plex();
+    let stack = TextStyle {
+        font_family: Some(FontFamily::Stack(vec![
+            "Bebas Neue".to_owned(),
+            "IBM Plex Mono".to_owned(),
+        ])),
+        ..bebas(48.0)
+    };
+    for style in [bebas(48.0), stack] {
+        let system = TextStyle {
+            font_fallback: Some(FontFallbackMode::System),
+            ..style.clone()
+        };
+        assert_eq!(
+            rasterizer.face_runs("AБ→B", &style),
+            rasterizer.face_runs("AБ→B", &system)
+        );
+    }
+    assert!(rasterizer.face_runs("AБ", &bebas(48.0)).is_empty());
 }
