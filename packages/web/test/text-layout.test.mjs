@@ -168,3 +168,10 @@ test('fontFallback "loaded" appends loaded families to the stack', () => {
     { start: 1, end: 2, fontWeight: 700 },
   ]);
 });
+
+test('fontFallback "loaded" extends a span family when the text has none', () => {
+  const style = { fontFallback: 'loaded', fontRuns: [{ start: 0, end: 2, fontFamily: 'JetBrains Mono' }] };
+  const resolved = withLoadedFallback(style, ['Noto Sans JP']);
+  assert.deepEqual(resolved.fontRuns, [{ start: 0, end: 2, fontFamily: ['JetBrains Mono', 'Noto Sans JP'] }]);
+  assert.equal(resolved.fontFamily, undefined);
+});

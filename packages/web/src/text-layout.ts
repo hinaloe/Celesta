@@ -27,14 +27,15 @@ export function cssFont(style: TextStyle, run?: FontRun): string {
  * same per grapheme cluster; the browser chooses per character.
  */
 export function withLoadedFallback(style: TextStyle, families: readonly string[]): TextStyle {
-  if (style.fontFallback !== 'loaded' || families.length === 0 || style.fontFamily == null) return style;
+  if (style.fontFallback !== 'loaded' || families.length === 0) return style;
+  if (style.fontFamily == null && !style.fontRuns?.some(run => run.fontFamily != null)) return style;
   const extend = (family: FontFamily): string[] => {
     const names = typeof family === 'string' ? [family] : [...family];
     return [...names, ...families.filter(name => !names.includes(name))];
   };
   return {
     ...style,
-    fontFamily: extend(style.fontFamily),
+    ...(style.fontFamily != null ? { fontFamily: extend(style.fontFamily) } : {}),
     ...(style.fontRuns ? { fontRuns: style.fontRuns.map(run => run.fontFamily == null ? run : { ...run, fontFamily: extend(run.fontFamily) }) } : {}),
   };
 }
