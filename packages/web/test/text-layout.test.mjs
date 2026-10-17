@@ -16,6 +16,7 @@ test('wrapping uses the requested language, including with older canvas contexts
   const metrics = textMeasurer()({ text: 'hello world', style: { lang: 'th' }, maxWidth: 6, fonts: [] });
   assert.deepEqual(locales, ['ja', 'th']);
   assert.equal(metrics.lines, 2);
+  assert.deepEqual(metrics.lineStarts, [0, 6]);
 });
 
 test('whole-run kerning and ligature widths are preserved without fabricating glyph positions', t => {
