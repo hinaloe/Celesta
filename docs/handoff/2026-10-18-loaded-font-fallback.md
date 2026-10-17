@@ -64,5 +64,9 @@ so it can split a cluster that native keeps together.
 - `pnpm run test:runtime` (`packages/react/test/font-fallback.test.mjs`:
   inheritance, overrides, raw layers, `useTextMetrics`, validation,
   `<Static>`), `pnpm --dir packages/web test` and typecheck.
-- Native export: see the PR for before and after frames of the scene
-  above, with IBM Plex Mono for the Latin font.
+- Native export (macOS, `target/release/celesta-exporter --react … --frame 0`):
+  IBM Plex Mono from a file and DotGothic16 from Google Fonts, `lang="ja-JP"`.
+  With `fontFallback="system"`, Japanese is drawn with Hiragino Sans and the
+  export warns that Plex Mono has no glyph for it. With `"loaded"`, it is
+  drawn with DotGothic16 and nothing is reported. Latin text is identical.
+  The PR shows both frames.
