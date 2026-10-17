@@ -117,14 +117,17 @@ seeked through the timeline.
   order, so each `unicode-range` subset is its own candidate, as in stacks.
 - `load_fonts` sets `fallback_families: Arc<[Arc<str>]>`, the
   concatenation for the list it was given, without duplicates. It is replaced
-  on every call, including when nothing new loads. `fork` copies both.
+  on every call, including when nothing new loads. When it changes, the
+  shaped-buffer, run, and missing-character caches are cleared, and
+  `fonts_revision()` (which also counts loaded fonts) advances so the GPU
+  renderer drops its text textures. `fork` copies both.
 
 ### Choosing a family (`crates/renderer/src/font_stack.rs`)
 
 `face_runs` resolves clusters when the text or a run has a stack (today),
 or when `font_fallback == Loaded`, a family is named, and
-`fallback_families` is not empty. The run cache key adds the mode and the
-candidate list.
+`fallback_families` is not empty. The run and shaped-buffer cache keys add
+the mode; a new candidate list clears those caches (above).
 
 `StackFaces` gains `fallback: Vec<(Arc<str>, Arc<Font>)>`: for each candidate
 family, its face at the stack's weight (`matched_face`), skipping families
@@ -151,15 +154,16 @@ In `missing_characters`, a glyph also counts as drawn by its requested
 family when the style is `Loaded` and the glyph's face belongs to one of
 `fallback_families`. A character no loaded font has, and that an installed
 font draws, is still reported. The `missing_characters` cache key adds the
-mode and the candidate list.
+mode.
 
 ### Browser (`packages/web`)
 
 `fonts.ts` already loads each `@font-face` as a `FontFace`. It keeps the
 families each font URL added, in order. When a scene's style has
-`fontFallback: 'loaded'` and a `fontFamily`, `cssFont` inserts those
-families, in the scene's font order and without duplicates, before
-`system-ui, sans-serif`.
+`fontFallback: 'loaded'` and a `fontFamily`, the style's stack (and each
+run's) gets those families appended, in the scene's font order and without
+duplicates, before `cssFont` builds the CSS list, so they come before
+`system-ui, sans-serif`. Measurement requests get the same treatment.
 
 The browser picks fonts per character, not per grapheme cluster. A base
 character and its combining mark can end up in different fonts where native
@@ -189,7 +193,7 @@ TypeScript:
   `<Sequence>`; `style.fontFallback` overrides; raw project layers inherit;
   `useTextMetrics` sees the inherited value; invalid `<Composition>` value
   throws.
-- `@celesta/web`: `cssFont` output with and without `'loaded'`.
+- `@celesta/web`: the CSS font list with and without `'loaded'`.
 
 Rendering change: the PR includes before/after screenshots of the same
 scene (JetBrains Mono + `lang="ja-JP"` + Noto Sans JP via `<Font>`).
