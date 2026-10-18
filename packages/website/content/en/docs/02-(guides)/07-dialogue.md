@@ -53,6 +53,8 @@ To change the face partway through a line, give `expression` a list of `{ at, ex
 
 For voices generated with VOICEVOX or AivisSpeech, use the synthesis AudioQuery with [@celesta/voicevox](/en/docs/voicevox/) or [@celesta/aivis-speech](/en/docs/aivis-speech/) instead of spreading the transcript’s vowels over the WAV.
 
+To have VOICEVOX Engine read the script for you, call `prepareNarration()` from [@celesta/voicevox](/en/docs/voicevox/) before planDialogue(): it synthesizes each line, caches the voice, and sets `audio` and `lipSync`, so only lines whose spoken text or voice changes are synthesized again.
+
 ## Import a voice tool's export folder
 
 VOICEROID, A.I.VOICE, and AquesTalk front ends can save each line as `name.wav` beside its text in `name.txt`. `importVoiceFolder({ directory, speaker })` reads such a folder in prepare() and returns lines for planDialogue(): ids from the file names, subtitles from the text files, lengths from the recordings, and lip sync from the waveform. Lines play in natural order of their names (`voice-2` before `voice-10`) on every OS.

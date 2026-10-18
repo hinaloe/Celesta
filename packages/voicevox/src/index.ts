@@ -11,3 +11,14 @@ export type {
   VoicevoxTiming,
   VoicevoxTimingOptions,
 } from './timing.js';
+export { NarrationError, prepareNarration } from './narration.js';
+export type {
+  NarratedLine,
+  NarrationAsset,
+  NarrationLine,
+  NarrationStage,
+  PrepareNarrationOptions,
+  VoicevoxQuerySettings,
+  VoicevoxVoice,
+  VoicevoxVoiceSettings,
+} from './narration.js';

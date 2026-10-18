@@ -1,8 +1,9 @@
 # @celesta/voicevox
 
-VOICEVOX AudioQuery timing and lip sync for Celesta React compositions, for
-VOICEVOX Engine. Engines that accept the same query but choose their own phoneme
-lengths are not timed exactly; for AivisSpeech, use `@celesta/aivis-speech`.
+VOICEVOX AudioQuery timing, lip sync, and cached script synthesis for Celesta
+React compositions, for VOICEVOX Engine. Engines that accept the same query
+but choose their own phoneme lengths are not timed exactly; for AivisSpeech,
+use `@celesta/aivis-speech`.
 Dialogue components, WAV lip sync, and `LipSyncTrack` are in `@celesta/character`.
 
 ```tsx
@@ -21,6 +22,37 @@ Use the query that produced the WAV. The track reflects speed, pauses, and
 interrogative upspeak, with phoneme lengths rounded to the engine's frame grid.
 Pass `{ frameRate: null }` to use unrounded lengths, or
 `{ interrogativeUpspeak: false }` when synthesis disables upspeak.
+
+## Synthesizing a script
+
+`prepareNarration(lines, options)` synthesizes a script with a running local
+VOICEVOX Engine during `prepare()` and returns the lines with `audio`,
+`lipSync`, and `narration` (the WAV's measured `duration` and the full final
+`query`) set, ready for `planDialogue()` from `@celesta/character`.
+
+```ts
+const lines = await prepareNarration([
+  { id: 'intro', speaker: 'zunda', text: 'HPが1です。', spokenText: 'エイチピーがいちです。' },
+  { id: 'reply', speaker: 'metan', text: '危ないわね。', expression: 'surprised' },
+], {
+  speakers: {
+    zunda: { baseUrl: 'http://127.0.0.1:50021', styleId: 3 },
+    metan: { baseUrl: 'http://127.0.0.1:50021', styleId: 2, query: { speedScale: 1.1 } },
+  },
+  cacheDir: './.celesta/voices',
+});
+plan = await planDialogue(lines, { fps: 30 });
+```
+
+Voices are cached in `cacheDir` (relative to the entry file) by spoken text,
+style, query settings, synthesis flags, and `revision`; subtitle text,
+expression, order, and gaps are not in the key. Cache hits read files only,
+so an unchanged script reopens and exports without the engine. Bump a
+`revision` or pass `refresh` after changing the engine's user dictionary,
+the engine, or its models. Lines with their own `audio` are not synthesized.
+Failures throw a `NarrationError` with `lineId`, `speaker`, and `stage`.
+See `skills/celesta/references/dialogue.md` for every option and
+`packages/cli/examples/with-narration.tsx` for a runnable example.
 
 ## Mora and phoneme timing
 
@@ -53,8 +85,11 @@ the shape `@celesta/aivis-speech` returns too (with `exact: false`), so code
 that reads timings takes either engine's. Its mouth rules are
 `lipSyncFromSpeechTiming`'s, and `voicevoxVowelShape` is `speechVowelShape`.
 
-Exports: `timingFromVoicevox`, `lipSyncFromVoicevox`, `voicevoxVowelShape`,
-and the types `VoicevoxAudioQuery`, `VoicevoxAccentPhrase`, `VoicevoxMora`,
+Exports: `prepareNarration`, `NarrationError`, `timingFromVoicevox`,
+`lipSyncFromVoicevox`, `voicevoxVowelShape`, the narration types
+`NarrationLine`, `NarratedLine`, `NarrationAsset`, `NarrationStage`,
+`PrepareNarrationOptions`, `VoicevoxVoice`, `VoicevoxVoiceSettings`,
+`VoicevoxQuerySettings`, and the types `VoicevoxAudioQuery`, `VoicevoxAccentPhrase`, `VoicevoxMora`,
 `VoicevoxTiming`, `VoicevoxTimedAccentPhrase`, `VoicevoxTimedMora`,
 `VoicevoxTimedPause`, `VoicevoxTimedPhoneme`, `VoicevoxSpan`,
 `VoicevoxTimingOptions`, and `VoicevoxLipSyncOptions` (the same options).
