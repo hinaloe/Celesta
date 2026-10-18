@@ -20,6 +20,7 @@ Dialogue scenes combine three pieces:
 - [React: a two-line conversation](#react-a-two-line-conversation)
 - [Timing a script from its voices](#timing-a-script-from-its-voices)
 - [Importing a voice tool's export folder](#importing-a-voice-tools-export-folder)
+- [Matching voice levels and ducking background audio](#matching-voice-levels-and-ducking-background-audio)
 - [Changing the face within a line](#changing-the-face-within-a-line)
 - [Drawing the subtitle yourself](#drawing-the-subtitle-yourself)
 - [React props](#react-props)
@@ -281,6 +282,111 @@ transcript with the recording read alongside it. Reload and export always
 reread the folder.
 
 Example: `packages/cli/examples/with-voice-folder.tsx`.
+
+## Matching voice levels and ducking background audio
+
+Recordings from different speakers or engines can sit far apart in level.
+`matchVoiceLevels(lines, options)` measures each line's local WAV in
+`prepare()` and multiplies the line's `volume` by a constant gain toward a
+target. It is opt-in: nothing changes unless you call it. Call it before
+`planDialogue()` and pass its `lines` on.
+
+```tsx
+import { matchVoiceLevels, planDialogue } from '@celesta/character';
+import type { VoiceLevelReport } from '@celesta/character';
+
+let plan: DialoguePlan<Line>;
+let levels: VoiceLevelReport;
+export async function prepare() {
+  const matched = await matchVoiceLevels(script, {
+    targetRmsDbfs: -20,   // default -20
+    peakCeilingDbfs: -1,  // default -1
+    maxBoostDb: 12,       // default 12
+    maxCutDb: 12,         // default 12
+    speakers: { aoi: { offsetDb: -1 }, kotone: { targetRmsDbfs: -22 } },
+  });
+  levels = matched.report;
+  plan = await planDialogue(matched.lines, { fps: 30 });
+}
+```
+
+The metric (a controllable first step, not perceived loudness):
+
+- Speech RMS: 20 ms blocks, each block's power the mean of its channels'
+  mean squares (opposite-polarity stereo does not cancel). Blocks under
+  -60 dBFS are silence; of the rest, blocks more than 20 dB under their
+  average are dropped (breaths, room tone). The remaining blocks' average
+  power in dBFS is the speech RMS. It is not LUFS (no K-weighting).
+- Peak: the largest absolute sample over every original channel (sample
+  peak, not true peak).
+- Less than 0.1 s passing the gates is `'insufficient-speech'`; nothing over
+  -60 dBFS is `'silent'`. Both get 0 dB (never extreme amplification).
+
+Gain = `target - rms`, clamped to `maxBoostDb` / `maxCutDb`, then lowered so
+the sample peak stays under `peakCeilingDbfs`. The ceiling is the hardest
+bound: it cuts past `maxCutDb` when a file already peaks above it. The
+target is the speaker's `targetRmsDbfs` (or the global one) plus the
+speaker's `offsetDb`.
+
+Per line, set `voiceLevel` on the `DialogueLine`:
+
+| `voiceLevel` | Effect |
+| --- | --- |
+| omitted | Matched with the speaker's target. |
+| `false` | Left exactly as authored; not analyzed. |
+| `{ offsetDb: 2 }` | Added to the target. |
+| `{ targetRmsDbfs: -24 }` | Replaces the speaker's target and offset for this line. |
+| `{ gainDb: -3 }` | Fixed gain; not analyzed, no bounds. |
+
+Muted lines and lines without `audio` are left unchanged. The gain multiplies
+a numeric `volume` or every keyframe value of a keyframed one; key times,
+easings, same-time cuts, and sequence-local times stay as they were
+(`scaleVolume(volume, gain)` does the same for any `AnimatedNumber`). Only
+gain changes: the source file, its duration, `lipSync`, and the plan's timing
+do not.
+
+`matched.report.lines[i]` has `status` (`'matched'`, `'limited'`, `'silent'`,
+`'insufficient-speech'`, `'fixed-gain'`, `'opted-out'`, `'no-audio'`,
+`'muted'`), `analysis` (`rmsDbfs`, `peakDbfs`, `speechSeconds`,
+`speechStartSeconds`, `speechEndSeconds`, `durationSeconds`, …),
+`targetRmsDbfs`, `desiredGainDb`, `gainDb`, `gain`, `limitedBy`
+(`'max-boost'`, `'max-cut'`, `'peak-ceiling'`), `rmsAfterDbfs`, and
+`peakAfterDbfs`. The before/after values describe the source and the
+matching gain only; an authored `volume` above 1, BGM, and any master gain
+come on top, so the final mix can exceed the ceiling.
+
+Analysis runs once per file content in `prepare()`, never per frame. It is
+cached by the file's SHA-256 and the analysis version: re-saving a WAV at the
+same path is measured again; editing text or expressions is not.
+`analyzeVoiceLevel(src)` returns the measurement for one file.
+
+Only local uncompressed PCM (8/16/24/32-bit) and IEEE float WAV are read. A
+URL, a compressed WAV, or another format fails `prepare()` with
+`matchVoiceLevels(): line "x": could not analyze …` and suggests
+`voiceLevel: false`.
+
+### Ducking BGM and game audio under speech
+
+Build each background bed's `volume` from the plan, using the intervals
+where a voice is actually audible: for each line with `audio` that is not
+muted, `from + analysis.speechStartSeconds * fps` to
+`from + analysis.speechEndSeconds * fps` (capped at the line's
+`durationInFrames`). A subtitle held through the gap does not count. Merge
+overlapping intervals (their union) and silences shorter than a hold time,
+then key each run: full at `start - attack`, ducked at `start`, ducked at
+`end`, full at `end + release`, with `frameKeyframes(keys, { fps, origin })`
+where `origin` is the frame the `<Audio>`'s sequence starts on. Give BGM and
+game audio their own levels and timings.
+
+Issue #87 owns the shared ducking helper; until it lands,
+`packages/cli/examples/with-voice-level-matching.tsx` carries a clearly
+marked example-local recipe (`speechIntervals` + `duckVolume`) to copy and
+later replace. It is a precomputed envelope, not a realtime sidechain
+compressor, so preview and export play the same volumes.
+
+Not covered: integrated LUFS / EBU R128 normalization, true peak, master
+limiting, realtime sidechain compression, denoising, remote or compressed
+audio, and rewriting WAV files.
 
 ## Changing the face within a line
 

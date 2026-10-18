@@ -1,0 +1,7 @@
+[
+  { "id": "hello", "speaker": "shizuku", "text": "しずくです。今日は声の大きさをそろえます。", "reading": "しずくです。きょうわこえのおおきさをそろえます" },
+  { "id": "quiet", "speaker": "komugi", "text": "こむぎです。ぼくの録音は小さめなんだ。", "reading": "こむぎです。ぼくのろくおんわちいさめなんだ" },
+  { "id": "match", "speaker": "shizuku", "text": "準備の段階で測って、音量だけを合わせます。", "reading": "じゅんびのだんかいではかって、おんりょうだけをあわせます" },
+  { "id": "duck", "speaker": "komugi", "text": "しゃべっている間は、BGMとゲーム音が下がるよ。", "reading": "しゃべっているあいだわ、びーじーえむとげーむおんがさがるよ" },
+  { "id": "bye", "speaker": "shizuku", "expression": "smile", "text": "台本を直しても、ちゃんとついてきます。", "reading": "だいほんをなおしても、ちゃんとついてきます" }
+]

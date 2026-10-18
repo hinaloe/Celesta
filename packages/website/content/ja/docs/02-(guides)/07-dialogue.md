@@ -66,6 +66,14 @@ plan = await planDialogue(lines, { fps: 30 });
 
 開いている間に録音やテキストを保存し直す、追加する、削除すると、エントリーのフォルダーの外にあってもプレビューが再読み込みされ、長くなった台詞の後ろの台詞も後ろにずれます。書き込み途中のペアでは再読み込みが失敗し、保存が終わるまで直前の正しいプレビューを表示し続けます（`incomplete: 'skip'` を渡すと、そうした台詞を除いて読み込みます）。読めるのは非圧縮の PCM または float の WAV です。
 
+## 声の大きさをそろえる
+
+話者や音声合成エンジンが違うと、録音の大きさがかなり変わります。prepare() で planDialogue() の前に `matchVoiceLevels(lines, { targetRmsDbfs, peakCeilingDbfs, maxBoostDb, maxCutDb, speakers })` を呼び、その `lines` を渡します。ローカルの PCM/float WAV を 1 回だけ測り、目標に近づける一定のゲインを台詞の `volume`（数値でもキーフレームでもよく、時刻とイージングは保たれます）に掛けます。呼ばなければ何も変わりません。
+
+測るのは、ゲート付きの発話 RMS（dBFS。-60 dBFS 未満の無音と、発話より 20 dB 以上小さい部分は除き、チャンネルごとに測ります）と、全チャンネルのサンプルピークです。調整しやすい最初の一歩であり、LUFS でも聞こえ方の大きさの一致を保証するものでもありません。ゲインは `maxBoostDb` / `maxCutDb` で制限され、`peakCeilingDbfs` を超えないように下げられます。無音やごく短い録音は 0 dB です。話者ごとに `speakers: { name: { offsetDb, targetRmsDbfs } }`、台詞ごとに `voiceLevel` を指定できます（`false` でそのまま、`{ offsetDb }` か `{ targetRmsDbfs }` で調整、`{ gainDb }` で固定ゲイン）。`matched.report` に台詞ごとの測定値、ゲイン、どの上限で止まったかが入ります。結果はファイルの内容でキャッシュされるので、WAV を差し替えると測り直します。
+
+話している間だけ BGM やゲーム音を下げるには、plan から実際に声が出ている区間（各台詞の `from` に report の `speechStartSeconds`/`speechEndSeconds` を足したもの）を取り、重なりと短い無音をまとめて frameKeyframes() で `volume` を作ります。`packages/cli/examples/with-voice-level-matching.tsx` は、例ローカルの暫定ダッキングレシピを使った全体の流れを示します。
+
 ## 実際の素材で確認
 
 `packages/cli/examples/with-dialogue-series.tsx` は音声の長さに合わせた会話、`packages/cli/examples/with-lip-sync.tsx` は PSD 立ち絵の口パク、`packages/cli/examples/with-voice-folder.tsx` は音声フォルダーから台本を読むサンプルです。[GitHub](https://github.com/mika-f/Celesta) の **Code → Download ZIP** からソースを取得し、素材を含むアーカイブ全体を展開して、**File → Open…** で開いてください。ソースからのビルドは不要です。

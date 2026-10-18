@@ -47,13 +47,32 @@ export type { BlinkPhase, BlinkTiming } from './blink';
 export {
   buildEnvelope,
   decodeWav,
+  decodeWavChannels,
   loadLipSync,
   lipSyncFromKeyframes,
   lipSyncTimeline,
   useLipSync,
   vowelShapes,
 } from './lipsync';
-export type { LipSyncOptions, LipSyncTrack, MouthKeyframe, WavAudio } from './lipsync';
+export type { LipSyncOptions, LipSyncTrack, MouthKeyframe, WavAudio, WavChannels } from './lipsync';
+
+export {
+  VOICE_LEVEL_ANALYSIS_VERSION,
+  analyzeVoiceLevel,
+  matchVoiceLevels,
+  measureVoiceLevel,
+  scaleVolume,
+} from './voice-level';
+export type {
+  MatchedVoiceLevels,
+  VoiceLevelAnalysis,
+  VoiceLevelLimit,
+  VoiceLevelLineReport,
+  VoiceLevelLineSetting,
+  VoiceLevelOptions,
+  VoiceLevelReport,
+  VoiceLevelSpeaker,
+} from './voice-level';
 
 export { lipSyncFromSpeechTiming, speechVowelShape } from './speech-timing';
 export type {
