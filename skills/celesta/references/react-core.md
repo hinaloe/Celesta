@@ -26,6 +26,7 @@ provides `react` (18.x) and those packages; never install them from npm.
 - [Text (summary)](#text-summary)
 - [Group and clipping](#group-and-clipping)
 - [Image](#image)
+- [Lottie animations](#lottie-animations)
 - [Instances (particles)](#instances-particles)
 - [Static (still subtrees)](#static-still-subtrees)
 - [Video](#video)
@@ -458,6 +459,43 @@ image.
 Paths are relative to the entry file's folder. `http(s)://` URLs are
 downloaded once into a per-user cache and never revalidated; change the URL
 to pick up a new file.
+
+## Lottie animations
+
+`<Lottie>` from `@celesta/lottie` plays a Lottie (Bodymovin) JSON export in
+step with the composition. Import the file and pass its contents as `data`:
+
+```tsx
+import { Lottie } from '@celesta/lottie';
+import confetti from './confetti.json';
+
+<Lottie data={confetti} x={960} y={540} anchorX={0.5} anchorY={0.5} width={800} />
+<Lottie data={confetti} startFrame={0} endFrame={30} playbackRate={2} loop={false} />
+```
+
+- The box is the file's `w` x `h`, clipped like lottie-web clips it.
+  `width` or `height` alone keeps the aspect ratio; `x`/`y`/`anchorX`/
+  `anchorY` and the other common props place the box.
+- Playback starts at the enclosing sequence's frame 0. `playbackRate`
+  (default 1, negative plays backwards) and `loop` (default true) work as
+  on `<Image>`; without `loop` it holds the frame before `endFrame`.
+  `startFrame`/`endFrame` are in the file's own frames (defaults: its
+  `ip`/`op`). Between the file's frames the values interpolate, so a 30 fps
+  file stays smooth at 60 fps, and every frame depends only on its time:
+  scrubbing draws the same picture as playing.
+- Drawn: shape, precomposition (with time remap and stretch), solid, image,
+  and null layers; parenting; masks (add, subtract, intersect, inverted,
+  opacity); alpha and luma track mattes (inverted too); groups, paths,
+  rectangles, ellipses, stars, polygons, fills, strokes (dashes, caps,
+  joins), linear and radial gradients, trim paths; layer blend modes.
+- Not drawn, with a warning on stderr (or `onWarning`) once per file: text
+  layers, expressions, effects and layer styles, 3D layers, auto-orient,
+  merge paths, repeaters, round corners, the even-odd fill rule, radial
+  gradient highlights, mask expansion, and embedded (base64) images.
+  `inspectLottie(data)` returns the same messages without drawing.
+- Image layers load `assetsPath` + the asset's file name (default: the
+  asset's own `u` folder), relative to the entry like an `<Image>` `src`.
+  Export images as separate files, not embedded.
 
 ## Instances (particles)
 

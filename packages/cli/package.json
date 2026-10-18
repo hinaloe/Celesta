@@ -22,6 +22,7 @@
     "@celesta/code": "workspace:*",
     "@celesta/debug": "workspace:*",
     "@celesta/layout": "workspace:*",
+    "@celesta/lottie": "workspace:*",
     "@celesta/math": "workspace:*",
     "@celesta/media-utils": "workspace:*",
     "@celesta/project": "workspace:*",

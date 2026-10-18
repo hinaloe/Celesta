@@ -11,7 +11,7 @@ const slugs = [
   'installation', 'create-project', 'preview', 'react-compositions',
   'animation', 'motion-toolkit', 'text-camera-lines', 'layout', 'text-fonts', 'media', 'dialogue', 'data', 'export',
   'reference',
-  'math', 'math-noise', 'math-shaping', 'code', 'code-typing', 'voicevox', 'aivis-speech',
+  'math', 'math-noise', 'math-shaping', 'code', 'code-typing', 'voicevox', 'aivis-speech', 'lottie',
   'examples', 'timelines', 'build-from-source', 'troubleshooting',
 ];
 const groups = ['getting-started', 'guides', 'reference', 'packages', 'more'];
@@ -31,7 +31,7 @@ function chapters(dir) {
 const docsDir = locale => join(root, 'content', locale, 'docs');
 const markdownFiles = locale => [join(docsDir(locale), 'index.md'), ...chapters(docsDir(locale)).map(chapter => chapter.path)];
 
-test('both locales have the same 25 chapters in the same groups', () => {
+test('both locales have the same 26 chapters in the same groups', () => {
   for (const locale of locales) {
     const found = chapters(docsDir(locale));
     assert.deepEqual(found.map(chapter => chapter.slug), slugs, `${locale} chapter order`);
