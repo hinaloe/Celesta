@@ -16,6 +16,7 @@ members = [
   "crates/react-bridge",
   "crates/remote",
   "crates/renderer",
+  "crates/source-edit",
 ]
 
 [workspace.package]
