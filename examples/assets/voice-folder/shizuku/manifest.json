@@ -1,0 +1,7 @@
+{
+  "lines": [
+    { "file": "voice-1", "id": "hello", "reading": "こんにちは。ぼいすふぉるだーをよみこんでみます。", "expression": "smile" },
+    { "file": "voice-2", "reading": "おんせいともじを、おなじなまえでほぞんしてください。" },
+    { "file": "voice-10", "reading": "ほぞんしなおすと、ぷれびゅーがじどうでこうしんされます。", "expression": [{ "at": 1.2, "expression": "smile" }] }
+  ]
+}

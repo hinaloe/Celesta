@@ -20,6 +20,7 @@ import {
   holdProjectPropertyValues,
   listComponentSchemas,
   mount,
+  prepareDependencies,
   setAudioDecoder,
   setMediaProbe,
   setProjectPropertyValues,
@@ -34,6 +35,7 @@ import type {
   LayerSourceEntry,
   MeasureTextRequest,
   MountedComposition,
+  PrepareDependency,
   ProbedMediaInfo,
   ProjectFrame,
   ResolutionRuntime,
@@ -257,6 +259,8 @@ async function main(): Promise<void> {
     compositions: mounted.compositions,
     componentSchemas: listComponentSchemas(),
     propertySchema: listProjectProperties() ?? null,
+    // Files `prepare()` read outside the sources the editor already watches.
+    dependencies: prepareDependencies(),
   });
 
   let resolver: Resolver | null = null;
@@ -468,6 +472,7 @@ function writeLine(
         compositions: readonly CompositionInfo[];
         componentSchemas: Record<string, ComponentPropertySchema>;
         propertySchema: Record<string, ProjectPropertyField> | null;
+        dependencies: PrepareDependency[];
       }
     | {
         scene: Scene;

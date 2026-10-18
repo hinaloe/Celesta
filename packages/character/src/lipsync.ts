@@ -16,7 +16,7 @@
 import * as fs from 'node:fs';
 
 import { useCurrentTime } from '@celesta/react';
-import { entryRelativePath } from '@celesta/react/internal';
+import { entryRelativePath, trackPrepareDependency } from '@celesta/react/internal';
 import type { MouthShape } from '@celesta/react/internal';
 
 const A_KANA = 'aAあぁゃかがさざただなはばぱまやらわアァャカガサザタダナハバパマヤラワ';
@@ -82,6 +82,9 @@ function readChunks(view: DataView): Map<string, { offset: number; size: number 
 /** Parses an uncompressed PCM or IEEE-float WAV into mono float samples. */
 export function decodeWav(bytes: Uint8Array): WavAudio {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.byteLength < 12) {
+    throw new Error('not a RIFF/WAVE file');
+  }
   const riff = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
   const wave = String.fromCharCode(view.getUint8(8), view.getUint8(9), view.getUint8(10), view.getUint8(11));
   if (riff !== 'RIFF' || wave !== 'WAVE') {
@@ -92,6 +95,16 @@ export function decodeWav(bytes: Uint8Array): WavAudio {
   const data = chunks.get('data');
   if (!fmt || !data) {
     throw new Error('WAV file is missing its fmt or data chunk');
+  }
+  if (fmt.size < 16 || fmt.offset + 16 > view.byteLength) {
+    throw new Error('WAV fmt chunk is truncated');
+  }
+  if (data.offset + data.size > view.byteLength) {
+    // What a file still being written looks like: the header promises more
+    // samples than are there yet.
+    throw new Error(
+      `WAV data chunk is truncated: it declares ${data.size} bytes but the file holds ${view.byteLength - data.offset}`,
+    );
   }
   let audioFormat = view.getUint16(fmt.offset, true);
   const channels = view.getUint16(fmt.offset + 2, true);
@@ -104,6 +117,9 @@ export function decodeWav(bytes: Uint8Array): WavAudio {
   }
 
   const bytesPerSample = bits >> 3;
+  if (channels < 1 || bytesPerSample < 1) {
+    throw new Error(`WAV fmt chunk declares ${channels} channels of ${bits}-bit samples`);
+  }
   const frameCount = Math.floor(data.size / (bytesPerSample * channels));
   const samples = new Float32Array(frameCount);
   let cursor = data.offset;
@@ -285,6 +301,15 @@ export function lipSyncFromKeyframes(
 }
 
 /**
+ * The lip-sync track for decoded audio; `loadLipSync` without the file read.
+ * An empty `text` (or one without vowels) opens the mouth to `a` whenever
+ * the voice is loud enough and closes it otherwise.
+ */
+export function lipSyncFromAudio(audio: WavAudio, text: string, hopHz = DEFAULT_HOP_HZ): LipSyncTrack {
+  return makeTrack(lipSyncTimeline(buildEnvelope(audio, hopHz), text), hopHz);
+}
+
+/**
  * Reads a WAV file and builds its lip-sync track. Call from an entry's
  * `prepare()` export and stash the result in module state (like
  * `homepage-demo.tsx` does with fetched data), then read it per frame with
@@ -292,11 +317,9 @@ export function lipSyncFromKeyframes(
  */
 export async function loadLipSync(options: LipSyncOptions): Promise<LipSyncTrack> {
   const hopHz = options.hopHz ?? DEFAULT_HOP_HZ;
+  trackPrepareDependency(options.src);
   const bytes = await fs.promises.readFile(entryRelativePath(options.src));
-  const audio = decodeWav(bytes);
-  const envelope = buildEnvelope(audio, hopHz);
-  const timeline = lipSyncTimeline(envelope, options.text);
-  return makeTrack(timeline, hopHz);
+  return lipSyncFromAudio(decodeWav(bytes), options.text, hopHz);
 }
 
 /** The mouth shape for the current composition frame from a `LipSyncTrack`. */

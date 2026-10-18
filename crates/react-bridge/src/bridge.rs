@@ -172,6 +172,7 @@ impl ReactBridge {
                         mut compositions,
                         component_schemas,
                         project_property_schema,
+                        dependencies,
                     } => {
                         // Without an order, fall back to the map's sorted keys.
                         let mut project_property_order = ready_property_order(&message);
@@ -200,6 +201,7 @@ impl ReactBridge {
                             component_schemas,
                             project_property_schema,
                             project_property_order,
+                            prepare_dependencies: dependencies,
                         });
                     }
                     ReadyMessage::ProbeMedia { probe_media } => {

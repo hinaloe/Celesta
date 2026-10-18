@@ -31,6 +31,16 @@ export type {
   PlannedDialogueLine,
 } from './dialogue-series';
 
+export { importVoiceFolder, naturalCompare } from './voice-folder';
+export type {
+  ImportVoiceFolderOptions,
+  VoiceLine,
+  VoiceManifest,
+  VoiceManifestEntry,
+  VoiceTextDecoder,
+  VoiceTextEncoding,
+} from './voice-folder';
+
 export { blinkPhase } from './blink';
 export type { BlinkPhase, BlinkTiming } from './blink';
 

@@ -5,6 +5,7 @@
 // Rust renderer resolves a relative `<Audio>`/`<Image>` `src` — against the
 // entry's own directory.
 
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 export function entryDir(): string {
@@ -19,4 +20,48 @@ export function isRemoteUrl(src: string): boolean {
 /** Resolves `src` against the entry directory unless it is already absolute. */
 export function entryRelativePath(src: string): string {
   return path.isAbsolute(src) ? src : path.resolve(entryDir(), src);
+}
+
+/**
+ * A file or directory `prepare()` read, with its state when it was read.
+ * The editor reloads the entry when one of these changes on disk, even
+ * outside the entry's directory. `mtimeNs` and `size` are null when the
+ * path did not exist.
+ */
+export interface PrepareDependency {
+  path: string;
+  /** Nanoseconds since the Unix epoch, as a decimal string. */
+  mtimeNs: string | null;
+  size: number | null;
+}
+
+const dependencies = new Map<string, PrepareDependency>();
+
+/**
+ * Records that preparation is about to read `src` (resolved like
+ * `entryRelativePath`). Call it before reading, so a change made while
+ * reading still differs from the recorded state. A path recorded twice
+ * keeps its first state. For a directory, its own modification time moves
+ * when an entry is added, removed, or renamed.
+ */
+export function trackPrepareDependency(src: string): void {
+  const resolved = entryRelativePath(src);
+  if (dependencies.has(resolved)) {
+    return;
+  }
+  let mtimeNs: string | null = null;
+  let size: number | null = null;
+  try {
+    const stat = fs.statSync(resolved, { bigint: true });
+    mtimeNs = stat.mtimeNs.toString();
+    size = Number(stat.size);
+  } catch {
+    // Missing: creating it later changes the recorded state.
+  }
+  dependencies.set(resolved, { path: resolved, mtimeNs, size });
+}
+
+/** Every path `trackPrepareDependency()` recorded, in the order recorded. */
+export function prepareDependencies(): PrepareDependency[] {
+  return [...dependencies.values()];
 }

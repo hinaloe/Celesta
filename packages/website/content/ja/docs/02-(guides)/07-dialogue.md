@@ -53,6 +53,19 @@ holdThroughGap は、台詞の後の間も字幕と表情を保持します。ho
 
 VOICEVOX や AivisSpeech で生成した音声には、WAV に文字起こしの母音を均等に割り振る代わりに、合成に使った AudioQuery と [@celesta/voicevox](/ja/docs/voicevox/) または [@celesta/aivis-speech](/ja/docs/aivis-speech/) を利用できます。
 
+## 音声ソフトの書き出しフォルダーを読み込む
+
+VOICEROID、A.I.VOICE、AquesTalk 系のソフトは、台詞ごとに `name.wav` と同じ名前のテキスト `name.txt` を保存できます。prepare() で `importVoiceFolder({ directory, speaker })` を呼ぶと、このフォルダーを planDialogue() に渡せる台詞の列にします。ID はファイル名、字幕はテキスト、長さは録音、口パクは波形から作られます。並び順はどの OS でも名前の自然順（`voice-2` の後に `voice-10`）です。
+
+```tsx
+const lines = await importVoiceFolder({ directory: './voices/akane', speaker: 'akane', manifest: './voices/akane/manifest.json' });
+plan = await planDialogue(lines, { fps: 30 });
+```
+
+テキストは UTF-8 として読みます。`encoding: 'utf-16le'` や `'shift_jis'` も指定できます。読めないファイルは文字化けした字幕にせず、パス付きのエラーになります。マニフェスト（`{ "lines": [{ "file": "voice-1", "id", "speaker", "text", "reading", "scene", "expression", "gap" }] }`）を渡すと、ID、順番、話者、字幕、かなの読み、シーン、表情、間を上書きできます。口の母音はかなの `reading`、なければテキストから取ります。漢字を含み読みのない台詞は、警告を出して口の開閉だけにします。
+
+開いている間に録音やテキストを保存し直す、追加する、削除すると、エントリーのフォルダーの外にあってもプレビューが再読み込みされ、長くなった台詞の後ろの台詞も後ろにずれます。書き込み途中のペアでは再読み込みが失敗し、保存が終わるまで直前の正しいプレビューを表示し続けます（`incomplete: 'skip'` を渡すと、そうした台詞を除いて読み込みます）。読めるのは非圧縮の PCM または float の WAV です。
+
 ## 実際の素材で確認
 
-`packages/cli/examples/with-dialogue-series.tsx` は音声の長さに合わせた会話、`packages/cli/examples/with-lip-sync.tsx` は PSD 立ち絵の口パクを示すサンプルです。[GitHub](https://github.com/mika-f/Celesta) の **Code → Download ZIP** からソースを取得し、素材を含むアーカイブ全体を展開して、**File → Open…** で開いてください。ソースからのビルドは不要です。
+`packages/cli/examples/with-dialogue-series.tsx` は音声の長さに合わせた会話、`packages/cli/examples/with-lip-sync.tsx` は PSD 立ち絵の口パク、`packages/cli/examples/with-voice-folder.tsx` は音声フォルダーから台本を読むサンプルです。[GitHub](https://github.com/mika-f/Celesta) の **Code → Download ZIP** からソースを取得し、素材を含むアーカイブ全体を展開して、**File → Open…** で開いてください。ソースからのビルドは不要です。

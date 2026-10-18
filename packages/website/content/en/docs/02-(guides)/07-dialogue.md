@@ -53,6 +53,19 @@ To change the face partway through a line, give `expression` a list of `{ at, ex
 
 For voices generated with VOICEVOX or AivisSpeech, use the synthesis AudioQuery with [@celesta/voicevox](/en/docs/voicevox/) or [@celesta/aivis-speech](/en/docs/aivis-speech/) instead of spreading the transcript’s vowels over the WAV.
 
+## Import a voice tool's export folder
+
+VOICEROID, A.I.VOICE, and AquesTalk front ends can save each line as `name.wav` beside its text in `name.txt`. `importVoiceFolder({ directory, speaker })` reads such a folder in prepare() and returns lines for planDialogue(): ids from the file names, subtitles from the text files, lengths from the recordings, and lip sync from the waveform. Lines play in natural order of their names (`voice-2` before `voice-10`) on every OS.
+
+```tsx
+const lines = await importVoiceFolder({ directory: './voices/akane', speaker: 'akane', manifest: './voices/akane/manifest.json' });
+plan = await planDialogue(lines, { fps: 30 });
+```
+
+Transcripts are UTF-8 unless you pass `encoding: 'utf-16le'` or `'shift_jis'`; one that does not decode fails with its path instead of showing garbled text. An optional manifest (`{ "lines": [{ "file": "voice-1", "id", "speaker", "text", "reading", "scene", "expression", "gap" }] }`) overrides ids, order, speaker, subtitle, kana reading, scene, expression, and gap. Mouth vowels come from the kana `reading` or the transcript; a line with kanji and no reading only opens and closes its mouth, with a warning.
+
+While the composition is open, resaving, adding, or deleting a recording or its text reloads the preview, even in a folder outside the entry's directory, and later lines move with a longer take. A pair caught halfway through being written fails the reload and keeps the last good preview until the save completes (pass `incomplete: 'skip'` to leave such lines out instead). Only uncompressed PCM or float WAV is read.
+
 ## See it with real artwork
 
-`packages/cli/examples/with-dialogue-series.tsx` demonstrates an automatically timed conversation; `packages/cli/examples/with-lip-sync.tsx` shows a PSD portrait with lip sync. On [GitHub](https://github.com/mika-f/Celesta), choose **Code → Download ZIP**, extract the complete archive including assets, and open an entry with **File → Open…**. No source build is needed.
+`packages/cli/examples/with-dialogue-series.tsx` demonstrates an automatically timed conversation; `packages/cli/examples/with-lip-sync.tsx` shows a PSD portrait with lip sync; `packages/cli/examples/with-voice-folder.tsx` reads its script from a voice folder. On [GitHub](https://github.com/mika-f/Celesta), choose **Code → Download ZIP**, extract the complete archive including assets, and open an entry with **File → Open…**. No source build is needed.

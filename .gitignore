@@ -10,5 +10,7 @@ node_modules/
 
 # Template sample media is part of the templates.
 !templates/*/assets/**
+# The voice-folder example stands in for a speech tool's export.
+!examples/assets/voice-folder/**/*.wav
 # The green-screen example's footage is generated and kept small.
 !examples/greenscreen/assets/*.mp4

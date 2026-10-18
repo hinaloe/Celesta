@@ -7,8 +7,8 @@ use celesta_composition::{
     TextStyle, Time,
 };
 use celesta_react_bridge::{
-    ComponentPropertyField, ComponentResolutionRequest, ProjectFrame, PropertyInputs, ReactBridge,
-    ReactBridgeError, SpawnOptions, react_audio_clips,
+    ComponentPropertyField, ComponentResolutionRequest, PrepareDependency, ProjectFrame,
+    PropertyInputs, ReactBridge, ReactBridgeError, SpawnOptions, react_audio_clips,
 };
 
 fn no_tracks() -> BTreeMap<String, Vec<Layer>> {
@@ -595,6 +595,49 @@ fn resolves_a_psd_portrait_preset_into_visible_layers_when_node_is_available() {
     assert!(visible_layers.contains(&"face/eyes/open".to_owned()));
     assert_eq!(enabled_layers, &["face/mouth/a"]);
     assert_eq!(disabled_layers.len(), 5);
+}
+
+#[test]
+fn reports_the_voice_folder_prepare_read_as_dependencies_when_node_is_available() {
+    let Some((node, cli_script, package_root)) = live_react_runtime() else {
+        return;
+    };
+
+    let entry = package_root.join("examples/with-voice-folder.tsx");
+    let mut bridge = ReactBridge::spawn(&node, &cli_script, &entry).unwrap();
+    let folder = package_root
+        .join("../../examples/assets/voice-folder/shizuku")
+        .canonicalize()
+        .unwrap();
+    let dependencies = &bridge.metadata().prepare_dependencies;
+    for name in [
+        "",
+        "voice-1.wav",
+        "voice-2.txt",
+        "voice-10.wav",
+        "manifest.json",
+    ] {
+        let path = if name.is_empty() {
+            folder.clone()
+        } else {
+            folder.join(name)
+        };
+        let reported = dependencies
+            .iter()
+            .find(|dependency| dependency.path.canonicalize().ok().as_ref() == Some(&path))
+            .unwrap_or_else(|| panic!("{} is not reported in {dependencies:?}", path.display()));
+        // The editor's watcher samples the same form, so an untouched file
+        // never looks changed.
+        assert_eq!(
+            PrepareDependency::sample(&reported.path),
+            *reported,
+            "{name}"
+        );
+    }
+    // Three lines in natural order, the last ending the composition.
+    assert!(bridge.metadata().duration_in_frames > 3 * 30);
+    let scene = bridge.scene_at(Time::ZERO).unwrap();
+    assert!(!scene.layers.is_empty());
 }
 
 #[test]
