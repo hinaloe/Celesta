@@ -13,6 +13,8 @@ export type Paint =
   | { type: 'linear'; start: Point; end: Point; stops: { offset: number; color: string }[] }
   | { type: 'radial'; center: Point; radius: number; stops: { offset: number; color: string }[] };
 export type Stroke = { paint: Paint; width: number };
+/** A text's outline: one stroke, or several, each `width` from the glyph outline. */
+export type TextStroke = Stroke | readonly Stroke[];
 export type LineDash = { pattern: number[]; offset?: number };
 export type Point = { x: number; y: number };
 export type Transform = {
@@ -45,7 +47,7 @@ export type TextStyle = {
   fontSize?: number | null;
   fontWeight?: number | null;
   fill?: Paint | null;
-  stroke?: Stroke | null;
+  stroke?: TextStroke | null;
   align?: 'left' | 'center' | 'right' | null;
   lineHeight?: number | null;
   letterSpacing?: number | { em: number } | null;

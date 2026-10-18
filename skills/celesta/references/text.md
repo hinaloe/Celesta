@@ -93,7 +93,7 @@ type TextStyle = {
   fontSize?: number;       // px, > 0
   fontWeight?: number;     // 100–900
   fill?: Paint;                                   // { type: 'solid', color } or a gradient
-  stroke?: { paint: Paint; width: number };       // outline
+  stroke?: Stroke | readonly Stroke[];            // outline(s); Stroke = { paint: Paint; width: number }
   align?: 'left' | 'center' | 'right';
   lineHeight?: number;     // px, > 0 (TextBox's lineHeight is a multiple instead)
   letterSpacing?: number | { em: number };  // px, or a multiple of fontSize, after each glyph; may be negative
@@ -103,7 +103,19 @@ type TextStyle = {
 };
 ```
 
-`fill` and `stroke.paint` are paint objects, never bare hex strings:
+A list of strokes draws several outlines around one another, such as the
+white inner and colored outer outline common in subtitles. Each `width` is
+measured from the glyph outline, so the outer stroke is the wider one; the
+order of the list does not matter:
+
+```tsx
+stroke: [
+  { paint: { type: 'solid', color: '#2E6B1F' }, width: 14 },  // outer
+  { paint: { type: 'solid', color: '#FFFFFF' }, width: 7 },   // inner
+],
+```
+
+`fill` and stroke `paint`s are paint objects, never bare hex strings:
 `fill: { type: 'solid', color: '#ffffff' }`. Gradients are described in
 [react-core.md](react-core.md#rect-and-paints-gradients); their coordinates
 are relative to the text's layout box. The same style fields are used by

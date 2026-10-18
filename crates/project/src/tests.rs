@@ -41,6 +41,37 @@ fn text_letter_spacing_takes_px_or_em() {
     assert!(Project::from_json(&json.to_string()).is_err());
 }
 #[test]
+fn text_stroke_takes_one_stroke_or_a_list() {
+    let mut json: Value =
+        serde_json::from_str(include_str!("../../../examples/voiceroid.celesta.json")).unwrap();
+    let solid = |color: &str| serde_json::json!({ "type": "solid", "color": color });
+    for stroke in [
+        serde_json::json!({ "paint": solid("#FFFFFFFF"), "width": 6.0 }),
+        serde_json::json!([
+            { "paint": solid("#2E6B1FFF"), "width": 14.0 },
+            { "paint": solid("#FFFFFFFF"), "width": 7.0 },
+        ]),
+    ] {
+        json["tracks"][0]["items"][0]["content"] = serde_json::json!({
+            "type": "text",
+            "text": "Celesta",
+            "style": { "fontSize": 64, "stroke": stroke },
+        });
+        let project = Project::from_json(&json.to_string()).unwrap();
+        let saved: Value = serde_json::from_str(&project.to_json().unwrap()).unwrap();
+        assert_eq!(
+            saved["tracks"][0]["items"][0]["content"]["style"]["stroke"],
+            stroke
+        );
+    }
+    json["tracks"][0]["items"][0]["content"]["style"]["stroke"][1]["width"] = (-1.0).into();
+    let errors = Project::from_json(&json.to_string())
+        .unwrap_err()
+        .to_string();
+    assert!(errors.contains("style.stroke[1].width"), "{errors}");
+}
+
+#[test]
 fn loads_the_minimal_project() {
     let project =
         Project::from_json(include_str!("../../../examples/minimal.celesta.json")).unwrap();

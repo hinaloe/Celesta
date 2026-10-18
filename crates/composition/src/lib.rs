@@ -11,7 +11,7 @@ mod transform;
 pub use keyframe::{Animatable, Easing, Keyframe, KeyframeAnimation, KeyframeAnimationType};
 pub use style::{
     FontFallbackMode, FontFamily, GradientStop, LetterSpacing, LineBreak, Paint, Stroke, TextAlign,
-    TextColorRun, TextFontRun, TextStyle,
+    TextColorRun, TextFontRun, TextStroke, TextStyle,
 };
 pub use time::{Rational, Time, TimeError, TimeRange};
 pub use transform::{AnimatablePoint, Transform};

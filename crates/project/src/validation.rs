@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fmt;
 
 use celesta_composition::{
-    Animatable, GradientStop, LetterSpacing, Paint, TextStyle, Time, Transform,
+    Animatable, GradientStop, LetterSpacing, Paint, TextStroke, TextStyle, Time, Transform,
 };
 
 use crate::{
@@ -647,13 +647,16 @@ impl Validator<'_> {
             self.paint(&format!("{path}.fill"), fill);
         }
         if let Some(stroke) = &style.stroke {
-            if !stroke.width.is_finite() || stroke.width < 0.0 {
-                self.error(
-                    format!("{path}.stroke.width"),
-                    "must be finite and non-negative",
-                );
+            for (index, stroke) in stroke.strokes().iter().enumerate() {
+                let path = match style.stroke {
+                    Some(TextStroke::Many(_)) => format!("{path}.stroke[{index}]"),
+                    _ => format!("{path}.stroke"),
+                };
+                if !stroke.width.is_finite() || stroke.width < 0.0 {
+                    self.error(format!("{path}.width"), "must be finite and non-negative");
+                }
+                self.paint(&format!("{path}.paint"), &stroke.paint);
             }
-            self.paint(&format!("{path}.stroke.paint"), &stroke.paint);
         }
     }
 

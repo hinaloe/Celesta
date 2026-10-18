@@ -82,6 +82,7 @@ export type {
   TextAlign,
   TextColorRun,
   TextFontRun,
+  TextStroke,
   TextStyle,
   Time,
 } from './scene';
