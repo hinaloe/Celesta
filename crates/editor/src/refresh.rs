@@ -226,6 +226,8 @@ impl EditorView {
                         RenderQuality::Final
                     },
                     source_of,
+                    transform_override: None,
+                    frame_of: None,
                 }) {
                     self.preview_pending = false;
                     self.problems.set_preview_warnings(Vec::new());

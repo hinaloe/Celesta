@@ -23,8 +23,8 @@ use celesta_editor_core::ClipKind;
 use celesta_gpu_renderer::GpuDriver;
 
 use crate::preview::{
-    ReactPreviewContext, ReactPreviewMode, collect_component_requests, records_hit_regions,
-    splice_component_resolutions, strip_missing_components,
+    ReactPreviewContext, ReactPreviewMode, apply_override, collect_component_requests,
+    records_hit_regions, splice_component_resolutions, strip_missing_components,
 };
 use celesta_composition::{
     Animatable, AssetLocation, AudioClip, EvaluatedTransform, GroupMask, Layer, LayerContent,
@@ -485,6 +485,57 @@ fn masked_group(children: Vec<Layer>, mask: Vec<Layer>) -> Layer {
         },
         ..missing("group")
     }
+}
+
+fn scene_of(layers: Vec<Layer>) -> Scene {
+    Scene {
+        width: 64,
+        height: 64,
+        frame_rate: Rational::new(30, 1),
+        time: Time::default(),
+        fonts: Vec::new(),
+        shaders: Vec::new(),
+        layers,
+    }
+}
+
+#[test]
+fn an_override_replaces_the_transform_of_a_nested_layer() {
+    let inner = Layer {
+        content: LayerContent::Group {
+            layers: vec![missing("target"), missing("other")],
+            clip: None,
+            mask: None,
+            motion_blur: false,
+        },
+        ..missing("group")
+    };
+    let mut scene = scene_of(vec![missing("first"), inner]);
+    let moved = EvaluatedTransform {
+        rotation: 30.0,
+        ..EvaluatedTransform::default()
+    };
+
+    assert!(apply_override(&mut scene, "target", &moved));
+
+    let LayerContent::Group { layers, .. } = &scene.layers[1].content else {
+        unreachable!()
+    };
+    assert_eq!(layers[0].transform, moved);
+    assert_eq!(layers[1].transform, EvaluatedTransform::default());
+    assert_eq!(scene.layers[0].transform, EvaluatedTransform::default());
+}
+
+#[test]
+fn an_override_of_an_absent_layer_changes_nothing() {
+    let mut scene = scene_of(vec![missing("a")]);
+    let moved = EvaluatedTransform {
+        rotation: 30.0,
+        ..EvaluatedTransform::default()
+    };
+
+    assert!(!apply_override(&mut scene, "b", &moved));
+    assert_eq!(scene, scene_of(vec![missing("a")]));
 }
 
 #[test]
