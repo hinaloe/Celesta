@@ -29,11 +29,12 @@ export interface ReceivedProps {
 
 export interface LayerSourceReport {
   chain: LayerSourceEntry[];
+  // The three fields below are present only when the chain is not empty.
   /** The frame `useCurrentFrame()` reports at the layer's element. */
-  localFrame: number;
-  props: ReceivedProps;
+  localFrame?: number;
+  props?: ReceivedProps;
   /** How many layers this element's JSX produced in the frame. */
-  renderCount: number;
+  renderCount?: number;
 }
 
 const primitives = new WeakSet<object>();
@@ -118,7 +119,8 @@ function sourceFibers(
       kind: isPrimitive(type) ? 'primitive' : 'component',
     };
     if (entry.kind === 'primitive') {
-      const id = layerIdOf?.(firstHostNode(fiber) ?? node);
+      const host = firstHostNode(fiber);
+      const id = host ? layerIdOf?.(host) : undefined;
       if (id !== undefined) entry.layerId = id;
     }
     chain.push({ entry, fiber });
@@ -153,6 +155,7 @@ export function layerSourceReport(
   for (const [id, hostNode] of layerNodes) if (!ids.has(hostNode)) ids.set(hostNode, id);
   const found = sourceFibers(node, resolveFile, (hostNode) => ids.get(hostNode));
   const chain = found.map(({ entry }) => entry);
+  if (chain.length === 0) return { chain };
 
   let localFrame = 0;
   for (let fiber = (node.fiber as Fiber | null | undefined) ?? null; fiber; fiber = fiber.return) {
@@ -175,15 +178,13 @@ export function layerSourceReport(
 
   let renderCount = 0;
   const innermost = chain[0];
-  if (innermost) {
-    const seen = new Set<HostNode>();
-    for (const other of layerNodes.values()) {
-      if (seen.has(other)) continue;
-      seen.add(other);
-      const first = sourceChain(other, resolveFile)[0];
-      if (first && first.file === innermost.file && first.line === innermost.line && first.column === innermost.column) {
-        renderCount++;
-      }
+  const seen = new Set<HostNode>();
+  for (const other of layerNodes.values()) {
+    if (seen.has(other)) continue;
+    seen.add(other);
+    const first = sourceChain(other, resolveFile)[0];
+    if (first && first.file === innermost.file && first.line === innermost.line && first.column === innermost.column) {
+      renderCount++;
     }
   }
   return { chain, localFrame, props, renderCount };

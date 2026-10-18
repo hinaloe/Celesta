@@ -70,3 +70,10 @@ test('a missing layer reports null', () => {
   const composition = mount(() => comp());
   assert.equal(composition.layerSource(time(0), 'nope', resolve), null);
 });
+
+test('an empty chain reports only the chain', () => {
+  const composition = mount(() =>
+    h(Composition, { width: 100, height: 100, fps: FRAME, durationInFrames: 100 }, h(Rect, { width: 1, height: 1 })),
+  );
+  assert.deepEqual(reportFor(composition, 0), { chain: [] });
+});

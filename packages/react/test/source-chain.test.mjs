@@ -115,3 +115,16 @@ test('tells a marked primitive from a component of the same name', () => {
   assert.deepEqual(sourceChain(image, resolve)[1], { name: 'Image', file: '/abs/entry.tsx', line: 1, column: 1, kind: 'primitive' });
   assert.deepEqual(sourceChain(rect, resolve)[1], { name: 'Rect', file: '/abs/entry.tsx', line: 2, column: 1, kind: 'component' });
 });
+
+test('omits layerId when the primitive has no layer of its own', () => {
+  function Outer() {
+    return jsxDEV('group', { children: jsxDEV('rect', {}, undefined, false, at('in.tsx', 1, 1)) }, undefined, true, at('out.tsx', 1, 1));
+  }
+  markPrimitive(Outer);
+  const { container } = mount(jsxDEV(Outer, {}, undefined, false, at('entry.tsx', 1, 1)));
+  const inner = container.children[0].children[0];
+  assert.equal(sourceChain(inner, resolve, () => undefined).every((e) => !('layerId' in e)), true);
+  const ids = new Map([[container.children[0], 'outer'], [inner, 'inner']]);
+  const chain = sourceChain(inner, resolve, (n) => ids.get(n));
+  assert.equal(chain.find((e) => e.name === 'Outer').layerId, 'outer');
+});
