@@ -6,7 +6,7 @@ import { forwardRef, memo } from 'react';
 import { jsx } from 'react/jsx-runtime';
 import { test } from 'vitest';
 
-import { sourceChain } from '../dist/internal.js';
+import { markPrimitive, sourceChain } from '../dist/internal.js';
 import { jsxDEV } from '../dist/jsx-dev-runtime.js';
 import { createRoot } from '../dist/reconciler.js';
 
@@ -26,8 +26,8 @@ function Title() {
 test('lists the nearest element first, then its ancestors', () => {
   const { container } = mount(jsxDEV(Title, {}, undefined, false, at('entry.tsx', 9, 5)));
   assert.deepEqual(sourceChain(container.children[0], resolve), [
-    { name: 'rect', file: '/abs/title.tsx', line: 5, column: 3 },
-    { name: 'Title', file: '/abs/entry.tsx', line: 9, column: 5 },
+    { name: 'rect', file: '/abs/title.tsx', line: 5, column: 3, kind: 'component' },
+    { name: 'Title', file: '/abs/entry.tsx', line: 9, column: 5, kind: 'component' },
   ]);
 });
 
@@ -37,8 +37,8 @@ test('skips elements without a source', () => {
   }
   const { container } = mount(jsxDEV(Middle, {}, undefined, false, at('entry.tsx', 9, 5)));
   assert.deepEqual(sourceChain(container.children[0], resolve), [
-    { name: 'rect', file: '/abs/title.tsx', line: 5, column: 3 },
-    { name: 'Middle', file: '/abs/entry.tsx', line: 9, column: 5 },
+    { name: 'rect', file: '/abs/title.tsx', line: 5, column: 3, kind: 'component' },
+    { name: 'Middle', file: '/abs/entry.tsx', line: 9, column: 5, kind: 'component' },
   ]);
 });
 
@@ -53,7 +53,7 @@ test('merges adjacent duplicates', () => {
     jsxDEV(Wrap, { children: jsxDEV('rect', {}, undefined, false, same) }, undefined, false, same),
   );
   const chain = sourceChain(container.children[0], resolve);
-  assert.deepEqual(chain, [{ name: 'rect', file: '/abs/wrap.tsx', line: 2, column: 2 }]);
+  assert.deepEqual(chain, [{ name: 'rect', file: '/abs/wrap.tsx', line: 2, column: 2, kind: 'component' }]);
 });
 
 test('is empty without positions', () => {
@@ -93,4 +93,25 @@ test('names memo and forwardRef components', () => {
   const [memoRect, forwardedRect] = container.children[0].children;
   assert.equal(sourceChain(memoRect, resolve)[1].name, 'Title');
   assert.equal(sourceChain(forwardedRect, resolve)[1].name, 'Shown');
+});
+
+test('tells a marked primitive from a component of the same name', () => {
+  const Image = forwardRef(function Image(_props, _ref) {
+    return jsxDEV('image', {}, undefined, false, at('image.tsx', 1, 1));
+  });
+  markPrimitive(Image);
+  function Rect() {
+    return jsxDEV('rect', {}, undefined, false, at('rect.tsx', 1, 1));
+  }
+  const { container } = mount(
+    jsxDEV('group', {
+      children: [
+        jsxDEV(Image, {}, 'a', false, at('entry.tsx', 1, 1)),
+        jsxDEV(Rect, {}, 'b', false, at('entry.tsx', 2, 1)),
+      ],
+    }, undefined, true, at('entry.tsx', 0, 0)),
+  );
+  const [image, rect] = container.children[0].children;
+  assert.deepEqual(sourceChain(image, resolve)[1], { name: 'Image', file: '/abs/entry.tsx', line: 1, column: 1, kind: 'primitive' });
+  assert.deepEqual(sourceChain(rect, resolve)[1], { name: 'Rect', file: '/abs/entry.tsx', line: 2, column: 1, kind: 'component' });
 });

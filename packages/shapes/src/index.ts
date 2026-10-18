@@ -1,6 +1,7 @@
 import * as React from 'react';
 
 import { Group, Rect } from '@celesta/react';
+import { markPrimitive } from '@celesta/react/internal';
 import type { CommonProps, LineCap, LineJoin, Paint, PathCommand } from '@celesta/react';
 
 import { trimCommands, trimStartIntoSubpath } from './path-geometry';
@@ -1152,4 +1153,10 @@ export function Heart({
 }: HeartProps): ReturnType<typeof React.createElement> | null {
   const commands = heartCommands({ width, height }, '<Heart>');
   return closedShape('Heart', commands, width, height, props);
+}
+
+// Layer primitives, so a source chain can tell `<Star>` from a component the
+// author named `Star`.
+for (const shape of [Path, Line, Polyline, Ellipse, Circle, Arrow, Triangle, Polygon, Star, Pie, Heart]) {
+  markPrimitive(shape);
 }

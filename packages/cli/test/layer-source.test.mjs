@@ -84,7 +84,7 @@ test('answers null for unknown ids', () => {
 test('answers [] without --source-locations', () => {
   const { responses, result } = run([{ layerSource: 'title-rect', time, preview: true }], []);
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(responses[0], { layerSource: { chain: [] } });
+  assert.deepEqual(responses[0], { layerSource: { chain: [], localFrame: 0, props: {}, renderCount: 0 } });
 });
 
 test('does not change scenes', () => {

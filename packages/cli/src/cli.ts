@@ -32,7 +32,7 @@ import type {
   ComponentResolutions,
   DecodedAudio,
   EntryComponent,
-  LayerSourceEntry,
+  LayerSourceReport,
   MeasureTextRequest,
   MountedComposition,
   PrepareDependency,
@@ -293,13 +293,13 @@ async function main(): Promise<void> {
         }
         writeLine({ collectedSubtitles: mounted.collectSubtitles(from, frames) });
       } else if (isLayerSourceRequest(request)) {
-        const chain = mounted.layerSource(
+        const report = mounted.layerSource(
           request.time,
           request.layerSource,
           (fileName) => path.resolve(path.dirname(entryPath), fileName),
           { preview: request.preview === true },
         );
-        writeLine({ layerSource: { chain } });
+        writeLine({ layerSource: report ?? { chain: null } });
       } else if (isResolveRequest(request)) {
         resolver ??= createResolver(mounted.config.lang);
         writeLine(resolver.resolve(request.components, request.runtime, mounted.fonts));
@@ -484,7 +484,7 @@ function writeLine(
       }
     | { collectedAudio: AudioClipDescriptor[] }
     | { collectedSubtitles: SubtitleDescriptor[] }
-    | { layerSource: { chain: LayerSourceEntry[] | null } }
+    | { layerSource: LayerSourceReport | { chain: null } }
     | ComponentResolutions
     | { probeMedia: { path: string } }
     | { decodeAudio: { path: string } }
