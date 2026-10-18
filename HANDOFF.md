@@ -91,6 +91,7 @@ compositions: no package a composition imports depends on them, though
 | `packages/math` (`@celesta/math`) | Pure, React-free math utilities for compositions. |
 | `packages/react` (`@celesta/react`) | Core components, hooks, animation helpers, reconciler, and scene walker. |
 | `packages/shapes` (`@celesta/shapes`) | Lines, polylines, paths, circles, ellipses, arrows, triangles, polygons, stars, pies, and hearts, plus generators for their path commands. |
+| `packages/lottie` (`@celesta/lottie`) | `<Lottie>`: Lottie JSON animations drawn as paths, groups, and masks; see [`docs/handoff/2026-10-19-lottie.md`](docs/handoff/2026-10-19-lottie.md). |
 | `packages/shader` (`@celesta/shader`) | `defineShader`: custom WGSL filters for a layer's `shader` prop. |
 | `packages/layout` (`@celesta/layout`) | Layout containers and `Camera`. |
 | `packages/transitions` (`@celesta/transitions`) | `Transition` and `TransitionSeries`. |

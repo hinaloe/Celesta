@@ -8,6 +8,7 @@ import * as character from '../../character/src/index';
 import * as codeComponents from '../../code/src/index';
 import * as debug from '../../debug/src/index';
 import * as layout from '../../layout/src/index';
+import * as lottie from '../../lottie/src/index';
 import * as mediaUtils from '../../media-utils/src/index';
 import * as shader from '../../shader/src/index';
 import * as shapes from '../../shapes/src/index';
@@ -25,6 +26,7 @@ const modules: Record<(typeof runtimeModules)[number], unknown> = {
   '@celesta/react': celesta,
   '@celesta/math': math,
   '@celesta/shapes': shapes,
+  '@celesta/lottie': lottie,
   '@celesta/layout': layout,
   '@celesta/transitions': transitions,
   '@celesta/text': text,

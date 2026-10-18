@@ -13,6 +13,7 @@ export {
   measurePath,
   pointOnPath,
   tangentOnPath,
+  trimCommands as trimPath,
 } from './path-geometry';
 export type { PathMeasure, PathPoint, PathTangent } from './path-geometry';
 export { interpolatePath } from './path-morph';

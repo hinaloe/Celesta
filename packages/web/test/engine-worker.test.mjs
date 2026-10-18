@@ -130,6 +130,19 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
     { type: 'brightness', amount: 1.5 },
   ]);
 
+  // Lottie animations draw as paths here too, at the composition's time.
+  const demo = readFileSync(fileURLToPath(new URL('../../../examples/assets/lottie/demo.json', import.meta.url)), 'utf8');
+  const lottie = await send({ id: 30, type: 'compile', source: `import { Composition } from '@celesta/react';
+    import { Lottie } from '@celesta/lottie';
+    const demo = ${demo};
+    export default function Scene() {
+      return <Composition width={480} height={270} fps={30} durationInFrames={90}><Lottie data={demo} /></Composition>;
+    }` });
+  assert.equal(lottie.error, undefined);
+  const lottieFrame = await send({ id: 31, type: 'frame', frame: 45 });
+  const paths = JSON.stringify(lottieFrame.value.scene).match(/"type":"path"/g) ?? [];
+  assert.ok(paths.length > 5, `${paths.length} paths`);
+
   // prepare() decodes an uploaded file with mediabunny, to the same samples
   // as the WAV parser reads from the same bytes.
   const spectrum = await send({ id: 14, type: 'compile', options: { assets: new Map([['voice.wav', new File([voice], 'voice.wav')]]) }, source: `import { Composition, Rect } from '@celesta/react';
