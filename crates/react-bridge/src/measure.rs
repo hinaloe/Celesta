@@ -32,12 +32,15 @@ pub(crate) struct TextMetricsPayload {
     pub(crate) ascent: f64,
     pub(crate) descent: f64,
     pub(crate) line_height: f64,
+    pub(crate) cap_height: f64,
+    pub(crate) x_height: f64,
     pub(crate) lines: usize,
     pub(crate) glyphs: Vec<GlyphPayload>,
     pub(crate) line_starts: Vec<usize>,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct GlyphPayload {
     pub(crate) text: String,
     pub(crate) start: usize,
@@ -46,6 +49,8 @@ pub(crate) struct GlyphPayload {
     pub(crate) x: f64,
     pub(crate) width: f64,
     pub(crate) line: usize,
+    pub(crate) ink_ascent: f64,
+    pub(crate) ink_descent: f64,
 }
 
 pub(crate) fn measure_text_response(
@@ -82,6 +87,8 @@ pub(crate) fn text_metrics_payload(metrics: &TextMetrics) -> TextMetricsPayload 
         ascent: metrics.ascent,
         descent: metrics.descent,
         line_height: metrics.line_height,
+        cap_height: metrics.cap_height,
+        x_height: metrics.x_height,
         lines: metrics.lines,
         line_starts: metrics.line_starts.clone(),
         glyphs: metrics
@@ -95,6 +102,8 @@ pub(crate) fn text_metrics_payload(metrics: &TextMetrics) -> TextMetricsPayload 
                 x: glyph.x,
                 width: glyph.width,
                 line: glyph.line,
+                ink_ascent: glyph.ink_ascent,
+                ink_descent: glyph.ink_descent,
             })
             .collect(),
     }

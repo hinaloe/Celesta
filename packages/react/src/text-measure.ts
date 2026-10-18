@@ -16,10 +16,18 @@ export interface GlyphMetrics {
   text: string;
   /** Left edge within its line, in composition pixels, alignment included. */
   x: number;
-  /** Advance width. */
+  /**
+   * Advance width, kerning included: a pair's tightening is taken out of the
+   * first glyph's advance, so `next.x - (x + width)` is 0. Measure a glyph
+   * alone to get its un-kerned advance.
+   */
   width: number;
   /** Zero-based line the cluster sits on. */
   line: number;
+  /** Highest point of the drawn outline above the baseline; 0 for a blank cluster. */
+  inkAscent: number;
+  /** Lowest point of the drawn outline below the baseline; 0 for a blank cluster. */
+  inkDescent: number;
 }
 
 export interface TextMetrics {
@@ -32,6 +40,10 @@ export interface TextMetrics {
   /** First line's baseline to its bottom edge; `ascent + descent === lineHeight`. */
   descent: number;
   lineHeight: number;
+  /** Height of a capital letter above the baseline in the first glyph's font; 0 if the font does not say. */
+  capHeight: number;
+  /** Height of a lowercase `x` above the baseline in the first glyph's font; 0 if the font does not say. */
+  xHeight: number;
   lines: number;
   glyphs: GlyphMetrics[];
   /** Source code-point offsets for visual line starts, including empty lines. */

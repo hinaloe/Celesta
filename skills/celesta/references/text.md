@@ -364,7 +364,7 @@ A number that counts to `to` (default 30 frames, `easeOutExpo`), rounded to
 
 Shapes text exactly as `<Text>` does, synchronously, during render, and
 returns
-`{ width, height, ascent, descent, lineHeight, lines, glyphs: [{ text, x, width, line }] }`
+`{ width, height, ascent, descent, lineHeight, capHeight, xHeight, lines, glyphs: [{ text, x, width, line, inkAscent, inkDescent }] }`
 in composition pixels. Use it to size backgrounds and place carets without
 guessing widths. `text` may hold `<Span>`, measured with the spans' weights
 and families.
@@ -374,6 +374,17 @@ and families.
   its glyphs; text with several lines keeps its line boxes).
   `ascent` runs from the first line's top to its baseline. `glyphs` has one
   entry per cluster, so per-letter layout is `glyphs[i].x`.
+- `glyphs[i].width` is the advance width **with kerning applied**: a pair's
+  tightening is taken out of the first glyph's advance, so in "AV" the A is
+  narrower than a lone "A" and the gap `next.x - (x + width)` is always 0.
+  To show kerning, measure each letter alone and compare.
+- Vertical extents, all in pixels from the baseline: `capHeight` and
+  `xHeight` (of the first glyph's font; 0 if it has none), and per cluster
+  `inkAscent` / `inkDescent`, how far the drawn outline reaches above and
+  below (0 for a space). Fit a band or underline to a word with
+  `y = baseline - Math.max(...ink.map(g => g.inkAscent))` down to
+  `baseline + Math.max(...ink.map(g => g.inkDescent))`, so no per-font
+  constants are needed; a Japanese run's ink gives its glyph-face extent.
 - Pass the same `style` and `maxWidth` to the hook and the `<Text>`, and
   place the text at `y={padding + metrics.ascent}` with
   `anchorY="baseline"`. This lines up one line and several alike, so shapes

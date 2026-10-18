@@ -15,6 +15,7 @@ use cosmic_text::{
     LayoutGlyph, LineEnding, LineIter, Metrics, PhysicalGlyph, Renderer, Shaping, SwashCache,
     SwashContent, Weight, Wrap,
 };
+use cosmic_text::Command;
 use std::sync::Arc;
 
 impl TextRasterizer {
@@ -437,6 +438,57 @@ impl TextRasterizer {
         ))
     }
 
+    /// Capital and `x` heights in pixels of a glyph's face at its size.
+    fn cap_and_x_height(&mut self, glyph: &LayoutGlyph) -> (f64, f64) {
+        let Some(font) = self.font_system.get_font(glyph.font_id, glyph.font_weight) else {
+            return (0.0, 0.0);
+        };
+        let metrics = font.as_swash().metrics(&[]);
+        let units = f64::from(metrics.units_per_em).max(1.0);
+        let scale = f64::from(glyph.font_size) / units;
+        (
+            f64::from(metrics.cap_height) * scale,
+            f64::from(metrics.x_height) * scale,
+        )
+    }
+
+    /// How far a glyph's outline reaches above and below the baseline, in
+    /// pixels; `(0, 0)` for one without an outline (a space, a bitmap).
+    fn ink_extent(&mut self, glyph: &LayoutGlyph) -> (f64, f64) {
+        let key = glyph.physical((0.0, 0.0), 1.0).cache_key;
+        let Some(commands) = self
+            .swash_cache
+            .get_outline_commands(&mut self.font_system, key)
+        else {
+            return (0.0, 0.0);
+        };
+        let mut top = f32::MIN;
+        let mut bottom = f32::MAX;
+        let mut reach = |y: f32| {
+            top = top.max(y);
+            bottom = bottom.min(y);
+        };
+        for command in commands {
+            match command {
+                Command::MoveTo(a) | Command::LineTo(a) => reach(a.y),
+                Command::QuadTo(a, b) => {
+                    reach(a.y);
+                    reach(b.y);
+                }
+                Command::CurveTo(a, b, c) => {
+                    reach(a.y);
+                    reach(b.y);
+                    reach(c.y);
+                }
+                Command::Close => {}
+            }
+        }
+        if top < bottom {
+            return (0.0, 0.0);
+        }
+        (f64::from(top), f64::from(-bottom))
+    }
+
     /// The largest ascent and descent in pixels at `font_size` of the faces
     /// the font stacks of `style` (its own and its font runs') draw with by
     /// default, so every line sits alike whichever families its clusters
@@ -505,6 +557,9 @@ impl TextRasterizer {
                 metrics.ascent = f64::from(line_y - run.line_top);
                 metrics.descent = f64::from(run.line_height) - metrics.ascent;
                 metrics.line_height = f64::from(run.line_height);
+                if let Some(glyph) = run.glyphs.first() {
+                    (metrics.cap_height, metrics.x_height) = self.cap_and_x_height(glyph);
+                }
             }
             let start = run
                 .glyphs
@@ -522,6 +577,7 @@ impl TextRasterizer {
                 if cluster.is_empty() {
                     continue;
                 }
+                let (ink_ascent, ink_descent) = self.ink_extent(glyph);
                 metrics.glyphs.push(GlyphMetrics {
                     start: offsets[run.line_i][glyph.start],
                     end: offsets[run.line_i][glyph.end],
@@ -530,6 +586,8 @@ impl TextRasterizer {
                     x: f64::from(glyph.x),
                     width: f64::from(glyph.w),
                     line: metrics.lines - 1,
+                    ink_ascent,
+                    ink_descent,
                 });
             }
         }

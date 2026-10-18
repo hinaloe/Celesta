@@ -39,6 +39,27 @@ fn measure_reports_line_metrics_and_per_glyph_advances() {
 }
 
 #[test]
+fn measure_reports_ink_bounds_and_cap_and_x_height() {
+    let style = TextStyle {
+        font_size: Some(100.0),
+        ..TextStyle::default()
+    };
+    let mut rasterizer = TextRasterizer::new();
+    let metrics = rasterizer.measure("Hgx ", &style, None);
+
+    assert!(metrics.cap_height > metrics.x_height && metrics.x_height > 0.0);
+    let [h, g, x, space] = &metrics.glyphs[..] else {
+        panic!("expected four clusters");
+    };
+    // A capital sits on the baseline at the font's cap height.
+    assert!((h.ink_ascent - metrics.cap_height).abs() < 2.0);
+    assert!(h.ink_descent.abs() < 2.0);
+    assert!(g.ink_descent > 5.0, "g should descend below the baseline");
+    assert!(x.ink_ascent < h.ink_ascent);
+    assert_eq!((space.ink_ascent, space.ink_descent), (0.0, 0.0));
+}
+
+#[test]
 fn wrapped_text_is_anchored_by_its_line_boxes_like_measure() {
     let style = TextStyle {
         font_size: Some(40.0),
