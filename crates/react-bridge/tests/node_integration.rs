@@ -1861,7 +1861,8 @@ fn layer_source_names_the_jsx_of_a_layer_when_node_is_available() {
     let chain = bridge
         .layer_source(Time::ZERO, &id)
         .unwrap()
-        .expect("layer is in the frame");
+        .expect("layer is in the frame")
+        .chain;
     assert_eq!(chain[0].name, "Rect");
     // The runtime reports real paths; the temp directory may be a symlink.
     assert_eq!(
@@ -1874,7 +1875,13 @@ fn layer_source_names_the_jsx_of_a_layer_when_node_is_available() {
     // Without the option the runtime knows no positions.
     let mut plain = ReactBridge::spawn(&node, &cli_script, &entry).unwrap();
     plain.set_preview(true);
-    assert_eq!(plain.layer_source(Time::ZERO, &id).unwrap(), Some(vec![]));
+    assert_eq!(
+        plain
+            .layer_source(Time::ZERO, &id)
+            .unwrap()
+            .map(|report| report.chain),
+        Some(vec![])
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

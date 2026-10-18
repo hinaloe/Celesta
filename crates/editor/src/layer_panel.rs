@@ -28,8 +28,8 @@ impl EditorView {
             .child(inspector_section("Layer", cx))
             .child(inspector_row("ID", id, cx));
         let section = match &self.source_lookup {
-            Some(SourceLookup::Found(chain)) => {
-                let (source, callers) = chain.split_first()?;
+            Some(SourceLookup::Found(report)) => {
+                let (source, callers) = report.chain.split_first()?;
                 section
                     .child(self.source_row("Source", 0, source, &entry_dir, cx))
                     .when(!callers.is_empty(), |section| {

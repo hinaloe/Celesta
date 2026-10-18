@@ -2,21 +2,22 @@
 //! scene pixels, and what the Layer section shows for the selection.
 
 use celesta_composition::Point;
-use celesta_react_bridge::LayerSource;
+use celesta_react_bridge::{LayerSource, LayerSourceReport};
 use gpui_kit::{Bounds, Pixels};
 use std::path::Path;
 
 /// What looking up a layer's source returned: `Ok(None)` when the frame has
-/// no layer with that id, `Ok(Some(chain))` with the JSX chain otherwise.
-pub(crate) type LookupResult = Result<Option<Vec<LayerSource>>, String>;
+/// no layer with that id, `Ok(Some(report))` with the JSX chain and the props
+/// the runtime saw otherwise.
+pub(crate) type LookupResult = Result<Option<LayerSourceReport>, String>;
 
 /// Where the selected layer's source lookup stands.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum SourceLookup {
     Pending,
     NotInFrame,
     NoPosition,
-    Found(Vec<LayerSource>),
+    Found(LayerSourceReport),
     Failed(String),
 }
 
@@ -56,8 +57,8 @@ pub(crate) fn scene_point(
 pub(crate) fn source_lookup(result: LookupResult) -> SourceLookup {
     match result {
         Ok(None) => SourceLookup::NotInFrame,
-        Ok(Some(chain)) if chain.is_empty() => SourceLookup::NoPosition,
-        Ok(Some(chain)) => SourceLookup::Found(chain),
+        Ok(Some(report)) if report.chain.is_empty() => SourceLookup::NoPosition,
+        Ok(Some(report)) => SourceLookup::Found(report),
         Err(error) => SourceLookup::Failed(error),
     }
 }

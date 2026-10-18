@@ -35,7 +35,9 @@ use celesta_editor_core::ClipSummary;
 use celesta_exporter::{ExportCancellation, ExportProgress, VideoFormat};
 use celesta_media::{AudioBuffer, AudioDecoder};
 use celesta_project::{Project, TrackKind};
-use celesta_react_bridge::{ComponentResolutions, LayerSource};
+use celesta_react_bridge::{
+    ComponentResolutions, ElementKind, LayerSource, LayerSourceReport, ReceivedProps,
+};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -596,6 +598,17 @@ fn layer_source_at(file: &str, line: u32, column: u32) -> LayerSource {
         file: PathBuf::from(file),
         line,
         column,
+        kind: ElementKind::Component,
+        layer_id: None,
+    }
+}
+
+fn report_of(chain: Vec<LayerSource>) -> LayerSourceReport {
+    LayerSourceReport {
+        chain,
+        local_frame: 0.0,
+        props: ReceivedProps::default(),
+        render_count: 1,
     }
 }
 
@@ -902,12 +915,12 @@ fn layer_select_reads_each_lookup_outcome() {
 
     assert_eq!(source_lookup(Ok(None)), SourceLookup::NotInFrame);
     assert_eq!(
-        source_lookup(Ok(Some(Vec::new()))),
+        source_lookup(Ok(Some(report_of(Vec::new())))),
         SourceLookup::NoPosition
     );
     assert_eq!(
-        source_lookup(Ok(Some(chain.clone()))),
-        SourceLookup::Found(chain)
+        source_lookup(Ok(Some(report_of(chain.clone())))),
+        SourceLookup::Found(report_of(chain))
     );
     assert_eq!(
         source_lookup(Err("bridge closed".to_string())),
@@ -995,7 +1008,7 @@ fn layer_select_records_hit_regions_only_in_interactive_mode() {
 
 #[test]
 fn layer_select_looks_up_sources_only_in_interactive_mode() {
-    let found = SourceLookup::Found(Vec::new());
+    let found = SourceLookup::Found(report_of(Vec::new()));
 
     // Paused with a selection: looked up while picking, never otherwise.
     assert_eq!(
