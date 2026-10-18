@@ -116,15 +116,17 @@ test('tells a marked primitive from a component of the same name', () => {
   assert.deepEqual(sourceChain(rect, resolve)[1], { name: 'Rect', file: '/abs/entry.tsx', line: 2, column: 1, kind: 'component' });
 });
 
-test('omits layerId when the primitive has no layer of its own', () => {
-  function Outer() {
-    return jsxDEV('group', { children: jsxDEV('rect', {}, undefined, false, at('in.tsx', 1, 1)) }, undefined, true, at('out.tsx', 1, 1));
-  }
+test('omits layerId when the primitive has no host descendant', () => {
+  // A real tree always has one; build the fibers by hand.
+  function Outer() {}
   markPrimitive(Outer);
-  const { container } = mount(jsxDEV(Outer, {}, undefined, false, at('entry.tsx', 1, 1)));
-  const inner = container.children[0].children[0];
-  assert.equal(sourceChain(inner, resolve, () => undefined).every((e) => !('layerId' in e)), true);
-  const ids = new Map([[container.children[0], 'outer'], [inner, 'inner']]);
-  const chain = sourceChain(inner, resolve, (n) => ids.get(n));
-  assert.equal(chain.find((e) => e.name === 'Outer').layerId, 'outer');
+  const props = (line) => jsxDEV('x', {}, undefined, false, at('f.tsx', line, 1)).props;
+  const outer = { return: null, child: null, type: Outer, elementType: Outer, memoizedProps: props(1) };
+  const innerFiber = { return: outer, child: null, type: 'rect', elementType: 'rect', memoizedProps: props(2) };
+  const inner = { fiber: innerFiber };
+  innerFiber.stateNode = inner;
+  const chain = sourceChain(inner, resolve, (node) => (node === inner ? 'inner' : undefined));
+  const entry = chain.find((e) => e.name === 'Outer');
+  assert.equal(entry.kind, 'primitive');
+  assert.equal('layerId' in entry, false);
 });
