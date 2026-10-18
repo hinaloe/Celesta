@@ -48,7 +48,10 @@ impl EditorView {
                         {
                             LookupFate::Stale => {}
                             LookupFate::Gone => self.clear_layer_selection(),
-                            LookupFate::Show => self.source_lookup = Some(source_lookup(source)),
+                            LookupFate::Show => {
+                                self.source_lookup = Some(source_lookup(source));
+                                self.source_lookup_frame = result.timeline_frame;
+                            }
                         }
                     }
                 }

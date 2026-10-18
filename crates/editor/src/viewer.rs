@@ -681,6 +681,7 @@ impl EditorView {
         self.selected_layer = None;
         self.source_lookup = None;
         self.launch_error = None;
+        self.transform.reset();
     }
 }
 

@@ -7,7 +7,7 @@ use crate::view::EditorView;
 use celesta_react_bridge::{ElementKind, LayerSourceReport, ReceivedProps};
 use celesta_source_edit::{
     ApplyError, EditTarget, ElementRef, LockReason, ResolveContext, apply, element_at,
-    format_number, resolve,
+    format_number, has_attribute, resolve,
 };
 use gpui_kit::Context;
 use std::fmt;
@@ -83,7 +83,8 @@ impl TransformTargets {
 
 /// Resolves the transform targets of `report`'s innermost element in `text`
 /// (that element's file). Scale is per axis when `scaleX` or `scaleY` is
-/// written on the element, and uniform otherwise.
+/// written as an attribute of the element, and uniform otherwise (also when
+/// only a parent sets them).
 pub(crate) fn resolve_targets(
     text: &str,
     report: &LayerSourceReport,
@@ -108,10 +109,11 @@ pub(crate) fn resolve_targets(
         target(TransformProp::Y),
         target(TransformProp::Rotation),
     ];
-    let scale_x = target(TransformProp::ScaleX);
-    let scale_y = target(TransformProp::ScaleY);
-    if is_written(&scale_x.1) || is_written(&scale_y.1) {
-        targets.extend([scale_x, scale_y]);
+    let per_axis = [TransformProp::ScaleX, TransformProp::ScaleY]
+        .iter()
+        .any(|prop| has_attribute(text, &element, prop.name()));
+    if per_axis {
+        targets.extend([target(TransformProp::ScaleX), target(TransformProp::ScaleY)]);
     } else {
         targets.push(target(TransformProp::Scale));
     }
@@ -120,22 +122,6 @@ pub(crate) fn resolve_targets(
         element,
         targets,
     })
-}
-
-/// Whether a scale-axis target shows the prop is set on the element (or by a
-/// parent), rather than absent or locked for the whole element.
-fn is_written(target: &EditTarget) -> bool {
-    !matches!(
-        target,
-        EditTarget::Missing { .. }
-            | EditTarget::Locked(
-                LockReason::Spread
-                    | LockReason::SyntaxError
-                    | LockReason::ElementNotFound
-                    | LockReason::NotPrimitive
-                    | LockReason::Repeated { .. }
-            )
-    )
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -152,7 +138,7 @@ pub(crate) enum CommitError {
 impl fmt::Display for CommitError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::SourceChanged => f.write_str("The source changed while dragging"),
+            Self::SourceChanged => f.write_str("The source changed during the edit"),
             Self::NotEditable(prop) => write!(f, "{} can't be edited here", prop.label()),
             Self::NotANumber => f.write_str("Enter a number"),
             Self::Apply(error) => write!(f, "Couldn't edit the source: {error}"),
@@ -215,20 +201,20 @@ pub(crate) fn reason_text(reason: &LockReason) -> String {
         LockReason::SyntaxError => "The source has syntax errors".to_owned(),
         LockReason::ElementNotFound => "Couldn't find this element in the source".to_owned(),
         LockReason::NotPrimitive => "Set by a component, not written on this element".to_owned(),
-        LockReason::Expression { source } => format!("Written as an expression: `{source}`"),
+        LockReason::Expression { source } => format!("Written as an expression: {source}"),
         LockReason::UnresolvedIdentifier { name } => {
-            format!("Comes from `{name}`, which can't be traced")
+            format!("Comes from {name}, which can't be traced")
         }
-        LockReason::SharedBinding { name, uses } => format!("`{name}` is used in {uses} places"),
+        LockReason::SharedBinding { name, uses } => format!("{name} is used in {uses} places"),
         LockReason::BetweenKeyframes { previous, next } => format!(
             "Between keyframes at {} and {}",
             format_number(*previous),
             format_number(*next)
         ),
         LockReason::OutsideKeyframes => "Outside the keyframes".to_owned(),
-        LockReason::UnsupportedCall { callee } => format!("Computed by `{callee}()`"),
+        LockReason::UnsupportedCall { callee } => format!("Computed by {callee}()"),
         LockReason::OverriddenByParent => "A layout component sets this value".to_owned(),
-        LockReason::Spread => "May be set by a spread (`{...props}`)".to_owned(),
+        LockReason::Spread => "May be set by a spread ({...props})".to_owned(),
         LockReason::Repeated { count } => format!("Rendered {count} times from this element"),
     }
 }
@@ -238,6 +224,8 @@ pub(crate) fn reason_text(reason: &LockReason) -> String {
 pub(crate) struct Resolved {
     pub(crate) layer: String,
     pub(crate) report: LayerSourceReport,
+    /// The timeline frame the report was looked up at.
+    pub(crate) timeline_frame: i64,
     pub(crate) outcome: Result<TransformTargets, String>,
 }
 
@@ -247,8 +235,10 @@ pub(crate) struct Resolved {
 #[derive(Debug, Default)]
 pub(crate) struct TransformEdit {
     request: u64,
-    /// The layer and report the newest resolution was started for.
-    wanted: Option<(String, LayerSourceReport)>,
+    /// The layer, report and lookup frame the newest resolution was started for.
+    wanted: Option<(String, LayerSourceReport, i64)>,
+    /// A resolution is running.
+    pending: bool,
     resolved: Option<Resolved>,
     /// A write changed the file since `resolved` was read; cleared by the
     /// next finished resolution.
@@ -260,12 +250,15 @@ pub(crate) struct TransformEdit {
 impl TransformEdit {
     /// Starts resolving `report` for `layer`, returning the request number,
     /// unless that is already resolved (or resolving) and still current.
-    pub(crate) fn begin(&mut self, layer: &str, report: &LayerSourceReport) -> Option<u64> {
-        if self
-            .wanted
-            .as_ref()
-            .is_some_and(|(wanted, was)| wanted == layer && was == report)
-        {
+    pub(crate) fn begin(
+        &mut self,
+        layer: &str,
+        report: &LayerSourceReport,
+        timeline_frame: i64,
+    ) -> Option<u64> {
+        if self.wanted.as_ref().is_some_and(|(wanted, was, frame)| {
+            wanted == layer && was == report && *frame == timeline_frame
+        }) {
             return None;
         }
         if self
@@ -276,7 +269,8 @@ impl TransformEdit {
             self.resolved = None;
         }
         self.request += 1;
-        self.wanted = Some((layer.to_owned(), report.clone()));
+        self.wanted = Some((layer.to_owned(), report.clone(), timeline_frame));
+        self.pending = true;
         Some(self.request)
     }
 
@@ -288,16 +282,18 @@ impl TransformEdit {
         selected: Option<&str>,
         outcome: Result<TransformTargets, String>,
     ) -> bool {
-        let Some((layer, report)) = self.wanted.as_ref() else {
+        let Some((layer, report, timeline_frame)) = self.wanted.as_ref() else {
             return false;
         };
         if request != self.request || selected != Some(layer.as_str()) {
             return false;
         }
         self.stale = false;
+        self.pending = false;
         self.resolved = Some(Resolved {
             layer: layer.clone(),
             report: report.clone(),
+            timeline_frame: *timeline_frame,
             outcome,
         });
         true
@@ -307,14 +303,30 @@ impl TransformEdit {
     /// looked up again in the reloaded code and resolved.
     pub(crate) fn invalidate(&mut self) {
         self.stale = true;
+        self.pending = false;
         self.request += 1;
     }
 
-    /// The code reloaded: the next lookup answer is resolved again even when
-    /// it equals the last one.
-    pub(crate) fn reloaded(&mut self) {
-        self.wanted = None;
-        self.request += 1;
+    /// Forgets everything (selection cleared, or the code reloaded): the next
+    /// lookup answer is resolved again even when it equals the last one, and
+    /// an old commit error is gone.
+    pub(crate) fn reset(&mut self) {
+        *self = Self {
+            request: self.request + 1,
+            ..Self::default()
+        };
+    }
+
+    /// Why a commit for `selected` has no targets to write to.
+    pub(crate) fn unavailable(&self, selected: Option<&str>) -> String {
+        match self.resolved(selected) {
+            _ if self.pending => STILL_READING.to_owned(),
+            None => STILL_READING.to_owned(),
+            Some((resolved, _)) if resolved.outcome.is_err() => {
+                resolved.outcome.as_ref().err().cloned().unwrap_or_default()
+            }
+            Some(_) => "Select the layer again".to_owned(),
+        }
     }
 
     /// The newest resolution for `selected`, and whether it may be committed
@@ -351,6 +363,14 @@ impl TransformEdit {
     }
 }
 
+const STILL_READING: &str = "The source is still being read";
+
+/// The timeline frame of the layer's local `keyframe`, given the timeline
+/// frame the layer was looked up at and its local frame there.
+pub(crate) fn keyframe_timeline_frame(keyframe: f64, lookup_frame: i64, local_frame: f64) -> i64 {
+    (keyframe + lookup_frame as f64 - local_frame).round() as i64
+}
+
 impl EditorView {
     /// Starts resolving the selected layer's transform targets when its
     /// source lookup has an answer the targets were not resolved for. Reads
@@ -364,7 +384,8 @@ impl EditorView {
         else {
             return;
         };
-        let Some(request) = self.transform.begin(layer, report) else {
+        let frame = self.source_lookup_frame;
+        let Some(request) = self.transform.begin(layer, report, frame) else {
             return;
         };
         let report = report.clone();
@@ -411,7 +432,7 @@ impl EditorView {
     ) {
         let layer = self.selected_layer.clone();
         let Some((targets, report)) = self.transform_targets() else {
-            let message = "The source is still being read".to_owned();
+            let message = self.transform.unavailable(layer.as_deref());
             self.transform
                 .set_error(layer.as_deref(), Some(message.clone()));
             return done(self, Err(message), cx);

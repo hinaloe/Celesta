@@ -297,6 +297,7 @@ impl EditorView {
                     source_of,
                     transform_override: None,
                     frame_of: None,
+                    timeline_frame: self.clock.frame(),
                 }) {
                     self.preview_pending = false;
                     self.problems.set_preview_warnings(Vec::new());
@@ -483,7 +484,7 @@ impl EditorView {
                     // Looked up again in the reloaded code, which decides
                     // whether the layer still exists.
                     self.source_lookup = Some(SourceLookup::Pending);
-                    self.transform.reloaded();
+                    self.transform.reset();
                 } else {
                     // A layer picked while the reload ran belongs to the old code.
                     self.clear_layer_selection();

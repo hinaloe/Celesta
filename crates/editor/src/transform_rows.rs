@@ -3,7 +3,7 @@
 //! or blur, and the target's state (keyframe, between keyframes, locked).
 
 use crate::icons::CelestaIcon;
-use crate::transform_edit::{TransformProp, reason_text};
+use crate::transform_edit::{Resolved, TransformProp, keyframe_timeline_frame, reason_text};
 use crate::view::EditorView;
 use crate::widgets::inspector_section;
 use celesta_react_bridge::LayerSourceReport;
@@ -198,7 +198,7 @@ impl EditorView {
             Some((resolved, current)) => match &resolved.outcome {
                 Ok(targets) => group
                     .children(targets.targets.iter().map(|(prop, target)| {
-                        self.transform_row(*prop, target, &resolved.report, current, cx)
+                        self.transform_row(*prop, target, resolved, current, cx)
                     }))
                     .into_any_element(),
                 Err(error) => group
@@ -224,7 +224,7 @@ impl EditorView {
         &self,
         prop: TransformProp,
         target: &EditTarget,
-        report: &LayerSourceReport,
+        resolved: &Resolved,
         current: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -247,7 +247,7 @@ impl EditorView {
         });
         let detail = match target {
             EditTarget::Locked(LockReason::BetweenKeyframes { previous, next }) => {
-                Some(self.keyframe_jumps(prop, *previous, *next, report, cx))
+                Some(self.keyframe_jumps(prop, *previous, *next, resolved, cx))
             }
             EditTarget::Locked(reason) => Some(
                 div()
@@ -303,11 +303,12 @@ impl EditorView {
         prop: TransformProp,
         previous: f64,
         next: f64,
-        report: &LayerSourceReport,
+        resolved: &Resolved,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let offset = self.clock.frame() as f64 - report.local_frame;
-        let timeline = |local: f64| (local + offset).round() as i64;
+        let timeline = |local: f64| {
+            keyframe_timeline_frame(local, resolved.timeline_frame, resolved.report.local_frame)
+        };
         let (previous_frame, next_frame) = (timeline(previous), timeline(next));
         let jump = |id: &'static str, icon: IconName, frame: i64, cx: &mut Context<Self>| {
             Button::new((id, prop as usize))

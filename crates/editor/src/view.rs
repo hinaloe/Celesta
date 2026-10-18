@@ -217,6 +217,8 @@ pub(crate) struct EditorView {
     pub(crate) hit_regions: Vec<HitRegion>,
     /// The selected layer's JSX source, as the Layer section shows it.
     pub(crate) source_lookup: Option<SourceLookup>,
+    /// The timeline frame `source_lookup`'s answer was looked up at.
+    pub(crate) source_lookup_frame: i64,
     /// Window bounds of the viewer's frame area as last painted, for mapping
     /// clicks onto the scene.
     pub(crate) viewer_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
@@ -369,6 +371,7 @@ impl EditorView {
             selected_layer: None,
             hit_regions: Vec::new(),
             source_lookup: None,
+            source_lookup_frame: 0,
             viewer_bounds: Rc::default(),
             launch_error: None,
             selection_keep: SelectionKeep::default(),

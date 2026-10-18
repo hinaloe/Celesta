@@ -17,7 +17,8 @@ use crate::react_audio::{react_audio_clip_id, react_tracks};
 use crate::refresh::{LookupFate, SelectionKeep};
 use crate::source::is_react_entry;
 use crate::transform_edit::{
-    CommitError, TransformEdit, TransformProp, commit_text, reason_text, resolve_targets,
+    CommitError, TransformEdit, TransformProp, commit_text, keyframe_timeline_frame, reason_text,
+    resolve_targets,
 };
 use crate::waveform::{
     clip_level_envelope, level_at_time, map_clip_waveform, master_volume_from_drag, waveform_peaks,
@@ -1209,7 +1210,7 @@ fn transform_commit_aborts_when_target_moved() {
         let error = commit_text(&text, &expected, &report, &[(TransformProp::X, 120.0)])
             .expect_err("the source changed");
         assert_eq!(error, CommitError::SourceChanged);
-        assert_eq!(error.to_string(), "The source changed while dragging");
+        assert_eq!(error.to_string(), "The source changed during the edit");
     }
 }
 
@@ -1255,20 +1256,20 @@ fn transform_reason_texts_match_spec() {
             LockReason::Expression {
                 source: "W / 2".to_string(),
             },
-            "Written as an expression: `W / 2`",
+            "Written as an expression: W / 2",
         ),
         (
             LockReason::UnresolvedIdentifier {
                 name: "name".to_string(),
             },
-            "Comes from `name`, which can't be traced",
+            "Comes from name, which can't be traced",
         ),
         (
             LockReason::SharedBinding {
                 name: "enter".to_string(),
                 uses: 3,
             },
-            "`enter` is used in 3 places",
+            "enter is used in 3 places",
         ),
         (
             LockReason::BetweenKeyframes {
@@ -1282,13 +1283,13 @@ fn transform_reason_texts_match_spec() {
             LockReason::UnsupportedCall {
                 callee: "spring".to_string(),
             },
-            "Computed by `spring()`",
+            "Computed by spring()",
         ),
         (
             LockReason::OverriddenByParent,
             "A layout component sets this value",
         ),
-        (LockReason::Spread, "May be set by a spread (`{...props}`)"),
+        (LockReason::Spread, "May be set by a spread ({...props})"),
         (
             LockReason::Repeated { count: 12 },
             "Rendered 12 times from this element",
@@ -1343,8 +1344,8 @@ fn transform_state_drops_stale_resolutions() {
     let targets = || resolve_targets(TRANSFORM_FIXTURE, &report);
     let mut state = TransformEdit::default();
 
-    let first = state.begin("a", &report).expect("nothing resolved yet");
-    assert_eq!(state.begin("a", &report), None, "already resolving it");
+    let first = state.begin("a", &report, 0).expect("nothing resolved yet");
+    assert_eq!(state.begin("a", &report, 0), None, "already resolving it");
     assert!(state.finish(first, Some("a"), targets()));
     assert!(state.targets(Some("a")).is_some());
     assert!(state.targets(Some("b")).is_none(), "belongs to layer a");
@@ -1353,16 +1354,110 @@ fn transform_state_drops_stale_resolutions() {
     state.invalidate();
     assert!(state.targets(Some("a")).is_none());
     // The old report describes the old code; wait for the reload's lookup.
-    assert_eq!(state.begin("a", &report), None);
-    state.reloaded();
+    assert_eq!(state.begin("a", &report, 0), None);
+    state.reset();
     let second = state
-        .begin("a", &report)
+        .begin("a", &report, 0)
         .expect("the reload's lookup resolves again");
 
     // A newer report supersedes the one in flight.
-    let third = state.begin("a", &moved).expect("another report");
+    let third = state.begin("a", &moved, 0).expect("another report");
     assert!(!state.finish(second, Some("a"), targets()));
     // The selection changed while it resolved.
     assert!(!state.finish(third, Some("b"), targets()));
     assert!(state.targets(Some("a")).is_none());
+}
+
+#[test]
+fn transform_resolve_targets_ignores_a_scale_axis_only_a_parent_sets() {
+    // A parent passes `scaleX`, but the element writes neither axis.
+    let report = primitive_report(
+        2,
+        3,
+        ReceivedProps {
+            x: Some(100.0),
+            scale_x: Some(2.0),
+            ..ReceivedProps::default()
+        },
+    );
+
+    let targets = resolve_targets(TRANSFORM_FIXTURE, &report).expect("the element resolves");
+
+    let props: Vec<_> = targets.targets.iter().map(|(prop, _)| *prop).collect();
+    assert_eq!(
+        props,
+        [
+            TransformProp::X,
+            TransformProp::Y,
+            TransformProp::Rotation,
+            TransformProp::Scale
+        ]
+    );
+}
+
+#[test]
+fn transform_reset_resolves_an_identical_report_again() {
+    // `<Rect width={10} x={100} />` became `width={100}` elsewhere: the report
+    // is the same, but `x` moved.
+    let before = "export const Scene = () => (\n  <Rect width={10} x={100} />\n);\n";
+    let after = before.replace("width={10}", "width={100}");
+    let report = primitive_report(2, 3, x_only());
+    let mut state = TransformEdit::default();
+
+    let first = state.begin("a", &report, 0).unwrap();
+    assert!(state.finish(first, Some("a"), resolve_targets(before, &report)));
+    state.set_error(
+        Some("a"),
+        Some("The source changed during the edit".to_owned()),
+    );
+
+    // The reload cleared the selection; selecting the layer again.
+    state.reset();
+    assert_eq!(state.error(Some("a")), None, "the old error is gone");
+    let second = state.begin("a", &report, 0).expect("resolved again");
+    assert!(state.finish(second, Some("a"), resolve_targets(&after, &report)));
+
+    let (targets, report) = state.targets(Some("a")).unwrap();
+    let written = commit_text(&after, targets, report, &[(TransformProp::X, 120.0)]).unwrap();
+    assert_eq!(written, after.replace("x={100}", "x={120}"));
+}
+
+#[test]
+fn transform_explains_why_there_is_nothing_to_commit() {
+    let report = primitive_report(2, 3, x_only());
+    let mut state = TransformEdit::default();
+    assert_eq!(
+        state.unavailable(Some("a")),
+        "The source is still being read"
+    );
+
+    let request = state.begin("a", &report, 0).unwrap();
+    assert_eq!(
+        state.unavailable(Some("a")),
+        "The source is still being read"
+    );
+    assert!(state.finish(
+        request,
+        Some("a"),
+        Err("Couldn't read scene.tsx".to_owned())
+    ));
+    assert_eq!(state.unavailable(Some("a")), "Couldn't read scene.tsx");
+
+    let request = state.begin("a", &report, 1).unwrap();
+    assert!(state.finish(
+        request,
+        Some("a"),
+        resolve_targets(TRANSFORM_FIXTURE, &report)
+    ));
+    state.invalidate();
+    assert_eq!(state.unavailable(Some("a")), "Select the layer again");
+}
+
+#[test]
+fn transform_keyframe_jumps_use_the_lookup_frame() {
+    // Looked up at timeline frame 100 inside a sequence starting at 40.
+    assert_eq!(keyframe_timeline_frame(0.0, 100, 60.0), 40);
+    assert_eq!(keyframe_timeline_frame(90.0, 100, 60.0), 130);
+    // Not shifted by a sequence.
+    assert_eq!(keyframe_timeline_frame(30.0, 12, 12.0), 30);
 }

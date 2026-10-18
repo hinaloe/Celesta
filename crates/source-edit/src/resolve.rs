@@ -168,6 +168,27 @@ pub fn resolve(text: &str, element: &ElementRef, prop: &str, ctx: &ResolveContex
     check_received(target, ctx.received)
 }
 
+/// Whether `prop` is written as an attribute on `element` (a spread does not
+/// count). False when the text does not parse or the element is not found.
+pub fn has_attribute(text: &str, element: &ElementRef, prop: &str) -> bool {
+    let alloc = Allocator::default();
+    let (program, failed) = parse_checked(text, &alloc);
+    if failed {
+        return false;
+    }
+    let mut gather = Gather {
+        element_start: element.start,
+        prop,
+        found: false,
+        has_spread: false,
+        attr: None,
+        scopes: Vec::new(),
+        refs: HashMap::new(),
+    };
+    gather.visit_program(&program);
+    gather.attr.is_some()
+}
+
 fn resolve_shape(shape: &Shape, gather: &Gather, text: &str, ctx: &ResolveContext) -> EditTarget {
     match shape {
         Shape::Number(span, value) => EditTarget::Literal {

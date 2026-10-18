@@ -57,6 +57,8 @@ pub(crate) struct PreviewRequest {
     /// The layer whose frame to measure from this frame's draw
     /// (`WholeScene` only); `None` measures nothing, as during playback.
     pub(crate) frame_of: Option<String>,
+    /// The timeline frame `scene` is for, echoed in the result.
+    pub(crate) timeline_frame: i64,
 }
 
 pub(crate) struct PreviewResult {
@@ -78,6 +80,8 @@ pub(crate) struct PreviewResult {
     /// `None` when nothing was measured.
     #[allow(dead_code, reason = "read by the canvas drag in a later change")]
     pub(crate) layer_frame: Option<(String, Option<LayerFrame>)>,
+    /// The request's `timeline_frame`.
+    pub(crate) timeline_frame: i64,
 }
 
 /// The Node.js runtime a preview's `TimelineContent::Component` clips resolve
@@ -273,6 +277,7 @@ impl PreviewWorker {
                             hit_regions,
                             layer_source,
                             layer_frame,
+                            timeline_frame: request.timeline_frame,
                         })
                         .is_err()
                     {

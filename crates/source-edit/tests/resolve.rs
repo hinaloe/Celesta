@@ -1,5 +1,6 @@
 use celesta_source_edit::{
-    Edit, EditTarget, ElementRef, LockReason, ResolveContext, Span, apply, element_at, resolve,
+    Edit, EditTarget, ElementRef, LockReason, ResolveContext, Span, apply, element_at,
+    has_attribute, resolve,
 };
 
 fn ctx() -> ResolveContext {
@@ -399,4 +400,19 @@ fn keyframe_overridden() {
         run(&text, "x", &at_frame(30.0, Some(390.0))),
         locked(LockReason::OverriddenByParent)
     );
+}
+
+#[test]
+fn has_attribute_ignores_spreads_and_absent_props() {
+    let text = component("return <Rect {...rest} scaleX={W / 2} x={1} />;");
+    let offset = text.find("<Rect").unwrap();
+    let element = ElementRef {
+        start: offset as u32,
+        end_of_attributes: 0,
+    };
+
+    assert!(has_attribute(&text, &element, "scaleX"));
+    assert!(has_attribute(&text, &element, "x"));
+    assert!(!has_attribute(&text, &element, "scaleY"));
+    assert!(!has_attribute(&text, &element, "rest"));
 }
