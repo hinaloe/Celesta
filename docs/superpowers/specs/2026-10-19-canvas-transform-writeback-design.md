@@ -80,7 +80,10 @@ The `layerSource` object also gains:
   the innermost primitive actually received (`memoizedProps`), omitted
   keys when absent. Only finite numbers are included.
 
-Both are present only when the chain is non-empty.
+- `renderCount: number` — how many layers in the frame have the same
+  innermost source position as this one.
+
+All three are present only when the chain is non-empty.
 
 ## `celesta-source-edit` crate
 
@@ -117,6 +120,7 @@ pub enum LockReason {
     UnsupportedCall { callee: String },
     OverriddenByParent,
     Spread,
+    Repeated { count: u32 },
 }
 ```
 
@@ -124,6 +128,9 @@ pub enum LockReason {
 the local frame and the received prop value. Rules, in order:
 
 1. The element must be `kind: 'primitive'` → else `NotPrimitive`.
+   If the runtime reports the element rendered more than once in the
+   frame (`renderCount > 1`, e.g. inside `.map()`) → `Repeated`, since
+   editing it would move every copy.
 2. An explicit attribute after a spread (`{...rest}`) is fine; a prop
    that is absent but a spread is present → `Spread` (the spread may set
    it).
@@ -288,6 +295,7 @@ Reason texts:
 - `UnsupportedCall` — "Computed by `spring()`"
 - `OverriddenByParent` — "A layout component sets this value"
 - `Spread` — "May be set by a spread (`{...props}`)"
+- `Repeated` — "Rendered 12 times from this element"
 
 A field commits on Enter or blur through the same resolve-apply-write
 path and pushes one history entry. Each source-chain row gains a "Select"
