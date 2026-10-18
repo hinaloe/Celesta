@@ -239,3 +239,164 @@ fn to_edit_round_trips_through_apply() {
         component("  return <Rect x={130.5} width={1} y={7} />;")
     );
 }
+
+const FRAME: &str = "  const frame = useCurrentFrame();\n";
+
+fn animated(frame_line: &str, attr: &str) -> String {
+    component(&format!("{FRAME}{frame_line}  return <Rect {attr} />;"))
+}
+
+fn at_frame(local_frame: f64, received: Option<f64>) -> ResolveContext {
+    ResolveContext {
+        local_frame,
+        received,
+        ..ctx()
+    }
+}
+
+#[test]
+fn keyframe_hit() {
+    let text = animated("", "x={interpolate(frame, [0, 30], [100, 400])}");
+    let target = run(&text, "x", &at_frame(30.0, Some(400.0)));
+    let EditTarget::Keyframe { span, value, frame } = target else {
+        panic!("expected Keyframe, got {target:?}");
+    };
+    assert_eq!((span_text(&text, span), value, frame), ("400", 400.0, 30.0));
+}
+
+#[test]
+fn keyframe_via_const() {
+    let text = animated(
+        "  const x = interpolate(frame, [0, 30], [100, 400], { easing: Easings.easeOut });\n",
+        "x={x}",
+    );
+    let target = run(&text, "x", &at_frame(0.0, Some(100.0)));
+    let EditTarget::Keyframe { span, value, .. } = target else {
+        panic!("expected Keyframe, got {target:?}");
+    };
+    assert_eq!((span_text(&text, span), value), ("100", 100.0));
+}
+
+#[test]
+fn keyframe_via_shared_const_locks() {
+    let text = component(&format!(
+        "{FRAME}  const x = interpolate(frame, [0, 30], [100, 400]);\n  return <Group><Rect x={{x}} /><Rect x={{x}} /></Group>;"
+    ));
+    assert_eq!(
+        run(&text, "x", &at_frame(0.0, Some(100.0))),
+        locked(LockReason::SharedBinding {
+            name: "x".into(),
+            uses: 2
+        })
+    );
+}
+
+#[test]
+fn keyframe_offset() {
+    let text = animated("", "x={interpolate(frame - 30, [0, 10], [0, 50])}");
+    let target = run(&text, "x", &at_frame(40.0, Some(50.0)));
+    let EditTarget::Keyframe { span, value, frame } = target else {
+        panic!("expected Keyframe, got {target:?}");
+    };
+    assert_eq!((span_text(&text, span), value, frame), ("50", 50.0, 40.0));
+}
+
+#[test]
+fn between() {
+    let text = animated("", "x={interpolate(frame, [0, 30], [100, 400])}");
+    assert_eq!(
+        run(&text, "x", &at_frame(15.0, Some(250.0))),
+        locked(LockReason::BetweenKeyframes {
+            previous: 0.0,
+            next: 30.0
+        })
+    );
+
+    let text = animated("", "x={interpolate(frame - 30, [0, 10], [0, 50])}");
+    assert_eq!(
+        run(&text, "x", &at_frame(35.0, Some(25.0))),
+        locked(LockReason::BetweenKeyframes {
+            previous: 30.0,
+            next: 40.0
+        })
+    );
+}
+
+#[test]
+fn outside() {
+    let text = animated("", "x={interpolate(frame, [0, 30], [100, 400])}");
+    assert_eq!(
+        run(&text, "x", &at_frame(45.0, Some(400.0))),
+        locked(LockReason::OutsideKeyframes)
+    );
+    assert_eq!(
+        run(&text, "x", &at_frame(-5.0, Some(100.0))),
+        locked(LockReason::OutsideKeyframes)
+    );
+}
+
+#[test]
+fn computed_range() {
+    let source = "interpolate(frame, range, [100, 400])";
+    let text = animated("", &format!("x={{{source}}}"));
+    assert_eq!(
+        run(&text, "x", &at_frame(0.0, Some(100.0))),
+        locked(LockReason::Expression {
+            source: source.into()
+        })
+    );
+
+    // Mismatched lengths and non-literal entries are not editable either.
+    let source = "interpolate(frame, [0, 30], [100])";
+    let text = animated("", &format!("x={{{source}}}"));
+    assert_eq!(
+        run(&text, "x", &at_frame(0.0, Some(100.0))),
+        locked(LockReason::Expression {
+            source: source.into()
+        })
+    );
+}
+
+#[test]
+fn input_not_frame() {
+    let source = "interpolate(progress, [0, 30], [100, 400])";
+    let text = animated("", &format!("x={{{source}}}"));
+    assert_eq!(
+        run(&text, "x", &at_frame(0.0, Some(100.0))),
+        locked(LockReason::Expression {
+            source: source.into()
+        })
+    );
+
+    // `frame` bound to something other than `useCurrentFrame()`.
+    let source = "interpolate(frame, [0, 30], [100, 400])";
+    let text = component(&format!(
+        "  const frame = 3;\n  return <Rect x={{{source}}} />;"
+    ));
+    assert_eq!(
+        run(&text, "x", &at_frame(0.0, Some(100.0))),
+        locked(LockReason::Expression {
+            source: source.into()
+        })
+    );
+}
+
+#[test]
+fn spring_locks() {
+    let text = animated("  const fps = 30;\n", "x={spring({ frame, fps })}");
+    assert_eq!(
+        run(&text, "x", &at_frame(0.0, Some(0.0))),
+        locked(LockReason::UnsupportedCall {
+            callee: "spring".into()
+        })
+    );
+}
+
+#[test]
+fn keyframe_overridden() {
+    let text = animated("", "x={interpolate(frame, [0, 30], [100, 400])}");
+    assert_eq!(
+        run(&text, "x", &at_frame(30.0, Some(390.0))),
+        locked(LockReason::OverriddenByParent)
+    );
+}

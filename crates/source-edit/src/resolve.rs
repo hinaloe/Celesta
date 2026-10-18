@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    ArrowFunctionBody, ArrowFunctionExpression, Expression, Function, FunctionBody,
-    IdentifierReference, JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXOpeningElement,
-    Statement, UnaryOperator, VariableDeclarationKind,
+    ArrowFunctionBody, ArrowFunctionExpression, BinaryOperator, CallExpression, Expression,
+    Function, FunctionBody, IdentifierReference, JSXAttributeItem, JSXAttributeName,
+    JSXAttributeValue, JSXOpeningElement, Statement, UnaryOperator, VariableDeclarationKind,
 };
 use oxc_ast_visit::Visit;
 use oxc_span::GetSpan;
@@ -164,36 +164,42 @@ pub fn resolve(text: &str, element: &ElementRef, prop: &str, ctx: &ResolveContex
         };
     };
 
-    let target = match shape {
+    let target = resolve_shape(shape, &gather, text, ctx);
+    check_received(target, ctx.received)
+}
+
+fn resolve_shape(shape: &Shape, gather: &Gather, text: &str, ctx: &ResolveContext) -> EditTarget {
+    match shape {
         Shape::Number(span, value) => EditTarget::Literal {
             span: *span,
             value: *value,
         },
+        Shape::Interpolate(call) => resolve_keyframe(call, gather, text, ctx.local_frame),
         Shape::Call(callee) => EditTarget::Locked(LockReason::UnsupportedCall {
             callee: callee.clone(),
         }),
-        Shape::Ident(name) => resolve_identifier(name, &gather),
-        Shape::Other(span) => EditTarget::Locked(LockReason::Expression {
-            source: text[span.start as usize..span.end as usize].to_string(),
-        }),
-    };
-    check_received(target, ctx.received)
+        Shape::Ident(name) => resolve_identifier(name, gather, text, ctx),
+        Shape::Other(span) => expression(text, *span),
+    }
 }
 
-fn resolve_identifier(name: &str, gather: &Gather) -> EditTarget {
+fn expression(text: &str, span: Span) -> EditTarget {
+    EditTarget::Locked(LockReason::Expression {
+        source: text[span.start as usize..span.end as usize].to_string(),
+    })
+}
+
+fn resolve_identifier(name: &str, gather: &Gather, text: &str, ctx: &ResolveContext) -> EditTarget {
     let unresolved = || {
         EditTarget::Locked(LockReason::UnresolvedIdentifier {
             name: name.to_string(),
         })
     };
-    let Some(binding) = gather.lookup(name) else {
-        return unresolved();
-    };
-    let Binding::Const(shape) = binding else {
+    let Some(Binding::Const(shape)) = gather.lookup(name) else {
         return unresolved();
     };
     match shape {
-        Shape::Number(span, value) => {
+        Shape::Number(..) | Shape::Interpolate(_) => {
             let uses = gather.refs.get(name).copied().unwrap_or(0);
             if uses > 1 {
                 return EditTarget::Locked(LockReason::SharedBinding {
@@ -201,15 +207,63 @@ fn resolve_identifier(name: &str, gather: &Gather) -> EditTarget {
                     uses,
                 });
             }
-            EditTarget::Literal {
-                span: *span,
-                value: *value,
-            }
+            resolve_shape(shape, gather, text, ctx)
         }
         Shape::Call(callee) => EditTarget::Locked(LockReason::UnsupportedCall {
             callee: callee.clone(),
         }),
         Shape::Ident(_) | Shape::Other(_) => unresolved(),
+    }
+}
+
+/// The keyframe rule: editable only at a frame that is an `inputRange` entry.
+/// `options` is ignored, since easing does not change the value at a keyframe.
+fn resolve_keyframe(
+    call: &Interpolate,
+    gather: &Gather,
+    text: &str,
+    local_frame: f64,
+) -> EditTarget {
+    let not_literal = || expression(text, call.call);
+    let Input::Frame { name, offset } = &call.input else {
+        return not_literal();
+    };
+    let frame_bound = matches!(
+        gather.lookup(name),
+        Some(Binding::Const(Shape::Call(callee))) if callee == "useCurrentFrame"
+    );
+    let (Some(inputs), Some(outputs)) = (&call.input_range, &call.output_range) else {
+        return not_literal();
+    };
+    if !frame_bound || inputs.is_empty() || inputs.len() != outputs.len() {
+        return not_literal();
+    }
+
+    let frame = local_frame - offset;
+    if let Some(k) = inputs.iter().position(|i| (i - frame).abs() <= TOLERANCE) {
+        let (span, value) = outputs[k];
+        return EditTarget::Keyframe {
+            span,
+            value,
+            frame: inputs[k] + offset,
+        };
+    }
+    let previous = inputs
+        .iter()
+        .copied()
+        .filter(|i| *i < frame)
+        .reduce(f64::max);
+    let next = inputs
+        .iter()
+        .copied()
+        .filter(|i| *i > frame)
+        .reduce(f64::min);
+    match (previous, next) {
+        (Some(previous), Some(next)) => EditTarget::Locked(LockReason::BetweenKeyframes {
+            previous: previous + offset,
+            next: next + offset,
+        }),
+        _ => EditTarget::Locked(LockReason::OutsideKeyframes),
     }
 }
 
@@ -230,9 +284,31 @@ fn check_received(target: EditTarget, received: Option<f64>) -> EditTarget {
 #[derive(Debug)]
 enum Shape {
     Number(Span, f64),
+    Interpolate(Interpolate),
     Call(String),
     Ident(String),
     Other(Span),
+}
+
+/// An `interpolate(input, inputRange, outputRange, ...)` call whose ranges
+/// are kept only when they are arrays of numeric literals.
+#[derive(Debug)]
+struct Interpolate {
+    /// The whole call, reported when it is not editable.
+    call: Span,
+    input: Input,
+    input_range: Option<Vec<f64>>,
+    output_range: Option<Vec<(Span, f64)>>,
+}
+
+#[derive(Debug)]
+enum Input {
+    /// `name`, or `name - offset`.
+    Frame {
+        name: String,
+        offset: f64,
+    },
+    Other,
 }
 
 #[derive(Debug)]
@@ -329,9 +405,59 @@ fn shape_of(expr: &Expression<'_>) -> Shape {
                 _ => other(expr),
             }
         }
-        Expression::CallExpression(call) => Shape::Call(callee_name(&call.callee)),
+        Expression::CallExpression(call) => {
+            let callee = callee_name(&call.callee);
+            if callee == "interpolate" {
+                Shape::Interpolate(interpolate_of(call))
+            } else {
+                Shape::Call(callee)
+            }
+        }
         Expression::Identifier(id) => Shape::Ident(id.name.to_string()),
         _ => other(expr),
+    }
+}
+
+fn interpolate_of(call: &CallExpression<'_>) -> Interpolate {
+    let arg = |i: usize| call.arguments.get(i).and_then(|a| a.as_expression());
+    let input = match arg(0).map(Expression::without_parentheses) {
+        Some(Expression::Identifier(id)) => Input::Frame {
+            name: id.name.to_string(),
+            offset: 0.0,
+        },
+        Some(Expression::BinaryExpression(b)) if b.operator == BinaryOperator::Subtraction => {
+            match (b.left.without_parentheses(), b.right.without_parentheses()) {
+                (Expression::Identifier(id), Expression::NumericLiteral(n)) => Input::Frame {
+                    name: id.name.to_string(),
+                    offset: n.value,
+                },
+                _ => Input::Other,
+            }
+        }
+        _ => Input::Other,
+    };
+    let numbers = |i: usize| -> Option<Vec<(Span, f64)>> {
+        let Some(Expression::ArrayExpression(array)) = arg(i).map(Expression::without_parentheses)
+        else {
+            return None;
+        };
+        array
+            .elements
+            .iter()
+            .map(|e| match shape_of(e.as_expression()?) {
+                Shape::Number(span, value) => Some((span, value)),
+                _ => None,
+            })
+            .collect()
+    };
+    Interpolate {
+        call: Span {
+            start: call.span.start,
+            end: call.span.end,
+        },
+        input,
+        input_range: numbers(1).map(|v| v.into_iter().map(|(_, n)| n).collect()),
+        output_range: numbers(2),
     }
 }
 
