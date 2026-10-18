@@ -600,12 +600,24 @@ impl TextRasterizer {
         };
         let layout_width = width.unwrap_or(measured_width).ceil().max(1.0) as u32;
         let layout_height = measured_height.ceil().max(1.0) as u32;
-        // The stroke grows the glyphs by its width in every direction, which
+        // Each stroke grows the glyphs by its width in every direction, which
         // reaches past the layout box at the first and last glyph (and above
-        // and below tall or low glyphs), so leave that much room around it.
-        let stroke_radius = style.stroke.as_ref().map_or(0, |stroke| {
-            (stroke.width * f64::from(scale)).round().max(0.0) as u32
+        // and below tall or low glyphs), so leave room for the widest one.
+        // Thinnest first, the order they are composited in below.
+        let mut strokes = style.stroke.as_ref().map_or(Vec::new(), |stroke| {
+            stroke
+                .strokes()
+                .iter()
+                .filter(|stroke| stroke.width.is_finite())
+                .map(|stroke| {
+                    let radius = (stroke.width * f64::from(scale)).round().max(0.0) as u32;
+                    (radius, stroke)
+                })
+                .filter(|&(radius, _)| radius > 0)
+                .collect()
         });
+        strokes.sort_by_key(|&(radius, _)| radius);
+        let stroke_radius = strokes.last().map_or(0, |&(radius, _)| radius);
         let pad = stroke_radius;
         // Rows above the layout box's top edge in the image.
         let pad_top = pad + overflow_top;
@@ -763,22 +775,27 @@ impl TextRasterizer {
             height: mask_height,
             pixels: glyph_pixels,
         };
-        if let Some(stroke) = &style.stroke
-            && stroke_radius > 0
-        {
-            let stroke_mask = dilate_mask(&mask, mask_width, mask_height, stroke_radius);
+        // How much of each pixel the glyphs and the strokes drawn so far
+        // cover. Each stroke only takes the part of a pixel those leave
+        // uncovered, so a transparent or translucent fill shows what lies
+        // beneath the text, not the stroke, and a stroke what lies beneath
+        // it, not the wider one. Glyphs and strokes then add up side by side:
+        // drawing each over the next instead would leave a seam of partial
+        // alpha along every antialiased edge.
+        let mut covered: Vec<f64> = if strokes.is_empty() {
+            Vec::new()
+        } else {
+            mask.iter().map(|&value| f64::from(value) / 255.0).collect()
+        };
+        for (radius, stroke) in strokes {
+            let stroke_mask = dilate_mask(&mask, mask_width, mask_height, radius);
             let stroke_paint = ResolvedPaint::from_paint(&stroke.paint)?.scaled(f64::from(scale));
-            // The stroke only takes the part of each pixel the glyphs leave
-            // uncovered, so a transparent or translucent fill shows what lies
-            // beneath the text, not the stroke. Glyph and stroke then add up
-            // side by side: drawing the glyphs over the stroke instead would
-            // leave a seam of partial alpha along every antialiased edge.
             for (index, pixel) in frame.pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
-                let uncovered = 1.0 - f64::from(mask[index]) / 255.0;
-                let share = f64::from(stroke_mask[index]) / 255.0 * uncovered;
-                if share == 0.0 {
+                let share = f64::from(stroke_mask[index]) / 255.0 * (1.0 - covered[index]);
+                if share <= 0.0 {
                     continue;
                 }
+                covered[index] += share;
                 let (x, y) = (
                     index as u32 % mask_width + origin_x,
                     index as u32 / mask_width + origin_y,
@@ -788,8 +805,8 @@ impl TextRasterizer {
                     f64::from(y) - f64::from(pad_top) + 0.5,
                 );
                 let stroke_alpha = share * f64::from(color.alpha) / 255.0;
-                let glyph_alpha = f64::from(pixel[3]) / 255.0;
-                let total = glyph_alpha + stroke_alpha;
+                let below_alpha = f64::from(pixel[3]) / 255.0;
+                let total = below_alpha + stroke_alpha;
                 if total == 0.0 {
                     continue;
                 }
@@ -798,7 +815,7 @@ impl TextRasterizer {
                         .iter_mut()
                         .zip([color.red, color.green, color.blue])
                 {
-                    *value = ((glyph_alpha * f64::from(*value)
+                    *value = ((below_alpha * f64::from(*value)
                         + stroke_alpha * f64::from(stroke_value))
                         / total)
                         .round() as u8;

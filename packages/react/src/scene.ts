@@ -44,6 +44,7 @@ export type { ShaderParam } from './generated/ShaderParam';
 export type { ShaderParamType } from './generated/ShaderParamType';
 export type { ShaderSource } from './generated/ShaderSource';
 export type { Stroke } from './generated/Stroke';
+export type { TextStroke } from './generated/TextStroke';
 export type { TextAlign } from './generated/TextAlign';
 export type { TextColorRun } from './generated/TextColorRun';
 export type { TextFontRun } from './generated/TextFontRun';

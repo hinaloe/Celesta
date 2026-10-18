@@ -577,10 +577,13 @@ fn text(canvas: &Canvas, frame: usize) -> Vec<Layer> {
                 .repeat(3),
             style: Box::new(TextStyle {
                 line_break: Some(LineBreak::Phrase),
-                stroke: Some(Stroke {
-                    paint: solid("#000000"),
-                    width: canvas.len(2.0),
-                }),
+                stroke: Some(
+                    Stroke {
+                        paint: solid("#000000"),
+                        width: canvas.len(2.0),
+                    }
+                    .into(),
+                ),
                 ..style(28.0, "#E0E6FF")
             }),
             max_width: Some(canvas.len(560.0)),

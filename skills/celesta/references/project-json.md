@@ -211,6 +211,10 @@ box unless `fit` is `"contain"` (centered, transparent letterboxing) or
   } }
 ```
 
+`stroke` may also be a list, such as
+`[{ "paint": …, "width": 14 }, { "paint": …, "width": 7 }]`, for a double
+outline: each width is from the glyph outline.
+
 `style` has the same fields as React's `TextStyle` (see
 [text.md](text.md#textstyle)), including `letterSpacing` (px, or
 `{ "em": -0.02 }` for a multiple of `fontSize`) and `lineBreak`.
@@ -320,7 +324,7 @@ Celesta rejects the project if any of these fail:
   `saturation`, the vignette's `radius` and `softness` ≥ 0; `grayscale`,
   `invert`, the tint's and the vignette's `amount` within 0–1; `hue`
   finite.
-- Text styles: `fontSize` and `lineHeight` > 0, stroke `width` ≥ 0, colors
+- Text styles: `fontSize` and `lineHeight` > 0, each stroke `width` ≥ 0, colors
   exactly `#RRGGBB` or `#RRGGBBAA`, `lineBreak` `"normal"` or `"phrase"`.
 - Characters: `defaultExpression` must be a key of `expressions`;
   `subtitle.maxWidth` > 0.

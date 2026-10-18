@@ -3,7 +3,7 @@ use crate::error::GpuRenderError;
 use crate::layer::PreparedLayer;
 use crate::texture::{DecodedImage, LayerTexture};
 use crate::transform::{Affine, LayerState};
-use celesta_composition::{BlendMode, Point, TextStyle};
+use celesta_composition::{BlendMode, Point, TextStroke, TextStyle};
 use celesta_renderer::{TextMetrics, TextRasterizer, TextWindow};
 
 /// A text layer whose texture was not cached when `prepare_layer` reached
@@ -106,10 +106,7 @@ impl TextPlacement {
         baseline_anchor: bool,
     ) -> Self {
         let width = max_width.unwrap_or(size.width);
-        let stroke = style
-            .stroke
-            .as_ref()
-            .map_or(0.0, |stroke| stroke.width.max(0.0));
+        let stroke = style.stroke.as_ref().map_or(0.0, TextStroke::width);
         let font_size = style.font_size.unwrap_or(32.0).abs();
         Self {
             width,

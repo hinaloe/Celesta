@@ -1,4 +1,4 @@
-import type { Scene, Layer, Asset, BuiltinFilter, FontRun, LineDash, Paint, PathCommand, TextStyle, Transform } from './types';
+import type { Scene, Layer, Asset, BuiltinFilter, FontRun, LineDash, Paint, PathCommand, Stroke, TextStyle, Transform } from './types';
 import { BLEND_MODES, blendPixels, coveredBox } from './blend-modes';
 import type { BlendMode } from './blend-modes';
 import { applyFilters, filtersPadding } from './filters';
@@ -54,6 +54,34 @@ function isolatesGroup(layer: WebLayer): boolean {
   if (rest.length > 0) return true;
   return (child.blendMode ?? 'normal') !== 'normal' || child.content.type === 'group';
 }
+
+/**
+ * A text's strokes that draw anything, widest first: each width is from the
+ * glyph outline, so each one is drawn over the wider ones. Of two as wide,
+ * the one listed first ends up on top, as in the native renderers.
+ */
+function textStrokes({ stroke }: TextStyle): Stroke[] {
+  const strokes = stroke == null ? [] : 'paint' in stroke ? [stroke] : [...stroke].reverse();
+  return strokes.filter(({ width }) => Number.isFinite(width) && width > 0).sort((a, b) => b.width - a.width);
+}
+
+/**
+ * Clears what `draw` covers from `target`, then leaves it adding what it
+ * draws next: a stroke drawn over a wider one takes its own part of each
+ * pixel, so a translucent one shows what lies beneath the text, and the two
+ * add up to opaque along antialiased edges, as the fill and a stroke do.
+ */
+function cutOut(target: CanvasRenderingContext2D, draw: () => void): void {
+  const { strokeStyle } = target;
+  target.globalCompositeOperation = 'destination-out';
+  target.strokeStyle = '#000';
+  draw();
+  target.strokeStyle = strokeStyle;
+  target.globalCompositeOperation = 'lighter';
+}
+
+/** How far a text's widest stroke reaches past its glyphs. */
+const strokeReach = (style: TextStyle): number => textStrokes(style)[0]?.width ?? 0;
 
 const grow = ([left, top, right, bottom]: Box, by: number): Box => [left - by, top - by, right + by, bottom + by];
 
@@ -427,7 +455,8 @@ export class SceneCanvas {
       draw.fillStyle = '#fff';
       if ('lang' in draw && 'lang' in ctx) draw.lang = ctx.lang;
       let stroke: HTMLCanvasElement | undefined;
-      if (style.stroke?.width) {
+      const strokes = textStrokes(style);
+      if (strokes.length) {
         stroke = document.createElement('canvas');
         stroke.width = mask.width;
         stroke.height = mask.height;
@@ -438,9 +467,14 @@ export class SceneCanvas {
         outline.textBaseline = 'alphabetic';
         if ('lang' in outline) outline.lang = lang;
         outline.lineJoin = 'round';
-        outline.lineWidth = style.stroke.width * 2;
-        outline.strokeStyle = this.paint(outline, style.stroke.paint, [0, 0, stroke.width, stroke.height], originX, originY);
-        drawText(outline, 'strokeText');
+        const box: Box = [0, 0, stroke.width, stroke.height];
+        strokes.forEach(({ paint, width }, index) => {
+          outline.lineWidth = width * 2;
+          if (index) cutOut(outline, () => drawText(outline, 'strokeText'));
+          outline.strokeStyle = this.paint(outline, paint, box, originX, originY);
+          drawText(outline, 'strokeText');
+        });
+        outline.globalCompositeOperation = 'source-over';
       }
       drawText(draw, 'fillText');
       if (stroke) {
@@ -807,7 +841,8 @@ export class SceneCanvas {
       for (let i = 0; i < lines.length; i++) {
         const baseline = placed[i].baseline - top;
         // The line's ink box, stroke included.
-        const pad = Math.ceil(style.stroke?.width ?? 0) + 1;
+        const strokes = textStrokes(style);
+        const pad = Math.ceil(strokes[0]?.width ?? 0) + 1;
         const m = measured[i];
         const left = Math.floor(placed[i].x - m.actualBoundingBoxLeft) - pad;
         const inkTop = Math.floor(baseline - m.actualBoundingBoxAscent) - pad;
@@ -819,7 +854,7 @@ export class SceneCanvas {
           continue;
         }
         const box: Box = [left, inkTop, right, bottom];
-        if (!style.stroke?.width) {
+        if (!strokes.length) {
           ctx.fillStyle = style.fill ? this.paint(ctx, style.fill, box) : '#fff';
           ctx.fillText(lines[i].text, placed[i].x, baseline);
           continue;
@@ -850,9 +885,12 @@ export class SceneCanvas {
         outline.textAlign = 'left';
         if ('lang' in outline && 'lang' in ctx) outline.lang = ctx.lang;
         outline.lineJoin = 'round';
-        outline.lineWidth = style.stroke.width * 2;
-        outline.strokeStyle = this.paint(outline, style.stroke.paint, box);
-        outline.strokeText(lines[i].text, placed[i].x, baseline);
+        strokes.forEach(({ paint, width }, index) => {
+          outline.lineWidth = width * 2;
+          if (index) cutOut(outline, () => outline.strokeText(lines[i].text, placed[i].x, baseline));
+          outline.strokeStyle = this.paint(outline, paint, box);
+          outline.strokeText(lines[i].text, placed[i].x, baseline);
+        });
         outline.globalCompositeOperation = 'destination-out';
         outline.fillStyle = '#000';
         outline.fillText(lines[i].text, placed[i].x, baseline);
@@ -1104,7 +1142,7 @@ export class SceneCanvas {
       ctx.save();
       const { width, height, y, multiline } = this.textLayout(ctx, content, t.anchor);
       ctx.restore();
-      const pad = Math.round(content.style.stroke?.width ?? 0);
+      const pad = Math.round(strokeReach(content.style));
       const rows = multiline ? Math.max(1, Math.ceil(height)) + 2 * pad : Math.ceil(height + 2 * pad);
       const left = -t.anchor.x * width - pad, top = y - pad;
       return place(left, top, left + Math.max(1, Math.ceil(width)) + 2 * pad, top + rows + rows % 2, true);

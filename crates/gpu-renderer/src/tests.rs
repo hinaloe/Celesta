@@ -4366,12 +4366,15 @@ fn rasterizes_and_rotates_styled_text_on_the_gpu() {
                 fill: Some(Paint::Solid {
                     color: "#ff8000".to_owned(),
                 }),
-                stroke: Some(Stroke {
-                    paint: Paint::Solid {
-                        color: "#0040ff".to_owned(),
-                    },
-                    width: 1.0,
-                }),
+                stroke: Some(
+                    Stroke {
+                        paint: Paint::Solid {
+                            color: "#0040ff".to_owned(),
+                        },
+                        width: 1.0,
+                    }
+                    .into(),
+                ),
                 ..TextStyle::default()
             }),
             max_width: None,
@@ -5084,7 +5087,7 @@ fn a_stroked_text_layer_keeps_its_place_and_its_whole_stroke() {
                     fill: Some(Paint::Solid {
                         color: "#FFFFFFFF".to_owned(),
                     }),
-                    stroke,
+                    stroke: stroke.map(Into::into),
                     ..TextStyle::default()
                 }),
                 max_width: None,

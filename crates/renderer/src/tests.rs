@@ -652,12 +652,15 @@ fn a_text_stroke_reaches_past_both_ends_of_the_line() {
         ..TextStyle::default()
     };
     let stroked_style = TextStyle {
-        stroke: Some(celesta_composition::Stroke {
-            paint: Paint::Solid {
-                color: "#000000FF".to_owned(),
-            },
-            width: 16.0,
-        }),
+        stroke: Some(
+            celesta_composition::Stroke {
+                paint: Paint::Solid {
+                    color: "#000000FF".to_owned(),
+                },
+                width: 16.0,
+            }
+            .into(),
+        ),
         ..plain_style.clone()
     };
     let mut rasterizer = TextRasterizer::new();
@@ -686,18 +689,78 @@ fn a_text_stroke_reaches_past_both_ends_of_the_line() {
 }
 
 #[test]
+fn text_strokes_in_a_list_are_drawn_around_one_another() {
+    let stroke = |color: &str, width: f64| celesta_composition::Stroke {
+        paint: Paint::Solid {
+            color: color.to_owned(),
+        },
+        width,
+    };
+    let style = |stroke: celesta_composition::TextStroke| TextStyle {
+        font_size: Some(96.0),
+        fill: Some(Paint::Solid {
+            color: "#0000FFFF".to_owned(),
+        }),
+        stroke: Some(stroke),
+        ..TextStyle::default()
+    };
+    let mut rasterizer = TextRasterizer::new();
+    let mut rasterize = |stroke: celesta_composition::TextStroke| {
+        rasterizer
+            .rasterize("MW", &style(stroke), None, 1.0)
+            .unwrap()
+    };
+    let double = rasterize(vec![stroke("#00FF00FF", 16.0), stroke("#FFFFFFFF", 8.0)].into());
+    let reversed = rasterize(vec![stroke("#FFFFFFFF", 8.0), stroke("#00FF00FF", 16.0)].into());
+    let single = rasterize(stroke("#00FF00FF", 16.0).into());
+
+    // Padded for the widest stroke, as a single stroke that wide is.
+    assert_eq!(
+        (double.width(), double.height()),
+        (single.width(), single.height())
+    );
+    // Each width is from the glyph outline, whatever the order.
+    assert_eq!(double.pixels(), reversed.pixels());
+    let mut colors = [0; 3];
+    for (pixel, alone) in double
+        .pixels()
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(single.pixels().as_chunks::<4>().0.iter())
+    {
+        match pixel {
+            [0, 0, 255, 255] => colors[0] += 1,
+            [255, 255, 255, 255] => colors[1] += 1,
+            [0, 255, 0, 255] => colors[2] += 1,
+            _ => {}
+        }
+        // The inner stroke meets the outer one without a seam: together they
+        // cover what the outer one alone does.
+        assert!(
+            pixel[3].abs_diff(alone[3]) <= 1,
+            "{pixel:?} where one stroke gives {alone:?}"
+        );
+    }
+    assert!(colors.iter().all(|&count| count > 0), "{colors:?}");
+}
+
+#[test]
 fn a_text_stroke_around_a_transparent_fill_leaves_the_glyphs_hollow() {
     let style = |fill: &str, stroke: &str| TextStyle {
         font_size: Some(96.0),
         fill: Some(Paint::Solid {
             color: fill.to_owned(),
         }),
-        stroke: Some(celesta_composition::Stroke {
-            paint: Paint::Solid {
-                color: stroke.to_owned(),
-            },
-            width: 8.0,
-        }),
+        stroke: Some(
+            celesta_composition::Stroke {
+                paint: Paint::Solid {
+                    color: stroke.to_owned(),
+                },
+                width: 8.0,
+            }
+            .into(),
+        ),
         ..TextStyle::default()
     };
     let mut rasterizer = TextRasterizer::new();
@@ -767,7 +830,7 @@ fn a_text_stroke_does_not_move_the_text() {
                         fill: Some(Paint::Solid {
                             color: "#FFFFFFFF".to_owned(),
                         }),
-                        stroke,
+                        stroke: stroke.map(Into::into),
                         ..TextStyle::default()
                     }),
                     max_width: None,
@@ -2885,12 +2948,15 @@ fn windowed_style(fill: Paint) -> TextStyle {
     TextStyle {
         font_size: Some(24.0),
         fill: Some(fill),
-        stroke: Some(celesta_composition::Stroke {
-            paint: Paint::Solid {
-                color: "#FF0000FF".to_owned(),
-            },
-            width: 2.0,
-        }),
+        stroke: Some(
+            celesta_composition::Stroke {
+                paint: Paint::Solid {
+                    color: "#FF0000FF".to_owned(),
+                },
+                width: 2.0,
+            }
+            .into(),
+        ),
         ..TextStyle::default()
     }
 }

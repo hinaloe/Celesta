@@ -1,6 +1,9 @@
 use crate::Point;
 use crate::tagged::TypeTagged;
+use serde::de::value::{MapAccessDeserializer, SeqAccessDeserializer};
+use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
+use std::fmt;
 
 // Deserialized through `PaintDef`, which keeps the same serde field attributes.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -94,8 +97,11 @@ pub struct TextStyle {
     pub font_weight: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill: Option<Paint>,
+    /// An outline around the glyphs, or several: each `width` is measured
+    /// from the glyph outline, so a list such as a 14px stroke and a 7px one
+    /// draws the 7px one next to the glyphs and the 14px one around it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stroke: Option<Stroke>,
+    pub stroke: Option<TextStroke>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub align: Option<TextAlign>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -164,6 +170,76 @@ impl From<f64> for LetterSpacing {
 pub struct Stroke {
     pub paint: Paint,
     pub width: f64,
+}
+
+/// A text's outline: one stroke, or several drawn around one another.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(untagged)]
+pub enum TextStroke {
+    One(Stroke),
+    /// In any order: each width is from the glyph outline, so the thinnest
+    /// stroke is drawn next to the glyphs and each wider one around it.
+    /// Read-only in TypeScript, so a list declared `as const` fits too.
+    Many(#[cfg_attr(feature = "codegen", ts(type = "ReadonlyArray<Stroke>"))] Vec<Stroke>),
+}
+
+impl TextStroke {
+    /// The strokes, in the order they were given.
+    pub fn strokes(&self) -> &[Stroke] {
+        match self {
+            Self::One(stroke) => std::slice::from_ref(stroke),
+            Self::Many(strokes) => strokes,
+        }
+    }
+
+    /// How far the widest stroke reaches past the glyph outline; 0 for none.
+    pub fn width(&self) -> f64 {
+        self.strokes()
+            .iter()
+            .map(|stroke| stroke.width)
+            .filter(|width| width.is_finite())
+            .fold(0.0, f64::max)
+    }
+}
+
+impl From<Stroke> for TextStroke {
+    fn from(stroke: Stroke) -> Self {
+        Self::One(stroke)
+    }
+}
+
+impl From<Vec<Stroke>> for TextStroke {
+    fn from(strokes: Vec<Stroke>) -> Self {
+        Self::Many(strokes)
+    }
+}
+
+// Picks the variant by the JSON shape instead of trying each in turn, so an
+// error inside a stroke names that stroke's field, not "no variant matched".
+impl<'de> Deserialize<'de> for TextStroke {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct TextStrokeVisitor;
+
+        impl<'de> Visitor<'de> for TextStrokeVisitor {
+            type Value = TextStroke;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a stroke or a list of strokes")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+                Stroke::deserialize(MapAccessDeserializer::new(map)).map(TextStroke::One)
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> Result<Self::Value, A::Error> {
+                Vec::deserialize(SeqAccessDeserializer::new(seq)).map(TextStroke::Many)
+            }
+        }
+
+        deserializer.deserialize_any(TextStrokeVisitor)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -311,5 +387,36 @@ mod tests {
         assert_eq!(style.font_fallback, Some(FontFallbackMode::Loaded));
         assert_eq!(serde_json::to_string(&TextStyle::default()).unwrap(), "{}");
         assert!(serde_json::from_str::<TextStyle>(r#"{"fontFallback":"fonts"}"#).is_err());
+    }
+
+    #[test]
+    fn stroke_reads_one_stroke_or_a_list_and_writes_it_back_alike() {
+        let one = r##"{"stroke":{"paint":{"type":"solid","color":"#FFFFFF"},"width":7.0}}"##;
+        let style: TextStyle = serde_json::from_str(one).unwrap();
+        let stroke = style.stroke.as_ref().unwrap();
+        assert!(matches!(stroke, TextStroke::One(_)));
+        assert_eq!(stroke.width(), 7.0);
+        assert_eq!(serde_json::to_string(&style).unwrap(), one);
+
+        let many = r##"{"stroke":[{"paint":{"type":"solid","color":"#2E6B1F"},"width":14.0},{"paint":{"type":"solid","color":"#FFFFFF"},"width":7.0}]}"##;
+        let style: TextStyle = serde_json::from_str(many).unwrap();
+        let stroke = style.stroke.as_ref().unwrap();
+        assert_eq!(stroke.strokes().len(), 2);
+        assert_eq!(stroke.width(), 14.0);
+        assert_eq!(serde_json::to_string(&style).unwrap(), many);
+
+        let empty: TextStyle = serde_json::from_str(r#"{"stroke":[]}"#).unwrap();
+        assert_eq!(empty.stroke.unwrap().width(), 0.0);
+    }
+
+    #[test]
+    fn a_bad_stroke_in_a_list_names_its_field() {
+        let error = serde_json::from_str::<TextStyle>(
+            r##"{"stroke":[{"paint":{"type":"solid","color":"#FFFFFF"}}]}"##,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("missing field `width`"), "{error}");
+        assert!(serde_json::from_str::<TextStyle>(r#"{"stroke":7}"#).is_err());
     }
 }

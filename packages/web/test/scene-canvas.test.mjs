@@ -329,6 +329,10 @@ test('a vignette spans the layer\'s shapes as the GPU renderer places them', asy
   // One line: its visible rows (1 to 11 below the line's top), grown by the
   // stroke, moved onto whole pixels.
   assert.deepEqual(await box(text('ABC', at(10.4, 20.3), { stroke: { width: 2, paint: { type: 'solid', color: '#000' } } })), [8, 18, 42, 32]);
+  // A list of strokes, by its widest, in any order.
+  const strokes = [1, 2].map(width => ({ width, paint: { type: 'solid', color: '#000' } }));
+  assert.deepEqual(await box(text('ABC', at(10.4, 20.3), { stroke: strokes })), [8, 18, 42, 32]);
+  assert.deepEqual(await box(text('ABC', at(10.4, 20.3), { stroke: strokes.toReversed() })), [8, 18, 42, 32]);
   // Several lines: their line boxes, anchored at the centre.
   assert.deepEqual(await box(text('A\nBC', at(50, 50, { anchor: { x: 0.5, y: 0.5 } }))), [40, 38, 60, 62]);
   // A group: the union of its children's shapes; scaled text is not moved
