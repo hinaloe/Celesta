@@ -40,7 +40,8 @@ and the website dialogue guide.
 - `trackPrepareDependency(src)` (`@celesta/react/internal`, `entry-dir.ts`;
   no-op in `entry-dir.browser.ts`) stats a path before it is read and keeps
   the first `{ path, mtimeNs, size }` (`mtimeNs` a bigint decimal string,
-  both null when missing). `importVoiceFolder` records each scanned folder,
+  both null when missing; `size` null for directories, because Node and
+  Rust disagree on a directory's size on Windows). `importVoiceFolder` records each scanned folder,
   each pair, and the manifest; `loadLipSync` records its WAV.
 - The CLI's ready line carries `dependencies`; the bridge exposes them as
   `ReactCompositionMetadata::prepare_dependencies`

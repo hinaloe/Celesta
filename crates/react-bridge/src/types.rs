@@ -51,7 +51,8 @@ pub struct PrepareDependency {
     /// string; `None` when the path did not exist.
     #[serde(rename = "mtimeNs")]
     pub mtime_ns: Option<String>,
-    /// Size in bytes; `None` when the path did not exist.
+    /// Size in bytes; `None` when the path did not exist or is a directory
+    /// (Node and Rust report a directory's size differently on Windows).
     pub size: Option<u64>,
 }
 
@@ -66,7 +67,9 @@ impl PrepareDependency {
                 .and_then(|metadata| metadata.modified().ok())
                 .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|since| since.as_nanos().to_string()),
-            size: metadata.map(|metadata| metadata.len()),
+            size: metadata
+                .filter(|metadata| !metadata.is_dir())
+                .map(|metadata| metadata.len()),
         }
     }
 }

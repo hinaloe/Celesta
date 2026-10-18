@@ -26,7 +26,8 @@ export function entryRelativePath(src: string): string {
  * A file or directory `prepare()` read, with its state when it was read.
  * The editor reloads the entry when one of these changes on disk, even
  * outside the entry's directory. `mtimeNs` and `size` are null when the
- * path did not exist.
+ * path did not exist; `size` is also null for a directory, whose reported
+ * size differs between runtimes on Windows.
  */
 export interface PrepareDependency {
   path: string;
@@ -54,7 +55,7 @@ export function trackPrepareDependency(src: string): void {
   try {
     const stat = fs.statSync(resolved, { bigint: true });
     mtimeNs = stat.mtimeNs.toString();
-    size = Number(stat.size);
+    size = stat.isDirectory() ? null : Number(stat.size);
   } catch {
     // Missing: creating it later changes the recorded state.
   }
