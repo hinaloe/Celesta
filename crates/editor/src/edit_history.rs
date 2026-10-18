@@ -5,7 +5,7 @@
 
 use crate::actions::{Redo, Undo};
 use crate::problems::Source;
-use crate::source::watched_mtime;
+use crate::source::{PropertyArgs, watched_mtime};
 use crate::view::EditorView;
 use celesta_react_bridge::replace_file;
 use gpui_kit::{Context, Window};
@@ -50,11 +50,49 @@ impl fmt::Display for HistoryError {
 
 impl std::error::Error for HistoryError {}
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Step {
+    Undo,
+    Redo,
+}
+
+/// An entry taken off its stack while its file is being written elsewhere
+/// (the UI thread hands it to a background task and settles it afterwards).
+#[derive(Debug)]
+pub(crate) struct Pending {
+    edit: FileEdit,
+    step: Step,
+    epoch: u64,
+}
+
+impl Pending {
+    /// Checks the file still holds what the step expects, then writes the other
+    /// side. Touches only the file, so it may run off the UI thread.
+    pub(crate) fn apply(&self) -> Result<(), HistoryError> {
+        let edit = &self.edit;
+        let (expected, written) = match self.step {
+            Step::Undo => (Some(edit.after.as_str()), edit.before.as_deref()),
+            Step::Redo => (edit.before.as_deref(), Some(edit.after.as_str())),
+        };
+        if read(&edit.path)?.as_deref() != expected {
+            return Err(HistoryError::ChangedOutside {
+                path: edit.path.clone(),
+            });
+        }
+        write(&edit.path, written)
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct EditHistory {
     /// Oldest first.
     undo: Vec<FileEdit>,
     redo: Vec<FileEdit>,
+    /// A step or an own write is running off the UI thread; writes to one
+    /// file stay serialized.
+    busy: bool,
+    /// Bumped by `clear`, so a task that started before it is ignored.
+    epoch: u64,
 }
 
 impl EditHistory {
@@ -67,49 +105,114 @@ impl EditHistory {
         }
     }
 
-    /// Restores the newest edit's `before` (removing a file the edit created).
-    /// `Ok(None)` when there is nothing to undo, otherwise the file written.
-    /// When the file no longer holds the edit's `after`, that edit and the
-    /// older ones for the same file are dropped, since they cannot apply.
-    pub(crate) fn undo(&mut self) -> Result<Option<PathBuf>, HistoryError> {
-        let Some(edit) = self.undo.pop() else {
-            return Ok(None);
-        };
-        if read(&edit.path)?.as_deref() != Some(edit.after.as_str()) {
-            self.undo.retain(|older| older.path != edit.path);
-            return Err(HistoryError::ChangedOutside { path: edit.path });
-        }
-        if let Err(error) = write(&edit.path, edit.before.as_deref()) {
-            self.undo.push(edit);
-            return Err(error);
-        }
-        let path = edit.path.clone();
-        self.redo.push(edit);
-        Ok(Some(path))
+    pub(crate) fn is_busy(&self) -> bool {
+        self.busy
     }
 
-    /// Writes the newest undone edit's `after` again, if the file still holds
-    /// the edit's `before`.
-    pub(crate) fn redo(&mut self) -> Result<Option<PathBuf>, HistoryError> {
-        let Some(edit) = self.redo.pop() else {
+    /// Takes the newest entry of `step`'s stack and marks the history busy.
+    /// `None` when that stack is empty or the history is already busy.
+    pub(crate) fn begin(&mut self, step: Step) -> Option<Pending> {
+        if self.busy {
+            return None;
+        }
+        let edit = match step {
+            Step::Undo => self.undo.pop(),
+            Step::Redo => self.redo.pop(),
+        }?;
+        self.busy = true;
+        Some(Pending {
+            edit,
+            step,
+            epoch: self.epoch,
+        })
+    }
+
+    /// Puts the outcome of `pending.apply()` in the stacks: a success moves the
+    /// entry to the other stack; a refusal drops it and the rest of its file's
+    /// entries on that stack, since they cannot apply; any other error keeps
+    /// it. `None` when the history was cleared meanwhile.
+    pub(crate) fn settle(
+        &mut self,
+        pending: Pending,
+        result: Result<(), HistoryError>,
+    ) -> Option<Result<PathBuf, HistoryError>> {
+        if pending.epoch != self.epoch {
+            return None;
+        }
+        self.busy = false;
+        let Pending { edit, step, .. } = pending;
+        let (own, other) = match step {
+            Step::Undo => (&mut self.undo, &mut self.redo),
+            Step::Redo => (&mut self.redo, &mut self.undo),
+        };
+        Some(match result {
+            Ok(()) => {
+                let path = edit.path.clone();
+                other.push(edit);
+                Ok(path)
+            }
+            Err(error @ HistoryError::ChangedOutside { .. }) => {
+                own.retain(|rest| rest.path != edit.path);
+                Err(error)
+            }
+            Err(error) => {
+                own.push(edit);
+                Err(error)
+            }
+        })
+    }
+
+    /// Marks the history busy for an own write; returns the epoch to hand to
+    /// `finish_write`, or `None` when it is already busy.
+    // Called by `record_own_write`, which the canvas write-back uses.
+    #[allow(dead_code)]
+    pub(crate) fn begin_write(&mut self) -> Option<u64> {
+        if self.busy {
+            return None;
+        }
+        self.busy = true;
+        Some(self.epoch)
+    }
+
+    /// Ends an own write, recording its edit. `false` when the history was
+    /// cleared meanwhile (the edit is then not recorded).
+    #[allow(dead_code)]
+    pub(crate) fn finish_write(&mut self, epoch: u64, edit: Option<FileEdit>) -> bool {
+        if epoch != self.epoch {
+            return false;
+        }
+        self.busy = false;
+        if let Some(edit) = edit {
+            self.push(edit);
+        }
+        true
+    }
+
+    /// Undoes synchronously (the view runs the same steps in the background).
+    #[cfg(test)]
+    fn run(&mut self, step: Step) -> Result<Option<PathBuf>, HistoryError> {
+        let Some(pending) = self.begin(step) else {
             return Ok(None);
         };
-        if read(&edit.path)? != edit.before {
-            self.redo.retain(|newer| newer.path != edit.path);
-            return Err(HistoryError::ChangedOutside { path: edit.path });
-        }
-        if let Err(error) = write(&edit.path, Some(&edit.after)) {
-            self.redo.push(edit);
-            return Err(error);
-        }
-        let path = edit.path.clone();
-        self.undo.push(edit);
-        Ok(Some(path))
+        let result = pending.apply();
+        self.settle(pending, result).transpose()
+    }
+
+    #[cfg(test)]
+    fn undo(&mut self) -> Result<Option<PathBuf>, HistoryError> {
+        self.run(Step::Undo)
+    }
+
+    #[cfg(test)]
+    fn redo(&mut self) -> Result<Option<PathBuf>, HistoryError> {
+        self.run(Step::Redo)
     }
 
     pub(crate) fn clear(&mut self) {
         self.undo.clear();
         self.redo.clear();
+        self.busy = false;
+        self.epoch += 1;
     }
 }
 
@@ -183,45 +286,125 @@ impl EditorView {
         next_reload
     }
 
-    /// Call after the editor wrote a watched file (undo, redo, or a canvas
-    /// edit): samples the watched files, then reloads the entry.
-    pub(crate) fn finish_own_write(&mut self, cx: &mut Context<Self>) {
-        let Some(react) = self.react_preview.as_ref() else {
-            return;
+    /// The entry and arguments the reload watcher's mtime sample reads.
+    fn watch_sample_inputs(&self) -> Option<(PathBuf, PropertyArgs)> {
+        let react = self.react_preview.as_ref()?;
+        Some((react.entry.clone(), react.property_args.clone()))
+    }
+
+    /// Writes `path` as an own write off the UI thread: `edit` computes the new
+    /// text from the file's current text (`""` when missing), the write goes
+    /// through `write_recorded`, and the watched files are sampled after it.
+    /// Back on the UI thread the edit is pushed to the history, the sample is
+    /// applied and the entry reloads; then `done` gets the result. When the
+    /// history or a property write is busy, `done` gets an error at once.
+    // The canvas write-back is its first caller.
+    #[allow(dead_code)]
+    pub(crate) fn record_own_write(
+        &mut self,
+        path: PathBuf,
+        edit: impl FnOnce(&str) -> Result<String, String> + Send + 'static,
+        done: impl FnOnce(&mut Self, Result<(), String>, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        let (Some((entry, property_args)), false) =
+            (self.watch_sample_inputs(), self.property_panel.is_writing())
+        else {
+            return done(self, Err(BUSY.to_owned()), cx);
         };
-        let watched = watched_mtime(&react.entry, &react.property_args);
-        self.apply_own_write_sample(watched);
-        self.request_react_reload(cx);
+        let Some(epoch) = self.edit_history.begin_write() else {
+            return done(self, Err(BUSY.to_owned()), cx);
+        };
+        cx.spawn(async move |view, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let edit = write_recorded(&path, edit)?;
+                    Ok((edit, watched_mtime(&entry, &property_args)))
+                })
+                .await;
+            view.update(cx, |this, cx| {
+                let outcome = match result {
+                    Ok((edit, watched)) => {
+                        if this.edit_history.finish_write(epoch, Some(edit)) {
+                            this.apply_own_write_sample(watched);
+                            this.request_react_reload(cx);
+                        }
+                        Ok(())
+                    }
+                    Err(message) => {
+                        this.edit_history.finish_write(epoch, None);
+                        Err(message)
+                    }
+                };
+                done(this, outcome, cx);
+                this.drain_property_commits(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub(crate) fn undo_action(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
-        self.step_history(EditHistory::undo, "Couldn’t undo", cx);
+        self.step_history(Step::Undo, cx);
     }
 
     pub(crate) fn redo_action(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
-        self.step_history(EditHistory::redo, "Couldn’t redo", cx);
+        self.step_history(Step::Redo, cx);
     }
 
-    fn step_history(
-        &mut self,
-        step: fn(&mut EditHistory) -> Result<Option<PathBuf>, HistoryError>,
-        failure: &str,
-        cx: &mut Context<Self>,
-    ) {
-        // A property write is still in flight; its entry is not recorded yet.
-        if !self.is_react_preview() || self.property_panel.is_writing() {
+    /// Undoes or redoes the newest edit off the UI thread, then reloads.
+    fn step_history(&mut self, step: Step, cx: &mut Context<Self>) {
+        // A property write still running has no entry yet, and writes to one
+        // file must not overlap.
+        if self.property_panel.is_writing() {
             return;
         }
-        match step(&mut self.edit_history) {
-            Ok(Some(_)) => self.finish_own_write(cx),
-            Ok(None) => {}
-            Err(error) => self
-                .problems
-                .report(Source::Project, failure, error.to_string()),
-        }
-        cx.notify();
+        let Some((entry, property_args)) = self.watch_sample_inputs() else {
+            return;
+        };
+        let Some(pending) = self.edit_history.begin(step) else {
+            return;
+        };
+        let failure = match step {
+            Step::Undo => "Couldn’t undo",
+            Step::Redo => "Couldn’t redo",
+        };
+        cx.spawn(async move |view, cx| {
+            let (pending, result, watched) = cx
+                .background_executor()
+                .spawn(async move {
+                    let result = pending.apply();
+                    // Sampled after the write, so the reload watcher does not
+                    // take it for an edit from elsewhere.
+                    let watched = watched_mtime(&entry, &property_args);
+                    (pending, result, watched)
+                })
+                .await;
+            view.update(cx, |this, cx| {
+                match this.edit_history.settle(pending, result) {
+                    Some(Ok(_)) => {
+                        this.apply_own_write_sample(watched);
+                        this.request_react_reload(cx);
+                    }
+                    Some(Err(error)) => {
+                        this.problems
+                            .report(Source::Project, failure, error.to_string());
+                    }
+                    None => {}
+                }
+                this.drain_property_commits(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 }
+
+#[allow(dead_code)]
+const BUSY: &str = "Another edit is still being saved";
 
 #[cfg(test)]
 mod tests {
@@ -309,6 +492,48 @@ mod tests {
             history.undo(),
             Err(HistoryError::ChangedOutside { .. })
         ));
+    }
+
+    #[test]
+    fn a_read_error_keeps_the_entry() {
+        let dir = scratch("readerror");
+        // Reading a folder fails with something other than "not found".
+        let folder = dir.join("props.json");
+        fs::create_dir(&folder).unwrap();
+        let mut history = EditHistory::default();
+        history.push(edit(&folder, Some("a"), "b"));
+
+        assert!(matches!(history.undo(), Err(HistoryError::Io { .. })));
+        assert!(!history.is_busy());
+        fs::remove_dir(&folder).unwrap();
+        fs::write(&folder, "b").unwrap();
+        assert_eq!(history.undo().unwrap(), Some(folder.clone()));
+        assert_eq!(fs::read_to_string(&folder).unwrap(), "a");
+
+        // The same goes for redo.
+        fs::remove_file(&folder).unwrap();
+        fs::create_dir(&folder).unwrap();
+        assert!(matches!(history.redo(), Err(HistoryError::Io { .. })));
+        fs::remove_dir(&folder).unwrap();
+        fs::write(&folder, "a").unwrap();
+        assert_eq!(history.redo().unwrap(), Some(folder.clone()));
+    }
+
+    #[test]
+    fn a_cleared_history_ignores_a_step_that_was_running() {
+        let file = scratch("epoch").join("a.txt");
+        fs::write(&file, "b").unwrap();
+        let mut history = EditHistory::default();
+        history.push(edit(&file, Some("a"), "b"));
+        let pending = history.begin(Step::Undo).unwrap();
+        assert!(history.begin(Step::Undo).is_none());
+        history.clear();
+
+        let result = pending.apply();
+
+        assert!(history.settle(pending, result).is_none());
+        assert!(!history.is_busy());
+        assert_eq!(history.undo().unwrap(), None);
     }
 
     #[test]

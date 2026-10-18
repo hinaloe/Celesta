@@ -741,8 +741,9 @@ impl EditorView {
 
     /// Starts the next queued write unless one is running. Once the queue is
     /// empty, reloads the entry if any write succeeded.
-    fn drain_property_commits(&mut self, cx: &mut Context<Self>) {
-        if self.property_panel.writing.is_some() {
+    pub(crate) fn drain_property_commits(&mut self, cx: &mut Context<Self>) {
+        // An undo, redo or canvas write on the history is still running.
+        if self.property_panel.writing.is_some() || self.edit_history.is_busy() {
             return;
         }
         let Some(react) = self.react_preview.as_ref() else {
