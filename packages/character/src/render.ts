@@ -79,6 +79,7 @@ function characterViewContent(node: HostNode, walk: HostWalk): LayerContent {
               type: 'psd';
               src: unknown;
               layers?: string[] | string;
+              hide?: string[] | string;
               expressions?: Record<string, PsdExpression>;
               defaultExpression?: string;
               lipSync?: PsdCharacterLipSync;
@@ -115,11 +116,16 @@ function characterViewContent(node: HostNode, walk: HostWalk): LayerContent {
         throw new Error(`character has no expression "${expressionName}"`);
       }
     }
-    // An expression is its layers, or `{ layers, lipSync, blink }` with mouths or eyes of its own.
-    const { layers: expressionLayers, lipSync: expressionLipSync, blink: expressionBlink } =
-      typeof expression === 'object' && !Array.isArray(expression)
-        ? expression
-        : { layers: expression, lipSync: undefined, blink: undefined };
+    // An expression is its layers, or `{ layers, hide, lipSync, blink }` with
+    // layers to hide or mouths or eyes of its own.
+    const {
+      layers: expressionLayers,
+      hide: expressionHide,
+      lipSync: expressionLipSync,
+      blink: expressionBlink,
+    } = typeof expression === 'object' && !Array.isArray(expression)
+      ? expression
+      : { layers: expression, hide: undefined, lipSync: undefined, blink: undefined };
     const lipSync = expressionLipSync ?? portrait.lipSync;
     // An expression's eyes replace the portrait's as a set, so a half-shut
     // layer from another face folder never leaks in; timing still falls back.
@@ -137,16 +143,30 @@ function characterViewContent(node: HostNode, walk: HostWalk): LayerContent {
     const mouthLayers = lipSync ? Object.values(lipSync) : [];
     const layerList = (layers: string[] | string | undefined) =>
       Array.isArray(layers) ? layers : typeof layers === 'string' ? resolveVisibleLayers(layers) : [];
-    const visibleLayers = [...new Set([...layerList(portrait.layers), ...layerList(expressionLayers)])];
-    const enabledLayers = selectedLayer ? [selectedLayer] : [];
+    // Eye and hidden paths are layer paths, never layer-state strings: a bare string is one path.
+    const pathList = (layers: string[] | string | undefined) =>
+      layers === undefined ? [] : Array.isArray(layers) ? layers : [layers];
+    // Without `layers` the PSD's saved visibility is the base, and the
+    // expression's layers are forced on top of it instead of replacing it.
+    const poseLayers = layerList(portrait.layers);
+    const faceLayers = layerList(expressionLayers);
+    const visibleLayers = poseLayers.length ? [...new Set([...poseLayers, ...faceLayers])] : [];
+    const enabledLayers = poseLayers.length ? [] : [...faceLayers];
+    if (selectedLayer) {
+      enabledLayers.push(selectedLayer);
+    }
     const disabledLayers = selectedLayer ? mouthLayers.filter((layer) => layer !== selectedLayer) : [];
+    // Hidden layers and folders never hide the expression's own layers, nor the
+    // mouth and eyes lip sync and blinking show.
+    const hidden = [...pathList(portrait.hide), ...pathList(expressionHide)];
+    if (poseLayers.length) {
+      // A preset's layers lose to a hidden folder; forced ones win over it.
+      enabledLayers.push(...faceLayers.filter((layer) => hidden.some((folder) => layer.startsWith(`${folder}/`))));
+    }
     if (blink) {
-      // Eye paths are layer paths, never layer-state strings: a bare string is one path.
-      const eyeLayers = (layers: string[] | string | undefined) =>
-        layers === undefined ? [] : Array.isArray(layers) ? layers : [layers];
-      const open = eyeLayers(blink.open);
-      const closed = eyeLayers(blink.closed);
-      const half = eyeLayers(blink.half);
+      const open = pathList(blink.open);
+      const closed = pathList(blink.closed);
+      const half = pathList(blink.half);
       let phase = eyes(blink);
       if (phase === 'half' && half.length === 0) {
         phase = 'open';
@@ -155,6 +175,7 @@ function characterViewContent(node: HostNode, walk: HostWalk): LayerContent {
       enabledLayers.push(...shown);
       disabledLayers.push(...[...open, ...closed, ...half].filter((layer) => !shown.includes(layer)));
     }
+    disabledLayers.push(...hidden.filter((layer) => !faceLayers.includes(layer) && !enabledLayers.includes(layer)));
     return {
       type: 'psd',
       asset: walk.resolveAsset(portrait.src),

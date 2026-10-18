@@ -669,8 +669,14 @@ export async function prepare() {
     PSDTool favorites file. `favorite` is a favorite's name or tree path;
     when omitted the first favorite is used. An unknown name throws and lists
     the available ones.
-- Omit `layers` only if the PSD's saved visibility is already the pose you
-  want.
+- Omit `layers` when the PSD's saved visibility is already the pose you
+  want, as in most public character PSDs (body and hair shown, one of each
+  face part shown). Expressions are then shown on top of the saved
+  visibility; see [PSDs saved with a pose](#psds-saved-with-a-pose).
+- **`hide`** lists layers or folders to hide under every expression, such
+  as a prop the saved visibility shows. A folder hides every layer in it
+  except those the expression, lip sync, or blinking shows. An unknown path
+  is an error.
 - The mouth layer for the current shape is forced visible and the other
   mouth layers hidden, so list all of them in `lipSync`.
 - Large PSDs are big: set `scale` on the `<CharacterView>` (0.2–0.5 is
@@ -712,6 +718,44 @@ in PSDs that keep a mouth folder inside each face folder):
 
 An expression that is not a key of `expressions` throws, as for image
 portraits.
+
+### PSDs saved with a pose
+
+Public character PSDs are usually saved with the body shown and, in each
+face folder (eyes, brows, mouth, cheeks), one variant shown. Leave out
+`layers` to start from that, and give each expression `{ layers, hide }`:
+`hide` names the face folders it changes, which hides the saved variant,
+and `layers` picks the one to show from each. Nothing else needs listing:
+
+```tsx
+<Character ref={hana} name="Hana" portrait={{
+  type: 'psd',
+  src: './hana/hana.psd',
+  hide: 'hana/props/umbrella',              // a prop the PSD was saved with
+  defaultExpression: 'normal',
+  expressions: {
+    normal: [],                             // the face the PSD was saved with
+    smile: {
+      layers: ['hana/face/brows/smile', 'hana/face/cheeks/red'],
+      hide: ['hana/face/brows', 'hana/face/cheeks'],
+    },
+  },
+  lipSync: { /* … */ },
+}} />
+```
+
+With `layers` set, `hide` works the same way on top of it. Folders and
+layers in `hide` must exist (`--psd-layers` lists them).
+
+Many such PSDs have just a closed and an open mouth per face. Give the open
+one to the open vowels and the closed one to the rest:
+
+```ts
+lipSync: {
+  a: 'face/mouth/open', e: 'face/mouth/open', o: 'face/mouth/open',
+  i: 'face/mouth/closed', u: 'face/mouth/closed', closed: 'face/mouth/closed',
+},
+```
 
 ## Blinking
 
@@ -859,6 +903,8 @@ active**, and portrait and subtitle positions come from the character.
 | `<CharacterView> requires a character with a portrait` | The `<Character>` needs a `portrait`. |
 | The mouth never moves | WAV is uncompressed; transcript has kana/romaji vowels; `loadLipSync` runs in `prepare()`; the track is passed as `lipSync`; the sequence starts when the voice starts; PSD mouth paths match exactly (list them with `--psd-layers`). |
 | PSD portrait is empty or shows only a mouth | Set `layers` from a PSDTool favorite or layer list. |
+| A PSD expression's face part overlaps the saved one (two brows) | Add the face folder to the expression's `hide`. |
+| `PSD asset … has no layer …` | A path in `lipSync`, `blink`, or `hide` (or, without `layers`, an expression's layers) is not in the PSD; check it against `--psd-layers`. |
 | `planDialogue(): voice file for line … not found` | The path is relative to the entry file; the message shows where it looked. |
 | `<DialogueSeries> line …: speaker "x" is not in views` | Add the speaker to `views`, or set `character` on the line. |
 | The portrait never blinks | `blink` is on the `portrait` (not the view); for an image portrait, `blink.closed` has a key for the current expression; the expression's `blink` is not `false`; the view is not `blink={false}`; a blink is 3 frames every ~4 s, so step frames rather than glancing at one. |

@@ -92,3 +92,42 @@ test('a PSD portrait without expressions keeps its layers', () => {
   const content = renderPortrait({ portrait: `layers: ['body', 'face/calm']` });
   assert.deepEqual(content.visibleLayers, ['body', 'face/calm']);
 });
+
+// Public character PSDs are saved showing the body and one of each face part.
+const SAVED = `defaultExpression: 'calm',
+  hide: 'props/sword',
+  expressions: {
+    calm: [],
+    smile: { layers: ['face/brows/smile', 'face/cheeks/red'], hide: ['face/brows', 'face/cheeks'] },
+  },
+  lipSync: { a: 'face/mouth/a', i: 'face/mouth/i', u: 'face/mouth/u', e: 'face/mouth/e', o: 'face/mouth/o', closed: 'face/mouth/n' }`;
+
+test('a PSD portrait without layers shows its expression on top of its saved visibility', () => {
+  const content = renderPortrait({ portrait: SAVED, view: 'expression="smile" mouth="a"' });
+  assert.equal(content.visibleLayers, undefined);
+  assert.deepEqual(content.enabledLayers, ['face/brows/smile', 'face/cheeks/red', 'face/mouth/a']);
+  assert.ok(content.disabledLayers.includes('face/mouth/n'));
+  assert.ok(['props/sword', 'face/brows', 'face/cheeks'].every((path) => content.disabledLayers.includes(path)));
+});
+
+test('a PSD portrait hides its hide layers under every expression', () => {
+  const content = renderPortrait({ portrait: SAVED });
+  assert.equal(content.visibleLayers, undefined);
+  assert.equal(content.enabledLayers, undefined);
+  assert.deepEqual(content.disabledLayers, ['props/sword']);
+});
+
+test('hidden layers never hide the expression, mouth, or eyes that show', () => {
+  const content = renderPortrait({
+    portrait: `layers: ['body', 'face/mouth/n'], hide: ['face/mouth/n', 'eyes/open'], blink: { open: 'eyes/open', closed: 'eyes/shut' },
+      defaultExpression: 'smile',
+      expressions: { smile: { layers: ['face/brows/smile'], hide: ['face/brows', 'face/brows/smile'] } },
+      lipSync: { a: 'face/mouth/a', i: 'face/mouth/i', u: 'face/mouth/u', e: 'face/mouth/e', o: 'face/mouth/o', closed: 'face/mouth/n' }`,
+    view: 'mouth="closed" blink={false}',
+  });
+  assert.deepEqual(content.visibleLayers, ['body', 'face/mouth/n', 'face/brows/smile']);
+  // A preset layer inside a hidden folder is forced on so the folder cannot hide it.
+  assert.deepEqual(content.enabledLayers, ['face/mouth/n', 'face/brows/smile', 'eyes/open']);
+  assert.ok(content.disabledLayers.includes('face/brows'));
+  assert.ok(['face/mouth/n', 'eyes/open', 'face/brows/smile'].every((path) => !content.disabledLayers.includes(path)));
+});

@@ -461,10 +461,12 @@ pub enum LayerContent {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         visible_layers: Vec<String>,
         /// Layers forced visible on top of the resolved set — the selected
-        /// lip-sync mouth for the current frame.
+        /// lip-sync mouth and eyes for the current frame, and an expression's
+        /// layers when there is no preset.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         enabled_layers: Vec<String>,
-        /// Layers forced hidden — the other lip-sync mouth shapes.
+        /// Layers forced hidden — the other lip-sync mouth shapes. A folder
+        /// path hides every layer inside it except the enabled ones.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         disabled_layers: Vec<String>,
     },

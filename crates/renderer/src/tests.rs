@@ -1962,6 +1962,93 @@ fn rasterize_psd_disabled_layers_win_over_enabled() {
     assert_eq!(pixel_at(&without, 120, 150), [250, 224, 205, 255]);
 }
 
+// `examples/assets/saved-pose-fixture.psd` is saved showing a pose, like a
+// public character PSD: the body, a prop, and one variant per face folder,
+// with an `extras` folder hidden. Regenerate it with
+// `packages/cli/scripts/make-saved-pose-fixture.mjs`.
+fn saved_pose_fixture_psd() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/assets/saved-pose-fixture.psd")
+}
+
+#[test]
+fn rasterize_psd_without_a_preset_renders_the_saved_visibility() {
+    let frame = rasterize_psd("fixture", &saved_pose_fixture_psd(), &[], &[], &[]).unwrap();
+    assert_eq!(pixel_at(&frame, 120, 220), [40, 60, 130, 255], "outfit");
+    assert_eq!(pixel_at(&frame, 120, 94), [90, 60, 40, 255], "saved brow");
+    assert_eq!(
+        pixel_at(&frame, 120, 85),
+        [250, 224, 205, 255],
+        "hidden brow"
+    );
+    assert_eq!(
+        pixel_at(&frame, 120, 151),
+        [180, 90, 90, 255],
+        "saved mouth"
+    );
+    assert_eq!(pixel_at(&frame, 195, 200), [200, 40, 40, 255], "prop");
+    // The hat, in a folder saved hidden, would cover this clear pixel.
+    assert_eq!(pixel_at(&frame, 120, 15), [0, 0, 0, 0], "hidden folder");
+}
+
+#[test]
+fn rasterize_psd_swaps_a_face_part_on_top_of_the_saved_visibility() {
+    let frame = rasterize_psd(
+        "fixture",
+        &saved_pose_fixture_psd(),
+        &[],
+        &["face/brows/smile".to_owned()],
+        &["face/brows".to_owned(), "props".to_owned()],
+    )
+    .unwrap();
+    assert_eq!(
+        pixel_at(&frame, 120, 85),
+        [90, 60, 40, 255],
+        "expression brow"
+    );
+    assert_eq!(
+        pixel_at(&frame, 120, 94),
+        [250, 224, 205, 255],
+        "saved brow"
+    );
+    assert_eq!(
+        pixel_at(&frame, 195, 200),
+        [120, 70, 40, 255],
+        "hidden prop"
+    );
+    assert_eq!(pixel_at(&frame, 120, 220), [40, 60, 130, 255], "outfit");
+}
+
+#[test]
+fn rasterize_psd_disabled_folders_hide_their_layers_except_enabled_ones() {
+    let preset = ["body/base", "face/brows/normal", "face/eyes/open"].map(str::to_owned);
+    // Hide the brows folder, then show one brow in it: a face swap on top
+    // of whatever the preset (or saved visibility) shows.
+    let frame = rasterize_psd(
+        "fixture",
+        &lipsync_fixture_psd(),
+        &preset,
+        &["face/brows/angry".to_owned()],
+        &["face/brows".to_owned()],
+    )
+    .unwrap();
+    // The normal brow alone covers y 94..99 and the angry one y 96..104.
+    assert_eq!(pixel_at(&frame, 120, 95), [250, 224, 205, 255]);
+    assert_eq!(pixel_at(&frame, 120, 102), [90, 60, 40, 255]);
+    // Layers outside the folder are untouched.
+    assert_eq!(pixel_at(&frame, 120, 110), [40, 40, 60, 255]);
+
+    let error = rasterize_psd(
+        "fixture",
+        &lipsync_fixture_psd(),
+        &preset,
+        &[],
+        &["face/brow".to_owned()],
+    )
+    .err()
+    .unwrap();
+    assert!(error.to_string().contains("face/brow"), "{error}");
+}
+
 /// The red channel along row 2 (or, `vertical`, column 2) of a 32x32 black
 /// canvas holding a white rect `length` long and 2 units across, its start
 /// at `at` with `anchor` along it, scaled by `along` and `across`.
