@@ -9,6 +9,7 @@ import { mediaDurationInFrames, preloadMedia } from '@celesta/media-utils';
 import { Dialogue, SubtitleRunContext } from './components';
 import type { CharacterViewProps, CharacterViewReference, DialogueExpression, DialogueProps } from './components';
 import type { LipSyncTrack } from './lipsync';
+import type { VoiceLevelLineSetting } from './voice-level';
 
 /** One line of a script, as passed to `planDialogue()`. */
 export interface DialogueLine {
@@ -50,6 +51,12 @@ export interface DialogueLine {
   lipSync?: LipSyncTrack;
   volume?: AnimatedNumber;
   muted?: boolean;
+  /**
+   * How `matchVoiceLevels()` treats this line: `false` to leave it as
+   * authored, `{ offsetDb }` / `{ targetRmsDbfs }` to adjust its target, or
+   * `{ gainDb }` to use a fixed gain. Ignored by everything else.
+   */
+  voiceLevel?: VoiceLevelLineSetting;
 }
 
 export interface PlanDialogueOptions {

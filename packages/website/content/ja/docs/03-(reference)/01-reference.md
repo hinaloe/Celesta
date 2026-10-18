@@ -55,6 +55,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `CharacterView` | `@celesta/character` | キャラクターの立ち絵を配置します。`expression`、`mouth`、`lipSync` を取ります。 |
 | `DialogueSeries` / `planDialogue` | `@celesta/character` | 音声の長さをもとにタイミングを計算し、会話を順に描画します。詳しくは[キャラクターの台詞](/ja/docs/dialogue/)を参照してください。 |
 | `importVoiceFolder` | `@celesta/character` | 音声ソフトが書き出した `.wav` と `.txt` の組のフォルダーを台詞の列として読み込みます。詳しくは[キャラクターの台詞](/ja/docs/dialogue/)を参照してください。 |
+| `matchVoiceLevels` / `analyzeVoiceLevel` / `scaleVolume` | `@celesta/character` | `prepare()` でローカルの WAV を測り、台詞の音量に掛けて声の大きさをそろえます。詳しくは[キャラクターの台詞](/ja/docs/dialogue/)を参照してください。 |
 | `Dialogue` | `@celesta/character` | 字幕を表示し、`audio` を再生し、有効な間の表情を変更します。行の途中の時刻で表情を切り替えることもできます。 |
 | `expressionAt` | `@celesta/character` | 行の `expression`（名前、または `{ at, expression }` の切り替え）が、行の中のある時刻に選ぶ表情を返します。 |
 | `loadLipSync` / `useLipSync` | `@celesta/character` | WAV から口の形を生成し、現在の形を取得します。 |

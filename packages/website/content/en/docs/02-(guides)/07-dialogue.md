@@ -66,6 +66,14 @@ Transcripts are UTF-8 unless you pass `encoding: 'utf-16le'` or `'shift_jis'`; o
 
 While the composition is open, resaving, adding, or deleting a recording or its text reloads the preview, even in a folder outside the entry's directory, and later lines move with a longer take. A pair caught halfway through being written fails the reload and keeps the last good preview until the save completes (pass `incomplete: 'skip'` to leave such lines out instead). Only uncompressed PCM or float WAV is read.
 
+## Match voice levels
+
+Voices from different speakers or engines often differ in level. Call `matchVoiceLevels(lines, { targetRmsDbfs, peakCeilingDbfs, maxBoostDb, maxCutDb, speakers })` in prepare() before planDialogue() and pass its `lines` on. It measures each local PCM/float WAV once and multiplies the line’s `volume` (a number or keyframes, whose times and easings are kept) by a constant gain toward the target. Nothing changes unless you call it.
+
+The measurement is gated speech RMS in dBFS (silence under -60 dBFS and quiet parts more than 20 dB below the speech are ignored, every channel is measured separately) and the sample peak over every channel. It is a controllable first step, not LUFS and not a guarantee of equal perceived loudness. The gain is clamped to `maxBoostDb` / `maxCutDb` and kept under `peakCeilingDbfs`; silent or very short recordings get 0 dB. Set `speakers: { name: { offsetDb, targetRmsDbfs } }` per speaker, and `voiceLevel` on a line: `false` to leave it alone, `{ offsetDb }` or `{ targetRmsDbfs }` to adjust it, or `{ gainDb }` for a fixed gain. `matched.report` lists each line’s measured level, gain, and which bound limited it. Results are cached by file content, so replacing a WAV is measured again.
+
+To turn BGM or game audio down while someone speaks, build its `volume` with frameKeyframes() from the plan’s audible speech (each line’s `from` plus the report’s `speechStartSeconds`/`speechEndSeconds`), merging overlaps and short silences. `packages/cli/examples/with-voice-level-matching.tsx` shows the whole workflow with a temporary example-local ducking recipe.
+
 ## See it with real artwork
 
 `packages/cli/examples/with-dialogue-series.tsx` demonstrates an automatically timed conversation; `packages/cli/examples/with-lip-sync.tsx` shows a PSD portrait with lip sync; `packages/cli/examples/with-voice-folder.tsx` reads its script from a voice folder. On [GitHub](https://github.com/mika-f/Celesta), choose **Code → Download ZIP**, extract the complete archive including assets, and open an entry with **File → Open…**. No source build is needed.

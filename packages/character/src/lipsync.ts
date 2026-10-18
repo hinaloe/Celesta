@@ -79,8 +79,33 @@ function readChunks(view: DataView): Map<string, { offset: number; size: number 
   return chunks;
 }
 
-/** Parses an uncompressed PCM or IEEE-float WAV into mono float samples. */
-export function decodeWav(bytes: Uint8Array): WavAudio {
+/** A WAV file's samples with every channel kept apart. */
+export interface WavChannels {
+  sampleRate: number;
+  /** One array per channel, in file order, normalized to roughly [-1, 1]. */
+  channels: Float64Array[];
+  /** `1` for integer PCM, `3` for IEEE float (after resolving WAVE_FORMAT_EXTENSIBLE). */
+  audioFormat: number;
+  bitsPerSample: number;
+}
+
+/**
+ * Parses an uncompressed PCM or IEEE-float WAV without down-mixing. Throws
+ * for anything else (compressed formats, unusual sample sizes), so callers
+ * that measure levels never read encoded bytes as samples.
+ */
+export function decodeWavChannels(bytes: Uint8Array): WavChannels {
+  const decoded = readWav(bytes);
+  if (decoded.audioFormat !== 1 && decoded.audioFormat !== 3) {
+    throw new Error(`unsupported WAV format ${decoded.audioFormat}; only uncompressed PCM (1) and IEEE float (3) are supported`);
+  }
+  if (decoded.audioFormat === 3 && decoded.bitsPerSample !== 32 && decoded.bitsPerSample !== 64) {
+    throw new Error(`unsupported IEEE float WAV sample size: ${decoded.bitsPerSample}-bit`);
+  }
+  return decoded;
+}
+
+function readWav(bytes: Uint8Array): WavChannels {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (view.byteLength < 12) {
     throw new Error('not a RIFF/WAVE file');
@@ -107,7 +132,7 @@ export function decodeWav(bytes: Uint8Array): WavAudio {
     );
   }
   let audioFormat = view.getUint16(fmt.offset, true);
-  const channels = view.getUint16(fmt.offset + 2, true);
+  const channelCount = view.getUint16(fmt.offset + 2, true);
   const sampleRate = view.getUint32(fmt.offset + 4, true);
   const bits = view.getUint16(fmt.offset + 14, true);
   if (audioFormat === 0xfffe && fmt.size >= 26) {
@@ -117,11 +142,11 @@ export function decodeWav(bytes: Uint8Array): WavAudio {
   }
 
   const bytesPerSample = bits >> 3;
-  if (channels < 1 || bytesPerSample < 1) {
-    throw new Error(`WAV fmt chunk declares ${channels} channels of ${bits}-bit samples`);
+  if (channelCount < 1 || bytesPerSample < 1) {
+    throw new Error(`WAV fmt chunk declares ${channelCount} channels of ${bits}-bit samples`);
   }
-  const frameCount = Math.floor(data.size / (bytesPerSample * channels));
-  const samples = new Float32Array(frameCount);
+  const frameCount = Math.floor(data.size / (bytesPerSample * channelCount));
+  const channels = Array.from({ length: channelCount }, () => new Float64Array(frameCount));
   let cursor = data.offset;
   const readOne = (): number => {
     let value: number;
@@ -147,11 +172,24 @@ export function decodeWav(bytes: Uint8Array): WavAudio {
     return value;
   };
   for (let frame = 0; frame < frameCount; frame += 1) {
-    let sum = 0;
-    for (let channel = 0; channel < channels; channel += 1) {
-      sum += readOne();
+    for (let channel = 0; channel < channelCount; channel += 1) {
+      channels[channel][frame] = readOne();
     }
-    samples[frame] = sum / channels;
+  }
+  return { sampleRate, channels, audioFormat, bitsPerSample: bits };
+}
+
+/** Parses an uncompressed PCM or IEEE-float WAV into mono float samples. */
+export function decodeWav(bytes: Uint8Array): WavAudio {
+  const { sampleRate, channels } = readWav(bytes);
+  const frameCount = channels[0].length;
+  const samples = new Float32Array(frameCount);
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    let sum = 0;
+    for (const channel of channels) {
+      sum += channel[frame];
+    }
+    samples[frame] = sum / channels.length;
   }
   return { sampleRate, samples };
 }
