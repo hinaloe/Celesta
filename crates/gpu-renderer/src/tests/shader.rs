@@ -289,6 +289,152 @@ fn reads_transparency_beyond_the_canvas() {
     assert_eq!(pixel_at(&frame, 0, 0), [0, 0, 0, 255]);
 }
 
+/// A frame-filling group with a red strip down its left edge and a blue one
+/// down its right, shaded by `read` 12px outward: left of the middle, the
+/// shader reads 12px further left, right of it 12px further right.
+fn read_past_the_edges(renderer: &mut GpuRenderer, read: &str) -> GpuFrame {
+    let outward = source(
+        "outward",
+        &format!(
+            "fn effect(input: EffectInput) -> vec4f {{\n    let left = input.position.x < celesta.scene_size.x * 0.5;\n    return {read}(input.position + select(vec2f(12.0, 0.0), vec2f(-12.0, 0.0), left));\n}}\n"
+        ),
+        &[],
+    );
+    let strips = super::transform_3d::group_at(
+        0.0,
+        0.0,
+        vec![
+            corner_rect("middle", 8.0, 0.0, 48.0, 64.0, "#ffffff"),
+            corner_rect("left", 0.0, 0.0, 8.0, 64.0, "#ff0000"),
+            corner_rect("right", 56.0, 0.0, 8.0, 64.0, "#0000ff"),
+        ],
+    );
+    renderer
+        .render(&scene(
+            vec![outward],
+            vec![shaded(strips, "outward", Vec::new(), 0.0)],
+        ))
+        .unwrap()
+}
+
+#[test]
+fn reads_past_the_content_box_by_edge_mode() {
+    let Some(mut renderer) = renderer(black_background()) else {
+        return;
+    };
+    let plain = read_past_the_edges(&mut renderer, "source_at");
+    assert_eq!(pixel_at(&plain, 4, 32), [0, 0, 0, 255], "transparent");
+    assert_eq!(pixel_at(&plain, 60, 32), [0, 0, 0, 255], "transparent");
+
+    let clamped = read_past_the_edges(&mut renderer, "source_at_clamped");
+    assert_eq!(pixel_at(&clamped, 0, 32), [255, 0, 0, 255], "the left edge");
+    assert_eq!(pixel_at(&clamped, 4, 32), [255, 0, 0, 255], "the left edge");
+    assert_eq!(
+        pixel_at(&clamped, 60, 32),
+        [0, 0, 255, 255],
+        "the right edge"
+    );
+    assert_eq!(
+        pixel_at(&clamped, 63, 32),
+        [0, 0, 255, 255],
+        "the right edge"
+    );
+
+    // Mirrored about the edge pixels' centres: pixel 4 reads -7.5, which
+    // folds to 8.5, the first white pixel; pixel 60 reads 72.5, which folds
+    // to 54.5.
+    let mirrored = read_past_the_edges(&mut renderer, "source_at_mirrored");
+    assert_eq!(
+        pixel_at(&mirrored, 0, 32),
+        [255, 255, 255, 255],
+        "folded in"
+    );
+    assert_eq!(
+        pixel_at(&mirrored, 4, 32),
+        [255, 255, 255, 255],
+        "folded in"
+    );
+    assert_eq!(
+        pixel_at(&mirrored, 60, 32),
+        [255, 255, 255, 255],
+        "folded in"
+    );
+    assert_eq!(
+        pixel_at(&mirrored, 63, 32),
+        [255, 255, 255, 255],
+        "folded in"
+    );
+
+    // Inside the box all three read the same: pixel 16 reads 4.5, red.
+    for (frame, case) in [
+        (&plain, "plain"),
+        (&clamped, "clamped"),
+        (&mirrored, "mirrored"),
+    ] {
+        assert_eq!(pixel_at(frame, 16, 32), [255, 0, 0, 255], "{case}");
+        assert_eq!(pixel_at(frame, 46, 32), [0, 0, 255, 255], "{case}");
+    }
+}
+
+#[test]
+fn mirrors_reads_far_past_the_content_box() {
+    let Some(mut renderer) = renderer(black_background()) else {
+        return;
+    };
+    // The box spans pixel centres 8.5 to 39.5, 31px; a read 31px past the
+    // right one folds back to the left one, and 62px past it lands back on
+    // the right one. Pixel 8 is red, pixels 9 to 39 white.
+    let far = source(
+        "far",
+        "fn effect(input: EffectInput) -> vec4f {\n    let x = select(39.5 + 31.0, 39.5 + 62.0, input.position.y > 16.0);\n    return source_at_mirrored(vec2f(x, input.position.y));\n}\n",
+        &[],
+    );
+    let strips = super::transform_3d::group_at(
+        0.0,
+        0.0,
+        vec![
+            corner_rect("middle", 9.0, 8.0, 31.0, 24.0, "#ffffff"),
+            corner_rect("left", 8.0, 8.0, 1.0, 24.0, "#ff0000"),
+        ],
+    );
+    let frame = renderer
+        .render(&scene(
+            vec![far],
+            vec![shaded(strips, "far", Vec::new(), 0.0)],
+        ))
+        .unwrap();
+    assert_eq!(pixel_at(&frame, 20, 12), [255, 0, 0, 255], "one span past");
+    assert_eq!(
+        pixel_at(&frame, 20, 24),
+        [255, 255, 255, 255],
+        "two spans past"
+    );
+}
+
+#[test]
+fn edge_reads_of_a_one_pixel_box_stay_on_it() {
+    let Some(mut renderer) = renderer(black_background()) else {
+        return;
+    };
+    let far = source(
+        "far",
+        "fn effect(input: EffectInput) -> vec4f {\n    return source_at_clamped(input.position + vec2f(30.0, 0.0)) * 0.5 + source_at_mirrored(input.position - vec2f(0.0, 30.0)) * 0.5;\n}\n",
+        &[],
+    );
+    let frame = renderer
+        .render(&scene(
+            vec![far],
+            vec![shaded(
+                corner_rect("dot", 20.0, 20.0, 1.0, 1.0, "#ffffff"),
+                "far",
+                Vec::new(),
+                0.0,
+            )],
+        ))
+        .unwrap();
+    assert_near(pixel_at(&frame, 20, 20), [255, 255, 255, 255], 1, "the dot");
+}
+
 #[test]
 fn clamps_the_result_to_a_premultiplied_color() {
     let Some(mut renderer) = renderer(black_background()) else {
