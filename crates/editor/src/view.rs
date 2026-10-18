@@ -12,12 +12,13 @@ use crate::react_audio::ReactAudioWorker;
 use crate::refresh::{ReloadOrder, SelectionKeep};
 use crate::source::{PropertyArgs, load_source};
 use crate::timeline::LaneGesture;
+use crate::transform_drag::TransformDrag;
 use crate::transform_edit::TransformEdit;
 use crate::transform_rows::TransformInputs;
 use celesta_composition::{AudioClip, Rational};
 use celesta_editor_core::{AssetSummary, EditorDocument, TimelineClock, TrackSummary};
 use celesta_exporter::{ExportCancellation, ExportProgress};
-use celesta_gpu_renderer::{GpuDriver, GpuRenderOptions, GpuRenderer, HitRegion};
+use celesta_gpu_renderer::{GpuDriver, GpuRenderOptions, GpuRenderer, HitRegion, LayerFrame};
 use celesta_media::FfmpegBackend;
 use celesta_react_bridge::{ComponentPropertyField, ComponentPropertySchema};
 use chrono::{DateTime, Local};
@@ -230,6 +231,13 @@ pub(crate) struct EditorView {
     pub(crate) transform: TransformEdit,
     /// The Layer section's Transform fields.
     pub(crate) transform_inputs: TransformInputs,
+    /// The selected layer's frame as the shown frame measured it: the layer
+    /// id, and `None` inside when it has no affine frame. `None` when the
+    /// frame measured nothing (during playback, or with no selection).
+    pub(crate) layer_frame: Option<(String, Option<LayerFrame>)>,
+    /// The canvas drag of the selected layer's transform, if one is running
+    /// or being written.
+    pub(crate) transform_drag: Option<TransformDrag>,
 }
 
 impl EditorView {
@@ -377,6 +385,8 @@ impl EditorView {
             selection_keep: SelectionKeep::default(),
             transform: TransformEdit::default(),
             transform_inputs: TransformInputs::default(),
+            layer_frame: None,
+            transform_drag: None,
         };
         editor.refresh_preview();
         editor.refresh_audio_preview();

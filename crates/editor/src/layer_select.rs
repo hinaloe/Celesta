@@ -46,11 +46,23 @@ pub(crate) fn scene_point(
     frame: (f32, f32),
     position: gpui_kit::Point<Pixels>,
 ) -> Option<Point> {
-    let (left, top, scale) = letterbox(bounds, frame)?;
-    let x = f64::from((f32::from(position.x) - left) / scale);
-    let y = f64::from((f32::from(position.y) - top) / scale);
+    let Point { x, y } = to_scene(bounds, frame, position)?;
     ((0.0..=f64::from(frame.0)).contains(&x) && (0.0..=f64::from(frame.1)).contains(&y))
         .then_some(Point { x, y })
+}
+
+/// `position` in scene pixels of the frame fitted into `bounds`, also when it
+/// is outside the frame (a drag that leaves it).
+pub(crate) fn to_scene(
+    bounds: Bounds<Pixels>,
+    frame: (f32, f32),
+    position: gpui_kit::Point<Pixels>,
+) -> Option<Point> {
+    let (left, top, scale) = letterbox(bounds, frame)?;
+    Some(Point {
+        x: f64::from((f32::from(position.x) - left) / scale),
+        y: f64::from((f32::from(position.y) - top) / scale),
+    })
 }
 
 /// What the Layer section shows for a lookup's outcome.

@@ -11,9 +11,10 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Selectable as _, Sizable as _};
 use gpui_kit::{
-    AnyElement, BorderStyle, Bounds, Context, Hsla, IntoElement, MouseButton, MouseDownEvent,
-    ObjectFit, ParentElement as _, PathBuilder, Pixels, StyledImage as _, Window, canvas, div,
-    fill, img, outline, point, prelude::*, px, relative, rems, size,
+    AnyElement, BorderStyle, Bounds, Context, CursorStyle, Hitbox, HitboxBehavior, Hsla,
+    IntoElement, MouseButton, MouseDownEvent, ObjectFit, ParentElement as _, PathBuilder, Pixels,
+    StyledImage as _, Window, canvas, div, fill, img, outline, point, prelude::*, px, relative,
+    rems, size,
 };
 
 use crate::actions::{
@@ -27,7 +28,10 @@ use crate::preview::PreviewPresentation;
 use crate::problems::{ActiveProblem, Source, flow_line_breaks, summarize_warnings};
 use crate::problems_panel::{detail_block, show_in_problems_row};
 use crate::timecode::format_timecode;
+use crate::transform_drag::{DragState, HANDLE_SIZE, NO_AFFINE_FRAME, ROTATE_STEM, shown_handles};
+use crate::transform_handles::{Handle, rotate_stem};
 use crate::view::EditorView;
+use celesta_gpu_renderer::LayerFrame;
 
 const KEY_CONTEXT: Option<&str> = Some("CelestaEditor");
 
@@ -65,6 +69,35 @@ impl EditorView {
             })
             .unwrap_or_default();
         let viewer_bounds = self.viewer_bounds.clone();
+        let drag_state = self.drag_state();
+        let dashed = matches!(drag_state, DragState::Locked(..));
+        let handle_fill = cx.theme().background;
+        let editable_frame = match &drag_state {
+            DragState::Editable(frame, editable) => Some((frame.clone(), editable.clone())),
+            _ => None,
+        };
+        let notice = match drag_state {
+            DragState::NoFrame => Some(NO_AFFINE_FRAME.to_owned()),
+            _ => None,
+        }
+        .or_else(|| {
+            self.transform
+                .error(self.selected_layer.as_deref())
+                .map(str::to_owned)
+        });
+        // Placed by the viewer's last painted bounds, relative to them.
+        let last_bounds = self.viewer_bounds.get();
+        let locked_box = match &drag_state {
+            DragState::Locked(frame, reason) => last_bounds
+                .and_then(|bounds| outline_box(bounds, frame_size, frame))
+                .map(|area| (area, reason.clone())),
+            _ => None,
+        };
+        let label = self.transform_drag_label().and_then(|label| {
+            let bounds = last_bounds?;
+            let (frame, _) = editable_frame.as_ref()?;
+            Some((outline_box(bounds, frame_size, frame)?, label))
+        });
         let canvas_area = div()
             .relative()
             .flex()
@@ -88,13 +121,24 @@ impl EditorView {
             })
             .child(
                 canvas(
-                    move |bounds, _, _| viewer_bounds.set(Some(bounds)),
-                    move |bounds, _, window, _| {
+                    move |bounds, window, _| {
+                        viewer_bounds.set(Some(bounds));
+                        // Each handle's square, with a hitbox for its cursor.
+                        editable_frame
+                            .map(|(frame, editable)| {
+                                place_handles(bounds, frame_size, &frame, &editable, window)
+                            })
+                            .unwrap_or_default()
+                    },
+                    move |bounds, placed, window, _| {
                         if show_safe_areas {
                             paint_safe_areas(bounds, frame_size, overlay_color, window);
                         }
                         for corners in &selected_quads {
-                            paint_layer_outline(bounds, frame_size, corners, window);
+                            paint_layer_outline(bounds, frame_size, corners, dashed, window);
+                        }
+                        if let Some(placed) = placed {
+                            paint_handles(&placed, handle_fill, window);
                         }
                     },
                 )
@@ -105,6 +149,53 @@ impl EditorView {
             )
             .when(self.picks_layers(), |area| {
                 area.on_mouse_down(MouseButton::Left, cx.listener(Self::select_layer_at))
+            })
+            // Nothing to drag: say why where the pointer is.
+            .when_some(locked_box, |area, (locked, reason)| {
+                area.child(
+                    div()
+                        .id("transform-locked")
+                        .absolute()
+                        .left(locked.origin.x)
+                        .top(locked.origin.y)
+                        .w(locked.size.width)
+                        .h(locked.size.height)
+                        .cursor(CursorStyle::OperationNotAllowed)
+                        .tooltip(move |window, cx| Tooltip::new(reason.clone()).build(window, cx)),
+                )
+            })
+            .when_some(label, |area, (beside, label)| {
+                area.child(
+                    div()
+                        .absolute()
+                        .left(beside.origin.x + beside.size.width + px(8.0))
+                        .top(beside.origin.y)
+                        .px_1()
+                        .border_1()
+                        .border_color(cx.theme().border)
+                        .bg(cx.theme().popover)
+                        .text_xs()
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .text_color(cx.theme().foreground)
+                        .whitespace_nowrap()
+                        .child(label),
+                )
+            })
+            .when_some(notice, |area, notice| {
+                area.child(
+                    div()
+                        .absolute()
+                        .top_2()
+                        .left_2()
+                        .px_2()
+                        .py_1()
+                        .border_1()
+                        .border_color(cx.theme().border)
+                        .bg(cx.theme().popover)
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(notice),
+                )
             })
             // One column over the frame: the error panel takes the space the
             // warnings strip leaves, so the two never overlap.
@@ -662,6 +753,11 @@ impl EditorView {
         let hit = scene_point(bounds, frame_size, event.position)
             .and_then(|point| hit_test(&self.hit_regions, point))
             .map(str::to_owned);
+        // A press on the selection's handles, or on its body, drags it.
+        if self.begin_transform_drag(event.position, hit.as_deref()) {
+            cx.notify();
+            return;
+        }
         if hit == self.selected_layer {
             return;
         }
@@ -682,6 +778,8 @@ impl EditorView {
         self.source_lookup = None;
         self.launch_error = None;
         self.transform.reset();
+        self.layer_frame = None;
+        self.transform_drag = None;
     }
 }
 
@@ -733,11 +831,12 @@ fn paint_safe_areas(
 }
 
 /// A 1px outline around a selected layer's quad, its scene-pixel corners
-/// placed on the letterboxed frame.
+/// placed on the letterboxed frame; dashed when nothing of it can be dragged.
 fn paint_layer_outline(
     bounds: Bounds<Pixels>,
     frame_size: (f32, f32),
     corners: &[Point; 4],
+    dashed: bool,
     window: &mut Window,
 ) {
     let Some((left, top, scale)) = letterbox(bounds, frame_size) else {
@@ -750,6 +849,9 @@ fn paint_layer_outline(
         )
     });
     let mut path = PathBuilder::stroke(px(1.0));
+    if dashed {
+        path = path.dash_array(&[px(4.0), px(3.0)]);
+    }
     path.move_to(first);
     for corner in rest {
         path.line_to(corner);
@@ -758,4 +860,117 @@ fn paint_layer_outline(
     if let Ok(path) = path.build() {
         window.paint_path(path, theme::accent());
     }
+}
+
+/// The handles of a draggable selection, placed on the viewer.
+#[derive(Default)]
+struct PlacedHandles {
+    /// Each handle's square and the hitbox that sets its cursor.
+    squares: Vec<(Handle, Bounds<Pixels>, Hitbox)>,
+    /// The rotation handle's stem, from the top edge's middle.
+    stem: Option<(gpui_kit::Point<Pixels>, gpui_kit::Point<Pixels>)>,
+    /// Where the anchor is.
+    anchor: Option<gpui_kit::Point<Pixels>>,
+}
+
+/// Places the handles `editable` allows on the frame fitted into `bounds`.
+fn place_handles(
+    bounds: Bounds<Pixels>,
+    frame_size: (f32, f32),
+    frame: &LayerFrame,
+    editable: &[crate::transform_edit::TransformProp],
+    window: &mut Window,
+) -> Option<PlacedHandles> {
+    let (left, top, scale) = letterbox(bounds, frame_size)?;
+    let on_viewer = |p: Point| point(px(left + p.x as f32 * scale), px(top + p.y as f32 * scale));
+    let stem = f64::from(ROTATE_STEM / scale);
+    let squares = shown_handles(frame, editable, stem)
+        .into_iter()
+        .map(|(handle, at)| {
+            let center = on_viewer(at);
+            let half = px(HANDLE_SIZE / 2.0);
+            let square = Bounds::new(
+                point(center.x - half, center.y - half),
+                size(px(HANDLE_SIZE), px(HANDLE_SIZE)),
+            );
+            let hitbox = window.insert_hitbox(square.dilate(px(2.0)), HitboxBehavior::Normal);
+            (handle, square, hitbox)
+        })
+        .collect::<Vec<_>>();
+    let rotates = squares
+        .iter()
+        .any(|(handle, _, _)| *handle == Handle::Rotate);
+    let [a, b, c, d, tx, ty] = frame.parent;
+    let position = frame.transform.position;
+    let anchor = Point {
+        x: a * position.x + c * position.y + tx,
+        y: b * position.x + d * position.y + ty,
+    };
+    Some(PlacedHandles {
+        squares,
+        stem: rotates.then(|| {
+            let (from, to) = rotate_stem(frame, stem);
+            (on_viewer(from), on_viewer(to))
+        }),
+        anchor: Some(on_viewer(anchor)),
+    })
+}
+
+/// Square handles in the accent color, a stem to the rotation handle, and a
+/// small cross on the anchor. Sets each handle's cursor.
+fn paint_handles(placed: &PlacedHandles, handle_fill: Hsla, window: &mut Window) {
+    let accent = theme::accent();
+    if let Some((from, to)) = placed.stem {
+        let mut path = PathBuilder::stroke(px(1.0));
+        path.move_to(from);
+        path.line_to(to);
+        if let Ok(path) = path.build() {
+            window.paint_path(path, accent);
+        }
+    }
+    if let Some(anchor) = placed.anchor {
+        let arm = px(5.0);
+        window.paint_quad(fill(
+            Bounds::new(point(anchor.x - arm, anchor.y), size(arm * 2.0, px(1.0))),
+            accent,
+        ));
+        window.paint_quad(fill(
+            Bounds::new(point(anchor.x, anchor.y - arm), size(px(1.0), arm * 2.0)),
+            accent,
+        ));
+    }
+    for (handle, square, hitbox) in &placed.squares {
+        window.paint_quad(fill(*square, handle_fill));
+        window.paint_quad(outline(*square, accent, BorderStyle::Solid));
+        window.set_cursor_style(handle_cursor(*handle), hitbox);
+    }
+}
+
+fn handle_cursor(handle: Handle) -> CursorStyle {
+    match handle {
+        Handle::Corner(0 | 2) => CursorStyle::ResizeUpLeftDownRight,
+        Handle::Corner(_) => CursorStyle::ResizeUpRightDownLeft,
+        Handle::Edge(1 | 3) => CursorStyle::ResizeLeftRight,
+        Handle::Edge(_) => CursorStyle::ResizeUpDown,
+        Handle::Rotate => CursorStyle::Crosshair,
+        Handle::Move => CursorStyle::Arrow,
+    }
+}
+
+/// The box around `frame`'s outline on the frame fitted into `bounds`,
+/// relative to `bounds`' origin.
+fn outline_box(
+    bounds: Bounds<Pixels>,
+    frame_size: (f32, f32),
+    frame: &LayerFrame,
+) -> Option<Bounds<Pixels>> {
+    let (left, top, scale) = letterbox(bounds, frame_size)?;
+    let xs = frame.outline.map(|p| left + p.x as f32 * scale);
+    let ys = frame.outline.map(|p| top + p.y as f32 * scale);
+    let min = |values: [f32; 4]| values.into_iter().fold(f32::INFINITY, f32::min);
+    let max = |values: [f32; 4]| values.into_iter().fold(f32::NEG_INFINITY, f32::max);
+    Some(Bounds::new(
+        point(px(min(xs)) - bounds.origin.x, px(min(ys)) - bounds.origin.y),
+        size(px(max(xs) - min(xs)), px(max(ys) - min(ys))),
+    ))
 }

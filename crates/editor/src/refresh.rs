@@ -271,12 +271,15 @@ impl EditorView {
         } else {
             ReactPreviewMode::ResolveComponents
         };
+        // A drag redraws the frame on every move; the runtime's answer does
+        // not change with the override, so it is not asked again.
         let source_of = source_lookup_target(
             self.selected_layer.as_deref(),
             self.picks_layers(),
             self.playing,
             self.source_lookup.as_ref(),
-        );
+        )
+        .filter(|_| self.transform_drag.is_none());
         match self.document.scene_at(self.current_time()) {
             // The warnings stay until the result replaces them, so their
             // counts don't flicker while frames are in flight.
@@ -295,8 +298,11 @@ impl EditorView {
                         RenderQuality::Final
                     },
                     source_of,
-                    transform_override: None,
-                    frame_of: None,
+                    transform_override: self.transform_override(),
+                    frame_of: self
+                        .selected_layer
+                        .clone()
+                        .filter(|_| self.picks_layers() && !self.playing),
                     timeline_frame: self.clock.frame(),
                 }) {
                     self.preview_pending = false;

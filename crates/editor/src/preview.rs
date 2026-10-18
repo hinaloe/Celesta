@@ -78,7 +78,6 @@ pub(crate) struct PreviewResult {
     /// The request's `frame_of` and what measuring it returned: `None` inside
     /// when the layer is absent or has no affine frame (see `layer_frame`).
     /// `None` when nothing was measured.
-    #[allow(dead_code, reason = "read by the canvas drag in a later change")]
     pub(crate) layer_frame: Option<(String, Option<LayerFrame>)>,
     /// The request's `timeline_frame`.
     pub(crate) timeline_frame: i64,
@@ -247,6 +246,9 @@ impl PreviewWorker {
                         }
                     };
                     let frame = evaluated.and_then(|()| {
+                        // Inside a motion-blur group the samples may share the
+                        // layer's id; the override reaches the first only, and
+                        // the other samples stay where the drag began.
                         if let Some((id, transform)) =
                             request.transform_override.as_ref().filter(|_| whole_scene)
                         {

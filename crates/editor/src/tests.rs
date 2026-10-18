@@ -20,12 +20,15 @@ use crate::transform_edit::{
     CommitError, TransformEdit, TransformProp, commit_text, keyframe_timeline_frame, reason_text,
     resolve_targets,
 };
+use crate::transform_handles::{
+    Handle, drag_label, drag_values, handle_at, handles, override_transform, prop_values,
+};
 use crate::waveform::{
     clip_level_envelope, level_at_time, map_clip_waveform, master_volume_from_drag, waveform_peaks,
     waveform_segment,
 };
 use celesta_editor_core::ClipKind;
-use celesta_gpu_renderer::GpuDriver;
+use celesta_gpu_renderer::{GpuDriver, LayerFrame};
 use celesta_source_edit::{EditTarget, LockReason};
 
 use crate::preview::{
@@ -34,8 +37,8 @@ use crate::preview::{
 };
 use celesta_composition::{
     Animatable, AssetLocation, AudioClip, EvaluatedTransform, GroupMask, Layer, LayerContent,
-    LayerEffects, LayerFilter, LayerShader, MaskMode, Rational, ResolvedAsset, Scene, ShaderSource,
-    Time, TimeRange,
+    LayerEffects, LayerFilter, LayerShader, MaskMode, Point, Rational, ResolvedAsset, Scene,
+    ShaderSource, Time, TimeRange,
 };
 use celesta_editor_core::ClipSummary;
 use celesta_exporter::{ExportCancellation, ExportProgress, VideoFormat};
@@ -1460,4 +1463,283 @@ fn transform_keyframe_jumps_use_the_lookup_frame() {
     assert_eq!(keyframe_timeline_frame(90.0, 100, 60.0), 130);
     // Not shifted by a sequence.
     assert_eq!(keyframe_timeline_frame(30.0, 12, 12.0), 30);
+}
+
+/// A 100x50 layer at `position` with its anchor at the top left (React's
+/// default), under `parent`, unrotated and unscaled.
+fn drag_frame(parent: [f64; 6], position: Point) -> LayerFrame {
+    let corner = |x: f64, y: f64| Point {
+        x: parent[0] * (position.x + x) + parent[2] * (position.y + y) + parent[4],
+        y: parent[1] * (position.x + x) + parent[3] * (position.y + y) + parent[5],
+    };
+    LayerFrame {
+        transform: EvaluatedTransform {
+            position,
+            anchor: Point { x: 0.0, y: 0.0 },
+            ..EvaluatedTransform::default()
+        },
+        parent,
+        outline: [
+            corner(0.0, 0.0),
+            corner(100.0, 0.0),
+            corner(100.0, 50.0),
+            corner(0.0, 50.0),
+        ],
+    }
+}
+
+const IDENTITY: [f64; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+const UNIFORM: [TransformProp; 4] = [
+    TransformProp::X,
+    TransformProp::Y,
+    TransformProp::Rotation,
+    TransformProp::Scale,
+];
+const PER_AXIS: [TransformProp; 5] = [
+    TransformProp::X,
+    TransformProp::Y,
+    TransformProp::Rotation,
+    TransformProp::ScaleX,
+    TransformProp::ScaleY,
+];
+
+fn pt(x: f64, y: f64) -> Point {
+    Point { x, y }
+}
+
+fn assert_values(actual: &[(TransformProp, f64)], expected: &[(TransformProp, f64)]) {
+    assert_eq!(
+        actual.iter().map(|(prop, _)| *prop).collect::<Vec<_>>(),
+        expected.iter().map(|(prop, _)| *prop).collect::<Vec<_>>(),
+        "{actual:?}"
+    );
+    for ((_, a), (_, e)) in actual.iter().zip(expected) {
+        assert!((a - e).abs() < 1e-9, "{actual:?} != {expected:?}");
+    }
+}
+
+#[test]
+fn drag_values_move_inside_a_parent_scaled_by_two_halves_the_delta() {
+    let frame = drag_frame([2.0, 0.0, 0.0, 2.0, 30.0, 40.0], pt(10.0, 20.0));
+    let values = drag_values(
+        &frame,
+        Handle::Move,
+        pt(100.0, 100.0),
+        pt(140.0, 160.0),
+        false,
+        &UNIFORM,
+    );
+    assert_values(
+        &values,
+        &[(TransformProp::X, 30.0), (TransformProp::Y, 50.0)],
+    );
+}
+
+#[test]
+fn drag_values_move_with_y_locked_changes_only_x() {
+    let frame = drag_frame(IDENTITY, pt(10.0, 20.0));
+    let editable = [
+        TransformProp::X,
+        TransformProp::Rotation,
+        TransformProp::Scale,
+    ];
+    let values = drag_values(
+        &frame,
+        Handle::Move,
+        pt(0.0, 0.0),
+        pt(5.0, 7.0),
+        false,
+        &editable,
+    );
+    assert_values(&values, &[(TransformProp::X, 15.0)]);
+}
+
+#[test]
+fn drag_values_rotate_turns_about_the_anchor_and_snaps_with_shift() {
+    let frame = drag_frame(IDENTITY, pt(100.0, 100.0));
+    let angle = 37f64.to_radians();
+    let now = pt(100.0 + 50.0 * angle.cos(), 100.0 + 50.0 * angle.sin());
+    let free = drag_values(
+        &frame,
+        Handle::Rotate,
+        pt(200.0, 100.0),
+        now,
+        false,
+        &UNIFORM,
+    );
+    assert_values(&free, &[(TransformProp::Rotation, 37.0)]);
+    let snapped = drag_values(
+        &frame,
+        Handle::Rotate,
+        pt(200.0, 100.0),
+        now,
+        true,
+        &UNIFORM,
+    );
+    assert_values(&snapped, &[(TransformProp::Rotation, 30.0)]);
+}
+
+#[test]
+fn drag_values_rotate_snaps_the_resulting_angle() {
+    let mut frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    frame.transform.rotation = 10.0;
+    // +24° from 10° is 34°, which snaps to 30°.
+    let angle = 24f64.to_radians();
+    let now = pt(10.0 * angle.cos(), 10.0 * angle.sin());
+    let values = drag_values(&frame, Handle::Rotate, pt(10.0, 0.0), now, true, &UNIFORM);
+    assert_values(&values, &[(TransformProp::Rotation, 30.0)]);
+}
+
+#[test]
+fn drag_values_corner_with_uniform_scale_keeps_the_aspect() {
+    let mut frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    frame.transform.scale = pt(2.0, 2.0);
+    // Along the diagonal to twice the distance from the anchor.
+    let values = drag_values(
+        &frame,
+        Handle::Corner(2),
+        pt(100.0, 50.0),
+        pt(200.0, 100.0),
+        false,
+        &UNIFORM,
+    );
+    assert_values(&values, &[(TransformProp::Scale, 4.0)]);
+    // Off the diagonal: one ratio, the projection on it.
+    let values = drag_values(
+        &frame,
+        Handle::Corner(2),
+        pt(100.0, 50.0),
+        pt(200.0, 80.0),
+        false,
+        &UNIFORM,
+    );
+    assert_values(&values, &[(TransformProp::Scale, 2.0 * 24000.0 / 12500.0)]);
+}
+
+#[test]
+fn drag_values_corner_with_per_axis_scale_scales_each_axis() {
+    let frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    let values = drag_values(
+        &frame,
+        Handle::Corner(2),
+        pt(100.0, 50.0),
+        pt(200.0, 80.0),
+        false,
+        &PER_AXIS,
+    );
+    assert_values(
+        &values,
+        &[(TransformProp::ScaleX, 2.0), (TransformProp::ScaleY, 1.6)],
+    );
+}
+
+#[test]
+fn drag_values_edge_changes_only_scale_x() {
+    let frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    let values = drag_values(
+        &frame,
+        Handle::Edge(1),
+        pt(100.0, 25.0),
+        pt(150.0, 40.0),
+        false,
+        &PER_AXIS,
+    );
+    assert_values(&values, &[(TransformProp::ScaleX, 1.5)]);
+}
+
+#[test]
+fn drag_values_scale_in_the_layers_rotated_axes() {
+    let mut frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    frame.transform.rotation = 90.0;
+    // Turned 90° clockwise, the layer's x axis points down the screen.
+    let values = drag_values(
+        &frame,
+        Handle::Edge(1),
+        pt(0.0, 100.0),
+        pt(0.0, 300.0),
+        false,
+        &PER_AXIS,
+    );
+    assert_values(&values, &[(TransformProp::ScaleX, 3.0)]);
+}
+
+#[test]
+fn drag_values_corner_on_the_anchor_leaves_the_scale() {
+    let frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    let values = drag_values(
+        &frame,
+        Handle::Corner(0),
+        pt(0.0, 0.0),
+        pt(20.0, 20.0),
+        false,
+        &UNIFORM,
+    );
+    assert_values(&values, &[]);
+}
+
+#[test]
+fn transform_handles_leave_out_edges_for_uniform_scale() {
+    let frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    let all = handles(&frame, false, 20.0);
+    assert_eq!(all.len(), 9);
+    assert!(all.contains(&(Handle::Corner(2), pt(100.0, 50.0))));
+    assert!(all.contains(&(Handle::Edge(1), pt(100.0, 25.0))));
+    assert!(all.contains(&(Handle::Rotate, pt(50.0, -20.0))));
+    let uniform = handles(&frame, true, 20.0);
+    assert_eq!(uniform.len(), 5);
+    assert!(
+        uniform
+            .iter()
+            .all(|(handle, _)| !matches!(handle, Handle::Edge(_)))
+    );
+}
+
+#[test]
+fn transform_handle_at_prefers_handles_then_the_body() {
+    let frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    let all = handles(&frame, false, 20.0);
+    assert_eq!(
+        handle_at(&frame, &all, pt(102.0, 49.0), 4.0),
+        Some(Handle::Corner(2))
+    );
+    assert_eq!(
+        handle_at(&frame, &all, pt(40.0, 30.0), 4.0),
+        Some(Handle::Move)
+    );
+    assert_eq!(handle_at(&frame, &all, pt(140.0, 30.0), 4.0), None);
+}
+
+#[test]
+fn transform_drag_override_and_props() {
+    let mut frame = drag_frame(IDENTITY, pt(10.0, 20.0));
+    frame.transform.scale = pt(2.0, 2.0);
+    let values = [
+        (TransformProp::X, 30.0),
+        (TransformProp::Rotation, 15.0),
+        (TransformProp::Scale, 3.0),
+    ];
+    let transform = override_transform(&frame, &values);
+    assert_eq!(transform.position, pt(30.0, 20.0));
+    assert_eq!(transform.rotation, 15.0);
+    assert_eq!(transform.scale, pt(3.0, 3.0));
+
+    // A prop the runtime saw as another value than the transform's keeps its
+    // offset; a scale its ratio.
+    let props = ReceivedProps {
+        x: Some(110.0),
+        scale: Some(4.0),
+        ..ReceivedProps::default()
+    };
+    assert_eq!(
+        prop_values(&frame, &values, &props),
+        vec![
+            (TransformProp::X, 130.0),
+            (TransformProp::Rotation, 15.0),
+            (TransformProp::Scale, 6.0),
+        ]
+    );
+    assert_eq!(
+        drag_label(&frame, &values),
+        "x 10 → 30  rotation 0 → 15  scale 2 → 3"
+    );
 }

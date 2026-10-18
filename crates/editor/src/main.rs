@@ -44,7 +44,9 @@ mod render;
 mod source;
 #[cfg(test)]
 mod tests;
+mod transform_drag;
 mod transform_edit;
+mod transform_handles;
 mod transform_rows;
 mod view;
 mod waveform;
