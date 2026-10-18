@@ -53,6 +53,8 @@ holdThroughGap は、台詞の後の間も字幕と表情を保持します。ho
 
 VOICEVOX や AivisSpeech で生成した音声には、WAV に文字起こしの母音を均等に割り振る代わりに、合成に使った AudioQuery と [@celesta/voicevox](/ja/docs/voicevox/) または [@celesta/aivis-speech](/ja/docs/aivis-speech/) を利用できます。
 
+台本を VOICEVOX Engine に読み上げさせるには、planDialogue() の前に [@celesta/voicevox](/ja/docs/voicevox/) の `prepareNarration()` を呼びます。各台詞を合成して音声をキャッシュし、`audio` と `lipSync` を設定するので、読み上げる文や声を変えた台詞だけが合成し直されます。
+
 ## 音声ソフトの書き出しフォルダーを読み込む
 
 VOICEROID、A.I.VOICE、AquesTalk 系のソフトは、台詞ごとに `name.wav` と同じ名前のテキスト `name.txt` を保存できます。prepare() で `importVoiceFolder({ directory, speaker })` を呼ぶと、このフォルダーを planDialogue() に渡せる台詞の列にします。ID はファイル名、字幕はテキスト、長さは録音、口パクは波形から作られます。並び順はどの OS でも名前の自然順（`voice-2` の後に `voice-10`）です。

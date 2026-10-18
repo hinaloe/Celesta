@@ -1066,6 +1066,9 @@ importers:
       '@celesta/character':
         specifier: workspace:*
         version: link:../character
+      '@types/node':
+        specifier: ^24.13.6
+        version: 24.19.0
       typescript:
         specifier: ^5.7.3
         version: 5.9.3

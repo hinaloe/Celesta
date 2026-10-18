@@ -21,6 +21,7 @@ Dialogue scenes combine three pieces:
 - [Timing a script from its voices](#timing-a-script-from-its-voices)
 - [Importing a voice tool's export folder](#importing-a-voice-tools-export-folder)
 - [Matching voice levels and ducking background audio](#matching-voice-levels-and-ducking-background-audio)
+- [Synthesizing a script with VOICEVOX](#synthesizing-a-script-with-voicevox)
 - [Changing the face within a line](#changing-the-face-within-a-line)
 - [Drawing the subtitle yourself](#drawing-the-subtitle-yourself)
 - [React props](#react-props)
@@ -387,6 +388,104 @@ compressor, so preview and export play the same volumes.
 Not covered: integrated LUFS / EBU R128 normalization, true peak, master
 limiting, realtime sidechain compression, denoising, remote or compressed
 audio, and rewriting WAV files.
+
+## Synthesizing a script with VOICEVOX
+
+`prepareNarration(lines, options)` from `@celesta/voicevox` makes the voices
+for a script with a local VOICEVOX Engine in `prepare()`, so no WAV paths or
+query files are written by hand. It returns the lines with `audio`,
+`lipSync`, and `narration` set, in order, ready for `planDialogue()`. The
+engine is never installed or started for you; start it first, e.g.
+`docker run --rm -p 127.0.0.1:50021:50021 voicevox/voicevox_engine:cpu-ubuntu24.04-latest`.
+
+```tsx
+import { planDialogue } from '@celesta/character';
+import type { DialoguePlan } from '@celesta/character';
+import { prepareNarration } from '@celesta/voicevox';
+import type { NarratedLine, NarrationLine } from '@celesta/voicevox';
+
+const SCRIPT: NarrationLine[] = [
+  { id: 'intro', speaker: 'zunda', text: 'HPが1です。', spokenText: 'エイチピーがいちです。' },
+  { id: 'reply', speaker: 'metan', text: '危ないわね。', expression: 'surprised' },
+];
+
+let plan: DialoguePlan<NarratedLine>;
+export async function prepare() {
+  const lines = await prepareNarration(SCRIPT, {
+    speakers: {
+      zunda: { baseUrl: 'http://127.0.0.1:50021', styleId: 3 },
+      metan: { baseUrl: 'http://127.0.0.1:50021', styleId: 2, query: { speedScale: 1.1 } },
+    },
+    cacheDir: './.celesta/voices', // the default; relative to the entry file
+  });
+  plan = await planDialogue(lines, { fps: 30 });
+}
+// <DialogueSeries plan={plan} views={{ zunda: zundaView, metan: metanView }} />
+```
+
+Each line is a `DialogueLine` plus:
+
+| Field | Notes |
+| --- | --- |
+| `id` | Required and unique; errors name it. |
+| `speaker` | Key of `options.speakers` (and of `<DialogueSeries views>`). |
+| `spokenText` | What the engine reads, e.g. a reading for `HP` or text without `<Span>`s. Defaults to `text`, which must then be a string. |
+| `voice` | Per-line override of the speaker's settings (`styleId`, `query`, `interrogativeUpspeak`, `katakanaEnglish`, `revision`); `query` merges field by field. |
+
+A line that already has `audio` is returned as it is and never synthesized,
+so recorded and synthesized lines mix in one script.
+
+A speaker (`VoicevoxVoice`): `baseUrl` (required), `styleId` (from the
+engine's `GET /speakers`, `styles[].id`), `query` (`speedScale`,
+`pitchScale`, `intonationScale`, `volumeScale`, `prePhonemeLength`,
+`postPhonemeLength`, `pauseLength`, `pauseLengthScale`,
+`outputSamplingRate`, `outputStereo`, set over the engine's query before
+`/synthesis`), `interrogativeUpspeak` (default true; also used for the lip
+sync), `katakanaEnglish`, `revision`.
+
+Options: `speakers` (required), `cacheDir` (default `./.celesta/voices`),
+`concurrency` (lines synthesized at once, default 2), `timeout` (ms per
+engine request, default 60000), `signal` (an `AbortSignal`), `revision`
+(part of every line's key), `refresh` (`true` or line ids: synthesize again
+even when cached), `frameRate` (lip-sync phoneme grid, as in
+`lipSyncFromVoicevox`).
+
+`line.narration`: `audio` and `metadata` (absolute paths of the WAV and its
+JSON), `duration` (seconds measured from the WAV), `query` (the full query
+that was synthesized, unknown fields included; pass it to
+`timingFromVoicevox(query, { interrogativeUpspeak })` for mora times),
+`spokenText`, `interrogativeUpspeak`, `key`, `cached`.
+
+**Cache.** A line's key is its spoken text, `styleId`, `query` settings,
+`interrogativeUpspeak`, `katakanaEnglish`, the speaker's, line's, and
+script's `revision`, and a cache format version. Display `text` (when
+`spokenText` is set), expression, order, gaps, scenes, and `baseUrl` are not
+in it, so changing them synthesizes nothing; changing one spoken line
+synthesizes only that line, and identical lines share one synthesis. A hit
+reads files only: **the engine need not be running** to reopen or export an
+unchanged script. The cache cannot see the engine's user dictionary, an
+engine update, or new voice models; bump `revision` (on the speaker for
+one voice, in the options for all) or pass `refresh` after changing them.
+Keep `cacheDir` out of version control.
+
+Entries are `<key>.wav` and `<key>.json`, each written to a temporary file
+and renamed; the JSON records the WAV's size and hash and is written last.
+A missing, mismatched, or undecodable entry is synthesized again, and a
+failed or cancelled line leaves no entry.
+
+**Errors.** A failure rejects with a `NarrationError` that names the line,
+its speaker, and the `stage` (`config`, `audio_query`, `synthesis`,
+`write`), e.g. `prepareNarration(): line "reply" (speaker "metan") failed
+at synthesis: http://127.0.0.1:50021/synthesis answered 422: …`. An unknown
+speaker or a line without spoken text fails before any request. Lines that
+succeeded stay cached, so fixing the cause and reloading redoes only the
+failed ones. Nothing is written to stdout.
+
+Limits: VOICEVOX Engine only (for AivisSpeech, synthesize yourself and see
+[Lip sync from AivisSpeech](#lip-sync-from-aivisspeech)); the user
+dictionary is not synchronized; frames never call the engine, so all
+synthesis happens in `prepare()`. `packages/cli/examples/with-narration.tsx`
+is a runnable two-speaker example.
 
 ## Changing the face within a line
 
@@ -1011,6 +1110,8 @@ active**, and portrait and subtitle positions come from the character.
 | PSD portrait is empty or shows only a mouth | Set `layers` from a PSDTool favorite or layer list. |
 | A PSD expression's face part overlaps the saved one (two brows) | Add the face folder to the expression's `hide`. |
 | `PSD asset … has no layer …` | A path in `lipSync`, `blink`, or `hide` (or, without `layers`, an expression's layers) is not in the PSD; check it against `--psd-layers`. |
+| `prepareNarration(): … failed at audio_query: could not reach the VOICEVOX Engine` | Start the engine (the message shows the address) or fix the speaker's `baseUrl`. Cached lines do not need it. |
+| A synthesized voice ignores a dictionary or engine change | The cache cannot see it; bump `revision` or pass `refresh`. |
 | `planDialogue(): voice file for line … not found` | The path is relative to the entry file; the message shows where it looked. |
 | `<DialogueSeries> line …: speaker "x" is not in views` | Add the speaker to `views`, or set `character` on the line. |
 | The portrait never blinks | `blink` is on the `portrait` (not the view); for an image portrait, `blink.closed` has a key for the current expression; the expression's `blink` is not `false`; the view is not `blink={false}`; a blink is 3 frames every ~4 s, so step frames rather than glancing at one. |
