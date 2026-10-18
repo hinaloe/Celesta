@@ -49,6 +49,32 @@ fn source_at(position: vec2f) -> vec4f {
     return mix(top, bottom, fraction.y);
 }
 
+// The centres of the content box's first and last pixels, the range the
+// edge-aware reads below keep to. A box narrower than a pixel keeps to its
+// middle.
+fn celesta_edge_low() -> vec2f {
+    return min(celesta.content.xy + vec2f(0.5), mix(celesta.content.xy, celesta.content.zw, vec2f(0.5)));
+}
+
+fn celesta_edge_high() -> vec2f {
+    return max(celesta.content.zw - vec2f(0.5), celesta_edge_low());
+}
+
+// `source_at`, with a position past the content box moved onto its edge:
+// the edge pixels stretch outward.
+fn source_at_clamped(position: vec2f) -> vec4f {
+    return source_at(clamp(position, celesta_edge_low(), celesta_edge_high()));
+}
+
+// `source_at`, with a position past the content box folded back in, as if
+// the box were mirrored about its edge pixels' centres, again and again.
+fn source_at_mirrored(position: vec2f) -> vec4f {
+    let low = celesta_edge_low();
+    let period = max(2.0 * (celesta_edge_high() - low), vec2f(1e-4));
+    let t = abs(position - low) % period;
+    return source_at(low + min(t, period - t));
+}
+
 fn premultiply(color: vec4f) -> vec4f {
     return vec4f(color.rgb * color.a, color.a);
 }

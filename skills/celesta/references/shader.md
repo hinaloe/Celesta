@@ -23,6 +23,7 @@ them; it runs the built-in filters.
 - [What the shader sees](#what-the-shader-sees)
 - [Parameters](#parameters)
 - [Padding](#padding)
+- [Reading past the edge](#reading-past-the-edge)
 - [Built-in filters](#built-in-filters)
 - [Errors](#errors)
 
@@ -79,6 +80,7 @@ fn effect(input: EffectInput) -> vec4f {
 | `celesta.scene_size` | the scene's width and height |
 | `celesta.content` | the layer's box: left, top, right, bottom, in scene pixels |
 | `source_at(position)` | the layer at a scene position, interpolated; transparent outside what was drawn |
+| `source_at_clamped(position)` / `source_at_mirrored(position)` | `source_at`, with a position past the layer's box moved onto its edge or folded back in (see [Reading past the edge](#reading-past-the-edge)) |
 | `source_load(pixel)` | the layer's exact pixel at `vec2i` scene coordinates |
 | `premultiply(c)` / `unpremultiply(c)` | convert between straight and premultiplied RGBA |
 | `params.<name>` | the parameters (see below) |
@@ -126,6 +128,35 @@ recolors needs none.
 In an array, each shader writes what the one before it wrote, grown by
 its own padding, so the paddings add up: two shaders that each push
 pixels 8px outward reach 16px past the box.
+
+## Reading past the edge
+
+`source_at` reads transparent past what the layer drew. A shader that
+pulls pixels inward from further out (a lens, a refraction, a ripple)
+therefore reads transparency near the layer's edge. Over a layer that
+fills the frame, such as a `Group` holding the background, this shows as
+dark seams along the frame's edges, and `padding` does not help: there is
+nothing outside to read.
+
+Two reads keep to the layer's box (`celesta.content`) instead:
+
+| Read | Past the box | Looks like |
+| --- | --- | --- |
+| `source_at_clamped(position)` | the nearest edge pixel | the edge pixels stretched into streaks |
+| `source_at_mirrored(position)` | the pixel as far back inside, mirrored about the edge | the picture reflected; usually the one to use |
+
+```wgsl
+// A lens that shrinks: pixels within `params.radius` of `params.center`
+// show what lies further out, so near the frame's edge they read past it.
+fn effect(input: EffectInput) -> vec4f {
+    let d = input.position - params.center;
+    let k = clamp(length(d) / params.radius, 0.0, 1.0);
+    return source_at_mirrored(params.center + d * mix(1.0 + params.strength, 1.0, k * k));
+}
+```
+
+Both fold or clamp about the centres of the box's edge pixels, so they
+never read past it; inside the box they read what `source_at` reads.
 
 ## Built-in filters
 
