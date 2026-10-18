@@ -7,11 +7,15 @@ import type { Face, SpeakerId } from './script';
 // into assets/ by prepare-assets.ts. Both files name their face layers the
 // same way (目 / 眉 / クチ / 頬, one closed and one open mouth per face), so
 // one table builds every expression; only the folder prefixes differ.
+//
+// Each PSD is saved with the whole body shown and one variant shown in each
+// face folder, so the portraits start from that saved pose: an expression
+// hides the face folders it changes and shows its own variant in each.
 
 type PsdNames = {
   src: string;
-  // Layers every expression shares: hair, body, the face outline.
-  body: string[];
+  // Layers or folders the saved pose shows that the portrait leaves out.
+  hide?: string[];
   face: string; // the folder holding 目 / 眉 / クチ / 頬
   browShadow: boolean; // ずん子 draws a shadow under each brow
   mouth: Record<'normal' | 'smile' | 'sad' | 'angry', [closed: string, open: string]>;
@@ -21,10 +25,6 @@ type PsdNames = {
 const ZUNKO: PsdNames = {
   src: './assets/zunko.psd',
   face: 'グループ 1',
-  body: [
-    '後髪', '後ろの横毛', 'たすきひらひら', 'たすき左', 'たすき右', '帯りぼん', '帯りぼんひらひら', '振袖', '首',
-    '耳L', '耳R', '輪郭', '鼻', '腕', '足', '下半身', '上半身', '胸当て', '横髪L', '横髪R', '前髪', 'あほげ',
-  ].map((name) => `グループ 1/${name}`),
   browShadow: true,
   mouth: {
     normal: ['クチ通常', '通常開'], smile: ['クチ笑', '笑開'], sad: ['クチ哀', '哀開'], angry: ['クチ怒', '怒開'],
@@ -40,15 +40,8 @@ const ZUNKO: PsdNames = {
 const KIRITAN: PsdNames = {
   src: './assets/kiritan.psd',
   face: 'きりたん/頭',
-  body: [
-    // '砲' (the きりたん砲 behind her) is left out: it would crowd the bust shot.
-    'レイヤー 1', '体/ランドセル', '体/帯左', '体/帯右', '体/帯りぼん',
-    '体/左腕/肘下 のコピー 2/手 のコピー/手ぱー のコピー 2', '体/左腕/肘下 のコピー 2/レイヤー 30 のコピー', '体/左腕/肘上 のコピー 2',
-    '体/右腕/肘下 のコピー/手/手ぱー のコピー', '体/右腕/肘下 のコピー/レイヤー 30 のコピー 3', '体/右腕/肘上 のコピー',
-    '体/左足', '体/右足', '体/首', '体/上半身', '体/レイヤー 2',
-    '頭/後髪', '頭/ついんて左', '頭/ついんて右', '頭/包丁右', '頭/包丁左', '頭/耳L', '頭/耳R', '頭/横髪L', '頭/横髪R',
-    '頭/輪郭', '頭/鼻', '頭/前髪', '頭/あほげ',
-  ].map((name) => `きりたん/${name}`),
+  // The きりたん砲 behind her would crowd the bust shot.
+  hide: ['きりたん/砲'],
   browShadow: false,
   mouth: {
     normal: ['クチ通常', 'クチ通常開き'], smile: ['クチ笑', 'クチ笑開き'], sad: ['クチ哀', 'クチ哀開き'], angry: ['クチ怒', 'クチ怒開き'],
@@ -77,6 +70,12 @@ function portrait(names: PsdNames): PsdCharacterPortrait {
   for (const [face, { brow, cheek, mouth, eyes: shut }] of Object.entries(FACES)) {
     const [closed, open] = names.mouth[mouth];
     expressions[face] = {
+      // The saved brow, cheek, and mouth (and, for shut eyes, the open eyes)
+      // give way to this face's own.
+      hide: [
+        at('眉'), ...(names.browShadow ? [at('眉影')] : []), at('頬'), at('クチ'),
+        ...(shut ? [at('目')] : []),
+      ],
       layers: [
         at(`眉/眉${brow}`),
         ...(names.browShadow ? [at(`眉影/眉影${brow}`)] : []),
@@ -94,7 +93,7 @@ function portrait(names: PsdNames): PsdCharacterPortrait {
   return {
     type: 'psd',
     src: names.src,
-    layers: names.body,
+    ...(names.hide ? { hide: names.hide } : {}),
     defaultExpression: 'normal',
     expressions,
     blink: { open: eyes(names.eyes.open), closed: eyes(names.eyes.closed), half: eyes(names.eyes.half) },

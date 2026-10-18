@@ -87,14 +87,21 @@ export interface PsdCharacterPortrait extends CommonProps {
    * (PSDTool "all layer" semantics), or a raw PSDTool layer-state string to
    * parse (paste "copy layer state" output directly). For a `.pfv` file,
    * resolve it in `prepare()` with `loadPsdPreset()` and pass the result
-   * here. When omitted the PSD renders from its own saved visibility.
+   * here. When omitted the PSD renders from its own saved visibility, and
+   * an expression's layers are shown on top of it.
    */
   layers?: string[] | string;
   /**
+   * Layers or folders (full paths) to hide, such as a prop the saved
+   * visibility shows. A folder hides every layer in it except the ones the
+   * expression, lip sync, or blinking shows. An unknown path is an error.
+   */
+  hide?: string[] | string;
+  /**
    * Named expressions. Each is the layers shown on top of `layers` (which
    * every expression shares) — a list of layer paths, or a PSDTool layer-state
-   * string — or `{ layers, lipSync }` for a PSD whose expressions have mouths
-   * of their own. `<CharacterView expression>` and `<Dialogue expression>`
+   * string — or `{ layers, hide, lipSync, blink }` for an expression that
+   * hides layers or has mouths or eyes of its own. `<CharacterView expression>` and `<Dialogue expression>`
    * pick one; otherwise `defaultExpression` is used, if given.
    */
   expressions?: Record<string, PsdExpression>;
@@ -123,6 +130,13 @@ export type PsdExpression =
   | string
   | {
       layers: string[] | string;
+      /**
+       * Layers or folders (full paths) hidden while this expression is shown,
+       * on top of the portrait's `hide`: a face folder such as `face/brows`
+       * hides the brow the PSD was saved with, so only this expression's
+       * brow in it shows.
+       */
+      hide?: string[] | string;
       /** Replaces the portrait's `lipSync` while this expression is shown. */
       lipSync?: PsdCharacterLipSync;
       /**

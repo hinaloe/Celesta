@@ -81,6 +81,8 @@ struct Document {
     psd: psd::Psd,
     /// Each layer's `folder/…/name` path, in `psd.layers()` order.
     paths: Vec<String>,
+    /// The ids of the folders saved hidden.
+    hidden_folders: HashSet<u32>,
 }
 
 /// One layer reduced to a level and cropped to its bounds, at
@@ -113,12 +115,14 @@ impl PsdSources {
     /// Composites the PSD at `path` for drawing at `density` output pixels
     /// per PSD pixel.
     ///
-    /// Layer visibility is resolved as: `disabled_layers` always hide, then
-    /// `enabled_layers` always show (the current lip-sync mouth), then — when
-    /// `visible_layers` is non-empty — exactly the listed layer paths compose
-    /// (a portrait preset; the PSD's own saved visibility is ignored),
-    /// otherwise the PSD's saved per-layer/-folder visibility drives the
-    /// composite. Each layer is placed at its real PSD coordinates.
+    /// Layer visibility is resolved as: a layer named in `disabled_layers`
+    /// always hides, then one in `enabled_layers` always shows (the current
+    /// lip-sync mouth), then a layer inside a folder named in
+    /// `disabled_layers` hides, then — when `visible_layers` is non-empty —
+    /// exactly the listed layer paths compose (a portrait preset; the PSD's
+    /// own saved visibility is ignored), otherwise the PSD's saved
+    /// per-layer/-folder visibility drives the composite. A folder named in
+    /// `enabled_layers` does nothing. Each layer is placed at its real PSD coordinates.
     /// Per-layer opacity is applied; group opacity is not (the `psd` crate
     /// misreads it as 0 for real PSDTool files).
     pub fn render(
@@ -183,14 +187,22 @@ impl PsdSources {
         // configuration, so a typo there should surface rather than silently
         // do nothing. `visible_layers` is a preset that may target a slightly
         // different build of the PSD, so unknown entries there are ignored.
+        // Either list may name a folder, which is a prefix of its layers' paths.
         for requested in enabled.iter().chain(disabled.iter()) {
-            if !document.paths.iter().any(|path| path == requested) {
+            let folder = format!("{requested}/");
+            if !document
+                .paths
+                .iter()
+                .any(|path| path == requested || path.starts_with(&folder))
+            {
                 return Err(RenderError::MissingPsdLayer {
                     asset: asset.to_owned(),
                     layer: requested.clone(),
                 });
             }
         }
+        let disabled_folders: Vec<String> =
+            disabled.iter().map(|path| format!("{path}/")).collect();
         let use_preset = !visible.is_empty();
 
         let psd = &document.psd;
@@ -204,10 +216,16 @@ impl PsdSources {
                 false
             } else if enabled.contains(path) {
                 true
+            } else if disabled_folders
+                .iter()
+                .any(|folder| path.starts_with(folder.as_str()))
+            {
+                false
             } else if use_preset {
                 visible.contains(path)
             } else {
-                layer.visible() && psd_ancestors_visible(psd, layer.parent_id())
+                !layer.visible()
+                    && psd_ancestors_visible(psd, &document.hidden_folders, layer.parent_id())
             };
             if !shown {
                 continue;
@@ -320,7 +338,12 @@ impl PsdSources {
             .iter()
             .map(|layer| psd_layer_path(&psd, layer))
             .collect();
-        let document = Arc::new(Document { psd, paths });
+        let hidden_folders = psd_hidden_folders(&bytes);
+        let document = Arc::new(Document {
+            psd,
+            paths,
+            hidden_folders,
+        });
         // The parsed document holds about as much as the file's channel data.
         self.insert(key, Value::Document(document.clone()), bytes.len());
         Ok(document)
@@ -495,7 +518,16 @@ fn psd_layer_path(psd: &psd::Psd, layer: &psd::PsdLayer) -> String {
     names.join("/")
 }
 
-fn psd_ancestors_visible(psd: &psd::Psd, mut parent: Option<u32>) -> bool {
+// The `psd` crate's `PsdLayer::visible()` is the record's flag bit 1, which
+// marks a *hidden* layer (Photoshop, ag-psd, and psd-tools all read it so),
+// so a layer's saved visibility is `!visible()`. A folder's comes from
+// `hidden_folders`: the crate reads folder flags from the closing record,
+// which does not carry them (as with group opacity).
+fn psd_ancestors_visible(
+    psd: &psd::Psd,
+    hidden_folders: &HashSet<u32>,
+    mut parent: Option<u32>,
+) -> bool {
     let mut visited = HashSet::new();
     while let Some(id) = parent {
         if !visited.insert(id) {
@@ -504,12 +536,71 @@ fn psd_ancestors_visible(psd: &psd::Psd, mut parent: Option<u32>) -> bool {
         let Some(group) = psd.groups().get(&id) else {
             break;
         };
-        if !group.visible() {
+        if hidden_folders.contains(&id) {
             return false;
         }
         parent = group.parent_id();
     }
     true
+}
+
+/// The ids the `psd` crate gives the folders saved hidden, read from each
+/// folder's opening layer record. Ids count the folders from the top of the
+/// layer list, as the crate does. A file this cannot read hides no folder.
+fn psd_hidden_folders(bytes: &[u8]) -> HashSet<u32> {
+    fn read(bytes: &[u8], at: &mut usize, size: usize) -> Option<usize> {
+        let field = bytes.get(*at..*at + size)?;
+        *at += size;
+        Some(
+            field
+                .iter()
+                .fold(0, |value, &byte| value << 8 | usize::from(byte)),
+        )
+    }
+    // Each record's flags and, for a folder's records, its section divider
+    // type (1 or 2 opens a folder, 3 closes one), bottom layer first.
+    let records = || -> Option<Vec<(u8, Option<u32>)>> {
+        // The 26-byte header, then the color mode data and image resources.
+        let mut at = 26;
+        for _ in 0..2 {
+            let length = read(bytes, &mut at, 4)?;
+            at += length;
+        }
+        let _section_length = read(bytes, &mut at, 4)?;
+        let _info_length = read(bytes, &mut at, 4)?;
+        let count = (read(bytes, &mut at, 2)? as u16 as i16).unsigned_abs();
+        let mut records = Vec::with_capacity(count.into());
+        for _ in 0..count {
+            at += 16;
+            let channels = read(bytes, &mut at, 2)?;
+            at += channels * 6 + 4 + 4 + 2;
+            let flags = *bytes.get(at)?;
+            at += 2;
+            let extra_length = read(bytes, &mut at, 4)?;
+            let extra = bytes.get(at..at + extra_length)?;
+            at += extra_length;
+            let divider = extra
+                .windows(8)
+                .position(|window| window == b"8BIMlsct")
+                .and_then(|start| {
+                    let mut at = start + 12;
+                    read(extra, &mut at, 4).map(|kind| kind as u32)
+                });
+            records.push((flags, divider));
+        }
+        Some(records)
+    };
+    let mut hidden = HashSet::new();
+    let mut id = 0;
+    for (flags, divider) in records().unwrap_or_default().into_iter().rev() {
+        if matches!(divider, Some(1 | 2)) {
+            id += 1;
+            if flags & 0b10 != 0 {
+                hidden.insert(id);
+            }
+        }
+    }
+    hidden
 }
 
 #[cfg(test)]
