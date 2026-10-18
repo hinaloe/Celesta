@@ -102,6 +102,10 @@ pub struct TextMetrics {
     /// First line's baseline to its bottom edge (`ascent + descent` is `line_height`).
     pub descent: f64,
     pub line_height: f64,
+    /// Height of a capital letter above the baseline in the first glyph's font; 0 if the font does not say.
+    pub cap_height: f64,
+    /// Height of a lowercase `x` above the baseline in the first glyph's font; 0 if the font does not say.
+    pub x_height: f64,
     pub lines: usize,
     pub glyphs: Vec<GlyphMetrics>,
 }
@@ -115,9 +119,15 @@ pub struct GlyphMetrics {
     pub rtl: bool,
     pub text: String,
     pub x: f64,
+    /// Advance width. It includes kerning: a pair's tightening is taken out
+    /// of the first glyph's advance, so `next.x - (x + width)` is 0.
     pub width: f64,
     /// Zero-based line the cluster sits on.
     pub line: usize,
+    /// Highest point of the drawn outline above the baseline (0 for a blank cluster).
+    pub ink_ascent: f64,
+    /// Lowest point of the drawn outline below the baseline (0 for a blank cluster).
+    pub ink_descent: f64,
 }
 
 /// `"A"`, or `"A", "B"` for a font stack.

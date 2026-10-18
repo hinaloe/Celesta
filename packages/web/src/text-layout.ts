@@ -3,8 +3,8 @@ export type { FontRun };
 
 type MeasureTextRequest = { text: string; style: TextStyle; maxWidth?: number; fonts: Asset[] };
 type TextMetrics = {
-  width: number; height: number; ascent: number; descent: number; lineHeight: number; lines: number; lineStarts: number[];
-  glyphs: { text: string; x: number; width: number; line: number; start: number; end: number; rtl: boolean }[];
+  width: number; height: number; ascent: number; descent: number; lineHeight: number; capHeight: number; xHeight: number; lines: number; lineStarts: number[];
+  glyphs: { text: string; x: number; width: number; line: number; inkAscent: number; inkDescent: number; start: number; end: number; rtl: boolean }[];
 };
 
 type Context = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -174,7 +174,8 @@ export function textMeasurer() {
     const ascent = (lineHeight - baseline.fontBoundingBoxAscent - baseline.fontBoundingBoxDescent) / 2 + baseline.fontBoundingBoxAscent;
     const widths = ranges.map(range => measure(range.text, range.start));
     return {
-      width: Math.max(0, ...widths), height: lines.length * lineHeight, ascent, descent: lineHeight - ascent, lineHeight, lines: lines.length,
+      width: Math.max(0, ...widths), height: lines.length * lineHeight, ascent, descent: lineHeight - ascent, lineHeight,
+      capHeight: ctx.measureText('H').actualBoundingBoxAscent, xHeight: ctx.measureText('x').actualBoundingBoxAscent, lines: lines.length,
       lineStarts: ranges.map(range => range.start),
       // Canvas exposes whole-run measurements, but no portable shaped-cluster API.
       // Access fails explicitly so prepare() can select a fallback without using
