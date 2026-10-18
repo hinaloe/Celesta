@@ -1069,6 +1069,7 @@ dependencies = [
  "celesta-project",
  "celesta-react-bridge",
  "celesta-remote",
+ "celesta-source-edit",
  "chrono",
  "clap",
  "gpui-kit",

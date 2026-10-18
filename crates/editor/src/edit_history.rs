@@ -164,8 +164,6 @@ impl EditHistory {
 
     /// Marks the history busy for an own write; returns the epoch to hand to
     /// `finish_write`, or `None` when it is already busy.
-    // Called by `record_own_write`, which the canvas write-back uses.
-    #[allow(dead_code)]
     pub(crate) fn begin_write(&mut self) -> Option<u64> {
         if self.busy {
             return None;
@@ -176,7 +174,6 @@ impl EditHistory {
 
     /// Ends an own write, recording its edit. `false` when the history was
     /// cleared meanwhile (the edit is then not recorded).
-    #[allow(dead_code)]
     pub(crate) fn finish_write(&mut self, epoch: u64, edit: Option<FileEdit>) -> bool {
         if epoch != self.epoch {
             return false;
@@ -277,6 +274,10 @@ impl EditorView {
     /// order a reload requested from now on will read the write at.
     pub(crate) fn apply_own_write_sample(&mut self, watched: Option<SystemTime>) -> u64 {
         let next_reload = self.react_reloads.next();
+        // The reload that reads this write keeps the selected layer, whose
+        // transform targets are resolved again from the reloaded code.
+        self.selection_keep.own_write();
+        self.transform.invalidate();
         if let Some(react) = self.react_preview.as_mut()
             && watched.is_some()
         {
@@ -298,8 +299,6 @@ impl EditorView {
     /// Back on the UI thread the edit is pushed to the history, the sample is
     /// applied and the entry reloads; then `done` gets the result. When the
     /// history or a property write is busy, `done` gets an error at once.
-    // The canvas write-back is its first caller.
-    #[allow(dead_code)]
     pub(crate) fn record_own_write(
         &mut self,
         path: PathBuf,
@@ -403,7 +402,6 @@ impl EditorView {
     }
 }
 
-#[allow(dead_code)]
 const BUSY: &str = "Another edit is still being saved";
 
 #[cfg(test)]

@@ -9,9 +9,11 @@ use crate::preview::{AudioPreview, PreviewPresentation, PreviewWorker, ReactPrev
 use crate::problems::{Problems, Source};
 use crate::property_panel::PropertyPanelState;
 use crate::react_audio::ReactAudioWorker;
-use crate::refresh::ReloadOrder;
+use crate::refresh::{ReloadOrder, SelectionKeep};
 use crate::source::{PropertyArgs, load_source};
 use crate::timeline::LaneGesture;
+use crate::transform_edit::TransformEdit;
+use crate::transform_rows::TransformInputs;
 use celesta_composition::{AudioClip, Rational};
 use celesta_editor_core::{AssetSummary, EditorDocument, TimelineClock, TrackSummary};
 use celesta_exporter::{ExportCancellation, ExportProgress};
@@ -220,6 +222,12 @@ pub(crate) struct EditorView {
     pub(crate) viewer_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// Why the last attempt to open a source position failed.
     pub(crate) launch_error: Option<String>,
+    /// Which reloads keep `selected_layer` (those after the editor's own writes).
+    pub(crate) selection_keep: SelectionKeep,
+    /// The selected layer's transform targets in its source.
+    pub(crate) transform: TransformEdit,
+    /// The Layer section's Transform fields.
+    pub(crate) transform_inputs: TransformInputs,
 }
 
 impl EditorView {
@@ -363,6 +371,9 @@ impl EditorView {
             source_lookup: None,
             viewer_bounds: Rc::default(),
             launch_error: None,
+            selection_keep: SelectionKeep::default(),
+            transform: TransformEdit::default(),
+            transform_inputs: TransformInputs::default(),
         };
         editor.refresh_preview();
         editor.refresh_audio_preview();

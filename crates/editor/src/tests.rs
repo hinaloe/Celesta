@@ -14,13 +14,18 @@ use crate::layer_select::{
     source_lookup_target, source_position,
 };
 use crate::react_audio::{react_audio_clip_id, react_tracks};
+use crate::refresh::{LookupFate, SelectionKeep};
 use crate::source::is_react_entry;
+use crate::transform_edit::{
+    CommitError, TransformEdit, TransformProp, commit_text, reason_text, resolve_targets,
+};
 use crate::waveform::{
     clip_level_envelope, level_at_time, map_clip_waveform, master_volume_from_drag, waveform_peaks,
     waveform_segment,
 };
 use celesta_editor_core::ClipKind;
 use celesta_gpu_renderer::GpuDriver;
+use celesta_source_edit::{EditTarget, LockReason};
 
 use crate::preview::{
     ReactPreviewContext, ReactPreviewMode, apply_override, collect_component_requests,
@@ -1080,4 +1085,284 @@ fn layer_select_looks_up_sources_only_in_interactive_mode() {
         None
     );
     assert_eq!(source_lookup_target(None, true, false, None), None);
+}
+
+const TRANSFORM_FIXTURE: &str = "export const Scene = () => (\n  <Rect x={100} width={10} />\n);\n";
+
+fn primitive_report(line: u32, column: u32, props: ReceivedProps) -> LayerSourceReport {
+    LayerSourceReport {
+        chain: vec![LayerSource {
+            name: "Rect".to_string(),
+            file: PathBuf::from("/project/scene.tsx"),
+            line,
+            column,
+            kind: ElementKind::Primitive,
+            layer_id: None,
+        }],
+        local_frame: 0.0,
+        props,
+        render_count: 1,
+    }
+}
+
+fn x_only() -> ReceivedProps {
+    ReceivedProps {
+        x: Some(100.0),
+        ..ReceivedProps::default()
+    }
+}
+
+#[test]
+fn transform_resolve_targets_prefers_scale_xy() {
+    let text = "export const Scene = () => (\n  <Rect x={1} scaleX={2} />\n);\n";
+    let report = primitive_report(
+        2,
+        3,
+        ReceivedProps {
+            x: Some(1.0),
+            scale_x: Some(2.0),
+            ..ReceivedProps::default()
+        },
+    );
+
+    let targets = resolve_targets(text, &report).expect("the element resolves");
+
+    let props: Vec<_> = targets.targets.iter().map(|(prop, _)| *prop).collect();
+    assert_eq!(
+        props,
+        [
+            TransformProp::X,
+            TransformProp::Y,
+            TransformProp::Rotation,
+            TransformProp::ScaleX,
+            TransformProp::ScaleY
+        ]
+    );
+    assert!(matches!(
+        targets.targets[3].1,
+        EditTarget::Literal { value, .. } if value == 2.0
+    ));
+    assert!(matches!(
+        targets.targets[4].1,
+        EditTarget::Missing { default, .. } if default == 1.0
+    ));
+    assert_eq!(targets.file, PathBuf::from("/project/scene.tsx"));
+}
+
+#[test]
+fn transform_resolve_targets_uniform_scale() {
+    let targets = resolve_targets(TRANSFORM_FIXTURE, &primitive_report(2, 3, x_only()))
+        .expect("the element resolves");
+
+    let props: Vec<_> = targets.targets.iter().map(|(prop, _)| *prop).collect();
+    assert_eq!(
+        props,
+        [
+            TransformProp::X,
+            TransformProp::Y,
+            TransformProp::Rotation,
+            TransformProp::Scale
+        ]
+    );
+    assert_eq!(TransformProp::ScaleX.name(), "scaleX");
+    assert!(matches!(
+        targets.targets[0].1,
+        EditTarget::Literal { value, .. } if value == 100.0
+    ));
+}
+
+#[test]
+fn transform_resolve_targets_fails_without_the_element() {
+    assert!(resolve_targets(TRANSFORM_FIXTURE, &primitive_report(1, 1, x_only())).is_err());
+    assert!(resolve_targets(TRANSFORM_FIXTURE, &report_of(Vec::new())).is_err());
+}
+
+#[test]
+fn transform_commit_writes_literal_and_inserts() {
+    let report = primitive_report(2, 3, x_only());
+    let expected = resolve_targets(TRANSFORM_FIXTURE, &report).unwrap();
+
+    let written = commit_text(
+        TRANSFORM_FIXTURE,
+        &expected,
+        &report,
+        &[(TransformProp::X, 120.0), (TransformProp::Rotation, 45.5)],
+    )
+    .expect("both targets are editable");
+
+    assert_eq!(
+        written,
+        "export const Scene = () => (\n  <Rect x={120} width={10} rotation={45.5} />\n);\n"
+    );
+}
+
+#[test]
+fn transform_commit_aborts_when_target_moved() {
+    let report = primitive_report(2, 3, x_only());
+    let expected = resolve_targets(TRANSFORM_FIXTURE, &report).unwrap();
+    // The element moved within its line, so the report's position misses it.
+    let moved = TRANSFORM_FIXTURE.replace("  <Rect", "    <Rect");
+    // The element stayed but its `x` became longer, so the span moved.
+    let widened = TRANSFORM_FIXTURE.replace("x={100}", "x={1000}");
+
+    for text in [moved, widened] {
+        let error = commit_text(&text, &expected, &report, &[(TransformProp::X, 120.0)])
+            .expect_err("the source changed");
+        assert_eq!(error, CommitError::SourceChanged);
+        assert_eq!(error.to_string(), "The source changed while dragging");
+    }
+}
+
+#[test]
+fn transform_commit_refuses_locked_and_non_finite_values() {
+    let report = primitive_report(2, 3, x_only());
+    let expected = resolve_targets(TRANSFORM_FIXTURE, &report).unwrap();
+
+    assert!(matches!(
+        commit_text(
+            TRANSFORM_FIXTURE,
+            &expected,
+            &report,
+            &[(TransformProp::X, f64::NAN)]
+        ),
+        Err(CommitError::NotANumber)
+    ));
+    // `scaleX` is not a target of a uniformly scaled element.
+    assert!(matches!(
+        commit_text(
+            TRANSFORM_FIXTURE,
+            &expected,
+            &report,
+            &[(TransformProp::ScaleX, 2.0)]
+        ),
+        Err(CommitError::NotEditable(TransformProp::ScaleX))
+    ));
+}
+
+#[test]
+fn transform_reason_texts_match_spec() {
+    let cases = [
+        (LockReason::SyntaxError, "The source has syntax errors"),
+        (
+            LockReason::ElementNotFound,
+            "Couldn't find this element in the source",
+        ),
+        (
+            LockReason::NotPrimitive,
+            "Set by a component, not written on this element",
+        ),
+        (
+            LockReason::Expression {
+                source: "W / 2".to_string(),
+            },
+            "Written as an expression: `W / 2`",
+        ),
+        (
+            LockReason::UnresolvedIdentifier {
+                name: "name".to_string(),
+            },
+            "Comes from `name`, which can't be traced",
+        ),
+        (
+            LockReason::SharedBinding {
+                name: "enter".to_string(),
+                uses: 3,
+            },
+            "`enter` is used in 3 places",
+        ),
+        (
+            LockReason::BetweenKeyframes {
+                previous: 0.0,
+                next: 30.0,
+            },
+            "Between keyframes at 0 and 30",
+        ),
+        (LockReason::OutsideKeyframes, "Outside the keyframes"),
+        (
+            LockReason::UnsupportedCall {
+                callee: "spring".to_string(),
+            },
+            "Computed by `spring()`",
+        ),
+        (
+            LockReason::OverriddenByParent,
+            "A layout component sets this value",
+        ),
+        (LockReason::Spread, "May be set by a spread (`{...props}`)"),
+        (
+            LockReason::Repeated { count: 12 },
+            "Rendered 12 times from this element",
+        ),
+    ];
+    for (reason, text) in cases {
+        assert_eq!(reason_text(&reason), text);
+    }
+}
+
+#[test]
+fn transform_own_write_reload_keeps_selection() {
+    let mut keep = SelectionKeep::default();
+
+    // A reload requested after the editor's own write keeps the selection.
+    keep.own_write();
+    assert!(keep.requested(1, true));
+    assert!(keep.applies(1));
+    assert!(!keep.applies(1), "each kept reload applies once");
+
+    // A reload from an edit elsewhere clears it.
+    assert!(!keep.requested(2, true));
+    assert!(!keep.applies(2));
+
+    // Switching compositions never keeps it.
+    keep.own_write();
+    assert!(!keep.requested(3, false));
+    assert!(!keep.applies(3));
+}
+
+#[test]
+fn transform_kept_selection_waits_for_the_reloaded_frame() {
+    let mut keep = SelectionKeep::default();
+    keep.confirm_from(7);
+
+    // A frame of the old code says nothing about the new one.
+    assert_eq!(keep.lookup_arrived(6, true), LookupFate::Stale);
+    // The reloaded code no longer draws the layer.
+    assert_eq!(keep.lookup_arrived(7, true), LookupFate::Gone);
+    // After the first answer, lookups show as usual.
+    assert_eq!(keep.lookup_arrived(8, true), LookupFate::Show);
+
+    keep.confirm_from(9);
+    assert_eq!(keep.lookup_arrived(9, false), LookupFate::Show);
+    assert_eq!(keep.lookup_arrived(10, true), LookupFate::Show);
+}
+
+#[test]
+fn transform_state_drops_stale_resolutions() {
+    let report = primitive_report(2, 3, x_only());
+    let moved = primitive_report(2, 3, ReceivedProps::default());
+    let targets = || resolve_targets(TRANSFORM_FIXTURE, &report);
+    let mut state = TransformEdit::default();
+
+    let first = state.begin("a", &report).expect("nothing resolved yet");
+    assert_eq!(state.begin("a", &report), None, "already resolving it");
+    assert!(state.finish(first, Some("a"), targets()));
+    assert!(state.targets(Some("a")).is_some());
+    assert!(state.targets(Some("b")).is_none(), "belongs to layer a");
+
+    // After a write the targets are unknown until resolved again.
+    state.invalidate();
+    assert!(state.targets(Some("a")).is_none());
+    // The old report describes the old code; wait for the reload's lookup.
+    assert_eq!(state.begin("a", &report), None);
+    state.reloaded();
+    let second = state
+        .begin("a", &report)
+        .expect("the reload's lookup resolves again");
+
+    // A newer report supersedes the one in flight.
+    let third = state.begin("a", &moved).expect("another report");
+    assert!(!state.finish(second, Some("a"), targets()));
+    // The selection changed while it resolved.
+    assert!(!state.finish(third, Some("b"), targets()));
+    assert!(state.targets(Some("a")).is_none());
 }

@@ -17,6 +17,7 @@ impl EditorView {
     /// The selected layer's section, or `None` while nothing is selected.
     pub(crate) fn layer_section(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let id = self.selected_layer.clone()?;
+        let layer = id.clone();
         let entry_dir = self.entry_dir();
         let muted = cx.theme().muted_foreground;
         let note = |text: SharedString, color: Hsla| {
@@ -26,7 +27,7 @@ impl EditorView {
             .flex()
             .flex_col()
             .child(inspector_section("Layer", cx))
-            .child(inspector_row("ID", id, cx));
+            .child(inspector_row("ID", layer, cx));
         let section = match &self.source_lookup {
             Some(SourceLookup::Found(report)) => {
                 let (source, callers) = report.chain.split_first()?;
@@ -39,6 +40,7 @@ impl EditorView {
                                 self.source_row("", index + 1, caller, &entry_dir, cx)
                             }))
                     })
+                    .child(self.transform_group(cx))
             }
             Some(SourceLookup::NotInFrame) => {
                 section.child(note("Not in this frame".into(), muted))
@@ -58,6 +60,10 @@ impl EditorView {
                 .when_some(self.launch_error.clone(), |section, error| {
                     section.child(note(error.into(), cx.theme().danger))
                 })
+                .when_some(
+                    self.transform.error(Some(&id)).map(str::to_owned),
+                    |section, error| section.child(note(error.into(), cx.theme().danger)),
+                )
                 .into_any_element(),
         )
     }

@@ -3,6 +3,7 @@ use crate::export_worker::ExportEvent;
 use crate::layer_select::source_lookup;
 use crate::preview::AudioPreview;
 use crate::problems::{Source, error_chain};
+use crate::refresh::LookupFate;
 use crate::view::EditorView;
 use celesta_exporter::ExportProgress;
 use std::collections::HashMap;
@@ -40,7 +41,15 @@ impl EditorView {
                     if let Some((id, source)) = result.layer_source
                         && self.selected_layer.as_ref() == Some(&id)
                     {
-                        self.source_lookup = Some(source_lookup(source));
+                        let absent = matches!(source, Ok(None));
+                        match self
+                            .selection_keep
+                            .lookup_arrived(result.generation, absent)
+                        {
+                            LookupFate::Stale => {}
+                            LookupFate::Gone => self.clear_layer_selection(),
+                            LookupFate::Show => self.source_lookup = Some(source_lookup(source)),
+                        }
                     }
                 }
                 Err(mpsc::TryRecvError::Empty) => break,

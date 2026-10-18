@@ -10,6 +10,8 @@ use gpui_kit::{Context, MouseButton, Window, div, px};
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.poll_background_work();
+        self.sync_transform_targets(cx);
+        self.sync_transform_inputs(window, cx);
         self.update_playback(window);
         self.sync_property_panel(window, cx);
         self.announce_problems(window, cx);

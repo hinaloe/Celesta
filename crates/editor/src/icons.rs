@@ -16,12 +16,15 @@ pub enum CelestaIcon {
     Scan,
     Lock,
     MousePointerClick,
+    Diamond,
+    /// `Diamond` filled with the icon color.
+    DiamondFilled,
 }
 
 const SVG_OPEN: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">"#;
 
 /// `(asset path, SVG body)` for every icon, served by [`CelestaAssets`].
-const ICONS: [(&str, &str); 6] = [
+const ICONS: [(&str, &str); 8] = [
     (
         "celesta/icons/skip-back.svg",
         r#"<polygon points="19 20 9 12 19 4 19 20"/><line x1="5" x2="5" y1="19" y2="5"/>"#,
@@ -46,7 +49,12 @@ const ICONS: [(&str, &str); 6] = [
         "celesta/icons/mouse-pointer-click.svg",
         r#"<path d="M14 4.1 12 6"/><path d="m5.1 8-2.9-.8"/><path d="m6 12-1.9 2"/><path d="M7.2 2.2 8 5.1"/><path d="M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z"/>"#,
     ),
+    ("celesta/icons/diamond.svg", DIAMOND),
+    ("celesta/icons/diamond-filled.svg", DIAMOND_FILLED),
 ];
+
+const DIAMOND: &str = r#"<path d="M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z"/>"#;
+const DIAMOND_FILLED: &str = r#"<path fill="currentColor" d="M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z"/>"#;
 
 impl IconNamed for CelestaIcon {
     fn path(self) -> SharedString {
@@ -57,6 +65,8 @@ impl IconNamed for CelestaIcon {
             Self::Scan => 3,
             Self::Lock => 4,
             Self::MousePointerClick => 5,
+            Self::Diamond => 6,
+            Self::DiamondFilled => 7,
         };
         ICONS[index].0.into()
     }
@@ -102,6 +112,8 @@ mod tests {
             CelestaIcon::Scan,
             CelestaIcon::Lock,
             CelestaIcon::MousePointerClick,
+            CelestaIcon::Diamond,
+            CelestaIcon::DiamondFilled,
         ] {
             let svg = CelestaAssets
                 .load(&icon.path())

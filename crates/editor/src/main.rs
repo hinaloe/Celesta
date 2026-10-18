@@ -44,6 +44,8 @@ mod render;
 mod source;
 #[cfg(test)]
 mod tests;
+mod transform_edit;
+mod transform_rows;
 mod view;
 mod waveform;
 mod widgets;
