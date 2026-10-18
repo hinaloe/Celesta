@@ -33,6 +33,8 @@ actions!(
         ToggleInteractive,
         ZoomTimelineIn,
         ZoomTimelineOut,
-        ZoomTimelineToFit
+        ZoomTimelineToFit,
+        Undo,
+        Redo
     ]
 );

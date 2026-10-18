@@ -1,5 +1,6 @@
 use crate::audio::{AudioMixWorker, MasterVolumeDrag};
 use crate::component_schema::ComponentSchemaWorker;
+use crate::edit_history::EditHistory;
 use crate::export_worker::ExportWorker;
 use crate::layer_select::SourceLookup;
 use crate::media_probe::{MediaAssetInfo, MediaProbeWorker};
@@ -92,6 +93,9 @@ pub(crate) struct EditorView {
     pub(crate) watched_since: u64,
     /// The React Preview panel's Properties section.
     pub(crate) property_panel: PropertyPanelState,
+    /// File writes Cmd+Z can take back; kept for as long as the same entry
+    /// stays open.
+    pub(crate) edit_history: EditHistory,
     pub(crate) preview_worker: PreviewWorker,
     pub(crate) preview_generation: u64,
     /// Generation of the newest preview frame actually shown. Results are
@@ -286,6 +290,7 @@ impl EditorView {
             react_reloads: ReloadOrder::default(),
             watched_since: 0,
             property_panel: PropertyPanelState::default(),
+            edit_history: EditHistory::default(),
             preview_worker,
             preview_generation: 0,
             preview_shown_generation: 0,

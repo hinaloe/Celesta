@@ -48,5 +48,7 @@ pub use project_types::{
     PROJECT_TYPES_DIR, ProjectTsconfig, ProjectTypesSetup, project_types_template,
     refresh_project_types, set_up_project_types, set_up_project_types_in,
 };
-pub use props_edit::{OrderedObject, PropsEditError, import_path, set_property};
+pub use props_edit::{
+    OrderedObject, PropsEditError, import_path, replace_file, set_property, set_property_text,
+};
 pub use runtime::runtime_paths;

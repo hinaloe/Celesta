@@ -552,6 +552,11 @@ impl EditorView {
         // The new project's first render closes the previous one's toasts.
         next.toasted_sources = std::mem::take(&mut self.toasted_sources);
         next.interactive = self.interactive;
+        // A reload of the same entry keeps its history; another file starts empty.
+        next.edit_history = std::mem::take(&mut self.edit_history);
+        if self.react_entry().is_none() || self.react_entry() != next.react_entry() {
+            next.edit_history.clear();
+        }
         *self = next;
         if self.is_react_preview() {
             self.watch_react_entry(cx);

@@ -74,6 +74,8 @@ impl EditorView {
             .on_action(cx.listener(Self::zoom_timeline_in_action))
             .on_action(cx.listener(Self::zoom_timeline_out_action))
             .on_action(cx.listener(Self::zoom_timeline_to_fit_action))
+            .on_action(cx.listener(Self::undo_action))
+            .on_action(cx.listener(Self::redo_action))
             .when_some(self.focus_handle.as_ref(), |view, focus_handle| {
                 view.track_focus(focus_handle)
             })
