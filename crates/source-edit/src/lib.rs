@@ -5,9 +5,11 @@
 
 mod apply;
 mod locate;
+mod resolve;
 
 pub use apply::{ApplyError, Edit, apply, format_number};
 pub use locate::{ElementRef, element_at};
+pub use resolve::{EditTarget, LockReason, ResolveContext, Span, default_for, resolve};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::Program;
@@ -16,5 +18,13 @@ use oxc_span::SourceType;
 
 /// Parses `text` as TSX. Syntax errors are tolerated; the recovered program is returned.
 pub(crate) fn parse<'a>(text: &'a str, alloc: &'a Allocator) -> Program<'a> {
-    Parser::new(alloc, text, SourceType::tsx()).parse().program
+    parse_checked(text, alloc).0
+}
+
+/// Like [`parse`], also reporting whether the parser found any error. A
+/// recovered program must never be written into.
+pub(crate) fn parse_checked<'a>(text: &'a str, alloc: &'a Allocator) -> (Program<'a>, bool) {
+    let ret = Parser::new(alloc, text, SourceType::tsx()).parse();
+    let failed = ret.fatal_error || ret.diagnostics.has_errors();
+    (ret.program, failed)
 }
