@@ -66,7 +66,8 @@ export {
 export { SECONDS_TIMESCALE, secondsFromTime, secondsToTime } from './time';
 export { COLOR_FILTERS, FILTER_PROPS, builtinFilter, colorFilter, shaderEffect, shaderSource } from './shader';
 export type { ShaderSourceHandle } from './shader';
-export { entryRelativePath, isRemoteUrl } from './entry-dir';
+export { entryRelativePath, isRemoteUrl, prepareDependencies, trackPrepareDependency } from './entry-dir';
+export type { PrepareDependency } from './entry-dir';
 export { sourceOfProps } from './jsx-dev-runtime';
 export type { SourcePosition } from './jsx-dev-runtime';
 

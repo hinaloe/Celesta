@@ -40,6 +40,40 @@ pub struct LayerSource {
     pub column: u32,
 }
 
+/// A file or directory the entry's `prepare()` read (for instance a voice
+/// folder outside the entry's directory), with its state when it was read.
+/// The editor reloads the entry when one of these changes on disk.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct PrepareDependency {
+    /// Absolute path.
+    pub path: PathBuf,
+    /// Modification time in nanoseconds since the Unix epoch, as a decimal
+    /// string; `None` when the path did not exist.
+    #[serde(rename = "mtimeNs")]
+    pub mtime_ns: Option<String>,
+    /// Size in bytes; `None` when the path did not exist or is a directory
+    /// (Node and Rust report a directory's size differently on Windows).
+    pub size: Option<u64>,
+}
+
+impl PrepareDependency {
+    /// `path`'s state now, in the form the runtime reports it.
+    pub fn sample(path: &std::path::Path) -> Self {
+        let metadata = std::fs::metadata(path).ok();
+        Self {
+            path: path.to_owned(),
+            mtime_ns: metadata
+                .as_ref()
+                .and_then(|metadata| metadata.modified().ok())
+                .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|since| since.as_nanos().to_string()),
+            size: metadata
+                .filter(|metadata| !metadata.is_dir())
+                .map(|metadata| metadata.len()),
+        }
+    }
+}
+
 /// Static composition facts read once from the entry's `<Composition>` root.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReactCompositionMetadata {
@@ -68,6 +102,9 @@ pub struct ReactCompositionMetadata {
     /// `defineProjectProperties()` declared them (the map itself sorts).
     /// Empty when the entry declared none.
     pub project_property_order: Vec<String>,
+    /// Files and directories `prepare()` read, beyond the entry's own
+    /// sources. Empty for an entry that reads none.
+    pub prepare_dependencies: Vec<PrepareDependency>,
 }
 
 /// One audible `<Audio>` element as reported for a single rendered frame

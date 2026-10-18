@@ -6,8 +6,8 @@ use crate::source::PropertyArgs;
 use celesta_composition::{Layer, LayerContent, Scene, ShaderSource, Time};
 use celesta_gpu_renderer::{GpuRenderer, HitRegion, RenderQuality};
 use celesta_react_bridge::{
-    ComponentPropertyField, ComponentResolutionRequest, ComponentResolutions, PropertyInputs,
-    PropertyIssue, ReactBridge, ReactCompositionMetadata, SpawnOptions,
+    ComponentPropertyField, ComponentResolutionRequest, ComponentResolutions, PrepareDependency,
+    PropertyInputs, PropertyIssue, ReactBridge, ReactCompositionMetadata, SpawnOptions,
 };
 use gpui_kit::RenderImage;
 use rodio::Player;
@@ -118,6 +118,10 @@ pub(crate) struct ReactPreview {
     /// (or of the `--props-file`). The reload watcher compares against this
     /// to notice edits.
     pub(crate) watched_mtime: Option<SystemTime>,
+    /// Files and directories the entry's `prepare()` read (voice folders and
+    /// the like, possibly outside the entry's directory), as last read. The
+    /// reload watcher compares their state on disk against this.
+    pub(crate) dependencies: Vec<PrepareDependency>,
     /// The command line's `--props`/`--props-file`, re-read on every reload.
     pub(crate) property_args: PropertyArgs,
     /// The values `property_args` held at the last *successful* (re)load: what

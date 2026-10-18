@@ -5,8 +5,9 @@ use crate::properties::{PropertyIssue, PropertyLayer};
 use crate::props_edit::OrderedObject;
 use crate::statics::StaticDefinition;
 use crate::types::{
-    ComponentPropertyField, ComponentPropertySchema, LayerSource, ReactAudioClipDescriptor,
-    ReactCompositionConfig, ReactCompositionInfo, ReactSubtitleDescriptor,
+    ComponentPropertyField, ComponentPropertySchema, LayerSource, PrepareDependency,
+    ReactAudioClipDescriptor, ReactCompositionConfig, ReactCompositionInfo,
+    ReactSubtitleDescriptor,
 };
 use celesta_composition::{Layer, Scene, ShaderSource, Time};
 use serde::{Deserialize, Serialize};
@@ -247,6 +248,8 @@ pub(crate) enum ReadyMessage {
         /// intentionally empty schema.
         #[serde(default, rename = "propertySchema")]
         project_property_schema: Option<BTreeMap<String, ComponentPropertyField>>,
+        #[serde(default)]
+        dependencies: Vec<PrepareDependency>,
     },
     ProbeMedia {
         #[serde(rename = "probeMedia")]

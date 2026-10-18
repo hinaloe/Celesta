@@ -3,8 +3,8 @@ use crate::preview::{KeptSchema, ReactPreview};
 use crate::problems::error_chain;
 use celesta_editor_core::EditorDocument;
 use celesta_react_bridge::{
-    PropertyInputs, ReactBridge, SpawnOptions, project_types_template, refresh_project_types,
-    runtime_paths as react_runtime_paths,
+    PrepareDependency, PropertyInputs, ReactBridge, SpawnOptions, project_types_template,
+    refresh_project_types, runtime_paths as react_runtime_paths,
 };
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -110,6 +110,7 @@ pub(crate) fn load_source(
                     compositions: metadata.compositions,
                     entry,
                     watched_mtime,
+                    dependencies: metadata.prepare_dependencies,
                     property_args,
                     disk_properties: properties.clone(),
                     properties,
@@ -149,6 +150,56 @@ pub(crate) fn refresh_typescript_support(document: &EditorDocument) {
 /// has no `project.json` to source one from. Matches `celesta-exporter`'s
 /// `DEFAULT_REACT_AUDIO_SAMPLE_RATE` and every checked-in example project.
 pub(crate) const REACT_PREVIEW_SAMPLE_RATE: u32 = 48_000;
+
+/// The state on disk now of each path in `recorded`, in the same order.
+pub(crate) fn sample_dependencies(recorded: &[PrepareDependency]) -> Vec<PrepareDependency> {
+    recorded
+        .iter()
+        .map(|dependency| PrepareDependency::sample(&dependency.path))
+        .collect()
+}
+
+/// Debounces reloads for changed preparation dependencies. A tool saving a
+/// recording writes it over a moment, sometimes as several files, so a
+/// change reloads only once two consecutive polls see the same state. A
+/// state that already triggered a reload never triggers another, so a
+/// dependency whose reported and sampled forms differ cannot loop.
+#[derive(Debug, Default)]
+pub(crate) struct DependencyDebounce {
+    pending: Option<Vec<PrepareDependency>>,
+    triggered: Option<Vec<PrepareDependency>>,
+}
+
+impl DependencyDebounce {
+    /// Takes one poll's `current` sample of the `recorded` dependencies;
+    /// true when the entry should reload now.
+    pub(crate) fn poll(
+        &mut self,
+        recorded: &[PrepareDependency],
+        current: Vec<PrepareDependency>,
+    ) -> bool {
+        if current == recorded {
+            self.pending = None;
+            self.triggered = None;
+            return false;
+        }
+        if self.triggered.as_ref() == Some(&current) {
+            return false;
+        }
+        if self.pending.as_ref() == Some(&current) {
+            self.pending = None;
+            self.triggered = Some(current);
+            return true;
+        }
+        self.pending = Some(current);
+        false
+    }
+
+    /// Forgets a pending change: a reload for another reason reads it anyway.
+    pub(crate) fn reset(&mut self) {
+        self.pending = None;
+    }
+}
 
 /// Newest mtime among the entry's sources, its `--props-file` (which may live
 /// outside the entry's directory), and the entry directory itself, whose mtime
@@ -219,6 +270,68 @@ pub(crate) fn newest_source_mtime(dir: &Path) -> Option<SystemTime> {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    fn dependency(path: &str, mtime: &str) -> PrepareDependency {
+        PrepareDependency {
+            path: PathBuf::from(path),
+            mtime_ns: Some(mtime.to_owned()),
+            size: Some(10),
+        }
+    }
+
+    #[test]
+    fn a_dependency_change_reloads_once_two_polls_agree() {
+        let recorded = vec![dependency("a.wav", "1")];
+        let mut debounce = DependencyDebounce::default();
+        assert!(!debounce.poll(&recorded, recorded.clone()));
+        // Still being written: each poll sees a newer state.
+        assert!(!debounce.poll(&recorded, vec![dependency("a.wav", "2")]));
+        assert!(!debounce.poll(&recorded, vec![dependency("a.wav", "3")]));
+        // Settled.
+        assert!(debounce.poll(&recorded, vec![dependency("a.wav", "3")]));
+    }
+
+    #[test]
+    fn a_state_that_already_reloaded_does_not_reload_again() {
+        let recorded = vec![dependency("a.wav", "1")];
+        let mut debounce = DependencyDebounce::default();
+        let changed = vec![dependency("a.wav", "2")];
+        assert!(!debounce.poll(&recorded, changed.clone()));
+        assert!(debounce.poll(&recorded, changed.clone()));
+        // The reload kept the old record (it failed, or reported another
+        // form): the same state must not reload in a loop.
+        assert!(!debounce.poll(&recorded, changed.clone()));
+        assert!(!debounce.poll(&recorded, changed));
+        // A new write does.
+        assert!(!debounce.poll(&recorded, vec![dependency("a.wav", "4")]));
+        assert!(debounce.poll(&recorded, vec![dependency("a.wav", "4")]));
+    }
+
+    #[test]
+    fn sampled_dependencies_notice_replacement_and_deletion() {
+        let dir = std::env::temp_dir().join(format!("celesta-deps-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let wav = dir.join("a.wav");
+        std::fs::write(&wav, b"short").unwrap();
+        let recorded = vec![
+            PrepareDependency::sample(&dir),
+            PrepareDependency::sample(&wav),
+        ];
+        assert_eq!(sample_dependencies(&recorded), recorded);
+
+        // Replaced atomically with a longer file.
+        std::fs::write(dir.join("a.wav.tmp"), b"a longer take").unwrap();
+        std::fs::rename(dir.join("a.wav.tmp"), &wav).unwrap();
+        let replaced = sample_dependencies(&recorded);
+        assert_ne!(replaced[1], recorded[1]);
+
+        std::fs::remove_file(&wav).unwrap();
+        let deleted = sample_dependencies(&recorded);
+        assert_eq!(deleted[1].mtime_ns, None);
+        assert_eq!(deleted[1].size, None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn watched_mtime_notices_props_json_deletion() {

@@ -19,6 +19,7 @@ Dialogue scenes combine three pieces:
 
 - [React: a two-line conversation](#react-a-two-line-conversation)
 - [Timing a script from its voices](#timing-a-script-from-its-voices)
+- [Importing a voice tool's export folder](#importing-a-voice-tools-export-folder)
 - [Changing the face within a line](#changing-the-face-within-a-line)
 - [Drawing the subtitle yourself](#drawing-the-subtitle-yourself)
 - [React props](#react-props)
@@ -206,6 +207,80 @@ For lip sync, load each track in `prepare()` and put it on the line:
 
 A missing voice file fails `prepare()` with
 `planDialogue(): voice file for line "how" not found: ./voices/03.wav (looked at …)`.
+
+## Importing a voice tool's export folder
+
+VOICEROID, A.I.VOICE, and AquesTalk front ends (Yukkuri voices) can save each
+line as `name.wav` with its text beside it as `name.txt`. `importVoiceFolder()`
+turns such a folder into `planDialogue()` lines, so the script lives in the
+folder rather than in code:
+
+```tsx
+import { importVoiceFolder, planDialogue } from '@celesta/character';
+import type { DialoguePlan, VoiceLine } from '@celesta/character';
+
+let plan: DialoguePlan<VoiceLine>;
+export async function prepare() {
+  const lines = await importVoiceFolder({
+    directory: './voices/akane',              // relative to the entry file; may be outside its folder
+    speaker: 'akane',                         // every line's speaker (never guessed from the text)
+    manifest: './voices/akane/manifest.json', // optional overrides, below
+  });
+  plan = await planDialogue(lines, { fps: 30 });
+}
+```
+
+Each line gets `id` (the file name without extension), `text` (the
+transcript: line breaks as `\n`, surrounding whitespace trimmed), `audio`,
+`speaker`, `lipSync`, `durationInSeconds`, and `source: { wav, txt }`.
+
+- **Order**: natural order of the names (`voice-2` before `voice-10`), the
+  same on every OS: digit runs compare by value, other text ignoring case;
+  names equal that way fall back to code-unit order. Ids are names, not
+  positions, so adding a file does not renumber the others.
+- **Pairing**: `.wav`/`.txt` extensions in any case; names pair ignoring case
+  (`Hello.wav` + `hello.txt`), and the WAV's spelling is the id. Two WAVs (or
+  TXTs) whose names differ only in case fail as ambiguous. Files starting
+  with `.` are ignored. Subfolders only with `recursive: true`; their ids are
+  `sub/name`.
+- **Encoding**: `encoding: 'utf-8'` (default, BOM optional), `'utf-16le'`, or
+  `'shift_jis'`, or a function `(bytes, file) => string`. A transcript that
+  does not decode cleanly fails with its path; it never shows as `�`.
+- **Lip sync** (`lipSync`): `'waveform'` (default) spreads the vowels of the
+  line's kana/romaji `reading` (else the transcript) over the voiced span.
+  Kanji give no vowels: a line with kanji and no `reading`, or with no vowels,
+  falls back to `'amplitude'` (mouth `a` while loud, closed otherwise) and
+  warns. `false` makes no track. This is an approximation, not phoneme timing.
+- **Incomplete pairs** (`incomplete`): a WAV without its TXT (or the reverse),
+  an empty TXT, or a WAV cut short fail the import with every file named
+  (`'error'`, default) or are left out with a warning (`'skip'`). Only
+  uncompressed PCM/float WAV is read.
+- Warnings go to `onWarning` (default `console.warn`).
+
+`manifest.json` lists lines by `file` (the name without extension); listed
+lines come first in the listed order, the rest follow in natural order.
+Every field but `file` is optional; unknown keys fail:
+
+```json
+{
+  "lines": [
+    { "file": "voice-1", "id": "hello", "speaker": "aoi", "text": "表示する字幕", "reading": "ひょうじするじまく",
+      "scene": "intro", "expression": "smile", "gap": 0.5 },
+    { "file": "voice-2", "expression": [{ "at": 1.2, "expression": "smile" }] }
+  ]
+}
+```
+
+In the editor, resaving a WAV or TXT (same name or not), adding, deleting, or
+renaming a file, or editing the manifest reloads the preview, also for a folder
+outside the entry's directory. A save is picked up once the files stop
+changing; while a pair is half written the import fails and the last good
+preview stays, recovering when the save completes. Each WAV is used through a
+snapshot in Celesta's cache, so export and preview always pair the
+transcript with the recording read alongside it. Reload and export always
+reread the folder.
+
+Example: `packages/cli/examples/with-voice-folder.tsx`.
 
 ## Changing the face within a line
 

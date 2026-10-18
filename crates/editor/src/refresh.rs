@@ -6,7 +6,9 @@ use crate::preview::{
     KeptSchema, PreviewRequest, ReactPreview, ReactPreviewContext, ReactPreviewMode,
 };
 use crate::problems::{Source, error_chain};
-use crate::source::{REACT_PREVIEW_SAMPLE_RATE, watched_mtime};
+use crate::source::{
+    DependencyDebounce, REACT_PREVIEW_SAMPLE_RATE, sample_dependencies, watched_mtime,
+};
 use crate::timecode::format_timecode;
 use crate::view::EditorView;
 use celesta_composition::Time;
@@ -14,8 +16,8 @@ use celesta_editor_core::{EditorDocument, TimelineClock};
 use celesta_gpu_renderer::RenderQuality;
 use celesta_project::AssetKind;
 use celesta_react_bridge::{
-    PropertyInputs, PropertyIssue, ReactBridge, ReactBridgeError, ReactCompositionMetadata,
-    SpawnOptions, runtime_paths as react_runtime_paths,
+    PrepareDependency, PropertyInputs, PropertyIssue, ReactBridge, ReactBridgeError,
+    ReactCompositionMetadata, SpawnOptions, runtime_paths as react_runtime_paths,
 };
 use gpui_kit::Context;
 use std::collections::HashMap;
@@ -25,6 +27,9 @@ use std::time::{Duration, SystemTime};
 /// What one background reload of a React entry produced.
 pub(crate) struct ReactReload {
     pub(crate) watched: Option<SystemTime>,
+    /// The previously recorded preparation dependencies, sampled with
+    /// `watched`: what a failed load records, since it reports none.
+    pub(crate) dependencies: Vec<PrepareDependency>,
     /// Inputs read from disk this time, even when the spawn then failed.
     pub(crate) properties: Option<PropertyInputs>,
     pub(crate) result: Result<(PathBuf, ReactCompositionMetadata), PreviewLoadError>,
@@ -269,6 +274,7 @@ impl EditorView {
         };
         let entry = react.entry.clone();
         let property_args = react.property_args.clone();
+        let recorded = react.dependencies.clone();
         let (node, cli_script) = react_runtime_paths();
         let frame = if composition_id.as_deref() == Some(react.composition_id.as_str()) {
             self.clock.frame()
@@ -286,6 +292,7 @@ impl EditorView {
                     // Sampled before reading, so an edit made while Node starts
                     // still differs from it and triggers another reload.
                     let watched = watched_mtime(&entry, &property_args);
+                    let dependencies = sample_dependencies(&recorded);
                     // Re-read --props-file so edits to a variant show up too.
                     match property_args.load(&entry) {
                         Ok(properties) => {
@@ -303,12 +310,14 @@ impl EditorView {
                             .map_err(PreviewLoadError::from_bridge);
                             ReactReload {
                                 watched,
+                                dependencies,
                                 properties: Some(properties),
                                 result,
                             }
                         }
                         Err(message) => ReactReload {
                             watched,
+                            dependencies,
                             properties: None,
                             result: Err(message.into()),
                         },
@@ -341,6 +350,13 @@ impl EditorView {
         if let Some(react) = self.react_preview.as_mut() {
             if reload_sample_applies(sequence, self.watched_since) {
                 react.watched_mtime = reload.watched;
+                // What this load's `prepare()` read; a failed load keeps
+                // watching the old paths from their state before it, so it
+                // retries once they change rather than in a loop.
+                react.dependencies = match &reload.result {
+                    Ok((_, metadata)) => metadata.prepare_dependencies.clone(),
+                    Err(_) => reload.dependencies.clone(),
+                };
             }
             apply_property_outcome(react, &reload);
             if reload.properties.is_some() {
@@ -411,29 +427,42 @@ impl EditorView {
     pub(crate) fn watch_react_entry(&self, cx: &mut Context<Self>) {
         let session = self.session;
         cx.spawn(async move |view, cx| {
+            let mut debounce = DependencyDebounce::default();
             loop {
                 cx.background_executor()
                     .timer(Duration::from_millis(800))
                     .await;
-                let Ok(Some((entry, property_args))) = view.update(cx, |this, _| {
+                let Ok(Some((entry, property_args, recorded))) = view.update(cx, |this, _| {
                     this.react_preview
                         .as_ref()
                         .filter(|_| this.session == session)
-                        .map(|react| (react.entry.clone(), react.property_args.clone()))
+                        .map(|react| {
+                            (
+                                react.entry.clone(),
+                                react.property_args.clone(),
+                                react.dependencies.clone(),
+                            )
+                        })
                 }) else {
                     break;
                 };
-                let latest = cx
+                let (latest, current) = cx
                     .background_executor()
-                    .spawn(async move { watched_mtime(&entry, &property_args) })
+                    .spawn(async move {
+                        (
+                            watched_mtime(&entry, &property_args),
+                            sample_dependencies(&recorded),
+                        )
+                    })
                     .await;
                 let changed = view
                     .update(cx, |this, _| match this.react_preview.as_ref() {
-                        Some(react) => {
-                            !this.react_reloads.is_running()
-                                && latest.is_some()
-                                && latest != react.watched_mtime
+                        Some(_) if this.react_reloads.is_running() => false,
+                        Some(react) if latest.is_some() && latest != react.watched_mtime => {
+                            debounce.reset();
+                            true
                         }
+                        Some(react) => debounce.poll(&react.dependencies, current),
                         None => false,
                     })
                     .unwrap_or(false);
@@ -548,6 +577,7 @@ mod property_outcome {
             compositions: Vec::new(),
             entry: PathBuf::from("film.tsx"),
             watched_mtime: None,
+            dependencies: Vec::new(),
             property_args: PropertyArgs::default(),
             properties: PropertyInputs::default(),
             disk_properties: PropertyInputs::default(),
@@ -577,6 +607,7 @@ mod property_outcome {
             component_schemas: BTreeMap::new(),
             project_property_schema: (!keys.is_empty()).then_some(declared.fields),
             project_property_order: keys.iter().map(|key| (*key).to_owned()).collect(),
+            prepare_dependencies: Vec::new(),
         }
     }
 
@@ -593,6 +624,7 @@ mod property_outcome {
         let mut preview = preview(Some(kept(&["b", "a"])));
         let reload = ReactReload {
             watched: None,
+            dependencies: Vec::new(),
             properties: None,
             result: Err(PreviewLoadError {
                 message: "invalid project properties".to_owned(),
@@ -611,6 +643,7 @@ mod property_outcome {
         let mut preview = preview(Some(kept(&["a"])));
         let unreadable = ReactReload {
             watched: None,
+            dependencies: Vec::new(),
             properties: None,
             result: Err(PreviewLoadError::from(
                 "Couldn’t read props.json".to_owned(),
@@ -628,6 +661,7 @@ mod property_outcome {
         // A reload that read the file, even one the entry then rejected, clears it.
         let rejected = ReactReload {
             watched: None,
+            dependencies: Vec::new(),
             properties: Some(inputs(r#"{"a": 1}"#)),
             result: Err(PreviewLoadError::from("node exited".to_owned())),
         };
@@ -641,6 +675,7 @@ mod property_outcome {
         let fresh = inputs(r#"{"a": 1}"#);
         let reload = ReactReload {
             watched: None,
+            dependencies: Vec::new(),
             properties: Some(fresh.clone()),
             result: Err(PreviewLoadError::from("node exited".to_owned())),
         };
@@ -659,6 +694,7 @@ mod property_outcome {
         preview.property_issues = vec![issue("old")];
         let reload = ReactReload {
             watched: None,
+            dependencies: Vec::new(),
             properties: Some(inputs(r#"{"b": true}"#)),
             result: Ok((PathBuf::from("film.tsx"), metadata(&["b", "a"]))),
         };
@@ -676,6 +712,7 @@ mod property_outcome {
         let mut preview = preview(Some(kept(&["a"])));
         let reload = ReactReload {
             watched: None,
+            dependencies: Vec::new(),
             properties: Some(PropertyInputs::default()),
             result: Ok((PathBuf::from("film.tsx"), metadata(&[]))),
         };
