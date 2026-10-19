@@ -1,4 +1,4 @@
-import { Assets, Audio, Composition, Font, Sequence, Theme } from '@celesta/react';
+import { Assets, Audio, Composition, Font, Scenes, Sequence, Theme } from '@celesta/react';
 import { Hud } from './components/Hud';
 import { Wipe } from './components/Wipe';
 import { C, DURATION, FONT, FPS, FONT_SRC, H, W } from './constants';
@@ -9,7 +9,7 @@ import { S, SCENES } from './timeline';
 // Open this file in Celesta, or export it with:
 //   Celesta-export --react examples/reel/film.tsx reel.mp4
 //
-//   timeline.ts    scene boundaries (S) and the scene list
+//   timeline.ts    scene boundaries (S) and the named scene list
 //   scenes/        one file per scene
 //   components/    Mono (colored code runs), Tag, Swap, Wipe, Hud
 //   metrics.ts     font measurements made in prepare()
@@ -26,9 +26,7 @@ export default function Root() {
         <Font src={FONT_SRC} />
       </Assets>
       <Theme fonts={FONT} colors={C}>
-        {SCENES.map(({ from, to, Scene }) => (
-          <Sequence key={from} from={from} durationInFrames={to - from}><Scene /></Sequence>
-        ))}
+        <Scenes scenes={SCENES} />
         {[S.field, S.code, S.timeline, S.exportAt].map((cut) => (
           <Sequence key={`wipe-${cut}`} from={cut - 7} durationInFrames={15}><Wipe /></Sequence>
         ))}

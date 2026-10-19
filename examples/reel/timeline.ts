@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { defineScenes } from '@celesta/react';
 import { BAR, BEAT, DURATION } from './constants';
 import { Code } from './scenes/Code';
 import { Export } from './scenes/Export';
@@ -21,14 +21,14 @@ export const S = {
   logo: BAR * 14,
 } as const;
 
-// Each scene runs from one boundary to the next.
-export const SCENES: { from: number; to: number; Scene: () => ReactNode }[] = [
-  { from: S.intro, to: S.words, Scene: Intro },
-  { from: S.words, to: S.field, Scene: Words },
-  { from: S.field, to: S.code, Scene: Field },
-  { from: S.code, to: S.timeline, Scene: Code },
-  { from: S.timeline, to: S.exportAt, Scene: Timeline },
-  { from: S.exportAt, to: S.silence, Scene: Export },
-  { from: S.silence, to: S.logo, Scene: Silence },
-  { from: S.logo, to: DURATION, Scene: Logo },
-];
+// Each scene runs from one boundary to the next; the HUD shows the names.
+export const SCENES = defineScenes([
+  { id: 'intro', name: 'COLD OPEN', durationInFrames: S.words - S.intro, Scene: Intro },
+  { id: 'words', name: 'MANIFESTO', durationInFrames: S.field - S.words, Scene: Words },
+  { id: 'field', name: 'DETERMINISTIC', durationInFrames: S.code - S.field, Scene: Field },
+  { id: 'code', name: 'CODE', durationInFrames: S.timeline - S.code, Scene: Code },
+  { id: 'timeline', name: 'TIMELINE', durationInFrames: S.exportAt - S.timeline, Scene: Timeline },
+  { id: 'export', name: 'EXPORT', durationInFrames: S.silence - S.exportAt, Scene: Export },
+  { id: 'silence', durationInFrames: S.logo - S.silence, Scene: Silence },
+  { id: 'logo', durationInFrames: DURATION - S.logo, Scene: Logo },
+]);
