@@ -39,10 +39,16 @@ impl CpuRenderer {
                 property,
             });
         }
+        // Without rotation or skew, the linear part is the scale.
+        let Point { x, y } = layer.transform.translation(&[
+            [layer.transform.scale.x, 0.0, 0.0],
+            [0.0, layer.transform.scale.y, 0.0],
+            [0.0, 0.0, 1.0],
+        ]);
         let state = ParentState {
             position: Point {
-                x: parent.position.x + layer.transform.position.x * parent.scale.x,
-                y: parent.position.y + layer.transform.position.y * parent.scale.y,
+                x: parent.position.x + x * parent.scale.x,
+                y: parent.position.y + y * parent.scale.y,
             },
             scale: Point {
                 x: parent.scale.x * layer.transform.scale.x,

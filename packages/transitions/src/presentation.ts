@@ -29,7 +29,10 @@ export interface TransitionPresentInput {
  * that holds it, such as `x`, `scale`, `opacity`, `clip`, `blur`, `shader`,
  * or `mask`. The group sits at the series' origin, in the series' own
  * coordinates, so `{ x: 0, y: 0, width, height }` of the input is the area
- * the series covers.
+ * the series covers. It scales and turns about its top-left corner unless
+ * `originX`/`originY` move that point; `{ originX: width / 2, originY:
+ * height / 2, rotationY, perspective }` turns the scene in 3D about the
+ * series' centre, which is then also the vanishing point.
  */
 export type TransitionSceneStyle = Omit<GroupProps, 'children' | 'id' | 'lang'>;
 

@@ -108,6 +108,10 @@ fn describe_transform(layer: &Value) -> String {
     if anchor_x != 0.0 || anchor_y != 0.0 {
         parts.push(format!("anchor ({}, {})", fmt(anchor_x), fmt(anchor_y)));
     }
+    let (origin_x, origin_y) = point(field("origin"), 0.0);
+    if origin_x != 0.0 || origin_y != 0.0 {
+        parts.push(format!("origin ({}, {})", fmt(origin_x), fmt(origin_y)));
+    }
     if scale_x != 1.0 || scale_y != 1.0 {
         parts.push(if scale_x == scale_y {
             format!("scale {}", fmt(scale_x))
@@ -770,6 +774,7 @@ mod tests {
     fn describes_skew_and_3d_transforms() {
         let mut tilted = layer("s", json!({ "type": "rect", "width": 1, "height": 1 }));
         tilted["transform"]["rotation"] = json!(45);
+        tilted["transform"]["origin"] = json!({ "x": 5, "y": 0 });
         tilted["transform"]["skew"] = json!({ "x": 10, "y": 0 });
         tilted["transform"]["rotationX"] = json!(15);
         tilted["transform"]["rotationY"] = json!(30);
@@ -778,7 +783,7 @@ mod tests {
         let (output, _, _) = describe(vec![tilted], vec![]);
         assert_eq!(
             output,
-            "rect 1×1 at (10, 20) rotate 45° skew (10°, 0°) rotate X 15° rotate Y 30° \
+            "rect 1×1 at (10, 20) origin (5, 0) rotate 45° skew (10°, 0°) rotate X 15° rotate Y 30° \
              perspective 800 backface hidden\n"
         );
 

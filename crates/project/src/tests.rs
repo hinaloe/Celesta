@@ -240,6 +240,7 @@ fn validates_the_3d_transform_fields() {
 
     with_transform(serde_json::json!({
         "skew": { "x": 10 },
+        "origin": { "x": 960, "y": 540 },
         "rotationX": 30,
         "rotationY": -20,
         "perspective": 800,
@@ -277,6 +278,18 @@ fn validates_the_3d_transform_fields() {
     let errors = broken.validate().unwrap_err().to_string();
     assert!(errors.contains("transform.skew.x"), "{errors}");
     assert!(errors.contains("must be finite"), "{errors}");
+
+    let mut broken = with_transform(serde_json::json!({ "origin": { "x": 1 } }));
+    broken.tracks[0].items[0]
+        .transform
+        .as_mut()
+        .unwrap()
+        .origin
+        .as_mut()
+        .unwrap()
+        .y = Some(Animatable::Static(f64::NAN));
+    let errors = broken.validate().unwrap_err().to_string();
+    assert!(errors.contains("transform.origin.y"), "{errors}");
 }
 
 #[test]

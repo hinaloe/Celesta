@@ -318,6 +318,56 @@ test('a cube turns two faces that meet at an edge and together span the series',
   near(b.transform.scale.x, 1 / (Math.cos(Math.PI / 5) + Math.sin(Math.PI / 5)), 'scaled across');
 });
 
+test('a flip with a perspective turns the scenes in 3D about the centre', () => {
+  const [a, b] = groups(6, { type: flip({ perspective: 300 }) });
+  assert.deepEqual(a.transform.origin, { x: 50, y: 25 });
+  near(a.transform.rotationY, 36, 'the left edge comes forward');
+  assert.equal(a.transform.perspective, 300);
+  assert.deepEqual(a.transform.scale, { x: 1, y: 1 });
+  assert.deepEqual(a.transform.position, { x: 0, y: 0 });
+  assert.equal(b.opacity, 0);
+  const [, last] = groups(9, { type: flip({ perspective: 300 }), from: 'top' });
+  // 144° of the half turn: the next scene, 36° short of facing the viewer.
+  near(last.transform.rotationX, 36, 'the next scene coming round');
+  assert.equal(last.transform.rotationY, 0);
+  const [right] = groups(6, { type: flip({ perspective: 300 }), from: 'right' });
+  near(right.transform.rotationY, -36, 'the right edge comes forward');
+  assert.throws(() => flip({ perspective: 0 }), /flip perspective must be a finite number/);
+});
+
+test('a cube with a perspective turns both faces in 3D about the edge they share', () => {
+  const perspective = 400;
+  const degrees = 36;
+  const turn = (degrees * Math.PI) / 180;
+  // Drawn widths: a face's far edge recedes by its width times the sine.
+  const drawn = (angle) => (100 * Math.cos(angle) * perspective) / (perspective + 100 * Math.sin(angle));
+  const leaving = drawn(turn);
+  const entering = drawn(Math.PI / 2 - turn);
+  for (const from of ['left', 'right']) {
+    const [a, b] = groups(MIDDLE, { type: cube({ perspective }), from });
+    const edge = from === 'left' ? (100 * entering) / (leaving + entering) : 100 - (100 * entering) / (leaving + entering);
+    // Each face's own edge on the shared one is its origin, put on `edge`.
+    near(a.transform.position.x + a.transform.origin.x, edge, `${from} exit on the edge`);
+    near(b.transform.position.x + b.transform.origin.x, edge, `${from} enter on the edge`);
+    assert.equal(a.transform.origin.y, 25);
+    assert.equal(a.transform.perspective, perspective);
+    const sign = from === 'left' ? 1 : -1;
+    near(a.transform.rotationY, sign * degrees, `${from} exit turns away`);
+    near(b.transform.rotationY, -sign * (90 - degrees), `${from} enter turns away`);
+    // The exit face lies past the edge from `from`, the entering one before it.
+    assert.equal(a.transform.origin.x, from === 'left' ? 0 : 100);
+    assert.equal(b.transform.origin.x, from === 'left' ? 100 : 0);
+    // What the pair leaves uncovered either side is in proportion to the faces.
+    const [before, after] = from === 'left' ? [entering, leaving] : [leaving, entering];
+    near((edge - before) * after, (100 - edge - after) * before, `${from} gaps`);
+  }
+  const [a, b] = groups(MIDDLE, { type: cube({ perspective }), from: 'top' });
+  assert.deepEqual(a.transform.origin, { x: 50, y: 0 });
+  near(a.transform.rotationX, -degrees, 'the leaving face\'s bottom turns away');
+  near(b.transform.rotationX, 90 - degrees, 'the entering face\'s top turns away');
+  assert.throws(() => cube({ perspective: -1 }), /cube perspective must be a finite number/);
+});
+
 test('useTransitionVolume cross-fades the sound of every type the same way', () => {
   const types = ['crossfade', 'slide', 'wipe', 'iris', 'clock-wipe', 'zoom', 'dissolve', 'blur', 'flip', 'cube'];
   const tracks = types.map((type) => {

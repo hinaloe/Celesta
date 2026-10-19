@@ -185,11 +185,43 @@ impl EvaluatedTransform {
         multiply3(&rotation_x(self.rotation_x), &m)
     }
 
+    /// Where `linear` (this transform's `linear()`) moves the layer's own
+    /// origin in the parent: `position + origin − linear · origin`, so the
+    /// layer turns and scales about `origin` and stays at `position`
+    /// untransformed.
+    #[inline]
+    pub fn translation(&self, linear: &Matrix3) -> Point {
+        let Point { x, y } = self.origin;
+        if x == 0.0 && y == 0.0 {
+            return self.position;
+        }
+        Point {
+            x: self.position.x + x - (linear[0][0] * x + linear[0][1] * y),
+            y: self.position.y + y - (linear[1][0] * x + linear[1][1] * y),
+        }
+    }
+
     /// The map from the layer plane (relative to its anchor) to the parent's
-    /// plane, folding position and perspective into the linear part.
+    /// plane, folding position, origin, and perspective into the linear
+    /// part. The perspective's vanishing point is `position + origin`.
     pub fn homography(&self) -> Matrix3 {
+        let h = self.homography_about_origin();
+        let Point { x, y } = self.origin;
+        if x == 0.0 && y == 0.0 {
+            return h;
+        }
+        // `h · T(−origin)`: the plane's point `origin` is the one `h` sends
+        // to `position + origin`.
+        h.map(|[a, b, c]| [a, b, c - a * x - b * y])
+    }
+
+    /// `homography` with the plane's origin moved onto `origin`.
+    fn homography_about_origin(&self) -> Matrix3 {
         let l = self.linear();
-        let (px, py) = (self.position.x, self.position.y);
+        let (px, py) = (
+            self.position.x + self.origin.x,
+            self.position.y + self.origin.y,
+        );
         let inverse_distance = self.perspective_distance().map_or(0.0, |d| 1.0 / d);
         [
             [

@@ -484,7 +484,7 @@ impl GpuRenderer {
         output: &mut Vec<PreparedItem>,
     ) -> Result<(), GpuRenderError> {
         let state = parent.then_affine(
-            Affine::from_linear(linear, layer.transform.position),
+            Affine::from_linear(linear, layer.transform.translation(linear)),
             layer.opacity,
         );
         if state.opacity == 0.0 || state.transform.is_degenerate() {

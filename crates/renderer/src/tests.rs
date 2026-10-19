@@ -359,6 +359,36 @@ fn a_clip_follows_the_groups_position_and_scale() {
 }
 
 #[test]
+fn a_group_scales_about_its_origin() {
+    // Scaled 2x about the group's (5, 5), which stays at position + origin
+    // = (13, 19), its 0..10 by 0..10 lands on canvas 3..23 by 9..29.
+    let clip = Clip {
+        x: 0.0,
+        y: 0.0,
+        width: 10.0,
+        height: 10.0,
+        corner_radius: 0.0,
+    };
+    let scene = clip_scene(vec![clipped_group(
+        EvaluatedTransform {
+            position: Point { x: 8.0, y: 14.0 },
+            origin: Point { x: 5.0, y: 5.0 },
+            scale: Point { x: 2.0, y: 2.0 },
+            ..EvaluatedTransform::default()
+        },
+        clip,
+        vec![red_square()],
+    )]);
+    let frame = CpuRenderer::default().render(&scene).unwrap();
+
+    assert!(is_red(&frame, 3, 9));
+    assert!(is_red(&frame, 22, 28));
+    for (x, y) in [(2, 9), (23, 20), (10, 8), (10, 29)] {
+        assert!(is_untouched(&frame, x, y), "({x}, {y}) leaked");
+    }
+}
+
+#[test]
 fn rounds_the_corners_of_a_clip() {
     let clip = Clip {
         x: 0.0,

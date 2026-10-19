@@ -22,6 +22,11 @@ export type Transform = {
   scale: Point;
   rotation: number;
   anchor: Point;
+  /**
+   * The point the layer turns, scales, and skews about, and its
+   * perspective's vanishing point, in its own pixels from its anchor; absent is (0, 0).
+   */
+  origin?: Point;
   /** Degrees, as CSS `skew(x, y)`; absent is 0. */
   skew?: Point;
   /** Degrees, as CSS `rotateX()` and `rotateY()`; absent is 0. */

@@ -307,26 +307,58 @@ export function blur(options: BlurOptions = {}): TransitionDefinition {
 export interface FlipOptions {
   /** How dark a scene gets as it turns edge-on, 0–1. Defaults to 0.4. */
   shade?: number;
+  /**
+   * Turns the scenes in 3D about the series' centre, seen from this
+   * distance in pixels (see `perspective` on `Group`), so the near edge
+   * grows and the far one shrinks. Leave it out (the default) to narrow the
+   * scenes flat, as seen straight on.
+   */
+  perspective?: number;
+}
+
+/** A transition's `perspective` option: positive and finite, or absent. */
+function perspectiveOf(value: number | undefined, label: string): number | undefined {
+  return value === undefined ? undefined : number(value, label, Number.MIN_VALUE);
 }
 
 /**
  * The series turns over like a card: this scene narrows to its edge, then
  * the next one widens from it. `from` picks the axis: `'left'` and `'right'`
  * turn about the vertical axis, `'top'` and `'bottom'` about the horizontal
- * one. Without perspective, the two directions on an axis look the same.
+ * one, the edge it names coming toward the viewer. Without `perspective`,
+ * the two directions on an axis look the same.
  */
 export function flip(options: FlipOptions = {}): TransitionDefinition {
   const shade = number(options.shade ?? 0.4, 'flip shade', 0, 1);
+  const perspective = perspectiveOf(options.perspective, 'flip perspective');
   return defineTransition({
     name: 'flip',
     present: ({ progress, from, width, height }) => {
       const angle = Math.PI * clamp01(progress);
-      // The face's width as it turns, seen straight on, about the centre.
-      const side = Math.abs(Math.cos(angle));
-      const face: TransitionSceneStyle = {
-        ...(isHorizontal(from) ? { x: (width / 2) * (1 - side), scaleX: side } : { y: (height / 2) * (1 - side), scaleY: side }),
-        brightness: 1 - shade * Math.sin(angle),
-      };
+      const brightness = 1 - shade * Math.sin(angle);
+      // How far the face showing has turned from facing the viewer, in
+      // degrees: the leaving one up to 90, the entering one back from -90.
+      const turned = ((angle < Math.PI / 2 ? angle : angle - Math.PI) * 180) / Math.PI;
+      const face: TransitionSceneStyle =
+        perspective === undefined
+          ? (() => {
+              // The face's width as it turns, seen straight on, about the centre.
+              const side = Math.abs(Math.cos(angle));
+              return isHorizontal(from)
+                ? { x: (width / 2) * (1 - side), scaleX: side, brightness }
+                : { y: (height / 2) * (1 - side), scaleY: side, brightness };
+            })()
+          : {
+              originX: width / 2,
+              originY: height / 2,
+              perspective,
+              // A positive rotationY turns the right edge away, a positive
+              // rotationX the top: either way the `from` edge comes forward.
+              ...(isHorizontal(from)
+                ? { rotationY: -signOf(from) * turned }
+                : { rotationX: signOf(from) * turned }),
+              brightness,
+            };
       return angle < Math.PI / 2 ? { enter: { opacity: 0 }, exit: face } : { enter: face, exit: { opacity: 0 } };
     },
   });
@@ -335,6 +367,13 @@ export function flip(options: FlipOptions = {}): TransitionDefinition {
 export interface CubeOptions {
   /** How dark a face gets as it turns away, 0–1. Defaults to 0.4. */
   shade?: number;
+  /**
+   * Turns the faces in 3D, seen from this distance in pixels (see
+   * `perspective` on `Group`) from in front of the edge they share, which
+   * comes toward the viewer and crosses the series. Leave it out (the
+   * default) to see the cube straight on, scaled to span the series.
+   */
+  perspective?: number;
 }
 
 /**
@@ -344,6 +383,7 @@ export interface CubeOptions {
  */
 export function cube(options: CubeOptions = {}): TransitionDefinition {
   const shade = number(options.shade ?? 0.4, 'cube shade', 0, 1);
+  const perspective = perspectiveOf(options.perspective, 'cube perspective');
   return defineTransition({
     name: 'cube',
     present: ({ progress, from, width, height }) => {
@@ -353,11 +393,14 @@ export function cube(options: CubeOptions = {}): TransitionDefinition {
       const horizontal = isHorizontal(from);
       const size = horizontal ? width : height;
       const across = horizontal ? height : width;
+      const flipped = signOf(from) > 0;
+      if (perspective !== undefined) {
+        return cubeIn3d({ angle, cos, sin, horizontal, flipped, size, across, perspective, shade });
+      }
       // Seen straight on, the faces meet at `edge` from the cube's centre:
       // the leaving face spans `edge` to `edge + size·cos`, the entering one
       // `edge - size·sin` to `edge`, for a face coming from the left or top.
       const edge = (size / 2) * (sin - cos);
-      const flipped = signOf(from) > 0;
       const exitStart = flipped ? -(edge + size * cos) : edge;
       const enterStart = flipped ? -edge : edge - size * sin;
       // Together they span size·(cos + sin); scaling by its inverse fits them.
@@ -375,6 +418,64 @@ export function cube(options: CubeOptions = {}): TransitionDefinition {
       return { enter: face(enterStart, sin, cos), exit: face(exitStart, cos, sin) };
     },
   });
+}
+
+/**
+ * `cube` in 3D. Each face turns into the screen about the edge the two
+ * share, which is also the vanishing point, so both are seen from one
+ * place: the leaving face by `angle`, the entering one by the rest of the
+ * quarter turn. The edge crosses the series so that what is left uncovered
+ * either side of the pair is in proportion to the faces' drawn sizes,
+ * starting on the `from` edge and ending on the other.
+ */
+function cubeIn3d({
+  angle,
+  cos,
+  sin,
+  horizontal,
+  flipped,
+  size,
+  across,
+  perspective,
+  shade,
+}: {
+  angle: number;
+  cos: number;
+  sin: number;
+  horizontal: boolean;
+  flipped: boolean;
+  size: number;
+  across: number;
+  perspective: number;
+  shade: number;
+}): { enter: TransitionSceneStyle; exit: TransitionSceneStyle } {
+  // How wide each face is drawn: its far edge, `size` away from the shared
+  // one, recedes by `size` times the sine of its turn.
+  const drawn = (turnCos: number, turnSin: number) => (size * turnCos * perspective) / (perspective + size * turnSin);
+  const leaving = drawn(cos, sin);
+  const entering = drawn(sin, cos);
+  const total = leaving + entering;
+  // How far the shared edge has come from the `from` side of the series.
+  const travelled = total > 0 ? (size * entering) / total : 0;
+  const edge = flipped ? size - travelled : travelled;
+  const degrees = (angle * 180) / Math.PI;
+  // A face `after` the edge (to its right, or below it) has its own near
+  // side (0) on it and turns its far side away with a positive rotationY
+  // or a negative rotationX; a face before the edge has its far side
+  // (`size`) on it and turns the other way.
+  const face = (after: boolean, by: number, turned: number): TransitionSceneStyle => {
+    const pivot = after ? 0 : size;
+    const sign = after ? 1 : -1;
+    return {
+      ...(horizontal
+        ? { x: edge - pivot, originX: pivot, originY: across / 2, rotationY: sign * by }
+        : { y: edge - pivot, originX: across / 2, originY: pivot, rotationX: -sign * by }),
+      perspective,
+      brightness: 1 - shade * turned,
+    };
+  };
+  // The entering face comes from `from`, before the edge from the left or top.
+  return { enter: face(flipped, 90 - degrees, cos), exit: face(!flipped, degrees, sin) };
 }
 
 /** The built-in transitions by the names `<TransitionSeries.Transition type>` takes, with their defaults. */

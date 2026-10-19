@@ -135,6 +135,7 @@ fn evaluates_3d_transform_fields() {
 
     let defaults = transform_at(&project);
     assert_eq!((defaults.skew.x, defaults.skew.y), (0.0, 0.0));
+    assert_eq!((defaults.origin.x, defaults.origin.y), (0.0, 0.0));
     assert_eq!(defaults.rotation_x, 0.0);
     assert_eq!(defaults.rotation_y, 0.0);
     assert_eq!(defaults.perspective, None);
@@ -144,6 +145,10 @@ fn evaluates_3d_transform_fields() {
         skew: Some(AnimatablePoint {
             x: Some(Animatable::Static(10.0)),
             y: None,
+        }),
+        origin: Some(AnimatablePoint {
+            x: Some(Animatable::Static(960.0)),
+            y: Some(Animatable::Static(540.0)),
         }),
         rotation_y: Some(Animatable::Keyframes(KeyframeAnimation {
             kind: KeyframeAnimationType::Keyframes,
@@ -167,6 +172,7 @@ fn evaluates_3d_transform_fields() {
     let transform = transform_at(&project);
     assert_eq!(transform.skew.x, 10.0);
     assert_eq!(transform.skew.y, 0.0);
+    assert_eq!((transform.origin.x, transform.origin.y), (960.0, 540.0));
     assert_eq!(transform.rotation_x, 0.0);
     assert_eq!(transform.rotation_y, 90.0);
     assert_eq!(transform.perspective, Some(900.0));

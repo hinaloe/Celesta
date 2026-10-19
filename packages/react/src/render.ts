@@ -387,6 +387,7 @@ function extractTransform(props: Record<string, unknown>): EvaluatedTransform {
     // `anchorX={0.5} anchorY={0.5}` to spin/scale a component about its centre
     // — `x`/`y` then address that centre instead.
     anchor: { x: numberOr(props.anchorX, 0), y: numberOr(props.anchorY, 0) },
+    origin: { x: numberOr(props.originX, 0), y: numberOr(props.originY, 0) },
     skew: { x: numberOr(props.skewX, 0), y: numberOr(props.skewY, 0) },
     rotationX: numberOr(props.rotationX, 0),
     rotationY: numberOr(props.rotationY, 0),
@@ -400,19 +401,20 @@ function extractTransform(props: Record<string, unknown>): EvaluatedTransform {
 
 /**
  * `transform` without the fields equal to Rust's `EvaluatedTransform`
- * defaults (position 0, scale 1, rotation 0, anchor 0.5, no skew, 3D
- * rotation, or perspective, visible backfaces), which Rust fills back in.
+ * defaults (position 0, scale 1, rotation 0, anchor 0.5, no origin, skew,
+ * 3D rotation, or perspective, visible backfaces), which Rust fills back in.
  * React's own default anchor is the top-left corner, so it is kept. The
- * skew, 3D rotation, and backface fields are optional, as a `rawTransform`
+ * origin, skew, 3D rotation, and backface fields are optional, as a `rawTransform`
  * from the evaluator omits them at their defaults.
  */
 function compactTransform(transform: EvaluatedTransform): EvaluatedTransform {
-  const { position, scale, rotation, anchor, skew, rotationX, rotationY, perspective, backfaceVisibility } = transform;
+  const { position, scale, rotation, anchor, origin, skew, rotationX, rotationY, perspective, backfaceVisibility } = transform;
   const compact: Partial<EvaluatedTransform> = {};
   if (position.x !== 0 || position.y !== 0) compact.position = position;
   if (scale.x !== 1 || scale.y !== 1) compact.scale = scale;
   if (rotation !== 0) compact.rotation = rotation;
   if (anchor.x !== 0.5 || anchor.y !== 0.5) compact.anchor = anchor;
+  if (origin && (origin.x !== 0 || origin.y !== 0)) compact.origin = origin;
   if (skew && (skew.x !== 0 || skew.y !== 0)) compact.skew = skew;
   if (rotationX) compact.rotationX = rotationX;
   if (rotationY) compact.rotationY = rotationY;

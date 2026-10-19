@@ -466,6 +466,7 @@ impl Validator<'_> {
             ("position", &transform.position),
             ("scale", &transform.scale),
             ("anchor", &transform.anchor),
+            ("origin", &transform.origin),
             ("skew", &transform.skew),
         ] {
             if let Some(point) = point {

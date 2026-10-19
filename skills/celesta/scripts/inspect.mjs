@@ -662,6 +662,9 @@ function describeTransform(layer, sources) {
   const { position, scale, rotation, anchor } = layer.transform;
   const parts = [`at (${fmt(position.x)}, ${fmt(position.y)})`];
   if (anchor.x !== 0 || anchor.y !== 0) parts.push(`anchor (${fmt(anchor.x)}, ${fmt(anchor.y)})`);
+  // Compact JSON omits the origin at (0, 0).
+  const origin = layer.transform.origin ?? { x: 0, y: 0 };
+  if (origin.x !== 0 || origin.y !== 0) parts.push(`origin (${fmt(origin.x)}, ${fmt(origin.y)})`);
   if (scale.x !== 1 || scale.y !== 1) parts.push(scale.x === scale.y ? `scale ${fmt(scale.x)}` : `scale (${fmt(scale.x)}, ${fmt(scale.y)})`);
   if (rotation) parts.push(`rotate ${fmt(rotation)}°`);
   // Compact JSON omits these at their defaults.

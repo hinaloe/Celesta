@@ -1015,6 +1015,14 @@ pub struct EvaluatedTransform {
     pub rotation: f64,
     /// Normalized coordinates where `(0.5, 0.5)` is the center.
     pub anchor: Point,
+    /// The point the layer turns, scales, and skews about, which is also the
+    /// vanishing point of its perspective: an offset in the layer's own
+    /// pixels from its anchor (a `Group`'s, `Path`'s, or `Instances`'s own
+    /// origin, as they have no box). The layer stays where `position` puts
+    /// it until it is transformed; default (0, 0).
+    #[serde(skip_serializing_if = "is_zero_point")]
+    #[cfg_attr(feature = "codegen", ts(as = "Option<Point>", optional))]
+    pub origin: Point,
     /// Shear angles in degrees along x and y.
     #[serde(skip_serializing_if = "is_zero_point")]
     #[cfg_attr(feature = "codegen", ts(as = "Option<Point>", optional))]
@@ -1048,6 +1056,7 @@ impl Default for EvaluatedTransform {
             scale: Point { x: 1.0, y: 1.0 },
             rotation: 0.0,
             anchor: Point { x: 0.5, y: 0.5 },
+            origin: Point { x: 0.0, y: 0.0 },
             skew: Point { x: 0.0, y: 0.0 },
             rotation_x: 0.0,
             rotation_y: 0.0,
