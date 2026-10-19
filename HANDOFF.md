@@ -67,7 +67,8 @@ when its module loads, as `@celesta/character` does for `<CharacterView>` and
 CLI installs (the text measurer and media probe) lives in the core.
 Ready-made, high-level components that compose the primitives (such as
 `<FrameChrome>`) go in `@celesta/components` rather than the core, and use
-only the core's public API.
+only the public APIs of the core and the other `@celesta/*` packages, never
+`@celesta/react/internal`.
 `@celesta/code`, `@celesta/voicevox`, and `@celesta/aivis-speech` stay optional imports for
 compositions: no package a composition imports depends on them, though
 `@celesta/cli` includes them in the runtime.

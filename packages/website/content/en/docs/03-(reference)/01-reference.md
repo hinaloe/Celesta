@@ -77,6 +77,7 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | `MediaFrame` | `@celesta/components` | An image or a video (`kind`) fitted into a framed `Panel`, contain or cover, with rounded corners, a border, and a caption; a video keeps its playback and sound. See [Images, video & sound](/en/docs/media/). |
 | `Motion` | `@celesta/components` | One element that fades, moves, or scales in, holds exactly as written, and leaves, in the enclosing sequence's window or one of its own. For transitions between whole scenes, use `TransitionSeries`. |
 | `TitleCard` | `@celesta/components` | A title screen: a chapter number, kicker, title, and subtitle in one block, placed left, centered, or right and top, middle, or bottom inside the canvas or a safe area. The title keeps its line breaks and shrinks to fit; the pieces enter one after another or together. |
+| `TypewriterText` | `@celesta/components` | Text typed out with a line or block caret placed on the measured layout, in any font, across `\n` and wrapped lines. |
 | `Center`, `SafeArea`, `Stack`, `Grid`, `Fit`, `LayoutBounds` | `@celesta/layout` | Arrange child layers. See [layout helpers](/en/docs/layout/). |
 | `preloadMedia` / `mediaDurationInFrames` | `@celesta/media-utils` | Read a media file’s length and size in `prepare()`. |
 | `loadAudioSpectrum` / `useAudioSpectrum` / `spectrumAt` | `@celesta/media-utils` | Analyze an audio file in `prepare()` and read each frame’s frequency bands and loudness. See [Images, video & sound](/en/docs/media/). |

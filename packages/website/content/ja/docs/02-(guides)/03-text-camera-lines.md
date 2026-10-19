@@ -7,6 +7,7 @@
 | API | 用途 |
 | --- | --- |
 | `TextReveal` | 文字列の各行を、それぞれのマスクの裏から順にスライド表示します。`lineHeight`、`from`、`stagger`、`durationInFrames` を設定し、`align` で各行の横方向の揃え位置（0 左、0.5 中央、1 右）を指定します。行は `\n` で区切ります。`maxWidth` を渡すと `<Text maxWidth>` と同じ位置（`style.lineBreak: 'phrase'` を含む）でも折り返し、折り返した行も 1 行ずつ表示します。 |
+| `TypewriterText`（`@celesta/components`） | 線またはブロックのカーソル付きで、文字を一文字ずつ入力して見せます。送りは `useTypewriter` と同じです。カーソルは組版を計測した位置に置くので、比例フォント・日本語・`\n`・`maxWidth` の折り返しでも等幅フォントは要りません。 |
 | `useTypewriter(text, options)` | 入力済みの `text`、その `length`、`done`、`caretVisible`。入力中は固定、停止中は点滅します。 |
 | `useCountUp(to, options)` | `to` まで数える数値。`from`、`delay`、`durationInFrames`、`easing`、`decimals` で調整します。 |
 | `Counter`、`StatCard`（`@celesta/components`） | 数えた数値を整形して描く `<Text>` と、ラベル・数値・補足を載せたカードです。`useCountUp` と同じ既定のタイミングで数え、`locale`（既定 `'en-US'`。実行環境の locale には依存しません）、`decimals`（常に表示）、`prefix` / `suffix`、`formatter` で表示を決めます。`anchorX={1}` にすると、桁が増えても末尾の桁と単位が動きません。 |
