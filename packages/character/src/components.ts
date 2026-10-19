@@ -7,14 +7,19 @@ import * as React from 'react';
 import type { ReactNode } from 'react';
 
 import { Group, useCurrentTime } from '@celesta/react';
-import type { AnimatedNumber, AssetInput, AssetReference, CommonProps, TextMetrics, TextStyle } from '@celesta/react';
+import type {
+  AnimatedNumber, AssetInput, AssetReference, CommonProps, ResolvedTheme, TextMetrics, TextStyle,
+} from '@celesta/react';
 import {
   CompositionRuntimeContext,
   FreezeFrameContext,
   RerenderRequestContext,
+  ThemeContext,
   flattenTextContent,
   secondsFromTime,
   synchronousMeasurer,
+  themeTextContent,
+  themedTextStyle,
   useMeasurementFonts,
   withInheritedText,
   withTextRuns,
@@ -420,13 +425,17 @@ export function Dialogue(props: DialogueProps): ReturnType<typeof React.createEl
   const character = scope && props.character
     ? (scopedViewReference(scope, props.character) as DialogueProps['character'])
     : props.character;
-  const subtitle = useRenderedSubtitle(character, children, props.held === true);
+  const theme = React.useContext(ThemeContext);
+  const [subtitle, subtitleStyle] = useRenderedSubtitle(character, children, props.held === true, theme);
   return React.createElement(
     'dialogue',
     {
       ...rest,
       character,
-      text: children,
+      // A plain subtitle is drawn by render.ts, past every <Theme>, so it
+      // gets the text and style with their names already looked up.
+      text: themeTextContent(children, theme),
+      ...(subtitleStyle !== undefined ? { subtitleStyle } : {}),
       mouth: mouth ?? tracked,
       expression: expressionAt(expression, time.value / time.timescale),
     },
@@ -436,13 +445,15 @@ export function Dialogue(props: DialogueProps): ReturnType<typeof React.createEl
 
 /**
  * The subtitle a `subtitle.render` draws for this line, or null for a
- * plain subtitle, which render.ts draws as a `text` layer.
+ * plain subtitle, which render.ts draws as a `text` layer; and the
+ * subtitle's style with `theme`'s names looked up, when that changes it.
  */
 function useRenderedSubtitle(
   view: React.RefObject<CharacterViewReference | null>,
   children: ReactNode,
   held: boolean,
-): ReactNode {
+  theme: ResolvedTheme,
+): [ReactNode, TextStyle | undefined] {
   const requestRerender = React.useContext(RerenderRequestContext);
   const runtime = React.useContext(CompositionRuntimeContext);
   const run = React.useContext(SubtitleRunContext);
@@ -461,9 +472,10 @@ function useRenderedSubtitle(
   ) as CharacterReference | null | undefined;
   const subtitle = character?.subtitle;
   const render = subtitle?.render;
-  const flat = render ? flattenTextContent(children, '<Dialogue> children') : null;
+  const themedStyle = themedTextStyle(subtitle?.style, {}, theme, '<Dialogue> subtitle');
+  const flat = render ? flattenTextContent(themeTextContent(children, theme), '<Dialogue> children') : null;
   const text = flat?.text ?? '';
-  const style = withInheritedText(subtitle?.style ?? {}, runtime ?? {});
+  const style = withInheritedText(themedStyle ?? {}, runtime ?? {});
   const maxWidth = subtitle?.maxWidth;
   const key = flat
     ? JSON.stringify({
@@ -480,8 +492,9 @@ function useRenderedSubtitle(
     return () =>
       (metrics ??= synchronousMeasurer('subtitle.render')(JSON.parse(key!) as MeasureTextRequest));
   }, [key]);
+  const changedStyle = themedStyle !== subtitle?.style ? themedStyle : undefined;
   if (!render || !character || key === null || !runtime) {
-    return null;
+    return [null, changedStyle];
   }
   const localFrame = Math.round(secondsFromTime(runtime.time) * runtime.fps);
   const { style: _style, maxWidth: _maxWidth, render: _render, id: _id, ...placement } = subtitle;
@@ -499,7 +512,7 @@ function useRenderedSubtitle(
     frame: localFrame + (run?.offset ?? 0),
     durationInFrames: run?.durationInFrames ?? runtime.durationInFrames,
   };
-  return React.createElement(Group, placement, React.createElement(SubtitleRenderer, { render, info }));
+  return [React.createElement(Group, placement, React.createElement(SubtitleRenderer, { render, info })), changedStyle];
 }
 
 function SubtitleRenderer({

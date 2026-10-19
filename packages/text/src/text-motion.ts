@@ -7,9 +7,12 @@ import { Easings, Group, Text, progress, useCurrentFrame, useVideoConfig } from 
 import type { CommonProps, TextStyle } from '@celesta/react';
 import {
   CompositionRuntimeContext,
+  ThemeContext,
   flattenTextContent,
   sliceTextRuns,
   synchronousMeasurer,
+  themeTextContent,
+  themedTextStyle,
   useMeasurementFonts,
   withInheritedText,
   withTextRuns,
@@ -81,7 +84,9 @@ export function TextReveal({
   direction = 'in',
   ...groupProps
 }: TextRevealProps): ReturnType<typeof React.createElement> {
-  const flat = flattenTextContent(children, '<TextReveal> children');
+  const theme = React.useContext(ThemeContext);
+  style = themedTextStyle(style, {}, theme, '<TextReveal>');
+  const flat = flattenTextContent(themeTextContent(children, theme), '<TextReveal> children');
   withTextRuns(style ?? {}, flat, '<TextReveal>');
   const frame = useCurrentFrame();
   const { width } = useVideoConfig();
@@ -208,7 +213,9 @@ export function useTypewriter(content: ReactNode, options: TypewriterOptions = {
   if (!Number.isFinite(blinkFrames) || blinkFrames <= 0) {
     throw new Error('useTypewriter() requires a positive blinkFrames');
   }
-  const characters = Array.from(flattenTextContent(content, 'useTypewriter() text').text);
+  // Span colors are checked as they flatten, so names must be looked up first.
+  const theme = React.useContext(ThemeContext);
+  const characters = Array.from(flattenTextContent(themeTextContent(content, theme), 'useTypewriter() text').text);
   const typed = Math.min(characters.length, Math.max(0, Math.floor((frame - from) / framesPerChar) + 1));
   const typing = frame >= from && typed < characters.length;
   const phase = (((frame - from) % blinkFrames) + blinkFrames) % blinkFrames;

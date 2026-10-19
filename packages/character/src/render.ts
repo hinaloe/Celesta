@@ -262,7 +262,12 @@ function dialogueContent(node: HostNode, walk: HostWalk): LayerContent {
       ...walk.layers(
         {
           type: 'text',
-          props: { ...character.subtitle, id: undefined, children: props.text },
+          props: {
+            ...character.subtitle,
+            ...(props.subtitleStyle !== undefined ? { style: props.subtitleStyle } : {}),
+            id: undefined,
+            children: props.text,
+          },
           children: [],
           parent: null,
           changedAt: 0,
