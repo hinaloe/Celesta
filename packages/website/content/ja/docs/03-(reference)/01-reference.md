@@ -69,6 +69,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | --- | --- | --- |
 | `TextBox` / `fitText` / `useFitText` / `measureText` / `useTextMetrics` | `@celesta/text` `@celesta/react` | 組版後の文字を測ったり、枠に収まる文字サイズを選んだりします。詳しくは[テキストとフォント](/ja/docs/text-fonts/)を参照してください。 |
 | `FrameChrome` | `@celesta/components` | 四隅のブラケット・タイトル・タイムコード・現在の章・プログレスバーを、キャンバスの大きさに合わせて画面の周りに描きます。 |
+| `PatternBackground` | `@celesta/components` | ドット・格子・ストライプ、または自前のマークを、キャンバスや指定した領域いっぱいに繰り返して描き、クリップします。フレームに合わせて動かせます。 |
 | `Center`, `SafeArea`, `Stack`, `Grid`, `Fit` | `@celesta/layout` | 子のレイヤーを配置します。[レイアウトのヘルパー](/ja/docs/layout/)を参照。 |
 | `preloadMedia` / `mediaDurationInFrames` | `@celesta/media-utils` | `prepare()` 内でメディアの長さとサイズを取得します。 |
 | `loadAudioSpectrum` / `useAudioSpectrum` / `spectrumAt` | `@celesta/media-utils` | `prepare()` で音声ファイルを解析し、フレームごとの周波数帯と音量を読みます。[画像・動画・音声](/ja/docs/media/)を参照。 |

@@ -28,6 +28,7 @@ provides `react` (18.x) and those packages; never install them from npm.
 - [Image](#image)
 - [Lottie animations](#lottie-animations)
 - [Instances (particles)](#instances-particles)
+- [PatternBackground (dots, grid, stripes)](#patternbackground-dots-grid-stripes)
 - [Static (still subtrees)](#static-still-subtrees)
 - [Video](#video)
 - [Audio](#audio)
@@ -550,6 +551,59 @@ function Snow() {
   (`<Instances> x has 3 values; count is 4`). A particle with a non-finite
   value is not drawn.
 - The CPU reference renderer cannot rotate particles; export uses the GPU.
+
+## PatternBackground (dots, grid, stripes)
+
+Imported from `@celesta/components`. A repeating background filling an
+area (the canvas by default; `x`, `y`, `width`, `height`, `cornerRadius`
+pick another) and clipped to it, without building arrays of `<Rect>`s.
+Every mark is a particle of one `<Instances>` layer, so the dots of a
+1920×1080 canvas every 80 px take 4 layers: the clip group, the
+`background`, the marks group, and the instances.
+
+| `pattern` | Draws | `size` (default) |
+| --- | --- | --- |
+| `'dots'` | a dot in the middle of each `spacing` cell; `dotShape="square"` for squares | diameter (4) |
+| `'grid'` | lines along the cell edges, across the whole area | line width (1) |
+| `'stripes'` | bands `spacing` apart at `angle` degrees clockwise from horizontal (45) | band thickness (half of `spacing`) |
+| `{ marks }` | your own marks in every cell (below) | — |
+
+`spacing` (40) is a number or `[across, down]`. `color` (white) and
+`background` (none) take hex or `<Theme>` color names. `opacity` and the
+color's alpha fade the marks as one layer, so crossing grid lines do not
+darken; `blendMode` blends them. `offsetX`/`offsetY` shift the pattern
+(negative is fine) and `speedX`/`speedY` move it in pixels per second from
+the caller's frame 0; the area stays covered to its edges. `variation={{
+opacity, scale, seed }}` lowers each mark's alpha and size by up to that
+fraction, the same on every frame for the same `seed`, and a mark keeps its
+value as the pattern moves. More than `maxMarks` (100,000) marks throw.
+
+```tsx
+import { PatternBackground } from '@celesta/components';
+
+<PatternBackground pattern="dots" spacing={80} size={3}
+  background="#101820" color="#FFFFFF" opacity={0.12} />
+<PatternBackground pattern="stripes" spacing={28} size={10} angle={-30} speedX={28} color="accent" />
+```
+
+A pattern of your own is `{ marks }`: a list of marks, or a function of the
+cell (`{ column, row, x, y }`) returning them. Each mark is a `'rect'`
+(default) or `'circle'` of `width` × `height` (defaults to `width`), centred
+at `x`, `y` from the cell's top-left (default: the cell's centre), with
+optional `rotation`, `color`, and `opacity`. Marks may spill up to one cell
+into their neighbours. Cells keep their `column` and `row` as the pattern
+moves.
+
+```tsx
+const crosses: PatternTile = {
+  marks: ({ column, row }) => (column + row) % 2 === 0
+    ? [{ width: 18, height: 3, rotation: 45 }, { width: 18, height: 3, rotation: -45 }]
+    : [{ shape: 'circle', width: 6, color: 'accent' }],
+};
+<PatternBackground pattern={crosses} spacing={36} speedY={18} color="ink" />
+```
+
+Runnable: [`packages/cli/examples/with-pattern-background.tsx`](../../../packages/cli/examples/with-pattern-background.tsx).
 
 ## Static (still subtrees)
 
