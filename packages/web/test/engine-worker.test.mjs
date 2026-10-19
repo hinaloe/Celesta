@@ -100,7 +100,7 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
   // registered with its scene walker.
   const split = await send({ id: 9, type: 'compile', source: `import { React, Assets, Composition } from '@celesta/react';
     import { Center } from '@celesta/layout';
-    import { Badge, Counter, Panel } from '@celesta/components';
+    import { Badge, Counter, MediaFrame, Panel } from '@celesta/components';
     import { Circle } from '@celesta/shapes';
     import { Character, CharacterView } from '@celesta/character';
     export default function Root() {
@@ -112,11 +112,15 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
         <Panel width={40} height={20} padding={5}><Center><Circle radius={2} fill="#ffffff" /></Center></Panel>
         <Badge padding={4} fill="#000000">ab</Badge>
         <Counter value={1234.5} decimals={1} durationInFrames={0} suffix=" 件" />
+        <MediaFrame kind="image" src="shot.png" width={40} height={30} padding={2} fit="cover" />
       </Composition>;
     }` });
   assert.equal(split.error, undefined);
   const splitFrame = await send({ id: 10, type: 'frame', frame: 0 });
-  const [center, view, panel, badge, counter] = splitFrame.value.scene.layers;
+  const [center, view, panel, badge, counter, frame] = splitFrame.value.scene.layers;
+  // A MediaFrame's image gets the area inside its padding and the fit.
+  const image = frame.content.layers[0].content.layers[0].content.layers[0].content;
+  assert.deepEqual([image.type, image.width, image.height, image.fit, image.asset.location], ['image', 36, 26, 'cover', { type: 'file', path: 'shot.png' }]);
   // The worker formats with the same fixed locale as the native runtime.
   assert.equal(counter.content.text, '1,234.5 件');
   assert.deepEqual(center.transform.position, { x: 50, y: 50 });
