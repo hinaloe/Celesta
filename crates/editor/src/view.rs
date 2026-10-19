@@ -1,5 +1,6 @@
 use crate::audio::{AudioMixWorker, MasterVolumeDrag};
 use crate::component_schema::ComponentSchemaWorker;
+use crate::edit_history::EditHistory;
 use crate::export_worker::ExportWorker;
 use crate::layer_select::SourceLookup;
 use crate::media_probe::{MediaAssetInfo, MediaProbeWorker};
@@ -8,13 +9,16 @@ use crate::preview::{AudioPreview, PreviewPresentation, PreviewWorker, ReactPrev
 use crate::problems::{Problems, Source};
 use crate::property_panel::PropertyPanelState;
 use crate::react_audio::ReactAudioWorker;
-use crate::refresh::ReloadOrder;
+use crate::refresh::{ReloadOrder, SelectionKeep};
 use crate::source::{PropertyArgs, load_source};
 use crate::timeline::LaneGesture;
+use crate::transform_drag::TransformDrag;
+use crate::transform_edit::TransformEdit;
+use crate::transform_rows::TransformInputs;
 use celesta_composition::{AudioClip, Rational};
 use celesta_editor_core::{AssetSummary, EditorDocument, TimelineClock, TrackSummary};
 use celesta_exporter::{ExportCancellation, ExportProgress};
-use celesta_gpu_renderer::{GpuDriver, GpuRenderOptions, GpuRenderer, HitRegion};
+use celesta_gpu_renderer::{GpuDriver, GpuRenderOptions, GpuRenderer, HitRegion, LayerFrame};
 use celesta_media::FfmpegBackend;
 use celesta_react_bridge::{ComponentPropertyField, ComponentPropertySchema};
 use chrono::{DateTime, Local};
@@ -35,6 +39,9 @@ pub(crate) enum RightTab {
     /// The inspector, or the React Preview panel in React-preview mode.
     #[default]
     Details,
+    /// What can be edited in React-preview mode: the selected layer and the
+    /// props file. Not offered for a project, whose inspector edits in place.
+    Properties,
     Problems,
 }
 
@@ -43,8 +50,27 @@ impl RightTab {
     /// Problems.
     pub(crate) fn toggled_problems(self) -> Self {
         match self {
-            Self::Details => Self::Problems,
+            Self::Details | Self::Properties => Self::Problems,
             Self::Problems => Self::Details,
+        }
+    }
+
+    /// The tabs the right dock offers, in order.
+    pub(crate) fn offered(react_preview: bool) -> &'static [Self] {
+        if react_preview {
+            &[Self::Details, Self::Properties, Self::Problems]
+        } else {
+            &[Self::Details, Self::Problems]
+        }
+    }
+
+    /// The tab shown for this one: Properties falls back to Details where it
+    /// is not offered (a project was opened while it was selected).
+    pub(crate) fn shown(self, react_preview: bool) -> Self {
+        if Self::offered(react_preview).contains(&self) {
+            self
+        } else {
+            Self::Details
         }
     }
 }
@@ -92,6 +118,9 @@ pub(crate) struct EditorView {
     pub(crate) watched_since: u64,
     /// The React Preview panel's Properties section.
     pub(crate) property_panel: PropertyPanelState,
+    /// File writes Cmd+Z can take back; kept for as long as the same entry
+    /// stays open.
+    pub(crate) edit_history: EditHistory,
     pub(crate) preview_worker: PreviewWorker,
     pub(crate) preview_generation: u64,
     /// Generation of the newest preview frame actually shown. Results are
@@ -211,11 +240,26 @@ pub(crate) struct EditorView {
     pub(crate) hit_regions: Vec<HitRegion>,
     /// The selected layer's JSX source, as the Layer section shows it.
     pub(crate) source_lookup: Option<SourceLookup>,
+    /// The timeline frame `source_lookup`'s answer was looked up at.
+    pub(crate) source_lookup_frame: i64,
     /// Window bounds of the viewer's frame area as last painted, for mapping
     /// clicks onto the scene.
     pub(crate) viewer_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// Why the last attempt to open a source position failed.
     pub(crate) launch_error: Option<String>,
+    /// Which reloads keep `selected_layer` (those after the editor's own writes).
+    pub(crate) selection_keep: SelectionKeep,
+    /// The selected layer's transform targets in its source.
+    pub(crate) transform: TransformEdit,
+    /// The Layer section's Transform fields.
+    pub(crate) transform_inputs: TransformInputs,
+    /// The selected layer's frame as the shown frame measured it: the layer
+    /// id, and `None` inside when it has no affine frame. `None` when the
+    /// frame measured nothing (during playback, or with no selection).
+    pub(crate) layer_frame: Option<(String, Option<LayerFrame>)>,
+    /// The canvas drag of the selected layer's transform, if one is running
+    /// or being written.
+    pub(crate) transform_drag: Option<TransformDrag>,
 }
 
 impl EditorView {
@@ -286,6 +330,7 @@ impl EditorView {
             react_reloads: ReloadOrder::default(),
             watched_since: 0,
             property_panel: PropertyPanelState::default(),
+            edit_history: EditHistory::default(),
             preview_worker,
             preview_generation: 0,
             preview_shown_generation: 0,
@@ -356,8 +401,14 @@ impl EditorView {
             selected_layer: None,
             hit_regions: Vec::new(),
             source_lookup: None,
+            source_lookup_frame: 0,
             viewer_bounds: Rc::default(),
             launch_error: None,
+            selection_keep: SelectionKeep::default(),
+            transform: TransformEdit::default(),
+            transform_inputs: TransformInputs::default(),
+            layer_frame: None,
+            transform_drag: None,
         };
         editor.refresh_preview();
         editor.refresh_audio_preview();
@@ -377,5 +428,21 @@ mod tests {
     fn show_problems_toggles_between_problems_and_details() {
         assert_eq!(RightTab::Details.toggled_problems(), RightTab::Problems);
         assert_eq!(RightTab::Problems.toggled_problems(), RightTab::Details);
+        assert_eq!(RightTab::Properties.toggled_problems(), RightTab::Problems);
+    }
+
+    #[test]
+    fn properties_tab_is_offered_only_in_react_preview() {
+        assert_eq!(
+            RightTab::offered(true),
+            [RightTab::Details, RightTab::Properties, RightTab::Problems]
+        );
+        assert_eq!(
+            RightTab::offered(false),
+            [RightTab::Details, RightTab::Problems]
+        );
+        assert_eq!(RightTab::Properties.shown(true), RightTab::Properties);
+        assert_eq!(RightTab::Properties.shown(false), RightTab::Details);
+        assert_eq!(RightTab::Problems.shown(false), RightTab::Problems);
     }
 }

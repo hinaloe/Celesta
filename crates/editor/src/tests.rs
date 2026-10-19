@@ -10,32 +10,46 @@ use crate::helpers::{
     export_output, export_progress_label, export_range_for, export_suggested_name, loop_range_for,
 };
 use crate::layer_select::{
-    SourceLookup, display_path, launch_outcome_applies, letterbox, scene_point, source_lookup,
-    source_lookup_target, source_position,
+    SourceLookup, display_path, launch_outcome_applies, letterbox, outline_quads, parent_layer_id,
+    scene_point, source_lookup, source_lookup_target, source_position,
 };
 use crate::react_audio::{react_audio_clip_id, react_tracks};
+use crate::refresh::{LookupFate, SelectionKeep};
 use crate::source::is_react_entry;
+use crate::transform_drag::presses_body;
+use crate::transform_edit::{
+    CommitError, TransformEdit, TransformProp, commit_text, inside_project, keyframe_jump_frames,
+    keyframe_timeline_frame, lock_outside_project, reason_text, resolve_targets,
+};
+use crate::transform_handles::{
+    Handle, drag_label, drag_values, handle_at, handles, override_transform, prop_values,
+    shown_handles, turn,
+};
+use crate::transform_rows::field_text;
 use crate::waveform::{
     clip_level_envelope, level_at_time, map_clip_waveform, master_volume_from_drag, waveform_peaks,
     waveform_segment,
 };
 use celesta_editor_core::ClipKind;
-use celesta_gpu_renderer::GpuDriver;
+use celesta_gpu_renderer::{GpuDriver, LayerFrame};
+use celesta_source_edit::{EditTarget, LockReason};
 
 use crate::preview::{
-    ReactPreviewContext, ReactPreviewMode, collect_component_requests, records_hit_regions,
-    splice_component_resolutions, strip_missing_components,
+    ReactPreviewContext, ReactPreviewMode, apply_override, collect_component_requests,
+    records_hit_regions, splice_component_resolutions, strip_missing_components,
 };
 use celesta_composition::{
     Animatable, AssetLocation, AudioClip, EvaluatedTransform, GroupMask, Layer, LayerContent,
-    LayerEffects, LayerFilter, LayerShader, MaskMode, Rational, ResolvedAsset, Scene, ShaderSource,
-    Time, TimeRange,
+    LayerEffects, LayerFilter, LayerShader, MaskMode, Point, Rational, ResolvedAsset, Scene,
+    ShaderSource, Time, TimeRange,
 };
 use celesta_editor_core::ClipSummary;
 use celesta_exporter::{ExportCancellation, ExportProgress, VideoFormat};
 use celesta_media::{AudioBuffer, AudioDecoder};
 use celesta_project::{Project, TrackKind};
-use celesta_react_bridge::{ComponentResolutions, LayerSource};
+use celesta_react_bridge::{
+    ComponentResolutions, ElementKind, LayerSource, LayerSourceReport, ReceivedProps,
+};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -485,6 +499,57 @@ fn masked_group(children: Vec<Layer>, mask: Vec<Layer>) -> Layer {
     }
 }
 
+fn scene_of(layers: Vec<Layer>) -> Scene {
+    Scene {
+        width: 64,
+        height: 64,
+        frame_rate: Rational::new(30, 1),
+        time: Time::default(),
+        fonts: Vec::new(),
+        shaders: Vec::new(),
+        layers,
+    }
+}
+
+#[test]
+fn an_override_replaces_the_transform_of_a_nested_layer() {
+    let inner = Layer {
+        content: LayerContent::Group {
+            layers: vec![missing("target"), missing("other")],
+            clip: None,
+            mask: None,
+            motion_blur: false,
+        },
+        ..missing("group")
+    };
+    let mut scene = scene_of(vec![missing("first"), inner]);
+    let moved = EvaluatedTransform {
+        rotation: 30.0,
+        ..EvaluatedTransform::default()
+    };
+
+    assert!(apply_override(&mut scene, "target", &moved));
+
+    let LayerContent::Group { layers, .. } = &scene.layers[1].content else {
+        unreachable!()
+    };
+    assert_eq!(layers[0].transform, moved);
+    assert_eq!(layers[1].transform, EvaluatedTransform::default());
+    assert_eq!(scene.layers[0].transform, EvaluatedTransform::default());
+}
+
+#[test]
+fn an_override_of_an_absent_layer_changes_nothing() {
+    let mut scene = scene_of(vec![missing("a")]);
+    let moved = EvaluatedTransform {
+        rotation: 30.0,
+        ..EvaluatedTransform::default()
+    };
+
+    assert!(!apply_override(&mut scene, "b", &moved));
+    assert_eq!(scene, scene_of(vec![missing("a")]));
+}
+
 #[test]
 fn component_requests_reach_into_masks_after_the_children() {
     let layers = vec![masked_group(vec![missing("Child")], vec![missing("Matte")])];
@@ -596,6 +661,18 @@ fn layer_source_at(file: &str, line: u32, column: u32) -> LayerSource {
         file: PathBuf::from(file),
         line,
         column,
+        kind: ElementKind::Component,
+        layer_id: None,
+    }
+}
+
+fn report_of(chain: Vec<LayerSource>) -> LayerSourceReport {
+    LayerSourceReport {
+        chain,
+        local_frame: 0.0,
+        candidate_frames: vec![],
+        props: ReceivedProps::default(),
+        render_count: 1,
     }
 }
 
@@ -902,12 +979,12 @@ fn layer_select_reads_each_lookup_outcome() {
 
     assert_eq!(source_lookup(Ok(None)), SourceLookup::NotInFrame);
     assert_eq!(
-        source_lookup(Ok(Some(Vec::new()))),
+        source_lookup(Ok(Some(report_of(Vec::new())))),
         SourceLookup::NoPosition
     );
     assert_eq!(
-        source_lookup(Ok(Some(chain.clone()))),
-        SourceLookup::Found(chain)
+        source_lookup(Ok(Some(report_of(chain.clone())))),
+        SourceLookup::Found(report_of(chain))
     );
     assert_eq!(
         source_lookup(Err("bridge closed".to_string())),
@@ -995,7 +1072,7 @@ fn layer_select_records_hit_regions_only_in_interactive_mode() {
 
 #[test]
 fn layer_select_looks_up_sources_only_in_interactive_mode() {
-    let found = SourceLookup::Found(Vec::new());
+    let found = SourceLookup::Found(report_of(Vec::new()));
 
     // Paused with a selection: looked up while picking, never otherwise.
     assert_eq!(
@@ -1016,4 +1093,1078 @@ fn layer_select_looks_up_sources_only_in_interactive_mode() {
         None
     );
     assert_eq!(source_lookup_target(None, true, false, None), None);
+}
+
+const TRANSFORM_FIXTURE: &str = "export const Scene = () => (\n  <Rect x={100} width={10} />\n);\n";
+
+fn primitive_report(line: u32, column: u32, props: ReceivedProps) -> LayerSourceReport {
+    LayerSourceReport {
+        chain: vec![LayerSource {
+            name: "Rect".to_string(),
+            file: PathBuf::from("/project/scene.tsx"),
+            line,
+            column,
+            kind: ElementKind::Primitive,
+            layer_id: None,
+        }],
+        local_frame: 0.0,
+        candidate_frames: vec![],
+        props,
+        render_count: 1,
+    }
+}
+
+fn x_only() -> ReceivedProps {
+    ReceivedProps {
+        x: Some(100.0),
+        ..ReceivedProps::default()
+    }
+}
+
+#[test]
+fn transform_resolve_targets_prefers_scale_xy() {
+    let text = "export const Scene = () => (\n  <Rect x={1} scaleX={2} />\n);\n";
+    let report = primitive_report(
+        2,
+        3,
+        ReceivedProps {
+            x: Some(1.0),
+            scale_x: Some(2.0),
+            ..ReceivedProps::default()
+        },
+    );
+
+    let targets = resolve_targets(text, &report).expect("the element resolves");
+
+    let props: Vec<_> = targets.targets.iter().map(|(prop, _)| *prop).collect();
+    assert_eq!(
+        props,
+        [
+            TransformProp::X,
+            TransformProp::Y,
+            TransformProp::Rotation,
+            TransformProp::ScaleX,
+            TransformProp::ScaleY
+        ]
+    );
+    assert!(matches!(
+        targets.targets[3].1,
+        EditTarget::Literal { value, .. } if value == 2.0
+    ));
+    assert!(matches!(
+        targets.targets[4].1,
+        EditTarget::Missing { default, .. } if default == 1.0
+    ));
+    assert_eq!(targets.file, PathBuf::from("/project/scene.tsx"));
+}
+
+#[test]
+fn transform_resolve_targets_uniform_scale() {
+    let targets = resolve_targets(TRANSFORM_FIXTURE, &primitive_report(2, 3, x_only()))
+        .expect("the element resolves");
+
+    let props: Vec<_> = targets.targets.iter().map(|(prop, _)| *prop).collect();
+    assert_eq!(
+        props,
+        [
+            TransformProp::X,
+            TransformProp::Y,
+            TransformProp::Rotation,
+            TransformProp::Scale
+        ]
+    );
+    assert_eq!(TransformProp::ScaleX.name(), "scaleX");
+    assert!(matches!(
+        targets.targets[0].1,
+        EditTarget::Literal { value, .. } if value == 100.0
+    ));
+}
+
+#[test]
+fn transform_resolve_targets_fails_without_the_element() {
+    assert!(resolve_targets(TRANSFORM_FIXTURE, &primitive_report(1, 1, x_only())).is_err());
+    assert!(resolve_targets(TRANSFORM_FIXTURE, &report_of(Vec::new())).is_err());
+}
+
+#[test]
+fn transform_commit_writes_literal_and_inserts() {
+    let report = primitive_report(2, 3, x_only());
+    let expected = resolve_targets(TRANSFORM_FIXTURE, &report).unwrap();
+
+    let written = commit_text(
+        TRANSFORM_FIXTURE,
+        &expected,
+        &report,
+        &[(TransformProp::X, 120.0), (TransformProp::Rotation, 45.5)],
+    )
+    .expect("both targets are editable");
+
+    assert_eq!(
+        written,
+        "export const Scene = () => (\n  <Rect x={120} width={10} rotation={45.5} />\n);\n"
+    );
+}
+
+#[test]
+fn transform_commit_aborts_when_target_moved() {
+    let report = primitive_report(2, 3, x_only());
+    let expected = resolve_targets(TRANSFORM_FIXTURE, &report).unwrap();
+    // The element moved within its line, so the report's position misses it.
+    let moved = TRANSFORM_FIXTURE.replace("  <Rect", "    <Rect");
+    // The element stayed but its `x` became longer, so the span moved.
+    let widened = TRANSFORM_FIXTURE.replace("x={100}", "x={1000}");
+
+    for text in [moved, widened] {
+        let error = commit_text(&text, &expected, &report, &[(TransformProp::X, 120.0)])
+            .expect_err("the source changed");
+        assert_eq!(error, CommitError::SourceChanged);
+        assert_eq!(error.to_string(), "The source changed during the edit");
+    }
+}
+
+#[test]
+fn transform_commit_refuses_locked_and_non_finite_values() {
+    let report = primitive_report(2, 3, x_only());
+    let expected = resolve_targets(TRANSFORM_FIXTURE, &report).unwrap();
+
+    assert!(matches!(
+        commit_text(
+            TRANSFORM_FIXTURE,
+            &expected,
+            &report,
+            &[(TransformProp::X, f64::NAN)]
+        ),
+        Err(CommitError::NotANumber)
+    ));
+    // `scaleX` is not a target of a uniformly scaled element.
+    assert!(matches!(
+        commit_text(
+            TRANSFORM_FIXTURE,
+            &expected,
+            &report,
+            &[(TransformProp::ScaleX, 2.0)]
+        ),
+        Err(CommitError::NotEditable(TransformProp::ScaleX))
+    ));
+}
+
+#[test]
+fn transform_reason_texts_match_spec() {
+    let cases = [
+        (LockReason::SyntaxError, "The source has syntax errors"),
+        (
+            LockReason::ElementNotFound,
+            "Couldn't find this element in the source",
+        ),
+        (
+            LockReason::NotPrimitive,
+            "Set by a component, not written on this element",
+        ),
+        (
+            LockReason::Expression {
+                source: "W / 2".to_string(),
+            },
+            "Written as an expression: W / 2",
+        ),
+        (
+            LockReason::UnresolvedIdentifier {
+                name: "name".to_string(),
+            },
+            "Comes from name, which can't be traced",
+        ),
+        (
+            LockReason::SharedBinding {
+                name: "enter".to_string(),
+                uses: 3,
+            },
+            "enter is used in 3 places",
+        ),
+        (
+            LockReason::BetweenKeyframes {
+                previous: 0.0,
+                next: 30.0,
+                frame: 15.0,
+            },
+            "Between keyframes at 0 and 30",
+        ),
+        (LockReason::OutsideKeyframes, "Outside the keyframes"),
+        (
+            LockReason::UnsupportedCall {
+                callee: "spring".to_string(),
+            },
+            "Computed by spring()",
+        ),
+        (
+            LockReason::OverriddenByParent,
+            "A layout component sets this value",
+        ),
+        (LockReason::Spread, "May be set by a spread ({...props})"),
+        (
+            LockReason::Repeated { count: 12 },
+            "Rendered 12 times from this element",
+        ),
+        (
+            LockReason::FrameUncertain,
+            "Can't tell which frame this animation reads",
+        ),
+        (
+            LockReason::OutsideProject,
+            "This file is outside the project",
+        ),
+    ];
+    for (reason, text) in cases {
+        assert_eq!(reason_text(&reason), text);
+    }
+}
+
+#[test]
+fn transform_own_write_reload_keeps_selection() {
+    let mut keep = SelectionKeep::default();
+
+    // A reload requested after the editor's own write keeps the selection.
+    keep.own_write();
+    assert!(keep.requested(1, true));
+    assert!(keep.applies(1));
+    assert!(!keep.applies(1), "each kept reload applies once");
+
+    // A reload from an edit elsewhere clears it.
+    assert!(!keep.requested(2, true));
+    assert!(!keep.applies(2));
+
+    // Switching compositions never keeps it.
+    keep.own_write();
+    assert!(!keep.requested(3, false));
+    assert!(!keep.applies(3));
+}
+
+#[test]
+fn transform_kept_selection_waits_for_the_reloaded_frame() {
+    let mut keep = SelectionKeep::default();
+    keep.confirm_from(7);
+
+    // A frame of the old code says nothing about the new one.
+    assert_eq!(keep.lookup_arrived(6, true), LookupFate::Stale);
+    // The reloaded code no longer draws the layer.
+    assert_eq!(keep.lookup_arrived(7, true), LookupFate::Gone);
+    // After the first answer, lookups show as usual.
+    assert_eq!(keep.lookup_arrived(8, true), LookupFate::Show);
+
+    keep.confirm_from(9);
+    assert_eq!(keep.lookup_arrived(9, false), LookupFate::Show);
+    assert_eq!(keep.lookup_arrived(10, true), LookupFate::Show);
+}
+
+#[test]
+fn transform_state_drops_stale_resolutions() {
+    let report = primitive_report(2, 3, x_only());
+    let moved = primitive_report(2, 3, ReceivedProps::default());
+    let targets = || resolve_targets(TRANSFORM_FIXTURE, &report);
+    let mut state = TransformEdit::default();
+
+    let first = state.begin("a", &report, 0).expect("nothing resolved yet");
+    assert_eq!(state.begin("a", &report, 0), None, "already resolving it");
+    assert!(state.finish(first, Some("a"), targets()));
+    let lookup = Some((&report, 0));
+    assert!(state.targets(Some("a"), lookup).is_some());
+    assert!(
+        state.targets(Some("b"), lookup).is_none(),
+        "belongs to layer a"
+    );
+
+    // After a write the targets are unknown until resolved again.
+    state.invalidate();
+    assert!(state.targets(Some("a"), lookup).is_none());
+    // The old report describes the old code; wait for the reload's lookup.
+    assert_eq!(state.begin("a", &report, 0), None);
+    state.reset();
+    let second = state
+        .begin("a", &report, 0)
+        .expect("the reload's lookup resolves again");
+
+    // A newer report supersedes the one in flight.
+    let third = state.begin("a", &moved, 0).expect("another report");
+    assert!(!state.finish(second, Some("a"), targets()));
+    // The selection changed while it resolved.
+    assert!(!state.finish(third, Some("b"), targets()));
+    assert!(state.targets(Some("a"), Some((&moved, 0))).is_none());
+}
+
+#[test]
+fn transform_resolve_targets_ignores_a_scale_axis_only_a_parent_sets() {
+    // A parent passes `scaleX`, but the element writes neither axis.
+    let report = primitive_report(
+        2,
+        3,
+        ReceivedProps {
+            x: Some(100.0),
+            scale_x: Some(2.0),
+            ..ReceivedProps::default()
+        },
+    );
+
+    let targets = resolve_targets(TRANSFORM_FIXTURE, &report).expect("the element resolves");
+
+    let props: Vec<_> = targets.targets.iter().map(|(prop, _)| *prop).collect();
+    assert_eq!(
+        props,
+        [
+            TransformProp::X,
+            TransformProp::Y,
+            TransformProp::Rotation,
+            TransformProp::Scale
+        ]
+    );
+}
+
+#[test]
+fn transform_reset_resolves_an_identical_report_again() {
+    // `<Rect width={10} x={100} />` became `width={100}` elsewhere: the report
+    // is the same, but `x` moved.
+    let before = "export const Scene = () => (\n  <Rect width={10} x={100} />\n);\n";
+    let after = before.replace("width={10}", "width={100}");
+    let report = primitive_report(2, 3, x_only());
+    let mut state = TransformEdit::default();
+
+    let first = state.begin("a", &report, 0).unwrap();
+    assert!(state.finish(first, Some("a"), resolve_targets(before, &report)));
+    state.set_error(
+        Some("a"),
+        Some("The source changed during the edit".to_owned()),
+    );
+
+    // The reload cleared the selection; selecting the layer again.
+    state.reset();
+    assert_eq!(state.error(Some("a")), None, "the old error is gone");
+    let second = state.begin("a", &report, 0).expect("resolved again");
+    assert!(state.finish(second, Some("a"), resolve_targets(&after, &report)));
+
+    let (targets, report) = state.targets(Some("a"), Some((&report, 0))).unwrap();
+    let written = commit_text(&after, targets, report, &[(TransformProp::X, 120.0)]).unwrap();
+    assert_eq!(written, after.replace("x={100}", "x={120}"));
+}
+
+#[test]
+fn transform_explains_why_there_is_nothing_to_commit() {
+    let report = primitive_report(2, 3, x_only());
+    let mut state = TransformEdit::default();
+    assert_eq!(
+        state.unavailable(Some("a")),
+        "The source is still being read"
+    );
+
+    let request = state.begin("a", &report, 0).unwrap();
+    assert_eq!(
+        state.unavailable(Some("a")),
+        "The source is still being read"
+    );
+    assert!(state.finish(
+        request,
+        Some("a"),
+        Err("Couldn't read scene.tsx".to_owned())
+    ));
+    assert_eq!(state.unavailable(Some("a")), "Couldn't read scene.tsx");
+
+    let request = state.begin("a", &report, 1).unwrap();
+    assert!(state.finish(
+        request,
+        Some("a"),
+        resolve_targets(TRANSFORM_FIXTURE, &report)
+    ));
+    state.invalidate();
+    assert_eq!(state.unavailable(Some("a")), "Select the layer again");
+}
+
+#[test]
+fn transform_keyframe_jumps_use_the_lookup_frame() {
+    // Looked up at timeline frame 100 inside a sequence starting at 40.
+    assert_eq!(keyframe_timeline_frame(0.0, 100, 60.0), 40);
+    assert_eq!(keyframe_timeline_frame(90.0, 100, 60.0), 130);
+    // Not shifted by a sequence.
+    assert_eq!(keyframe_timeline_frame(30.0, 12, 12.0), 30);
+}
+
+#[test]
+fn transform_keyframe_jumps_use_the_candidate_frame() {
+    // The report's owner guess is 60, but `frame` reads the Sequence's 30
+    // (frame 15 of [0, 30] gives the received 250, frame 60 would be outside).
+    let text = "export const Scene = () => {\n  const frame = useCurrentFrame();\n  return <Sequence from={30}><Rect x={interpolate(frame - 15, [0, 30], [100, 400])} /></Sequence>;\n};\n";
+    let report = LayerSourceReport {
+        local_frame: 60.0,
+        candidate_frames: vec![60.0, 30.0],
+        ..primitive_report(
+            3,
+            30,
+            ReceivedProps {
+                x: Some(250.0),
+                ..ReceivedProps::default()
+            },
+        )
+    };
+    let targets = resolve_targets(text, &report).unwrap();
+    let target = targets.target(TransformProp::X).unwrap();
+    assert_eq!(
+        target,
+        &EditTarget::Locked(LockReason::BetweenKeyframes {
+            previous: 15.0,
+            next: 45.0,
+            frame: 30.0,
+        })
+    );
+    // Looked up at timeline frame 60: keyframes 15 and 45 of the Sequence's
+    // frames are timeline frames 45 and 75.
+    assert_eq!(keyframe_jump_frames(target, 60), Some((45, 75)));
+    assert_eq!(
+        keyframe_jump_frames(&EditTarget::Locked(LockReason::OutsideKeyframes), 60),
+        None
+    );
+}
+
+/// A 100x50 layer at `position` with its anchor at the top left (React's
+/// default), under `parent`, unrotated and unscaled.
+fn drag_frame(parent: [f64; 6], position: Point) -> LayerFrame {
+    let corner = |x: f64, y: f64| Point {
+        x: parent[0] * (position.x + x) + parent[2] * (position.y + y) + parent[4],
+        y: parent[1] * (position.x + x) + parent[3] * (position.y + y) + parent[5],
+    };
+    LayerFrame {
+        transform: EvaluatedTransform {
+            position,
+            anchor: Point { x: 0.0, y: 0.0 },
+            ..EvaluatedTransform::default()
+        },
+        parent,
+        outline: [
+            corner(0.0, 0.0),
+            corner(100.0, 0.0),
+            corner(100.0, 50.0),
+            corner(0.0, 50.0),
+        ],
+        leaves: vec!["a".to_owned()],
+    }
+}
+
+const IDENTITY: [f64; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+const UNIFORM: [TransformProp; 4] = [
+    TransformProp::X,
+    TransformProp::Y,
+    TransformProp::Rotation,
+    TransformProp::Scale,
+];
+const PER_AXIS: [TransformProp; 5] = [
+    TransformProp::X,
+    TransformProp::Y,
+    TransformProp::Rotation,
+    TransformProp::ScaleX,
+    TransformProp::ScaleY,
+];
+
+fn pt(x: f64, y: f64) -> Point {
+    Point { x, y }
+}
+
+fn assert_values(actual: &[(TransformProp, f64)], expected: &[(TransformProp, f64)]) {
+    assert_eq!(
+        actual.iter().map(|(prop, _)| *prop).collect::<Vec<_>>(),
+        expected.iter().map(|(prop, _)| *prop).collect::<Vec<_>>(),
+        "{actual:?}"
+    );
+    for ((_, a), (_, e)) in actual.iter().zip(expected) {
+        assert!((a - e).abs() < 1e-9, "{actual:?} != {expected:?}");
+    }
+}
+
+#[test]
+fn drag_values_move_inside_a_parent_scaled_by_two_halves_the_delta() {
+    let frame = drag_frame([2.0, 0.0, 0.0, 2.0, 30.0, 40.0], pt(10.0, 20.0));
+    let values = drag_values(
+        &frame,
+        Handle::Move,
+        (pt(100.0, 100.0), pt(140.0, 160.0)),
+        false,
+        0.0,
+        &UNIFORM,
+    );
+    assert_values(
+        &values,
+        &[(TransformProp::X, 30.0), (TransformProp::Y, 50.0)],
+    );
+}
+
+#[test]
+fn drag_values_move_with_y_locked_changes_only_x() {
+    let frame = drag_frame(IDENTITY, pt(10.0, 20.0));
+    let editable = [
+        TransformProp::X,
+        TransformProp::Rotation,
+        TransformProp::Scale,
+    ];
+    let values = drag_values(
+        &frame,
+        Handle::Move,
+        (pt(0.0, 0.0), pt(5.0, 7.0)),
+        false,
+        0.0,
+        &editable,
+    );
+    assert_values(&values, &[(TransformProp::X, 15.0)]);
+}
+
+#[test]
+fn drag_values_rotate_turns_about_the_anchor_and_snaps_with_shift() {
+    let frame = drag_frame(IDENTITY, pt(100.0, 100.0));
+    let angle = 37f64.to_radians();
+    let now = pt(100.0 + 50.0 * angle.cos(), 100.0 + 50.0 * angle.sin());
+    let free = drag_values(
+        &frame,
+        Handle::Rotate,
+        (pt(200.0, 100.0), now),
+        false,
+        0.0,
+        &UNIFORM,
+    );
+    assert_values(&free, &[(TransformProp::Rotation, 37.0)]);
+    let snapped = drag_values(
+        &frame,
+        Handle::Rotate,
+        (pt(200.0, 100.0), now),
+        true,
+        0.0,
+        &UNIFORM,
+    );
+    assert_values(&snapped, &[(TransformProp::Rotation, 30.0)]);
+}
+
+#[test]
+fn drag_values_rotate_snaps_the_resulting_angle() {
+    let mut frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    frame.transform.rotation = 10.0;
+    // +24° from 10° is 34°, which snaps to 30°.
+    let angle = 24f64.to_radians();
+    let now = pt(10.0 * angle.cos(), 10.0 * angle.sin());
+    let values = drag_values(
+        &frame,
+        Handle::Rotate,
+        (pt(10.0, 0.0), now),
+        true,
+        0.0,
+        &UNIFORM,
+    );
+    assert_values(&values, &[(TransformProp::Rotation, 30.0)]);
+}
+
+#[test]
+fn drag_values_corner_with_uniform_scale_keeps_the_aspect() {
+    let mut frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    frame.transform.scale = pt(2.0, 2.0);
+    // Along the diagonal to twice the distance from the anchor.
+    let values = drag_values(
+        &frame,
+        Handle::Corner(2),
+        (pt(100.0, 50.0), pt(200.0, 100.0)),
+        false,
+        0.0,
+        &UNIFORM,
+    );
+    assert_values(&values, &[(TransformProp::Scale, 4.0)]);
+    // Off the diagonal: one ratio, the projection on it.
+    let values = drag_values(
+        &frame,
+        Handle::Corner(2),
+        (pt(100.0, 50.0), pt(200.0, 80.0)),
+        false,
+        0.0,
+        &UNIFORM,
+    );
+    assert_values(&values, &[(TransformProp::Scale, 2.0 * 24000.0 / 12500.0)]);
+}
+
+#[test]
+fn drag_values_corner_with_per_axis_scale_scales_each_axis() {
+    let frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    let values = drag_values(
+        &frame,
+        Handle::Corner(2),
+        (pt(100.0, 50.0), pt(200.0, 80.0)),
+        false,
+        0.0,
+        &PER_AXIS,
+    );
+    assert_values(
+        &values,
+        &[(TransformProp::ScaleX, 2.0), (TransformProp::ScaleY, 1.6)],
+    );
+}
+
+#[test]
+fn drag_values_edge_changes_only_scale_x() {
+    let frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    let values = drag_values(
+        &frame,
+        Handle::Edge(1),
+        (pt(100.0, 25.0), pt(150.0, 40.0)),
+        false,
+        0.0,
+        &PER_AXIS,
+    );
+    assert_values(&values, &[(TransformProp::ScaleX, 1.5)]);
+}
+
+#[test]
+fn drag_values_scale_in_the_layers_rotated_axes() {
+    let mut frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    frame.transform.rotation = 90.0;
+    // Turned 90° clockwise, the layer's x axis points down the screen.
+    let values = drag_values(
+        &frame,
+        Handle::Edge(1),
+        (pt(0.0, 100.0), pt(0.0, 300.0)),
+        false,
+        0.0,
+        &PER_AXIS,
+    );
+    assert_values(&values, &[(TransformProp::ScaleX, 3.0)]);
+}
+
+#[test]
+fn drag_values_corner_on_the_anchor_leaves_the_scale() {
+    let frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    let values = drag_values(
+        &frame,
+        Handle::Corner(0),
+        (pt(0.0, 0.0), pt(20.0, 20.0)),
+        false,
+        0.0,
+        &UNIFORM,
+    );
+    assert_values(&values, &[]);
+}
+
+#[test]
+fn transform_handles_leave_out_edges_for_uniform_scale() {
+    let frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    let all = handles(&frame, false, 20.0);
+    assert_eq!(all.len(), 9);
+    assert!(all.contains(&(Handle::Corner(2), pt(100.0, 50.0))));
+    assert!(all.contains(&(Handle::Edge(1), pt(100.0, 25.0))));
+    assert!(all.contains(&(Handle::Rotate, pt(50.0, -20.0))));
+    let uniform = handles(&frame, true, 20.0);
+    assert_eq!(uniform.len(), 5);
+    assert!(
+        uniform
+            .iter()
+            .all(|(handle, _)| !matches!(handle, Handle::Edge(_)))
+    );
+}
+
+#[test]
+fn transform_handle_at_prefers_handles_then_the_body() {
+    let frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    let all = handles(&frame, false, 20.0);
+    assert_eq!(
+        handle_at(&frame, &all, pt(102.0, 49.0), 4.0),
+        Some(Handle::Corner(2))
+    );
+    assert_eq!(
+        handle_at(&frame, &all, pt(40.0, 30.0), 4.0),
+        Some(Handle::Move)
+    );
+    assert_eq!(handle_at(&frame, &all, pt(140.0, 30.0), 4.0), None);
+}
+
+#[test]
+fn transform_drag_override_and_props() {
+    let mut frame = drag_frame(IDENTITY, pt(10.0, 20.0));
+    frame.transform.scale = pt(2.0, 2.0);
+    let values = [
+        (TransformProp::X, 30.0),
+        (TransformProp::Rotation, 15.0),
+        (TransformProp::Scale, 3.0),
+    ];
+    let transform = override_transform(&frame, &values);
+    assert_eq!(transform.position, pt(30.0, 20.0));
+    assert_eq!(transform.rotation, 15.0);
+    assert_eq!(transform.scale, pt(3.0, 3.0));
+
+    // A prop the runtime saw as another value than the transform's keeps its
+    // offset; a scale its ratio.
+    let props = ReceivedProps {
+        x: Some(110.0),
+        scale: Some(4.0),
+        ..ReceivedProps::default()
+    };
+    assert_eq!(
+        prop_values(&frame, &values, &props),
+        vec![
+            (TransformProp::X, 130.0),
+            (TransformProp::Rotation, 15.0),
+            (TransformProp::Scale, 6.0),
+        ]
+    );
+    // The label shows what is written: the received values, not the
+    // transform's.
+    assert_eq!(
+        drag_label(&frame, &values, &props),
+        "x 110 → 130  rotation 0 → 15  scale 4 → 6"
+    );
+    assert_eq!(
+        drag_label(&frame, &values, &ReceivedProps::default()),
+        "x 10 → 30  rotation 0 → 15  scale 2 → 3"
+    );
+}
+
+#[test]
+fn transform_drag_back_at_the_start_writes_nothing() {
+    let frame = drag_frame(IDENTITY, pt(10.0, 20.0));
+    let props = ReceivedProps {
+        x: Some(10.0),
+        y: Some(20.0),
+        ..ReceivedProps::default()
+    };
+    let values = drag_values(
+        &frame,
+        Handle::Move,
+        (pt(5.0, 5.0), pt(5.0, 5.0)),
+        false,
+        0.0,
+        &UNIFORM,
+    );
+    assert_eq!(values.len(), 2);
+    assert!(prop_values(&frame, &values, &props).is_empty());
+    assert_eq!(drag_label(&frame, &values, &props), "");
+    // Only the changed axis is written.
+    let values = drag_values(
+        &frame,
+        Handle::Move,
+        (pt(5.0, 5.0), pt(9.0, 5.0)),
+        false,
+        0.0,
+        &UNIFORM,
+    );
+    assert_eq!(
+        prop_values(&frame, &values, &props),
+        vec![(TransformProp::X, 14.0)]
+    );
+}
+
+#[test]
+fn drag_values_rotation_keeps_counting_past_a_half_turn() {
+    let frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    let at = |degrees: f64| {
+        let radians = degrees.to_radians();
+        pt(10.0 * radians.cos(), 10.0 * radians.sin())
+    };
+    let start = at(0.0);
+    // Turning clockwise in steps, each move unwrapped against the last.
+    let mut turned = 0.0;
+    for degrees in [60.0, 120.0, 170.0, 190.0] {
+        turned = turn(&frame, start, at(degrees), turned).unwrap();
+    }
+    assert!((turned - 190.0).abs() < 1e-9, "{turned}");
+    let values = drag_values(
+        &frame,
+        Handle::Rotate,
+        (start, at(190.0)),
+        false,
+        170.0,
+        &UNIFORM,
+    );
+    assert_values(&values, &[(TransformProp::Rotation, 190.0)]);
+    // From a fresh start the same pointer is the short way round.
+    let values = drag_values(
+        &frame,
+        Handle::Rotate,
+        (start, at(190.0)),
+        false,
+        0.0,
+        &UNIFORM,
+    );
+    assert_values(&values, &[(TransformProp::Rotation, -170.0)]);
+}
+
+fn shown(frame: &LayerFrame, editable: &[TransformProp]) -> Vec<Handle> {
+    shown_handles(frame, editable, 20.0)
+        .into_iter()
+        .map(|(handle, _)| handle)
+        .collect()
+}
+
+#[test]
+fn transform_shown_handles_leave_out_handles_that_scale_nothing() {
+    // The anchor is the top-left corner (React's default).
+    let frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    // Uniform: the corner on the anchor goes.
+    assert_eq!(
+        shown(&frame, &UNIFORM),
+        vec![
+            Handle::Corner(1),
+            Handle::Corner(2),
+            Handle::Corner(3),
+            Handle::Rotate
+        ]
+    );
+    // Per axis: the top edge (scaleY, on the anchor's row) and the left edge
+    // (scaleX, on its column) go too.
+    assert_eq!(
+        shown(&frame, &PER_AXIS),
+        vec![
+            Handle::Corner(1),
+            Handle::Corner(2),
+            Handle::Corner(3),
+            Handle::Edge(1),
+            Handle::Edge(2),
+            Handle::Rotate
+        ]
+    );
+    // scaleY locked: its edge and the corner that only scales y go.
+    let x_only = [TransformProp::X, TransformProp::ScaleX];
+    assert_eq!(
+        shown(&frame, &x_only),
+        vec![Handle::Corner(1), Handle::Corner(2), Handle::Edge(1)]
+    );
+    // An anchor in the middle: every handle scales something.
+    let mut centered = drag_frame(IDENTITY, pt(50.0, 25.0));
+    centered.outline = [pt(0.0, 0.0), pt(100.0, 0.0), pt(100.0, 50.0), pt(0.0, 50.0)];
+    assert_eq!(shown(&centered, &PER_AXIS).len(), 9);
+}
+
+fn chain_entry(name: &str, kind: ElementKind, layer_id: Option<&str>) -> LayerSource {
+    LayerSource {
+        name: name.to_string(),
+        file: PathBuf::from("/project/scene.tsx"),
+        line: 1,
+        column: 1,
+        kind,
+        layer_id: layer_id.map(str::to_owned),
+    }
+}
+
+#[test]
+fn select_parent_group_sets_selection() {
+    let group = chain_entry("Group", ElementKind::Primitive, Some("g"));
+    assert_eq!(parent_layer_id(&group), Some("g"));
+    // A component or a primitive that emitted no layer has nothing to select.
+    let title = chain_entry("Title", ElementKind::Component, Some("g"));
+    assert_eq!(parent_layer_id(&title), None);
+    let bare = chain_entry("Group", ElementKind::Primitive, None);
+    assert_eq!(parent_layer_id(&bare), None);
+}
+
+#[test]
+fn select_outline_falls_back_to_the_frame_for_a_group() {
+    let region = [Point { x: 0.0, y: 0.0 }; 4];
+    let frame_box = [Point { x: 1.0, y: 1.0 }; 4];
+    assert_eq!(outline_quads(vec![region], Some(frame_box)), vec![region]);
+    assert_eq!(outline_quads(Vec::new(), Some(frame_box)), vec![frame_box]);
+    assert!(outline_quads(Vec::new(), None).is_empty());
+}
+
+// `const frame = useCurrentFrame()` above `<Sequence from={30}>`: the runtime
+// reports the frame of the component that wrote the Rect.
+const ABOVE_SEQUENCE: &str = "export const Scene = () => {\n  const frame = useCurrentFrame();\n  return <Sequence from={30}><Rect x={interpolate(frame, [0, 30, 60], [0, 100, 100])} /></Sequence>;\n};\n";
+
+fn above_sequence_report(candidate_frames: Vec<f64>) -> LayerSourceReport {
+    LayerSourceReport {
+        local_frame: 60.0,
+        candidate_frames,
+        ..primitive_report(
+            3,
+            30,
+            ReceivedProps {
+                x: Some(100.0),
+                ..ReceivedProps::default()
+            },
+        )
+    }
+}
+
+#[test]
+fn transform_keyframe_is_the_one_the_owner_frame_reads() {
+    let targets = resolve_targets(ABOVE_SEQUENCE, &above_sequence_report(vec![])).unwrap();
+    let Some(EditTarget::Keyframe { span, frame, .. }) = targets.target(TransformProp::X) else {
+        panic!(
+            "expected a keyframe, got {:?}",
+            targets.target(TransformProp::X)
+        );
+    };
+    assert_eq!(span.start as usize, ABOVE_SEQUENCE.rfind("100").unwrap());
+    assert_eq!(*frame, 60.0);
+
+    // The frame could be the Sequence's 30 as well, which is the keyframe
+    // whose value is also 100: no telling which.
+    let targets =
+        resolve_targets(ABOVE_SEQUENCE, &above_sequence_report(vec![30.0, 60.0])).unwrap();
+    assert_eq!(
+        targets.target(TransformProp::X),
+        Some(&EditTarget::Locked(LockReason::FrameUncertain))
+    );
+    // A literal elsewhere on the element stays editable.
+    assert!(matches!(
+        targets.target(TransformProp::Y),
+        Some(EditTarget::Missing { .. })
+    ));
+}
+
+#[test]
+fn transform_targets_need_the_current_lookup() {
+    let report = primitive_report(2, 3, x_only());
+    let other = primitive_report(2, 3, ReceivedProps::default());
+    let mut state = TransformEdit::default();
+    let request = state.begin("a", &report, 10).unwrap();
+    assert!(state.finish(
+        request,
+        Some("a"),
+        resolve_targets(TRANSFORM_FIXTURE, &report)
+    ));
+    assert!(state.targets(Some("a"), Some((&report, 10))).is_some());
+
+    // Seeked: the lookup at the new frame has not been resolved yet.
+    assert!(state.targets(Some("a"), Some((&report, 11))).is_none());
+    // A newer report for the same frame.
+    assert!(state.targets(Some("a"), Some((&other, 10))).is_none());
+    // Still looking up.
+    assert!(state.targets(Some("a"), None).is_none());
+}
+
+#[test]
+fn transform_only_a_reset_clears_an_own_write() {
+    let report = primitive_report(2, 3, x_only());
+    let newer = primitive_report(2, 3, ReceivedProps::default());
+    let mut state = TransformEdit::default();
+    let request = state.begin("a", &report, 0).unwrap();
+    assert!(state.finish(
+        request,
+        Some("a"),
+        resolve_targets(TRANSFORM_FIXTURE, &report)
+    ));
+
+    // A lookup answered by the old runtime after the write resolves, but the
+    // file it was read from is about to be reloaded.
+    state.invalidate();
+    let request = state.begin("a", &newer, 0).unwrap();
+    assert!(state.finish(
+        request,
+        Some("a"),
+        resolve_targets(TRANSFORM_FIXTURE, &newer)
+    ));
+    assert!(state.targets(Some("a"), Some((&newer, 0))).is_none());
+
+    // The kept reload resets the state.
+    state.reset();
+    let request = state.begin("a", &newer, 0).unwrap();
+    assert!(state.finish(
+        request,
+        Some("a"),
+        resolve_targets(TRANSFORM_FIXTURE, &newer)
+    ));
+    assert!(state.targets(Some("a"), Some((&newer, 0))).is_some());
+}
+
+#[test]
+fn transform_body_press_on_a_group_child_moves_the_group() {
+    let mut frame = drag_frame(IDENTITY, pt(10.0, 20.0));
+    frame.leaves = vec!["child-1".to_owned(), "child-2".to_owned()];
+    assert!(presses_body(&frame, Some("child-2")));
+    assert!(!presses_body(&frame, Some("elsewhere")));
+    assert!(!presses_body(&frame, None));
+
+    // A leaf is pressed only on itself.
+    let leaf = drag_frame(IDENTITY, pt(10.0, 20.0));
+    assert!(presses_body(&leaf, Some("a")));
+    assert!(!presses_body(&leaf, Some("b")));
+}
+
+#[test]
+fn transform_missing_scale_axis_shows_the_written_scale() {
+    // `<Rect scale={2} scaleX={3} />`: scaleY is absent but drawn at 2.
+    let report = primitive_report(
+        2,
+        3,
+        ReceivedProps {
+            scale: Some(2.0),
+            scale_x: Some(3.0),
+            ..ReceivedProps::default()
+        },
+    );
+    let missing = EditTarget::Missing {
+        insert_at: 0,
+        default: 1.0,
+    };
+    assert_eq!(
+        field_text(TransformProp::ScaleY, &missing, &report),
+        (String::new(), "2".to_owned())
+    );
+    assert_eq!(
+        field_text(
+            TransformProp::ScaleY,
+            &EditTarget::Locked(LockReason::Spread),
+            &report
+        ),
+        (String::new(), "2".to_owned())
+    );
+    // Without a scale, the default.
+    let plain = primitive_report(2, 3, ReceivedProps::default());
+    assert_eq!(
+        field_text(TransformProp::ScaleY, &missing, &plain),
+        (String::new(), "1".to_owned())
+    );
+    assert_eq!(
+        field_text(
+            TransformProp::X,
+            &EditTarget::Missing {
+                insert_at: 0,
+                default: 0.0
+            },
+            &report
+        ),
+        (String::new(), "0".to_owned())
+    );
+}
+
+#[test]
+fn transform_files_outside_the_project_are_locked() {
+    let entry_dir = Path::new("/project/src");
+    assert!(inside_project(
+        Path::new("/project/src/scene.tsx"),
+        entry_dir
+    ));
+    assert!(inside_project(
+        Path::new("/project/src/parts/title.tsx"),
+        entry_dir
+    ));
+    assert!(!inside_project(
+        Path::new("/project/lib/shared.tsx"),
+        entry_dir
+    ));
+    assert!(!inside_project(
+        Path::new("/project/src-old/scene.tsx"),
+        entry_dir
+    ));
+    assert!(!inside_project(
+        Path::new("/project/src/node_modules/kit/rect.tsx"),
+        entry_dir
+    ));
+    assert!(!inside_project(
+        Path::new("/project/src/../lib/shared.tsx"),
+        entry_dir
+    ));
+
+    let report = primitive_report(2, 3, x_only());
+    let mut targets = resolve_targets(TRANSFORM_FIXTURE, &report).unwrap();
+    lock_outside_project(&mut targets);
+    assert!(
+        targets
+            .targets
+            .iter()
+            .all(|(_, target)| *target == EditTarget::Locked(LockReason::OutsideProject))
+    );
+    // A commit refuses a locked target before reading the file's targets.
+    assert_eq!(
+        commit_text(
+            TRANSFORM_FIXTURE,
+            &targets,
+            &report,
+            &[(TransformProp::X, 5.0)]
+        ),
+        Err(CommitError::NotEditable(TransformProp::X))
+    );
 }

@@ -5,9 +5,9 @@ use crate::properties::{PropertyIssue, PropertyLayer};
 use crate::props_edit::OrderedObject;
 use crate::statics::StaticDefinition;
 use crate::types::{
-    ComponentPropertyField, ComponentPropertySchema, LayerSource, PrepareDependency,
-    ReactAudioClipDescriptor, ReactCompositionConfig, ReactCompositionInfo,
-    ReactSubtitleDescriptor,
+    ComponentPropertyField, ComponentPropertySchema, LayerSource, LayerSourceReport,
+    PrepareDependency, ReactAudioClipDescriptor, ReactCompositionConfig, ReactCompositionInfo,
+    ReactSubtitleDescriptor, ReceivedProps,
 };
 use celesta_composition::{Layer, Scene, ShaderSource, Time};
 use serde::{Deserialize, Serialize};
@@ -132,7 +132,7 @@ pub(crate) enum Response {
     },
     LayerSource {
         /// `None` when no layer of the frame has the requested id.
-        chain: Option<Vec<LayerSource>>,
+        report: Option<LayerSourceReport>,
     },
     Err {
         error: String,
@@ -141,8 +141,36 @@ pub(crate) enum Response {
 
 /// The body of a `layerSource` reply.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct LayerSourceReply {
     pub(crate) chain: Option<Vec<LayerSource>>,
+    #[serde(default)]
+    pub(crate) local_frame: f64,
+    /// Absent from older runtimes, which the editor reads as `[localFrame]`.
+    #[serde(default)]
+    pub(crate) candidate_frames: Vec<f64>,
+    #[serde(default)]
+    pub(crate) props: ReceivedProps,
+    /// Absent from runtimes that do not count; read as 1 so nothing is taken
+    /// for a repeated element by accident.
+    #[serde(default = "one")]
+    pub(crate) render_count: u32,
+}
+
+fn one() -> u32 {
+    1
+}
+
+impl From<LayerSourceReply> for Option<LayerSourceReport> {
+    fn from(reply: LayerSourceReply) -> Self {
+        Some(LayerSourceReport {
+            chain: reply.chain?,
+            local_frame: reply.local_frame,
+            candidate_frames: reply.candidate_frames,
+            props: reply.props,
+            render_count: reply.render_count,
+        })
+    }
 }
 
 /// Every key a [`Response`] can carry, read in one pass. An untagged enum
@@ -202,7 +230,9 @@ impl TryFrom<RawResponse> for Response {
                 shaders: raw.shaders,
             })
         } else if let Some(reply) = raw.layer_source {
-            Ok(Self::LayerSource { chain: reply.chain })
+            Ok(Self::LayerSource {
+                report: reply.into(),
+            })
         } else if let Some(error) = raw.error {
             Ok(Self::Err { error })
         } else {

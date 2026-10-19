@@ -18,7 +18,7 @@ import { instancesContent } from './instances';
 import { type StaticsFrame, StaticSubtrees } from './static';
 import { resolveComponent } from './registry';
 import { type HostNode, type RootContainer, createRoot } from './reconciler';
-import { type LayerSourceEntry, sourceChain } from './source-chain';
+import { type LayerSourceReport, layerSourceReport } from './source-chain';
 import { checkCue } from './subtitles';
 import type {
   BackfaceVisibility,
@@ -271,7 +271,7 @@ export interface MountedComposition {
     id: string,
     resolveFile: (fileName: string) => string,
     options?: { preview?: boolean },
-  ): LayerSourceEntry[] | null;
+  ): LayerSourceReport | null;
 }
 
 function findCompositionInstance(container: RootContainer): HostNode {
@@ -1691,7 +1691,7 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
       }
       walkChildren(instance, 'root', context, []);
       const node = layerNodes.get(id);
-      return node ? sourceChain(node, resolveFile) : null;
+      return node ? layerSourceReport(node, layerNodes, resolveFile) : null;
     },
   };
 }

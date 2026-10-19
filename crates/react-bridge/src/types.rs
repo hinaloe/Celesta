@@ -29,6 +29,7 @@ pub struct SpawnOptions {
 /// One element of the chain of JSX that produced a layer (see
 /// [`ReactBridge::layer_source`](crate::ReactBridge::layer_source)).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LayerSource {
     /// The element's component name, e.g. `Rect` or `Title`.
     pub name: String,
@@ -38,6 +39,69 @@ pub struct LayerSource {
     pub line: u32,
     /// 1-based column of the element's opening `<`.
     pub column: u32,
+    /// Whether the element is a built-in primitive (`<Rect>`) or a
+    /// user-written component. Older runtimes do not say; they read as
+    /// [`ElementKind::Component`].
+    #[serde(default)]
+    pub kind: ElementKind,
+    /// The id of the layer this element emitted, when it is a primitive that
+    /// emitted one.
+    #[serde(default)]
+    pub layer_id: Option<String>,
+}
+
+/// What kind of JSX element a [`LayerSource`] is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ElementKind {
+    /// A built-in element such as `<Rect>` that emits a layer itself.
+    Primitive,
+    /// A user-written component that renders other elements.
+    #[default]
+    Component,
+}
+
+/// The transform props an element received, as written in the source; each
+/// is `None` when the element was not given it (or it was not a plain number).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReceivedProps {
+    /// The `x` prop.
+    pub x: Option<f64>,
+    /// The `y` prop.
+    pub y: Option<f64>,
+    /// The `rotation` prop.
+    pub rotation: Option<f64>,
+    /// The `scale` prop.
+    pub scale: Option<f64>,
+    /// The `scaleX` prop.
+    pub scale_x: Option<f64>,
+    /// The `scaleY` prop.
+    pub scale_y: Option<f64>,
+}
+
+/// Everything the runtime knows about where a layer came from (see
+/// [`ReactBridge::layer_source`](crate::ReactBridge::layer_source)).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LayerSourceReport {
+    /// The JSX chain, innermost element first; empty when the runtime did
+    /// not record source positions.
+    pub chain: Vec<LayerSource>,
+    /// The frame `useCurrentFrame()` reports in the component that wrote the
+    /// innermost element (above any `<Sequence>` inside it); 0 from runtimes
+    /// that do not report it.
+    pub local_frame: f64,
+    /// The distinct frames `useCurrentFrame()` returns under each frame
+    /// provider above the innermost element, nearest first. The component
+    /// that read the frame an `interpolate(frame, …)` written for the element
+    /// uses sits above it, so that frame is one of these. Empty from runtimes
+    /// that do not report them; read those as `[local_frame]`.
+    pub candidate_frames: Vec<f64>,
+    /// The transform props the innermost element received.
+    pub props: ReceivedProps,
+    /// How many layers of the frame the innermost element rendered; 1 from
+    /// runtimes that do not count.
+    pub render_count: u32,
 }
 
 /// A file or directory the entry's `prepare()` read (for instance a voice

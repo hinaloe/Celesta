@@ -14,6 +14,7 @@ mod error;
 mod hit;
 mod instances;
 mod layer;
+mod layer_frame;
 mod mask;
 mod path;
 mod pipeline;
@@ -34,6 +35,7 @@ mod yuv;
 
 pub use error::GpuRenderError;
 pub use hit::{HitClip, HitRegion, hit_test};
+pub use layer_frame::{LayerFrame, invert_affine, layer_frame};
 pub use renderer::GpuRenderer;
 pub use transform::path_transform;
 #[cfg(target_os = "macos")]

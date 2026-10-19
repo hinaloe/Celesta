@@ -8,7 +8,10 @@ use crate::properties::{
 use crate::protocol::{
     PropertyInputsMessage, ReadyMessage, Request, Response, ready_property_order,
 };
-use crate::types::{ComponentPropertyField, LayerSource, ReactAudioClipDescriptor};
+use crate::types::{
+    ComponentPropertyField, ElementKind, LayerSource, LayerSourceReport, ReactAudioClipDescriptor,
+    ReceivedProps,
+};
 use celesta_composition::{
     Animatable, AssetLocation, LayerFilter, ShaderParam, ShaderParamType, ShaderSource, Time,
 };
@@ -431,27 +434,84 @@ fn deserializes_errors_and_rejects_unknown_responses() {
 
 #[test]
 fn deserializes_layer_source_replies() {
-    let Response::LayerSource { chain } =
+    let Response::LayerSource { report } =
         serde_json::from_str(r#"{"layerSource":{"chain":null}}"#).unwrap()
     else {
         panic!("expected a LayerSource response");
     };
-    assert_eq!(chain, None);
+    assert_eq!(report, None);
 
-    let json =
-        r#"{"layerSource":{"chain":[{"name":"Rect","file":"/a/title.tsx","line":3,"column":10}]}}"#;
-    let Response::LayerSource { chain } = serde_json::from_str(json).unwrap() else {
+    // No positions recorded: found, with an empty chain and no other keys.
+    let Response::LayerSource { report } =
+        serde_json::from_str(r#"{"layerSource":{"chain":[]}}"#).unwrap()
+    else {
         panic!("expected a LayerSource response");
     };
     assert_eq!(
-        chain,
-        Some(vec![LayerSource {
-            name: "Rect".to_owned(),
-            file: "/a/title.tsx".into(),
-            line: 3,
-            column: 10,
-        }])
+        report,
+        Some(LayerSourceReport {
+            chain: vec![],
+            local_frame: 0.0,
+            candidate_frames: vec![],
+            props: ReceivedProps::default(),
+            render_count: 1,
+        })
     );
+
+    // An older runtime: no kind, localFrame, props, or renderCount.
+    let json =
+        r#"{"layerSource":{"chain":[{"name":"Rect","file":"/a/title.tsx","line":3,"column":10}]}}"#;
+    let Response::LayerSource { report } = serde_json::from_str(json).unwrap() else {
+        panic!("expected a LayerSource response");
+    };
+    assert_eq!(
+        report,
+        Some(LayerSourceReport {
+            chain: vec![LayerSource {
+                name: "Rect".to_owned(),
+                file: "/a/title.tsx".into(),
+                line: 3,
+                column: 10,
+                kind: ElementKind::Component,
+                layer_id: None,
+            }],
+            local_frame: 0.0,
+            candidate_frames: vec![],
+            props: ReceivedProps::default(),
+            render_count: 1,
+        })
+    );
+
+    let json = r#"{"layerSource":{"chain":[
+        {"name":"Rect","file":"/a/title.tsx","line":3,"column":10,"kind":"primitive","layerId":"root.2"},
+        {"name":"Title","file":"/a/main.tsx","line":8,"column":4,"kind":"component"}],
+        "localFrame":12.5,
+        "candidateFrames":[12.5,40],
+        "props":{"x":10,"y":-4.5,"rotation":30,"scale":2,"scaleX":1.5,"scaleY":0.5},
+        "renderCount":3}}"#;
+    let Response::LayerSource { report } = serde_json::from_str(json).unwrap() else {
+        panic!("expected a LayerSource response");
+    };
+    let report = report.expect("found");
+    assert_eq!(report.chain.len(), 2);
+    assert_eq!(report.chain[0].kind, ElementKind::Primitive);
+    assert_eq!(report.chain[0].layer_id.as_deref(), Some("root.2"));
+    assert_eq!(report.chain[1].kind, ElementKind::Component);
+    assert_eq!(report.chain[1].layer_id, None);
+    assert_eq!(report.local_frame, 12.5);
+    assert_eq!(report.candidate_frames, vec![12.5, 40.0]);
+    assert_eq!(
+        report.props,
+        ReceivedProps {
+            x: Some(10.0),
+            y: Some(-4.5),
+            rotation: Some(30.0),
+            scale: Some(2.0),
+            scale_x: Some(1.5),
+            scale_y: Some(0.5),
+        }
+    );
+    assert_eq!(report.render_count, 3);
 }
 
 fn audio_descriptor(src: &str, start: f64) -> ReactAudioClipDescriptor {

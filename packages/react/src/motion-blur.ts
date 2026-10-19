@@ -15,6 +15,7 @@ import {
   runtimeFrame,
   useCurrentFrame,
 } from './hooks';
+import { markTransparent } from './source-chain';
 import { secondsToTime } from './time';
 
 /** Children drawn at each moment: elements, or a function of that moment's frame. */
@@ -194,3 +195,5 @@ export function Trail(props: TrailProps): ReturnType<typeof React.createElement>
   moments.push(React.createElement('time-sample', { key: 'live', live: true, time: context.time }, momentChildren(children)));
   return React.createElement('trail', rest, moments);
 }
+
+for (const wrapper of [MotionBlur, Trail, FrameChildren]) markTransparent(wrapper);

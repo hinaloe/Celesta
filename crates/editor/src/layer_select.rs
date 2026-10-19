@@ -2,21 +2,22 @@
 //! scene pixels, and what the Layer section shows for the selection.
 
 use celesta_composition::Point;
-use celesta_react_bridge::LayerSource;
+use celesta_react_bridge::{ElementKind, LayerSource, LayerSourceReport};
 use gpui_kit::{Bounds, Pixels};
 use std::path::Path;
 
 /// What looking up a layer's source returned: `Ok(None)` when the frame has
-/// no layer with that id, `Ok(Some(chain))` with the JSX chain otherwise.
-pub(crate) type LookupResult = Result<Option<Vec<LayerSource>>, String>;
+/// no layer with that id, `Ok(Some(report))` with the JSX chain and the props
+/// the runtime saw otherwise.
+pub(crate) type LookupResult = Result<Option<LayerSourceReport>, String>;
 
 /// Where the selected layer's source lookup stands.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum SourceLookup {
     Pending,
     NotInFrame,
     NoPosition,
-    Found(Vec<LayerSource>),
+    Found(LayerSourceReport),
     Failed(String),
 }
 
@@ -45,19 +46,31 @@ pub(crate) fn scene_point(
     frame: (f32, f32),
     position: gpui_kit::Point<Pixels>,
 ) -> Option<Point> {
-    let (left, top, scale) = letterbox(bounds, frame)?;
-    let x = f64::from((f32::from(position.x) - left) / scale);
-    let y = f64::from((f32::from(position.y) - top) / scale);
+    let Point { x, y } = to_scene(bounds, frame, position)?;
     ((0.0..=f64::from(frame.0)).contains(&x) && (0.0..=f64::from(frame.1)).contains(&y))
         .then_some(Point { x, y })
+}
+
+/// `position` in scene pixels of the frame fitted into `bounds`, also when it
+/// is outside the frame (a drag that leaves it).
+pub(crate) fn to_scene(
+    bounds: Bounds<Pixels>,
+    frame: (f32, f32),
+    position: gpui_kit::Point<Pixels>,
+) -> Option<Point> {
+    let (left, top, scale) = letterbox(bounds, frame)?;
+    Some(Point {
+        x: f64::from((f32::from(position.x) - left) / scale),
+        y: f64::from((f32::from(position.y) - top) / scale),
+    })
 }
 
 /// What the Layer section shows for a lookup's outcome.
 pub(crate) fn source_lookup(result: LookupResult) -> SourceLookup {
     match result {
         Ok(None) => SourceLookup::NotInFrame,
-        Ok(Some(chain)) if chain.is_empty() => SourceLookup::NoPosition,
-        Ok(Some(chain)) => SourceLookup::Found(chain),
+        Ok(Some(report)) if report.chain.is_empty() => SourceLookup::NoPosition,
+        Ok(Some(report)) => SourceLookup::Found(report),
         Err(error) => SourceLookup::Failed(error),
     }
 }
@@ -104,4 +117,26 @@ pub(crate) fn source_position(source: &LayerSource, entry_dir: &Path) -> String 
         source.line,
         source.column
     )
+}
+
+/// The layer a chain entry emitted, when it is a primitive (a `<Group>` or
+/// `<Stack>`) the user can select as a parent.
+pub(crate) fn parent_layer_id(entry: &LayerSource) -> Option<&str> {
+    match entry.kind {
+        ElementKind::Primitive => entry.layer_id.as_deref(),
+        ElementKind::Component => None,
+    }
+}
+
+/// The quads to outline for the selection: its own hit regions, or, for a
+/// group that has none, the box `layer_frame` measured around its children.
+pub(crate) fn outline_quads(
+    regions: Vec<[Point; 4]>,
+    frame: Option<[Point; 4]>,
+) -> Vec<[Point; 4]> {
+    if regions.is_empty() {
+        frame.into_iter().collect()
+    } else {
+        regions
+    }
 }

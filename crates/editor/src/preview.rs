@@ -3,8 +3,8 @@ use crate::helpers::prepare_preview_frame;
 use crate::layer_select::LookupResult;
 use crate::problems::error_chain;
 use crate::source::PropertyArgs;
-use celesta_composition::{Layer, LayerContent, Scene, ShaderSource, Time};
-use celesta_gpu_renderer::{GpuRenderer, HitRegion, RenderQuality};
+use celesta_composition::{EvaluatedTransform, Layer, LayerContent, Scene, ShaderSource, Time};
+use celesta_gpu_renderer::{GpuRenderer, HitRegion, LayerFrame, RenderQuality, layer_frame};
 use celesta_react_bridge::{
     ComponentPropertyField, ComponentResolutionRequest, ComponentResolutions, PrepareDependency,
     PropertyInputs, PropertyIssue, ReactBridge, ReactCompositionMetadata, SpawnOptions,
@@ -51,6 +51,14 @@ pub(crate) struct PreviewRequest {
     /// The selected layer whose JSX source to look up in this frame
     /// (`WholeScene` only); `None` sends no lookup, as during playback.
     pub(crate) source_of: Option<String>,
+    /// A layer's transform to draw in place of the one the React entry
+    /// evaluated, while it is dragged (`WholeScene` only).
+    pub(crate) transform_override: Option<(String, EvaluatedTransform)>,
+    /// The layer whose frame to measure from this frame's draw
+    /// (`WholeScene` only); `None` measures nothing, as during playback.
+    pub(crate) frame_of: Option<String>,
+    /// The timeline frame `scene` is for, echoed in the result.
+    pub(crate) timeline_frame: i64,
 }
 
 pub(crate) struct PreviewResult {
@@ -67,6 +75,12 @@ pub(crate) struct PreviewResult {
     /// when the frame has no layer with that id. `None` when nothing was
     /// looked up.
     pub(crate) layer_source: Option<(String, LookupResult)>,
+    /// The request's `frame_of` and what measuring it returned: `None` inside
+    /// when the layer is absent or has no affine frame (see `layer_frame`).
+    /// `None` when nothing was measured.
+    pub(crate) layer_frame: Option<(String, Option<LayerFrame>)>,
+    /// The request's `timeline_frame`.
+    pub(crate) timeline_frame: i64,
 }
 
 /// The Node.js runtime a preview's `TimelineContent::Component` clips resolve
@@ -232,6 +246,14 @@ impl PreviewWorker {
                         }
                     };
                     let frame = evaluated.and_then(|()| {
+                        // Inside a motion-blur group the samples may share the
+                        // layer's id; the override reaches the first only, and
+                        // the other samples stay where the drag began.
+                        if let Some((id, transform)) =
+                            request.transform_override.as_ref().filter(|_| whole_scene)
+                        {
+                            apply_override(&mut scene, id, transform);
+                        }
                         let frame = renderer
                             .render_preview(&scene)
                             .map_err(|error| error_chain(&error))
@@ -244,13 +266,20 @@ impl PreviewWorker {
                         let source = look_up_layer_source(&mut react_bridge, scene.time, &id);
                         (id, source)
                     });
+                    let hit_regions = renderer.take_hit_regions();
+                    let layer_frame = request.frame_of.filter(|_| whole_scene).map(|id| {
+                        let measured = layer_frame(&scene, &hit_regions, &id);
+                        (id, measured)
+                    });
                     if result_tx
                         .send(PreviewResult {
                             generation: request.generation,
                             frame,
                             warnings,
-                            hit_regions: renderer.take_hit_regions(),
+                            hit_regions,
                             layer_source,
+                            layer_frame,
+                            timeline_frame: request.timeline_frame,
                         })
                         .is_err()
                     {
@@ -269,6 +298,24 @@ impl PreviewWorker {
             .send(request)
             .map_err(|_| "preview worker stopped unexpectedly".to_owned())
     }
+}
+
+/// Sets the transform of the layer `id` (searched through groups) to
+/// `transform`, whether the scene has one.
+pub(crate) fn apply_override(scene: &mut Scene, id: &str, transform: &EvaluatedTransform) -> bool {
+    fn apply(layers: &mut [Layer], id: &str, transform: &EvaluatedTransform) -> bool {
+        layers.iter_mut().any(|layer| {
+            if layer.id == id {
+                layer.transform = *transform;
+                return true;
+            }
+            match &mut layer.content {
+                LayerContent::Group { layers, .. } => apply(layers, id, transform),
+                _ => false,
+            }
+        })
+    }
+    apply(&mut scene.layers, id, transform)
 }
 
 /// The JSX chain that produced layer `id` at `time`, from the bridge the

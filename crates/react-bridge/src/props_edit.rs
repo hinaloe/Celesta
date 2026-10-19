@@ -100,15 +100,41 @@ pub fn set_property(file: &Path, key: &str, value: Option<&Value>) -> Result<(),
         source,
     };
 
-    let mut object = match fs::read_to_string(file) {
-        Ok(text) => serde_json::from_str::<OrderedObject>(&text).map_err(|error| {
-            PropsEditError::Invalid {
-                file: file.to_owned(),
-                message: error.to_string(),
-            }
-        })?,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => OrderedObject::default(),
+    let text = match fs::read_to_string(file) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
         Err(error) => return Err(io_error(error)),
+    };
+    let text = set_property_text(file, &text, key, value)?;
+
+    // Renaming over a read-only file would succeed, so refuse it explicitly.
+    if fs::metadata(file).is_ok_and(|metadata| metadata.permissions().readonly()) {
+        return Err(io_error(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "the file is read-only",
+        )));
+    }
+    replace_file(file, &text).map_err(io_error)
+}
+
+/// The props file text `text` (the content of `file`) becomes once `key` is set
+/// to `value`, or removed for `None`. Empty text counts as `{}`. `file` only
+/// names the file in an error.
+pub fn set_property_text(
+    file: &Path,
+    text: &str,
+    key: &str,
+    value: Option<&Value>,
+) -> Result<String, PropsEditError> {
+    let invalid = |message: String| PropsEditError::Invalid {
+        file: file.to_owned(),
+        message,
+    };
+
+    let mut object = if text.is_empty() {
+        OrderedObject::default()
+    } else {
+        serde_json::from_str::<OrderedObject>(text).map_err(|error| invalid(error.to_string()))?
     };
 
     let position = object.0.iter().position(|(name, _)| name == key);
@@ -121,26 +147,15 @@ pub fn set_property(file: &Path, key: &str, value: Option<&Value>) -> Result<(),
         (None, None) => {}
     }
 
-    // Renaming over a read-only file would succeed, so refuse it explicitly.
-    if fs::metadata(file).is_ok_and(|metadata| metadata.permissions().readonly()) {
-        return Err(io_error(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "the file is read-only",
-        )));
-    }
-
     let mut text =
-        serde_json::to_string_pretty(&object).map_err(|error| PropsEditError::Invalid {
-            file: file.to_owned(),
-            message: error.to_string(),
-        })?;
+        serde_json::to_string_pretty(&object).map_err(|error| invalid(error.to_string()))?;
     text.push('\n');
-    replace_file(file, &text).map_err(io_error)
+    Ok(text)
 }
 
 /// Writes `text` to a temporary file beside `file` and renames it over `file`,
 /// so a reader never sees a half-written props file.
-fn replace_file(file: &Path, text: &str) -> io::Result<()> {
+pub fn replace_file(file: &Path, text: &str) -> io::Result<()> {
     let name = file
         .file_name()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not a file path"))?

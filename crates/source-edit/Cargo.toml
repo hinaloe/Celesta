@@ -1,0 +1,15 @@
+[package]
+name = "celesta-source-edit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+oxc_allocator = "0.154"
+oxc_ast = "0.154"
+oxc_ast_visit = "0.154"
+oxc_parser = "0.154"
+oxc_span = "0.154"
+oxc_syntax = "0.154"

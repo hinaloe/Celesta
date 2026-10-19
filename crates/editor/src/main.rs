@@ -22,6 +22,7 @@ mod audio_control;
 mod background;
 mod cli;
 mod component_schema;
+mod edit_history;
 mod editor_launch;
 mod export_control;
 mod export_worker;
@@ -43,6 +44,10 @@ mod render;
 mod source;
 #[cfg(test)]
 mod tests;
+mod transform_drag;
+mod transform_edit;
+mod transform_handles;
+mod transform_rows;
 mod view;
 mod waveform;
 mod widgets;
@@ -50,9 +55,10 @@ mod widgets;
 use actions::{
     ClearExportRange, CloseWindow, CreateNewProject, ExportProject, GoToEnd, GoToIn, GoToOut,
     GoToStart, JumpBackward, JumpForward, NextEditPoint, NextFrame, OpenProject, PausePlayback,
-    PlayForward, PreviousEditPoint, PreviousFrame, Quit, ReloadProject, SetExportIn, SetExportOut,
-    SetUpTypeScript, SetUpTypeScriptInFolder, ShowProblems, ToggleInteractive, ToggleLoop,
-    TogglePlayback, ToggleSafeAreas, ZoomTimelineIn, ZoomTimelineOut, ZoomTimelineToFit,
+    PlayForward, PreviousEditPoint, PreviousFrame, Quit, Redo, ReloadProject, SetExportIn,
+    SetExportOut, SetUpTypeScript, SetUpTypeScriptInFolder, ShowProblems, ToggleInteractive,
+    ToggleLoop, TogglePlayback, ToggleSafeAreas, Undo, ZoomTimelineIn, ZoomTimelineOut,
+    ZoomTimelineToFit,
 };
 use source::PropertyArgs;
 use view::EditorView;
@@ -145,6 +151,8 @@ fn run() -> Result<(), Box<dyn Error>> {
             KeyBinding::new("=", ZoomTimelineIn, EDITOR_KEYS),
             KeyBinding::new("-", ZoomTimelineOut, EDITOR_KEYS),
             KeyBinding::new("shift-z", ZoomTimelineToFit, EDITOR_KEYS),
+            KeyBinding::new("secondary-z", Undo, EDITOR_KEYS),
+            KeyBinding::new("secondary-shift-z", Redo, EDITOR_KEYS),
         ]);
         cx.on_action(|_: &Quit, cx| cx.quit());
         // macOS shows these in the system menu bar; elsewhere the title bar's

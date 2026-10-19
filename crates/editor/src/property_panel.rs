@@ -3,13 +3,14 @@
 //! This module holds the pure helpers, the panel state, and the commit flow;
 //! `property_panel_view.rs` renders it.
 
+use crate::edit_history::{FileEdit, write_recorded};
 use crate::preview::{KeptSchema, ReactPreview};
 use crate::source::{PropertyArgs, watched_mtime};
 use crate::view::EditorView;
 use crate::widgets::{format_component_number, json_display};
 use celesta_react_bridge::{
     ComponentPropertyField, ENTRY_PROPS_FILE, PropertyInputs, PropertyIssue, effective_values,
-    import_path, resolve_props_file, set_property,
+    import_path, resolve_props_file, set_property_text,
 };
 use gpui_kit::component::color_picker::{ColorPickerEvent, ColorPickerState};
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -740,8 +741,9 @@ impl EditorView {
 
     /// Starts the next queued write unless one is running. Once the queue is
     /// empty, reloads the entry if any write succeeded.
-    fn drain_property_commits(&mut self, cx: &mut Context<Self>) {
-        if self.property_panel.writing.is_some() {
+    pub(crate) fn drain_property_commits(&mut self, cx: &mut Context<Self>) {
+        // An undo, redo or canvas write on the history is still running.
+        if self.property_panel.writing.is_some() || self.edit_history.is_busy() {
             return;
         }
         let Some(react) = self.react_preview.as_ref() else {
@@ -763,11 +765,13 @@ impl EditorView {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    set_property(&target, &written_key, value.as_ref())
-                        // Sampled after the write, so the reload watcher does
-                        // not take this write for an edit from elsewhere.
-                        .map(|()| watched_mtime(&entry, &property_args))
-                        .map_err(|error| error.to_string())
+                    write_recorded(&target, |text| {
+                        set_property_text(&target, text, &written_key, value.as_ref())
+                            .map_err(|error| error.to_string())
+                    })
+                    // Sampled after the write, so the reload watcher does
+                    // not take this write for an edit from elsewhere.
+                    .map(|edit| (edit, watched_mtime(&entry, &property_args)))
                 })
                 .await;
             view.update(cx, |this, cx| {
@@ -784,20 +788,16 @@ impl EditorView {
     fn finish_property_commit(
         &mut self,
         key: &str,
-        result: Result<Option<SystemTime>, String>,
+        result: Result<(FileEdit, Option<SystemTime>), String>,
         cx: &mut Context<Self>,
     ) {
         self.property_panel.writing = None;
         match result {
-            Ok(watched) => {
-                // Reloads requested from now on read this write.
-                let next_reload = self.react_reloads.next();
-                if let Some(react) = self.react_preview.as_mut()
-                    && watched.is_some()
-                {
-                    react.watched_mtime = watched;
-                    self.watched_since = next_reload;
+            Ok((edit, watched)) => {
+                if edit.changes() {
+                    self.edit_history.push(edit);
                 }
+                let next_reload = self.apply_own_write_sample(watched);
                 self.property_panel.reload_needed = true;
                 if let Some(row) = self.property_panel.rows.get_mut(key) {
                     row.state.written(next_reload);

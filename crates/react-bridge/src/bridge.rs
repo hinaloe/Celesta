@@ -12,8 +12,9 @@ use crate::protocol::{
 use crate::statics::StaticCache;
 use crate::stderr::StderrCapture;
 use crate::types::{
-    ComponentResolutionRequest, ComponentResolutions, FrameEvaluation, LayerSource, ProjectFrame,
-    ReactCompositionInfo, ReactCompositionMetadata, ReactSubtitleDescriptor, SpawnOptions,
+    ComponentResolutionRequest, ComponentResolutions, FrameEvaluation, LayerSourceReport,
+    ProjectFrame, ReactCompositionInfo, ReactCompositionMetadata, ReactSubtitleDescriptor,
+    SpawnOptions,
 };
 use celesta_composition::{AudioGraph, Scene, Time};
 use celesta_media::FfmpegBackend;
@@ -541,9 +542,10 @@ impl ReactBridge {
         }
     }
 
-    /// The JSX that produced the layer `id` in the frame at `time`, innermost
-    /// element first: its own element, then each enclosing component. `None`
-    /// when no layer of the frame has that id. The chain is empty unless the
+    /// The JSX that produced the layer `id` in the frame at `time`: a chain
+    /// with the layer's own element first, then each enclosing component,
+    /// plus the props and local frame the runtime saw. `None` when no layer
+    /// of the frame has that id. The chain is empty unless the
     /// bridge was spawned with [`SpawnOptions::source_locations`]. The frame
     /// is evaluated as [`Self::set_preview`] says, so it matches the layers
     /// the preview shows.
@@ -551,14 +553,14 @@ impl ReactBridge {
         &mut self,
         time: Time,
         id: &str,
-    ) -> Result<Option<Vec<LayerSource>>, ReactBridgeError> {
+    ) -> Result<Option<LayerSourceReport>, ReactBridgeError> {
         let request = serde_json::json!({
             "layerSource": id,
             "time": time,
             "preview": self.preview,
         });
         match self.request_response(request)? {
-            Response::LayerSource { chain } => Ok(chain),
+            Response::LayerSource { report } => Ok(report),
             Response::Err { error } => Err(ReactBridgeError::Render(error)),
             _ => Err(ReactBridgeError::UnexpectedResponse),
         }

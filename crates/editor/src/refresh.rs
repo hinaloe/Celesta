@@ -1,6 +1,6 @@
 use crate::component_schema::ComponentSchemaRequest;
 use crate::helpers::format_time;
-use crate::layer_select::source_lookup_target;
+use crate::layer_select::{SourceLookup, source_lookup_target};
 use crate::media_probe::{MediaProbeRequest, ProbeAsset};
 use crate::preview::{
     KeptSchema, PreviewRequest, ReactPreview, ReactPreviewContext, ReactPreviewMode,
@@ -110,6 +110,75 @@ impl ReloadOrder {
     }
 }
 
+/// Which reloads keep the selected layer: those requested after the editor's
+/// own write (a property commit, a transform commit, undo or redo), since the
+/// code still draws the same layers. Any other reload clears it.
+#[derive(Debug, Default)]
+pub(crate) struct SelectionKeep {
+    /// An own write happened and its reload has not been requested yet.
+    own_write: bool,
+    /// Requested reloads that keep the selection.
+    kept: Vec<u64>,
+    /// After a kept reload: the first preview generation drawn with the
+    /// reloaded code, whose lookup says whether the layer still exists.
+    confirm_from: Option<u64>,
+}
+
+/// What to do with a lookup answer for the selected layer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LookupFate {
+    /// Drawn before a kept reload; ignore it.
+    Stale,
+    /// The reloaded code no longer draws the layer; clear the selection.
+    Gone,
+    Show,
+}
+
+impl SelectionKeep {
+    pub(crate) fn own_write(&mut self) {
+        self.own_write = true;
+    }
+
+    /// Reload `sequence` was requested; `eligible` is false when it loads
+    /// another composition. True when it keeps the selection.
+    pub(crate) fn requested(&mut self, sequence: u64, eligible: bool) -> bool {
+        let keep = std::mem::take(&mut self.own_write) && eligible;
+        if keep {
+            self.kept.push(sequence);
+        }
+        keep
+    }
+
+    /// Reload `sequence` is applied; true when it keeps the selection.
+    pub(crate) fn applies(&mut self, sequence: u64) -> bool {
+        let kept = self.kept.contains(&sequence);
+        self.kept.retain(|&other| other > sequence);
+        kept
+    }
+
+    /// The reloaded code is drawn from preview `generation` on.
+    pub(crate) fn confirm_from(&mut self, generation: u64) {
+        self.confirm_from = Some(generation);
+    }
+
+    /// A lookup for the selected layer arrived from preview `generation`;
+    /// `absent` when that frame has no layer with its id.
+    pub(crate) fn lookup_arrived(&mut self, generation: u64, absent: bool) -> LookupFate {
+        match self.confirm_from {
+            Some(from) if generation < from => LookupFate::Stale,
+            Some(_) => {
+                self.confirm_from = None;
+                if absent {
+                    LookupFate::Gone
+                } else {
+                    LookupFate::Show
+                }
+            }
+            None => LookupFate::Show,
+        }
+    }
+}
+
 /// Whether reload `sequence`'s mtime sample may replace the watched mtime,
 /// which was last sampled with `watched_since` as the next reload number. An
 /// older reload sampled before that, so its sample would move the watched
@@ -202,12 +271,15 @@ impl EditorView {
         } else {
             ReactPreviewMode::ResolveComponents
         };
+        // A drag redraws the frame on every move; the runtime's answer does
+        // not change with the override, so it is not asked again.
         let source_of = source_lookup_target(
             self.selected_layer.as_deref(),
             self.picks_layers(),
             self.playing,
             self.source_lookup.as_ref(),
-        );
+        )
+        .filter(|_| self.transform_drag.is_none());
         match self.document.scene_at(self.current_time()) {
             // The warnings stay until the result replaces them, so their
             // counts don't flicker while frames are in flight.
@@ -226,6 +298,12 @@ impl EditorView {
                         RenderQuality::Final
                     },
                     source_of,
+                    transform_override: self.transform_override(),
+                    frame_of: self
+                        .selected_layer
+                        .clone()
+                        .filter(|_| self.picks_layers() && !self.playing),
+                    timeline_frame: self.clock.frame(),
                 }) {
                     self.preview_pending = false;
                     self.problems.set_preview_warnings(Vec::new());
@@ -276,15 +354,19 @@ impl EditorView {
         let property_args = react.property_args.clone();
         let recorded = react.dependencies.clone();
         let (node, cli_script) = react_runtime_paths();
-        let frame = if composition_id.as_deref() == Some(react.composition_id.as_str()) {
+        let same_composition = composition_id.as_deref() == Some(react.composition_id.as_str());
+        let frame = if same_composition {
             self.clock.frame()
         } else {
             0
         };
-        // The reloaded code may not produce the same layers.
-        self.clear_layer_selection();
         let session = self.session;
         let sequence = self.react_reloads.request();
+        // The reloaded code may not produce the same layers, unless only the
+        // editor's own write changed it.
+        if !self.selection_keep.requested(sequence, same_composition) {
+            self.clear_layer_selection();
+        }
         cx.spawn(async move |view, cx| {
             let reload = cx
                 .background_executor()
@@ -403,10 +485,21 @@ impl EditorView {
                     .into();
                 }
                 self.react_reload_generation = self.react_reload_generation.wrapping_add(1);
-                // A layer picked while the reload ran belongs to the old code.
-                self.clear_layer_selection();
+                let keep = self.selection_keep.applies(sequence) && self.selected_layer.is_some();
+                if keep {
+                    // Looked up again in the reloaded code, which decides
+                    // whether the layer still exists.
+                    self.source_lookup = Some(SourceLookup::Pending);
+                    self.transform.reset();
+                } else {
+                    // A layer picked while the reload ran belongs to the old code.
+                    self.clear_layer_selection();
+                }
                 self.problems.clear(Source::Preview);
                 self.refresh_preview();
+                if keep {
+                    self.selection_keep.confirm_from(self.preview_generation);
+                }
                 self.refresh_audio_preview();
             }
             Err(error) => {

@@ -640,7 +640,8 @@ impl EditorView {
 
     /// Right-hand info panel shown instead of the asset/inspector panels while
     /// previewing a standalone React composition: read-only facts, a manual
-    /// Reload button, and the Properties section that edits the props file.
+    /// Reload button, and the audio clips. What can be edited is in the
+    /// Properties tab (`properties_panel`).
     pub(crate) fn react_preview_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let entry = self
             .react_preview
@@ -693,9 +694,49 @@ impl EditorView {
                     .overflow_x_hidden()
                     .overflow_y_scroll()
                     .child(self.react_preview_facts(entry, properties, cx))
-                    .children(self.layer_section(cx))
-                    .children(self.property_section(cx))
                     .map(|panel| self.react_audio_selection(panel, cx)),
+            )
+    }
+
+    /// The Properties tab in React-preview mode: what can be edited first
+    /// (the selected layer's Transform rows, then the props file's
+    /// properties), then where the selected layer was written.
+    pub(crate) fn properties_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let muted = cx.theme().muted_foreground;
+        let layer = self.layer_section(cx).unwrap_or_else(|| {
+            div()
+                .flex()
+                .flex_col()
+                .child(inspector_section("Layer", cx))
+                .child(
+                    div()
+                        .px_3()
+                        .py_2()
+                        .text_xs()
+                        .text_color(muted)
+                        .child("Select a layer in the preview"),
+                )
+                .into_any_element()
+        });
+        div()
+            .flex()
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .flex_col()
+            .bg(cx.theme().sidebar)
+            .child(
+                div()
+                    .id("properties-scroll")
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_x_hidden()
+                    .overflow_y_scroll()
+                    .children(self.layer_edit_section(cx))
+                    .children(self.property_section(cx))
+                    .child(layer),
             )
     }
 

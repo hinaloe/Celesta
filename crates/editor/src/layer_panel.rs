@@ -1,9 +1,10 @@
-//! The React Preview panel's Layer section: the layer picked in the viewer,
+//! The Properties tab's Layer sections: the layer picked in the viewer,
 //! the JSX position that produced it, and the elements around that one, each
 //! opening its position in the user's editor.
 
 use crate::editor_launch::open_source;
-use crate::layer_select::{SourceLookup, launch_outcome_applies, source_position};
+use crate::icons::CelestaIcon;
+use crate::layer_select::{SourceLookup, launch_outcome_applies, parent_layer_id, source_position};
 use crate::view::EditorView;
 use crate::widgets::{inspector_row, inspector_section};
 use celesta_react_bridge::LayerSource;
@@ -14,9 +15,43 @@ use gpui_kit::{AnyElement, Context, Hsla, SharedString, div};
 use std::path::{Path, PathBuf};
 
 impl EditorView {
-    /// The selected layer's section, or `None` while nothing is selected.
+    /// The selected layer's Transform rows and the error of its last edit, or
+    /// `None` until its source is found.
+    pub(crate) fn layer_edit_section(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let id = self.selected_layer.as_deref()?;
+        let Some(SourceLookup::Found(report)) = &self.source_lookup else {
+            return None;
+        };
+        if report.chain.is_empty() {
+            return None;
+        }
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .child(self.transform_group(cx))
+                .when_some(
+                    self.transform.error(Some(id)).map(str::to_owned),
+                    |section, error| {
+                        section.child(
+                            div()
+                                .px_3()
+                                .py_2()
+                                .text_xs()
+                                .text_color(cx.theme().danger)
+                                .child(error),
+                        )
+                    },
+                )
+                .into_any_element(),
+        )
+    }
+
+    /// The selected layer's ID and the JSX that produced it, or `None` while
+    /// nothing is selected.
     pub(crate) fn layer_section(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let id = self.selected_layer.clone()?;
+        let layer = id.clone();
         let entry_dir = self.entry_dir();
         let muted = cx.theme().muted_foreground;
         let note = |text: SharedString, color: Hsla| {
@@ -26,10 +61,10 @@ impl EditorView {
             .flex()
             .flex_col()
             .child(inspector_section("Layer", cx))
-            .child(inspector_row("ID", id, cx));
+            .child(inspector_row("ID", layer, cx));
         let section = match &self.source_lookup {
-            Some(SourceLookup::Found(chain)) => {
-                let (source, callers) = chain.split_first()?;
+            Some(SourceLookup::Found(report)) => {
+                let (source, callers) = report.chain.split_first()?;
                 section
                     .child(self.source_row("Source", 0, source, &entry_dir, cx))
                     .when(!callers.is_empty(), |section| {
@@ -74,6 +109,9 @@ impl EditorView {
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let opened = source.clone();
+        let parent = parent_layer_id(source)
+            .filter(|_| index > 0)
+            .map(str::to_owned);
         div()
             .flex()
             .flex_col()
@@ -84,6 +122,20 @@ impl EditorView {
             .border_color(cx.theme().border)
             .when(!label.is_empty(), |row| {
                 row.child(div().text_xs().text_color(muted).child(label))
+            })
+            .when_some(parent, |row, parent| {
+                row.child(
+                    Button::new(("layer-select-parent", index))
+                        .ghost()
+                        .small()
+                        .w_full()
+                        .icon(CelestaIcon::MousePointerClick)
+                        .child("Select")
+                        .tooltip("Select this layer")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.select_layer(Some(parent.clone()), cx);
+                        })),
+                )
             })
             .child(
                 Button::new(("layer-source", index))
