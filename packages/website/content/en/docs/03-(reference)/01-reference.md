@@ -74,6 +74,7 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | `Badge` | `@celesta/components` | A label on a `Panel` sized from its measured text, with an optional decoration before the text, round ends with `cornerRadius="pill"`, and wrapping at a `maxWidth`. |
 | `Counter` / `StatCard` / `formatNumber` | `@celesta/components` | A counting number formatted with a fixed locale (`'en-US'` by default), decimals, a prefix or suffix, or a formatter; on its own, or on a card with a label and a note. |
 | `BarChart` / `Ranking` | `@celesta/components` | Horizontal bars that grow in turn while their values count up from the same progress; `Ranking` adds ranks and states whether rows are sorted. |
+| `MediaFrame` | `@celesta/components` | An image or a video (`kind`) fitted into a framed `Panel`, contain or cover, with rounded corners, a border, and a caption; a video keeps its playback and sound. See [Images, video & sound](/en/docs/media/). |
 | `Center`, `SafeArea`, `Stack`, `Grid`, `Fit`, `LayoutBounds` | `@celesta/layout` | Arrange child layers. See [layout helpers](/en/docs/layout/). |
 | `preloadMedia` / `mediaDurationInFrames` | `@celesta/media-utils` | Read a media file’s length and size in `prepare()`. |
 | `loadAudioSpectrum` / `useAudioSpectrum` / `spectrumAt` | `@celesta/media-utils` | Analyze an audio file in `prepare()` and read each frame’s frequency bands and loudness. See [Images, video & sound](/en/docs/media/). |

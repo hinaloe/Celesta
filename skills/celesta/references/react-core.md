@@ -34,6 +34,7 @@ provides `react` (18.x) and those packages; never install them from npm.
 - [Counter, StatCard, BarChart, Ranking (numbers and bar charts)](#counter-statcard-barchart-ranking-numbers-and-bar-charts)
 - [Static (still subtrees)](#static-still-subtrees)
 - [Video](#video)
+- [MediaFrame (images and videos in a frame)](#mediaframe-images-and-videos-in-a-frame)
 - [Audio](#audio)
 - [Font and Assets](#font-and-assets)
 - [Layout helpers](#layout-helpers)
@@ -854,7 +855,8 @@ sound would play twice. Compositions written for earlier versions, where a
 
 To show a 1280×720 clip full-screen in a 1920×1080 composition, wrap it in
 `<Fit sourceWidth={1280} sourceHeight={720}>` (see
-[Layout helpers](#layout-helpers)).
+[Layout helpers](#layout-helpers)). To fit it into a framed box with rounded
+corners and a caption, use [`MediaFrame`](#mediaframe-images-and-videos-in-a-frame).
 
 HDR video (PQ or HLG, such as iPhone footage) and BT.2020 SDR video are
 converted to SDR the way Chrome draws them onto a canvas, so the native
@@ -863,6 +865,55 @@ preview, the export, and `@celesta/web` agree. The HDR reference white
 footage looks darker than a white `<Rect>` beside it; highlights roll off up
 to the file's MaxCLL (1000 nits without one). Export is SDR.
 `preloadMedia()` reports `video.hdr` (`'pq'` or `'hlg'`) for such a file.
+
+## MediaFrame (images and videos in a frame)
+
+Imported from `@celesta/components`. An image or a video fitted into a
+`width`×`height` frame drawn by [`Panel`](#panel-cards-and-boxes-with-padding),
+with an optional caption under it. Use it instead of a `<Rect>` behind a
+`<Group clip>` around a scaled `<Video>` with a `<Text>` placed under it.
+
+| Prop | Default | Notes |
+| --- | --- | --- |
+| `kind` | required | `'image'` or `'video'`. Never guessed from the file name. |
+| `src`, `name` | required, none | As `<Image>` / `<Video>` take them (paths, URLs, asset refs). |
+| `width`, `height` | required | The frame, padding included. |
+| `fit` | `'contain'` | `'contain'` shows all of the media, centred, on the `fill`; `'cover'` fills the area, cropped, centred. |
+| `sourceWidth`, `sourceHeight` | required for video | The video's size: `<Video>` draws at its own size, so it is needed to fit it. Read it once with `preloadMedia()` in `prepare()`. |
+| `padding` | `0` | A mat between the frame's edge and the media, as `Panel` takes it. |
+| `fill`, `stroke`, `strokeWidth`, `cornerRadius`, `shadow`, `anchorX`, `anchorY` | as `Panel` | The border draws over the media. |
+| `caption`, `captionStyle`, `captionGap` | none, `{ fontSize: 20 }`, `12` | Text under the frame, wrapped to its width (`captionStyle.align` aligns it), its line box `captionGap` below the frame. |
+| `variant` | `'plain'` | The decoration; only `'plain'` exists (browser and device chrome are not provided yet). |
+| `startFrom`, `playbackRate`, `loop` | as `Image` / `Video` | For an animated image or a video. |
+| `volume`, `muted` | as `Video` | Video only. |
+
+- The media is clipped to the area inside the padding, its corners rounded
+  by `cornerRadius` less the narrowest padding edge (never below 0).
+- An image is an `<Image>` given that area and `fit`, so it needs no size.
+- A video is a `<Video>` scaled and centred in the area, with every playback
+  prop passed through unchanged: it starts with the enclosing `<Sequence>`,
+  and its soundtrack is collected exactly as a bare `<Video>`'s.
+- The anchor and the transforms apply to the frame, the media, and the
+  caption together.
+- An unknown `kind`, `fit`, or `variant`, a video without a positive source
+  size, and negative or non-finite sizes throw.
+
+```tsx
+import { MediaFrame } from '@celesta/components';
+import { preloadMedia } from '@celesta/media-utils';
+import type { MediaInfo } from '@celesta/media-utils';
+
+let clip: MediaInfo;
+export async function prepare() { clip = await preloadMedia('./demo.mp4'); }
+
+<MediaFrame kind="video" src={clip.src} sourceWidth={clip.video!.width} sourceHeight={clip.video!.height}
+  x={120} y={120} width={960} height={540} fit="cover" cornerRadius={24} startFrom={2}
+  caption="アプリのプレビュー" captionStyle={{ fontSize: 24, fill: { type: 'solid', color: '#8A97A8' } }} />
+<MediaFrame kind="image" src="./shot.png" width={480} height={640} fit="contain"
+  padding={12} fill="#182030" cornerRadius={20} />
+```
+
+Runnable: [`packages/cli/examples/with-media-frame.tsx`](../../../packages/cli/examples/with-media-frame.tsx).
 
 ## Audio
 

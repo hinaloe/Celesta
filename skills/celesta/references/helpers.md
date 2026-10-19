@@ -25,6 +25,7 @@ preview and export, and other people (and agents) reading the file know them.
 | `useTextMetrics(label)` and a `<Rect width={m.width + PAD * 2}>` behind a `<Text>` for a tag or chip | `<Badge fill padding cornerRadius="pill" leading leadingWidth>` | `@celesta/components` |
 | `useCountUp(n)` printed with `toLocaleString()` and a unit in a `<Text>` | `<Counter value={n} suffix=" 件" anchorX={1} />` (`<StatCard>` with a label) | `@celesta/components` |
 | Bars as `<Rect width={track * value / max * grow}>` with a counting value beside each and `from: start + i * stagger` | `<BarChart data width stagger />` (`<Ranking order>` with ranks) | `@celesta/components` |
+| A `<Rect>` frame behind a `<Group clip>` around `<Group scale={w / 1920}><Video /></Group>`, and a `<Text>` caption under it | `<MediaFrame kind="video" sourceWidth sourceHeight width height fit cornerRadius caption />` | `@celesta/components` |
 | `from: i * 6` on each item | `<Stagger each={6}>` | `@celesta/react` |
 | Scene start frames summed by hand | `<Series>` + `computeSeries` | `@celesta/react` |
 | A beat counter from the BPM | `useBeat({ bpm })` | `@celesta/react` |
