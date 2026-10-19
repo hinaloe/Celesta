@@ -5,7 +5,7 @@ springs, `Sequence` scenes, transitions, and the motion helpers that save
 hand-written timing math. Imported from `@celesta/react`, except `Transition`,
 `TransitionSeries`, `computeTransitionSeries`, `useTransitionSeriesScene`, and
 `useTransitionVolume` (`@celesta/transitions`), `Camera` (`@celesta/layout`),
-`FrameChrome` (`@celesta/components`), and `TextReveal`, `useTypewriter`, and
+`FrameChrome` and `Motion` (`@celesta/components`), and `TextReveal`, `useTypewriter`, and
 `useCountUp` (`@celesta/text`).
 
 Every frame must be a pure function of the frame number: frames are rendered
@@ -31,6 +31,7 @@ For randomness and noise, use [`@celesta/math`](math.md).
 - [FrameChrome](#framechrome)
 - [TransitionSeries](#transitionseries)
 - [Stagger](#stagger)
+- [Motion](#motion)
 - [Transition](#transition)
 - [useBeat / beatAt](#usebeat--beatat)
 - [useCue / cueAt](#usecue--cueat)
@@ -54,7 +55,8 @@ For randomness and noise, use [`@celesta/math`](math.md).
 | Ghost copies following a moving object | `Trail` |
 | A voiced script back to back | `planDialogue` + `DialogueSeries` ([dialogue.md](dialogue.md#timing-a-script-from-its-voices)) |
 | Items entering one after another | `Stagger` (or `progress(frame, i * each, …)`) |
-| Fade/slide/scale of one element at a scene's start or end | `Transition` |
+| One element that fades, rises, or scales in, holds, and leaves | `Motion` |
+| Fade/slide/scale of one element at only a scene's start or only its end | `Transition` |
 | Motion on the music's beat | `useBeat` |
 | A video whose last frame runs into its first (Shorts, TikTok) | periodic motion and `loopNoise` ([loops.md](loops.md)) |
 | Something that changes at given frames (captions, camera stops, chart callouts) | `useCue` |
@@ -546,6 +548,52 @@ function Row({ y, label }: { y: number; label: string }) {
 <Stagger each={4}>{items.map((s, i) => <Row key={s} y={200 + i * 64} label={s} />)}</Stagger>
 ```
 
+## Motion
+
+`<Motion enter? exit? from? durationInFrames?>` from `@celesta/components`
+eases one element in at the start of its window, holds it exactly as
+written, and eases it out at the end. It is a `Group`: its own `x`, `y`,
+`opacity`, `scale`, and the other layer props are what it holds, and the
+effects multiply its opacity and scale and offset its position. The
+children's props, clock, and media are left alone.
+
+```tsx
+import { Motion } from '@celesta/components';
+
+<Motion enter="fade-up" exit={{ type: 'fade-down', durationInFrames: 10 }}>
+  <Text x={640} y={360} anchorX={0.5}>Enter, hold, exit</Text>
+</Motion>
+```
+
+| Prop | Notes |
+| --- | --- |
+| `enter`, `exit` | A preset name, or `{ type, durationInFrames?, distance?, scaleFrom?, easing? }`. Omitted, that side cuts. |
+| `from`, `durationInFrames` | The window, as on `<Sequence>`: the children mount, play media, and count frames from `from`. Omit both to use the enclosing sequence's window and clock as they are. |
+
+| Preset | Effect |
+| --- | --- |
+| `'fade'` | Opacity only. |
+| `'fade-up'`, `'fade-down'`, `'fade-left'`, `'fade-right'` | Fades while moving `distance` px (default 64) in that direction: an entrance `fade-up` rises into place, an exit `fade-up` rises away. |
+| `'scale'` | Fades while scaling from `scaleFrom` (default 0.8) to 1, or back on exit. |
+
+- **Timing.** `durationInFrames` of an effect defaults to half a second; 0
+  or 1 is a cut. Like `<Transition>`, an n-frame entrance is hidden on the
+  window's first frame and at rest on its nth; an exit is at rest n frames
+  before the window ends and hidden on its last frame. `easing` defaults to
+  `Easings.easeOutCubic`; an exit plays it backwards (as
+  `<Transition direction="out">` does), so the element settles in and speeds
+  away.
+- **Short windows.** When the entrance and exit do not fit the window, both
+  shrink in proportion until they meet on one frame, so the element is at
+  rest on at least one frame; a one-frame window shows it at rest.
+- **Scale pivot.** `scale` turns about the group's origin. Place the
+  `Motion` with `x`/`y` and its children around 0, or set `originX`/`originY`.
+- **Motion vs TransitionSeries.** `Motion` animates one element inside a
+  scene. To join whole scenes with a cut, cross-fade, slide, or wipe, use
+  [TransitionSeries](#transitionseries).
+
+Runnable: [`packages/cli/examples/with-motion.tsx`](../../../packages/cli/examples/with-motion.tsx).
+
 ## Transition
 
 `<Transition type durationInFrames …>` animates its children at the start
@@ -562,7 +610,10 @@ sequence (or composition).
 | `scaleFrom` | Starting scale, default `0.8`. |
 | `easing` | `(t) => number`, for example `Easings.easeOutCubic`. |
 
-Nest transitions to combine an entrance and an exit.
+For an entrance and an exit together, use [Motion](#motion) rather than
+nesting two transitions. `applyTransition(props, { type, slideFrom?,
+distance?, scaleFrom? }, progress)` returns the group props a transition
+draws at `progress` (0 hidden, 1 at rest), for timing of your own.
 
 ## useBeat / beatAt
 

@@ -75,6 +75,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `Counter` / `StatCard` / `formatNumber` | `@celesta/components` | 数えた数値を、固定の locale（既定 `'en-US'`）・小数桁・prefix / suffix・formatter で整形して描きます。単独でも、ラベルと補足を載せたカードでも使えます。 |
 | `BarChart` / `Ranking` | `@celesta/components` | 時間差で伸びる横棒と、同じ進捗で数える数値です。`Ranking` は順位を加え、ソートするかどうかを明示します。 |
 | `MediaFrame` | `@celesta/components` | 画像または動画（`kind` で指定）を `Panel` の枠に contain / cover で収め、角丸・枠線・キャプションを付けます。動画の再生設定と音声はそのまま保たれます。 |
+| `Motion` | `@celesta/components` | 一つの要素をフェード・移動・拡大で登場させ、書いたままの状態で保持し、退場させます。表示区間は外側の Sequence の区間か、自前で指定した区間です。シーン同士のつなぎには `TransitionSeries` を使います。 |
 | `Center`, `SafeArea`, `Stack`, `Grid`, `Fit`, `LayoutBounds` | `@celesta/layout` | 子のレイヤーを配置します。[レイアウトのヘルパー](/ja/docs/layout/)を参照。 |
 | `preloadMedia` / `mediaDurationInFrames` | `@celesta/media-utils` | `prepare()` 内でメディアの長さとサイズを取得します。 |
 | `loadAudioSpectrum` / `useAudioSpectrum` / `spectrumAt` | `@celesta/media-utils` | `prepare()` で音声ファイルを解析し、フレームごとの周波数帯と音量を読みます。[画像・動画・音声](/ja/docs/media/)を参照。 |
