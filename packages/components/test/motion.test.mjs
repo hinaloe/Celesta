@@ -168,6 +168,12 @@ test('from and durationInFrames open the same window and clock as <Sequence>', (
   assert.equal(clockText(motion, 10), '0');
   assert.equal(clockText(motion, 29), '19');
   assert.equal(clockText(motion, 30), null);
+
+  // The exit ends with the Motion's own window, not the composition.
+  const exit = mount(root(40, h(Motion, { ...window, id: 'motion', exit: { type: 'fade', durationInFrames: 5 } })));
+  assert.equal(pose(exit, 25).opacity, 1);
+  assert.equal(pose(exit, 29).opacity, 0);
+  assert.equal(pose(exit, 30), null);
 });
 
 test('Motion leaves media timing and volume as <Sequence> plays them', () => {
