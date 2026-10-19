@@ -2,13 +2,18 @@ import * as React from 'react';
 import type { ReactNode } from 'react';
 
 import { Group, Text } from '@celesta/react';
-import type { CommonProps, TextMetrics, TextStyle } from '@celesta/react';
+import type { CommonProps, ResolvedTheme, TextMetrics, TextStyle, ThemeValues } from '@celesta/react';
 import {
   CompositionRuntimeContext,
+  ThemeContext,
   asynchronousMeasurer,
   flattenTextContent,
+  mergeTheme,
   prepareFonts,
+  resolvedTheme,
   synchronousMeasurer,
+  themeTextContent,
+  themedTextStyle,
   useMeasurementFonts,
   withInheritedText,
   withTextRuns,
@@ -39,6 +44,12 @@ export interface FitTextOptions {
   style?: FitTextStyle;
   /** Extra font files to load before measuring, as for `measureText()`. */
   fonts?: string[];
+  /**
+   * Font and color names, as a `<Theme>` gives them. `fitText()` runs before
+   * the tree, outside any `<Theme>`, so it knows only these; `useFitText()`
+   * adds them to the `<Theme>`s around it.
+   */
+  theme?: ThemeValues;
 }
 
 export interface FitTextResult {
@@ -48,7 +59,10 @@ export interface FitTextResult {
    * one does not, which the bisection can miss.
    */
   fontSize: number;
-  /** `options.style` with `fontSize` (and `lineHeight`) set: pass it to `<Text>`. */
+  /**
+   * `options.style` with `fontSize` (and `lineHeight`) set and `<Theme>`
+   * names looked up: pass it to `<Text>`.
+   */
   style: TextStyle;
   /** The text measured at `fontSize`, wrapped at `options.width`. */
   metrics: TextMetrics;
@@ -62,7 +76,9 @@ export interface FitTextResult {
  * with `<Text maxWidth={width} style={result.style}>` and the same content.
  */
 export async function fitText(content: ReactNode, options: FitTextOptions): Promise<FitTextResult> {
-  const flat = flattenTextContent(content, 'fitText() text');
+  const theme = resolvedTheme(options.theme);
+  const flat = flattenTextContent(themeTextContent(content, theme), 'fitText() text');
+  options = themedOptions(options, theme);
   const measure = asynchronousMeasurer('fitText()');
   const fonts = prepareFonts(options.fonts);
   const search = searchFontSize(options);
@@ -79,7 +95,19 @@ export async function fitText(content: ReactNode, options: FitTextOptions): Prom
  * as `<Text>`. Unchanged inputs reuse this hook's last result.
  */
 export function useFitText(content: ReactNode, options: FitTextOptions): FitTextResult {
-  return useFitFlatText(flattenTextContent(content, 'useFitText() text'), options, 'useFitText()');
+  const outer = React.useContext(ThemeContext);
+  const theme = options.theme ? mergeTheme(outer, options.theme) : outer;
+  return useFitFlatText(
+    flattenTextContent(themeTextContent(content, theme), 'useFitText() text'),
+    themedOptions(options, theme),
+    'useFitText()',
+  );
+}
+
+/** `options` with `theme`'s names in `style` looked up. */
+function themedOptions(options: FitTextOptions, theme: ResolvedTheme): FitTextOptions {
+  const style = options.style && themedTextStyle(options.style, {}, theme, 'text measurement') as FitTextStyle;
+  return style === options.style ? options : { ...options, style };
 }
 
 function useFitFlatText(flat: FlatText, options: FitTextOptions, owner: string): FitTextResult {
@@ -92,7 +120,7 @@ function useFitFlatText(flat: FlatText, options: FitTextOptions, owner: string):
   // the result, as `useTextMetrics` does.
   const key = JSON.stringify({
     text: flat.text, fontRuns: flat.fontRuns, owner,
-    options: { ...options, style, fonts: undefined }, fonts,
+    options: { ...options, style, fonts: undefined, theme: undefined }, fonts,
   });
   return React.useMemo(() => {
     const { text, fontRuns, owner, options, fonts } = JSON.parse(key) as {
@@ -212,7 +240,7 @@ function validate(options: FitTextOptions): void {
 }
 
 export interface TextBoxProps
-  extends Omit<CommonProps, 'anchorX' | 'anchorY'>, Omit<FitTextOptions, 'fonts'> {
+  extends Omit<CommonProps, 'anchorX' | 'anchorY'>, Omit<FitTextOptions, 'fonts' | 'theme'> {
   /** Strings, numbers, and `<Span>`, as for `<Text>`; `null`, `undefined`, and booleans draw nothing. */
   children: ReactNode;
   /** Where the text sits in the box's height when it is shorter. Defaults to `'top'`. */
@@ -239,11 +267,13 @@ export function TextBox(props: TextBoxProps): ReturnType<typeof React.createElem
     children, width, height, minFontSize, maxFontSize, maxLines, lineHeight, step, style,
     verticalAlign = 'top', overflow = 'clip', ...common
   } = props;
-  const flat = flattenTextContent(children, '<TextBox> children');
+  const theme = React.useContext(ThemeContext);
+  const content = themeTextContent(children, theme);
+  const flat = flattenTextContent(content, '<TextBox> children');
   const text = flat.text;
   const fit = useFitFlatText(
     flat,
-    { width, height, minFontSize, maxFontSize, maxLines, lineHeight, step, style },
+    themedOptions({ width, height, minFontSize, maxFontSize, maxLines, lineHeight, step, style }, theme),
     '<TextBox>',
   );
   if (!fit.fits && overflow === 'error') {
@@ -272,7 +302,7 @@ export function TextBox(props: TextBoxProps): ReturnType<typeof React.createElem
         anchorY: 'baseline',
         maxWidth: width,
         style: fit.style,
-        children,
+        children: content,
       }),
   );
 }

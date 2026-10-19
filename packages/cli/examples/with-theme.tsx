@@ -1,7 +1,10 @@
 import { Composition, Font, Rect, Span, Text, Theme, useTextMetrics, useTheme } from '@celesta/react';
+import { TextBox } from '@celesta/text';
 
 // <Theme> names fonts and colors once; <Text> and <Span> refer to them by
 // name, and the shorthand props stand in for the usual `style` entries.
+// <TextBox> and the other @celesta/text components take the same names, and
+// fit the text with the fonts they stand for.
 
 const fonts = { display: 'Inter', mono: 'JetBrains Mono' };
 const colors = { paper: '#F4F1EA', ink: '#111111', accent: '#FF4D1F' };
@@ -34,6 +37,11 @@ export default function WithTheme() {
             Same names, a quieter paper.
           </Text>
         </Theme>
+        <Rect x={56} y={330} width={848} height={150} fill="#1D1D20" />
+        <TextBox x={56} y={330} width={848} height={150} minFontSize={16} maxFontSize={120} maxLines={1}
+          verticalAlign="middle" style={{ fontFamily: 'mono', fontWeight: 700, align: 'center' }}>
+          <Span color="accent">fit</Span>Text(<Span color="paper">'mono'</Span>)
+        </TextBox>
       </Theme>
     </Composition>
   );

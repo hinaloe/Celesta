@@ -86,13 +86,13 @@ palette and type live in one place instead of a `Label` wrapper:
   any React context.
 - `useTheme()` returns the merged `{ fonts, colors }`, for anything that is
   not text: `<Rect fill={useTheme().colors.accent}>`.
-- `useTextMetrics()` measures with the names of the `<Theme>`s around it.
-  `measureText()` runs in `prepare()`, outside every `<Theme>`, so pass
-  the names in its options: `measureText('M', { fontFamily: 'mono' }, {
-  theme: { fonts } })`.
-- `<TextBox>`, `<TextReveal>`, `useFitText()`, `fitText()`, and
-  `<Dialogue>` do not look names up yet: use family names and hex colors
-  in their `style` and spans.
+- `<TextBox>`, `<TextReveal>`, `useTypewriter()`, and `<Dialogue>`
+  (its line and its character's `subtitle.style`) look up the names of
+  the `<Theme>`s around them in their `style` and spans, as `<Text>` does.
+- `useTextMetrics()` and `useFitText()` measure with the names of the
+  `<Theme>`s around them. `measureText()` and `fitText()` run in
+  `prepare()`, outside every `<Theme>`, so pass the names in their
+  options: `measureText('M', { fontFamily: 'mono' }, { theme: { fonts } })`.
 
 See [`packages/cli/examples/with-theme.tsx`](../../../packages/cli/examples/with-theme.tsx)
 and [`examples/reel`](../../../examples/reel/film.tsx).
@@ -571,8 +571,10 @@ uses `maxFontSize`; longer text shrinks, down to `minFontSize`.
 `useFitText(text, options)` returns the choice without drawing it, for a
 custom layout or overflow treatment: `{ fontSize, style, metrics, fits }`.
 `options` are `TextBox`'s `width`, `height`, `minFontSize`, `maxFontSize`,
-`maxLines`, `lineHeight`, `step`, and `style`, plus `fonts`. Draw it with the
-returned `style` and the same width:
+`maxLines`, `lineHeight`, `step`, and `style`, plus `fonts` and `theme`
+(names added to the [`<Theme>`](#shorthand-props-and-theme)s around it).
+Draw it with the returned `style`, whose theme names are looked up, and the
+same width:
 
 ```tsx
 function Title({ text }: { text: string }) {
@@ -585,7 +587,8 @@ function Title({ text }: { text: string }) {
 ```
 
 `fitText(text, options)` does the same in `prepare()` and resolves to the
-same result; pass font files in `options.fonts`, as for `measureText()`.
+same result; pass font files in `options.fonts` and font and color names in
+`options.theme`, as for `measureText()`.
 The full example is `packages/cli/examples/with-text-box.tsx`.
 
 ## Verifying text
