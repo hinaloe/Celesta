@@ -165,6 +165,7 @@ const ripple = defineShader({
 | `Stack` | 子を `spacing` ピクセル間隔で並べます。既定は `vertical`、`horizontal` も選べます。 |
 | `Grid` | `columns` 列、`columnWidth` × `rowHeight` のセルに子を配置します。間隔も指定できます。 |
 | `Fit` | `sourceWidth` × `sourceHeight` で設計した内容を、現在の領域に `contain` または `cover` で合わせます。 |
+| `LayoutBounds` | 内側のヘルパーが見る領域を `width` × `height` にします。子を動かさず、何も描きません。 |
 
 ```tsx title="セーフマージン内の中央揃えリスト"
 <SafeArea padding={96}>
@@ -182,6 +183,18 @@ const ripple = defineShader({
 ```
 
 ヘルパーは子の原点を配置し、描画サイズは計測しません。配置点を中心にするには、子のアンカーを `0.5` にします。
+
+## パネル
+
+`@celesta/components` の `Panel` は、`width` × `height` の枠に背景（`fill`）、枠線（`stroke`・`strokeWidth`。枠の内側に描きます）、角丸（`cornerRadius`）、背景が落とす影（`shadow`）をまとめて描きます。子は `padding`（数値または `{ top, right, bottom, left }`）の内側から配置され、内側の `Center`・`Fit`・`useLayoutBounds()` は余白を除いた領域を参照します。描く順序は影、背景、子、枠線で、内容が枠線を覆うことはありません。`clip` を付けると子を角丸の枠で切り取ります。`anchorX`・`anchorY` は `x`・`y` に置く点で、`rotation` と `scale` もこの点を中心にします。寸法・余白・角丸・枠線の太さは有限の 0 以上でなければなりません。
+
+```tsx title="説明カード"
+<Panel x={120} y={600} width={720} height={320} padding={32}
+  fill="#182030" stroke="#2C3A50" cornerRadius={20} clip
+  shadow={{ color: "#00000099", blur: 32, offsetX: 0, offsetY: 16 }}>
+  <Text maxWidth={656} style={{ fontSize: 40 }}>説明文</Text>
+</Panel>
+```
 
 ## Shorts・TikTok・Reels 向けの縦型動画
 

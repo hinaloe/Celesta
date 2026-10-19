@@ -29,6 +29,7 @@ provides `react` (18.x) and those packages; never install them from npm.
 - [Lottie animations](#lottie-animations)
 - [Instances (particles)](#instances-particles)
 - [PatternBackground (dots, grid, stripes)](#patternbackground-dots-grid-stripes)
+- [Panel (cards and boxes with padding)](#panel-cards-and-boxes-with-padding)
 - [Static (still subtrees)](#static-still-subtrees)
 - [Video](#video)
 - [Audio](#audio)
@@ -605,6 +606,59 @@ const crosses: PatternTile = {
 
 Runnable: [`packages/cli/examples/with-pattern-background.tsx`](../../../packages/cli/examples/with-pattern-background.tsx).
 
+## Panel (cards and boxes with padding)
+
+Imported from `@celesta/components`. A box of a given size with a
+background, a border, rounded corners, and a shadow, whose children lay out
+inside its padding. Use it for caption cards, callouts, and code or stat
+panels instead of a `<Group>` with a `<Rect>`, a hand-set `x={PAD}`, and a
+`clip` repeating the same size.
+
+| Prop | Default | Notes |
+| --- | --- | --- |
+| `width`, `height` | required | Outer size, padding included. Not measured from the content. |
+| `padding` | `0` | A number, or `{ top, right, bottom, left }` (missing edges are 0). |
+| `fill` | none | Hex, `<Theme>` color name, or gradient `Paint` (in the panel's local pixels). |
+| `stroke`, `strokeWidth` | none, `2` | The border, drawn inside the edge like `Rect`'s. |
+| `cornerRadius` | `0` | Rounds the background, the border, and the clip alike. |
+| `shadow` | none | `{ color, blur, offsetX, offsetY }`, cast by the background only; needs a `fill`. `color` may be a theme name. |
+| `clip` | `false` | Draws the content only inside the panel's rounded rectangle. |
+| `anchorX`, `anchorY` | `0` | The point of the panel at `x`/`y`, and the point `rotation` and `scale` turn about. |
+
+Other common props (`x`, `y`, `rotation`, `scale`, `opacity`, effects) apply
+to the whole panel.
+
+- The children's origin is the top-left of the area inside the padding.
+  `<Center>`, `<Fit>`, `<SafeArea>`, and `useLayoutBounds()` inside see that
+  area, so `<Center>` centres in it and text can wrap to its width.
+- Bottom to top it draws the shadow, the `fill`, the children, then the
+  `stroke`, so content reaching the edge never covers the border. `clip`
+  cuts the children to the whole rounded box (padding included, as CSS
+  `overflow: hidden`) and never cuts the shadow.
+- `width`, `height`, `padding`, `cornerRadius`, and `strokeWidth` must be
+  finite and not negative, or it throws. Padding wider than the panel leaves
+  a content area of 0 starting at the left and top padding. A `shadow`
+  without a `fill` throws.
+
+```tsx
+import { Panel } from '@celesta/components';
+import { Center } from '@celesta/layout';
+
+<Panel x={120} y={600} width={720} height={320} padding={32}
+  fill="#182030" stroke="#2C3A50" cornerRadius={20} clip
+  shadow={{ color: '#00000099', blur: 32, offsetX: 0, offsetY: 16 }}>
+  <Text maxWidth={656} style={textStyle}>What this step does.</Text>
+</Panel>
+
+// Centred on a point and scaled about it.
+<Panel x={960} y={540} anchorX={0.5} anchorY={0.5} scale={pop}
+  width={220} height={64} fill="#F4F1EA" cornerRadius={32}>
+  <Center><Text anchorX={0.5} anchorY={0.5}>NEW</Text></Center>
+</Panel>
+```
+
+Runnable: [`packages/cli/examples/with-panel.tsx`](../../../packages/cli/examples/with-panel.tsx).
+
 ## Static (still subtrees)
 
 `<Static>` marks content that stays the same from frame to frame. React
@@ -737,13 +791,16 @@ Anchor children at `0.5` to center them on those points.
 
 | Component | Props | Behavior |
 | --- | --- | --- |
-| `Center` | common props | Moves the origin to the center of the canvas or the enclosing `SafeArea`/`Fit`. `x`/`y` offset from there. |
+| `Center` | common props | Moves the origin to the center of the canvas or the enclosing `SafeArea`/`Fit`/`LayoutBounds` (and so `Panel`). `x`/`y` offset from there. |
 | `SafeArea` | `padding`: number, `{ top, right, bottom, left }` (missing edges are 0), or `'vertical-social'` | Insets children; nested helpers see the smaller area. A preset is sized from the canvas ([vertical video](#vertical-video-shorts-tiktok-reels)). |
 | `Stack` | `spacing` (required), `direction`: `'vertical'` (default) or `'horizontal'` | Child *i* is placed at `i * spacing`. |
 | `Grid` | `columns`, `columnWidth`, `rowHeight`, `columnGap?`, `rowGap?` | Fills cells row by row; each child's origin is its cell's top-left. |
 | `Fit` | `sourceWidth`, `sourceHeight`, `mode`: `'contain'` (default) or `'cover'` | Scales content designed at the source size to the current area and centers it. |
+| `LayoutBounds` | `width`, `height` | Makes that the area nested helpers see, without moving or drawing anything. For components with a size of their own; `Panel` uses it for its content area. |
 
-`useLayoutBounds()` returns the current area's `{ width, height }`.
+`useLayoutBounds()` returns the current area's `{ width, height }`. For a
+box with a background and padding around its content, use
+[`Panel`](#panel-cards-and-boxes-with-padding).
 
 ```tsx
 <SafeArea padding={96}>
