@@ -10,6 +10,7 @@ Syntax-highlighted code is in [code.md](code.md).
 ## Contents
 
 - [The Text layer](#the-text-layer)
+- [Shorthand props and `<Theme>`](#shorthand-props-and-theme)
 - [Rich text with `<Span>`](#rich-text-with-span)
 - [TextStyle](#textstyle)
 - [Line breaking](#line-breaking)
@@ -27,6 +28,7 @@ Syntax-highlighted code is in [code.md](code.md).
 | --- | --- |
 | children | Strings, numbers, and [`<Span>`](#rich-text-with-span) elements (arrays and fragments of those are joined); `null`, `undefined`, and booleans draw nothing. Use template literals to combine values: `` {`${name} · Lv.${level}`} ``. `\n` breaks a line. No other elements inside `Text`. |
 | `style` | A `TextStyle`, see below. |
+| `fontFamily`, `fontSize`, `fontWeight`, `color` | Shorthand for `style`; see [Shorthand props and `<Theme>`](#shorthand-props-and-theme). |
 | `lang` | Text language (e.g. `"zh-Hant"`), overriding enclosing scopes; `style.lang` takes priority. |
 | `maxWidth` | Wrap lines to fit this width; `style.align` positions each line inside it. A word wider than `maxWidth` is not split; the part past `maxWidth` is cut off. See [Line breaking](#line-breaking). |
 | common props | `x`, `y`, `anchorX`, `anchorY`, `opacity`, effects, … |
@@ -45,6 +47,55 @@ Anchoring:
   animation, mixed font sizes) at one `y`, and with measured layouts
   (`y={padding + metrics.ascent}`). For a differently colored or weighted
   word inside a line, use [`<Span>`](#rich-text-with-span) instead.
+
+## Shorthand props and `<Theme>`
+
+`fontFamily`, `fontSize`, and `fontWeight` on `<Text>` set the same
+`style` entries; `color` sets a solid `style.fill`. Where a prop and
+`style` set the same thing, `style` wins. Both spellings draw the same
+text:
+
+```tsx
+<Text fontFamily="Inter" fontSize={18} fontWeight={700} color="#F4F1EA">A</Text>
+<Text style={{ fontFamily: 'Inter', fontSize: 18, fontWeight: 700, fill: { type: 'solid', color: '#F4F1EA' } }}>A</Text>
+```
+
+`<Theme>` names fonts and colors for the text inside it, so a film's
+palette and type live in one place instead of a `Label` wrapper:
+
+```tsx
+<Theme fonts={{ display: 'Inter', mono: ['JetBrains Mono', 'Noto Sans JP'] }}
+       colors={{ paper: '#F4F1EA', ink: '#111111', accent: '#FF4D1F' }}>
+  <Text x={56} y={56} fontFamily="mono" fontSize={18} fontWeight={700} color="paper">
+    CELESTA <Span color="accent">REEL</Span>
+  </Text>
+</Theme>
+```
+
+- A font name may stand for a [font stack](#font-stacks-和欧混植). Colors
+  are `#RRGGBB` or `#RRGGBBAA`; anything else in a `<Theme>` throws.
+- Names work in the shorthand props, in `style.fontFamily`, in solid
+  `style.fill`, `style.stroke` paints and `style.colorRuns`, and in a
+  `<Span>`'s `fontFamily` and fill (gradient stops are not looked up).
+- A name no theme defines is used as it is: a font name as a family name
+  (so `fontFamily="Georgia"` still works inside a theme), a color as a
+  color. The `color` shorthand must then be a hex color, or the text
+  throws with the theme's color names.
+- A nested `<Theme>` adds to the one around it, its own names winning. It
+  passes through `<Group>`, `<Sequence>`, and every other component, like
+  any React context.
+- `useTheme()` returns the merged `{ fonts, colors }`, for anything that is
+  not text: `<Rect fill={useTheme().colors.accent}>`.
+- `useTextMetrics()` measures with the names of the `<Theme>`s around it.
+  `measureText()` runs in `prepare()`, outside every `<Theme>`, so pass
+  the names in its options: `measureText('M', { fontFamily: 'mono' }, {
+  theme: { fonts } })`.
+- `<TextBox>`, `<TextReveal>`, `useFitText()`, `fitText()`, and
+  `<Dialogue>` do not look names up yet: use family names and hex colors
+  in their `style` and spans.
+
+See [`packages/cli/examples/with-theme.tsx`](../../../packages/cli/examples/with-theme.tsx)
+and [`examples/reel`](../../../examples/reel/film.tsx).
 
 ## Rich text with `<Span>`
 
@@ -65,6 +116,10 @@ measures as one, and its baseline stays where the text's own glyphs put it.
   It may be a [font stack](#font-stacks-和欧混植), which replaces the text's
   whole stack inside the span.
 - Spans nest; an inner span overrides only the properties it sets.
+- `fontFamily`, `fontWeight`, and `color` props are shorthand for the
+  span's `style`, which wins where both set the same thing; inside a
+  [`<Theme>`](#shorthand-props-and-theme) they take its names:
+  `<Span color="accent">`.
 - `<Span>` works in `<Text>`, `<TextBox>`, `<TextReveal>`, `<Dialogue>`,
   `DialogueSeries` lines, `useTextMetrics`, `measureText`, `useFitText`,
   `fitText`, and `useTypewriter`. Anywhere else it throws, and so does a
@@ -372,14 +427,15 @@ A number that counts to `to` (default 30 frames, `easeOutExpo`), rounded to
 
 ## Measure text
 
-### `useTextMetrics(text, style?, { maxWidth?, fonts? }?)`
+### `useTextMetrics(text, style?, { maxWidth?, fonts?, theme? }?)`
 
 Shapes text exactly as `<Text>` does, synchronously, during render, and
 returns
 `{ width, height, ascent, descent, lineHeight, capHeight, xHeight, lines, glyphs: [{ text, x, width, line, inkAscent, inkDescent }] }`
 in composition pixels. Use it to size backgrounds and place carets without
 guessing widths. `text` may hold `<Span>`, measured with the spans' weights
-and families.
+and families. Font names from the [`<Theme>`](#shorthand-props-and-theme)s
+around it work in `style` and spans; `theme` adds more.
 
 - `width` is the advance width, including spaces. `height` is the line-box
   height (`<Text>` that fits on one line trims empty rows above and below
@@ -456,11 +512,13 @@ A centered row: measure each item, add padding and a fixed gap, and offset
 the row by `(width - total) / 2`. The full example is
 `packages/cli/examples/with-text-metrics.tsx` in the Celesta repository.
 
-### `measureText(text, style, { maxWidth?, fonts? })`
+### `measureText(text, style, { maxWidth?, fonts?, theme? })`
 
 The same measurement, asynchronously, for `prepare()`; `text` may hold
 `<Span>`. `<Font>` files are not loaded during `prepare()`; pass their
-`src` in `fonts`.
+`src` in `fonts`. No `<Theme>` is around `prepare()` either: pass font
+names in `theme` (`{ fonts: { mono: 'JetBrains Mono' } }`) to use them in
+`style` and spans.
 
 ```tsx
 let titleWidth = 0;
