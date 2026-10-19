@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
-import { Easings, Group, Rect, useCurrentFrame, useVideoConfig } from '@celesta/react';
+import { Easings, Group, Rect, progress, useCurrentFrame, useTextMetrics, useVideoConfig } from '@celesta/react';
 import { CHAPTERS } from '../chapters';
 import { Label } from './Label';
 import { Swap } from './Swap';
-import { C, H, W } from '../constants';
-import { monoWidth, pad, progress } from '../helpers';
+import { C, FONT, H, W } from '../constants';
+import { pad } from '../helpers';
 
 export function ChapterShell({ index, children }: { index: number; children: ReactNode }) {
   const f = useCurrentFrame();
@@ -44,22 +44,25 @@ export function ChapterShell({ index, children }: { index: number; children: Rea
           {chapter.ja}
         </Label>
         <Group y={24 * (1 - chipIn)} opacity={chipIn}>
-          <Swap f={f} cues={chapter.api} render={(text, p) => {
-            const w = monoWidth(text, 22) + 56;
-            return (
-              <Group x={120} y={840} opacity={p}>
-                <Rect y={-28} width={w} height={56} cornerRadius={28}
-                  fill={onBlue ? C.ink : C.panel} stroke={onBlue ? undefined : C.line} strokeWidth={onBlue ? undefined : 1} />
-                <Rect x={24} y={-4} width={8} height={8} cornerRadius={4} fill={onBlue ? C.paper : C.blue} />
-                <Label x={44} y={0} size={22} font="mono" weight={500} color={onBlue ? C.paper : C.sky} ay={0.5}>
-                  {text}
-                </Label>
-              </Group>
-            );
-          }} />
+          <Swap f={f} cues={chapter.api} render={(text, p) => <ApiChip text={text} opacity={p} onBlue={onBlue} />} />
         </Group>
         {children}
       </Group>
     </>
+  );
+}
+
+// The API pill under a chapter's caption, sized to its measured text.
+function ApiChip({ text, opacity, onBlue }: { text: string; opacity: number; onBlue: boolean }) {
+  const { width } = useTextMetrics(text, { fontFamily: FONT.mono, fontSize: 22, fontWeight: 500 });
+  return (
+    <Group x={120} y={840} opacity={opacity}>
+      <Rect y={-28} width={width + 56} height={56} cornerRadius={28}
+        fill={onBlue ? C.ink : C.panel} stroke={onBlue ? undefined : C.line} strokeWidth={onBlue ? undefined : 1} />
+      <Rect x={24} y={-4} width={8} height={8} cornerRadius={4} fill={onBlue ? C.paper : C.blue} />
+      <Label x={44} y={0} size={22} font="mono" weight={500} color={onBlue ? C.paper : C.sky} ay={0.5}>
+        {text}
+      </Label>
+    </Group>
   );
 }

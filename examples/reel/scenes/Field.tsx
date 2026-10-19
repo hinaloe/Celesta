@@ -1,9 +1,8 @@
 import type { ReactNode } from 'react';
-import { Easings, Group, Rect, useCurrentFrame, useVideoConfig } from '@celesta/react';
+import { Easings, Group, Rect, progress, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import { Label } from '../components/Label';
 import { Tag } from '../components/Tag';
 import { BAR, C, FPS, H, W } from '../constants';
-import { progress } from '../helpers';
 
 const COLS = 32;
 const ROWS = 18;
@@ -42,7 +41,7 @@ export function Field() {
   }
 
   const textIn = progress(f, 12, 16, Easings.easeOutExpo);
-  const textOut = 1 - progress(f, durationInFrames - 20, 10);
+  const textOut = 1 - progress(f, durationInFrames - 20, 10, Easings.easeOutCubic);
   const formula = second ? 'v = ½·(sin(0.8·a − 6t) + sin(0.8·b − 6t))' : 'v = sin(0.55·d − 5t)';
   return (
     <>

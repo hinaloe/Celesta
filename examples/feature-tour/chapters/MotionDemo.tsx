@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
-import { Easings, Group, Rect, spring, useCurrentFrame } from '@celesta/react';
+import { clamp } from '@celesta/math';
+import { Easings, Group, Rect, progress, spring, useCurrentFrame } from '@celesta/react';
 import { Label } from '../components/Label';
 import { BAR, C, DX, FPS } from '../constants';
-import { clamp, pad, progress } from '../helpers';
+import { pad } from '../helpers';
 
 // ── 02 · Motion: three curves, one frame number ───────────────────────────
 
@@ -26,7 +27,7 @@ export function MotionDemo() {
         const x0 = DX + i * (size + gapX);
         const enter = progress(f, 4 + i * 4, 16, Easings.easeOutExpo);
         const cycle = (f + 60 - i * 3) % BAR;
-        const t = clamp((cycle - 8) / 36);
+        const t = progress(cycle, 8, 36);
         const v = fn(t);
         const dots: ReactNode[] = [];
         for (let k = 0; k <= 48; k++) {
@@ -59,7 +60,7 @@ export function MotionDemo() {
         );
       })}
       <Label x={DX} y={880} size={18} font="mono" weight={400} color={C.grey} ay={0.5}
-        opacity={progress(f, 20, 12)}>{`frame ${pad(f, 3)} → t = ${clamp(((f % BAR) - 8) / 36).toFixed(2)}`}</Label>
+        opacity={progress(f, 20, 12, Easings.easeOutCubic)}>{`frame ${pad(f, 3)} → t = ${progress((f % BAR), 8, 36).toFixed(2)}`}</Label>
     </>
   );
 }

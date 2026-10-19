@@ -31,8 +31,11 @@ export const DEMO = {
 } as const;
 
 // Code is set in JetBrains Mono, which advances every glyph by 0.6 em, so
-// columns convert to pixels without shaping (CJK falls back at ~1 em). The
-// size follows the snippet's longest line, between these bounds.
+// columns convert to pixels without shaping (CJK falls back at ~1 em). This
+// stands in for measureText()/useTextMetrics() on purpose: the plan and the
+// code panel then need no exporter, so scripts/inspect.mjs --no-native can
+// evaluate every frame. The size follows the snippet's longest line, between
+// these bounds.
 export const MONO_ADVANCE = 0.6;
 export const CODE_SIZE = { max: 46, min: 34 } as const;
 export const CODE_MAX_LINES = 9;

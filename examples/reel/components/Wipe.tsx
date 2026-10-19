@@ -1,6 +1,5 @@
-import { Easings, Rect, useCurrentFrame } from '@celesta/react';
+import { Easings, Rect, progress, useCurrentFrame } from '@celesta/react';
 import { C, H, W } from '../constants';
-import { progress } from '../helpers';
 
 // A slanted accent band that sweeps across a cut. Place it so the cut lands
 // at its midpoint.

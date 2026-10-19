@@ -1,6 +1,6 @@
 import { useContext } from 'react';
 import type { ReactNode } from 'react';
-import { Easings, FreezeFrame, Group, Rect, Text, interpolate, parseSubtitles, progress, useCurrentFrame, useTextMetrics } from '@celesta/react';
+import { Easings, FreezeFrame, Group, Rect, Text, formatSubtitles, interpolate, parseSubtitles, progress, useCurrentFrame, useTextMetrics } from '@celesta/react';
 import { safeAreaInsets } from '@celesta/layout';
 import { chromaticAberration, pixelate } from '@celesta/shader';
 import { useFitText } from '@celesta/text';
@@ -84,27 +84,17 @@ function GoogleFonts({ f, c }: VisualProps) {
 }
 
 // The SUBTITLES card's sample: an English SRT timed to the SPECTRUM chapter,
-// read with parseSubtitles() and drawn over that chapter playing (at four
-// times speed, so both cues fit in the card's bar).
+// written with formatSubtitles(), read back with parseSubtitles(), and drawn
+// over that chapter playing (at four times speed, so both cues fit in the
+// card's bar).
 const SAMPLE_AT = chapterAt(8);
-const SAMPLE_SRT = `1
-${timecode(SAMPLE_AT)} --> ${timecode(SAMPLE_AT + 2 * BAR)}
-These bars are this film's own score.
-
-2
-${timecode(SAMPLE_AT + 2 * BAR)} --> ${timecode(SAMPLE_AT + 4 * BAR)}
-32 bands and the loudness, frame by frame.
-`;
+const SAMPLE_SRT = formatSubtitles([
+  { from: SAMPLE_AT, durationInFrames: 2 * BAR, text: "These bars are this film's own score." },
+  { from: SAMPLE_AT + 2 * BAR, durationInFrames: 2 * BAR, text: '32 bands and the loudness, frame by frame.' },
+], { fps: FPS, format: 'srt' });
 const SAMPLE_CUES = parseSubtitles(SAMPLE_SRT, { fps: FPS });
 const SPEED = 4;
 const PREVIEW_SIZE = { width: 600, height: 338 };
-
-/** An SRT time (HH:MM:SS,mmm) for a composition frame. */
-function timecode(frame: number) {
-  const ms = Math.round((frame / FPS) * 1000);
-  const pad = (n: number, width = 2) => String(n).padStart(width, '0');
-  return `${pad(Math.floor(ms / 3_600_000))}:${pad(Math.floor(ms / 60_000) % 60)}:${pad(Math.floor(ms / 1000) % 60)},${pad(ms % 1000, 3)}`;
-}
 
 function SubtitleFile({ f, c }: VisualProps) {
   const Film = useContext(FilmContext);

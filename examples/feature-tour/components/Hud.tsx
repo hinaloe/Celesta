@@ -1,8 +1,7 @@
-import { Group, Rect, useCurrentFrame, useScene } from '@celesta/react';
+import { Group, Rect, frameToTimecode, useCurrentFrame, useScene } from '@celesta/react';
 import { CHAPTERS } from '../chapters';
 import { Label } from './Label';
 import { C, FPS, H, W } from '../constants';
-import { timecode } from '../helpers';
 import { SCENES } from '../timeline';
 
 // From the index to the outro: corner marks, the timecode, and one segment
@@ -30,7 +29,7 @@ export function Hud() {
       {corner(W - m, H - m, -1, -1)}
       <Label x={m + 36} y={m + 10} size={16} font="mono" weight={700} ay={0.5}>CELESTA</Label>
       <Label x={m + 118} y={m + 10} size={16} font="mono" weight={400} ay={0.5} opacity={0.6}>/ FEATURE TOUR</Label>
-      <Label x={W - m - 36} y={m + 10} size={16} font="mono" weight={400} ax={1} ay={0.5}>{timecode(f)}</Label>
+      <Label x={W - m - 36} y={m + 10} size={16} font="mono" weight={400} ax={1} ay={0.5}>{frameToTimecode(f, FPS).slice(3)}</Label>
       {CHAPTERS.map((_, i) => (
         <Rect key={i} x={m + 36 + i * 30} y={H - m - 12} width={24} height={4}
           fill={i === chapter ? (CHAPTERS[i].bg === C.blue ? C.paper : C.blue) : i < chapter ? C.soft : C.dim} />

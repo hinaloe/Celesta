@@ -49,6 +49,10 @@ pub static TOPICS: &[Topic] = &[
     ),
     reference!("code", "Syntax-highlighted and typed code (@celesta/code)"),
     reference!(
+        "helpers",
+        "The API to use before writing a helper: clamp, eased progress, random, timecodes, text widths, cues"
+    ),
+    reference!(
         "math",
         "Seeded random, noise, and math helpers (@celesta/math)"
     ),

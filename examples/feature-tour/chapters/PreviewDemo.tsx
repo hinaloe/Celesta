@@ -1,7 +1,8 @@
-import { Easings, Group, Rect, interpolate, useCurrentFrame } from '@celesta/react';
+import { random } from '@celesta/math';
+import { Easings, Group, Rect, frameToTimecode, interpolate, progress, useCurrentFrame } from '@celesta/react';
 import { Label } from '../components/Label';
-import { C, DW, DX, S } from '../constants';
-import { hash, pad, progress, timecode } from '../helpers';
+import { C, DW, DX, FPS, S } from '../constants';
+import { pad } from '../helpers';
 
 // ── 07 · Preview: scrub, and the frame answers ────────────────────────────
 
@@ -45,7 +46,7 @@ export function PreviewDemo() {
       <Rect x={wx} y={wy} width={DW} height={680} cornerRadius={14} fill={C.panel} stroke={C.line} strokeWidth={1} />
       <Label x={wx + 24} y={wy + 30} size={16} font="mono" weight={700} ay={0.5}>Preview</Label>
       <Label x={wx + DW - 24} y={wy + 30} size={16} font="mono" weight={400} color={C.grey} ax={1} ay={0.5}>
-        {`${dir}   ${timecode(s)}`}
+        {`${dir}   ${frameToTimecode(s, FPS).slice(3)}`}
       </Label>
       <Rect x={vx} y={vy} width={vw} height={vh} fill={C.blue} />
       <Rect x={vx + vw / 2} y={vy + vh / 2} anchorX={0.5} anchorY={0.5} width={2} height={vh} fill="#FFFFFF22" />
@@ -72,7 +73,7 @@ export function PreviewDemo() {
       </Group>
       <Rect x={tlX} y={tlY + 74} width={tlW} height={32} cornerRadius={4} fill={C.clip} stroke={C.line} strokeWidth={1} />
       {Array.from({ length: Math.floor(tlW / 5) - 2 }, (_, b) => {
-        const amp = Math.abs(Math.sin(b * 0.23) * Math.sin(b * 0.057 + 1)) * 0.8 + 0.12 * hash(b, 7);
+        const amp = Math.abs(Math.sin(b * 0.23) * Math.sin(b * 0.057 + 1)) * 0.8 + 0.12 * random(`wave-${b}`);
         const bx = tlX + 6 + b * 5;
         return (
           <Rect key={b} x={bx} y={tlY + 90} anchorY={0.5} width={2} height={3 + 24 * amp}

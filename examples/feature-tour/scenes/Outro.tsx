@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
-import { Easings, Group, Rect, useCurrentFrame, useVideoConfig } from '@celesta/react';
+import { clamp01, random } from '@celesta/math';
+import { Easings, Group, Rect, progress, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import { CHAPTERS } from '../chapters';
 import { Label } from '../components/Label';
 import { BEAT, C, H, W } from '../constants';
-import { clamp, hash, pad, progress } from '../helpers';
+import { pad } from '../helpers';
 import { TAGLINE } from './Open';
 
 // ── Outro ─────────────────────────────────────────────────────────────────
@@ -27,7 +28,7 @@ export function Outro() {
   const drift = f * 0.4;
   for (let r = 0; r < rows + 1; r++) {
     for (let c = 0; c < cols; c++) {
-      const lit = hash(r * cols + c, beat) > 0.96 && (r < 2 || c < 3 || c > 12);
+      const lit = random(`cell-${beat}-${r}-${c}`) > 0.96 && (r < 2 || c < 3 || c > 12);
       sheet.push(
         <Rect key={`${r}-${c}`} x={c * cell + 6} y={r * cell + 6 - drift} width={cell - 12} height={cell - 12}
           cornerRadius={4} fill={lit ? '#3D5BFF26' : undefined} stroke="#FFFFFF0A" strokeWidth={1} />,
@@ -41,7 +42,7 @@ export function Outro() {
       <Group opacity={fadeOut}>
         {sheet}
         <Label x={W / 2} y={440 + 20 * (1 - hit)} size={230} ax={0.5} ay={0.5} scale={1.2 - 0.2 * hit}
-          opacity={clamp(hit * 2)}>Celesta</Label>
+          opacity={clamp01(hit * 2)}>Celesta</Label>
         <Rect x={W / 2} y={590} anchorX={0.5} width={Math.max(1, 600 * rule)} height={6} fill={C.blue} />
         <Label x={W / 2} y={670 + 16 * (1 - ja)} size={44} font="ja" weight={700} ax={0.5} ay={0.5} opacity={ja}>
           {TAGLINE}

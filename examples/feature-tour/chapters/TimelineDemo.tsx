@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
-import { Easings, Group, Rect, spring, useCurrentFrame, useVideoConfig } from '@celesta/react';
+import { clamp01, random } from '@celesta/math';
+import { Easings, Group, Rect, progress, spring, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import { Label } from '../components/Label';
 import { BEAT, C, DW, DX } from '../constants';
-import { clamp, hash, progress } from '../helpers';
 
 // ── 05 · Timeline: a JSON project, and components on it ───────────────────
 
@@ -55,7 +55,7 @@ export function TimelineDemo() {
       <Rect x={jx} y={jy} width={DW} height={json.length * lh + 36} cornerRadius={14} fill={C.panel} stroke={C.line} strokeWidth={1} />
       {active >= 0 && (
         <Rect x={jx + 12} y={jy + 18 + (3 + active) * lh} width={DW - 24} height={lh} cornerRadius={4}
-          fill={C.blue} opacity={0.35 * (1 - progress(f, trackDrop(active) + 4, 12))} />
+          fill={C.blue} opacity={0.35 * (1 - progress(f, trackDrop(active) + 4, 12, Easings.easeOutCubic))} />
       )}
       {json.map((line, i) => (
         <Label key={i} x={jx + 24} y={jy + 18 + i * lh + lh / 2 + fs * 0.34} size={fs} font="mono" weight={400}
@@ -76,13 +76,13 @@ export function TimelineDemo() {
               const bars: ReactNode[] = [];
               if (track.wave) {
                 for (let b = 0; b * 5 < w - 24; b++) {
-                  const amp = Math.abs(Math.sin(b * 0.41 + ci) * Math.sin(b * 0.09 + ci * 2)) * 0.85 + 0.1 * hash(b, ci);
+                  const amp = Math.abs(Math.sin(b * 0.41 + ci) * Math.sin(b * 0.09 + ci * 2)) * 0.85 + 0.1 * random(`wave-${ci}-${b}`);
                   bars.push(<Rect key={b} x={x + 14 + b * 5} y={y + 44} anchorY={0.5} width={2} height={3 + 22 * amp}
                     fill={live ? C.sky : C.grey} opacity={0.7} />);
                 }
               }
               return (
-                <Group key={ci} y={-50 * (1 - clamp(s))} opacity={clamp(s * 2)}>
+                <Group key={ci} y={-50 * (1 - clamp01(s))} opacity={clamp01(s * 2)}>
                   <Rect x={x} y={y} width={w} height={row - 14} cornerRadius={6}
                     fill={live ? '#1F2436' : C.clip} stroke={live ? C.blue : clip.component ? C.pink : C.line}
                     strokeWidth={live || clip.component ? 2 : 1} />
@@ -96,9 +96,9 @@ export function TimelineDemo() {
           </Group>
         );
       })}
-      <Rect x={head - 1} y={top - 16} width={2} height={row * T_TRACKS.length + 10} fill={C.blue} opacity={progress(f, 26, 6)} />
+      <Rect x={head - 1} y={top - 16} width={2} height={row * T_TRACKS.length + 10} fill={C.blue} opacity={progress(f, 26, 6, Easings.easeOutCubic)} />
       <Rect x={head} y={top - 16} anchorX={0.5} anchorY={0.5} width={14} height={14} cornerRadius={7}
-        fill={C.blue} opacity={progress(f, 26, 6)} />
+        fill={C.blue} opacity={progress(f, 26, 6, Easings.easeOutCubic)} />
     </Group>
   );
 }

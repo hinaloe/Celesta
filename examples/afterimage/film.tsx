@@ -11,7 +11,7 @@ import { Title } from './scenes/Title';
 //
 //   scenes/        one file per scene, in playback order
 //   components/    Type (text), Line, Ribbon (3D half-twist ribbon), Margin (page chrome)
-//   constants.ts   canvas size and palette        math.ts   clamp / ease / mix
+//   constants.ts   canvas size and palette
 
 function Film() {
   const f = useCurrentFrame();

@@ -1,8 +1,8 @@
-import { Easings, Group, Rect, useCurrentFrame } from '@celesta/react';
+import { Easings, Group, Rect, progress, useCurrentFrame } from '@celesta/react';
 import { CHAPTERS } from '../chapters';
 import { Label } from '../components/Label';
 import { C, H, W } from '../constants';
-import { pad, progress } from '../helpers';
+import { pad } from '../helpers';
 
 // ── Index: the table of contents ──────────────────────────────────────────
 
@@ -32,7 +32,7 @@ export function Index() {
         const y = INDEX_TOP + i * ROW;
         const p = progress(f, 6 + i * 4, 14, Easings.easeOutExpo);
         const lit = i === scan;
-        const out = f >= 100 && i !== 0 ? 1 - progress(f, 100, 6) : 1;
+        const out = f >= 100 && i !== 0 ? 1 - progress(f, 100, 6, Easings.easeOutCubic) : 1;
         return (
           <Group key={chapter.key} opacity={p * out}>
             <Rect x={120} y={y} width={Math.max(1, (W - 240) * p)} height={1} fill={C.line} />

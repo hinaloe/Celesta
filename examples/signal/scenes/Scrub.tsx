@@ -1,13 +1,13 @@
+import { clamp01, lerp } from '@celesta/math';
 import { Group, Rect } from '@celesta/react';
 import { Label } from '../components/Label';
 import { ACID, BLUE, BONE, GREY, H, INK, W } from '../constants';
-import { clamp, mix } from '../math';
 
 export function Scrub({ f }: { f: number }) {
   const local = f - 300;
   const position = local < 45 ? local / 45 : local < 65 ? 1 - (local - 45) / 35
     : 0.43 + (local - 65) / 25 * 0.57;
-  const playX = mix(87, 1823, clamp(position));
+  const playX = lerp(87, 1823, clamp01(position));
   return <>
     <Rect width={W} height={H} fill={INK} />
     <Label x={69} y={91} size={160} color={BONE} weight={700}>EVERY FRAME.</Label>
@@ -29,7 +29,7 @@ export function Scrub({ f }: { f: number }) {
     <Rect x={playX} y={350} width={5} height={524} fill={BONE} />
     <Rect x={playX - 13} y={344} width={31} height={25} fill={BONE} />
     <Label x={77} y={887} size={40} mono color={ACID}>
-      {`FRAME ${String(Math.floor(clamp(position) * 479)).padStart(3, '0')}`}
+      {`FRAME ${String(Math.floor(clamp01(position) * 479)).padStart(3, '0')}`}
     </Label>
     <Label x={1546} y={908} size={22} mono color={GREY}>← 30 FPS →</Label>
     <Rect x={76} y={1000} width={1770} height={2} fill={GREY} />

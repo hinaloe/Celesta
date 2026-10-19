@@ -1,9 +1,8 @@
 import type { LipSyncTrack } from '@celesta/character';
-import { Easings, Group, Rect, Sequence, spring, useCurrentFrame, useVideoConfig } from '@celesta/react';
+import { Easings, Group, Rect, Sequence, progress, spring, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import { CharacterView, Dialogue, useLipSync } from '@celesta/character';
 import { Label } from '../components/Label';
 import { C, DW, DX } from '../constants';
-import { clamp, progress } from '../helpers';
 import { VOICE, VOICE_AT, VOICE_TEXT, akane, akaneView, lipSync, voiceBars, voiceSeconds } from '../voice';
 
 // ── 06 · Voice: a PSD portrait, a subtitle, lip sync from the recording ───
@@ -18,7 +17,7 @@ export function VoiceDemo() {
   const disc = spring({ frame: f - 2, fps, config: { damping: 14, stiffness: 120 } });
   const portraitIn = progress(f, 8, 16, Easings.easeOutExpo);
   const voiceFrames = Math.ceil(voiceSeconds * fps);
-  const t = clamp((f - VOICE_AT) / voiceFrames);
+  const t = progress(f, VOICE_AT, voiceFrames);
   const wave = progress(f, 14, 14, Easings.easeOutExpo);
   const barsW = DW;
   const bw = barsW / voiceBars.length;
@@ -35,7 +34,7 @@ export function VoiceDemo() {
         <Dialogue character={akaneView} audio={VOICE} lipSync={lipSync ?? undefined}>{VOICE_TEXT}</Dialogue>
         {lipSync ? <Mouth track={lipSync} /> : <MouthLabel shape="closed" opacity={1} />}
       </Sequence>
-      {f < VOICE_AT && <MouthLabel shape="closed" opacity={progress(f, 12, 10)} />}
+      {f < VOICE_AT && <MouthLabel shape="closed" opacity={progress(f, 12, 10, Easings.easeOutCubic)} />}
       <Group opacity={wave}>
         {voiceBars.map((v, i) => {
           const played = i / voiceBars.length < t;

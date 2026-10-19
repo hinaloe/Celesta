@@ -1,8 +1,7 @@
-import { Rect } from '@celesta/react';
+import { Easings, Rect, progress } from '@celesta/react';
 import { Label } from '../components/Label';
 import { Rotor } from '../components/Rotor';
 import { ACID, BLUE, BONE, H, INK, W } from '../constants';
-import { ease } from '../math';
 
 export function Kinetic({ f }: { f: number }) {
   const local = f < 210 ? f - 150 : f < 255 ? f - 210 : f - 255;
@@ -10,7 +9,7 @@ export function Kinetic({ f }: { f: number }) {
   const bg = [INK, ACID, BLUE][stage], fg = [BONE, INK, BONE][stage];
   const accent = [ACID, BLUE, ACID][stage];
   const word = ['COMPOSE.', 'PREVIEW.', 'RENDER.'][stage];
-  const slide = (1 - ease(local / 12)) * 530;
+  const slide = (1 - progress(local, 0, 12, Easings.easeOutCubic)) * 530;
   return <>
     <Rect width={W} height={H} fill={bg} />
     <Label x={75} y={63} size={23} mono color={fg}>
@@ -26,6 +25,6 @@ export function Kinetic({ f }: { f: number }) {
     <Rect x={76} y={980} width={1770} height={2} fill={fg} />
     {Array.from({ length: 9 }, (_, i) => <Rect key={i}
       x={W - Math.max(0, 9 - i) * 244 + local * 80} y={0}
-      width={24} height={H} fill={fg} opacity={0.8 * (1 - ease(local / 12))} />)}
+      width={24} height={H} fill={fg} opacity={0.8 * (1 - progress(local, 0, 12, Easings.easeOutCubic))} />)}
   </>;
 }

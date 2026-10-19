@@ -1,7 +1,6 @@
-import { Easings, Group, Rect, Video, useCurrentFrame } from '@celesta/react';
+import { Easings, Group, Rect, Video, progress, useCurrentFrame } from '@celesta/react';
 import { Label } from '../components/Label';
 import { C, TOOL } from '../constants';
-import { progress } from '../helpers';
 
 const SPEC: [string, string][] = [
   ['1,500', 'particles orbiting and twinkling'],
@@ -52,7 +51,7 @@ export function Nebula() {
           );
         })}
       </Group>
-      <Group x={PANEL.x} y={PANEL.y + 1080 * PANEL.scale + 70} opacity={progress(f, 100, 20)}>
+      <Group x={PANEL.x} y={PANEL.y + 1080 * PANEL.scale + 70} opacity={progress(f, 100, 20, Easings.easeOutCubic)}>
         <Label size={30} weight={500}>~1,660 layers per frame. Same math, same fonts, three times.</Label>
       </Group>
     </>

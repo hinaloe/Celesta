@@ -19,7 +19,7 @@ import { Typography } from './scenes/Typography';
 //
 //   scenes/        one file per chapter, in playback order (see the timeline below)
 //   components/    Label (text), Line, Prism (the recurring motif), Rails (page chrome)
-//   character.ts   Akane's PSD / voice assets and prepare()    constants.ts, math.ts   palette, helpers
+//   character.ts   Akane's PSD / voice assets and prepare()    constants.ts   palette, timing
 
 // Loads the PSD pose preset and the lip-sync track before the first frame.
 export { prepare } from './character';

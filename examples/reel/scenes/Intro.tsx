@@ -1,8 +1,8 @@
 import type { Run } from '../components/Mono';
-import { Easings, Group, Rect, interpolate, useCurrentFrame } from '@celesta/react';
+import { clamp } from '@celesta/math';
+import { Easings, Group, Rect, interpolate, progress, useCurrentFrame } from '@celesta/react';
 import { Mono, runLength } from '../components/Mono';
 import { BAR, BEAT, C, H, W } from '../constants';
-import { clamp, progress } from '../helpers';
 import { monoAdvance } from '../metrics';
 
 // Keep in sync with TYPED_CHUNKS in assets/celesta-reel/make-music.py, which
@@ -30,7 +30,7 @@ export function Intro() {
   return (
     <>
       <Rect width={W} height={H} fill={C.ink} />
-      <Group x={W / 2} y={H / 2} scale={push} opacity={1 - progress(f, 50, 6)}>
+      <Group x={W / 2} y={H / 2} scale={push} opacity={1 - progress(f, 50, 6, Easings.easeOutCubic)}>
         <Group x={-W / 2} y={-H / 2}>
           <Mono runs={runs} x={x0} y={H / 2} size={size} visible={typed} />
           {caretOn && (

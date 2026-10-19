@@ -1,16 +1,15 @@
-import { Group, Rect, useCurrentFrame } from '@celesta/react';
+import { Group, Rect, cueAt, frameToTimecode, useCurrentFrame } from '@celesta/react';
 import { Label } from './Label';
 import { C, DURATION, FPS, H, W } from '../constants';
-import { timecode } from '../helpers';
 import { S } from '../timeline';
 
-const SECTIONS: [number, string][] = [
-  [S.intro, 'COLD OPEN'],
-  [S.words, 'MANIFESTO'],
-  [S.field, 'DETERMINISTIC'],
-  [S.code, 'CODE'],
-  [S.timeline, 'TIMELINE'],
-  [S.exportAt, 'EXPORT'],
+const SECTIONS = [
+  { at: S.intro, name: 'COLD OPEN' },
+  { at: S.words, name: 'MANIFESTO' },
+  { at: S.field, name: 'DETERMINISTIC' },
+  { at: S.code, name: 'CODE' },
+  { at: S.timeline, name: 'TIMELINE' },
+  { at: S.exportAt, name: 'EXPORT' },
 ];
 
 // Drawn in paper and blended with `difference`, so it reads light over the
@@ -18,7 +17,7 @@ const SECTIONS: [number, string][] = [
 export function Hud() {
   const f = useCurrentFrame();
   const fg = C.paper;
-  const section = [...SECTIONS].reverse().find(([at]) => f >= at)?.[1] ?? '';
+  const section = cueAt(SECTIONS, f)?.cue.name ?? '';
   const m = 56;
   const arm = 26;
   const corner = (x: number, y: number, sx: number, sy: number) => (
@@ -36,7 +35,7 @@ export function Hud() {
         {corner(W - m, H - m, -1, -1)}
         <Label x={m + 40} y={m + 12} size={18} font="mono" weight={700} color={fg} ay={0.5}>Celesta</Label>
         <Label x={m + 136} y={m + 12} size={18} font="mono" weight={400} color={fg} ay={0.5} opacity={0.6}>/ Reel 01</Label>
-        <Label x={W - m - 40} y={m + 12} size={18} font="mono" weight={400} color={fg} ax={1} ay={0.5}>{timecode(f)}</Label>
+        <Label x={W - m - 40} y={m + 12} size={18} font="mono" weight={400} color={fg} ax={1} ay={0.5}>{frameToTimecode(f, FPS)}</Label>
         <Label x={m + 40} y={H - m - 12} size={18} font="mono" weight={400} color={fg} ay={0.5}>{section}</Label>
         <Label x={W - m - 40} y={H - m - 12} size={18} font="mono" weight={400} color={fg} ax={1} ay={0.5}>
           {`${W}×${H} · ${FPS} FPS · 120 BPM`}

@@ -1,6 +1,9 @@
-import { Rect } from '@celesta/react';
-import { C, MONO_ADVANCE } from '../constants';
+import { Rect, useTextMetrics } from '@celesta/react';
+import { textStyle } from './Label';
+import { C } from '../constants';
 
+// A block caret one monospace cell wide.
 export function Caret({ x, size, visible }: { x: number; size: number; visible: boolean }) {
-  return visible ? <Rect x={x} y={-size * 0.55} width={size * MONO_ADVANCE} height={size * 1.1} fill={C.mint} /> : null;
+  const cell = useTextMetrics('M', textStyle('mono', size)).width;
+  return visible ? <Rect x={x} y={-size * 0.55} width={cell} height={size * 1.1} fill={C.mint} /> : null;
 }

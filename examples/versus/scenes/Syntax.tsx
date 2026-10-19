@@ -1,8 +1,8 @@
-import { Easings, Group, Rect, Text, useCurrentFrame, useVideoConfig } from '@celesta/react';
+import { Easings, Group, Rect, Text, progress, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import { Header, ToolTag } from '../components/Chrome';
 import { CodeBlock } from '../components/CodeBlock';
 import { C, FONT, ORDER, TOOL } from '../constants';
-import { presence, progress } from '../helpers';
+import { presence } from '../helpers';
 import { EFFECTS, PARTICLE, type Snippet } from '../snippets';
 import type { ToolId } from '../constants';
 
@@ -23,9 +23,9 @@ function Rows({ snippets, f }: { snippets: Record<ToolId, Snippet>; f: number })
     const start = 16 + i * 30;
     const p = progress(f, start, 20, Easings.easeOutExpo);
     const celesta = id === 'celesta';
-    const focus = celesta ? progress(f, 150, 24) : 0;
+    const focus = celesta ? progress(f, 150, 24, Easings.easeOutCubic) : 0;
     return (
-      <Group key={id} x={LEFT} y={top + 24 * (1 - p)} opacity={p * (celesta ? 1 : 1 - 0.35 * progress(f, 150, 24))}>
+      <Group key={id} x={LEFT} y={top + 24 * (1 - p)} opacity={p * (celesta ? 1 : 1 - 0.35 * progress(f, 150, 24, Easings.easeOutCubic))}>
         <Rect width={WIDTH} height={h} cornerRadius={16} fill={C.panel}
           stroke={celesta ? `${TOOL.celesta.color}${Math.round(focus * 255).toString(16).padStart(2, '0')}` : C.line}
           strokeWidth={celesta ? 3 : 1} />

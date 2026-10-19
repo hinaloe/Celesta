@@ -1,7 +1,7 @@
-import { Easings, Group, Rect, useCurrentFrame } from '@celesta/react';
+import { Easings, Group, Rect, progress, useCurrentFrame } from '@celesta/react';
 import { Label } from '../components/Label';
 import { C } from '../constants';
-import { clamp, pad, progress } from '../helpers';
+import { pad } from '../helpers';
 
 // ── 03 · Layout: Grid, then Stack, then Center ────────────────────────────
 
@@ -23,7 +23,7 @@ function tileState(i: number, state: number) {
 
 export function LayoutDemo() {
   const f = useCurrentFrame();
-  const guides = progress(f, 0, 14) * (1 - progress(f, 45, 10));
+  const guides = progress(f, 0, 14, Easings.easeOutCubic) * (1 - progress(f, 45, 10, Easings.easeOutCubic));
   return (
     <>
       {/* Grid guides. */}
@@ -57,7 +57,7 @@ export function LayoutDemo() {
                 fill={color} opacity={fill} />
             )}
             <Label x={-size / 2 + 12} y={-size / 2 + 20} size={15} font="mono" weight={700}
-              color={color === C.paper ? C.ink : C.paper} ay={0.5} opacity={clamp((size - 100) / 40)}>
+              color={color === C.paper ? C.ink : C.paper} ay={0.5} opacity={progress(size, 100, 40)}>
               {pad(i + 1)}
             </Label>
           </Group>

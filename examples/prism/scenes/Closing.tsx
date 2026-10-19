@@ -1,8 +1,7 @@
-import { Rect, useCurrentFrame } from '@celesta/react';
+import { Rect, progress, useCurrentFrame } from '@celesta/react';
 import { Label } from '../components/Label';
 import { Prism } from '../components/Prism';
 import { H, INK, PAPER, W } from '../constants';
-import { clamp } from '../math';
 
 export function Closing() {
   const f = useCurrentFrame();
@@ -13,6 +12,6 @@ export function Closing() {
     <Label x={71} y={267} size={455} color={INK}>CELESTA</Label>
     <Label x={84} y={759} size={94} color={INK}>MAKE YOUR IDEAS MOVE.</Label>
     <Label x={84} y={960} size={22} mono color={INK}>YOUR SOURCE. YOUR VISION. YOUR NEXT FILM.</Label>
-    <Rect width={W} height={H} fill={INK} opacity={clamp((f - 102) / 17)} />
+    <Rect width={W} height={H} fill={INK} opacity={progress(f, 102, 17)} />
   </>;
 }

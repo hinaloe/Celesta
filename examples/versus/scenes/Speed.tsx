@@ -1,9 +1,8 @@
-import { Easings, Group, Rect, spring, useCurrentFrame, useVideoConfig } from '@celesta/react';
+import { Easings, Group, Rect, progress, spring, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import { Footnote, Header, ToolTag } from '../components/Chrome';
 import { Label } from '../components/Label';
 import { C, ORDER, TOOL } from '../constants';
 import { EXPORT, EXPORT_RUNS, FRAMES, MACHINE, TUNED } from '../data';
-import { clamp, progress } from '../helpers';
 
 const START = 36;
 // Race time runs this many times faster than the measured exports.
@@ -23,14 +22,14 @@ export function Speed() {
   return (
     <>
       <Header f={f} n="05 — SPEED" title="600 frames to MP4. Go." sub="Wall-clock time from launching the CLI to the finished file. Replayed at 6× speed." />
-      <Group x={1824} y={110} opacity={progress(f, 20, 14)}>
+      <Group x={1824} y={110} opacity={progress(f, 20, 14, Easings.easeOutCubic)}>
         <Label ax={1} size={20} font="mono" weight={700} color={C.grey} spacing={3}>ELAPSED</Label>
         <Label y={34} ax={1} size={64} font="mono" weight={700}>{`${Math.min(elapsed, slowest).toFixed(1)}s`}</Label>
       </Group>
       {ORDER.map((id, i) => {
         const t = EXPORT[id];
         const done = elapsed >= t;
-        const p = clamp(elapsed / t);
+        const p = progress(elapsed, 0, t);
         const frame = Math.floor(p * FRAMES);
         const y = 360 + i * 150;
         const appear = progress(f, 10 + i * 6, 18, Easings.easeOutExpo);
@@ -75,7 +74,7 @@ export function Speed() {
           {`fframes is the raw-speed winner.${TUNED ? ` Tuning Remotion (--gl=angle, 100% concurrency) gave ${TUNED.min.toFixed(0)}–${TUNED.max.toFixed(0)} s: no faster.` : ''}`}
         </Label>
       </Group>
-      <Footnote opacity={progress(f, 40, 20)}>{`${MACHINE} · libx264 medium, CRF 18 · ${EXPORT_RUNS}`}</Footnote>
+      <Footnote opacity={progress(f, 40, 20, Easings.easeOutCubic)}>{`${MACHINE} · libx264 medium, CRF 18 · ${EXPORT_RUNS}`}</Footnote>
     </>
   );
 }

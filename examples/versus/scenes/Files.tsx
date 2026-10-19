@@ -1,9 +1,8 @@
-import { Easings, Group, Rect, useCurrentFrame } from '@celesta/react';
+import { Easings, Group, Rect, progress, useCurrentFrame } from '@celesta/react';
 import { Header, ToolTag } from '../components/Chrome';
 import { Label } from '../components/Label';
 import { C, ORDER, TOOL } from '../constants';
 import { LINES } from '../data';
-import { progress } from '../helpers';
 import { FILES } from '../snippets';
 
 const COL = 560;
@@ -33,7 +32,7 @@ export function Files() {
               <Label x={COL - 72} y={70} ax={1} size={22} font="mono" weight={400} color={C.soft}>{`${lines.scene + lines.other} lines`}</Label>
             </Group>
             {files.map(([name, what], j) => {
-              const q = progress(f, 40 + i * 8 + j * 5, 16);
+              const q = progress(f, 40 + i * 8 + j * 5, 16, Easings.easeOutCubic);
               return (
                 <Group key={name} x={36} y={310 + j * 40} opacity={q}>
                   <Label size={20} font="mono" weight={700}>{name}</Label>
@@ -41,7 +40,7 @@ export function Files() {
                 </Group>
               );
             })}
-            <Group y={530} opacity={progress(f, 80 + i * 6, 18)}>
+            <Group y={530} opacity={progress(f, 80 + i * 6, 18, Easings.easeOutCubic)}>
               <Rect x={20} width={COL - 40} height={48} cornerRadius={10} fill="#00000066" />
               <Label x={40} y={14} size={17} font="mono" weight={400} color={C.soft}>{`$ ${command}`}</Label>
             </Group>
