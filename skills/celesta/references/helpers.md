@@ -20,6 +20,7 @@ preview and export, and other people (and agents) reading the file know them.
 | A text width measured during `prepare()` | `measureText(text, style, { fonts })` | `@celesta/react` |
 | `[...items].reverse().find((s) => f >= s.at)` | `useCue(cues)`, `cueAt(cues, f)` | `@celesta/react` |
 | Corner brackets, a timecode, and a progress bar drawn by hand in a HUD | `<FrameChrome corners timecode progress />` | `@celesta/components` |
+| `Array.from({ length: cols * rows }, …)` of `<Rect>` dots or grid lines | `<PatternBackground pattern="dots" spacing={80} size={3} />` | `@celesta/components` |
 | `from: i * 6` on each item | `<Stagger each={6}>` | `@celesta/react` |
 | Scene start frames summed by hand | `<Series>` + `computeSeries` | `@celesta/react` |
 | A beat counter from the BPM | `useBeat({ bpm })` | `@celesta/react` |

@@ -2,7 +2,7 @@
   "name": "@celesta/components",
   "version": "0.7.0",
   "private": true,
-  "description": "High-level components for Celesta compositions, starting with FrameChrome: corner brackets, title, timecode, chapter, and progress bar around the picture.",
+  "description": "High-level components for Celesta compositions: FrameChrome (corner brackets, title, timecode, chapter, and progress bar around the picture) and PatternBackground (dots, grids, stripes, and custom repeating patterns).",
   "license": "MIT OR Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -21,6 +21,9 @@
     "build": "tsc -b",
     "test": "vitest run",
     "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@celesta/math": "workspace:*"
   },
   "peerDependencies": {
     "@celesta/react": "0.0.0",
