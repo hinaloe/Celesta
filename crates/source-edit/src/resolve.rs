@@ -60,9 +60,14 @@ pub enum LockReason {
         name: String,
         uses: usize,
     },
+    /// The frame `frame` reads lies between two `inputRange` entries.
+    /// `previous` and `next` are in the same frames as `frame`, the candidate
+    /// frame they were found from, so a timeline frame converts to them by
+    /// the difference between the lookup's timeline frame and `frame`.
     BetweenKeyframes {
         previous: f64,
         next: f64,
+        frame: f64,
     },
     OutsideKeyframes,
     UnsupportedCall {
@@ -73,26 +78,29 @@ pub enum LockReason {
     Repeated {
         count: u32,
     },
-    /// The runtime could not tell which frame the component that wrote the
-    /// element reads, so no keyframe can be picked.
+    /// The animation could read more than one of the element's candidate
+    /// frames, and they give different keyframes (or none can be told apart
+    /// from the received value), so no keyframe can be picked.
     FrameUncertain,
     /// The element's file is outside the project (or in `node_modules`).
     OutsideProject,
 }
 
 /// What the runtime reported about the element in the current frame.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ResolveContext {
     /// The element is a primitive (not a user component).
     pub primitive: bool,
-    pub local_frame: f64,
+    /// The frames an `interpolate(frame, …)` written for the element could
+    /// read: what `useCurrentFrame()` returns under each frame provider
+    /// above the element. Whichever component read `frame` sits above the
+    /// element (or wrote it), so the frame it read is one of these. Empty
+    /// locks keyframe targets as `FrameUncertain`.
+    pub candidate_frames: Vec<f64>,
     /// The prop value the runtime saw, if any.
     pub received: Option<f64>,
     /// How many times the element rendered in the frame.
     pub render_count: u32,
-    /// The runtime could not tell the frame the element's author reads
-    /// (`local_frame` may be wrong): keyframes are locked.
-    pub frame_uncertain: bool,
 }
 
 /// Value of a prop that is absent from the source.
@@ -259,7 +267,14 @@ fn resolve_identifier(name: &str, gather: &Gather, text: &str, ctx: &ResolveCont
 }
 
 /// The keyframe rule: editable only at a frame that is an `inputRange` entry.
-/// `options` is ignored, since easing does not change the value at a keyframe.
+///
+/// `frame` is one of `ctx.candidate_frames`, and the received value tells
+/// them apart: a candidate whose value differs is ruled out. A keyframe's
+/// value is its `outputRange` entry whatever the easing; between or outside
+/// the keyframes the value is known only without an `options` argument
+/// (linear, `extend` extrapolation), and a candidate there is kept otherwise.
+/// The survivors must all point at the same target, or the frame is
+/// uncertain.
 fn resolve_keyframe(
     call: &Interpolate,
     gather: &Gather,
@@ -283,18 +298,88 @@ fn resolve_keyframe(
     if !frame_bound || inputs.is_empty() || inputs.len() != outputs.len() {
         return not_literal();
     }
-    if ctx.frame_uncertain {
+    // `interpolate()` always returns a number, so an element that received
+    // none had the prop set by something else.
+    let Some(received) = ctx.received else {
+        return EditTarget::Locked(LockReason::OverriddenByParent);
+    };
+    if ctx.candidate_frames.is_empty() {
         return EditTarget::Locked(LockReason::FrameUncertain);
     }
 
-    let frame = ctx.local_frame - offset;
-    if let Some(k) = inputs.iter().position(|i| (i - frame).abs() <= TOLERANCE) {
-        let (span, value) = outputs[k];
-        return EditTarget::Keyframe {
-            span,
-            value,
-            frame: inputs[k] + offset,
+    let values: Vec<f64> = outputs.iter().map(|(_, value)| *value).collect();
+    let mut survivors: Vec<Place> = Vec::new();
+    for &candidate in &ctx.candidate_frames {
+        let place = place_of(inputs, candidate - offset);
+        let value = match place {
+            Place::Keyframe(k) => Some(values[k]),
+            Place::Between { .. } | Place::Outside if !call.has_options => {
+                linear(inputs, &values, candidate - offset)
+            }
+            Place::Between { .. } | Place::Outside => None,
         };
+        if value.is_some_and(|value| !same_value(value, received)) {
+            continue;
+        }
+        let place = match place {
+            Place::Between { previous, next, .. } => Place::Between {
+                previous,
+                next,
+                frame: candidate,
+            },
+            other => other,
+        };
+        if !survivors.contains(&place) {
+            survivors.push(place);
+        }
+    }
+
+    match survivors.as_slice() {
+        [] => EditTarget::Locked(LockReason::OverriddenByParent),
+        [Place::Keyframe(k)] => {
+            let (span, value) = outputs[*k];
+            EditTarget::Keyframe {
+                span,
+                value,
+                frame: inputs[*k] + offset,
+            }
+        }
+        [
+            Place::Between {
+                previous,
+                next,
+                frame,
+            },
+        ] => EditTarget::Locked(LockReason::BetweenKeyframes {
+            previous: previous + offset,
+            next: next + offset,
+            frame: *frame,
+        }),
+        [Place::Outside] => EditTarget::Locked(LockReason::OutsideKeyframes),
+        // Different keyframes, or the same keyframes at different frames
+        // (whose jumps would differ).
+        _ => EditTarget::Locked(LockReason::FrameUncertain),
+    }
+}
+
+/// Where a frame (already minus the literal offset) falls in `inputRange`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Place {
+    /// At `inputRange[k]`.
+    Keyframe(usize),
+    /// Strictly between two entries; `frame` is the candidate frame,
+    /// filled in once the place is kept.
+    Between {
+        previous: f64,
+        next: f64,
+        frame: f64,
+    },
+    Outside,
+}
+
+fn place_of(inputs: &[f64], frame: f64) -> Place {
+    if let Some(k) = inputs.iter().position(|i| (i - frame).abs() <= TOLERANCE) {
+        return Place::Keyframe(k);
     }
     let previous = inputs
         .iter()
@@ -307,12 +392,33 @@ fn resolve_keyframe(
         .filter(|i| *i > frame)
         .reduce(f64::min);
     match (previous, next) {
-        (Some(previous), Some(next)) => EditTarget::Locked(LockReason::BetweenKeyframes {
-            previous: previous + offset,
-            next: next + offset,
-        }),
-        _ => EditTarget::Locked(LockReason::OutsideKeyframes),
+        (Some(previous), Some(next)) => Place::Between {
+            previous,
+            next,
+            frame: 0.0,
+        },
+        _ => Place::Outside,
     }
+}
+
+/// `interpolate(frame, inputs, outputs)` without options, as the runtime
+/// computes it (linear, extending the end segments outside), or `None` when
+/// the ranges would make it throw.
+fn linear(inputs: &[f64], outputs: &[f64], frame: f64) -> Option<f64> {
+    if inputs.len() < 2 || inputs.windows(2).any(|w| w[1] <= w[0]) {
+        return None;
+    }
+    let mut segment = 0;
+    while segment < inputs.len() - 2 && frame >= inputs[segment + 1] {
+        segment += 1;
+    }
+    let progress = (frame - inputs[segment]) / (inputs[segment + 1] - inputs[segment]);
+    Some(outputs[segment] + progress * (outputs[segment + 1] - outputs[segment]))
+}
+
+/// Equal up to rounding, relative to the values' size.
+fn same_value(a: f64, b: f64) -> bool {
+    (a - b).abs() <= TOLERANCE * a.abs().max(b.abs()).max(1.0)
 }
 
 /// The resolved value must equal what the runtime saw; otherwise a parent or
@@ -347,6 +453,9 @@ struct Interpolate {
     input: Input,
     input_range: Option<Vec<f64>>,
     output_range: Option<Vec<(Span, f64)>>,
+    /// A fourth (`options`) argument is written: easing or extrapolation
+    /// may change the value between and outside the keyframes.
+    has_options: bool,
 }
 
 #[derive(Debug)]
@@ -532,6 +641,7 @@ fn interpolate_of(call: &CallExpression<'_>) -> Interpolate {
         input,
         input_range: numbers(1).map(|v| v.into_iter().map(|(_, n)| n).collect()),
         output_range: numbers(2),
+        has_options: call.arguments.len() > 3,
     }
 }
 

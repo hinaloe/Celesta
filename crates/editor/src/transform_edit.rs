@@ -98,8 +98,7 @@ pub(crate) fn resolve_targets(
     let target = |prop: TransformProp| {
         let ctx = ResolveContext {
             primitive: source.kind == ElementKind::Primitive,
-            local_frame: report.local_frame,
-            frame_uncertain: report.frame_uncertain,
+            candidate_frames: candidate_frames(report),
             received: prop.received(&report.props),
             render_count: report.render_count,
         };
@@ -221,7 +220,7 @@ pub(crate) fn reason_text(reason: &LockReason) -> String {
             format!("Comes from {name}, which can't be traced")
         }
         LockReason::SharedBinding { name, uses } => format!("{name} is used in {uses} places"),
-        LockReason::BetweenKeyframes { previous, next } => format!(
+        LockReason::BetweenKeyframes { previous, next, .. } => format!(
             "Between keyframes at {} and {}",
             format_number(*previous),
             format_number(*next)
@@ -390,10 +389,38 @@ impl TransformEdit {
 
 const STILL_READING: &str = "The source is still being read";
 
+/// The frames an `interpolate(frame, …)` written for `report`'s element could
+/// read; an older runtime that reports none reads its `local_frame`.
+fn candidate_frames(report: &LayerSourceReport) -> Vec<f64> {
+    if report.candidate_frames.is_empty() {
+        vec![report.local_frame]
+    } else {
+        report.candidate_frames.clone()
+    }
+}
+
 /// The timeline frame of the layer's local `keyframe`, given the timeline
 /// frame the layer was looked up at and its local frame there.
 pub(crate) fn keyframe_timeline_frame(keyframe: f64, lookup_frame: i64, local_frame: f64) -> i64 {
     (keyframe + lookup_frame as f64 - local_frame).round() as i64
+}
+
+/// The timeline frames of the keyframes before and after a target between
+/// keyframes, converted with the candidate frame the resolver found them
+/// from (not the report's `local_frame`, which may be another frame).
+pub(crate) fn keyframe_jump_frames(target: &EditTarget, lookup_frame: i64) -> Option<(i64, i64)> {
+    let EditTarget::Locked(LockReason::BetweenKeyframes {
+        previous,
+        next,
+        frame,
+    }) = target
+    else {
+        return None;
+    };
+    Some((
+        keyframe_timeline_frame(*previous, lookup_frame, *frame),
+        keyframe_timeline_frame(*next, lookup_frame, *frame),
+    ))
 }
 
 impl EditorView {

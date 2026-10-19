@@ -91,10 +91,12 @@ pub struct LayerSourceReport {
     /// innermost element (above any `<Sequence>` inside it); 0 from runtimes
     /// that do not report it.
     pub local_frame: f64,
-    /// The runtime could not tell which frame the component that wrote the
-    /// innermost element reads, so `local_frame` may not be it; false from
-    /// runtimes that do not report it.
-    pub frame_uncertain: bool,
+    /// The distinct frames `useCurrentFrame()` returns under each frame
+    /// provider above the innermost element, nearest first. The component
+    /// that read the frame an `interpolate(frame, …)` written for the element
+    /// uses sits above it, so that frame is one of these. Empty from runtimes
+    /// that do not report them; read those as `[local_frame]`.
+    pub candidate_frames: Vec<f64>,
     /// The transform props the innermost element received.
     pub props: ReceivedProps,
     /// How many layers of the frame the innermost element rendered; 1 from

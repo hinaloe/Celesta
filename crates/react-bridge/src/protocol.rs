@@ -146,9 +146,9 @@ pub(crate) struct LayerSourceReply {
     pub(crate) chain: Option<Vec<LayerSource>>,
     #[serde(default)]
     pub(crate) local_frame: f64,
-    /// Sent (true) only when the runtime could not tell the frame.
+    /// Absent from older runtimes, which the editor reads as `[localFrame]`.
     #[serde(default)]
-    pub(crate) frame_uncertain: bool,
+    pub(crate) candidate_frames: Vec<f64>,
     #[serde(default)]
     pub(crate) props: ReceivedProps,
     /// Absent from runtimes that do not count; read as 1 so nothing is taken
@@ -166,7 +166,7 @@ impl From<LayerSourceReply> for Option<LayerSourceReport> {
         Some(LayerSourceReport {
             chain: reply.chain?,
             local_frame: reply.local_frame,
-            frame_uncertain: reply.frame_uncertain,
+            candidate_frames: reply.candidate_frames,
             props: reply.props,
             render_count: reply.render_count,
         })

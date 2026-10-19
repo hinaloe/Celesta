@@ -6,10 +6,9 @@ use celesta_source_edit::{
 fn ctx() -> ResolveContext {
     ResolveContext {
         primitive: true,
-        local_frame: 0.0,
+        candidate_frames: vec![0.0],
         received: None,
         render_count: 1,
-        frame_uncertain: false,
     }
 }
 
@@ -249,8 +248,12 @@ fn animated(frame_line: &str, attr: &str) -> String {
 }
 
 fn at_frame(local_frame: f64, received: Option<f64>) -> ResolveContext {
+    at_frames(&[local_frame], received)
+}
+
+fn at_frames(frames: &[f64], received: Option<f64>) -> ResolveContext {
     ResolveContext {
-        local_frame,
+        candidate_frames: frames.to_vec(),
         received,
         ..ctx()
     }
@@ -310,7 +313,8 @@ fn between() {
         run(&text, "x", &at_frame(15.0, Some(250.0))),
         locked(LockReason::BetweenKeyframes {
             previous: 0.0,
-            next: 30.0
+            next: 30.0,
+            frame: 15.0
         })
     );
 
@@ -319,7 +323,8 @@ fn between() {
         run(&text, "x", &at_frame(35.0, Some(25.0))),
         locked(LockReason::BetweenKeyframes {
             previous: 30.0,
-            next: 40.0
+            next: 40.0,
+            frame: 35.0
         })
     );
 }
@@ -328,11 +333,11 @@ fn between() {
 fn outside() {
     let text = animated("", "x={interpolate(frame, [0, 30], [100, 400])}");
     assert_eq!(
-        run(&text, "x", &at_frame(45.0, Some(400.0))),
+        run(&text, "x", &at_frame(45.0, Some(550.0))),
         locked(LockReason::OutsideKeyframes)
     );
     assert_eq!(
-        run(&text, "x", &at_frame(-5.0, Some(100.0))),
+        run(&text, "x", &at_frame(-5.0, Some(50.0))),
         locked(LockReason::OutsideKeyframes)
     );
 }
@@ -433,33 +438,167 @@ fn keyframe_at_the_owner_frame_above_a_sequence() {
     assert_eq!((span.start, value, frame), (third, 100.0, 60.0));
 }
 
+// The frames below come from two frame providers above the element (the
+// composition at 60, and `<Sequence from={30}>` at 30); `frame` was read under
+// one of them, and only the received value can tell which.
+
 #[test]
-fn uncertain_frame_locks_keyframes() {
-    let c = ResolveContext {
-        frame_uncertain: true,
-        ..at_frame(60.0, Some(100.0))
-    };
+fn candidates_giving_different_keyframes_of_the_same_value_lock() {
+    // [0, 30, 60] -> [0, 100, 100]: frame 30 and frame 60 both give 100.
     assert_eq!(
-        run(ABOVE_SEQUENCE, "x", &c),
+        run(ABOVE_SEQUENCE, "x", &at_frames(&[30.0, 60.0], Some(100.0))),
         locked(LockReason::FrameUncertain)
     );
-    // Through a const, and between keyframes, too.
-    let text = animated(
-        "  const x = interpolate(frame, [0, 30], [100, 400]);\n",
-        "x={x}",
-    );
-    let c = ResolveContext {
-        frame_uncertain: true,
-        ..at_frame(15.0, Some(250.0))
+}
+
+const DISTINCT: &str = "export const A = () => {\n  const frame = useCurrentFrame();\n  return <Sequence from={30}><Rect x={interpolate(frame, [0, 30, 60], [0, 100, 200])} /></Sequence>;\n};\n";
+
+#[test]
+fn the_received_value_picks_the_candidate_keyframe() {
+    let target = run(DISTINCT, "x", &at_frames(&[30.0, 60.0], Some(200.0)));
+    let EditTarget::Keyframe { span, value, frame } = target else {
+        panic!("expected Keyframe, got {target:?}");
     };
-    assert_eq!(run(&text, "x", &c), locked(LockReason::FrameUncertain));
-    // A literal does not depend on the frame.
+    assert_eq!(
+        (span_text(DISTINCT, span), value, frame),
+        ("200", 200.0, 60.0)
+    );
+
+    let target = run(DISTINCT, "x", &at_frames(&[30.0, 60.0], Some(100.0)));
+    let EditTarget::Keyframe { span, value, frame } = target else {
+        panic!("expected Keyframe, got {target:?}");
+    };
+    assert_eq!(span.start as usize, DISTINCT.find("100").unwrap());
+    assert_eq!((value, frame), (100.0, 30.0));
+}
+
+#[test]
+fn a_between_and_a_keyframe_candidate_of_the_same_value_lock() {
+    // Frame 45 lies on the flat segment 30..60 (value 100), frame 30 is the
+    // keyframe whose value is 100.
+    assert_eq!(
+        run(ABOVE_SEQUENCE, "x", &at_frames(&[30.0, 45.0], Some(100.0))),
+        locked(LockReason::FrameUncertain)
+    );
+}
+
+#[test]
+fn an_eased_between_candidate_cannot_be_ruled_out() {
+    // The easing decides the value between keyframes, so frame 15 stays a
+    // candidate next to the keyframe at 30.
+    let text = animated(
+        "",
+        "x={interpolate(frame, [0, 30], [100, 400], { easing: Easings.easeOut })}",
+    );
+    assert_eq!(
+        run(&text, "x", &at_frames(&[15.0, 30.0], Some(400.0))),
+        locked(LockReason::FrameUncertain)
+    );
+    // So do extrapolation options outside the keyframes.
+    let text = animated(
+        "",
+        "x={interpolate(frame, [0, 30], [100, 400], { extrapolateRight: 'clamp' })}",
+    );
+    assert_eq!(
+        run(&text, "x", &at_frames(&[30.0, 45.0], Some(400.0))),
+        locked(LockReason::FrameUncertain)
+    );
+}
+
+#[test]
+fn a_linear_between_candidate_is_ruled_out_by_its_value() {
+    let text = animated("", "x={interpolate(frame, [0, 30], [100, 400])}");
+    // Frame 15 gives 250, so the received 400 is the keyframe at 30.
+    let target = run(&text, "x", &at_frames(&[15.0, 30.0], Some(400.0)));
+    assert!(
+        matches!(
+            target,
+            EditTarget::Keyframe {
+                value: 400.0,
+                frame: 30.0,
+                ..
+            }
+        ),
+        "{target:?}"
+    );
+    // And a keyframe candidate is ruled out by a between value: frame 30
+    // gives 400, the received 250 is frame 15's.
+    assert_eq!(
+        run(&text, "x", &at_frames(&[30.0, 15.0], Some(250.0))),
+        locked(LockReason::BetweenKeyframes {
+            previous: 0.0,
+            next: 30.0,
+            frame: 15.0
+        })
+    );
+    // Outside, the default extrapolation extends the slope: frame 45 gives
+    // 550, not 400.
+    let target = run(&text, "x", &at_frames(&[45.0, 30.0], Some(400.0)));
+    assert!(
+        matches!(
+            target,
+            EditTarget::Keyframe {
+                value: 400.0,
+                frame: 30.0,
+                ..
+            }
+        ),
+        "{target:?}"
+    );
+}
+
+#[test]
+fn no_candidate_matching_the_received_value_is_overridden() {
+    assert_eq!(
+        run(DISTINCT, "x", &at_frames(&[30.0, 60.0], Some(150.0))),
+        locked(LockReason::OverriddenByParent)
+    );
+}
+
+#[test]
+fn the_literal_offset_applies_to_each_candidate() {
+    // `frame - 30` on [0, 30] -> [0, 300]: frame 60 is the keyframe at 30
+    // (300), frame 45 is between (150).
+    let text = animated("", "x={interpolate(frame - 30, [0, 30], [0, 300])}");
+    let target = run(&text, "x", &at_frames(&[45.0, 60.0], Some(300.0)));
+    assert!(
+        matches!(
+            target,
+            EditTarget::Keyframe {
+                value: 300.0,
+                frame: 60.0,
+                ..
+            }
+        ),
+        "{target:?}"
+    );
+    assert_eq!(
+        run(&text, "x", &at_frames(&[45.0, 60.0], Some(150.0))),
+        locked(LockReason::BetweenKeyframes {
+            previous: 30.0,
+            next: 60.0,
+            frame: 45.0
+        })
+    );
+}
+
+#[test]
+fn candidates_do_not_matter_to_literals() {
     let text = component("  return <Rect x={120} />;");
     let c = ResolveContext {
-        frame_uncertain: true,
+        candidate_frames: vec![30.0, 60.0],
         ..with_received(120.0)
     };
     assert!(matches!(run(&text, "x", &c), EditTarget::Literal { .. }));
+    // Through a const, keyframes are disambiguated the same way.
+    let text = animated(
+        "  const x = interpolate(frame, [0, 30, 60], [0, 100, 100]);\n",
+        "x={x}",
+    );
+    assert_eq!(
+        run(&text, "x", &at_frames(&[30.0, 60.0], Some(100.0))),
+        locked(LockReason::FrameUncertain)
+    );
 }
 
 #[test]

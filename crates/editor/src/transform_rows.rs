@@ -3,7 +3,7 @@
 //! or blur, and the target's state (keyframe, between keyframes, locked).
 
 use crate::icons::CelestaIcon;
-use crate::transform_edit::{Resolved, TransformProp, keyframe_timeline_frame, reason_text};
+use crate::transform_edit::{Resolved, TransformProp, keyframe_jump_frames, reason_text};
 use crate::view::EditorView;
 use crate::widgets::inspector_section;
 use celesta_react_bridge::LayerSourceReport;
@@ -263,8 +263,9 @@ impl EditorView {
             )
         });
         let detail = match target {
-            EditTarget::Locked(LockReason::BetweenKeyframes { previous, next }) => {
-                Some(self.keyframe_jumps(prop, *previous, *next, resolved, cx))
+            EditTarget::Locked(reason @ LockReason::BetweenKeyframes { .. }) => {
+                keyframe_jump_frames(target, resolved.timeline_frame)
+                    .map(|frames| self.keyframe_jumps(prop, reason, frames, cx))
             }
             EditTarget::Locked(reason) => Some(
                 div()
@@ -313,20 +314,15 @@ impl EditorView {
     }
 
     /// "Between keyframes at {previous} and {next}" with buttons moving the
-    /// playhead to each, converted from the layer's local frames to timeline
-    /// frames.
+    /// playhead to each, at the timeline frames `keyframe_jump_frames`
+    /// converted them to.
     fn keyframe_jumps(
         &self,
         prop: TransformProp,
-        previous: f64,
-        next: f64,
-        resolved: &Resolved,
+        reason: &LockReason,
+        (previous_frame, next_frame): (i64, i64),
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let timeline = |local: f64| {
-            keyframe_timeline_frame(local, resolved.timeline_frame, resolved.report.local_frame)
-        };
-        let (previous_frame, next_frame) = (timeline(previous), timeline(next));
         let jump = |id: &'static str, icon: IconName, frame: i64, cx: &mut Context<Self>| {
             Button::new((id, prop as usize))
                 .ghost()
@@ -345,10 +341,7 @@ impl EditorView {
                     .min_w_0()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child(reason_text(&LockReason::BetweenKeyframes {
-                        previous,
-                        next,
-                    })),
+                    .child(reason_text(reason)),
             )
             .child(jump(
                 "transform-previous-keyframe",

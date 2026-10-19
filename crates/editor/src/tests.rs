@@ -18,7 +18,7 @@ use crate::refresh::{LookupFate, SelectionKeep};
 use crate::source::is_react_entry;
 use crate::transform_drag::presses_body;
 use crate::transform_edit::{
-    CommitError, TransformEdit, TransformProp, commit_text, inside_project,
+    CommitError, TransformEdit, TransformProp, commit_text, inside_project, keyframe_jump_frames,
     keyframe_timeline_frame, lock_outside_project, reason_text, resolve_targets,
 };
 use crate::transform_handles::{
@@ -670,7 +670,7 @@ fn report_of(chain: Vec<LayerSource>) -> LayerSourceReport {
     LayerSourceReport {
         chain,
         local_frame: 0.0,
-        frame_uncertain: false,
+        candidate_frames: vec![],
         props: ReceivedProps::default(),
         render_count: 1,
     }
@@ -1108,7 +1108,7 @@ fn primitive_report(line: u32, column: u32, props: ReceivedProps) -> LayerSource
             layer_id: None,
         }],
         local_frame: 0.0,
-        frame_uncertain: false,
+        candidate_frames: vec![],
         props,
         render_count: 1,
     }
@@ -1283,6 +1283,7 @@ fn transform_reason_texts_match_spec() {
             LockReason::BetweenKeyframes {
                 previous: 0.0,
                 next: 30.0,
+                frame: 15.0,
             },
             "Between keyframes at 0 and 30",
         ),
@@ -1480,6 +1481,42 @@ fn transform_keyframe_jumps_use_the_lookup_frame() {
     assert_eq!(keyframe_timeline_frame(90.0, 100, 60.0), 130);
     // Not shifted by a sequence.
     assert_eq!(keyframe_timeline_frame(30.0, 12, 12.0), 30);
+}
+
+#[test]
+fn transform_keyframe_jumps_use_the_candidate_frame() {
+    // The report's owner guess is 60, but `frame` reads the Sequence's 30
+    // (frame 15 of [0, 30] gives the received 250, frame 60 would be outside).
+    let text = "export const Scene = () => {\n  const frame = useCurrentFrame();\n  return <Sequence from={30}><Rect x={interpolate(frame - 15, [0, 30], [100, 400])} /></Sequence>;\n};\n";
+    let report = LayerSourceReport {
+        local_frame: 60.0,
+        candidate_frames: vec![60.0, 30.0],
+        ..primitive_report(
+            3,
+            30,
+            ReceivedProps {
+                x: Some(250.0),
+                ..ReceivedProps::default()
+            },
+        )
+    };
+    let targets = resolve_targets(text, &report).unwrap();
+    let target = targets.target(TransformProp::X).unwrap();
+    assert_eq!(
+        target,
+        &EditTarget::Locked(LockReason::BetweenKeyframes {
+            previous: 15.0,
+            next: 45.0,
+            frame: 30.0,
+        })
+    );
+    // Looked up at timeline frame 60: keyframes 15 and 45 of the Sequence's
+    // frames are timeline frames 45 and 75.
+    assert_eq!(keyframe_jump_frames(target, 60), Some((45, 75)));
+    assert_eq!(
+        keyframe_jump_frames(&EditTarget::Locked(LockReason::OutsideKeyframes), 60),
+        None
+    );
 }
 
 /// A 100x50 layer at `position` with its anchor at the top left (React's
@@ -1925,10 +1962,10 @@ fn select_outline_falls_back_to_the_frame_for_a_group() {
 // reports the frame of the component that wrote the Rect.
 const ABOVE_SEQUENCE: &str = "export const Scene = () => {\n  const frame = useCurrentFrame();\n  return <Sequence from={30}><Rect x={interpolate(frame, [0, 30, 60], [0, 100, 100])} /></Sequence>;\n};\n";
 
-fn above_sequence_report(frame_uncertain: bool) -> LayerSourceReport {
+fn above_sequence_report(candidate_frames: Vec<f64>) -> LayerSourceReport {
     LayerSourceReport {
         local_frame: 60.0,
-        frame_uncertain,
+        candidate_frames,
         ..primitive_report(
             3,
             30,
@@ -1942,7 +1979,7 @@ fn above_sequence_report(frame_uncertain: bool) -> LayerSourceReport {
 
 #[test]
 fn transform_keyframe_is_the_one_the_owner_frame_reads() {
-    let targets = resolve_targets(ABOVE_SEQUENCE, &above_sequence_report(false)).unwrap();
+    let targets = resolve_targets(ABOVE_SEQUENCE, &above_sequence_report(vec![])).unwrap();
     let Some(EditTarget::Keyframe { span, frame, .. }) = targets.target(TransformProp::X) else {
         panic!(
             "expected a keyframe, got {:?}",
@@ -1952,7 +1989,10 @@ fn transform_keyframe_is_the_one_the_owner_frame_reads() {
     assert_eq!(span.start as usize, ABOVE_SEQUENCE.rfind("100").unwrap());
     assert_eq!(*frame, 60.0);
 
-    let targets = resolve_targets(ABOVE_SEQUENCE, &above_sequence_report(true)).unwrap();
+    // The frame could be the Sequence's 30 as well, which is the keyframe
+    // whose value is also 100: no telling which.
+    let targets =
+        resolve_targets(ABOVE_SEQUENCE, &above_sequence_report(vec![30.0, 60.0])).unwrap();
     assert_eq!(
         targets.target(TransformProp::X),
         Some(&EditTarget::Locked(LockReason::FrameUncertain))
