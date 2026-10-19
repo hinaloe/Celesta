@@ -26,6 +26,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `Trail` | `@celesta/react` | 子要素の下に、`lagInFrames` ずつ古く薄い複製を `copies` 個描きます。 |
 | `Transition` | `@celesta/transitions` | 親シーケンスの開始・終了に、フェード・スライド・拡縮を単独または組み合わせて適用します。 |
 | `Series` / `computeSeries` | `@celesta/react` | 長さでシーンを続けて並べます。[シーン・キュー・拍](/ja/docs/motion-toolkit/)を参照。 |
+| `defineScenes` / `Scenes` / `useScene()` / `sceneAt` | `@celesta/react` | 名前付きの章を続けて並べ、現在の章と進み具合を取得します。 |
 | `TransitionSeries` / `computeTransitionSeries` | `@celesta/transitions` | シーンの間をカット・クロスフェード・スライド・ワイプ・アイリス・クロックワイプ・ズーム・ディゾルブ・ぼかし・フリップ・キューブでつなぎ、重なりと全体の長さを計算します。[シーン・キュー・拍](/ja/docs/motion-toolkit/)を参照。 |
 | `defineTransition` / `iris`、`clockWipe`、`zoom`、`dissolve`、`blur`、`flip`、`cube`、`crossfade`、`slide`、`wipe` | `@celesta/transitions` | `TransitionSeries` のトランジションを関数で定義したり、組み込みのトランジションのオプションを指定したりします。 |
 | `Stagger` | `@celesta/react` | 各子を前の子から一定フレーム遅れて開始します。 |

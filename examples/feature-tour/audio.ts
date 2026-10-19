@@ -1,4 +1,4 @@
-import { CHAPTER_AT } from './chapters';
+import { CHAPTER_AT } from './timeline';
 import { FPS } from './constants';
 import { VOICE_AT, voiceSeconds } from './voice';
 

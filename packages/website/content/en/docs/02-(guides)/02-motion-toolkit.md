@@ -27,6 +27,32 @@ export default function Root() {
 }
 ```
 
+## Named chapters
+
+When a HUD or a chapter list needs to know where the video is, declare the scenes once with `defineScenes()`: each entry has an `id`, an optional `name`, a length, and the `Scene` to draw. `<Scenes>` plays them like `<Series>`, and `useScene(list)` returns the current one — its `name`, the `frame` since it started, its `progress` from 0 to 1, and the whole list — or `null` before the first and after the last. Inside a scene, `useScene()` with no argument gives the same answer, even under nested `<Sequence>`s. `sceneAt(list, frame)` does the same outside a component.
+
+```tsx title="A HUD that follows the chapters"
+const SCENES = defineScenes([
+  { id: 'intro', name: 'COLD OPEN', durationInFrames: 90, Scene: Intro },
+  { id: 'body', name: 'MANIFESTO', durationInFrames: 240, Scene: Body },
+]);
+
+function Hud() {
+  const scene = useScene(SCENES);
+  if (!scene) return null;
+  return <Text x={60} y={60}>{`${scene.name} ${Math.round(scene.progress * 100)}%`}</Text>;
+}
+
+export default function Root() {
+  return (
+    <Composition width={1920} height={1080} fps={30} durationInFrames={SCENES.durationInFrames}>
+      <Scenes scenes={SCENES} />
+      <Hud />
+    </Composition>
+  );
+}
+```
+
 ## Transitions between scenes
 
 `<TransitionSeries>` lays scenes out like `Series`, with a `<TransitionSeries.Transition>` between two of them. A transition overlaps the scenes on either side by its `durationInFrames`, so `computeTransitionSeries()` returns each scene’s start and the total length, shortened by every overlap:

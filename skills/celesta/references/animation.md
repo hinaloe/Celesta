@@ -26,6 +26,7 @@ For randomness and noise, use [`@celesta/math`](math.md).
 - [FreezeFrame](#freezeframe)
 - [MotionBlur and Trail](#motionblur-and-trail)
 - [Series and computeSeries](#series-and-computeseries)
+- [Scenes and useScene](#scenes-and-usescene)
 - [TransitionSeries](#transitionseries)
 - [Stagger](#stagger)
 - [Transition](#transition)
@@ -42,6 +43,7 @@ For randomness and noise, use [`@celesta/math`](math.md).
 | A color from A to B (fill, gradient stop, shadow) | `interpolateColor` |
 | A bouncy pop-in | `spring` |
 | Scenes back to back | `Series` + `computeSeries` |
+| Named chapters, with a HUD that shows the current one and its progress | `defineScenes` + `Scenes` + `useScene` |
 | Scenes joined by a cut, cross-fade, slide, or wipe | `TransitionSeries` + `computeTransitionSeries` |
 | A background animation or a short BGM repeated | `Loop` |
 | A past frame redrawn in place (rewind, flashback, thumbnails) | `FreezeFrame` |
@@ -301,6 +303,49 @@ const { durationInFrames } = computeSeries(SCENES);
       <Series.Sequence key={name} durationInFrames={durationInFrames}><Scene /></Series.Sequence>
     ))}
   </Series>
+</Composition>
+```
+
+## Scenes and useScene
+
+Chapters declared once, by name, and read from anywhere. `defineScenes(entries)`
+places `{ id, name?, durationInFrames, offset?, Scene? }` entries back to back
+like `Series` (`offset` overlaps or gaps; `durationInFrames` may be 0, which
+keeps the entry in the list but never plays it; ids must be unique) and
+returns `{ scenes, durationInFrames }`, each scene with its `index`, `name`
+(defaults to `id`) and `from`. Extra fields stay on the entries.
+`<Scenes scenes={list} />` plays each `Scene` in a `<Sequence>`.
+
+`useScene(list)` (or `sceneAt(list, frame)`) returns `null` before the first
+scene and from the list's end on, else `{ scene, index, id, name, from,
+durationInFrames, frame, progress, previous, next, scenes,
+totalDurationInFrames }`: `frame` counts from the scene's start, `progress`
+runs 0→1 and holds 1 in a gap. Where scenes overlap, the later one is
+current. Inside `<Scenes>`, `useScene()` (no argument) reads the list on the
+`<Scenes>`' own clock, so nested `<Sequence>`s do not shift it; elsewhere
+(a HUD) the caller must sit on the same timeline as `<Scenes>`. Both give
+the same result on the same frame.
+
+```tsx
+const SCENES = defineScenes([
+  { id: 'intro', name: 'COLD OPEN', durationInFrames: 120, Scene: Intro },
+  { id: 'words', name: 'MANIFESTO', durationInFrames: 240, Scene: Words },
+]);
+
+function Hud() {
+  const scene = useScene(SCENES);
+  if (!scene) return null;
+  return (
+    <Group>
+      <Text x={60} y={60}>{scene.name}</Text>
+      <Rect x={60} y={90} width={300 * scene.progress} height={4} fill="#fff" />
+    </Group>
+  );
+}
+
+<Composition width={1920} height={1080} fps={30} durationInFrames={SCENES.durationInFrames}>
+  <Scenes scenes={SCENES} />
+  <Hud />
 </Composition>
 ```
 

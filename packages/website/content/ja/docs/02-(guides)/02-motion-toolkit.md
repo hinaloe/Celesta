@@ -27,6 +27,32 @@ export default function Root() {
 }
 ```
 
+## 名前付きの章
+
+HUD や章の一覧が「今どこか」を知る必要があるときは、`defineScenes()` で章を一度だけ宣言します。各エントリーは `id`、任意の `name`、長さ、描画する `Scene` を持ちます。`<Scenes>` は `<Series>` と同じように再生し、`useScene(list)` は現在の章（`name`、章の開始からの `frame`、0〜1 の `progress`、章の一覧）を返します。最初の章より前と最後の章より後は `null` です。章の中では引数なしの `useScene()` が、入れ子の `<Sequence>` の中でも同じ結果を返します。`sceneAt(list, frame)` はコンポーネント外でも同じ計算を行います。
+
+```tsx title="章に合わせて変わる HUD"
+const SCENES = defineScenes([
+  { id: 'intro', name: 'COLD OPEN', durationInFrames: 90, Scene: Intro },
+  { id: 'body', name: 'MANIFESTO', durationInFrames: 240, Scene: Body },
+]);
+
+function Hud() {
+  const scene = useScene(SCENES);
+  if (!scene) return null;
+  return <Text x={60} y={60}>{`${scene.name} ${Math.round(scene.progress * 100)}%`}</Text>;
+}
+
+export default function Root() {
+  return (
+    <Composition width={1920} height={1080} fps={30} durationInFrames={SCENES.durationInFrames}>
+      <Scenes scenes={SCENES} />
+      <Hud />
+    </Composition>
+  );
+}
+```
+
 ## シーンをトランジションでつなぐ
 
 `<TransitionSeries>` は `Series` と同じくシーンを順に並べ、2 つのシーンの間に `<TransitionSeries.Transition>` を置けます。トランジションは前後のシーンを `durationInFrames` の分だけ重ねるので、`computeTransitionSeries()` で各シーンの開始位置と、重なりの分だけ短くなった全体の長さを求められます。

@@ -1,15 +1,12 @@
-import { Assets, Audio, Composition, Font, Sequence } from '@celesta/react';
+import { Assets, Audio, Composition, Font, Scenes, Sequence } from '@celesta/react';
 import { Character } from '@celesta/character';
 import { scoreVolume } from './audio';
-import { CHAPTER_AT, CHAPTERS } from './chapters';
-import { ChapterShell } from './components/ChapterShell';
+import { CHAPTERS } from './chapters';
 import { Hud } from './components/Hud';
 import { Shutter } from './components/Shutter';
-import { C, DURATION, DW, FONT, FPS, H, S, W } from './constants';
+import { C, DW, FONT, FPS, H, S, W } from './constants';
 import { JA_FONTS, LATIN_FONTS } from './fonts';
-import { Index } from './scenes/Index';
-import { Open } from './scenes/Open';
-import { Outro } from './scenes/Outro';
+import { CHAPTER_AT, SCENES } from './timeline';
 import { MOUTH, PSD, akane, poseLayers } from './voice';
 
 // "Feature Tour." A 52-second tour of Celesta's features, cut to a 120 BPM
@@ -19,6 +16,7 @@ import { MOUTH, PSD, akane, poseLayers } from './voice';
 // Open this file in Celesta, or export it with:
 //   Celesta-export --react examples/feature-tour/film.tsx feature-tour.mp4
 //
+//   timeline.tsx   every scene in order (defineScenes), played by <Scenes> and read by the HUD
 //   scenes/        Open, Index (table of contents) and Outro
 //   chapters/      the nine feature chapters: index.ts lists them, one demo per file
 //   components/    Label (text), Swap, ChapterShell (shared chapter layout), Shutter, Hud
@@ -31,7 +29,7 @@ export { prepare } from './voice';
 
 export default function Root() {
   return (
-    <Composition width={W} height={H} fps={FPS} durationInFrames={DURATION}>
+    <Composition width={W} height={H} fps={FPS} durationInFrames={SCENES.durationInFrames}>
       <Assets>
         <Font src={LATIN_FONTS} />
         <Font src={JA_FONTS} />
@@ -52,14 +50,7 @@ export default function Root() {
           }} />
       </Assets>
 
-      <Sequence from={S.open} durationInFrames={S.index}><Open /></Sequence>
-      <Sequence from={S.index} durationInFrames={CHAPTER_AT[0] - S.index}><Index /></Sequence>
-      {CHAPTERS.map((chapter, i) => (
-        <Sequence key={chapter.key} from={CHAPTER_AT[i]} durationInFrames={chapter.len}>
-          <ChapterShell index={i}><chapter.Demo /></ChapterShell>
-        </Sequence>
-      ))}
-      <Sequence from={S.outro} durationInFrames={DURATION - S.outro}><Outro /></Sequence>
+      <Scenes scenes={SCENES} />
 
       {/* Chapter 01 opens out of the index, so its cut has no shutter. */}
       {[S.index, ...CHAPTER_AT.slice(1)].map((cut, i) => {
@@ -69,7 +60,7 @@ export default function Root() {
           <Sequence key={`cut-${cut}`} from={cut - 9} durationInFrames={20}><Shutter color={color} /></Sequence>
         );
       })}
-      <Sequence from={S.index} durationInFrames={S.outro - S.index}><Hud /></Sequence>
+      <Hud />
 
       <Audio src="./score.wav" volume={scoreVolume()} />
     </Composition>
