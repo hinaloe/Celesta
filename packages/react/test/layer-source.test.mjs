@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createElement as h } from 'react';
 import { test } from 'vitest';
 
-import { Composition, Group, Rect, Sequence } from '../dist/index.js';
+import { Composition, Group, MotionBlur, Rect, Sequence } from '../dist/index.js';
 import { jsxDEV } from '../dist/jsx-dev-runtime.js';
 import { mount } from '../dist/render.js';
 
@@ -17,17 +17,88 @@ const comp = (...children) =>
   jsxDEV(Composition, { width: 100, height: 100, fps: FRAME, durationInFrames: 100, children }, undefined, true, at('entry.tsx', 1, 1));
 const layerIds = (layers) => layers.flatMap((layer) => [layer.id, ...(layer.content.layers ? layerIds(layer.content.layers) : [])]);
 
-function reportFor(composition, frame, index = 0) {
+/** The report for the layer at `index` of the frame's layers, depth first; the last (innermost) by default. */
+function reportFor(composition, frame, index = -1) {
   const { scene } = composition.renderAt(time(frame), null);
   const ids = layerIds(scene.layers);
-  return composition.layerSource(time(frame), ids[index], resolve);
+  return composition.layerSource(time(frame), ids.at(index), resolve);
 }
 
-test('localFrame is relative to the enclosing Sequence', () => {
+test('localFrame is the frame where the element was written, not inside the Sequence', () => {
+  // The entry wrote the Rect, so an `interpolate(frame, ...)` there reads the
+  // entry's frame.
   const composition = mount(() =>
     comp(jsxDEV(Sequence, { from: 20, children: jsxDEV(Rect, { width: 1, height: 1 }, undefined, false, at('entry.tsx', 5, 7)) }, undefined, false, at('entry.tsx', 4, 5))),
   );
-  assert.equal(reportFor(composition, 30).localFrame, 10);
+  const report = reportFor(composition, 30);
+  assert.equal(report.chain[0].name, 'Rect');
+  assert.equal(report.localFrame, 30);
+});
+
+// `frame` in `interpolate(frame, ...)` is the value `useCurrentFrame()` had in
+// the component that wrote the JSX, which may sit above a `<Sequence>`.
+const rectAt = (line, props = {}) => jsxDEV(Rect, { width: 1, height: 1, ...props }, undefined, false, at('scene.tsx', line, 7));
+const sequence = (from, children, line = 4) => jsxDEV(Sequence, { from, children }, undefined, false, at('scene.tsx', line, 5));
+
+test('localFrame is the frame of the component that wrote the element, above a Sequence', () => {
+  // const frame = useCurrentFrame(); <Sequence from={30}><Rect x={interpolate(frame, ...)} /></Sequence>
+  function Scene() {
+    return sequence(30, rectAt(5, { x: 100 }));
+  }
+  const composition = mount(() => comp(jsxDEV(Scene, {}, undefined, false, at('entry.tsx', 3, 5))));
+  const report = reportFor(composition, 60);
+  assert.equal(report.localFrame, 60);
+  assert.equal(report.frameUncertain, undefined);
+});
+
+test('localFrame follows a Sequence above the writing component', () => {
+  function Scene() {
+    return rectAt(5);
+  }
+  const composition = mount(() => comp(sequence(20, jsxDEV(Scene, {}, undefined, false, at('entry.tsx', 3, 5)))));
+  assert.equal(reportFor(composition, 60).localFrame, 40);
+});
+
+test('a component passing children through does not own them', () => {
+  function Later({ children }) {
+    return sequence(30, children, 9);
+  }
+  function Scene() {
+    return jsxDEV(Later, { children: rectAt(5) }, undefined, false, at('scene.tsx', 4, 5));
+  }
+  const composition = mount(() => comp(jsxDEV(Scene, {}, undefined, false, at('entry.tsx', 3, 5))));
+  const report = reportFor(composition, 60);
+  assert.equal(report.localFrame, 60);
+  assert.equal(report.frameUncertain, undefined);
+});
+
+test('a MotionBlur moment function is written by the component around it', () => {
+  function Scene() {
+    return sequence(10, jsxDEV(MotionBlur, { samples: 1, shutterAngle: 0, children: () => rectAt(5) }, undefined, false, at('scene.tsx', 6, 5)));
+  }
+  const composition = mount(() => comp(jsxDEV(Scene, {}, undefined, false, at('entry.tsx', 3, 5))));
+  assert.equal(reportFor(composition, 60).localFrame, 60);
+});
+
+test('a render prop called below a frame change makes the frame uncertain', () => {
+  function Later({ render }) {
+    return sequence(30, render(), 9);
+  }
+  function Scene() {
+    return sequence(10, jsxDEV(Later, { render: () => rectAt(5) }, undefined, false, at('scene.tsx', 4, 5)));
+  }
+  const composition = mount(() => comp(jsxDEV(Scene, {}, undefined, false, at('entry.tsx', 3, 5))));
+  assert.equal(reportFor(composition, 60).frameUncertain, true);
+
+  // Without a frame change above it, the render prop's caller sees the
+  // same frame as whoever wrote it.
+  function Plain() {
+    return jsxDEV(Later, { render: () => rectAt(5) }, undefined, false, at('scene.tsx', 4, 5));
+  }
+  const plain = mount(() => comp(jsxDEV(Plain, {}, undefined, false, at('entry.tsx', 3, 5))));
+  const report = reportFor(plain, 60);
+  assert.equal(report.localFrame, 60);
+  assert.equal(report.frameUncertain, undefined);
 });
 
 test('props are the transform props the primitive received', () => {

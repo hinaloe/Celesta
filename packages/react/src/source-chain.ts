@@ -30,14 +30,26 @@ export interface ReceivedProps {
 export interface LayerSourceReport {
   chain: LayerSourceEntry[];
   // The three fields below are present only when the chain is not empty.
-  /** The frame `useCurrentFrame()` reports at the layer's element. */
+  /**
+   * The frame `useCurrentFrame()` reports in the component that wrote the
+   * innermost primitive's JSX (its owner), which an `interpolate(frame, …)`
+   * written there reads; not the frame at the element, which a `<Sequence>`
+   * between the two shifts.
+   */
   localFrame?: number;
+  /**
+   * Present (true) when the owner could not be told for sure and a frame
+   * provider with another frame lies above the presumed owner: the
+   * element may have been created by a function passed down from there.
+   */
+  frameUncertain?: true;
   props?: ReceivedProps;
   /** How many layers this element's JSX produced in the frame. */
   renderCount?: number;
 }
 
 const primitives = new WeakSet<object>();
+const transparent = new WeakSet<object>();
 
 /**
  * Marks a component as a Celesta layer primitive, so a source chain can tell
@@ -46,6 +58,17 @@ const primitives = new WeakSet<object>();
 export function markPrimitive(component: unknown): void {
   const target = unwrap(component);
   if (target !== null) primitives.add(target);
+}
+
+/**
+ * Marks a Celesta component that draws JSX written by its caller
+ * (`<Sequence>`, `<FreezeFrame>`, `<MotionBlur>`'s moments, ...): it never
+ * owns that JSX, so the frame an `interpolate(frame, …)` reads is looked up
+ * above it.
+ */
+export function markTransparent(component: unknown): void {
+  const target = unwrap(component);
+  if (target !== null) transparent.add(target);
 }
 
 function unwrap(component: unknown): object | null {
@@ -157,19 +180,10 @@ export function layerSourceReport(
   const chain = found.map(({ entry }) => entry);
   if (chain.length === 0) return { chain };
 
-  let localFrame = 0;
-  for (let fiber = (node.fiber as Fiber | null | undefined) ?? null; fiber; fiber = fiber.return) {
-    // React 19 makes the context its own provider; 18 wraps it.
-    const type = fiber.type as { _context?: unknown } | null;
-    if (type && typeof type === 'object' && (type === (CompositionRuntimeContext as unknown) || type._context === CompositionRuntimeContext)) {
-      const value = (fiber.memoizedProps as { value?: { time: { value: number; timescale: number }; fps: number; frameOffset?: number } | null } | null)?.value;
-      if (value) localFrame = runtimeFrame(value.time, value.fps, value.frameOffset);
-      break;
-    }
-  }
+  const primitive = found.find(({ entry }) => entry.kind === 'primitive');
+  const owner = ownerFrame(primitive?.fiber ?? (node.fiber as Fiber | null | undefined) ?? null);
 
   const props: ReceivedProps = {};
-  const primitive = found.find(({ entry }) => entry.kind === 'primitive');
   const received = (primitive?.fiber.memoizedProps ?? primitive?.fiber.pendingProps ?? {}) as Record<string, unknown>;
   for (const key of TRANSFORM_PROPS) {
     const value = received[key];
@@ -187,5 +201,100 @@ export function layerSourceReport(
       renderCount++;
     }
   }
-  return { chain, localFrame, props, renderCount };
+  return {
+    chain,
+    localFrame: owner.frame,
+    ...(owner.uncertain ? { frameUncertain: true as const } : {}),
+    props,
+    renderCount,
+  };
+}
+
+type RuntimeValue = { time: { value: number; timescale: number }; fps: number; frameOffset?: number };
+
+/** The frame a `CompositionRuntimeContext` provider fiber hands down, if it is one. */
+function providedFrame(fiber: Fiber): number | undefined {
+  // React 19 makes the context its own provider; 18 wraps it.
+  const type = fiber.type as { _context?: unknown } | null;
+  if (!type || typeof type !== 'object') return undefined;
+  if (type !== (CompositionRuntimeContext as unknown) && type._context !== CompositionRuntimeContext) return undefined;
+  const value = (fiber.memoizedProps as { value?: RuntimeValue | null } | null)?.value;
+  return value ? runtimeFrame(value.time, value.fps, value.frameOffset) : undefined;
+}
+
+/** The frame `useCurrentFrame()` reports in a component at `fiber`. */
+function frameAt(fiber: Fiber | null): number | undefined {
+  for (let above = fiber?.return ?? null; above; above = above.return) {
+    const frame = providedFrame(above);
+    if (frame !== undefined) return frame;
+  }
+  return undefined;
+}
+
+/** A function component (or `memo`/`forwardRef` of one) the author wrote. */
+function isAuthorComponent(fiber: Fiber): boolean {
+  const type = fiber.elementType ?? fiber.type;
+  const target = unwrap(type);
+  if (target === null || typeof target !== 'function') return false;
+  return !primitives.has(target) && !transparent.has(target);
+}
+
+/**
+ * Whether `props` holds the element whose props object is `target`: as a
+ * prop, in `children`, or anywhere inside elements and arrays passed down.
+ */
+function passesDown(props: unknown, target: object): boolean {
+  const seen = new Set<object>();
+  const stack: unknown[] = [props];
+  while (stack.length > 0 && seen.size < 10_000) {
+    const value = stack.pop();
+    if (typeof value !== 'object' || value === null || seen.has(value)) continue;
+    if (value === target) return true;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      stack.push(...value);
+    } else if ('$$typeof' in value) {
+      stack.push((value as { props?: unknown }).props);
+    } else if (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null) {
+      stack.push(...Object.values(value));
+    }
+  }
+  return false;
+}
+
+function hasFunctionProp(props: unknown): boolean {
+  if (typeof props !== 'object' || props === null) return false;
+  return Object.values(props).some((value) => typeof value === 'function');
+}
+
+/**
+ * The frame the component that wrote `primitive`'s JSX (its owner) reads.
+ * React keeps no owner outside development builds, so the owner is the
+ * nearest component above the element that the author wrote, did not mark
+ * as drawing its caller's JSX, and did not receive the element through its
+ * props. A component with a function prop may have called a function its
+ * caller wrote instead; the frame is then uncertain when any frame provider
+ * above it hands down another frame.
+ */
+function ownerFrame(primitive: Fiber | null): { frame: number; uncertain: boolean } {
+  const atElement = frameAt(primitive) ?? 0;
+  if (!primitive) return { frame: atElement, uncertain: false };
+  const target = (primitive.memoizedProps ?? primitive.pendingProps) as object | null;
+  for (let fiber = primitive.return; fiber; fiber = fiber.return) {
+    if (!isAuthorComponent(fiber)) continue;
+    const props = fiber.memoizedProps ?? fiber.pendingProps;
+    if (target && passesDown(props, target)) continue;
+    const frame = frameAt(fiber);
+    // Outside every provider (an entry's root, say), no frame can be read.
+    if (frame === undefined) return { frame: atElement, uncertain: false };
+    let uncertain = false;
+    if (hasFunctionProp(props)) {
+      for (let above = fiber.return; above && !uncertain; above = above.return) {
+        const other = providedFrame(above);
+        uncertain = other !== undefined && other !== frame;
+      }
+    }
+    return { frame, uncertain };
+  }
+  return { frame: atElement, uncertain: false };
 }

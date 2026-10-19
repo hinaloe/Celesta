@@ -15,7 +15,7 @@ import type {
   LayerChromaKey, LayerChromaticAberration, LayerHalftone, LayerNoise, LayerPixelate, LayerScanlines, LayerTint,
   LayerVignette, LayerWave, LayerZoomBlur, ShaderEffect,
 } from './shader';
-import { markPrimitive } from './source-chain';
+import { markPrimitive, markTransparent } from './source-chain';
 import { endsWithComposition, isBefore, secondsFromTime, secondsToTime } from './time';
 
 // Unlike the pre-reconciler tree walker, these are real function components:
@@ -931,3 +931,4 @@ export const Audio = React.forwardRef<AssetReference, AudioProps>(function Audio
 // Layer primitives, so a source chain can tell `<Rect>` from a component the
 // author named `Rect`.
 for (const primitive of [Group, Image, Text, Rect, Video, Mask]) markPrimitive(primitive);
+for (const wrapper of [Composition, Sequence, FreezeFrame]) markTransparent(wrapper);
