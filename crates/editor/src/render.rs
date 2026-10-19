@@ -5,7 +5,7 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::status_bar::StatusBar;
 use gpui_kit::component::{ActiveTheme as _, Root, Sizable as _};
 use gpui_kit::prelude::*;
-use gpui_kit::{Context, MouseButton, Window, div, px};
+use gpui_kit::{Context, KeyDownEvent, MouseButton, Window, div, px};
 
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -81,6 +81,13 @@ impl EditorView {
             .when_some(self.focus_handle.as_ref(), |view, focus_handle| {
                 view.track_focus(focus_handle)
             })
+            // Escape cancels a canvas drag before any other key handling.
+            .capture_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" && this.escape_transform_drag() {
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
             .on_mouse_move(cx.listener(Self::drag_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::drag_end))
             .on_mouse_up(MouseButton::Middle, cx.listener(Self::middle_drag_end))

@@ -129,19 +129,33 @@ fn apply(m: &[f64; 6], p: Point) -> Point {
     }
 }
 
+/// How far a rotation drag from `start` to `now` (scene pixels) has turned
+/// about the anchor, in degrees: the angle between them, plus the whole turns
+/// that keep it nearest `previous` (the turn at the previous move), so a drag
+/// that goes on past a half turn keeps counting instead of wrapping.
+pub(crate) fn turn(frame: &LayerFrame, start: Point, now: Point, previous: f64) -> Option<f64> {
+    let inverse = invert_affine(frame.parent)?;
+    let (start, now) = (apply(&inverse, start), apply(&inverse, now));
+    let anchor = frame.transform.position;
+    let angle = |p: Point| (p.y - anchor.y).atan2(p.x - anchor.x).to_degrees();
+    let raw = angle(now) - angle(start);
+    Some(raw + ((previous - raw) / 360.0).round() * 360.0)
+}
+
 /// The transform values a drag of `handle` from `start` to `now` (scene
 /// pixels) makes, for the props in `editable` only. The pointer moves are
-/// taken into the layer's parent space; rotation turns about the anchor
-/// (snapped to 15° with `shift`), and scaling keeps the anchor in place, in
-/// one ratio for a uniform `Scale`.
+/// taken into the layer's parent space; rotation turns about the anchor by
+/// [`turn`] from `previous_turn` (the result snapped to 15° with `shift`),
+/// and scaling keeps the anchor in place, in one ratio for a uniform `Scale`.
 pub(crate) fn drag_values(
     frame: &LayerFrame,
     handle: Handle,
-    start: Point,
-    now: Point,
+    (start, now): (Point, Point),
     shift: bool,
+    previous_turn: f64,
     editable: &[TransformProp],
 ) -> Vec<(TransformProp, f64)> {
+    let pointer = (start, now);
     let Some(inverse) = invert_affine(frame.parent) else {
         return Vec::new();
     };
@@ -160,14 +174,9 @@ pub(crate) fn drag_values(
             }
         }
         Handle::Rotate => {
-            if can(TransformProp::Rotation) {
-                let angle = |p: Point| (p.y - anchor.y).atan2(p.x - anchor.x).to_degrees();
-                let mut delta = angle(now) - angle(start);
-                if delta > 180.0 {
-                    delta -= 360.0;
-                } else if delta <= -180.0 {
-                    delta += 360.0;
-                }
+            if can(TransformProp::Rotation)
+                && let Some(delta) = turn(frame, pointer.0, pointer.1, previous_turn)
+            {
                 let mut rotation = transform.rotation + delta;
                 if shift {
                     rotation = (rotation / SNAP_DEGREES).round() * SNAP_DEGREES;
@@ -271,43 +280,114 @@ fn start_value(frame: &LayerFrame, prop: TransformProp) -> f64 {
     }
 }
 
-/// The props to write for the drag's `values`: each prop the runtime saw
-/// (`received`) moved by the same amount (position, rotation) or ratio
-/// (scale) as the transform; the transform's value when it saw none.
+/// Each prop of the drag's `values` as the source has it (`was`) and as the
+/// drag writes it (`now`): the prop the runtime saw (`received`) moved by the
+/// same amount (position, rotation) or ratio (scale) as the transform; the
+/// transform's value when it saw none.
+fn prop_changes(
+    frame: &LayerFrame,
+    values: &[(TransformProp, f64)],
+    received: &ReceivedProps,
+) -> Vec<(TransformProp, f64, f64)> {
+    values
+        .iter()
+        .map(|&(prop, value)| {
+            let start = start_value(frame, prop);
+            let was = prop.received(received).unwrap_or(start);
+            let now = match prop {
+                TransformProp::Scale | TransformProp::ScaleX | TransformProp::ScaleY => {
+                    was * ratio(start, value)
+                }
+                _ => was + value - start,
+            };
+            (prop, was, now)
+        })
+        .collect()
+}
+
+/// The props to write for the drag's `values` (see `prop_changes`), leaving
+/// out those the source would keep as written (same formatted number). Empty
+/// when the drag changed nothing.
 pub(crate) fn prop_values(
     frame: &LayerFrame,
     values: &[(TransformProp, f64)],
     received: &ReceivedProps,
 ) -> Vec<(TransformProp, f64)> {
-    values
-        .iter()
-        .map(|&(prop, value)| {
-            let was = start_value(frame, prop);
-            let value = match (prop.received(received), prop) {
-                (None, _) => value,
-                (
-                    Some(base),
-                    TransformProp::Scale | TransformProp::ScaleX | TransformProp::ScaleY,
-                ) => base * ratio(was, value),
-                (Some(base), _) => base + value - was,
-            };
-            (prop, value)
-        })
+    prop_changes(frame, values, received)
+        .into_iter()
+        .filter(|&(_, was, now)| format_number(was) != format_number(now))
+        .map(|(prop, _, now)| (prop, now))
         .collect()
 }
 
-/// `x 120 → 184` for each changed value, as written to the source.
-pub(crate) fn drag_label(frame: &LayerFrame, values: &[(TransformProp, f64)]) -> String {
-    values
-        .iter()
-        .map(|&(prop, value)| {
+/// `x 120 → 184` for each prop the drag writes, with the values as written
+/// to the source.
+pub(crate) fn drag_label(
+    frame: &LayerFrame,
+    values: &[(TransformProp, f64)],
+    received: &ReceivedProps,
+) -> String {
+    prop_changes(frame, values, received)
+        .into_iter()
+        .filter(|&(_, was, now)| format_number(was) != format_number(now))
+        .map(|(prop, was, now)| {
             format!(
                 "{} {} → {}",
                 prop.name(),
-                format_number(start_value(frame, prop)),
-                format_number(value)
+                format_number(was),
+                format_number(now)
             )
         })
         .collect::<Vec<_>>()
         .join("  ")
+}
+
+/// The offset of `point` (scene pixels) from the anchor in the layer's own
+/// axes, still scaled; `None` when the parent or the layer collapses.
+fn local_offset(frame: &LayerFrame, point: Point) -> Option<Point> {
+    let inverse = invert_affine(frame.parent)?;
+    let unturn = unturn(&frame.transform)?;
+    let p = apply(&inverse, point);
+    let anchor = frame.transform.position;
+    let v = (p.x - anchor.x, p.y - anchor.y);
+    Some(Point {
+        x: unturn[0] * v.0 + unturn[2] * v.1,
+        y: unturn[1] * v.0 + unturn[3] * v.1,
+    })
+}
+
+/// Below this many scene pixels from the anchor's lines, a scale handle has
+/// nothing to scale.
+const ON_ANCHOR: f64 = 1e-6;
+
+/// The handles that can change something for `editable`: corners and edges
+/// whose drag scales an editable axis (not on the anchor, or on its line for
+/// that axis), edges only for a per-axis scale, and the rotation handle with
+/// `Rotation`.
+pub(crate) fn shown_handles(
+    frame: &LayerFrame,
+    editable: &[TransformProp],
+    stem: f64,
+) -> Vec<(Handle, Point)> {
+    let uniform = editable.contains(&TransformProp::Scale);
+    let scales_x = uniform || editable.contains(&TransformProp::ScaleX);
+    let scales_y = uniform || editable.contains(&TransformProp::ScaleY);
+    let rotates = editable.contains(&TransformProp::Rotation);
+    handles(frame, uniform, stem)
+        .into_iter()
+        .filter(|&(handle, at)| {
+            let reaches = |x_axis: bool, y_axis: bool| {
+                local_offset(frame, at).is_some_and(|offset| {
+                    (x_axis && scales_x && offset.x.abs() > ON_ANCHOR)
+                        || (y_axis && scales_y && offset.y.abs() > ON_ANCHOR)
+                })
+            };
+            match handle {
+                Handle::Corner(_) => reaches(true, true),
+                Handle::Edge(i) => reaches(i % 2 == 1, i % 2 == 0),
+                Handle::Rotate => rotates,
+                Handle::Move => true,
+            }
+        })
+        .collect()
 }

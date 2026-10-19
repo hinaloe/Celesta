@@ -74,6 +74,8 @@ impl EditorView {
             };
             self.seek_frame(restart);
         }
+        // Playback draws the code's own frames: a drag stops, unwritten.
+        self.transform_drag = None;
         self.playing = true;
         self.playback_started_at = Some(Instant::now());
         self.playback_started_frame = self.clock.frame();

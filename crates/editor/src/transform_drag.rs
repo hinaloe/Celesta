@@ -5,11 +5,13 @@
 use crate::layer_select::{letterbox, to_scene};
 use crate::transform_edit::{TransformProp, reason_text};
 use crate::transform_handles::{
-    Handle, drag_label, drag_values, handle_at, handles, override_transform, prop_values,
+    Handle, drag_label, drag_values, handle_at, override_transform, prop_values, shown_handles,
+    turn,
 };
 use crate::view::EditorView;
 use celesta_composition::{EvaluatedTransform, Point};
 use celesta_gpu_renderer::LayerFrame;
+use celesta_react_bridge::ReceivedProps;
 use celesta_source_edit::EditTarget;
 use gpui_kit::{Context, MouseMoveEvent};
 
@@ -32,6 +34,10 @@ pub(crate) struct TransformDrag {
     handle: Handle,
     start: Point,
     editable: Vec<TransformProp>,
+    /// The props the runtime saw when the drag started.
+    received: ReceivedProps,
+    /// How far a rotation drag has turned so far, unsnapped, in degrees.
+    turned: f64,
     /// The transform values the pointer has made so far.
     values: Vec<(TransformProp, f64)>,
     /// Released; the write is running and the override stays until it ends,
@@ -102,6 +108,9 @@ impl EditorView {
     /// The transform the preview draws for the dragged layer in place of its
     /// own.
     pub(crate) fn transform_override(&self) -> Option<(String, EvaluatedTransform)> {
+        if self.playing {
+            return None;
+        }
         let drag = self.transform_drag.as_ref()?;
         Some((
             drag.layer.clone(),
@@ -112,7 +121,16 @@ impl EditorView {
     /// The drag's `x 120 → 184` label, once the pointer changed something.
     pub(crate) fn transform_drag_label(&self) -> Option<String> {
         let drag = self.transform_drag.as_ref()?;
-        (!drag.values.is_empty()).then(|| drag_label(&drag.frame, &drag.values))
+        let label = drag_label(&drag.frame, &drag.values, &drag.received);
+        (!label.is_empty()).then_some(label)
+    }
+
+    /// Whether a drag is running with the button down (not one released and
+    /// being written).
+    pub(crate) fn transform_drag_active(&self) -> bool {
+        self.transform_drag
+            .as_ref()
+            .is_some_and(|drag| !drag.released)
     }
 
     /// Starts a drag when `position` (window pixels) is on a handle of the
@@ -123,10 +141,15 @@ impl EditorView {
         position: gpui_kit::Point<gpui_kit::Pixels>,
         topmost: Option<&str>,
     ) -> bool {
-        if self.transform_drag.is_some() {
-            return true;
+        // Only a pressed drag takes the click; while a released one is being
+        // written, clicks select as usual (and no second drag starts).
+        if let Some(drag) = &self.transform_drag {
+            return !drag.released;
         }
         let DragState::Editable(frame, editable) = self.drag_state() else {
+            return false;
+        };
+        let Some(received) = self.transform_targets().map(|(_, report)| report.props) else {
             return false;
         };
         let (Some(layer), Some(bounds)) = (self.selected_layer.clone(), self.viewer_bounds.get())
@@ -158,6 +181,8 @@ impl EditorView {
             handle,
             start,
             editable,
+            received,
+            turned: 0.0,
             values: Vec::new(),
             released: false,
         });
@@ -191,11 +216,16 @@ impl EditorView {
         let values = drag_values(
             &drag.frame,
             drag.handle,
-            drag.start,
-            now,
+            (drag.start, now),
             event.modifiers.shift,
+            drag.turned,
             &drag.editable,
         );
+        if drag.handle == Handle::Rotate
+            && let Some(turned) = turn(&drag.frame, drag.start, now, drag.turned)
+        {
+            drag.turned = turned;
+        }
         if values != drag.values {
             drag.values = values;
             self.refresh_preview();
@@ -209,21 +239,22 @@ impl EditorView {
         let Some(drag) = self.transform_drag.as_mut().filter(|drag| !drag.released) else {
             return false;
         };
-        if drag.values.is_empty() {
-            self.transform_drag = None;
+        // Back where it started (or never moved): nothing to write, and no
+        // history entry.
+        let values = prop_values(&drag.frame, &drag.values, &drag.received);
+        if values.is_empty() {
+            self.cancel_transform_drag();
             return true;
         }
         drag.released = true;
-        let Some((_, report)) = self.transform_targets() else {
+        if self.transform_targets().is_none() {
             // The targets went stale mid-drag (a reload); nothing to write to.
             let message = self.transform.unavailable(self.selected_layer.as_deref());
             self.transform
                 .set_error(self.selected_layer.as_deref(), Some(message));
             self.cancel_transform_drag();
             return true;
-        };
-        let drag = self.transform_drag.as_ref().expect("released above");
-        let values = prop_values(&drag.frame, &drag.values, &report.props);
+        }
         // A success reloads the code, which draws the written values; a
         // failure (the source changed while dragging, the history is busy)
         // puts the layer back where it was. The error shows in the Layer
@@ -243,8 +274,18 @@ impl EditorView {
         true
     }
 
+    /// Escape during a drag: drops it and its override, writing nothing.
+    /// True when a pressed drag was cancelled.
+    pub(crate) fn escape_transform_drag(&mut self) -> bool {
+        if !self.transform_drag_active() {
+            return false;
+        }
+        self.cancel_transform_drag();
+        true
+    }
+
     /// Drops the drag and redraws the frame without the override.
-    fn cancel_transform_drag(&mut self) {
+    pub(crate) fn cancel_transform_drag(&mut self) {
         if self.transform_drag.take().is_some() {
             self.refresh_preview();
         }
@@ -254,26 +295,4 @@ impl EditorView {
         let settings = &self.document.project().settings;
         (settings.width as f32, settings.height as f32)
     }
-}
-
-/// The handles drawn for `editable`: the corners with any scale, the edges
-/// with a per-axis one, the rotation handle with `Rotation`.
-pub(crate) fn shown_handles(
-    frame: &LayerFrame,
-    editable: &[TransformProp],
-    stem: f64,
-) -> Vec<(Handle, Point)> {
-    let uniform = editable.contains(&TransformProp::Scale);
-    let scales = uniform
-        || editable.contains(&TransformProp::ScaleX)
-        || editable.contains(&TransformProp::ScaleY);
-    let rotates = editable.contains(&TransformProp::Rotation);
-    handles(frame, uniform, stem)
-        .into_iter()
-        .filter(|(handle, _)| match handle {
-            Handle::Corner(_) | Handle::Edge(_) => scales,
-            Handle::Rotate => rotates,
-            Handle::Move => true,
-        })
-        .collect()
 }

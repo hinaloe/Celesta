@@ -22,6 +22,7 @@ use crate::transform_edit::{
 };
 use crate::transform_handles::{
     Handle, drag_label, drag_values, handle_at, handles, override_transform, prop_values,
+    shown_handles, turn,
 };
 use crate::waveform::{
     clip_level_envelope, level_at_time, map_clip_waveform, master_volume_from_drag, waveform_peaks,
@@ -1524,9 +1525,9 @@ fn drag_values_move_inside_a_parent_scaled_by_two_halves_the_delta() {
     let values = drag_values(
         &frame,
         Handle::Move,
-        pt(100.0, 100.0),
-        pt(140.0, 160.0),
+        (pt(100.0, 100.0), pt(140.0, 160.0)),
         false,
+        0.0,
         &UNIFORM,
     );
     assert_values(
@@ -1546,9 +1547,9 @@ fn drag_values_move_with_y_locked_changes_only_x() {
     let values = drag_values(
         &frame,
         Handle::Move,
-        pt(0.0, 0.0),
-        pt(5.0, 7.0),
+        (pt(0.0, 0.0), pt(5.0, 7.0)),
         false,
+        0.0,
         &editable,
     );
     assert_values(&values, &[(TransformProp::X, 15.0)]);
@@ -1562,18 +1563,18 @@ fn drag_values_rotate_turns_about_the_anchor_and_snaps_with_shift() {
     let free = drag_values(
         &frame,
         Handle::Rotate,
-        pt(200.0, 100.0),
-        now,
+        (pt(200.0, 100.0), now),
         false,
+        0.0,
         &UNIFORM,
     );
     assert_values(&free, &[(TransformProp::Rotation, 37.0)]);
     let snapped = drag_values(
         &frame,
         Handle::Rotate,
-        pt(200.0, 100.0),
-        now,
+        (pt(200.0, 100.0), now),
         true,
+        0.0,
         &UNIFORM,
     );
     assert_values(&snapped, &[(TransformProp::Rotation, 30.0)]);
@@ -1586,7 +1587,14 @@ fn drag_values_rotate_snaps_the_resulting_angle() {
     // +24° from 10° is 34°, which snaps to 30°.
     let angle = 24f64.to_radians();
     let now = pt(10.0 * angle.cos(), 10.0 * angle.sin());
-    let values = drag_values(&frame, Handle::Rotate, pt(10.0, 0.0), now, true, &UNIFORM);
+    let values = drag_values(
+        &frame,
+        Handle::Rotate,
+        (pt(10.0, 0.0), now),
+        true,
+        0.0,
+        &UNIFORM,
+    );
     assert_values(&values, &[(TransformProp::Rotation, 30.0)]);
 }
 
@@ -1598,9 +1606,9 @@ fn drag_values_corner_with_uniform_scale_keeps_the_aspect() {
     let values = drag_values(
         &frame,
         Handle::Corner(2),
-        pt(100.0, 50.0),
-        pt(200.0, 100.0),
+        (pt(100.0, 50.0), pt(200.0, 100.0)),
         false,
+        0.0,
         &UNIFORM,
     );
     assert_values(&values, &[(TransformProp::Scale, 4.0)]);
@@ -1608,9 +1616,9 @@ fn drag_values_corner_with_uniform_scale_keeps_the_aspect() {
     let values = drag_values(
         &frame,
         Handle::Corner(2),
-        pt(100.0, 50.0),
-        pt(200.0, 80.0),
+        (pt(100.0, 50.0), pt(200.0, 80.0)),
         false,
+        0.0,
         &UNIFORM,
     );
     assert_values(&values, &[(TransformProp::Scale, 2.0 * 24000.0 / 12500.0)]);
@@ -1622,9 +1630,9 @@ fn drag_values_corner_with_per_axis_scale_scales_each_axis() {
     let values = drag_values(
         &frame,
         Handle::Corner(2),
-        pt(100.0, 50.0),
-        pt(200.0, 80.0),
+        (pt(100.0, 50.0), pt(200.0, 80.0)),
         false,
+        0.0,
         &PER_AXIS,
     );
     assert_values(
@@ -1639,9 +1647,9 @@ fn drag_values_edge_changes_only_scale_x() {
     let values = drag_values(
         &frame,
         Handle::Edge(1),
-        pt(100.0, 25.0),
-        pt(150.0, 40.0),
+        (pt(100.0, 25.0), pt(150.0, 40.0)),
         false,
+        0.0,
         &PER_AXIS,
     );
     assert_values(&values, &[(TransformProp::ScaleX, 1.5)]);
@@ -1655,9 +1663,9 @@ fn drag_values_scale_in_the_layers_rotated_axes() {
     let values = drag_values(
         &frame,
         Handle::Edge(1),
-        pt(0.0, 100.0),
-        pt(0.0, 300.0),
+        (pt(0.0, 100.0), pt(0.0, 300.0)),
         false,
+        0.0,
         &PER_AXIS,
     );
     assert_values(&values, &[(TransformProp::ScaleX, 3.0)]);
@@ -1669,9 +1677,9 @@ fn drag_values_corner_on_the_anchor_leaves_the_scale() {
     let values = drag_values(
         &frame,
         Handle::Corner(0),
-        pt(0.0, 0.0),
-        pt(20.0, 20.0),
+        (pt(0.0, 0.0), pt(20.0, 20.0)),
         false,
+        0.0,
         &UNIFORM,
     );
     assert_values(&values, &[]);
@@ -1738,8 +1746,129 @@ fn transform_drag_override_and_props() {
             (TransformProp::Scale, 6.0),
         ]
     );
+    // The label shows what is written: the received values, not the
+    // transform's.
     assert_eq!(
-        drag_label(&frame, &values),
+        drag_label(&frame, &values, &props),
+        "x 110 → 130  rotation 0 → 15  scale 4 → 6"
+    );
+    assert_eq!(
+        drag_label(&frame, &values, &ReceivedProps::default()),
         "x 10 → 30  rotation 0 → 15  scale 2 → 3"
     );
+}
+
+#[test]
+fn transform_drag_back_at_the_start_writes_nothing() {
+    let frame = drag_frame(IDENTITY, pt(10.0, 20.0));
+    let props = ReceivedProps {
+        x: Some(10.0),
+        y: Some(20.0),
+        ..ReceivedProps::default()
+    };
+    let values = drag_values(
+        &frame,
+        Handle::Move,
+        (pt(5.0, 5.0), pt(5.0, 5.0)),
+        false,
+        0.0,
+        &UNIFORM,
+    );
+    assert_eq!(values.len(), 2);
+    assert!(prop_values(&frame, &values, &props).is_empty());
+    assert_eq!(drag_label(&frame, &values, &props), "");
+    // Only the changed axis is written.
+    let values = drag_values(
+        &frame,
+        Handle::Move,
+        (pt(5.0, 5.0), pt(9.0, 5.0)),
+        false,
+        0.0,
+        &UNIFORM,
+    );
+    assert_eq!(
+        prop_values(&frame, &values, &props),
+        vec![(TransformProp::X, 14.0)]
+    );
+}
+
+#[test]
+fn drag_values_rotation_keeps_counting_past_a_half_turn() {
+    let frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    let at = |degrees: f64| {
+        let radians = degrees.to_radians();
+        pt(10.0 * radians.cos(), 10.0 * radians.sin())
+    };
+    let start = at(0.0);
+    // Turning clockwise in steps, each move unwrapped against the last.
+    let mut turned = 0.0;
+    for degrees in [60.0, 120.0, 170.0, 190.0] {
+        turned = turn(&frame, start, at(degrees), turned).unwrap();
+    }
+    assert!((turned - 190.0).abs() < 1e-9, "{turned}");
+    let values = drag_values(
+        &frame,
+        Handle::Rotate,
+        (start, at(190.0)),
+        false,
+        170.0,
+        &UNIFORM,
+    );
+    assert_values(&values, &[(TransformProp::Rotation, 190.0)]);
+    // From a fresh start the same pointer is the short way round.
+    let values = drag_values(
+        &frame,
+        Handle::Rotate,
+        (start, at(190.0)),
+        false,
+        0.0,
+        &UNIFORM,
+    );
+    assert_values(&values, &[(TransformProp::Rotation, -170.0)]);
+}
+
+fn shown(frame: &LayerFrame, editable: &[TransformProp]) -> Vec<Handle> {
+    shown_handles(frame, editable, 20.0)
+        .into_iter()
+        .map(|(handle, _)| handle)
+        .collect()
+}
+
+#[test]
+fn transform_shown_handles_leave_out_handles_that_scale_nothing() {
+    // The anchor is the top-left corner (React's default).
+    let frame = drag_frame(IDENTITY, pt(0.0, 0.0));
+    // Uniform: the corner on the anchor goes.
+    assert_eq!(
+        shown(&frame, &UNIFORM),
+        vec![
+            Handle::Corner(1),
+            Handle::Corner(2),
+            Handle::Corner(3),
+            Handle::Rotate
+        ]
+    );
+    // Per axis: the top edge (scaleY, on the anchor's row) and the left edge
+    // (scaleX, on its column) go too.
+    assert_eq!(
+        shown(&frame, &PER_AXIS),
+        vec![
+            Handle::Corner(1),
+            Handle::Corner(2),
+            Handle::Corner(3),
+            Handle::Edge(1),
+            Handle::Edge(2),
+            Handle::Rotate
+        ]
+    );
+    // scaleY locked: its edge and the corner that only scales y go.
+    let x_only = [TransformProp::X, TransformProp::ScaleX];
+    assert_eq!(
+        shown(&frame, &x_only),
+        vec![Handle::Corner(1), Handle::Corner(2), Handle::Edge(1)]
+    );
+    // An anchor in the middle: every handle scales something.
+    let mut centered = drag_frame(IDENTITY, pt(50.0, 25.0));
+    centered.outline = [pt(0.0, 0.0), pt(100.0, 0.0), pt(100.0, 50.0), pt(0.0, 50.0)];
+    assert_eq!(shown(&centered, &PER_AXIS).len(), 9);
 }

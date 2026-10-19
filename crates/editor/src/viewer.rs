@@ -28,8 +28,8 @@ use crate::preview::PreviewPresentation;
 use crate::problems::{ActiveProblem, Source, flow_line_breaks, summarize_warnings};
 use crate::problems_panel::{detail_block, show_in_problems_row};
 use crate::timecode::format_timecode;
-use crate::transform_drag::{DragState, HANDLE_SIZE, NO_AFFINE_FRAME, ROTATE_STEM, shown_handles};
-use crate::transform_handles::{Handle, rotate_stem};
+use crate::transform_drag::{DragState, HANDLE_SIZE, NO_AFFINE_FRAME, ROTATE_STEM};
+use crate::transform_handles::{Handle, rotate_stem, shown_handles};
 use crate::view::EditorView;
 use celesta_gpu_renderer::LayerFrame;
 
