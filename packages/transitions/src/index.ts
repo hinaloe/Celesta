@@ -1,7 +1,8 @@
-export { Transition } from './transition';
+export { Transition, applyTransition } from './transition';
 export type {
   SlideFrom,
   TransitionDirection,
+  TransitionEffect,
   TransitionProps,
   TransitionType,
 } from './transition';
