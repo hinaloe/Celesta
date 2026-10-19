@@ -21,7 +21,7 @@ export function Speed() {
   const vsRemotion = EXPORT.remotion / EXPORT.celesta;
   return (
     <>
-      <Header f={f} n="05 — SPEED" title="600 frames to MP4. Go." sub="Wall-clock time from launching the CLI to the finished file. Replayed at 6× speed." />
+      <Header n="05 — SPEED" title="600 frames to MP4. Go." sub="Wall-clock time from launching the CLI to the finished file. Replayed at 6× speed." />
       <Group x={1824} y={110} opacity={progress(f, 20, 14, Easings.easeOutCubic)}>
         <Label ax={1} size={20} font="mono" weight={700} color={C.grey} spacing={3}>ELAPSED</Label>
         <Label y={34} ax={1} size={64} font="mono" weight={700}>{`${Math.min(elapsed, slowest).toFixed(1)}s`}</Label>

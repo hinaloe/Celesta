@@ -24,7 +24,7 @@ export function Loop() {
   let y = 0;
   return (
     <>
-      <Header f={f} n="04 — EASE" title="Write it. See it." sub="Three fresh projects on Windows 11, then the same one-line edit in each." />
+      <Header n="04 — EASE" title="Write it. See it." sub="Three fresh projects on Windows 11, then the same one-line edit in each." />
 
       <Group x={96} y={330}>
         <Label size={18} font="mono" weight={700} color={C.grey} spacing={3} opacity={progress(f, 10, 16, Easings.easeOutCubic)}>BEFORE THE FIRST FRAME</Label>

@@ -27,7 +27,7 @@ export function Balance() {
   const zone = progress(f, 90, 30, Easings.easeOutCubic);
   return (
     <>
-      <Header f={f} n="06 — BALANCE" title="Easy and fast." sub="Lower left wins: quicker to check an edit, quicker to export." />
+      <Header n="06 — BALANCE" title="Easy and fast." sub="Lower left wins: quicker to check an edit, quicker to export." />
       <Rect x={X0} y={Y0 - PH * 0.5} width={PW * 0.34} height={PH * 0.5} cornerRadius={20}
         fill={`${TOOL.celesta.color}1C`} stroke={`${TOOL.celesta.color}55`} strokeWidth={1} opacity={zone} />
       <Label x={X0 + 24} y={Y0 - 46} size={18} font="mono" weight={700} color={TOOL.celesta.color} spacing={3} opacity={zone}>SWEET SPOT</Label>

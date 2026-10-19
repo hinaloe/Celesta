@@ -50,7 +50,7 @@ function SyntaxScene({ n, title, sub, snippets }: { n: string; title: string; su
   const { durationInFrames } = useVideoConfig();
   return (
     <Group opacity={presence(f, durationInFrames, 12, 12)}>
-      <Header f={f} n={n} title={title} sub={sub} />
+      <Header n={n} title={title} sub={sub} />
       <Rows snippets={snippets} f={f} />
     </Group>
   );
