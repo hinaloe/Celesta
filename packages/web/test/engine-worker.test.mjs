@@ -35,8 +35,19 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
   globalThis.mountCount = 0; globalThis.cleanupCount = 0;
   globalThis.fonts = new Set();
   globalThis.FontFace = class { constructor(family, source) { this.family = family; this.source = source; } async load() { return this; } };
+  // As in Chromium's workers, a font string keeps the font it first
+  // resolved to, in every context, whatever the font set does later.
+  const resolved = new Map();
   globalThis.OffscreenCanvas = class {
-    getContext() { return { measureText(text) { return { width: text.length * (globalThis.fonts.size ? 20 : 10), fontBoundingBoxAscent: 15, fontBoundingBoxDescent: 5 }; } }; }
+    getContext() {
+      return {
+        font: '',
+        measureText(text) {
+          if (!resolved.has(this.font)) resolved.set(this.font, globalThis.fonts.size ? 20 : 10);
+          return { width: text.length * resolved.get(this.font), fontBoundingBoxAscent: 15, fontBoundingBoxDescent: 5 };
+        },
+      };
+    }
   };
   const requested = [];
   const fetched = Promise.withResolvers(), unblock = Promise.withResolvers();
@@ -77,6 +88,20 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
   assert.equal(values[3].value.audio.length, 1);
   assert.equal(fonts.size, 1);
   assert.match([...fonts][0].source, /second\.test\/demo\.woff/);
+  // The mount measured Demo before <Font> loaded it; frames measure with it.
+  // A frame-dependent string is not the mount's memoized result.
+  const growing = `import { Composition, Font, Rect, useCurrentFrame, useTextMetrics } from '@celesta/react';
+    export default function Root() {
+      const metrics = useTextMetrics('0'.repeat(useCurrentFrame() + 1), { fontFamily: 'Demo' });
+      return <Composition width={100} height={100} fps={30} durationInFrames={3}><Font src="font.css" /><Rect width={metrics.width} height={10}/></Composition>;
+    }`;
+  assert.equal((await send({ id: 20, type: 'compile', source: growing, options: { baseURL: 'https://third.test/' } })).error, undefined);
+  assert.equal((await send({ id: 21, type: 'frame', frame: 0 })).value.scene.layers[0].content.width, 20);
+  assert.equal((await send({ id: 22, type: 'frame', frame: 2 })).value.scene.layers[0].content.width, 60);
+  // Without the <Font>, the recompile's measurements drop the removed face.
+  assert.equal((await send({ id: 23, type: 'compile', source: growing.replace('<Font src="font.css" />', '') })).error, undefined);
+  assert.equal(fonts.size, 0);
+  assert.equal((await send({ id: 24, type: 'frame', frame: 2 })).value.scene.layers[0].content.width, 30);
 
   const explicit = `import {Composition, Rect, useTextMetrics, measureText} from '@celesta/react';
     export default function Root() { const m=useTextMetrics('abc', {fontFamily:'Demo'}, {fonts:['https://extra.test/font.css']}); return <Composition width={100} height={100} fps={30} durationInFrames={1}><Rect width={m.width} height={1}/></Composition>; }`;
