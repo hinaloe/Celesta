@@ -3,17 +3,37 @@ import * as React from 'react';
 import { Group, useVideoConfig } from '@celesta/react';
 import type { GroupProps } from '@celesta/react';
 
-interface LayoutBounds {
+/** The area nested layout components lay out in, in pixels. */
+export interface LayoutSize {
   width: number;
   height: number;
 }
 
-const LayoutBoundsContext = React.createContext<LayoutBounds | null>(null);
+const LayoutBoundsContext = React.createContext<LayoutSize | null>(null);
 
-export function useLayoutBounds(): LayoutBounds {
+/** The enclosing `<SafeArea>`'s, `<Fit>`'s, or `<LayoutBounds>`'s area, or else the canvas. */
+export function useLayoutBounds(): LayoutSize {
   const inherited = React.useContext(LayoutBoundsContext);
   const { width, height } = useVideoConfig();
   return inherited ?? { width, height };
+}
+
+export interface LayoutBoundsProps extends LayoutSize {
+  children?: React.ReactNode;
+}
+
+/**
+ * Makes `width`×`height` the area nested `<Center>`, `<Fit>`, `<SafeArea>`,
+ * and `useLayoutBounds()` lay out in, from the current origin. It draws
+ * nothing and does not move the children: a component with a size of its
+ * own, such as a panel, wraps its content in it.
+ */
+export function LayoutBounds({ width, height, children }: LayoutBoundsProps): ReturnType<typeof React.createElement> {
+  const value = React.useMemo(() => ({
+    width: finiteNonNegative(width, 'LayoutBounds width'),
+    height: finiteNonNegative(height, 'LayoutBounds height'),
+  }), [width, height]);
+  return React.createElement(LayoutBoundsContext.Provider, { value }, children);
 }
 
 export interface CenterProps extends GroupProps {}

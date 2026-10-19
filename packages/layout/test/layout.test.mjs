@@ -111,6 +111,65 @@ test('an unknown safe area preset names the known ones', () => {
   }
 });
 
+test('LayoutBounds sets the area nested helpers see without moving them', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'celesta-layout-'));
+  const entry = join(dir, 'entry.tsx');
+  writeFileSync(
+    entry,
+    `import { Composition, Group, Text } from '@celesta/react'; import { Center, LayoutBounds, SafeArea } from '@celesta/layout';\n` +
+      `export default function Root() {\n` +
+      `  return <Composition width={300} height={200} fps={30} durationInFrames={1}>` +
+      `<Group x={40} y={30}><LayoutBounds width={100} height={60}>` +
+      `<Center><Text>a</Text></Center>` +
+      `<SafeArea padding={10}><Center><Text>b</Text></Center></SafeArea>` +
+      `</LayoutBounds></Group>` +
+      `</Composition>;\n` +
+      `}\n`,
+  );
+
+  try {
+    const result = spawnSync(process.execPath, [cli, entry], {
+      input: '{"time":{"value":0,"timescale":1}}\n',
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const [, frame] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    const [group] = frame.scene.layers;
+    assert.deepEqual(group.transform.position, { x: 40, y: 30 });
+    const [center, safeArea] = group.content.layers;
+    assert.deepEqual(center.transform.position, { x: 50, y: 30 });
+    assert.deepEqual(safeArea.transform.position, { x: 10, y: 10 });
+    assert.deepEqual(safeArea.content.layers[0].transform.position, { x: 40, y: 20 });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('LayoutBounds rejects a negative or non-finite size', () => {
+  for (const size of ['-1', 'Infinity', 'NaN']) {
+    const dir = mkdtempSync(join(tmpdir(), 'celesta-layout-'));
+    const entry = join(dir, 'entry.tsx');
+    writeFileSync(
+      entry,
+      `import { Composition } from '@celesta/react'; import { LayoutBounds } from '@celesta/layout';\n` +
+        `export default function Root() {\n` +
+        `  return <Composition width={100} height={100} fps={30} durationInFrames={1}>` +
+        `<LayoutBounds width={${size}} height={10} />` +
+        `</Composition>;\n` +
+        `}\n`,
+    );
+    try {
+      const result = spawnSync(process.execPath, [cli, entry], {
+        input: '{"time":{"value":0,"timescale":1}}\n',
+        encoding: 'utf8',
+      });
+      assert.match(result.stdout, /LayoutBounds width must be a finite non-negative number/, size);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
 test('a camera blends its view as one layer', () => {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-layout-'));
   const entry = join(dir, 'entry.tsx');
