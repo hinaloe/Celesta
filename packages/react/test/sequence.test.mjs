@@ -139,3 +139,20 @@ test('a nested sequence opens on its first frame although the shifted time is ro
     assert.deepEqual(texts(at(composition, frame).scene.layers), frame >= 10 && frame < 20 ? [String(frame - 10)] : [], `frame ${frame}`);
   }
 });
+
+test('deeply nested sequences open on the same frame as one flattened sequence', () => {
+  // Each level rounds its shifted time to a microsecond, so four levels
+  // land below 2 / 30 at frame 45.
+  const P = () => h(Text, null, String(useCurrentFrame()));
+  const nested = mount(() => h(Composition, { width: 10, height: 10, fps: 30, durationInFrames: 80 },
+    h(Sequence, { from: 20 }, h(Sequence, { from: 20, durationInFrames: 30 }, h(Sequence, { from: 3 }, h(Sequence, { from: 2 }, h(P))))),
+  ));
+  const flattened = mount(() => h(Composition, { width: 10, height: 10, fps: 30, durationInFrames: 80 },
+    h(Sequence, { from: 40, durationInFrames: 30 }, h(Sequence, { from: 3 }, h(Sequence, { from: 2 }, h(P)))),
+  ));
+  for (const frame of [44, 45, 46, 69, 70]) {
+    const expected = frame >= 45 && frame < 70 ? [String(frame - 45)] : [];
+    assert.deepEqual(texts(at(nested, frame).scene.layers), expected, `nested at frame ${frame}`);
+    assert.deepEqual(texts(at(flattened, frame).scene.layers), expected, `flattened at frame ${frame}`);
+  }
+});
