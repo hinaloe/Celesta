@@ -20,6 +20,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | API | パッケージ | 用途 |
 | --- | --- | --- |
 | `Sequence` | `@celesta/react` | `from` と任意の `durationInFrames` で子の時間を配置します。`lang` で既定のテキスト言語を、`fontFallback` でフォールバック先も指定できます。 |
+| `Loop` | `@celesta/react` | `from` から `durationInFrames` フレームごとに、`times` 回または囲む範囲の終わりまで子要素を繰り返します。周期ごとに子の時計、映像、音声が最初に戻ります。 |
 | `FreezeFrame` | `@celesta/react` | 子要素を、コンポジション全体の `frame` 時点（絶対フレーム）の状態で、音声なしで描画します。 |
 | `MotionBlur` | `@celesta/react` | フレームを中心に開いたシャッター（`shutterAngle`、既定 180）の間の `samples` 時点（既定 8）で子要素を描き、平均します。 |
 | `Trail` | `@celesta/react` | 子要素の下に、`lagInFrames` ずつ古く薄い複製を `copies` 個描きます。 |

@@ -47,7 +47,7 @@ import type {
 import { FILTER_PROPS, ShaderEffect, builtinFilter, isIdentityFilter } from './shader';
 import type { BuiltinFilter } from './shader';
 import type { JsonValue } from './generated/serde_json/JsonValue';
-import { SECONDS_TIMESCALE, endsWithComposition, secondsFromTime, secondsToTime } from './time';
+import { SECONDS_TIMESCALE, endsWithComposition, isBefore, secondsFromTime, secondsToTime } from './time';
 
 const HOST_TYPES = new Set([
   'composition',
@@ -971,7 +971,7 @@ function childSequenceContext(node: HostNode, context: WalkContext): WalkContext
   const hasDuration = typeof props.durationInFrames === 'number' && Number.isFinite(props.durationInFrames);
   const endLocalSec = hasDuration
     ? (fromFrames + Math.max(0, props.durationInFrames as number)) / fps
-    : context.rangeEndSec - context.originSec;
+    : context.windowEndSec - context.originSec;
   const windowEndSec = hasDuration ? context.originSec + endLocalSec : context.windowEndSec;
   // Past the composition's end, a window that ends with the composition
   // stays open; one that ends later keeps its own end. <Sequence> in
@@ -979,7 +979,7 @@ function childSequenceContext(node: HostNode, context: WalkContext): WalkContext
   const openEnd = context.openEnd && endsWithComposition(windowEndSec, context.compositionEndSec, fps);
   const windowEndLocalSec = openEnd ? context.rangeEndSec - context.originSec : endLocalSec;
   const localSec = secondsFromTime(context.time);
-  if (localSec < startLocalSec || localSec >= windowEndLocalSec) {
+  if (isBefore(localSec, startLocalSec) || !isBefore(localSec, windowEndLocalSec)) {
     return null;
   }
   const originSec = context.originSec + startLocalSec;
@@ -1242,7 +1242,7 @@ function collectSubtitleCues(props: Record<string, unknown>, context: WalkContex
     checkCue(cue, index, '<Subtitles>');
     const startLocalSec = cue.from / context.fps;
     const endLocalSec = (cue.from + cue.durationInFrames) / context.fps;
-    if (localSec >= startLocalSec && localSec < endLocalSec) {
+    if (!isBefore(localSec, startLocalSec) && isBefore(localSec, endLocalSec)) {
       collectSubtitle(cue.text, startLocalSec, endLocalSec, context, lang);
     }
   });

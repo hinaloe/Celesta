@@ -15,7 +15,7 @@ import type {
   LayerChromaKey, LayerChromaticAberration, LayerHalftone, LayerNoise, LayerPixelate, LayerScanlines, LayerTint,
   LayerVignette, LayerWave, LayerZoomBlur, ShaderEffect,
 } from './shader';
-import { endsWithComposition, secondsFromTime, secondsToTime } from './time';
+import { endsWithComposition, isBefore, secondsFromTime, secondsToTime } from './time';
 
 // Unlike the pre-reconciler tree walker, these are real function components:
 // each returns a host element (a lowercase intrinsic type the reconciler in
@@ -710,7 +710,7 @@ export function Sequence(props: SequenceProps): ReturnType<typeof React.createEl
     context.openEnd === true &&
     root !== null &&
     endsWithComposition(secondsFromTime(root.time) - localSeconds + endSeconds, root.durationInFrames / fps, fps);
-  if (localSeconds < from / fps || (!openEnd && localSeconds >= endSeconds)) {
+  if (isBefore(localSeconds, from / fps) || (!openEnd && !isBefore(localSeconds, endSeconds))) {
     return React.createElement('sequence', props, null);
   }
   const shiftedTime = secondsToTime(localSeconds - from / fps);
@@ -787,6 +787,63 @@ export function FreezeFrame(props: FreezeFrameProps): ReturnType<typeof React.cr
       React.createElement(FreezeFrameContext.Provider, { value: scope }, React.createElement('freeze-frame', props)),
     ),
   );
+}
+
+export interface LoopProps extends CommonProps {
+  /** Default text language within this loop; inherited when omitted. */
+  lang?: string;
+  /** Where text's missing characters are drawn from; see `SequenceProps.fontFallback`. */
+  fontFallback?: FontFallbackMode;
+  /** Length of one cycle in frames: positive and finite, fractions allowed. */
+  durationInFrames: number;
+  /**
+   * Frame the first cycle starts at, in the enclosing timeline's own frame
+   * numbering, like `<Sequence from>`. Defaults to 0.
+   */
+  from?: number;
+  /**
+   * How many cycles play; a fraction cuts the last one short. Defaults to
+   * repeating until the end of the enclosing window.
+   */
+  times?: number;
+  children?: ReactNode;
+}
+
+/**
+ * Plays its children over and over: every `durationInFrames` frames from
+ * `from`, the children's clock starts again at 0, as if each cycle were a
+ * `<Sequence>` of its own. `useCurrentFrame()`/`useCurrentTime()`,
+ * `<Video>`, `<Audio>`, and `<Sequence>`s inside all restart together, and
+ * `useVideoConfig().durationInFrames` is one cycle's length. Each cycle's
+ * audio is a clip of its own, cut short where the loop ends. Only the
+ * current cycle is mounted, so the picture depends on the frame alone.
+ */
+export function Loop(props: LoopProps): ReturnType<typeof React.createElement> {
+  const { durationInFrames: period, times, children, ...sequence } = props;
+  if (typeof period !== 'number' || !Number.isFinite(period) || period <= 0) {
+    throw new Error('<Loop> requires a positive finite `durationInFrames`');
+  }
+  if (times !== undefined && (typeof times !== 'number' || Number.isNaN(times) || times <= 0)) {
+    throw new Error('<Loop> `times` must be a positive number');
+  }
+  // The outer window bounds the loop; the inner one is the current cycle.
+  return React.createElement(
+    Sequence,
+    times !== undefined && Number.isFinite(times) ? { ...sequence, durationInFrames: times * period } : sequence,
+    React.createElement(LoopCycle, { period }, children),
+  );
+}
+
+function LoopCycle(props: { period: number; children?: ReactNode }): ReturnType<typeof React.createElement> {
+  const { period } = props;
+  const { time, fps } = React.useContext(CompositionRuntimeContext)!;
+  const localSeconds = secondsFromTime(time);
+  // The cycle whose window contains this time, compared exactly as
+  // `<Sequence>` and render.ts's walker compare its `from` and end.
+  let cycle = Math.max(0, Math.floor((localSeconds * fps) / period));
+  while (cycle > 0 && isBefore(localSeconds, (cycle * period) / fps)) cycle--;
+  while (!isBefore(localSeconds, (cycle * period + period) / fps)) cycle++;
+  return React.createElement(Sequence, { from: cycle * period, durationInFrames: period }, props.children);
 }
 
 export type AnimatedNumber = Animatable<number>;

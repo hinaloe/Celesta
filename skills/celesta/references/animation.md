@@ -22,6 +22,7 @@ For randomness and noise, use [`@celesta/math`](math.md).
 - [spring](#spring)
 - [progress](#progress)
 - [Sequence](#sequence)
+- [Loop](#loop)
 - [FreezeFrame](#freezeframe)
 - [MotionBlur and Trail](#motionblur-and-trail)
 - [Series and computeSeries](#series-and-computeseries)
@@ -42,6 +43,7 @@ For randomness and noise, use [`@celesta/math`](math.md).
 | A bouncy pop-in | `spring` |
 | Scenes back to back | `Series` + `computeSeries` |
 | Scenes joined by a cut, cross-fade, slide, or wipe | `TransitionSeries` + `computeTransitionSeries` |
+| A background animation or a short BGM repeated | `Loop` |
 | A past frame redrawn in place (rewind, flashback, thumbnails) | `FreezeFrame` |
 | Fast motion (a dash, a whip pan, a spinning wheel) smeared like a camera sees it | `MotionBlur` |
 | Ghost copies following a moving object | `Trail` |
@@ -163,6 +165,31 @@ their local React state. Declare fonts or assets needed throughout the
 composition in `<Assets>` outside a sequence.
 
 For scenes in a row, prefer `Series` (next) to computing `from` by hand.
+
+## Loop
+
+`<Loop durationInFrames from? times?>` repeats its children: every
+`durationInFrames` frames (positive, fractions allowed) from `from`, their
+clock starts again at 0, exactly as if each cycle were a `<Sequence>` of its
+own. `useCurrentFrame()`, `<Video>`, `<Audio>`, and nested sequences restart
+together; `useVideoConfig().durationInFrames` is the cycle's length. Without
+`times` it repeats until the parent's end; a fractional `times` (`2.5`) cuts
+the last cycle short. It accepts common layer props, `lang`, and
+`fontFallback`.
+
+```tsx
+<Loop durationInFrames={120} times={3}>
+  <Audio src="./phrase.wav" />
+</Loop>
+```
+
+- Each cycle's audio is a clip of its own, starting at the cycle and cut
+  where the loop (or its parent) ends.
+- Only the current cycle is mounted, so React state inside resets each
+  cycle. Keep state that must survive outside the loop.
+- For a seamless whole-video loop, see [loops.md](loops.md); a `<Loop>`
+  without `times` that reaches the end keeps cycling past it with
+  `inspect.mjs --loop`.
 
 ## FreezeFrame
 

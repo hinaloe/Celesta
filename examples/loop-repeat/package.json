@@ -1,0 +1,13 @@
+{
+  "name": "@celesta/example-loop-repeat",
+  "private": true,
+  "scripts": {
+    "preview": "celesta-editor film.tsx",
+    "phrase": "python3 make-phrase.py",
+    "export": "celesta-exporter --json --react --overwrite film.tsx loop-repeat.mp4",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

@@ -60,6 +60,21 @@ Import `Sequence` to delay or limit a group of layers. This shows the `Title` co
 
 Within that sequence, `useCurrentFrame()` starts at 0 when the sequence begins. Child video and audio use the same local clock. Children contribute neither layers nor audio outside the sequence’s time window.
 
+## Repeat a scene
+
+`<Loop durationInFrames>` plays its children over and over: every `durationInFrames` frames, their clock starts again at 0. Use it for a background animation or a short piece of music that repeats:
+
+```tsx title="A 2-second pulse and a 4-second BGM phrase, repeated"
+<Loop durationInFrames={60}>
+  <Pulse />
+</Loop>
+<Loop durationInFrames={120} times={3}>
+  <Audio src="./phrase.wav" />
+</Loop>
+```
+
+Inside, `useCurrentFrame()`, `<Video>`, `<Audio>`, and nested sequences all restart with each cycle, and `useVideoConfig().durationInFrames` is one cycle’s length. `from` sets where the first cycle starts, like a `Sequence`’s. Without `times`, the loop repeats until the enclosing sequence or composition ends; a fractional `times` such as `2.5` cuts the last cycle short. Each cycle’s audio is a clip of its own, cut where the loop ends. Only the current cycle is mounted, so any frame you scrub to looks the same as in the export.
+
 ## Redraw a past frame
 
 Every frame is a function of the frame number, so `<FreezeFrame frame>` can draw any moment of the video again in place, for a rewind, a flashback, or a row of thumbnails. `frame` counts on the whole composition’s clock, even inside a `Sequence`:
