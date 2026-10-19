@@ -39,6 +39,9 @@ pub(crate) enum RightTab {
     /// The inspector, or the React Preview panel in React-preview mode.
     #[default]
     Details,
+    /// What can be edited in React-preview mode: the selected layer and the
+    /// props file. Not offered for a project, whose inspector edits in place.
+    Properties,
     Problems,
 }
 
@@ -47,8 +50,27 @@ impl RightTab {
     /// Problems.
     pub(crate) fn toggled_problems(self) -> Self {
         match self {
-            Self::Details => Self::Problems,
+            Self::Details | Self::Properties => Self::Problems,
             Self::Problems => Self::Details,
+        }
+    }
+
+    /// The tabs the right dock offers, in order.
+    pub(crate) fn offered(react_preview: bool) -> &'static [Self] {
+        if react_preview {
+            &[Self::Details, Self::Properties, Self::Problems]
+        } else {
+            &[Self::Details, Self::Problems]
+        }
+    }
+
+    /// The tab shown for this one: Properties falls back to Details where it
+    /// is not offered (a project was opened while it was selected).
+    pub(crate) fn shown(self, react_preview: bool) -> Self {
+        if Self::offered(react_preview).contains(&self) {
+            self
+        } else {
+            Self::Details
         }
     }
 }
@@ -406,5 +428,21 @@ mod tests {
     fn show_problems_toggles_between_problems_and_details() {
         assert_eq!(RightTab::Details.toggled_problems(), RightTab::Problems);
         assert_eq!(RightTab::Problems.toggled_problems(), RightTab::Details);
+        assert_eq!(RightTab::Properties.toggled_problems(), RightTab::Problems);
+    }
+
+    #[test]
+    fn properties_tab_is_offered_only_in_react_preview() {
+        assert_eq!(
+            RightTab::offered(true),
+            [RightTab::Details, RightTab::Properties, RightTab::Problems]
+        );
+        assert_eq!(
+            RightTab::offered(false),
+            [RightTab::Details, RightTab::Problems]
+        );
+        assert_eq!(RightTab::Properties.shown(true), RightTab::Properties);
+        assert_eq!(RightTab::Properties.shown(false), RightTab::Details);
+        assert_eq!(RightTab::Problems.shown(false), RightTab::Problems);
     }
 }

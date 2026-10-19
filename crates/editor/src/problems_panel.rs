@@ -14,33 +14,28 @@ use gpui_kit::prelude::*;
 use gpui_kit::{App, ClipboardItem, Context, Hsla, SharedString, Window, div, rems};
 
 impl EditorView {
-    /// The right dock: a tab bar over the inspector (or React Preview panel)
-    /// and the Problems tab.
+    /// The right dock: a tab bar over the inspector (or, in React-preview
+    /// mode, the React Preview and Properties panels) and the Problems tab.
     pub(crate) fn right_dock(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let details_label = if self.is_react_preview() {
-            "React Preview"
-        } else {
-            "Inspector"
-        };
+        let react_preview = self.is_react_preview();
+        let offered = RightTab::offered(react_preview);
+        let shown = self.right_tab.shown(react_preview);
         let count = self.problems.error_count() + self.problems.warning_count();
         let muted = cx.theme().muted_foreground;
         let tabs = TabBar::new("right-dock-tabs")
             .underline()
             .px_3()
-            .selected_index(match self.right_tab {
-                RightTab::Details => 0,
-                RightTab::Problems => 1,
-            })
-            .child(Tab::new().label(details_label))
-            .child(Tab::new().label("Problems").when(count > 0, |tab| {
-                tab.suffix(div().text_xs().text_color(muted).child(count.to_string()))
+            .selected_index(offered.iter().position(|tab| *tab == shown).unwrap_or(0))
+            .children(offered.iter().map(|tab| match tab {
+                RightTab::Details if react_preview => Tab::new().label("React Preview"),
+                RightTab::Details => Tab::new().label("Inspector"),
+                RightTab::Properties => Tab::new().label("Properties"),
+                RightTab::Problems => Tab::new().label("Problems").when(count > 0, |tab| {
+                    tab.suffix(div().text_xs().text_color(muted).child(count.to_string()))
+                }),
             }))
-            .on_click(cx.listener(|this, index: &usize, _, cx| {
-                this.right_tab = if *index == 1 {
-                    RightTab::Problems
-                } else {
-                    RightTab::Details
-                };
+            .on_click(cx.listener(move |this, index: &usize, _, cx| {
+                this.right_tab = offered.get(*index).copied().unwrap_or_default();
                 cx.notify();
             }));
         div()
@@ -50,11 +45,12 @@ impl EditorView {
             .min_h_0()
             .bg(cx.theme().sidebar)
             .child(tabs)
-            .child(match self.right_tab {
-                RightTab::Details if self.is_react_preview() => {
+            .child(match shown {
+                RightTab::Details if react_preview => {
                     self.react_preview_panel(cx).into_any_element()
                 }
                 RightTab::Details => self.inspector_panel(cx).into_any_element(),
+                RightTab::Properties => self.properties_panel(cx).into_any_element(),
                 RightTab::Problems => self.problems_panel(cx).into_any_element(),
             })
     }
