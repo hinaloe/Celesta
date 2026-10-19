@@ -4,7 +4,8 @@ Drawing text in a React composition: the `<Text>` layer, `TextStyle`,
 fonts and fallback, line breaking (including Japanese phrases), text
 animation helpers, measuring text, and fitting text into a box. `Text` and
 measuring come from `@celesta/react`; `TextReveal`, `useTypewriter`,
-`useCountUp`, `TextBox`, `useFitText`, and `fitText` from `@celesta/text`.
+`useCountUp`, `TextBox`, `useFitText`, and `fitText` from `@celesta/text`;
+`TitleCard` from `@celesta/components`.
 Syntax-highlighted code is in [code.md](code.md).
 
 ## Contents
@@ -20,6 +21,7 @@ Syntax-highlighted code is in [code.md](code.md).
 - [Text motion](#text-motion): TextReveal, useTypewriter, useCountUp
 - [Measure text](#measure-text): useTextMetrics, measureText
 - [Fit text into a box](#fit-text-into-a-box): TextBox, useFitText, fitText
+- [Title cards](#title-cards): TitleCard
 - [Verifying text](#verifying-text)
 
 ## The Text layer
@@ -600,6 +602,48 @@ function Title({ text }: { text: string }) {
 same result; pass font files in `options.fonts` and font and color names in
 `options.theme`, as for `measureText()`.
 The full example is `packages/cli/examples/with-text-box.tsx`.
+
+## Title cards
+
+`<TitleCard title subtitle? kicker? chapter? …>` from `@celesta/components`
+is a whole title screen: a large chapter number, a small kicker, the title,
+and a subtitle, stacked top to bottom in one block (absent pieces take no
+space). It lays out in the current area (the canvas, a `<SafeArea>`, or a
+`<Fit>`), keeps the title's `\n` breaks, wraps every piece at the column,
+and shrinks the title with `useFitText` until the block fits.
+
+```tsx
+import { TitleCard } from '@celesta/components';
+
+<TitleCard chapter="01" kicker="GETTING STARTED" kickerRule title={'Code is\nthe cut'}
+  subtitle="Celesta 入門" background="ink" color="paper" subtitleColor="soft" accentColor="accent" />
+```
+
+| Prop | Notes |
+| --- | --- |
+| `align` | `'left'` (default), `'center'`, `'right'`: where the column sits and how its lines align. Every piece passes `maxWidth`, so lines align the same in preview and export. |
+| `verticalAlign` | `'top'`, `'middle'` (default), `'bottom'`: where the block sits. |
+| `background` | A hex color or `<Theme>` color name, or any element (a `<PatternBackground>`, an `<Image>`), over the whole area. Omitted, the card is transparent, for a header over a scene. |
+| `safeArea` | As `<SafeArea padding>`, such as `'vertical-social'`: the text keeps clear of the platform UI while the background fills the frame. |
+| `padding`, `maxWidth`, `gap` | Space inside the area (a number or per-edge insets), the widest column, and the space between pieces. Defaults scale with the area's shorter side. |
+| `fontFamily`, `color`, `subtitleColor`, `accentColor` | Family or `<Theme>` font name for every piece; hex colors or `<Theme>` color names. `accentColor` paints the chapter number, kicker, and `kickerRule`. |
+| `titleSize`, `minTitleSize`, `maxTitleLines`, `titleLineHeight` | The title's largest and smallest sizes (defaults 9% of the shorter side, and 40% of that), a line limit while it shrinks, and its line height as a multiple (1.1). |
+| `subtitleSize`, `kickerSize`, `chapterSize` | Defaults 3%, 2%, and 16% of the shorter side. |
+| `kickerRule` | A short line before the kicker; a number sets its length. |
+| `titleStyle`, `subtitleStyle`, `kickerStyle`, `chapterStyle` | Extra `TextStyle` over each piece's defaults (letter spacing, weight, another font). |
+| `enter`, `exit`, `stagger` | Each piece is a [`<Motion>`](animation.md#motion) with these `enter`/`exit` effects (`null` cuts), coming in `stagger` frames after the one above. Defaults: `fade-up`, `'fade'`, a fifth of a second. |
+
+- **Calm or staggered.** The defaults bring the pieces in one after another.
+  `enter="fade" stagger={0}` fades them in together; `enter={null}
+  exit={null}` draws a still card.
+- **Timing.** The pieces share the enclosing sequence's window: put the
+  card in a `<Sequence>` (or a scene) of the length it should stay, and all
+  pieces leave together at its end.
+- **Not for scene changes.** To join the card to the next scene with a
+  cross-fade or wipe, put both in a `<TransitionSeries>`.
+
+Runnable: [`packages/cli/examples/with-title-card.tsx`](../../../packages/cli/examples/with-title-card.tsx)
+(a staggered card, a calm one, and a vertical card inside `'vertical-social'`).
 
 ## Verifying text
 
