@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import { clamp01, random } from '@celesta/math';
-import { Easings, Group, Rect, progress, useCurrentFrame, useVideoConfig } from '@celesta/react';
-import { Label } from '../components/Label';
+import { Easings, Group, Rect, Text, progress, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import { C, H, W } from '../constants';
 import { LOGO_SIZE, logo } from '../metrics';
 
@@ -57,18 +56,18 @@ export function Logo() {
             {logo.letters.map(({ text, x }, i) => {
               const letter = progress(f, i * 2, 24, Easings.easeOutExpo);
               return (
-                <Label key={i} x={x - logo!.width / 2} y={LOGO_SIZE * 0.35 + 20 * (1 - letter)} size={LOGO_SIZE} weight={700}
-                  ay="baseline" opacity={clamp01(letter * 2)}>{text}</Label>
+                <Text key={i} x={x - logo!.width / 2} y={LOGO_SIZE * 0.35 + 20 * (1 - letter)} fontFamily="display" fontSize={LOGO_SIZE} fontWeight={700} color="paper"
+                  anchorY="baseline" opacity={clamp01(letter * 2)}>{text}</Text>
               );
             })}
           </Group>
         ) : (
-          <Label x={cx} y={cy + 20 * (1 - hit)} size={LOGO_SIZE} weight={700} ax={0.5} ay={0.5}
-            scale={1.3 - 0.3 * hit} opacity={clamp01(hit * 2)}>Celesta</Label>
+          <Text x={cx} y={cy + 20 * (1 - hit)} fontFamily="display" fontSize={LOGO_SIZE} fontWeight={700} color="paper"
+            anchorX={0.5} anchorY={0.5} scale={1.3 - 0.3 * hit} opacity={clamp01(hit * 2)}>Celesta</Text>
         )}
         <Rect x={cx} y={cy + 160} anchorX={0.5} width={Math.max(1, 640 * rule)} height={2} fill={C.paper} opacity={0.5} />
-        <Label x={cx} y={cy + 216 + 16 * (1 - sub)} size={26} font="mono" weight={400} color={C.grey}
-          ax={0.5} ay={0.5} opacity={sub}>C O D E - F I R S T   V I D E O</Label>
+        <Text x={cx} y={cy + 216 + 16 * (1 - sub)} fontFamily="mono" fontSize={26} fontWeight={400} color="grey"
+          anchorX={0.5} anchorY={0.5} opacity={sub}>C O D E - F I R S T   V I D E O</Text>
       </Group>
       <Rect width={W} height={H} fill={C.paper} opacity={flash} />
     </>

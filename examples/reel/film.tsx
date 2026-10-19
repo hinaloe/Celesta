@@ -1,7 +1,7 @@
-import { Assets, Audio, Composition, Font, Sequence } from '@celesta/react';
+import { Assets, Audio, Composition, Font, Sequence, Theme } from '@celesta/react';
 import { Hud } from './components/Hud';
 import { Wipe } from './components/Wipe';
-import { DURATION, FPS, FONT_SRC, H, W } from './constants';
+import { C, DURATION, FONT, FPS, FONT_SRC, H, W } from './constants';
 import { S, SCENES } from './timeline';
 
 // "Code is the cut." A 32-second kinetic-type reel for Celesta, cut to a
@@ -11,9 +11,10 @@ import { S, SCENES } from './timeline';
 //
 //   timeline.ts    scene boundaries (S) and the scene list
 //   scenes/        one file per scene
-//   components/    Label, Mono (colored code runs), Tag, Swap, Wipe, Hud
+//   components/    Mono (colored code runs), Tag, Swap, Wipe, Hud
 //   metrics.ts     font measurements made in prepare()
-//   constants.ts   palette, sizes, and timing
+//   constants.ts   palette, sizes, and timing; <Theme> names the palette
+//                  and fonts, so text says fontFamily="mono" color="grey"
 
 // Measures the fonts once before the first frame.
 export { prepare } from './metrics';
@@ -24,13 +25,15 @@ export default function Root() {
       <Assets>
         <Font src={FONT_SRC} />
       </Assets>
-      {SCENES.map(({ from, to, Scene }) => (
-        <Sequence key={from} from={from} durationInFrames={to - from}><Scene /></Sequence>
-      ))}
-      {[S.field, S.code, S.timeline, S.exportAt].map((cut) => (
-        <Sequence key={`wipe-${cut}`} from={cut - 7} durationInFrames={15}><Wipe /></Sequence>
-      ))}
-      <Sequence from={0} durationInFrames={S.silence}><Hud /></Sequence>
+      <Theme fonts={FONT} colors={C}>
+        {SCENES.map(({ from, to, Scene }) => (
+          <Sequence key={from} from={from} durationInFrames={to - from}><Scene /></Sequence>
+        ))}
+        {[S.field, S.code, S.timeline, S.exportAt].map((cut) => (
+          <Sequence key={`wipe-${cut}`} from={cut - 7} durationInFrames={15}><Wipe /></Sequence>
+        ))}
+        <Sequence from={0} durationInFrames={S.silence}><Hud /></Sequence>
+      </Theme>
       <Audio src="./music.wav" />
     </Composition>
   );

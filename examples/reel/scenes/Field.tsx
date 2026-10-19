@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
-import { Easings, Group, Rect, progress, useCurrentFrame, useVideoConfig } from '@celesta/react';
-import { Label } from '../components/Label';
+import { Easings, Group, Rect, Text, progress, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import { Tag } from '../components/Tag';
 import { BAR, C, FPS, H, W } from '../constants';
 
@@ -50,17 +49,17 @@ export function Field() {
       <Group x={120} y={H - 380} opacity={textIn * textOut}>
         <Rect x={-40} y={-50} width={900} height={330} fill={C.ink} opacity={0.88} />
         <Tag x={0} y={0} n="02" name="DETERMINISTIC" />
-        <Label x={0} y={48 + 30 * (1 - textIn)} size={104} lineHeight={108}>{'Every frame,\na pure function.'}</Label>
+        <Text x={0} y={48 + 30 * (1 - textIn)} fontFamily="display" fontSize={104} fontWeight={700} color="paper" style={{ lineHeight: 108 }}>{'Every frame,\na pure function.'}</Text>
       </Group>
       <Group x={W - 120} y={120} opacity={textIn * textOut}>
         <Rect x={-620} y={-40} width={660} height={190} fill={C.ink} opacity={0.88} />
-        <Label x={0} y={0} size={24} font="mono" weight={400} color={C.grey} ax={1} ay={0.5}>{formula}</Label>
-        <Label x={0} y={50} size={24} font="mono" weight={400} color={C.paper} ax={1} ay={0.5}>
+        <Text x={0} y={0} fontFamily="mono" fontSize={24} fontWeight={400} color="grey" anchorX={1} anchorY={0.5}>{formula}</Text>
+        <Text x={0} y={50} fontFamily="mono" fontSize={24} fontWeight={400} color="paper" anchorX={1} anchorY={0.5}>
           {`t = ${t.toFixed(3)} s`}
-        </Label>
-        <Label x={0} y={100} size={24} font="mono" weight={700} color={C.accent} ay={0.5} ax={1}>
+        </Text>
+        <Text x={0} y={100} fontFamily="mono" fontSize={24} fontWeight={700} color="accent" anchorY={0.5} anchorX={1}>
           {`frame ${String(f).padStart(3, '0')} → same pixels, every time`}
-        </Label>
+        </Text>
       </Group>
     </>
   );

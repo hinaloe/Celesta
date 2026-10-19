@@ -1,5 +1,4 @@
-import { Easings, cueAt, progress } from '@celesta/react';
-import { Label } from './Label';
+import { Easings, Text, cueAt, progress } from '@celesta/react';
 import { C } from '../constants';
 
 // A headline that swaps on the given frames, each new line sliding up.
@@ -10,5 +9,5 @@ export function Swap({ f, cues, x, y, size, color = C.paper, accentLast = false 
   if (!active) return null;
   const p = progress(active.frame, 0, 10, Easings.easeOutExpo);
   const last = accentLast && !active.next;
-  return <Label x={x} y={y + 40 * (1 - p)} size={size} opacity={p} color={last ? C.accent : color}>{active.cue.text}</Label>;
+  return <Text x={x} y={y + 40 * (1 - p)} fontFamily="display" fontSize={size} fontWeight={700} color={last ? C.accent : color} opacity={p}>{active.cue.text}</Text>;
 }

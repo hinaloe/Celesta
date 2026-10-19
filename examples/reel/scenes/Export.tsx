@@ -1,7 +1,6 @@
 import type { Run } from '../components/Mono';
 import { clamp } from '@celesta/math';
-import { Easings, Group, Rect, progress, useCurrentFrame } from '@celesta/react';
-import { Label } from '../components/Label';
+import { Easings, Group, Rect, Text, progress, useCurrentFrame } from '@celesta/react';
 import { Mono, runLength } from '../components/Mono';
 import { Tag } from '../components/Tag';
 import { BEAT, C, DURATION, H, W } from '../constants';
@@ -26,9 +25,9 @@ export function Export() {
     <>
       <Rect width={W} height={H} fill={C.paper} />
       <Tag x={120} y={150} n="05" name="EXPORT" color={C.ink} opacity={inAt} />
-      <Label x={120} y={200 + 30 * (1 - inAt)} size={112} lineHeight={116} color={C.ink} opacity={inAt}>
+      <Text x={120} y={200 + 30 * (1 - inAt)} fontFamily="display" fontSize={112} fontWeight={700} color="ink" style={{ lineHeight: 116 }} opacity={inAt}>
         {'What you preview\nis what you ship.'}
-      </Label>
+      </Text>
       <Mono runs={COMMAND} x={124} y={480} size={28} visible={typed} />
       {typed < runLength(COMMAND) || Math.floor(f / 8) % 2 === 0 ? (
         <Rect x={124 + typed * 28 * monoAdvance + 2} y={464} width={3} height={32} fill={C.accent} />
@@ -38,23 +37,23 @@ export function Export() {
         return (
           <Group key={spec} x={120} y={620 + i * 44} opacity={on}>
             <Rect y={-4} width={8} height={8} fill={i === SPECS.length - 1 ? C.accent : C.ink} />
-            <Label x={24 + 20 * (1 - on)} y={0} size={26} font="mono" weight={400} color={C.ink} ay={0.5}>{spec}</Label>
+            <Text x={24 + 20 * (1 - on)} y={0} fontFamily="mono" fontSize={26} fontWeight={400} color="ink" anchorY={0.5}>{spec}</Text>
           </Group>
         );
       })}
-      <Label x={W - 330} y={690} size={440} color={done ? C.accent : C.ink} ax={1} ay={0.5}
-        scale={done ? 1 + 0.06 * (1 - progress(f, 96, 10, Easings.easeOutExpo)) : 1}>
+      <Text x={W - 330} y={690} fontFamily="display" fontSize={440} fontWeight={700} color={done ? C.accent : C.ink}
+        anchorX={1} anchorY={0.5} scale={done ? 1 + 0.06 * (1 - progress(f, 96, 10, Easings.easeOutExpo)) : 1}>
         {String(pct)}
-      </Label>
-      <Label x={W - 120} y={560} size={160} weight={500} color={C.ink} ax={1} ay={0.5}>%</Label>
+      </Text>
+      <Text x={W - 120} y={560} fontFamily="display" fontSize={160} fontWeight={500} color="ink" anchorX={1} anchorY={0.5}>%</Text>
       <Rect x={120} y={910} width={W - 240} height={4} fill={C.ink} opacity={0.15} />
       <Rect x={120} y={910} width={Math.max(1, (W - 240) * p)} height={4} fill={done ? C.accent : C.ink} />
-      <Label x={120} y={950} size={20} font="mono" weight={400} color={C.ink} ay={0.5}>
+      <Text x={120} y={950} fontFamily="mono" fontSize={20} fontWeight={400} color="ink" anchorY={0.5}>
         {`frame ${String(Math.round(p * DURATION)).padStart(3, '0')} / ${DURATION}`}
-      </Label>
-      <Label x={W - 120} y={950} size={20} font="mono" weight={700} color={done ? C.accent : C.ink} ax={1} ay={0.5}>
+      </Text>
+      <Text x={W - 120} y={950} fontFamily="mono" fontSize={20} fontWeight={700} color={done ? C.accent : C.ink} anchorX={1} anchorY={0.5}>
         {done ? 'DONE → reel.mp4' : 'RENDERING…'}
-      </Label>
+      </Text>
     </>
   );
 }
