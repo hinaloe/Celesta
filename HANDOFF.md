@@ -65,6 +65,9 @@ renders host elements of its own registers them with `registerHostElement()`
 when its module loads, as `@celesta/character` does for `<CharacterView>` and
 `<Dialogue>`; the walker rejects unregistered element types. State that the
 CLI installs (the text measurer and media probe) lives in the core.
+Ready-made, high-level components that compose the primitives (such as
+`<FrameChrome>`) go in `@celesta/components` rather than the core, and use
+only the core's public API.
 `@celesta/code`, `@celesta/voicevox`, and `@celesta/aivis-speech` stay optional imports for
 compositions: no package a composition imports depends on them, though
 `@celesta/cli` includes them in the runtime.
@@ -94,6 +97,7 @@ compositions: no package a composition imports depends on them, though
 | `packages/lottie` (`@celesta/lottie`) | `<Lottie>`: Lottie JSON animations drawn as paths, groups, and masks; see [`docs/handoff/2026-10-19-lottie.md`](docs/handoff/2026-10-19-lottie.md). |
 | `packages/shader` (`@celesta/shader`) | `defineShader`: custom WGSL filters for a layer's `shader` prop. |
 | `packages/layout` (`@celesta/layout`) | Layout containers and `Camera`. |
+| `packages/components` (`@celesta/components`) | High-level components built on the core's public API, such as `FrameChrome`. |
 | `packages/transitions` (`@celesta/transitions`) | `Transition` and `TransitionSeries`. |
 | `packages/text` (`@celesta/text`) | Text motion and box-fitted text. |
 | `packages/character` (`@celesta/character`) | Characters, dialogue, subtitles, lip sync, blinking, and PSD presets. |

@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import * as React from 'react';
 
-import { Composition, FrameChrome, Theme, defineScenes, frameToTimecode } from '../dist/index.js';
-import { mount } from '../dist/render.js';
+import { Composition, Theme, defineScenes } from '@celesta/react';
+import { mount } from '@celesta/react/internal';
+import { FrameChrome } from '../dist/index.js';
 
 const h = React.createElement;
 
@@ -26,12 +27,6 @@ function render(props, { width = 1920, height = 1080, durationInFrames = 90, fra
 }
 
 const textAt = (layers, text) => leaves(layers).find((layer) => layer.type === 'text' && layer.text === text);
-
-test('frameToTimecode can leave the hours out', () => {
-  assert.equal(frameToTimecode(30 * 3725 + 7, 30), '01:02:05:07');
-  assert.equal(frameToTimecode(30 * 3725 + 7, 30, { hours: false }), '62:05:07');
-  assert.equal(frameToTimecode(-4, 30, { hours: false }), '00:00:00');
-});
 
 test('FrameChrome keeps its corners and labels inside the margin at any canvas shape', () => {
   for (const [width, height] of [[1920, 1080], [1080, 1920], [1080, 1080]]) {

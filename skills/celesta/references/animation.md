@@ -5,7 +5,8 @@ springs, `Sequence` scenes, transitions, and the motion helpers that save
 hand-written timing math. Imported from `@celesta/react`, except `Transition`,
 `TransitionSeries`, `computeTransitionSeries`, `useTransitionSeriesScene`, and
 `useTransitionVolume` (`@celesta/transitions`), `Camera` (`@celesta/layout`),
-and `TextReveal`, `useTypewriter`, and `useCountUp` (`@celesta/text`).
+`FrameChrome` (`@celesta/components`), and `TextReveal`, `useTypewriter`, and
+`useCountUp` (`@celesta/text`).
 
 Every frame must be a pure function of the frame number: frames are rendered
 out of order when scrubbing and exporting. Never use `Math.random()`,
@@ -353,7 +354,7 @@ function Hud() {
 
 ## FrameChrome
 
-The overlay a film keeps around the picture, laid out inside `margin` from
+Imported from `@celesta/components`. The overlay a film keeps around the picture, laid out inside `margin` from
 the canvas size, so it holds its places on landscape, vertical, and square
 canvases. Only what is turned on is drawn:
 
@@ -381,6 +382,8 @@ scenes; `progressBlendMode="normal"` keeps a colored bar out of the blend.
 `useScene(SCENES)?.id === 'logo' ? null : <FrameChrome … />`.
 
 ```tsx
+import { FrameChrome } from '@celesta/components';
+
 <Theme fonts={{ mono: 'JetBrains Mono' }} colors={{ paper: '#f4f1ea', accent: '#ff4d1f' }}>
   <Scenes scenes={SCENES} />
   <FrameChrome margin={56} corners timecode chapters progress scenes={SCENES}

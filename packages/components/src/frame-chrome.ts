@@ -4,13 +4,8 @@
 
 import * as React from 'react';
 
-import { Group, Rect, Text } from './components';
-import { useCurrentFrame, useVideoConfig } from './hooks';
-import { Span } from './rich-text';
-import type { BlendMode, FontFamily } from './scene';
-import { type SceneEntry, type SceneList, type SceneState, sceneAt } from './scenes';
-import { themeColor, useTheme } from './theme';
-import { frameToTimecode } from './time';
+import { Group, Rect, Span, Text, frameToTimecode, sceneAt, useCurrentFrame, useTheme, useVideoConfig } from '@celesta/react';
+import type { BlendMode, FontFamily, ResolvedTheme, SceneEntry, SceneList, SceneState } from '@celesta/react';
 
 /** A corner of the frame, where `<FrameChrome>` places one of its labels. */
 export type FrameCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
@@ -99,8 +94,8 @@ const DEFAULT_POSITIONS: Record<FrameChromeLabel, FrameCorner> = {
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
 
-function hexColor(color: string, theme: ReturnType<typeof useTheme>, prop: string): string {
-  const resolved = themeColor(color, theme);
+function hexColor(color: string, theme: ResolvedTheme, prop: string): string {
+  const resolved = Object.prototype.hasOwnProperty.call(theme.colors, color) ? theme.colors[color]! : color;
   if (!HEX_COLOR.test(resolved)) {
     throw new Error(`<FrameChrome> ${prop} ${JSON.stringify(color)} is neither a #RRGGBB or #RRGGBBAA color nor a <Theme> color name`);
   }

@@ -109,9 +109,6 @@ export type { SeriesItem, SeriesProps, SeriesSequenceProps, SeriesTiming, Stagge
 export { Scenes, defineScenes, sceneAt, useScene } from './scenes';
 export type { PlacedScene, SceneEntry, SceneList, SceneState, ScenesProps } from './scenes';
 
-export { FrameChrome } from './frame-chrome';
-export type { FrameChromeLabel, FrameChromeProps, FrameCorner } from './frame-chrome';
-
 export { Easings, interpolate, interpolateColor, progress, spring } from './animation';
 export type {
   ColorExtrapolate,

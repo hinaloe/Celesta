@@ -1,4 +1,4 @@
-import { FrameChrome } from '@celesta/react';
+import { FrameChrome } from '@celesta/components';
 import { BONE } from '../constants';
 
 // Global frame HUD: corner brackets, timecode, and a film-long progress line.

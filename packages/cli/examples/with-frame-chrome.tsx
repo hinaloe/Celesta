@@ -1,4 +1,5 @@
-import { Composition, Font, FrameChrome, Rect, Scenes, Text, Theme, defineScenes } from '@celesta/react';
+import { FrameChrome } from '@celesta/components';
+import { Composition, Font, Rect, Scenes, Text, Theme, defineScenes } from '@celesta/react';
 
 // <FrameChrome> draws the overlay a film keeps around the picture: corner
 // brackets, a title, the timecode, the current chapter, and a progress bar

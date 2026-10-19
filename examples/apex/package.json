@@ -2,6 +2,7 @@
   "name": "@celesta/example-apex",
   "private": true,
   "dependencies": {
+    "@celesta/components": "workspace:*",
     "@celesta/layout": "workspace:*",
     "@celesta/math": "workspace:*",
     "@celesta/react": "workspace:*",

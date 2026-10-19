@@ -26,6 +26,7 @@
   "devDependencies": {
     "@celesta/character": "workspace:*",
     "@celesta/code": "workspace:*",
+    "@celesta/components": "workspace:*",
     "@celesta/debug": "workspace:*",
     "@celesta/layout": "workspace:*",
     "@celesta/lottie": "workspace:*",
