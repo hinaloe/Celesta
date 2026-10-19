@@ -13,6 +13,7 @@ export { Easings, interpolate, interpolateColor, progress, spring } from './anim
 export { frameToTimecode, timecodeToFrame } from './time';
 export { beatAt, cueAt, useBeat, useCue } from './timing';
 export { Series, Stagger, computeSeries } from './series';
+export { Scenes, defineScenes, sceneAt, useScene } from './scenes';
 export { frameKeyframes } from './keyframes';
 export { measureText, textCaret, useTextMetrics } from './text-measure';
 export { Span } from './rich-text';

@@ -72,13 +72,3 @@ export const CHAPTERS: Chapter[] = [
     api: [[0, 'skills/celesta/SKILL.md']], len: BAR * 2, bg: C.ink, Demo: AgentDemo,
   },
 ];
-
-// Chapter start frames, back to back after the index.
-export const CHAPTER_AT: number[] = [];
-{
-  let at = BAR * 4;
-  for (const chapter of CHAPTERS) {
-    CHAPTER_AT.push(at);
-    at += chapter.len;
-  }
-}
