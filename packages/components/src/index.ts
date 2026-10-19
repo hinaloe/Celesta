@@ -10,6 +10,8 @@ export { FrameChrome } from './frame-chrome';
 export type { FrameChromeLabel, FrameChromeProps, FrameCorner } from './frame-chrome';
 export { MediaFrame } from './media-frame';
 export type { MediaFit, MediaFrameImageProps, MediaFrameProps, MediaFrameVariant, MediaFrameVideoProps } from './media-frame';
+export { Motion } from './motion';
+export type { MotionEffect, MotionOptions, MotionPreset, MotionProps } from './motion';
 export { Panel } from './panel';
 export type { PanelProps } from './panel';
 export { PatternBackground } from './pattern-background';

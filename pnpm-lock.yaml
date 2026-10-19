@@ -826,6 +826,9 @@ importers:
       '@celesta/math':
         specifier: workspace:*
         version: link:../math
+      '@celesta/transitions':
+        specifier: workspace:*
+        version: link:../transitions
     devDependencies:
       '@celesta/react':
         specifier: workspace:*
