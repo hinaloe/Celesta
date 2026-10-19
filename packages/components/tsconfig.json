@@ -20,6 +20,7 @@
     { "path": "../layout" },
     { "path": "../math" },
     { "path": "../react" },
+    { "path": "../text" },
     { "path": "../transitions" }
   ]
 }
