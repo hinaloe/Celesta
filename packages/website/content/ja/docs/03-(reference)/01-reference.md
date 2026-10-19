@@ -71,6 +71,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `FrameChrome` | `@celesta/components` | 四隅のブラケット・タイトル・タイムコード・現在の章・プログレスバーを、キャンバスの大きさに合わせて画面の周りに描きます。 |
 | `PatternBackground` | `@celesta/components` | ドット・格子・ストライプ、または自前のマークを、キャンバスや指定した領域いっぱいに繰り返して描き、クリップします。フレームに合わせて動かせます。 |
 | `Panel` | `@celesta/components` | 背景・枠線・角丸・影を持つ指定サイズの枠です。子は余白の内側に配置され、枠でクリップすることもできます。 |
+| `Badge` | `@celesta/components` | 文字を計測した寸法の `Panel` に載せたラベルです。文字の前の装飾、`cornerRadius="pill"` による半円の両端、`maxWidth` での折り返しに対応します。 |
 | `Center`, `SafeArea`, `Stack`, `Grid`, `Fit`, `LayoutBounds` | `@celesta/layout` | 子のレイヤーを配置します。[レイアウトのヘルパー](/ja/docs/layout/)を参照。 |
 | `preloadMedia` / `mediaDurationInFrames` | `@celesta/media-utils` | `prepare()` 内でメディアの長さとサイズを取得します。 |
 | `loadAudioSpectrum` / `useAudioSpectrum` / `spectrumAt` | `@celesta/media-utils` | `prepare()` で音声ファイルを解析し、フレームごとの周波数帯と音量を読みます。[画像・動画・音声](/ja/docs/media/)を参照。 |

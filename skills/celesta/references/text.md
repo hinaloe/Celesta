@@ -490,6 +490,12 @@ const label = <>New <Span style={{ fontWeight: 700 }}>2.0</Span></>;
 const m = useTextMetrics(label, style);
 ```
 
+For a plain label like these, `<Badge>` from `@celesta/components` does the
+measuring and the sizing, with a decoration before the text and wrapping at
+a `maxWidth`: `<Badge fill="#28A34A" cornerRadius="pill" padding={{ top: 12,
+right: 24, bottom: 12, left: 24 }} style={style} color="#ffffff">{label}</Badge>`.
+See [react-core.md](react-core.md#badge-labels-sized-to-their-text).
+
 A caret after typed text, and a second label after the first: measure
 instead of multiplying the character count by a font's advance (`0.6 em`
 holds for one monospace font, and breaks on CJK, emoji, and any other

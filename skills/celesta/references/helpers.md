@@ -22,6 +22,7 @@ preview and export, and other people (and agents) reading the file know them.
 | Corner brackets, a timecode, and a progress bar drawn by hand in a HUD | `<FrameChrome corners timecode progress />` | `@celesta/components` |
 | `Array.from({ length: cols * rows }, …)` of `<Rect>` dots or grid lines | `<PatternBackground pattern="dots" spacing={80} size={3} />` | `@celesta/components` |
 | A card as a `<Group clip>` around a `<Rect>` of the same size, with the content at `x={PAD} y={PAD}` | `<Panel width height padding={PAD} fill cornerRadius clip>` | `@celesta/components` |
+| `useTextMetrics(label)` and a `<Rect width={m.width + PAD * 2}>` behind a `<Text>` for a tag or chip | `<Badge fill padding cornerRadius="pill" leading leadingWidth>` | `@celesta/components` |
 | `from: i * 6` on each item | `<Stagger each={6}>` | `@celesta/react` |
 | Scene start frames summed by hand | `<Series>` + `computeSeries` | `@celesta/react` |
 | A beat counter from the BPM | `useBeat({ bpm })` | `@celesta/react` |

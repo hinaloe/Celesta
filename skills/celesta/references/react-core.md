@@ -30,6 +30,7 @@ provides `react` (18.x) and those packages; never install them from npm.
 - [Instances (particles)](#instances-particles)
 - [PatternBackground (dots, grid, stripes)](#patternbackground-dots-grid-stripes)
 - [Panel (cards and boxes with padding)](#panel-cards-and-boxes-with-padding)
+- [Badge (labels sized to their text)](#badge-labels-sized-to-their-text)
 - [Static (still subtrees)](#static-still-subtrees)
 - [Video](#video)
 - [Audio](#audio)
@@ -658,6 +659,62 @@ import { Center } from '@celesta/layout';
 ```
 
 Runnable: [`packages/cli/examples/with-panel.tsx`](../../../packages/cli/examples/with-panel.tsx).
+
+## Badge (labels sized to their text)
+
+Imported from `@celesta/components`. A label on a [`Panel`](#panel-cards-and-boxes-with-padding)
+whose size comes from the measured text: tags, chapter labels, chips, and
+pills. It passes the same text and style to `useTextMetrics()` and `<Text>`,
+so the background fits Japanese, Latin, and proportional fonts without
+estimating widths from the number of characters, and follows the text when
+it or the font changes. There is no separate `Chip`: a chip is a badge with
+`cornerRadius="pill"`.
+
+| Prop | Default | Notes |
+| --- | --- | --- |
+| `children` | required | The label: text, which may hold `<Span>`. |
+| `style`, `fontFamily`, `fontSize`, `fontWeight`, `color` | none | The label's `TextStyle` and the same shorthand as `<Text>`; theme names work. |
+| `padding` | `{ top: 8, right: 16, bottom: 8, left: 16 }` | As `Panel` takes it. |
+| `cornerRadius` | `8` | A radius, or `'pill'` for half the badge's height. |
+| `leading`, `leadingWidth` | none | A decoration before the text (a dot, an icon) and the width it lays out in; `leading` without `leadingWidth` throws. |
+| `gap` | `8` | Space between `leading` and the text. |
+| `maxWidth` | none | The widest the badge may be, padding included. |
+| `fill`, `stroke`, `strokeWidth`, `shadow`, `clip`, `anchorX`, `anchorY` | as `Panel` | Passed to the `Panel`. |
+
+- Size: the text's advance width plus `leadingWidth + gap` and the padding
+  across; its line boxes plus the padding down (`useTextMetrics()`'s
+  `height`, so one line and several alike). The text sits on its baseline at
+  `padding.top + ascent`. Empty text keeps one line box, so the badge does
+  not collapse while text is typed in.
+- `leading` lays out in a box `leadingWidth` wide and one line tall at the
+  start of the content, so `<Center>` in it centres on the first line.
+- `maxWidth`: longer text wraps onto more lines and the badge grows taller.
+  A single word wider than the room is cut off at the edge, as with
+  `<Text maxWidth>`; pass `clip` to cut it at the rounded box. Truncating
+  with an ellipsis is not supported.
+- `anchorX`/`anchorY`, `x`/`y`, `rotation`, `scale`, and `opacity` apply to
+  the whole badge, so the background and the text move together.
+- `padding`, `cornerRadius`, `gap`, `leadingWidth`, and `maxWidth` must be
+  finite and not negative, or it throws.
+
+```tsx
+import { Badge } from '@celesta/components';
+import { Center } from '@celesta/layout';
+
+<Badge x={120} y={80} fill="#204060" fontFamily="ja" fontSize={28} color="#FFFFFF">第1章</Badge>
+
+// A chip with a dot, centred on a point and scaled about it.
+<Badge x={960} y={840} anchorX={0.5} anchorY={0.5} scale={pop}
+  fill="#10121A" stroke="#2C3A50" strokeWidth={1} cornerRadius="pill"
+  padding={{ top: 14, right: 24, bottom: 14, left: 20 }}
+  fontFamily="mono" fontSize={22} color="#5BC0FF"
+  leading={<Center><Rect anchorX={0.5} anchorY={0.5} width={8} height={8} cornerRadius={4} fill="#3D5BFF" /></Center>}
+  leadingWidth={8} gap={12}>
+  {'<Composition fps={30}>'}
+</Badge>
+```
+
+Runnable: [`packages/cli/examples/with-badge.tsx`](../../../packages/cli/examples/with-badge.tsx).
 
 ## Static (still subtrees)
 

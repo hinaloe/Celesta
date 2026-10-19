@@ -196,6 +196,17 @@ const ripple = defineShader({
 </Panel>
 ```
 
+`@celesta/components` の `Badge` は、文字を実際に計測した寸法の `Panel` に載せたラベルです。日本語・英数字・比例フォントのどれでも背景が文字に合い、文字が変わればその場で背景も変わります。文字の `style`（または `fontFamily`・`fontSize`・`fontWeight`・`color` の省略形）、`Panel` の `fill`・`stroke`・`shadow`・アンカー、`padding`（既定は上下 8・左右 16）、`cornerRadius`（既定は 8。`"pill"` で両端が半円になります。チップ用の別コンポーネントはありません）を受け取ります。`leading` は文字の前に描く装飾（ドットなど）で、幅 `leadingWidth`・1 行分の高さの領域に配置され、文字との間は `gap` です。`maxWidth` を指定すると長い文字は折り返し、バッジは縦に伸びます。
+
+```tsx title="章ラベルとドット付きのチップ"
+<Badge x={120} y={80} fill="#204060" fontSize={28} color="#FFFFFF">第1章</Badge>
+<Badge x={120} y={160} fill="#10121A" cornerRadius="pill" fontSize={22} color="#5BC0FF"
+  leading={<Center><Rect anchorX={0.5} anchorY={0.5} width={8} height={8} cornerRadius={4} fill="#3D5BFF" /></Center>}
+  leadingWidth={8} gap={12}>
+  {"<Composition fps={30}>"}
+</Badge>
+```
+
 ## Shorts・TikTok・Reels 向けの縦型動画
 
 キャンバスは 1080×1920 にします。プレーヤーは動画の上に自分の UI を重ねます。キャプション、チャンネル名、再生バーが下の約 20% を覆い、いいね・コメント・共有のボタンが右端に並びます。見出し、字幕、ロゴ、呼びかけなど読ませるものは `<SafeArea>` の内側に置き、背景、映像、装飾は端まで使います。プリセット `'vertical-social'` は、キャンバスの上 10%、右 18.5%、下 20%、左 1/15 を避けます（1080×1920 では上 192、右 200、下 384、左 72 px）。目安であり、各プラットフォームの仕様ではなく、UI の変更にも追従しません。より正確な値が分かるときは `{ top, right, bottom, left }` で指定します。

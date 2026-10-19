@@ -196,6 +196,17 @@ Helpers position child origins; they do not measure what the children draw. Anch
 </Panel>
 ```
 
+`Badge` from `@celesta/components` is a label on a `Panel` sized from its measured text, so the background fits Japanese, Latin, and proportional fonts and follows the text as it changes. It takes the text's `style` (or the `fontFamily`, `fontSize`, `fontWeight`, and `color` shorthand), the panel's `fill`, `stroke`, `shadow`, and anchors, a `padding` (8 above and below, 16 at the sides by default), and a `cornerRadius` (8 by default, or `"pill"` for round ends; there is no separate chip component). `leading` draws a decoration such as a dot before the text, in a box `leadingWidth` wide and one line tall, `gap` before the text. With `maxWidth`, long text wraps and the badge grows taller.
+
+```tsx title="A chapter label and a chip with a dot"
+<Badge x={120} y={80} fill="#204060" fontSize={28} color="#FFFFFF">第1章</Badge>
+<Badge x={120} y={160} fill="#10121A" cornerRadius="pill" fontSize={22} color="#5BC0FF"
+  leading={<Center><Rect anchorX={0.5} anchorY={0.5} width={8} height={8} cornerRadius={4} fill="#3D5BFF" /></Center>}
+  leadingWidth={8} gap={12}>
+  {"<Composition fps={30}>"}
+</Badge>
+```
+
 ## Vertical video for Shorts, TikTok, and Reels
 
 Use a 1080×1920 canvas. The players draw their own UI over the video: the caption, channel name, and progress bar cover about the bottom 20%, and the like, comment, and share buttons run down the right edge. Keep everything meant to be read (headlines, subtitles, logos, calls to action) inside `<SafeArea>`, and let backgrounds, footage, and decoration run to the edges. The `'vertical-social'` preset keeps top 10%, right 18.5%, bottom 20%, and left 1/15 of the canvas clear (top 192, right 200, bottom 384, left 72 px at 1080×1920). It is a rough guide, not a platform specification, and does not follow changes to the platforms' UI; pass `{ top, right, bottom, left }` when you know better.
