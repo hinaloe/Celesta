@@ -1,8 +1,8 @@
+import { TypewriterText } from '@celesta/components';
 import { noise, random } from '@celesta/math';
-import { Easings, Group, Rect, progress, textCaret, useBeat, useCurrentFrame, useTextMetrics, useVideoConfig } from '@celesta/react';
+import { Easings, Rect, progress, useBeat, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import { Camera } from '@celesta/layout';
-import { TextReveal, useTypewriter } from '@celesta/text';
-import { Caret } from '../components/Caret';
+import { TextReveal } from '@celesta/text';
 import { Label, textStyle } from '../components/Label';
 import { BEAT, BPM, C, H, W } from '../constants';
 import { TOTAL_COMMITS } from '../data';
@@ -13,10 +13,6 @@ export function Outro() {
   const f = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
   const { pulse } = useBeat({ bpm: BPM });
-  const typed = useTypewriter(NEXT, { from: 8, framesPerChar: 1 / 1.2, blinkFrames: BEAT });
-  const size = 36;
-  // Centered on the finished line, so it does not shift while it types.
-  const next = useTextMetrics(NEXT, textStyle('mono', size));
 
   return (
     <>
@@ -35,10 +31,11 @@ export function Outro() {
         </TextReveal>
         <Label x={W / 2} y={700} size={24} font="mono" color={C.grey} ax={0.5} ay={0.5}
           opacity={progress(f, BEAT * 5, 12)}>{`36 DAYS  ·  ${TOTAL_COMMITS} COMMITS  ·  1 REPOSITORY`}</Label>
-        <Group x={W / 2 - next.width / 2} y={800}>
-          <Label size={size} font="mono" color={C.mint} ay={0.5}>{typed.text}</Label>
-          <Caret x={textCaret(next, typed.length).x + 4} size={size} visible={typed.caretVisible} />
-        </Group>
+        {/* Centered on the finished line, so it does not shift while it types. */}
+        <TypewriterText x={W / 2} y={800} anchorX={0.5} anchorY={0.5} from={8} framesPerChar={1 / 1.2}
+          blinkFrames={BEAT} style={textStyle('mono', 36, C.mint)} caretShape="block">
+          {NEXT}
+        </TypewriterText>
       </Camera>
       <Rect width={W} height={H} fill="#000000" opacity={progress(f, durationInFrames - 24, 24, Easings.easeInCubic)} />
     </>

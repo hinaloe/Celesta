@@ -11,7 +11,7 @@ import { SCENES, TIMING } from './timeline';
 //
 //   timeline.ts    the scene list (order and length in bars)
 //   scenes/        one file per scene
-//   components/    Label (text), Exit, Header, DotGrid, Caret, Hud (frame overlay)
+//   components/    Label (text), Exit, Header, DotGrid, Hud (frame overlay)
 //   data.ts        commit counts and crate sizes    constants.ts   canvas, timing, palette, fonts
 
 export default function Film() {

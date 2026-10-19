@@ -19,13 +19,13 @@
 
 | 時間 | 内容 | 主なヘルパー |
 | --- | --- | --- |
-| 0–4 秒 | `git log` を打ち込み、流れるログの 1 行目へカメラが飛び込む | `useTypewriter`・`Camera` |
+| 0–4 秒 | `git log` を打ち込み、流れるログの 1 行目へカメラが飛び込む | `TypewriterText`・`Camera` |
 | 4–8 秒 | タイトル「36 DAYS OF CELESTA」。背景のドットが拍に合わせて光る | `TextReveal`・`useBeat`・`random` |
 | 8–14 秒 | コミット数・クレート数・行数が 1 拍ずつカウントアップ | `Stagger`・`useCountUp` |
 | 14–22 秒 | 日ごとのコミット数の棒グラフと、累計の折れ線 | `Polyline`・`pointOnPolyline`・`useCue` |
 | 22–32 秒 | タイムラインをカメラが移動し、6 つのマイルストーンを順に見せる | `useCue`・`Camera`（`shake`）・`TextReveal` |
 | 32–38 秒 | クレートごとのソース行数のランキング | `Stagger`・`useCountUp` |
-| 38–44 秒 | ロゴと「next: higher-level components & hooks」 | `TextReveal`・`useTypewriter`・`noise` |
+| 38–44 秒 | ロゴと「next: higher-level components & hooks」 | `TextReveal`・`TypewriterText`・`noise` |
 
 HUD のシーン名とタイムコードは `computeSeries()`・`cueAt()`・`frameToTimecode()` で、各シーンの退場は
 `<Transition type={['fade', 'slide']} direction="out">` で描いています。
