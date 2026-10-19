@@ -1,3 +1,5 @@
+export { Badge } from './badge';
+export type { BadgeProps } from './badge';
 export { FrameChrome } from './frame-chrome';
 export type { FrameChromeLabel, FrameChromeProps, FrameCorner } from './frame-chrome';
 export { Panel } from './panel';
