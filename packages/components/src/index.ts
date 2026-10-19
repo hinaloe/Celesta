@@ -1,5 +1,7 @@
 export { Badge } from './badge';
 export type { BadgeProps } from './badge';
+export { BarChart, Ranking } from './bar-chart';
+export type { BarChartItem, BarChartOrder, BarChartProps, RankingProps } from './bar-chart';
 export { formatNumber } from './count';
 export type { CountTiming, NumberFormat } from './count';
 export { Counter } from './counter';
@@ -17,3 +19,5 @@ export type {
   PatternTile,
   PatternVariation,
 } from './pattern-background';
+export { StatCard } from './stat-card';
+export type { StatCardProps } from './stat-card';
