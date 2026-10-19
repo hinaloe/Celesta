@@ -811,6 +811,9 @@ importers:
 
   packages/components:
     dependencies:
+      '@celesta/layout':
+        specifier: workspace:*
+        version: link:../layout
       '@celesta/math':
         specifier: workspace:*
         version: link:../math
