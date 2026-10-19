@@ -61,7 +61,7 @@ For randomness and noise, use [`@celesta/math`](math.md).
 | A push-in, pan, or shake over a whole scene | `Camera` |
 | A line being drawn | `Polyline progress` ([react-core.md](react-core.md#path-line-polyline)) |
 | An arrow growing toward its target | `Arrow` with animated `x2`/`y2` ([react-core.md](react-core.md#circle-ellipse-arrow)) |
-| Text revealed line by line, typed, or a counting number | `TextReveal`, `useTypewriter`, `useCountUp` ([text.md](text.md#text-motion)) |
+| Text revealed line by line, typed, or a counting number | `TextReveal`, `useTypewriter`, `useCountUp` ([text.md](text.md#text-motion)); `Counter`, `StatCard`, and `BarChart` from `@celesta/components` ([react-core.md](react-core.md#counter-statcard-barchart-ranking-numbers-and-bar-charts)) |
 | Code being typed | `@celesta/code` with `useTypewriter` ([code.md](code.md)) |
 
 ## Hooks

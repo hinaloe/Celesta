@@ -9,6 +9,7 @@
 | `TextReveal` | 文字列の各行を、それぞれのマスクの裏から順にスライド表示します。`lineHeight`、`from`、`stagger`、`durationInFrames` を設定し、`align` で各行の横方向の揃え位置（0 左、0.5 中央、1 右）を指定します。行は `\n` で区切ります。`maxWidth` を渡すと `<Text maxWidth>` と同じ位置（`style.lineBreak: 'phrase'` を含む）でも折り返し、折り返した行も 1 行ずつ表示します。 |
 | `useTypewriter(text, options)` | 入力済みの `text`、その `length`、`done`、`caretVisible`。入力中は固定、停止中は点滅します。 |
 | `useCountUp(to, options)` | `to` まで数える数値。`from`、`delay`、`durationInFrames`、`easing`、`decimals` で調整します。 |
+| `Counter`、`StatCard`（`@celesta/components`） | 数えた数値を整形して描く `<Text>` と、ラベル・数値・補足を載せたカードです。`useCountUp` と同じ既定のタイミングで数え、`locale`（既定 `'en-US'`。実行環境の locale には依存しません）、`decimals`（常に表示）、`prefix` / `suffix`、`formatter` で表示を決めます。`anchorX={1}` にすると、桁が増えても末尾の桁と単位が動きません。 |
 
 ```tsx title="タイトルを段階的に表示"
 <TextReveal x={160} y={300} lineHeight={200} stagger={6}
@@ -42,6 +43,15 @@
 線や図形の stroke は、線と隙間の長さを交互に並べた `dash`（SVG の `stroke-dasharray` と同じ）と、模様を線に沿ってずらす `dashOffset` を取ります。`dash={[0, 12]}` と `cap="round"` で点線になり、`dashOffset={-frame}` で破線が終点へ向かって流れます。模様は最初の点を基準にするので、`progress` で描いていく破線の折れ線でも、描かれた破線は動きません。閉じた図形の破線は時計回りに並び、円・楕円は右端から、`Rect` は左上の角丸の終わりから始まります。`<Arrow>` は軸だけを破線にします。
 
 `<Path>` も `progress` と `progressStart`（経路長に対する 0〜1）で線の一部だけを描けます。曲線も長さに沿って正確に切り出します。どの部分を描いても、破線は全体の線と同じ位置に並びます。`fill` は常に形全体を塗ります。
+
+`@celesta/components` の `BarChart` は、`{ id, label, value }` の配列から横棒グラフを描きます。行ごとにラベルの列、0 から伸びる棒、数値（棒の先端か右端に揃えた列）が並び、行は `stagger` フレームずつ遅れて始まります。棒の長さと数値は同じ進捗から決まるので、表示される数値は常に棒と一致します。数値は `Counter` と同じ整形です。`Ranking` は順位の列を加えたもので、値でソートするか（`'descending'` / `'ascending'`、同値は入力順を保持）入力順を保つか（`'input'`）を `order` で必ず指定します。値は 0 以上の有限数で、`id` は一意である必要があります。
+
+```tsx title="時間差で伸びる棒グラフ"
+<BarChart x={120} y={240} width={1000} stagger={8} decimals={1} suffix=" s" data={[
+  { id: 'a', label: 'A', value: 12.4 },
+  { id: 'b', label: 'B', value: 8.1 },
+]} />
+```
 
 ## パスに沿って動かす・形を変える
 

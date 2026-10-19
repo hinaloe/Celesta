@@ -31,6 +31,7 @@ provides `react` (18.x) and those packages; never install them from npm.
 - [PatternBackground (dots, grid, stripes)](#patternbackground-dots-grid-stripes)
 - [Panel (cards and boxes with padding)](#panel-cards-and-boxes-with-padding)
 - [Badge (labels sized to their text)](#badge-labels-sized-to-their-text)
+- [Counter, StatCard, BarChart, Ranking (numbers and bar charts)](#counter-statcard-barchart-ranking-numbers-and-bar-charts)
 - [Static (still subtrees)](#static-still-subtrees)
 - [Video](#video)
 - [Audio](#audio)
@@ -715,6 +716,89 @@ import { Center } from '@celesta/layout';
 ```
 
 Runnable: [`packages/cli/examples/with-badge.tsx`](../../../packages/cli/examples/with-badge.tsx).
+
+## Counter, StatCard, BarChart, Ranking (numbers and bar charts)
+
+Imported from `@celesta/components`. Components that count numbers and
+print them one way, with `formatNumber(value, format)`, also exported:
+
+| Format prop | Default | Notes |
+| --- | --- | --- |
+| `locale` | `'en-US'` | Digit grouping and the decimal mark (`1,234.5`; `'de-DE'` gives `1.234,5`). Fixed, so the machine's locale never changes the output. |
+| `decimals` | `0` | Decimal places, always shown (`12.0`); rounded half up. 0 to 20. |
+| `prefix`, `suffix` | none | Text around the number: `suffix=" 件"`. |
+| `formatter` | none | `(value) => string`, given the value rounded to `decimals`, instead of the locale's formatting; `prefix` and `suffix` still go around it. |
+
+A value that rounds to 0 prints without a minus sign. Values must be finite,
+or it throws.
+
+The count timing is `delay` (default 0), `durationInFrames` (default 30; 0
+jumps to the value at `delay`), and `easing` (default `easeOutExpo`), the
+same defaults as `useCountUp`.
+
+- **`<Counter value from?>`**: a `<Text>` (every other prop is `Text`'s)
+  printing a number that counts from `from` (default 0) to `value`, down as
+  well as up and through negative numbers. The text grows from its anchor:
+  `anchorX={1}` keeps the last digit and the suffix in place as digits are
+  added. There is no tabular-figures option; a proportional font's digits
+  differ in width, so use a monospaced font when no digit may move.
+- **`<StatCard value label? note?>`**: a `Panel` (its props, `padding`
+  default 32, `cornerRadius` default 16) with the label, the counting
+  number, and the note stacked with `gap` (default 8). `labelStyle`,
+  `valueStyle`, `noteStyle`, and `color` style them; `align` (`'left'`,
+  `'center'`, `'right'`) places the lines and the edge the number grows
+  from. It is sized once, from the widest line and the number at `from` and
+  at `value`, so it does not grow mid-count; `width`/`height` size it
+  yourself, centring the lines.
+- **`<BarChart data width>`**: horizontal bars, one row per
+  `{ id, label?, value, color?, textColor?, note? }`. A label column (as wide
+  as the widest label or note, or `labelWidth`, cutting longer labels off),
+  then a bar from 0 that is `value / max` of the room (`max` defaults to the
+  largest value; larger values stop at full length), then the value: past
+  the bar's end (`valuePosition="end"`, the default) or lined up at the
+  right edge (`"right"`, last digits in place). Room for the values is the
+  widest final value, or `valueWidth`.
+  - Each row starts `stagger` frames after the one above, from `delay`,
+    fades in over `fadeInFrames` (default 8), and over `durationInFrames`
+    its bar grows and its value counts up from 0 **with the same
+    progress**, so the number always matches the bar.
+  - Sizes: `rowHeight` (default the taller of `barHeight` and the label with
+    its note), `rowGap` 16, `barHeight` 28, `cornerRadius` 4, `labelGap` 24,
+    `valueGap` 16. Colors: `barColor` (`#4F8CFF`), `trackColor` (a
+    full-length track behind each bar; none by default), and per item
+    `color` (the bar) and `textColor` (label and value, over the styles'
+    fill); hex or theme names.
+  - `order`: `'input'` (default) keeps the given order; `'descending'` and
+    `'ascending'` sort by value, equal values keeping their given order.
+    Rows are keyed by `id`, which must be unique.
+  - Values must be finite and 0 or more (bars grow from 0 to the right;
+    diverging bars are not supported). A value of 0 draws no bar; when every
+    value (or `max`) is 0 no bar has length and the values print 0. Empty
+    `data` draws nothing.
+- **`<Ranking order data width>`**: a `BarChart` with a rank column. `order`
+  is required, so whether rows are sorted is always explicit. The rank is
+  the row's position from the top (1 first; equal values get consecutive
+  ranks in their given order), printed by `formatRank` (default
+  `String(rank)`) in `rankStyle` (default `labelStyle`), right-aligned in
+  `rankWidth` (default the widest rank) before `rankGap` (24).
+
+```tsx
+import { BarChart, Counter, Ranking, StatCard } from '@celesta/components';
+
+<Counter x={1800} y={120} anchorX={1} value={1280} suffix=" 件" fontSize={96} fontWeight={700} />
+<StatCard x={120} y={600} width={420} height={240} fill="#182030" color="#F4F1EA"
+  label="総ダウンロード" value={1280} suffix=" 件" note="2026 年 10 月" />
+<BarChart x={120} y={240} width={1000} stagger={8} decimals={1} suffix=" s" data={[
+  { id: 'a', label: 'A', value: 12.4 },
+  { id: 'b', label: 'B', value: 8.1 },
+]} />
+<Ranking x={120} y={240} width={1600} order="descending" valuePosition="right"
+  formatRank={(rank) => String(rank).padStart(2, '0')}
+  data={rows.map((row) => ({ id: row.id, label: row.name, value: row.score }))} />
+```
+
+Runnable: [`packages/cli/examples/with-counter.tsx`](../../../packages/cli/examples/with-counter.tsx),
+[`packages/cli/examples/with-bar-chart.tsx`](../../../packages/cli/examples/with-bar-chart.tsx).
 
 ## Static (still subtrees)
 

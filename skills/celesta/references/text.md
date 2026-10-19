@@ -423,7 +423,11 @@ return <Text style={{ ...style, visibleCharacters: length }}>{content}</Text>;
 ### `useCountUp(to, { from?, delay?, durationInFrames?, easing?, decimals? })`
 
 A number that counts to `to` (default 30 frames, `easeOutExpo`), rounded to
-`decimals`. Format it yourself, e.g. `value.toLocaleString('en-US')`.
+`decimals`. Format it yourself, e.g. `value.toLocaleString('en-US')`, or
+draw it with `<Counter>` from `@celesta/components`, which counts with the
+same defaults and prints with a fixed locale, decimals, and a prefix or
+suffix; `<StatCard>` and `<BarChart>` print theirs the same way. See
+[react-core.md](react-core.md#counter-statcard-barchart-ranking-numbers-and-bar-charts).
 
 ## Measure text
 
