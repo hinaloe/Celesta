@@ -17,6 +17,7 @@ export { Scenes, defineScenes, sceneAt, useScene } from './scenes';
 export { frameKeyframes } from './keyframes';
 export { measureText, textCaret, useTextMetrics } from './text-measure';
 export { Span } from './rich-text';
+export { Theme, useTheme } from './theme';
 export { Subtitles, formatSubtitles, parseSubtitles } from './subtitles';
 export { registerComponent, getComponentSchema } from './registry';
 export { defineProjectProperties, getProjectProperty, listProjectProperties } from './properties';

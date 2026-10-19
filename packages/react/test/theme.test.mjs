@@ -4,6 +4,7 @@ import { expect, test } from 'vitest';
 import React from 'react';
 
 import { Composition, Group, Rect, Sequence, Span, Text, Theme, measureText, useTextMetrics, useTheme } from '../dist/index.js';
+import * as browser from '../dist/browser.js';
 import { mount } from '../dist/render.js';
 import { setTextMeasurer } from '../dist/text-measure.js';
 
@@ -116,4 +117,9 @@ test('useTextMetrics and measureText measure with theme names', async () => {
   });
   await measureText('a', { fontFamily: 'display' }, { theme: { fonts } });
   expect(requests.at(-1).style.fontFamily).toBe('Inter');
+});
+
+test('the browser entry exports <Theme> and useTheme too', () => {
+  expect(browser.Theme).toBe(Theme);
+  expect(browser.useTheme).toBe(useTheme);
 });
