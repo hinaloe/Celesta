@@ -2,7 +2,7 @@
 //! scene pixels, and what the Layer section shows for the selection.
 
 use celesta_composition::Point;
-use celesta_react_bridge::{LayerSource, LayerSourceReport};
+use celesta_react_bridge::{ElementKind, LayerSource, LayerSourceReport};
 use gpui_kit::{Bounds, Pixels};
 use std::path::Path;
 
@@ -117,4 +117,26 @@ pub(crate) fn source_position(source: &LayerSource, entry_dir: &Path) -> String 
         source.line,
         source.column
     )
+}
+
+/// The layer a chain entry emitted, when it is a primitive (a `<Group>` or
+/// `<Stack>`) the user can select as a parent.
+pub(crate) fn parent_layer_id(entry: &LayerSource) -> Option<&str> {
+    match entry.kind {
+        ElementKind::Primitive => entry.layer_id.as_deref(),
+        ElementKind::Component => None,
+    }
+}
+
+/// The quads to outline for the selection: its own hit regions, or, for a
+/// group that has none, the box `layer_frame` measured around its children.
+pub(crate) fn outline_quads(
+    regions: Vec<[Point; 4]>,
+    frame: Option<[Point; 4]>,
+) -> Vec<[Point; 4]> {
+    if regions.is_empty() {
+        frame.into_iter().collect()
+    } else {
+        regions
+    }
 }

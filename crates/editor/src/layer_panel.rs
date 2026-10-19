@@ -3,7 +3,8 @@
 //! opening its position in the user's editor.
 
 use crate::editor_launch::open_source;
-use crate::layer_select::{SourceLookup, launch_outcome_applies, source_position};
+use crate::icons::CelestaIcon;
+use crate::layer_select::{SourceLookup, launch_outcome_applies, parent_layer_id, source_position};
 use crate::view::EditorView;
 use crate::widgets::{inspector_row, inspector_section};
 use celesta_react_bridge::LayerSource;
@@ -80,6 +81,9 @@ impl EditorView {
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let opened = source.clone();
+        let parent = parent_layer_id(source)
+            .filter(|_| index > 0)
+            .map(str::to_owned);
         div()
             .flex()
             .flex_col()
@@ -90,6 +94,20 @@ impl EditorView {
             .border_color(cx.theme().border)
             .when(!label.is_empty(), |row| {
                 row.child(div().text_xs().text_color(muted).child(label))
+            })
+            .when_some(parent, |row, parent| {
+                row.child(
+                    Button::new(("layer-select-parent", index))
+                        .ghost()
+                        .small()
+                        .w_full()
+                        .icon(CelestaIcon::MousePointerClick)
+                        .child("Select")
+                        .tooltip("Select this layer")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.select_layer(Some(parent.clone()), cx);
+                        })),
+                )
             })
             .child(
                 Button::new(("layer-source", index))

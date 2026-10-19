@@ -59,7 +59,7 @@ pub(crate) enum DragState {
 
 impl EditorView {
     /// The selected layer's measured frame, when it is the selected one.
-    fn selected_frame(&self) -> Option<Option<&LayerFrame>> {
+    pub(crate) fn selected_frame(&self) -> Option<Option<&LayerFrame>> {
         let selected = self.selected_layer.as_deref()?;
         self.layer_frame
             .as_ref()

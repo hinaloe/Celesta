@@ -22,7 +22,7 @@ use crate::actions::{
     ToggleInteractive, ToggleLoop, TogglePlayback, ToggleSafeAreas,
 };
 use crate::icons::CelestaIcon;
-use crate::layer_select::{SourceLookup, letterbox, scene_point};
+use crate::layer_select::{SourceLookup, letterbox, outline_quads, scene_point};
 use crate::meter::audio_meter;
 use crate::preview::PreviewPresentation;
 use crate::problems::{ActiveProblem, Source, flow_line_breaks, summarize_warnings};
@@ -61,11 +61,18 @@ impl EditorView {
             .selected_layer
             .as_ref()
             .map(|id| {
-                self.hit_regions
+                let regions = self
+                    .hit_regions
                     .iter()
                     .filter(|region| region.layer_id == *id)
                     .map(|region| region.corners)
-                    .collect()
+                    .collect();
+                // A group draws nothing itself; outline its children's box.
+                let frame = match self.selected_frame() {
+                    Some(Some(frame)) => Some(frame.outline),
+                    _ => None,
+                };
+                outline_quads(regions, frame)
             })
             .unwrap_or_default();
         let viewer_bounds = self.viewer_bounds.clone();
@@ -758,11 +765,16 @@ impl EditorView {
             cx.notify();
             return;
         }
-        if hit == self.selected_layer {
+        self.select_layer(hit, cx);
+    }
+
+    /// Makes `layer` the selection (or clears it), looking up its source.
+    pub(crate) fn select_layer(&mut self, layer: Option<String>, cx: &mut Context<Self>) {
+        if layer == self.selected_layer {
             return;
         }
-        self.selected_layer = hit;
-        self.launch_error = None;
+        self.clear_layer_selection();
+        self.selected_layer = layer;
         if self.selected_layer.is_some() {
             self.source_lookup = Some(SourceLookup::Pending);
             self.refresh_preview();

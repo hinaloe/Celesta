@@ -10,8 +10,8 @@ use crate::helpers::{
     export_output, export_progress_label, export_range_for, export_suggested_name, loop_range_for,
 };
 use crate::layer_select::{
-    SourceLookup, display_path, launch_outcome_applies, letterbox, scene_point, source_lookup,
-    source_lookup_target, source_position,
+    SourceLookup, display_path, launch_outcome_applies, letterbox, outline_quads, parent_layer_id,
+    scene_point, source_lookup, source_lookup_target, source_position,
 };
 use crate::react_audio::{react_audio_clip_id, react_tracks};
 use crate::refresh::{LookupFate, SelectionKeep};
@@ -1871,4 +1871,35 @@ fn transform_shown_handles_leave_out_handles_that_scale_nothing() {
     let mut centered = drag_frame(IDENTITY, pt(50.0, 25.0));
     centered.outline = [pt(0.0, 0.0), pt(100.0, 0.0), pt(100.0, 50.0), pt(0.0, 50.0)];
     assert_eq!(shown(&centered, &PER_AXIS).len(), 9);
+}
+
+fn chain_entry(name: &str, kind: ElementKind, layer_id: Option<&str>) -> LayerSource {
+    LayerSource {
+        name: name.to_string(),
+        file: PathBuf::from("/project/scene.tsx"),
+        line: 1,
+        column: 1,
+        kind,
+        layer_id: layer_id.map(str::to_owned),
+    }
+}
+
+#[test]
+fn select_parent_group_sets_selection() {
+    let group = chain_entry("Group", ElementKind::Primitive, Some("g"));
+    assert_eq!(parent_layer_id(&group), Some("g"));
+    // A component or a primitive that emitted no layer has nothing to select.
+    let title = chain_entry("Title", ElementKind::Component, Some("g"));
+    assert_eq!(parent_layer_id(&title), None);
+    let bare = chain_entry("Group", ElementKind::Primitive, None);
+    assert_eq!(parent_layer_id(&bare), None);
+}
+
+#[test]
+fn select_outline_falls_back_to_the_frame_for_a_group() {
+    let region = [Point { x: 0.0, y: 0.0 }; 4];
+    let frame_box = [Point { x: 1.0, y: 1.0 }; 4];
+    assert_eq!(outline_quads(vec![region], Some(frame_box)), vec![region]);
+    assert_eq!(outline_quads(Vec::new(), Some(frame_box)), vec![frame_box]);
+    assert!(outline_quads(Vec::new(), None).is_empty());
 }
