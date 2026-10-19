@@ -1,16 +1,14 @@
-import type { ReactNode } from 'react';
-import { random } from '@celesta/math';
-import { Rect, useBeat } from '@celesta/react';
+import { PatternBackground } from '@celesta/components';
+import { useBeat } from '@celesta/react';
 import { BPM, C } from '../constants';
 
+// Faint square dots every 80 px that brighten on the beat, each by its own
+// random amount.
 export function DotGrid() {
   const { pulse } = useBeat({ bpm: BPM });
-  const dots: ReactNode[] = [];
-  for (let gx = 0; gx < 25; gx += 1) {
-    for (let gy = 0; gy < 14; gy += 1) {
-      dots.push(<Rect key={`${gx}-${gy}`} x={40 + gx * 80} y={20 + gy * 80} width={3} height={3} fill={C.paper}
-        opacity={0.08 + 0.12 * pulse * random(gx * 31 + gy)} />);
-    }
-  }
-  return <>{dots}</>;
+  const peak = 0.08 + 0.12 * pulse;
+  return (
+    <PatternBackground pattern="dots" dotShape="square" spacing={80} size={3} offsetX={1.5} offsetY={-18.5}
+      color={C.paper} opacity={peak} variation={{ opacity: (0.12 * pulse) / peak }} />
+  );
 }

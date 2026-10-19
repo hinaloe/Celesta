@@ -1,3 +1,4 @@
+import { PatternBackground } from '@celesta/components';
 import { Easings, Group, Rect, progress } from '@celesta/react';
 import { C, TOOL, W, type ToolId } from '../constants';
 import { Label } from './Label';
@@ -54,9 +55,7 @@ export function Backdrop() {
         type: 'radial', center: { x: 1560, y: 120 }, radius: 1400,
         stops: [{ offset: 0, color: '#1A1640' }, { offset: 0.55, color: '#0A0B1A' }, { offset: 1, color: '#05060C00' }],
       }} />
-      {Array.from({ length: 24 * 14 }, (_, i) => (
-        <Rect key={i} x={20 + (i % 24) * 80} y={20 + Math.floor(i / 24) * 80} width={2} height={2} fill="#FFFFFF0D" />
-      ))}
+      <PatternBackground pattern="dots" dotShape="square" spacing={80} size={2} offsetX={-19} offsetY={-19} color="#FFFFFF0D" />
     </>
   );
 }

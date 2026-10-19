@@ -172,6 +172,9 @@ importers:
 
   examples/36-days:
     dependencies:
+      '@celesta/components':
+        specifier: workspace:*
+        version: link:../../packages/components
       '@celesta/layout':
         specifier: workspace:*
         version: link:../../packages/layout
@@ -642,6 +645,9 @@ importers:
       '@celesta/code':
         specifier: workspace:*
         version: link:../../packages/code
+      '@celesta/components':
+        specifier: workspace:*
+        version: link:../../packages/components
       '@celesta/react':
         specifier: workspace:*
         version: link:../../packages/react
