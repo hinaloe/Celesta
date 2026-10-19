@@ -10,11 +10,12 @@ export let logo: { width: number; letters: { text: string; x: number }[] } | nul
 
 export async function prepare() {
   try {
-    const fonts = [FONT_SRC];
-    const mono = await measureText('M', { fontFamily: FONT.mono, fontSize: 100 }, { fonts });
+    // prepare() runs outside the film's <Theme>, so the names come along.
+    const options = { fonts: [FONT_SRC], theme: { fonts: FONT } };
+    const mono = await measureText('M', { fontFamily: 'mono', fontSize: 100 }, options);
     monoAdvance = mono.width / 100;
     const word = await measureText('Celesta',
-      { fontFamily: FONT.display, fontSize: LOGO_SIZE, fontWeight: 700 }, { fonts });
+      { fontFamily: 'display', fontSize: LOGO_SIZE, fontWeight: 700 }, options);
     logo = { width: word.width, letters: word.glyphs.map(({ text, x }) => ({ text, x })) };
   } catch (error) {
     console.warn(`text measurement unavailable, using fallback metrics: ${error}`);

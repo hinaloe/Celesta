@@ -2,8 +2,9 @@ import * as React from 'react';
 import type { ReactNode } from 'react';
 
 import { entryRelativePath, isRemoteUrl } from './entry-dir';
-import { flattenTextContent, withTextRuns } from './rich-text';
+import { flattenTextContent, themeTextContent, withTextRuns } from './rich-text';
 import { CompositionRuntimeContext } from './hooks';
+import { type ResolvedTheme, type ThemeValues, ThemeContext, mergeTheme, resolvedTheme, themedTextStyle } from './theme';
 import type { FontFallbackMode, ResolvedAsset, TextStyle } from './scene';
 
 /** One shaped glyph cluster (a ligature or combining sequence is one entry). */
@@ -58,6 +59,12 @@ export interface MeasureTextOptions {
    * before the tree renders, so `<Font>` declarations are not loaded yet.
    */
   fonts?: string[];
+  /**
+   * Font and color names, as a `<Theme>` gives them. `measureText()` runs
+   * before the tree, outside any `<Theme>`, so it knows only these;
+   * `useTextMetrics()` adds them to the `<Theme>`s around it.
+   */
+  theme?: ThemeValues;
 }
 
 export type MeasureTextRequest = {
@@ -111,13 +118,19 @@ export async function measureText(
   style: TextStyle = {},
   options: MeasureTextOptions = {},
 ): Promise<TextMetrics> {
-  const flat = flattenTextContent(content, 'measureText() text');
+  const theme = resolvedTheme(options.theme);
+  const flat = flattenTextContent(themeTextContent(content, theme), 'measureText() text');
   return asynchronousMeasurer('measureText()')({
     text: flat.text,
-    style: withTextRuns(style, flat, 'measureText()'),
+    style: withTextRuns(themedStyle(style, theme), flat, 'measureText()'),
     ...(options.maxWidth !== undefined ? { maxWidth: options.maxWidth } : {}),
     fonts: prepareFonts(options.fonts),
   });
+}
+
+/** `style` with `theme`'s names looked up; color shorthand does not change a measurement. */
+function themedStyle(style: TextStyle, theme: ResolvedTheme): TextStyle {
+  return themedTextStyle(style, {}, theme, 'text measurement') ?? style;
 }
 
 /** @internal Font files for a `prepare()`-time measurement. */
@@ -170,8 +183,14 @@ export function useTextMetrics(
   options: MeasureTextOptions = {},
 ): TextMetrics {
   const runtime = React.useContext(CompositionRuntimeContext);
-  const flat = flattenTextContent(content, 'useTextMetrics() text');
-  const resolvedStyle = withTextRuns(withInheritedText(style, runtime ?? {}), flat, 'useTextMetrics()');
+  const outer = React.useContext(ThemeContext);
+  const theme = options.theme ? mergeTheme(outer, options.theme) : outer;
+  const flat = flattenTextContent(themeTextContent(content, theme), 'useTextMetrics() text');
+  const resolvedStyle = withTextRuns(
+    withInheritedText(themedStyle(style, theme), runtime ?? {}),
+    flat,
+    'useTextMetrics()',
+  );
   const fonts = useMeasurementFonts(options.fonts);
   const { colorRuns, visibleCharacters, fill, stroke, ...layoutStyle } = resolvedStyle;
   const key = JSON.stringify({ text: flat.text, style: layoutStyle, maxWidth: options.maxWidth, fonts });

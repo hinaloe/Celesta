@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import { clamp01, random } from '@celesta/math';
-import { Easings, Group, Rect, frameToTimecode, progress, useCurrentFrame, useVideoConfig } from '@celesta/react';
-import { Label } from '../components/Label';
+import { Easings, Group, Rect, Text, frameToTimecode, progress, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import { Swap } from '../components/Swap';
 import { Tag } from '../components/Tag';
 import { BAR, C, FPS, H, W } from '../constants';
@@ -73,8 +72,8 @@ export function Timeline() {
             fill={live ? '#26262C' : C.clip} stroke={live ? C.accent : '#FFFFFF1A'} strokeWidth={live ? 2 : 1} />
           <Rect x={x} y={y} width={6} height={row - 16} fill={track.tag} />
           {bars}
-          <Label x={x + 20} y={y + (track.wave ? 20 : 38)} size={19} font="mono" weight={400}
-            color={live ? C.paper : C.grey} ay={0.5} opacity={grow}>{clip.label}</Label>
+          <Text x={x + 20} y={y + (track.wave ? 20 : 38)} fontFamily="mono" fontSize={19} fontWeight={400} color={live ? C.paper : C.grey}
+            anchorY={0.5} opacity={grow}>{clip.label}</Text>
         </Group>
       );
     });
@@ -90,8 +89,8 @@ export function Timeline() {
     const major = k % 5 === 0;
     ticks.push(<Rect key={`t${k}`} x={x} y={major ? 508 : 520} width={1} height={major ? 24 : 12} fill={C.dim} />);
     if (major) {
-      ticks.push(<Label key={`l${k}`} x={x + 6} y={500} size={16} font="mono" weight={400} color={C.grey} ay={0.5}>
-        {frameToTimecode(k * 6, FPS).slice(3)}</Label>);
+      ticks.push(<Text key={`l${k}`} x={x + 6} y={500} fontFamily="mono" fontSize={16} fontWeight={400} color="grey" anchorY={0.5}>
+        {frameToTimecode(k * 6, FPS).slice(3)}</Text>);
     }
   }
 
@@ -111,15 +110,15 @@ export function Timeline() {
         {TRACKS.map((track, ti) => (
           <Group key={track.id} x={120} y={top + ti * row + 38} opacity={progress(f, ti * 3, 12, Easings.easeOutCubic)}>
             <Rect y={-8} width={16} height={16} fill={track.tag} />
-            <Label x={34} y={0} size={20} font="mono" weight={700} color={C.paper} ay={0.5}>{track.id}</Label>
-            <Label x={90} y={0} size={20} font="mono" weight={400} color={C.grey} ay={0.5}>{track.name}</Label>
+            <Text x={34} y={0} fontFamily="mono" fontSize={20} fontWeight={700} color="paper" anchorY={0.5}>{track.id}</Text>
+            <Text x={90} y={0} fontFamily="mono" fontSize={20} fontWeight={400} color="grey" anchorY={0.5}>{track.name}</Text>
           </Group>
         ))}
         <Rect x={playhead - 1} y={488} width={3} height={row * TRACKS.length + 60} fill={C.accent} />
         <Rect x={playhead} y={470} anchorX={0.5} width={176} height={36} cornerRadius={4} fill={C.accent} />
-        <Label x={playhead} y={488} size={18} font="mono" weight={700} color={C.ink} ax={0.5} ay={0.5}>
+        <Text x={playhead} y={488} fontFamily="mono" fontSize={18} fontWeight={700} color="ink" anchorX={0.5} anchorY={0.5}>
           {frameToTimecode(Math.round((scroll + playhead - left) / 5), FPS)}
-        </Label>
+        </Text>
       </Group>
     </>
   );

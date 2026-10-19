@@ -1,5 +1,4 @@
-import { Group } from '@celesta/react';
-import { Label } from './Label';
+import { Group, Text } from '@celesta/react';
 import { monoAdvance } from '../metrics';
 
 export type Run = { text: string; color: string; weight?: number };
@@ -23,8 +22,8 @@ export function Mono({ runs, x, y, size, visible = Infinity, opacity = 1 }: {
         column += text.length;
         const shown = text.slice(0, Math.max(0, visible - start));
         return shown ? (
-          <Label key={i} x={x + start * size * monoAdvance} y={y + size * 0.24} size={size} font="mono"
-            weight={weight} color={color} ay="baseline">{shown}</Label>
+          <Text key={i} x={x + start * size * monoAdvance} y={y + size * 0.24} fontFamily="mono" fontSize={size} fontWeight={weight} color={color}
+            anchorY="baseline">{shown}</Text>
         ) : null;
       })}
     </Group>

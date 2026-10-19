@@ -1,7 +1,6 @@
 import type { Run } from '../components/Mono';
 import { clamp, clamp01 } from '@celesta/math';
-import { Easings, Group, Rect, progress, spring, useCurrentFrame, useVideoConfig } from '@celesta/react';
-import { Label } from '../components/Label';
+import { Easings, Group, Rect, Text, progress, spring, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import { Mono, runLength } from '../components/Mono';
 import { Swap } from '../components/Swap';
 import { Tag } from '../components/Tag';
@@ -77,9 +76,9 @@ export function Code() {
     return (
       <Group key={li}>
         {budget > -len - 1 && (
-          <Label x={ex + 44} y={codeY + li * lh} size={16} font="mono" weight={400} color={C.dim} ax={1} ay={0.5}>
+          <Text x={ex + 44} y={codeY + li * lh} fontFamily="mono" fontSize={16} fontWeight={400} color="dim" anchorX={1} anchorY={0.5}>
             {String(li + 1)}
-          </Label>
+          </Text>
         )}
         <Mono runs={runs} x={codeX} y={codeY + li * lh} size={cs} visible={shown} />
       </Group>
@@ -120,10 +119,10 @@ export function Code() {
           <Rect x={ex} y={ey} width={ew} height={590} cornerRadius={12} fill={C.panel} stroke="#FFFFFF14" strokeWidth={1} />
           <Rect x={ex} y={ey + 47} width={ew} height={1} fill="#FFFFFF14" />
           <Rect x={ex + 24} y={ey + 44} width={130} height={3} fill={C.accent} />
-          <Label x={ex + 24} y={ey + 24} size={18} font="mono" weight={700} ay={0.5}>title.tsx</Label>
-          <Label x={ex + ew - 24} y={ey + 24} size={16} font="mono" weight={400} color={C.grey} ax={1} ay={0.5}>
+          <Text x={ex + 24} y={ey + 24} fontFamily="mono" fontSize={18} fontWeight={700} color="paper" anchorY={0.5}>title.tsx</Text>
+          <Text x={ex + ew - 24} y={ey + 24} fontFamily="mono" fontSize={16} fontWeight={400} color="grey" anchorX={1} anchorY={0.5}>
             {f >= SAVE ? 'saved' : 'modified ●'}
-          </Label>
+          </Text>
           {selection(SIZE_LINE, SIZE_COL, 3, EDIT_SIZE)}
           {selection(LABEL_LINE, LABEL_COL, label.length, EDIT_TEXT)}
           {rendered}
@@ -134,24 +133,24 @@ export function Code() {
 
         <Group y={30 * (1 - progress(f, 4, 14, Easings.easeOutExpo))} opacity={progress(f, 4, 14, Easings.easeOutCubic)}>
           <Rect x={px} y={py} width={pw} height={ph + 48} cornerRadius={12} fill={C.panel} stroke="#FFFFFF14" strokeWidth={1} />
-          <Label x={px + 24} y={py + 24} size={18} font="mono" weight={700} ay={0.5}>Preview</Label>
-          <Label x={px + pw - 24} y={py + 24} size={16} font="mono" weight={400} color={C.grey} ax={1} ay={0.5}>
+          <Text x={px + 24} y={py + 24} fontFamily="mono" fontSize={18} fontWeight={700} color="paper" anchorY={0.5}>Preview</Text>
+          <Text x={px + pw - 24} y={py + 24} fontFamily="mono" fontSize={16} fontWeight={400} color="grey" anchorX={1} anchorY={0.5}>
             {`frame ${String(previewFrame).padStart(3, '0')}`}
-          </Label>
+          </Text>
           <Rect x={px} y={py + 48} width={pw} height={ph} fill={C.paper} />
           {lastReload >= 0 && (
-            <Label x={px + 960 * k} y={py + 48 + (540 + 80 * (1 - s)) * k} size={Number(size) * k}
-              ax={0.5} ay={0.5} opacity={clamp01(s)} color={C.ink}>{label}</Label>
+            <Text x={px + 960 * k} y={py + 48 + (540 + 80 * (1 - s)) * k} fontFamily="display" fontSize={Number(size) * k} fontWeight={700} color="ink"
+              anchorX={0.5} anchorY={0.5} opacity={clamp01(s)}>{label}</Text>
           )}
           {lastReload < 0 && (
-            <Label x={px + pw / 2} y={py + 48 + ph / 2} size={18} font="mono" weight={400} color={C.grey} ax={0.5} ay={0.5}>
+            <Text x={px + pw / 2} y={py + 48 + ph / 2} fontFamily="mono" fontSize={18} fontWeight={400} color="grey" anchorX={0.5} anchorY={0.5}>
               waiting for save…
-            </Label>
+            </Text>
           )}
           <Rect x={px} y={py + 48 + ph - 4} width={Math.max(1, pw * progress(previewFrame, 0, 60))} height={4} fill={C.accent} />
           <Group x={px + pw - 20} y={py + 48 + 22} opacity={badge}>
             <Rect x={-150} y={-17} width={150} height={34} cornerRadius={17} fill={C.accent} />
-            <Label x={-75} y={0} size={16} font="mono" weight={700} color={C.ink} ax={0.5} ay={0.5}>↻ reloaded</Label>
+            <Text x={-75} y={0} fontFamily="mono" fontSize={16} fontWeight={700} color="ink" anchorX={0.5} anchorY={0.5}>↻ reloaded</Text>
           </Group>
         </Group>
         <Mono x={px} y={py + ph + 100} size={20} opacity={progress(f, SAVE, 12, Easings.easeOutCubic)}

@@ -1,5 +1,4 @@
-import { Group, Rect, cueAt, frameToTimecode, useCurrentFrame } from '@celesta/react';
-import { Label } from './Label';
+import { Group, Rect, Text, cueAt, frameToTimecode, useCurrentFrame } from '@celesta/react';
 import { C, DURATION, FPS, H, W } from '../constants';
 import { S } from '../timeline';
 
@@ -33,13 +32,13 @@ export function Hud() {
         {corner(W - m, m, -1, 1)}
         {corner(m, H - m, 1, -1)}
         {corner(W - m, H - m, -1, -1)}
-        <Label x={m + 40} y={m + 12} size={18} font="mono" weight={700} color={fg} ay={0.5}>Celesta</Label>
-        <Label x={m + 136} y={m + 12} size={18} font="mono" weight={400} color={fg} ay={0.5} opacity={0.6}>/ Reel 01</Label>
-        <Label x={W - m - 40} y={m + 12} size={18} font="mono" weight={400} color={fg} ax={1} ay={0.5}>{frameToTimecode(f, FPS)}</Label>
-        <Label x={m + 40} y={H - m - 12} size={18} font="mono" weight={400} color={fg} ay={0.5}>{section}</Label>
-        <Label x={W - m - 40} y={H - m - 12} size={18} font="mono" weight={400} color={fg} ax={1} ay={0.5}>
+        <Text x={m + 40} y={m + 12} fontFamily="mono" fontSize={18} fontWeight={700} color={fg} anchorY={0.5}>Celesta</Text>
+        <Text x={m + 136} y={m + 12} fontFamily="mono" fontSize={18} fontWeight={400} color={fg} anchorY={0.5} opacity={0.6}>/ Reel 01</Text>
+        <Text x={W - m - 40} y={m + 12} fontFamily="mono" fontSize={18} fontWeight={400} color={fg} anchorX={1} anchorY={0.5}>{frameToTimecode(f, FPS)}</Text>
+        <Text x={m + 40} y={H - m - 12} fontFamily="mono" fontSize={18} fontWeight={400} color={fg} anchorY={0.5}>{section}</Text>
+        <Text x={W - m - 40} y={H - m - 12} fontFamily="mono" fontSize={18} fontWeight={400} color={fg} anchorX={1} anchorY={0.5}>
           {`${W}×${H} · ${FPS} FPS · 120 BPM`}
-        </Label>
+        </Text>
       </Group>
       <Rect x={m} y={H - 26} width={(W - m * 2) * (f / (DURATION - 1))} height={2} fill={C.accent} opacity={0.75} />
     </>

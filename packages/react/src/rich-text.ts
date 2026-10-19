@@ -6,6 +6,7 @@ import * as React from 'react';
 import type { ReactNode } from 'react';
 
 import type { FontFamily, Paint, TextColorRun, TextFontRun, TextStyle } from './scene';
+import { type ResolvedTheme, themeColor, themeFont } from './theme';
 
 export interface SpanStyle {
   /** A hex color (`"#RRGGBB"` or `"#RRGGBBAA"`) or a solid `Paint` with one; other formats throw. */
@@ -18,6 +19,12 @@ export interface SpanStyle {
 
 export interface SpanProps {
   style?: SpanStyle;
+  /** `style.fontFamily`, or a `<Theme>` font name; `style.fontFamily` takes priority. */
+  fontFamily?: FontFamily;
+  /** `style.fontWeight`; `style.fontWeight` takes priority. */
+  fontWeight?: number;
+  /** A hex color or a `<Theme>` color name, as `style.fill`; `style.fill` takes priority. */
+  color?: string;
   children?: ReactNode;
 }
 
@@ -52,6 +59,25 @@ function sameFamily(a: FontFamily | null | undefined, b: FontFamily | null | und
 
 /** The color formats the renderer reads; checked here so a bad one fails at the span, not at export. */
 const HEX_COLOR = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
+
+/** A span's `style` with its shorthand props filling what the style leaves unset. */
+function spanStyle(props: SpanProps): SpanStyle | undefined {
+  const { style, fontFamily, fontWeight, color } = props;
+  if (fontFamily === undefined && fontWeight === undefined && color === undefined) return style;
+  const merged: SpanStyle = { ...style };
+  if (merged.fontFamily === undefined && fontFamily !== undefined) merged.fontFamily = fontFamily;
+  if (merged.fontWeight === undefined && fontWeight !== undefined) merged.fontWeight = fontWeight;
+  if (merged.fill === undefined && color !== undefined) merged.fill = color;
+  return merged;
+}
+
+/** A span fill with a `<Theme>` color name looked up; `fill` itself when it names none. */
+function themeSpanFill(fill: SpanStyle['fill'], theme: ResolvedTheme): SpanStyle['fill'] {
+  if (typeof fill === 'string') return themeColor(fill, theme);
+  if (fill?.type !== 'solid' || typeof fill.color !== 'string') return fill;
+  const color = themeColor(fill.color, theme);
+  return color === fill.color ? fill : { ...fill, color };
+}
 
 function resolveSpan(style: SpanStyle | undefined, inherited: Inherited): Inherited {
   const next = { ...inherited };
@@ -132,7 +158,7 @@ export function flattenTextContent(content: ReactNode, what: string): FlatText {
       }
       if (node.type === Span) {
         const props = node.props as SpanProps;
-        visit(props.children, resolveSpan(props.style, inherited));
+        visit(props.children, resolveSpan(spanStyle(props), inherited));
         return;
       }
     }
@@ -140,6 +166,35 @@ export function flattenTextContent(content: ReactNode, what: string): FlatText {
   };
   visit(content, {});
   return { text, colorRuns, fontRuns };
+}
+
+/**
+ * @internal Rich text content with every `<Span>`'s `<Theme>` font and color
+ * names looked up, so it flattens without the theme. `content` itself when
+ * no span names one.
+ */
+export function themeTextContent(content: ReactNode, theme: ResolvedTheme): ReactNode {
+  if (Array.isArray(content)) {
+    const children = content.map((child) => themeTextContent(child, theme));
+    return children.some((child, i) => child !== content[i]) ? children : content;
+  }
+  if (!React.isValidElement(content) || (content.type !== Span && content.type !== React.Fragment)) return content;
+  const props = content.props as SpanProps;
+  const children = themeTextContent(props.children, theme);
+  if (content.type === React.Fragment) {
+    return children === props.children ? content : React.createElement(React.Fragment, null, children);
+  }
+  const style = spanStyle(props);
+  const fontFamily = style?.fontFamily === undefined ? undefined : themeFont(style.fontFamily, theme);
+  const fill = themeSpanFill(style?.fill, theme);
+  if (children === props.children && fontFamily === style?.fontFamily && fill === style?.fill) return content;
+  return React.createElement(Span, {
+    style: {
+      ...style,
+      ...(fontFamily !== undefined ? { fontFamily } : {}),
+      ...(fill !== undefined ? { fill } : {}),
+    },
+  }, children);
 }
 
 /**

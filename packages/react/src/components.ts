@@ -16,6 +16,8 @@ import type {
   LayerVignette, LayerWave, LayerZoomBlur, ShaderEffect,
 } from './shader';
 import { markPrimitive, markTransparent } from './source-chain';
+import { themeTextContent } from './rich-text';
+import { type TextShorthand, ThemeContext, themedTextStyle } from './theme';
 import { endsWithComposition, isBefore, secondsFromTime, secondsToTime } from './time';
 
 // Unlike the pre-reconciler tree walker, these are real function components:
@@ -280,7 +282,11 @@ export interface ImageProps extends CommonProps {
   loop?: boolean;
 }
 
-export interface TextProps extends Omit<CommonProps, 'anchorY'> {
+/**
+ * `fontFamily`, `fontSize`, `fontWeight`, and `color` are shorthand for
+ * `style`; where both set the same thing, `style` wins.
+ */
+export interface TextProps extends Omit<CommonProps, 'anchorY'>, TextShorthand {
   /**
    * Vertical pivot as for `CommonProps.anchorY`, measured on the visible
    * letters of single-line text and on the line boxes of text with several
@@ -563,8 +569,13 @@ export const Image = React.forwardRef<AssetReference, ImageProps>(function Image
   return React.createElement(inAssets ? 'asset-image' : 'image', props);
 });
 
-export function Text(props: TextProps): ReturnType<typeof React.createElement> {
-  return React.createElement('text', props);
+export function Text({ fontFamily, fontSize, fontWeight, color, ...props }: TextProps): ReturnType<typeof React.createElement> {
+  const theme = React.useContext(ThemeContext);
+  const style = themedTextStyle(props.style, { fontFamily, fontSize, fontWeight, color }, theme, '<Text>');
+  const children = themeTextContent(props.children, theme);
+  return React.createElement('text', style === props.style && children === props.children
+    ? props
+    : { ...props, style, children });
 }
 
 /** A flat-shaded rectangle, optionally rounded and/or stroked. */

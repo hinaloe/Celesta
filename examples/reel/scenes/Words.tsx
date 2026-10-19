@@ -1,6 +1,5 @@
 import { clamp } from '@celesta/math';
-import { Easings, Rect, progress, useCurrentFrame } from '@celesta/react';
-import { Label } from '../components/Label';
+import { Easings, Rect, Text, progress, useCurrentFrame } from '@celesta/react';
 import { BEAT, C, H, W } from '../constants';
 
 const WORDS: { text: string; bg: string; ax: number; size: number }[] = [
@@ -27,12 +26,12 @@ export function Words() {
   return (
     <>
       <Rect width={W} height={H} fill={word.bg} />
-      <Label x={x + drift} y={H / 2 + 10} size={word.size} ax={word.ax} ay={0.5} color={fg} scale={punch}>
+      <Text x={x + drift} y={H / 2 + 10} fontFamily="display" fontSize={word.size} fontWeight={700} color={fg} anchorX={word.ax} anchorY={0.5} scale={punch}>
         {word.text}
-      </Label>
-      <Label x={120} y={H - 150} size={22} font="mono" weight={400} color={fg} opacity={0.6}>
+      </Text>
+      <Text x={120} y={H - 150} fontFamily="mono" fontSize={22} fontWeight={400} color={fg} opacity={0.6}>
         {`${String(i + 1).padStart(2, '0')}/${String(WORDS.length).padStart(2, '0')}`}
-      </Label>
+      </Text>
       <Rect x={120} y={H - 110} width={((i + local / BEAT) / WORDS.length) * 360} height={3} fill={fg} opacity={0.6} />
     </>
   );

@@ -126,6 +126,8 @@ export type { GlyphMetrics, MeasureTextOptions, TextMetrics } from './text-measu
 
 export { Span } from './rich-text';
 export type { SpanProps, SpanStyle } from './rich-text';
+export { Theme, useTheme } from './theme';
+export type { ResolvedTheme, TextShorthand, ThemeProps, ThemeValues } from './theme';
 
 export { Subtitles, formatSubtitles, parseSubtitles } from './subtitles';
 export type {
