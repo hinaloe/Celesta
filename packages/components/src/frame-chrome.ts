@@ -5,7 +5,9 @@
 import * as React from 'react';
 
 import { Group, Rect, Span, Text, frameToTimecode, sceneAt, useCurrentFrame, useTheme, useVideoConfig } from '@celesta/react';
-import type { BlendMode, FontFamily, ResolvedTheme, SceneEntry, SceneList, SceneState } from '@celesta/react';
+import type { BlendMode, FontFamily, SceneEntry, SceneList, SceneState } from '@celesta/react';
+
+import { fade, hexColor } from './color';
 
 /** A corner of the frame, where `<FrameChrome>` places one of its labels. */
 export type FrameCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
@@ -92,23 +94,6 @@ const DEFAULT_POSITIONS: Record<FrameChromeLabel, FrameCorner> = {
   caption: 'bottom-right',
 };
 
-const HEX_COLOR = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
-
-function hexColor(color: string, theme: ResolvedTheme, prop: string): string {
-  const resolved = Object.prototype.hasOwnProperty.call(theme.colors, color) ? theme.colors[color]! : color;
-  if (!HEX_COLOR.test(resolved)) {
-    throw new Error(`<FrameChrome> ${prop} ${JSON.stringify(color)} is neither a #RRGGBB or #RRGGBBAA color nor a <Theme> color name`);
-  }
-  return resolved;
-}
-
-/** `color` with its alpha multiplied by `opacity`. */
-function fade(color: string, opacity: number): string {
-  const alpha = color.length === 9 ? parseInt(color.slice(7), 16) / 255 : 1;
-  const byte = Math.round(Math.min(1, Math.max(0, alpha * opacity)) * 255);
-  return color.slice(0, 7) + byte.toString(16).padStart(2, '0');
-}
-
 /**
  * How full the bar is at `frame`: 0 on frame 0, 1 on frame `duration - 1`,
  * in frames of the whole length so that scene segments fill as one bar.
@@ -146,8 +131,8 @@ export function FrameChrome<T extends SceneEntry>(props: FrameChromeProps<T>): R
   const config = useVideoConfig();
   const theme = useTheme();
   const { width: W, height: H, fps } = config;
-  const ink = hexColor(color, theme, 'color');
-  const fill = progressColor === undefined ? ink : hexColor(progressColor, theme, 'progressColor');
+  const ink = hexColor(color, theme, 'FrameChrome', 'color');
+  const fill = progressColor === undefined ? ink : hexColor(progressColor, theme, 'FrameChrome', 'progressColor');
 
   const scene = scenes ? sceneAt(scenes, frame) : null;
   const texts: Partial<Record<FrameChromeLabel, React.ReactNode>> = {};

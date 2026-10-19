@@ -804,6 +804,10 @@ importers:
         version: 5.9.3
 
   packages/components:
+    dependencies:
+      '@celesta/math':
+        specifier: workspace:*
+        version: link:../math
     devDependencies:
       '@celesta/react':
         specifier: workspace:*
