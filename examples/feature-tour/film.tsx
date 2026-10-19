@@ -22,7 +22,8 @@ import { MOUTH, PSD, akane, poseLayers } from './voice';
 //   components/    Label (text), Swap, ChapterShell (shared chapter layout), Shutter, Hud
 //   voice.ts       the dialogue chapter's PSD / voice assets and prepare()
 //   fonts.ts       font URLs (Japanese faces are subset to the glyphs used)
-//   audio.ts       the score's volume ducking    constants.ts, helpers.ts   palette, timing, math
+//   audio.ts       the score's volume ducking    constants.ts   palette, timing
+//   helpers.ts     pad(), zero-padded counters
 
 // Loads the PSD pose preset, the lip-sync track and the voice envelope before the first frame.
 export { prepare } from './voice';

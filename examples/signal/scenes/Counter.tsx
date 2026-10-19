@@ -1,7 +1,6 @@
-import { Rect } from '@celesta/react';
+import { Easings, Rect, progress } from '@celesta/react';
 import { Label } from '../components/Label';
 import { ACID, BONE, GREY, H, INK, W } from '../constants';
-import { ease } from '../math';
 
 export function Counter({ f }: { f: number }) {
   const local = f;
@@ -17,7 +16,7 @@ export function Counter({ f }: { f: number }) {
       const h = 110 + Math.abs(Math.sin(i * 0.4 + local * 0.14)) * 230;
       return <Rect key={i} x={72 + i * 40} y={750 - h / 2}
         width={i % 4 === 0 ? 14 : 6} height={h} fill={i % 4 === 0 ? ACID : GREY}
-        opacity={ease((f - i * 0.4) / 24)} />;
+        opacity={progress(f, i * 0.4, 24, Easings.easeOutCubic)} />;
     })}
     <Rect x={72} y={962} width={1776} height={2} fill={GREY} />
     <Label x={74} y={982} size={23} mono color={ACID}>SOURCE → FRAME</Label>

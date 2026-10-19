@@ -11,7 +11,7 @@ import { Title } from './scenes/Title';
 //
 //   scenes/        one file per scene, in playback order
 //   components/    Label (text), Signal and Rotor (animated generative forms)
-//   constants.ts   canvas size and palette        math.ts   clamp / ease / mix
+//   constants.ts   canvas size and palette
 
 // First frame of each scene (frames at 30 fps). A bone flash marks every cut.
 const SOURCE = 60, KINETIC = 150, SCRUB = 300, TITLE = 390;

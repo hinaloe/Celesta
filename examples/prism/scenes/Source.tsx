@@ -1,14 +1,14 @@
-import { Rect, Text, useCurrentFrame } from '@celesta/react';
+import { lerp } from '@celesta/math';
+import { Easings, Rect, Text, progress, useCurrentFrame } from '@celesta/react';
 import { Label } from '../components/Label';
 import { Prism } from '../components/Prism';
 import { Rails } from '../components/Rails';
 import { GREY, PAPER, RED } from '../constants';
-import { ease, lerp } from '../math';
 
 export function Source() {
   const f = useCurrentFrame();
   const changed = f >= 62;
-  const scale = lerp(0.65, 1, ease((f - 62) / 30));
+  const scale = lerp(0.65, 1, progress(f, 62, 30, Easings.easeOutQuart));
   const lines = [
     { indent: 0, text: 'function Idea() {' },
     { indent: 1, text: 'const f = useCurrentFrame();' },

@@ -1,8 +1,9 @@
-import { Easings, Group, Rect, interpolate, useCurrentFrame } from '@celesta/react';
+import { clamp01 } from '@celesta/math';
+import { Easings, Group, Rect, interpolate, progress, useCurrentFrame } from '@celesta/react';
 import { CHAPTERS } from '../chapters';
 import { Label } from '../components/Label';
 import { BAR, BEAT, C, H, W } from '../constants';
-import { clamp, pad, progress } from '../helpers';
+import { pad } from '../helpers';
 
 // ── 00 · Cold open: a ball bounces through one frame, then fills the screen ──
 
@@ -14,7 +15,7 @@ export function Open() {
   const fy = (H - fh) / 2 - 20;
   const floor = fy + fh - 70;
   const frameIn = progress(f, 0, 12, Easings.easeOutExpo);
-  const frameOut = 1 - progress(f, 46, 6);
+  const frameOut = 1 - progress(f, 46, 6, Easings.easeOutCubic);
 
   // The ball lands on every beat: 0, 15, 30, then rests at the center on 45.
   const beat = Math.floor(f / BEAT);
@@ -24,7 +25,7 @@ export function Open() {
     easing: Easings.easeOutSine, extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
   });
   const land = beat < 3 ? Math.min(u, 1 - u) : 1; // 0 at the moment of contact
-  const squash = beat < 4 ? 1 - 0.28 * clamp(1 - land / 0.12) : 1;
+  const squash = beat < 4 ? 1 - 0.28 * clamp01(1 - land / 0.12) : 1;
   const d = 110;
   const ballIn = progress(f, 2, 10, Easings.easeOutBack);
   // From frame 46 the ball opens like an iris until it covers the screen.
@@ -68,7 +69,7 @@ export function Open() {
         <>
           <Rect width={W} height={H} fill={C.blue} />
           <Label x={W / 2} y={H / 2 - 10 + 30 * (1 - hit)} size={250} ax={0.5} ay={0.5} scale={1.08 - 0.08 * hit}
-            opacity={clamp(hit * 1.5)}>Celesta</Label>
+            opacity={clamp01(hit * 1.5)}>Celesta</Label>
           <Label x={W / 2} y={H / 2 - 210 + 16 * (1 - label)} size={22} font="mono" weight={700} ax={0.5} ay={0.5}
             opacity={label}>{`FEATURE TOUR  ·  ${pad(CHAPTERS.length)} CHAPTERS`}</Label>
           <Label x={W / 2} y={H / 2 + 190 + 16 * (1 - ja)} size={40} font="ja" weight={700} ax={0.5} ay={0.5}

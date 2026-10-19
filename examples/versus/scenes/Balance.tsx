@@ -1,9 +1,8 @@
-import { Easings, Group, Rect, spring, useCurrentFrame, useVideoConfig } from '@celesta/react';
+import { Easings, Group, Rect, progress, spring, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import { Header } from '../components/Chrome';
 import { Label } from '../components/Label';
 import { C, ORDER, TOOL } from '../constants';
 import { EXPORT, LOOP, fmt } from '../data';
-import { progress } from '../helpers';
 
 const X0 = 260;
 const Y0 = 930;
@@ -25,7 +24,7 @@ export function Balance() {
   const px = (s: number) => X0 + (s / maxX) * PW;
   const py = (s: number) => Y0 - (s / maxY) * PH;
   const axes = progress(f, 6, 24, Easings.easeOutExpo);
-  const zone = progress(f, 90, 30);
+  const zone = progress(f, 90, 30, Easings.easeOutCubic);
   return (
     <>
       <Header f={f} n="06 — BALANCE" title="Easy and fast." sub="Lower left wins: quicker to check an edit, quicker to export." />
@@ -58,7 +57,7 @@ export function Balance() {
       })}
       <Group x={1420} y={400}>
         {VERDICT.map(([id, text], i) => (
-          <Group key={id} y={i * 130} opacity={progress(f, 110 + i * 10, 16)}>
+          <Group key={id} y={i * 130} opacity={progress(f, 110 + i * 10, 16, Easings.easeOutCubic)}>
             <Rect width={4} height={92} fill={TOOL[id].color} />
             <Label x={24} size={32} weight={700} color={TOOL[id].color}>{TOOL[id].name}</Label>
             <Label x={24} y={48} size={20} weight={400} color={C.soft} >{text}</Label>

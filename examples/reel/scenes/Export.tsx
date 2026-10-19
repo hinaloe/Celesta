@@ -1,10 +1,10 @@
 import type { Run } from '../components/Mono';
-import { Easings, Group, Rect, useCurrentFrame } from '@celesta/react';
+import { clamp } from '@celesta/math';
+import { Easings, Group, Rect, progress, useCurrentFrame } from '@celesta/react';
 import { Label } from '../components/Label';
 import { Mono, runLength } from '../components/Mono';
 import { Tag } from '../components/Tag';
 import { BEAT, C, DURATION, H, W } from '../constants';
-import { clamp, progress } from '../helpers';
 import { monoAdvance } from '../metrics';
 
 const SPECS = ['1920 × 1080', '30 fps', 'H.264 + AAC', 'GPU · yuv420p'];
@@ -17,7 +17,7 @@ const COMMAND: Run[] = [
 
 export function Export() {
   const f = useCurrentFrame();
-  const p = Easings.easeInOutCubic(clamp((f - 14) / 82));
+  const p = Easings.easeInOutCubic(progress(f, 14, 82));
   const pct = Math.round(p * 100);
   const done = pct === 100;
   const inAt = progress(f, 0, 14, Easings.easeOutExpo);

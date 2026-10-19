@@ -1,6 +1,5 @@
-import { Easings, Group, Rect, useCurrentFrame, useVideoConfig } from '@celesta/react';
+import { Easings, Group, Rect, progress, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import { C, ORDER, TOOL, W, H } from '../constants';
-import { progress } from '../helpers';
 import { Label } from './Label';
 
 // A panel led by the three tool colors sweeps left to right; place it so its
@@ -27,7 +26,7 @@ export function Hud({ sections }: { sections: { name: string; from: number }[] }
   const f = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
   const index = sections.reduce((found, s, i) => (f >= s.from ? i : found), 0);
-  const on = progress(f, 20, 20) * (1 - progress(f, durationInFrames - 40, 20));
+  const on = progress(f, 20, 20, Easings.easeOutCubic) * (1 - progress(f, durationInFrames - 40, 20, Easings.easeOutCubic));
   return (
     <Group opacity={on}>
       <Label x={W - 96} y={36} ax={1} size={14} font="mono" weight={700} color={C.grey} spacing={3}>

@@ -1,6 +1,6 @@
+import { clamp01 } from '@celesta/math';
 import { Group } from '@celesta/react';
 import { RED } from '../constants';
-import { clamp } from '../math';
 import { Line } from './Line';
 
 // A half-twist ribbon, projected from 3D. Each strand runs twice around
@@ -33,6 +33,6 @@ export function Ribbon({ time, x = 960, y = 540, size = 350, color = RED,
   }
   segments.sort((a, b) => a.depth - b.depth);
   return <Group opacity={opacity}>{segments.map(s => <Line key={s.key}
-    a={s.a} b={s.b} width={1.5 + clamp((s.depth + 1) / 2) * 0.8}
-    color={color} opacity={0.25 + clamp((s.depth + 1.4) / 2.8) * 0.75} />)}</Group>;
+    a={s.a} b={s.b} width={1.5 + clamp01((s.depth + 1) / 2) * 0.8}
+    color={color} opacity={0.25 + clamp01((s.depth + 1.4) / 2.8) * 0.75} />)}</Group>;
 }

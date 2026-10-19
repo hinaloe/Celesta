@@ -1,9 +1,9 @@
-import { Easings, Group, Rect, interpolate, spring, useCurrentFrame } from '@celesta/react';
+import { lerp } from '@celesta/math';
+import { Easings, Group, Rect, interpolate, progress, spring, useCurrentFrame } from '@celesta/react';
 import { Label } from '../components/Label';
 import { Line } from '../components/Line';
 import { Rails } from '../components/Rails';
 import { FPS, H, INK, PAPER, RED, W } from '../constants';
-import { ease, lerp } from '../math';
 
 export function Motion() {
   const f = useCurrentFrame();
@@ -22,7 +22,7 @@ export function Motion() {
         <Line a={[cx, 500]} b={[cx, 890]} color={INK} opacity={0.2} />
         <Rect x={cx} y={lerp(840, 659 + Math.sin(phase * 6.28 + i * 0.7) * 120, rise)}
           anchorX={0.5} anchorY={0.5} width={132} height={132}
-          opacity={ease((f - i * 4) / 12)}
+          opacity={progress(f, i * 4, 12, Easings.easeOutQuart)}
           rotation={phase * 180 + i * 12} fill={i % 3 === 0 ? PAPER : INK}
           cornerRadius={i % 2 ? 66 : 0} />
         <Label x={cx} y={935} size={18} mono center color={INK}>{`0${i + 1}`}</Label>

@@ -12,7 +12,8 @@ import { S, SCENES } from './timeline';
 //   timeline.ts    scene boundaries (S) and the scene list
 //   scenes/        one file per scene
 //   components/    Label, Mono (colored code runs), Tag, Swap, Wipe, Hud
-//   metrics.ts     font measurements made in prepare()   constants.ts, helpers.ts   palette, math
+//   metrics.ts     font measurements made in prepare()
+//   constants.ts   palette, sizes, and timing
 
 // Measures the fonts once before the first frame.
 export { prepare } from './metrics';

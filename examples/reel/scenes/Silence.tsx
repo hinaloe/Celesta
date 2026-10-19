@@ -1,6 +1,5 @@
-import { Easings, Rect, useCurrentFrame } from '@celesta/react';
+import { Easings, Rect, progress, useCurrentFrame } from '@celesta/react';
 import { BEAT, C, H, W } from '../constants';
-import { progress } from '../helpers';
 
 export function Silence() {
   const f = useCurrentFrame();

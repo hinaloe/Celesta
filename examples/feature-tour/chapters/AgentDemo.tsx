@@ -1,7 +1,6 @@
-import { Easings, Group, Rect, useCurrentFrame } from '@celesta/react';
+import { Easings, Group, Rect, progress, useCurrentFrame } from '@celesta/react';
 import { Label } from '../components/Label';
 import { C, DURATION, DW, DX } from '../constants';
-import { clamp, progress } from '../helpers';
 
 // ── 09 · Agents: this film, as a transcript ───────────────────────────────
 
@@ -42,7 +41,7 @@ export function AgentDemo() {
         const ly = y + 110 + i * lh;
         const p = progress(f, line.at, 8, Easings.easeOutExpo);
         if (line.ja) {
-          const typed = Math.floor(clamp((f - line.at) / 18) * line.text.length);
+          const typed = Math.floor(progress(f, line.at, 18) * line.text.length);
           return (
             <Group key={i}>
               <Rect x={x + 20} y={ly - 24} width={DW - 40} height={48} cornerRadius={8} fill={C.panel} />

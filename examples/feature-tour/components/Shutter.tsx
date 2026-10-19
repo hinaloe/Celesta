@@ -1,6 +1,5 @@
-import { Easings, Rect, useCurrentFrame } from '@celesta/react';
+import { Easings, Rect, progress, useCurrentFrame } from '@celesta/react';
 import { H, W } from '../constants';
-import { progress } from '../helpers';
 
 // Twelve slats sweep across a cut in a chevron, center rows first. Place the
 // sequence so the cut lands at its frame 9.

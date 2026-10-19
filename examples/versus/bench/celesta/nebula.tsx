@@ -12,6 +12,8 @@ const TAU = Math.PI * 2;
 const BLOBS = ['#FF3D7F', '#3DA5FF', '#7B5CFF', '#00E0B8', '#FFB13D', '#FF6B3D'];
 const STARS = ['#FFFFFF', '#9EC9FF', '#FFC2E0', '#B8FFF0'];
 
+// SCENE.md's rand(), not @celesta/math's random(): the Remotion and fframes
+// versions use the same formula, so all three place every star alike.
 const rand = (i: number, k: number) => {
   const v = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
   return v - Math.floor(v);

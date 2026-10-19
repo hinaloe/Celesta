@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
-import { Easings, Group, Rect, useCurrentFrame } from '@celesta/react';
+import { random } from '@celesta/math';
+import { Easings, Group, Rect, frameToTimecode, progress, useCurrentFrame } from '@celesta/react';
 import { Label } from '../components/Label';
-import { C, CHAPTER_COUNT, DURATION, DW, DX } from '../constants';
-import { clamp, hash, pad, progress, timecode } from '../helpers';
+import { C, CHAPTER_COUNT, DURATION, DW, DX, FPS } from '../constants';
+import { pad } from '../helpers';
 
 // ── 08 · Export: frames become a file ─────────────────────────────────────
 
@@ -11,7 +12,7 @@ const MOSAIC_ROWS = 8;
 
 export function ExportDemo() {
   const f = useCurrentFrame();
-  const p = Easings.easeInOutCubic(clamp((f - 10) / 84));
+  const p = Easings.easeInOutCubic(progress(f, 10, 84));
   const pct = Math.round(p * 100);
   const done = pct === 100;
   const total = MOSAIC_COLS * MOSAIC_ROWS;
@@ -21,7 +22,7 @@ export function ExportDemo() {
   const g = 6;
   const mx = DX + (DW - (MOSAIC_COLS * (tw + g) - g)) / 2;
   const my = 250;
-  const flash = done ? 1 - progress(f, 95, 12) : 0;
+  const flash = done ? 1 - progress(f, 95, 12, Easings.easeOutCubic) : 0;
   const tiles: ReactNode[] = [];
   for (let i = 0; i < total; i++) {
     const c = i % MOSAIC_COLS;
@@ -38,8 +39,8 @@ export function ExportDemo() {
           stroke={on || head ? undefined : '#FFFFFF40'} strokeWidth={on || head ? undefined : 1} />
         {on && (
           <>
-            <Rect x={x + 6} y={y + 7} width={8 + 20 * hash(chapter, 1)} height={4} fill={C.paper} opacity={0.8} />
-            <Rect x={x + 6} y={y + 15} width={12 + 20 * hash(i, 2)} height={3} fill={chapter % 3 === 0 ? C.blue : C.grey} />
+            <Rect x={x + 6} y={y + 7} width={8 + 20 * random(`thumb-title-${chapter}`)} height={4} fill={C.paper} opacity={0.8} />
+            <Rect x={x + 6} y={y + 15} width={12 + 20 * random(`thumb-line-${i}`)} height={3} fill={chapter % 3 === 0 ? C.blue : C.grey} />
           </>
         )}
       </Group>,
@@ -71,7 +72,7 @@ export function ExportDemo() {
         <Rect x={24} y={-5} width={10} height={10} cornerRadius={5} fill={C.paper} />
         <Label x={46} y={0} size={18} font="mono" weight={700} ay={0.5}>feature-tour.mp4</Label>
         <Label x={DW - 24} y={0} size={18} font="mono" weight={400} color={C.soft} ax={1} ay={0.5}>
-          {`${timecode(DURATION)} · ${DURATION} frames`}
+          {`${frameToTimecode(DURATION, FPS).slice(3)} · ${DURATION} frames`}
         </Label>
       </Group>
     </>

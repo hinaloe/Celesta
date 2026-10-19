@@ -1,7 +1,7 @@
-import { Easings, Rect, useCurrentFrame } from '@celesta/react';
+import { clamp } from '@celesta/math';
+import { Easings, Rect, progress, useCurrentFrame } from '@celesta/react';
 import { Label } from '../components/Label';
 import { BEAT, C, H, W } from '../constants';
-import { clamp, pad2, progress } from '../helpers';
 
 const WORDS: { text: string; bg: string; ax: number; size: number }[] = [
   { text: 'CODE', bg: C.paper, ax: 0.5, size: 360 },
@@ -31,7 +31,7 @@ export function Words() {
         {word.text}
       </Label>
       <Label x={120} y={H - 150} size={22} font="mono" weight={400} color={fg} opacity={0.6}>
-        {`${pad2(i + 1)}/${pad2(WORDS.length)}`}
+        {`${String(i + 1).padStart(2, '0')}/${String(WORDS.length).padStart(2, '0')}`}
       </Label>
       <Rect x={120} y={H - 110} width={((i + local / BEAT) / WORDS.length) * 360} height={3} fill={fg} opacity={0.6} />
     </>

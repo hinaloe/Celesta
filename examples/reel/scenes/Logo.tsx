@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
-import { Easings, Group, Rect, useCurrentFrame, useVideoConfig } from '@celesta/react';
+import { clamp01, random } from '@celesta/math';
+import { Easings, Group, Rect, progress, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import { Label } from '../components/Label';
 import { C, H, W } from '../constants';
-import { clamp, hash, progress } from '../helpers';
 import { LOGO_SIZE, logo } from '../metrics';
 
 export function Logo() {
@@ -13,10 +13,10 @@ export function Logo() {
 
   const stars = Array.from({ length: 170 }, (_, i) => {
     const zoom = 1 + f * 0.0035;
-    const sx = cx + (hash(i, 1) * W * 1.2 - W * 0.6) * zoom;
-    const sy = cy + (hash(i, 2) * H * 1.2 - H * 0.6) * zoom;
-    const size = 1 + Math.floor(hash(i, 3) * 3);
-    const twinkle = 0.25 + 0.75 * (0.5 + 0.5 * Math.sin(f * 0.15 + hash(i, 4) * 20));
+    const sx = cx + (random(`star-${i}-x`) * W * 1.2 - W * 0.6) * zoom;
+    const sy = cy + (random(`star-${i}-y`) * H * 1.2 - H * 0.6) * zoom;
+    const size = 1 + Math.floor(random(`star-${i}-size`) * 3);
+    const twinkle = 0.25 + 0.75 * (0.5 + 0.5 * Math.sin(f * 0.15 + random(`star-${i}-phase`) * 20));
     return <Rect key={i} x={sx} y={sy} width={size} height={size} fill={C.paper} opacity={twinkle * 0.5} />;
   });
 
@@ -58,13 +58,13 @@ export function Logo() {
               const letter = progress(f, i * 2, 24, Easings.easeOutExpo);
               return (
                 <Label key={i} x={x - logo!.width / 2} y={LOGO_SIZE * 0.35 + 20 * (1 - letter)} size={LOGO_SIZE} weight={700}
-                  ay="baseline" opacity={clamp(letter * 2)}>{text}</Label>
+                  ay="baseline" opacity={clamp01(letter * 2)}>{text}</Label>
               );
             })}
           </Group>
         ) : (
           <Label x={cx} y={cy + 20 * (1 - hit)} size={LOGO_SIZE} weight={700} ax={0.5} ay={0.5}
-            scale={1.3 - 0.3 * hit} opacity={clamp(hit * 2)}>Celesta</Label>
+            scale={1.3 - 0.3 * hit} opacity={clamp01(hit * 2)}>Celesta</Label>
         )}
         <Rect x={cx} y={cy + 160} anchorX={0.5} width={Math.max(1, 640 * rule)} height={2} fill={C.paper} opacity={0.5} />
         <Label x={cx} y={cy + 216 + 16 * (1 - sub)} size={26} font="mono" weight={400} color={C.grey}

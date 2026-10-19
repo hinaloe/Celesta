@@ -1,7 +1,6 @@
-import { Easings, Group, Rect, useCurrentFrame } from '@celesta/react';
+import { Easings, Group, Rect, progress, useCurrentFrame } from '@celesta/react';
 import { Label } from '../components/Label';
 import { C, H, W } from '../constants';
-import { progress } from '../helpers';
 
 // ── 01 · React: a frame is a stack of layers ──────────────────────────────
 
@@ -15,7 +14,7 @@ export function ReactDemo() {
   const ph = 270;
   const rise = progress(f, 6, 18, Easings.easeOutExpo);
   const gap = 150 * progress(f, 28, 26, Easings.easeInOutCubic);
-  const bob = progress(f, 54, 20);
+  const bob = progress(f, 54, 20, Easings.easeOutCubic);
   const plates = [
     { name: '<Rect>', note: 'fill="#3D5BFF"' },
     { name: '<Group>', note: '3 × <Rect cornerRadius>' },

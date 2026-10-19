@@ -1,6 +1,5 @@
-import { Easings, Group, Rect } from '@celesta/react';
+import { Easings, Group, Rect, progress } from '@celesta/react';
 import { C } from '../constants';
-import { progress } from '../helpers';
 import { Label } from './Label';
 
 export type Bar = { key: string; label: string; sub?: string; value: number; color: string; strong?: boolean };

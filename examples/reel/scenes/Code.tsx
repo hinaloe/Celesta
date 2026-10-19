@@ -1,11 +1,11 @@
 import type { Run } from '../components/Mono';
-import { Easings, Group, Rect, spring, useCurrentFrame, useVideoConfig } from '@celesta/react';
+import { clamp, clamp01 } from '@celesta/math';
+import { Easings, Group, Rect, progress, spring, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import { Label } from '../components/Label';
 import { Mono, runLength } from '../components/Mono';
 import { Swap } from '../components/Swap';
 import { Tag } from '../components/Tag';
 import { C, H, W } from '../constants';
-import { clamp, progress } from '../helpers';
 import { monoAdvance } from '../metrics';
 
 // Local frames of the scene. Keep RELOADS in make-music.py in sync
@@ -91,7 +91,7 @@ export function Code() {
   const selection = (line: number, col: number, len: number, at: number) => {
     const on = f >= at - 10 && f < at + 16;
     if (!on) return null;
-    const flash = f < at ? 0.35 : 0.35 * (1 - progress(f, at, 16));
+    const flash = f < at ? 0.35 : 0.35 * (1 - progress(f, at, 16, Easings.easeOutCubic));
     return <Rect x={codeX + col * cw - 3} y={codeY + line * lh - lh / 2 + 2} width={len * cw + 6} height={lh - 4}
       cornerRadius={4} fill={C.accent} opacity={flash} />;
   };
@@ -105,7 +105,7 @@ export function Code() {
   const reloads = [SAVE, EDIT_SIZE, EDIT_TEXT];
   const lastReload = reloads.reduce((found, at) => (f >= at ? at : found), -1);
   const s = lastReload < 0 ? 0 : spring({ frame: f - lastReload, fps, config: { damping: 12, stiffness: 120 } });
-  const badge = lastReload < 0 ? 0 : 1 - progress(f, lastReload + 18, 10);
+  const badge = lastReload < 0 ? 0 : 1 - progress(f, lastReload + 18, 10, Easings.easeOutCubic);
   const previewFrame = lastReload < 0 ? 0 : f - lastReload;
 
   return (
@@ -132,7 +132,7 @@ export function Code() {
           )}
         </Group>
 
-        <Group y={30 * (1 - progress(f, 4, 14, Easings.easeOutExpo))} opacity={progress(f, 4, 14)}>
+        <Group y={30 * (1 - progress(f, 4, 14, Easings.easeOutExpo))} opacity={progress(f, 4, 14, Easings.easeOutCubic)}>
           <Rect x={px} y={py} width={pw} height={ph + 48} cornerRadius={12} fill={C.panel} stroke="#FFFFFF14" strokeWidth={1} />
           <Label x={px + 24} y={py + 24} size={18} font="mono" weight={700} ay={0.5}>Preview</Label>
           <Label x={px + pw - 24} y={py + 24} size={16} font="mono" weight={400} color={C.grey} ax={1} ay={0.5}>
@@ -141,20 +141,20 @@ export function Code() {
           <Rect x={px} y={py + 48} width={pw} height={ph} fill={C.paper} />
           {lastReload >= 0 && (
             <Label x={px + 960 * k} y={py + 48 + (540 + 80 * (1 - s)) * k} size={Number(size) * k}
-              ax={0.5} ay={0.5} opacity={clamp(s)} color={C.ink}>{label}</Label>
+              ax={0.5} ay={0.5} opacity={clamp01(s)} color={C.ink}>{label}</Label>
           )}
           {lastReload < 0 && (
             <Label x={px + pw / 2} y={py + 48 + ph / 2} size={18} font="mono" weight={400} color={C.grey} ax={0.5} ay={0.5}>
               waiting for save…
             </Label>
           )}
-          <Rect x={px} y={py + 48 + ph - 4} width={Math.max(1, pw * clamp(previewFrame / 60))} height={4} fill={C.accent} />
+          <Rect x={px} y={py + 48 + ph - 4} width={Math.max(1, pw * progress(previewFrame, 0, 60))} height={4} fill={C.accent} />
           <Group x={px + pw - 20} y={py + 48 + 22} opacity={badge}>
             <Rect x={-150} y={-17} width={150} height={34} cornerRadius={17} fill={C.accent} />
             <Label x={-75} y={0} size={16} font="mono" weight={700} color={C.ink} ax={0.5} ay={0.5}>↻ reloaded</Label>
           </Group>
         </Group>
-        <Mono x={px} y={py + ph + 100} size={20} opacity={progress(f, SAVE, 12)}
+        <Mono x={px} y={py + ph + 100} size={20} opacity={progress(f, SAVE, 12, Easings.easeOutCubic)}
           runs={[{ text: 'Save the file. ', color: C.paper }, { text: 'The preview reloads.', color: C.grey }]} />
       </Group>
     </>

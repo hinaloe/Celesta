@@ -23,5 +23,3 @@ export const FONT = {
   mono: 'JetBrains Mono',
   ja: 'Noto Sans JP',
 } as const;
-// JetBrains Mono advances every glyph by 0.6 em, so mono text can be measured.
-export const MONO_ADVANCE = 0.6;

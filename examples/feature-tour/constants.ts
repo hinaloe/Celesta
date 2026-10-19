@@ -31,8 +31,6 @@ export const FONT = {
   jaDisplay: 'Dela Gothic One',
   dot: 'DotGothic16',
 } as const;
-// JetBrains Mono advances every glyph by 0.6 em, so mono text can be measured.
-export const MONO_ADVANCE = 0.6;
 
 // Scene boundaries, in frames. Every chapter starts on a downbeat.
 export const S = {

@@ -1,7 +1,7 @@
-import { Easings, Group, Rect, useCurrentFrame } from '@celesta/react';
+import { clamp } from '@celesta/math';
+import { Easings, Group, Rect, progress, useCurrentFrame } from '@celesta/react';
 import { Label } from '../components/Label';
 import { BEAT, C, DW, DX, FONT } from '../constants';
-import { clamp, progress } from '../helpers';
 
 // ── 04 · Type: one card, eight faces ──────────────────────────────────────
 
@@ -45,7 +45,7 @@ export function TypeDemo() {
       <Label x={(DX + listX - 30) / 2} y={top + 230} size={220} font={s.font} weight={s.weight} ax={0.5} ay={0.5}
         color={s.color ?? C.paper} stroke={s.stroke} scale={punch}>{s.glyph}</Label>
       <Label x={DX + 40} y={top + 440} size={s.font === 'mono' ? 22 : 30} font={s.font} weight={s.weight}
-        color={C.paper} ay={0.5} opacity={progress(local, 1, 6)}>{s.sample}</Label>
+        color={C.paper} ay={0.5} opacity={progress(local, 1, 6, Easings.easeOutCubic)}>{s.sample}</Label>
       <Label x={DX + 40} y={top + 510} size={16} font="mono" weight={400} color={C.grey} ay={0.5}>{s.meta}</Label>
       <Label x={listX - 60} y={top + 510} size={16} font="mono" weight={700} color={C.blue} ax={1} ay={0.5}>
         {`${k + 1} / ${SPECIMENS.length}`}

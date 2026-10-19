@@ -1,6 +1,5 @@
-import { Easings, Group, Rect } from '@celesta/react';
+import { Easings, Group, Rect, progress } from '@celesta/react';
 import { C, TOOL, W, type ToolId } from '../constants';
-import { progress } from '../helpers';
 import { Label } from './Label';
 
 // Kicker and headline at the top left of a scene. The headline rises from
@@ -11,7 +10,7 @@ export function Header({ f, n, title, sub, color = TOOL.celesta.color }: {
   const lines = title.split('\n');
   return (
     <Group x={96} y={92}>
-      <Group opacity={progress(f, 0, 12)}>
+      <Group opacity={progress(f, 0, 12, Easings.easeOutCubic)}>
         <Rect y={6} width={Math.max(1, 36 * progress(f, 0, 16, Easings.easeOutExpo))} height={4} fill={color} />
         <Label x={52} size={18} font="mono" weight={700} color={color} spacing={3}>{n}</Label>
       </Group>
@@ -24,7 +23,7 @@ export function Header({ f, n, title, sub, color = TOOL.celesta.color }: {
         );
       })}
       {sub ? (
-        <Label y={52 + lines.length * 76} size={24} weight={400} color={C.soft} opacity={progress(f, 14, 16)}>{sub}</Label>
+        <Label y={52 + lines.length * 76} size={24} weight={400} color={C.soft} opacity={progress(f, 14, 16, Easings.easeOutCubic)}>{sub}</Label>
       ) : null}
     </Group>
   );

@@ -1,8 +1,7 @@
-import { Easings, Group, Rect, Video, spring, useCurrentFrame, useVideoConfig } from '@celesta/react';
+import { Easings, Group, Rect, Video, progress, spring, useCurrentFrame, useVideoConfig } from '@celesta/react';
 import { Label } from '../components/Label';
 import { C, H, TOOL, W } from '../constants';
 import { EXPORT } from '../data';
-import { progress } from '../helpers';
 
 export function Outro() {
   const f = useCurrentFrame();
@@ -12,7 +11,7 @@ export function Outro() {
   const lines = ['Write it in React.', 'Render it on the GPU.'];
   return (
     <Group opacity={out}>
-      <Group opacity={0.3 * progress(f, 0, 30)} blur={14}>
+      <Group opacity={0.3 * progress(f, 0, 30, Easings.easeOutCubic)} blur={14}>
         <Video src="./bench/out/celesta.mp4" startFrom={5} />
       </Group>
       <Rect width={W} height={H} fill={{
@@ -31,10 +30,10 @@ export function Outro() {
         glow={{ color: TOOL.celesta.color, blur: 32 }}>
         <Label ax={0.5} ay={0.5} size={230} weight={700} spacing={-8} color={C.ink}>Celesta</Label>
       </Group>
-      <Label x={W / 2} y={720} ax={0.5} size={24} font="mono" weight={400} color={C.soft} opacity={progress(f, 56, 20)}>
+      <Label x={W / 2} y={720} ax={0.5} size={24} font="mono" weight={400} color={C.soft} opacity={progress(f, 56, 20, Easings.easeOutCubic)}>
         {`NEBULA → MP4 in ${EXPORT.celesta.toFixed(1)}s · one .tsx file · live reload`}
       </Label>
-      <Label x={W / 2} y={800} ax={0.5} size={22} font="mono" weight={700} color={TOOL.celesta.color} spacing={2} opacity={progress(f, 70, 20)}>
+      <Label x={W / 2} y={800} ax={0.5} size={22} font="mono" weight={700} color={TOOL.celesta.color} spacing={2} opacity={progress(f, 70, 20, Easings.easeOutCubic)}>
         github.com/mika-f/celesta
       </Label>
     </Group>

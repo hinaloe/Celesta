@@ -1,10 +1,9 @@
-import { Easings, Group, Rect, useCurrentFrame } from '@celesta/react';
+import { Easings, Group, Rect, progress, useCurrentFrame } from '@celesta/react';
 import { Bars } from '../components/Bars';
 import { Footnote, Header, ToolTag } from '../components/Chrome';
 import { Label } from '../components/Label';
 import { C, ORDER, TOOL, type ToolId } from '../constants';
 import { LOOP, LOOP_RUNS, SETUP } from '../data';
-import { progress } from '../helpers';
 
 const NEEDS: Record<ToolId, string[]> = {
   remotion: ['Node.js', `npm install (${SETUP.remotion.seconds} s)`, 'Chrome Headless Shell, fetched on first render'],
@@ -21,7 +20,7 @@ export function Loop() {
       <Header f={f} n="04 — EASE" title="Write it. See it." sub="Three fresh projects on Windows 11, then the same one-line edit in each." />
 
       <Group x={96} y={330}>
-        <Label size={18} font="mono" weight={700} color={C.grey} spacing={3} opacity={progress(f, 10, 16)}>BEFORE THE FIRST FRAME</Label>
+        <Label size={18} font="mono" weight={700} color={C.grey} spacing={3} opacity={progress(f, 10, 16, Easings.easeOutCubic)}>BEFORE THE FIRST FRAME</Label>
         {ORDER.map((id, i) => {
           const top = 50 + y;
           y += 66 + NEEDS[id].length * 38;
@@ -41,7 +40,7 @@ export function Loop() {
       </Group>
 
       <Group x={960} y={330}>
-        <Label size={18} font="mono" weight={700} color={C.grey} spacing={3} opacity={progress(f, 60, 16)}>
+        <Label size={18} font="mono" weight={700} color={C.grey} spacing={3} opacity={progress(f, 60, 16, Easings.easeOutCubic)}>
           CHANGE ONE COLOR → FRAME 300 AS PNG
         </Label>
         <Group y={66}>
@@ -52,11 +51,11 @@ export function Loop() {
               { key: 'celesta', label: 'Celesta', sub: 're-bundle', value: LOOP.celesta, color: TOOL.celesta.color, strong: true },
             ]} />
         </Group>
-        <Label y={460} size={22} lineHeight={34} weight={400} color={C.soft} opacity={progress(f, 150, 20)}>
+        <Label y={460} size={22} lineHeight={34} weight={400} color={C.soft} opacity={progress(f, 150, 20, Easings.easeOutCubic)}>
           {'Rust recompiles on every change.\nIn the Celesta app, saving the file reloads the preview.'}
         </Label>
       </Group>
-      <Footnote opacity={progress(f, 120, 20)}>{`measured from the CLI · ${LOOP_RUNS}`}</Footnote>
+      <Footnote opacity={progress(f, 120, 20, Easings.easeOutCubic)}>{`measured from the CLI · ${LOOP_RUNS}`}</Footnote>
     </>
   );
 }
