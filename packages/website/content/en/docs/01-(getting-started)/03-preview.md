@@ -70,7 +70,7 @@ Anything else is locked: its field shows a lock icon and the reason, and the out
 | A layout component sets this value | The element received another value than the one written: a parent, such as a layout component, replaced it |
 | May be set by a spread ({...props}) | The element has `{...props}` and no value of its own, or the spread comes after the value |
 | Rendered `<count>` times from this element | An element in `.map()`; editing it would move every copy |
-| Can't tell which frame this animation reads | The element is made by a function passed to another component that sits inside a `<Sequence>` or `<FreezeFrame>`, so Celesta can't tell which frame `frame` holds |
+| Can't tell which frame this animation reads | `frame` could hold more than one frame (each `<Sequence>` or `<FreezeFrame>` around the element gives another), and those frames give different keyframes with the same value |
 | This file is outside the project | The element is written in a file outside the entry file's folder, or inside `node_modules` |
 | Couldn't find this element in the source | The file no longer has the element where the preview found it, such as while a save is still reloading |
 | The source has syntax errors | Fix the file first; every field is locked until it parses |

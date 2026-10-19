@@ -18,12 +18,13 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   `celesta_react_bridge::LayerSource`): each chain entry gains `kind`
   (`primitive` or `component`, by type identity) and `layer_id`; the reply
   gains `localFrame` (what `useCurrentFrame()` returns in the component that
-  wrote the innermost primitive, its owner), `frameUncertain` (sent only
-  when that owner can't be told and a frame provider above it differs),
+  most likely wrote the innermost primitive, its owner, for display),
+  `candidateFrames` (the distinct frames every frame provider above the
+  primitive hands down, nearest first),
   `props` (the transform values the innermost primitive received), and
   `renderCount` (layers in the frame sharing the innermost source position).
-  Older runtimes omit them and read as `component`, frame 0, not
-  uncertain, no props, 1.
+  Older runtimes omit them and read as `component`, frame 0, candidates
+  `[localFrame]`, no props, 1.
 - Preview worker: the request carries `frame_of` (the selected layer) and
   drag overrides; the reply carries `layer_frame` (the layer's transform, its
   parent's map to scene pixels, an outline, and the leaf ids a hit test can
@@ -73,10 +74,22 @@ expressions, keyboard nudging, snapping, multi-selection, project layers.
   primitive that is not a Celesta element, not marked transparent
   (`markTransparent`: `Composition`, `Sequence`, `FreezeFrame`, `MotionBlur`,
   `Trail`, the moment-function wrapper), and did not receive the element in
-  its props. If that component has a function prop (it may have called a
-  render function its caller wrote) and a frame provider above it hands down
-  another frame, the reply sets `frameUncertain` and keyframe targets lock as
-  `FrameUncertain` ("Can't tell which frame this animation reads").
+  its props. That is a guess (a render prop, a function in an object prop or
+  in context, or an array of functions can hand the element to a component
+  under another frame), so the resolver does not use it. It uses
+  `candidateFrames`: whichever component read `frame` sits above the element
+  or wrote it, since data flows down, so the frame read is one of the frames
+  the providers above the element hand down. Each candidate (minus the
+  `frame - N` offset) is placed as a keyframe, between two keyframes, or
+  outside them, and ruled out when its value differs from the received one:
+  a keyframe's value is its output entry; between or outside, the value is
+  known only without an `options` argument (linear, `extend`), and the
+  candidate is kept otherwise. The survivors must agree on one keyframe,
+  one between pair at one frame (the jump buttons convert with that frame,
+  carried in `BetweenKeyframes.frame`, not `localFrame`), or outside;
+  otherwise the target locks as `FrameUncertain` ("Can't tell which frame
+  this animation reads"). No survivors is `OverriddenByParent`, as is an
+  `interpolate()` prop the element did not receive as a number.
 - `const x = spring()` reports UnsupportedCall.
 - `FileEdit.before` is `Option`: an undo of a created props file removes it.
 - Undo/redo reloads keep the selection.

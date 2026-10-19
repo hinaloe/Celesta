@@ -70,7 +70,7 @@ Celesta が値を書き込むのは、ファイルに直接書かれた要素で
 | A layout component sets this value | 要素が受け取った値が書かれた値と違う。レイアウトコンポーネントなどの親が値を置き換えている |
 | May be set by a spread ({...props}) | 要素に `{...props}` があり、その要素自身には値がない。または値の後ろにスプレッドがある |
 | Rendered `<count>` times from this element | `.map()` の中の要素で、編集すると全部のコピーが動いてしまう |
-| Can't tell which frame this animation reads | `<Sequence>` や `<FreezeFrame>` の中にある別のコンポーネントに渡した関数が要素を作っているため、`frame` がどのフレームを持つか判断できない |
+| Can't tell which frame this animation reads | `frame` が複数のフレームのどれかを持ちうる（要素を囲む `<Sequence>` や `<FreezeFrame>` ごとに別のフレームになる）うえ、それらのフレームが同じ値の別々のキーフレームを指している |
 | This file is outside the project | 要素が、エントリファイルのフォルダの外にあるファイル、または `node_modules` の中に書かれている |
 | Couldn't find this element in the source | プレビューが見つけた位置に、ファイルの要素がもうない（保存後の再読み込み中など） |
 | The source has syntax errors | 先にファイルを直してください。解析できるまで、すべてのフィールドがロックされます |
