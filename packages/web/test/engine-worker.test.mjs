@@ -100,7 +100,7 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
   // registered with its scene walker.
   const split = await send({ id: 9, type: 'compile', source: `import { React, Assets, Composition } from '@celesta/react';
     import { Center } from '@celesta/layout';
-    import { Badge, Panel } from '@celesta/components';
+    import { Badge, Counter, Panel } from '@celesta/components';
     import { Circle } from '@celesta/shapes';
     import { Character, CharacterView } from '@celesta/character';
     export default function Root() {
@@ -111,11 +111,14 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
         <CharacterView character={actor} />
         <Panel width={40} height={20} padding={5}><Center><Circle radius={2} fill="#ffffff" /></Center></Panel>
         <Badge padding={4} fill="#000000">ab</Badge>
+        <Counter value={1234.5} decimals={1} durationInFrames={0} suffix=" 件" />
       </Composition>;
     }` });
   assert.equal(split.error, undefined);
   const splitFrame = await send({ id: 10, type: 'frame', frame: 0 });
-  const [center, view, panel, badge] = splitFrame.value.scene.layers;
+  const [center, view, panel, badge, counter] = splitFrame.value.scene.layers;
+  // The worker formats with the same fixed locale as the native runtime.
+  assert.equal(counter.content.text, '1,234.5 件');
   assert.deepEqual(center.transform.position, { x: 50, y: 50 });
   assert.deepEqual(panel.content.layers[0].content.layers[0].transform.position, { x: 15, y: 5 });
   // The stub canvas's two 10 px characters and the default 38.4 px line
