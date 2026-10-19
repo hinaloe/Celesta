@@ -60,6 +60,21 @@ function Badge() {
 
 シーケンス内の `useCurrentFrame()` は開始時に 0 になります。子の映像と音声も同じローカル時計を使います。シーケンスの時間範囲外では子のレイヤーも音声も出力されません。
 
+## シーンを繰り返す
+
+`<Loop durationInFrames>` は子要素を繰り返し再生します。`durationInFrames` フレームごとに子の時計が 0 に戻ります。背景アニメーションや短い BGM の繰り返しに使えます。
+
+```tsx title="2 秒の明滅と 4 秒の BGM フレーズを繰り返す"
+<Loop durationInFrames={60}>
+  <Pulse />
+</Loop>
+<Loop durationInFrames={120} times={3}>
+  <Audio src="./phrase.wav" />
+</Loop>
+```
+
+内側の `useCurrentFrame()`、`<Video>`、`<Audio>`、入れ子の Sequence は周期ごとにそろって最初に戻り、`useVideoConfig().durationInFrames` は 1 周期の長さです。`from` で最初の周期の開始位置を `Sequence` と同じように指定します。`times` を省くと、囲んでいる Sequence かコンポジションの終わりまで繰り返します。`2.5` のような端数の `times` では最後の周期が途中で切れます。音声は周期ごとに別のクリップになり、ループの終わりで切れます。マウントされるのは現在の周期だけなので、どのフレームへスクラブしても書き出しと同じ絵になります。
+
 ## 過去のフレームを再描画
 
 各フレームはフレーム番号の関数なので、`<FreezeFrame frame>` で動画の任意の時点をその場に再描画できます。巻き戻し、回想、サムネイルの列などに使えます。`frame` は `Sequence` 内でもコンポジション全体の時計で数えます。

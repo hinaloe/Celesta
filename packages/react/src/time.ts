@@ -16,6 +16,18 @@ export function secondsFromTime(time: Time): number {
 }
 
 /**
+ * How far apart two times may be and still be the same window edge. Each
+ * `<Sequence>` rounds the time it shifts to a microsecond, so frame 10 at
+ * 30 fps is 0.333333 s inside one, and nested ones add up the error.
+ */
+const EDGE_TOLERANCE_SECONDS = 10 / SECONDS_TIMESCALE;
+
+/** Whether `seconds` is before the window edge `edgeSeconds`; see `EDGE_TOLERANCE_SECONDS`. */
+export function isBefore(seconds: number, edgeSeconds: number): boolean {
+  return seconds < edgeSeconds - EDGE_TOLERANCE_SECONDS;
+}
+
+/**
  * Whether a window ending at `endSec` (composition seconds) ends together
  * with the composition. Half a frame of slack absorbs rounding in summed
  * sequence offsets.

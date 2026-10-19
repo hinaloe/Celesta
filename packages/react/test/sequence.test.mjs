@@ -128,3 +128,14 @@ test('openEnd keeps windows that reach the composition end open past the last fr
   assert.deepEqual(past(118), texts(at(composition, 118).scene.layers));
   assert.deepEqual(texts(at(composition, 120).scene.layers), ['root:120/120', 'overrun:10/11', 'overrun-child:5/6']);
 });
+
+test('a nested sequence opens on its first frame although the shifted time is rounded', () => {
+  // Inside the outer sequence, frame 10 at 30 fps is 0.333333 s, just
+  // under 10 / 30.
+  const composition = mount(() => h(Composition, { width: 10, height: 10, fps: 30, durationInFrames: 60 },
+    h(Sequence, { from: 0 }, h(Sequence, { from: 10, durationInFrames: 10 }, h(() => h(Text, null, String(useCurrentFrame()))))),
+  ));
+  for (const frame of [9, 10, 11, 19, 20]) {
+    assert.deepEqual(texts(at(composition, frame).scene.layers), frame >= 10 && frame < 20 ? [String(frame - 10)] : [], `frame ${frame}`);
+  }
+});

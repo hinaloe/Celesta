@@ -5,7 +5,7 @@ import * as React from 'react';
 export { React };
 export { googleFont } from './google-font';
 export {
-  Audio, Assets, Composition, Font, FreezeFrame, Group, Image, Instances, Mask, Rect, Sequence, Static, Text, Video,
+  Audio, Assets, Composition, Font, FreezeFrame, Group, Image, Instances, Loop, Mask, Rect, Sequence, Static, Text, Video,
 } from './components';
 export { MotionBlur, Trail } from './motion-blur';
 export { useCurrentFrame, useCurrentTime, useDebugGuides, useIsPreview, useVideoConfig } from './hooks';
