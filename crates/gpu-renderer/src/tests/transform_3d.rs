@@ -343,7 +343,10 @@ fn turns_a_group_about_its_origin() {
             .unwrap();
         // The blue rect around the origin stays put as the group turns.
         assert_eq!(pixel_at(&about_origin, 120, 85), [0, 0, 255, 255], "{case}");
-        assert_eq!(max_difference(&about_origin, &nested, 0..200), 0, "{case}");
+        // The two homographies are the same up to rounding, which can move
+        // a projected edge's coverage by a level on some GPUs (lavapipe).
+        let difference = max_difference(&about_origin, &nested, 0..200);
+        assert!(difference <= 1, "{case}: {difference}");
     }
 }
 
