@@ -18,6 +18,9 @@ pub struct LayerFrame {
     /// A leaf's quad in scene pixels, in the order of its `HitRegion`; for a
     /// group, the axis-aligned box around its descendants' regions.
     pub outline: [Point; 4],
+    /// The leaf layers a hit test can name for this layer: the layer itself,
+    /// or a group's descendant leaves.
+    pub leaves: Vec<String>,
 }
 
 /// The frame of layer `id` in `scene`, drawn as `regions` records. `None` when
@@ -29,9 +32,9 @@ pub fn layer_frame(scene: &Scene, regions: &[HitRegion], id: &str) -> Option<Lay
     if parent.is_degenerate() {
         return None;
     }
+    let mut ids = Vec::new();
+    leaf_ids(layer, &mut ids);
     let outline = if matches!(layer.content, LayerContent::Group { .. }) {
-        let mut ids = Vec::new();
-        leaf_ids(layer, &mut ids);
         bounding_box(
             regions
                 .iter()
@@ -44,6 +47,7 @@ pub fn layer_frame(scene: &Scene, regions: &[HitRegion], id: &str) -> Option<Lay
         transform: layer.transform,
         parent: [parent.a, parent.b, parent.c, parent.d, parent.tx, parent.ty].map(f64::from),
         outline,
+        leaves: ids.into_iter().map(str::to_owned).collect(),
     })
 }
 
@@ -327,6 +331,10 @@ mod tests {
             frame.outline,
             [at(10.0, 5.0), at(60.0, 5.0), at(60.0, 40.0), at(10.0, 40.0)]
         );
+        // A press on a child hits the child's id; the group owns both.
+        assert_eq!(frame.leaves, ["a", "b"]);
+        let leaf = layer_frame(&scene, &regions, "c").expect("a frame");
+        assert_eq!(leaf.leaves, ["c"]);
     }
 
     #[test]

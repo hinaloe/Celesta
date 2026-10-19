@@ -10,7 +10,8 @@ use crate::parse;
 pub struct ElementRef {
     /// Offset of the opening `<`.
     pub start: u32,
-    /// Insertion point: after the last attribute, or after the tag name.
+    /// Insertion point: after the last attribute, or after the tag name (and
+    /// its type arguments).
     pub end_of_attributes: u32,
 }
 
@@ -59,10 +60,12 @@ struct Finder {
 impl<'a> Visit<'a> for Finder {
     fn visit_jsx_opening_element(&mut self, it: &JSXOpeningElement<'a>) {
         if it.span.start == self.offset && self.found.is_none() {
-            let end_of_attributes = it
-                .attributes
-                .last()
-                .map_or(it.name.span().end, |a| a.span().end);
+            // `<Foo<T>>`: after the type arguments, not inside them.
+            let after_name = it
+                .type_arguments
+                .as_ref()
+                .map_or(it.name.span().end, |args| args.span.end);
+            let end_of_attributes = it.attributes.last().map_or(after_name, |a| a.span().end);
             self.found = Some(ElementRef {
                 start: it.span.start,
                 end_of_attributes,

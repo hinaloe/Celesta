@@ -120,3 +120,21 @@ fn apply_overlap_is_error() {
     ];
     assert_eq!(apply("0123456789", &edits), Err(ApplyError::Overlap));
 }
+
+#[test]
+fn element_at_generic_tag_inserts_after_type_arguments() {
+    let text = "const a = <Foo<T> />;\n";
+    let element = element_at(text, 1, 11).unwrap();
+    assert_eq!(element.start, at(text, "<Foo"));
+    assert_eq!(element.end_of_attributes, at(text, "<T>") + 3);
+    let edited = apply(
+        text,
+        &[Edit::Insert {
+            at: element.end_of_attributes,
+            name: "x".into(),
+            value: 4.0,
+        }],
+    )
+    .unwrap();
+    assert_eq!(edited, "const a = <Foo<T> x={4} />;\n");
+}

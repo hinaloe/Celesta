@@ -43,8 +43,8 @@ pub(crate) struct TransformInputs {
 }
 
 /// What a field shows for `target`: its text, and the dimmed placeholder
-/// shown when the prop is absent.
-fn field_text(
+/// shown when the prop is absent (the value it is drawn with).
+pub(crate) fn field_text(
     prop: TransformProp,
     target: &EditTarget,
     report: &LayerSourceReport,
@@ -53,14 +53,31 @@ fn field_text(
         EditTarget::Literal { value, .. } | EditTarget::Keyframe { value, .. } => {
             (format_number(*value), String::new())
         }
-        EditTarget::Missing { default, .. } => (String::new(), format_number(*default)),
+        EditTarget::Missing { default, .. } => (
+            String::new(),
+            format_number(absent_value(prop, *default, report)),
+        ),
         EditTarget::Locked(_) => match prop.received(&report.props) {
             Some(value) => (format_number(value), String::new()),
             None => (
                 String::new(),
-                format_number(celesta_source_edit::default_for(prop.name())),
+                format_number(absent_value(
+                    prop,
+                    celesta_source_edit::default_for(prop.name()),
+                    report,
+                )),
             ),
         },
+    }
+}
+
+/// The value an absent prop is drawn with: a missing scale axis takes the
+/// `scale` the element received (`<Rect scale={2} scaleX={3} />` draws Y at
+/// 2), anything else its default.
+fn absent_value(prop: TransformProp, default: f64, report: &LayerSourceReport) -> f64 {
+    match prop {
+        TransformProp::ScaleX | TransformProp::ScaleY => report.props.scale.unwrap_or(default),
+        _ => default,
     }
 }
 

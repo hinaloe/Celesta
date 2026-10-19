@@ -87,9 +87,14 @@ pub struct LayerSourceReport {
     /// The JSX chain, innermost element first; empty when the runtime did
     /// not record source positions.
     pub chain: Vec<LayerSource>,
-    /// The frame within the layer's enclosing sequence at which the lookup was
-    /// evaluated; 0 from runtimes that do not report it.
+    /// The frame `useCurrentFrame()` reports in the component that wrote the
+    /// innermost element (above any `<Sequence>` inside it); 0 from runtimes
+    /// that do not report it.
     pub local_frame: f64,
+    /// The runtime could not tell which frame the component that wrote the
+    /// innermost element reads, so `local_frame` may not be it; false from
+    /// runtimes that do not report it.
+    pub frame_uncertain: bool,
     /// The transform props the innermost element received.
     pub props: ReceivedProps,
     /// How many layers of the frame the innermost element rendered; 1 from

@@ -12,7 +12,7 @@ use celesta_source_edit::{
 use gpui_kit::Context;
 use std::fmt;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 /// A transform prop the editor writes back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -99,6 +99,7 @@ pub(crate) fn resolve_targets(
         let ctx = ResolveContext {
             primitive: source.kind == ElementKind::Primitive,
             local_frame: report.local_frame,
+            frame_uncertain: report.frame_uncertain,
             received: prop.received(&report.props),
             render_count: report.render_count,
         };
@@ -154,6 +155,20 @@ pub(crate) fn commit_text(
     report: &LayerSourceReport,
     values: &[(TransformProp, f64)],
 ) -> Result<String, CommitError> {
+    // A prop locked when the edit started (outside the project, say) stays
+    // locked whatever the file holds now.
+    if let Some(&(prop, _)) = values.iter().find(|(prop, _)| {
+        !matches!(
+            expected.target(*prop),
+            Some(
+                EditTarget::Literal { .. }
+                    | EditTarget::Keyframe { .. }
+                    | EditTarget::Missing { .. }
+            )
+        )
+    }) {
+        return Err(CommitError::NotEditable(prop));
+    }
     let fresh = resolve_targets(text, report).map_err(|_| CommitError::SourceChanged)?;
     let unchanged = fresh.element == expected.element
         && fresh.targets.len() == expected.targets.len()
@@ -216,6 +231,8 @@ pub(crate) fn reason_text(reason: &LockReason) -> String {
         LockReason::OverriddenByParent => "A layout component sets this value".to_owned(),
         LockReason::Spread => "May be set by a spread ({...props})".to_owned(),
         LockReason::Repeated { count } => format!("Rendered {count} times from this element"),
+        LockReason::FrameUncertain => "Can't tell which frame this animation reads".to_owned(),
+        LockReason::OutsideProject => "This file is outside the project".to_owned(),
     }
 }
 
@@ -240,8 +257,9 @@ pub(crate) struct TransformEdit {
     /// A resolution is running.
     pending: bool,
     resolved: Option<Resolved>,
-    /// A write changed the file since `resolved` was read; cleared by the
-    /// next finished resolution.
+    /// A write changed the file since `resolved` was read. Only `reset` (the
+    /// reload that reads the write) clears it: a lookup the old code answered
+    /// after the write may still resolve meanwhile.
     stale: bool,
     /// The last commit's error and the layer it belongs to.
     error: Option<(String, String)>,
@@ -288,7 +306,6 @@ impl TransformEdit {
         if request != self.request || selected != Some(layer.as_str()) {
             return false;
         }
-        self.stale = false;
         self.pending = false;
         self.resolved = Some(Resolved {
             layer: layer.clone(),
@@ -339,13 +356,21 @@ impl TransformEdit {
     }
 
     /// The targets a commit for `selected` writes to, with the report they
-    /// were resolved for.
+    /// were resolved for. `lookup` is the view's current lookup answer and
+    /// the timeline frame it was looked up at: targets resolved for another
+    /// answer (before a seek, say, while the new one resolves) are not
+    /// committed to.
     pub(crate) fn targets(
         &self,
         selected: Option<&str>,
+        lookup: Option<(&LayerSourceReport, i64)>,
     ) -> Option<(&TransformTargets, &LayerSourceReport)> {
         let (resolved, current) = self.resolved(selected)?;
-        let targets = resolved.outcome.as_ref().ok().filter(|_| current)?;
+        let (report, frame) = lookup?;
+        if !current || *report != resolved.report || frame != resolved.timeline_frame {
+            return None;
+        }
+        let targets = resolved.outcome.as_ref().ok()?;
         Some((targets, &resolved.report))
     }
 
@@ -389,6 +414,10 @@ impl EditorView {
             return;
         };
         let report = report.clone();
+        let entry_dir = self
+            .react_entry()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf);
         cx.spawn(async move |view, cx| {
             let outcome = cx
                 .background_executor()
@@ -400,7 +429,12 @@ impl EditorView {
                         .ok_or_else(|| "No source position".to_owned())?;
                     let text = fs::read_to_string(&file)
                         .map_err(|error| format!("Couldn't read {}: {error}", file.display()))?;
-                    resolve_targets(&text, &report)
+                    let mut targets = resolve_targets(&text, &report)?;
+                    let real = |path: &Path| fs::canonicalize(path).unwrap_or(path.to_path_buf());
+                    if entry_dir.is_none_or(|dir| !inside_project(&real(&file), &real(&dir))) {
+                        lock_outside_project(&mut targets);
+                    }
+                    Ok(targets)
                 })
                 .await;
             view.update(cx, |this, cx| {
@@ -418,7 +452,12 @@ impl EditorView {
     /// resolved for, when they can be committed to.
     // The canvas drag reads these too.
     pub(crate) fn transform_targets(&self) -> Option<(&TransformTargets, &LayerSourceReport)> {
-        self.transform.targets(self.selected_layer.as_deref())
+        let lookup = match &self.source_lookup {
+            Some(SourceLookup::Found(report)) => Some((report, self.source_lookup_frame)),
+            _ => None,
+        };
+        self.transform
+            .targets(self.selected_layer.as_deref(), lookup)
     }
 
     /// Writes `values` for the selected layer into its source as one undo
@@ -454,5 +493,37 @@ impl EditorView {
             },
             cx,
         );
+    }
+}
+
+/// Whether the editor may write `file`: it is under the React entry's
+/// directory `entry_dir` and not inside any `node_modules`. Compares paths
+/// lexically after resolving `.` and `..`; callers pass real paths.
+pub(crate) fn inside_project(file: &Path, entry_dir: &Path) -> bool {
+    let file = normalize(file);
+    file.starts_with(normalize(entry_dir))
+        && !file
+            .components()
+            .any(|component| component.as_os_str() == "node_modules")
+}
+
+fn normalize(path: &Path) -> PathBuf {
+    let mut normal = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normal.pop();
+            }
+            other => normal.push(other),
+        }
+    }
+    normal
+}
+
+/// Locks every target: the element's file is outside the project.
+pub(crate) fn lock_outside_project(targets: &mut TransformTargets) {
+    for (_, target) in &mut targets.targets {
+        *target = EditTarget::Locked(LockReason::OutsideProject);
     }
 }

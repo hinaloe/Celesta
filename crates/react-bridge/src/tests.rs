@@ -452,6 +452,7 @@ fn deserializes_layer_source_replies() {
         Some(LayerSourceReport {
             chain: vec![],
             local_frame: 0.0,
+            frame_uncertain: false,
             props: ReceivedProps::default(),
             render_count: 1,
         })
@@ -475,6 +476,7 @@ fn deserializes_layer_source_replies() {
                 layer_id: None,
             }],
             local_frame: 0.0,
+            frame_uncertain: false,
             props: ReceivedProps::default(),
             render_count: 1,
         })
@@ -484,6 +486,7 @@ fn deserializes_layer_source_replies() {
         {"name":"Rect","file":"/a/title.tsx","line":3,"column":10,"kind":"primitive","layerId":"root.2"},
         {"name":"Title","file":"/a/main.tsx","line":8,"column":4,"kind":"component"}],
         "localFrame":12.5,
+        "frameUncertain":true,
         "props":{"x":10,"y":-4.5,"rotation":30,"scale":2,"scaleX":1.5,"scaleY":0.5},
         "renderCount":3}}"#;
     let Response::LayerSource { report } = serde_json::from_str(json).unwrap() else {
@@ -496,6 +499,7 @@ fn deserializes_layer_source_replies() {
     assert_eq!(report.chain[1].kind, ElementKind::Component);
     assert_eq!(report.chain[1].layer_id, None);
     assert_eq!(report.local_frame, 12.5);
+    assert!(report.frame_uncertain);
     assert_eq!(
         report.props,
         ReceivedProps {

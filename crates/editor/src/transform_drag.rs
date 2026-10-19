@@ -166,7 +166,7 @@ impl EditorView {
         let shown = shown_handles(&frame, &editable, f64::from(ROTATE_STEM) / scale);
         let handle = match handle_at(&frame, &shown, start, f64::from(HANDLE_REACH) / scale) {
             Some(Handle::Move)
-                if topmost == Some(layer.as_str())
+                if presses_body(&frame, topmost)
                     && (editable.contains(&TransformProp::X)
                         || editable.contains(&TransformProp::Y)) =>
             {
@@ -295,4 +295,11 @@ impl EditorView {
         let settings = &self.document.project().settings;
         (settings.width as f32, settings.height as f32)
     }
+}
+
+/// Whether a press whose topmost hit is `topmost` lands on the body of the
+/// layer `frame` measures. Hit tests name leaves only, so a group's body is
+/// any of its leaves.
+pub(crate) fn presses_body(frame: &LayerFrame, topmost: Option<&str>) -> bool {
+    topmost.is_some_and(|hit| frame.leaves.iter().any(|leaf| leaf == hit))
 }

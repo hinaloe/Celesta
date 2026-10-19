@@ -27,6 +27,14 @@ pub(crate) struct FileEdit {
     pub(crate) after: String,
 }
 
+impl FileEdit {
+    /// Whether the edit changed the file's text (an edit that wrote nothing
+    /// is not worth an undo step or a reload).
+    pub(crate) fn changes(&self) -> bool {
+        self.before.as_deref() != Some(self.after.as_str())
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum HistoryError {
     /// The file no longer holds what the entry expects, so it was not touched.
@@ -238,13 +246,21 @@ fn write(path: &Path, text: Option<&str>) -> Result<(), HistoryError> {
 }
 
 /// Reads `path` (a missing file reads as `""`), lets `edit` compute the new
-/// text, and writes it atomically.
+/// text, and writes it atomically; an existing file whose text `edit` left
+/// as it was is not written (see [`FileEdit::changes`]).
 pub(crate) fn write_recorded(
     path: &Path,
     edit: impl FnOnce(&str) -> Result<String, String>,
 ) -> Result<FileEdit, String> {
     let before = read(path).map_err(|error| error.to_string())?;
     let after = edit(before.as_deref().unwrap_or(""))?;
+    if before.as_deref() == Some(after.as_str()) {
+        return Ok(FileEdit {
+            path: path.to_owned(),
+            before,
+            after,
+        });
+    }
     // Renaming over a read-only file would succeed, so refuse it explicitly.
     if fs::metadata(path).is_ok_and(|metadata| metadata.permissions().readonly()) {
         return Err(format!(
@@ -297,8 +313,10 @@ impl EditorView {
     /// text from the file's current text (`""` when missing), the write goes
     /// through `write_recorded`, and the watched files are sampled after it.
     /// Back on the UI thread the edit is pushed to the history, the sample is
-    /// applied and the entry reloads; then `done` gets the result. When the
-    /// history or a property write is busy, `done` gets an error at once.
+    /// applied and the entry reloads; then `done` gets the result. An edit
+    /// that leaves the text as it was writes nothing, records nothing and
+    /// reloads nothing, and `done` gets `Ok`. When the history or a property
+    /// write is busy, `done` gets an error at once.
     pub(crate) fn record_own_write(
         &mut self,
         path: PathBuf,
@@ -325,7 +343,12 @@ impl EditorView {
             view.update(cx, |this, cx| {
                 let outcome = match result {
                     Ok((edit, watched)) => {
-                        if this.edit_history.finish_write(epoch, Some(edit)) {
+                        let changes = edit.changes();
+                        if this
+                            .edit_history
+                            .finish_write(epoch, changes.then_some(edit))
+                            && changes
+                        {
                             this.apply_own_write_sample(watched);
                             this.request_react_reload(cx);
                         }
@@ -609,6 +632,26 @@ mod tests {
 
         assert_eq!(recorded.before, None);
         assert_eq!(fs::read_to_string(&file).unwrap(), "{}\n");
+    }
+
+    #[test]
+    fn an_edit_that_changes_nothing_is_not_written() {
+        let file = scratch("same").join("a.txt");
+        fs::write(&file, "x").unwrap();
+        // Read-only: a write would fail, so success shows nothing was written.
+        let mut permissions = fs::metadata(&file).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&file, permissions).unwrap();
+
+        let recorded = write_recorded(&file, |text| Ok(text.to_owned())).unwrap();
+
+        assert!(!recorded.changes());
+        assert!(edit(&file, Some("x"), "y").changes());
+        assert!(edit(&file, None, "").changes());
+        let mut history = EditHistory::default();
+        let epoch = history.begin_write().unwrap();
+        assert!(history.finish_write(epoch, recorded.changes().then_some(recorded)));
+        assert_eq!(history.undo().unwrap(), None, "no history entry");
     }
 
     #[test]

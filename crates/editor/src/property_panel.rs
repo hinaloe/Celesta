@@ -794,7 +794,7 @@ impl EditorView {
         self.property_panel.writing = None;
         match result {
             Ok((edit, watched)) => {
-                if edit.before.as_deref() != Some(edit.after.as_str()) {
+                if edit.changes() {
                     self.edit_history.push(edit);
                 }
                 let next_reload = self.apply_own_write_sample(watched);

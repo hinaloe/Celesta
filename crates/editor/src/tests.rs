@@ -16,14 +16,16 @@ use crate::layer_select::{
 use crate::react_audio::{react_audio_clip_id, react_tracks};
 use crate::refresh::{LookupFate, SelectionKeep};
 use crate::source::is_react_entry;
+use crate::transform_drag::presses_body;
 use crate::transform_edit::{
-    CommitError, TransformEdit, TransformProp, commit_text, keyframe_timeline_frame, reason_text,
-    resolve_targets,
+    CommitError, TransformEdit, TransformProp, commit_text, inside_project,
+    keyframe_timeline_frame, lock_outside_project, reason_text, resolve_targets,
 };
 use crate::transform_handles::{
     Handle, drag_label, drag_values, handle_at, handles, override_transform, prop_values,
     shown_handles, turn,
 };
+use crate::transform_rows::field_text;
 use crate::waveform::{
     clip_level_envelope, level_at_time, map_clip_waveform, master_volume_from_drag, waveform_peaks,
     waveform_segment,
@@ -668,6 +670,7 @@ fn report_of(chain: Vec<LayerSource>) -> LayerSourceReport {
     LayerSourceReport {
         chain,
         local_frame: 0.0,
+        frame_uncertain: false,
         props: ReceivedProps::default(),
         render_count: 1,
     }
@@ -1105,6 +1108,7 @@ fn primitive_report(line: u32, column: u32, props: ReceivedProps) -> LayerSource
             layer_id: None,
         }],
         local_frame: 0.0,
+        frame_uncertain: false,
         props,
         render_count: 1,
     }
@@ -1298,6 +1302,14 @@ fn transform_reason_texts_match_spec() {
             LockReason::Repeated { count: 12 },
             "Rendered 12 times from this element",
         ),
+        (
+            LockReason::FrameUncertain,
+            "Can't tell which frame this animation reads",
+        ),
+        (
+            LockReason::OutsideProject,
+            "This file is outside the project",
+        ),
     ];
     for (reason, text) in cases {
         assert_eq!(reason_text(&reason), text);
@@ -1351,12 +1363,16 @@ fn transform_state_drops_stale_resolutions() {
     let first = state.begin("a", &report, 0).expect("nothing resolved yet");
     assert_eq!(state.begin("a", &report, 0), None, "already resolving it");
     assert!(state.finish(first, Some("a"), targets()));
-    assert!(state.targets(Some("a")).is_some());
-    assert!(state.targets(Some("b")).is_none(), "belongs to layer a");
+    let lookup = Some((&report, 0));
+    assert!(state.targets(Some("a"), lookup).is_some());
+    assert!(
+        state.targets(Some("b"), lookup).is_none(),
+        "belongs to layer a"
+    );
 
     // After a write the targets are unknown until resolved again.
     state.invalidate();
-    assert!(state.targets(Some("a")).is_none());
+    assert!(state.targets(Some("a"), lookup).is_none());
     // The old report describes the old code; wait for the reload's lookup.
     assert_eq!(state.begin("a", &report, 0), None);
     state.reset();
@@ -1369,7 +1385,7 @@ fn transform_state_drops_stale_resolutions() {
     assert!(!state.finish(second, Some("a"), targets()));
     // The selection changed while it resolved.
     assert!(!state.finish(third, Some("b"), targets()));
-    assert!(state.targets(Some("a")).is_none());
+    assert!(state.targets(Some("a"), Some((&moved, 0))).is_none());
 }
 
 #[test]
@@ -1421,7 +1437,7 @@ fn transform_reset_resolves_an_identical_report_again() {
     let second = state.begin("a", &report, 0).expect("resolved again");
     assert!(state.finish(second, Some("a"), resolve_targets(&after, &report)));
 
-    let (targets, report) = state.targets(Some("a")).unwrap();
+    let (targets, report) = state.targets(Some("a"), Some((&report, 0))).unwrap();
     let written = commit_text(&after, targets, report, &[(TransformProp::X, 120.0)]).unwrap();
     assert_eq!(written, after.replace("x={100}", "x={120}"));
 }
@@ -1486,6 +1502,7 @@ fn drag_frame(parent: [f64; 6], position: Point) -> LayerFrame {
             corner(100.0, 50.0),
             corner(0.0, 50.0),
         ],
+        leaves: vec!["a".to_owned()],
     }
 }
 
@@ -1902,4 +1919,212 @@ fn select_outline_falls_back_to_the_frame_for_a_group() {
     assert_eq!(outline_quads(vec![region], Some(frame_box)), vec![region]);
     assert_eq!(outline_quads(Vec::new(), Some(frame_box)), vec![frame_box]);
     assert!(outline_quads(Vec::new(), None).is_empty());
+}
+
+// `const frame = useCurrentFrame()` above `<Sequence from={30}>`: the runtime
+// reports the frame of the component that wrote the Rect.
+const ABOVE_SEQUENCE: &str = "export const Scene = () => {\n  const frame = useCurrentFrame();\n  return <Sequence from={30}><Rect x={interpolate(frame, [0, 30, 60], [0, 100, 100])} /></Sequence>;\n};\n";
+
+fn above_sequence_report(frame_uncertain: bool) -> LayerSourceReport {
+    LayerSourceReport {
+        local_frame: 60.0,
+        frame_uncertain,
+        ..primitive_report(
+            3,
+            30,
+            ReceivedProps {
+                x: Some(100.0),
+                ..ReceivedProps::default()
+            },
+        )
+    }
+}
+
+#[test]
+fn transform_keyframe_is_the_one_the_owner_frame_reads() {
+    let targets = resolve_targets(ABOVE_SEQUENCE, &above_sequence_report(false)).unwrap();
+    let Some(EditTarget::Keyframe { span, frame, .. }) = targets.target(TransformProp::X) else {
+        panic!(
+            "expected a keyframe, got {:?}",
+            targets.target(TransformProp::X)
+        );
+    };
+    assert_eq!(span.start as usize, ABOVE_SEQUENCE.rfind("100").unwrap());
+    assert_eq!(*frame, 60.0);
+
+    let targets = resolve_targets(ABOVE_SEQUENCE, &above_sequence_report(true)).unwrap();
+    assert_eq!(
+        targets.target(TransformProp::X),
+        Some(&EditTarget::Locked(LockReason::FrameUncertain))
+    );
+    // A literal elsewhere on the element stays editable.
+    assert!(matches!(
+        targets.target(TransformProp::Y),
+        Some(EditTarget::Missing { .. })
+    ));
+}
+
+#[test]
+fn transform_targets_need_the_current_lookup() {
+    let report = primitive_report(2, 3, x_only());
+    let other = primitive_report(2, 3, ReceivedProps::default());
+    let mut state = TransformEdit::default();
+    let request = state.begin("a", &report, 10).unwrap();
+    assert!(state.finish(
+        request,
+        Some("a"),
+        resolve_targets(TRANSFORM_FIXTURE, &report)
+    ));
+    assert!(state.targets(Some("a"), Some((&report, 10))).is_some());
+
+    // Seeked: the lookup at the new frame has not been resolved yet.
+    assert!(state.targets(Some("a"), Some((&report, 11))).is_none());
+    // A newer report for the same frame.
+    assert!(state.targets(Some("a"), Some((&other, 10))).is_none());
+    // Still looking up.
+    assert!(state.targets(Some("a"), None).is_none());
+}
+
+#[test]
+fn transform_only_a_reset_clears_an_own_write() {
+    let report = primitive_report(2, 3, x_only());
+    let newer = primitive_report(2, 3, ReceivedProps::default());
+    let mut state = TransformEdit::default();
+    let request = state.begin("a", &report, 0).unwrap();
+    assert!(state.finish(
+        request,
+        Some("a"),
+        resolve_targets(TRANSFORM_FIXTURE, &report)
+    ));
+
+    // A lookup answered by the old runtime after the write resolves, but the
+    // file it was read from is about to be reloaded.
+    state.invalidate();
+    let request = state.begin("a", &newer, 0).unwrap();
+    assert!(state.finish(
+        request,
+        Some("a"),
+        resolve_targets(TRANSFORM_FIXTURE, &newer)
+    ));
+    assert!(state.targets(Some("a"), Some((&newer, 0))).is_none());
+
+    // The kept reload resets the state.
+    state.reset();
+    let request = state.begin("a", &newer, 0).unwrap();
+    assert!(state.finish(
+        request,
+        Some("a"),
+        resolve_targets(TRANSFORM_FIXTURE, &newer)
+    ));
+    assert!(state.targets(Some("a"), Some((&newer, 0))).is_some());
+}
+
+#[test]
+fn transform_body_press_on_a_group_child_moves_the_group() {
+    let mut frame = drag_frame(IDENTITY, pt(10.0, 20.0));
+    frame.leaves = vec!["child-1".to_owned(), "child-2".to_owned()];
+    assert!(presses_body(&frame, Some("child-2")));
+    assert!(!presses_body(&frame, Some("elsewhere")));
+    assert!(!presses_body(&frame, None));
+
+    // A leaf is pressed only on itself.
+    let leaf = drag_frame(IDENTITY, pt(10.0, 20.0));
+    assert!(presses_body(&leaf, Some("a")));
+    assert!(!presses_body(&leaf, Some("b")));
+}
+
+#[test]
+fn transform_missing_scale_axis_shows_the_written_scale() {
+    // `<Rect scale={2} scaleX={3} />`: scaleY is absent but drawn at 2.
+    let report = primitive_report(
+        2,
+        3,
+        ReceivedProps {
+            scale: Some(2.0),
+            scale_x: Some(3.0),
+            ..ReceivedProps::default()
+        },
+    );
+    let missing = EditTarget::Missing {
+        insert_at: 0,
+        default: 1.0,
+    };
+    assert_eq!(
+        field_text(TransformProp::ScaleY, &missing, &report),
+        (String::new(), "2".to_owned())
+    );
+    assert_eq!(
+        field_text(
+            TransformProp::ScaleY,
+            &EditTarget::Locked(LockReason::Spread),
+            &report
+        ),
+        (String::new(), "2".to_owned())
+    );
+    // Without a scale, the default.
+    let plain = primitive_report(2, 3, ReceivedProps::default());
+    assert_eq!(
+        field_text(TransformProp::ScaleY, &missing, &plain),
+        (String::new(), "1".to_owned())
+    );
+    assert_eq!(
+        field_text(
+            TransformProp::X,
+            &EditTarget::Missing {
+                insert_at: 0,
+                default: 0.0
+            },
+            &report
+        ),
+        (String::new(), "0".to_owned())
+    );
+}
+
+#[test]
+fn transform_files_outside_the_project_are_locked() {
+    let entry_dir = Path::new("/project/src");
+    assert!(inside_project(
+        Path::new("/project/src/scene.tsx"),
+        entry_dir
+    ));
+    assert!(inside_project(
+        Path::new("/project/src/parts/title.tsx"),
+        entry_dir
+    ));
+    assert!(!inside_project(
+        Path::new("/project/lib/shared.tsx"),
+        entry_dir
+    ));
+    assert!(!inside_project(
+        Path::new("/project/src-old/scene.tsx"),
+        entry_dir
+    ));
+    assert!(!inside_project(
+        Path::new("/project/src/node_modules/kit/rect.tsx"),
+        entry_dir
+    ));
+    assert!(!inside_project(
+        Path::new("/project/src/../lib/shared.tsx"),
+        entry_dir
+    ));
+
+    let report = primitive_report(2, 3, x_only());
+    let mut targets = resolve_targets(TRANSFORM_FIXTURE, &report).unwrap();
+    lock_outside_project(&mut targets);
+    assert!(
+        targets
+            .targets
+            .iter()
+            .all(|(_, target)| *target == EditTarget::Locked(LockReason::OutsideProject))
+    );
+    // A commit refuses a locked target before reading the file's targets.
+    assert_eq!(
+        commit_text(
+            TRANSFORM_FIXTURE,
+            &targets,
+            &report,
+            &[(TransformProp::X, 5.0)]
+        ),
+        Err(CommitError::NotEditable(TransformProp::X))
+    );
 }

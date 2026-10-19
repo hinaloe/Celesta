@@ -9,6 +9,7 @@ fn ctx() -> ResolveContext {
         local_frame: 0.0,
         received: None,
         render_count: 1,
+        frame_uncertain: false,
     }
 }
 
@@ -415,4 +416,142 @@ fn has_attribute_ignores_spreads_and_absent_props() {
     assert!(has_attribute(&text, &element, "x"));
     assert!(!has_attribute(&text, &element, "scaleY"));
     assert!(!has_attribute(&text, &element, "rest"));
+}
+
+// `frame` read above a `<Sequence>` that wraps the element: the runtime
+// reports the frame of the component that wrote the JSX (60), not the
+// element's (30), and the keyframe in effect is the third one.
+const ABOVE_SEQUENCE: &str = "export const A = () => {\n  const frame = useCurrentFrame();\n  return <Sequence from={30}><Rect x={interpolate(frame, [0, 30, 60], [0, 100, 100])} /></Sequence>;\n};\n";
+
+#[test]
+fn keyframe_at_the_owner_frame_above_a_sequence() {
+    let target = run(ABOVE_SEQUENCE, "x", &at_frame(60.0, Some(100.0)));
+    let EditTarget::Keyframe { span, value, frame } = target else {
+        panic!("expected Keyframe, got {target:?}");
+    };
+    let third = ABOVE_SEQUENCE.rfind("100").unwrap() as u32;
+    assert_eq!((span.start, value, frame), (third, 100.0, 60.0));
+}
+
+#[test]
+fn uncertain_frame_locks_keyframes() {
+    let c = ResolveContext {
+        frame_uncertain: true,
+        ..at_frame(60.0, Some(100.0))
+    };
+    assert_eq!(
+        run(ABOVE_SEQUENCE, "x", &c),
+        locked(LockReason::FrameUncertain)
+    );
+    // Through a const, and between keyframes, too.
+    let text = animated(
+        "  const x = interpolate(frame, [0, 30], [100, 400]);\n",
+        "x={x}",
+    );
+    let c = ResolveContext {
+        frame_uncertain: true,
+        ..at_frame(15.0, Some(250.0))
+    };
+    assert_eq!(run(&text, "x", &c), locked(LockReason::FrameUncertain));
+    // A literal does not depend on the frame.
+    let text = component("  return <Rect x={120} />;");
+    let c = ResolveContext {
+        frame_uncertain: true,
+        ..with_received(120.0)
+    };
+    assert!(matches!(run(&text, "x", &c), EditTarget::Literal { .. }));
+}
+
+#[test]
+fn block_scoped_shadowing_is_unresolved() {
+    let text = component(
+        "  const x = 0;\n  if (show) {\n    const x = 0;\n    return <Rect x={x} />;\n  }\n  return null;",
+    );
+    assert_eq!(
+        run(&text, "x", &with_received(0.0)),
+        locked(LockReason::UnresolvedIdentifier { name: "x".into() })
+    );
+
+    let text = component(
+        "  const x = 0;\n  for (const x of [0]) {\n    return <Rect x={x} />;\n  }\n  return null;",
+    );
+    assert_eq!(
+        run(&text, "x", &with_received(0.0)),
+        locked(LockReason::UnresolvedIdentifier { name: "x".into() })
+    );
+
+    // Also a catch parameter or a destructured name elsewhere in the function.
+    let text = component(
+        "  const x = 0;\n  try { go(); } catch (x) { log(x); }\n  return <Rect x={x} />;",
+    );
+    assert_eq!(
+        run(&text, "x", &with_received(0.0)),
+        locked(LockReason::UnresolvedIdentifier { name: "x".into() })
+    );
+    let text = component(
+        "  const x = 0;\n  const { x: y, ...x2 } = p;\n  { const [x] = q; }\n  return <Rect x={x} />;",
+    );
+    assert_eq!(
+        run(&text, "x", &with_received(0.0)),
+        locked(LockReason::UnresolvedIdentifier { name: "x".into() })
+    );
+}
+
+#[test]
+fn shadowed_frame_binding_is_unresolved() {
+    let text = component(
+        "  const frame = useCurrentFrame();\n  if (show) {\n    const frame = 30;\n    return <Rect x={interpolate(frame, [0, 30], [100, 400])} />;\n  }\n  return null;",
+    );
+    assert_eq!(
+        run(&text, "x", &at_frame(0.0, Some(100.0))),
+        locked(LockReason::UnresolvedIdentifier {
+            name: "frame".into()
+        })
+    );
+}
+
+#[test]
+fn same_name_in_another_component_still_resolves() {
+    // Each component of a file declaring its own `frame` and `x` is common;
+    // a sibling function's bindings are never visible here.
+    let text = "export const B = () => {\n  const frame = useCurrentFrame();\n  const x = 5;\n  return null;\n};\nexport const A = () => {\n  const frame = useCurrentFrame();\n  const x = interpolate(frame, [0, 30], [100, 400]);\n  return <Rect x={x} />;\n};\n";
+    let target = run(text, "x", &at_frame(30.0, Some(400.0)));
+    assert!(
+        matches!(target, EditTarget::Keyframe { value: 400.0, .. }),
+        "{target:?}"
+    );
+
+    // A function-level const shadows a module-level one, as in JS.
+    let text =
+        "const x = 1;\nexport const A = () => {\n  const x = 40;\n  return <Rect x={x} />;\n};\n";
+    let target = run(text, "x", &with_received(40.0));
+    let EditTarget::Literal { span, .. } = target else {
+        panic!("expected Literal, got {target:?}");
+    };
+    assert_eq!(span.start as usize, text.find("40").unwrap());
+
+    // A nested function's own declaration inside the component counts.
+    let text = component(
+        "  const x = 0;\n  const f = () => { const x = 0; return x; };\n  return <Rect x={x} />;",
+    );
+    assert_eq!(
+        run(&text, "x", &with_received(0.0)),
+        locked(LockReason::UnresolvedIdentifier { name: "x".into() })
+    );
+}
+
+#[test]
+fn spread_after_the_attribute_locks() {
+    let text = component("  return <Rect x={5} {...p} />;");
+    assert_eq!(
+        run(&text, "x", &with_received(5.0)),
+        locked(LockReason::Spread)
+    );
+
+    // A spread before it is overridden by the attribute.
+    let text = component("  return <Rect {...p} x={5} />;");
+    assert!(matches!(
+        run(&text, "x", &with_received(5.0)),
+        EditTarget::Literal { .. }
+    ));
 }

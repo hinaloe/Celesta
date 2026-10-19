@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    ArrowFunctionBody, ArrowFunctionExpression, BinaryOperator, CallExpression, Expression,
-    Function, FunctionBody, IdentifierReference, JSXAttributeItem, JSXAttributeName,
+    ArrowFunctionBody, ArrowFunctionExpression, BinaryOperator, BindingIdentifier, CallExpression,
+    Expression, Function, FunctionBody, IdentifierReference, JSXAttributeItem, JSXAttributeName,
     JSXAttributeValue, JSXOpeningElement, Statement, UnaryOperator, VariableDeclarationKind,
 };
 use oxc_ast_visit::Visit;
@@ -73,6 +73,11 @@ pub enum LockReason {
     Repeated {
         count: u32,
     },
+    /// The runtime could not tell which frame the component that wrote the
+    /// element reads, so no keyframe can be picked.
+    FrameUncertain,
+    /// The element's file is outside the project (or in `node_modules`).
+    OutsideProject,
 }
 
 /// What the runtime reported about the element in the current frame.
@@ -85,6 +90,9 @@ pub struct ResolveContext {
     pub received: Option<f64>,
     /// How many times the element rendered in the frame.
     pub render_count: u32,
+    /// The runtime could not tell the frame the element's author reads
+    /// (`local_frame` may be wrong): keyframes are locked.
+    pub frame_uncertain: bool,
 }
 
 /// Value of a prop that is absent from the source.
@@ -142,8 +150,11 @@ pub fn resolve(text: &str, element: &ElementRef, prop: &str, ctx: &ResolveContex
         prop,
         found: false,
         has_spread: false,
+        spread_after: false,
         attr: None,
         scopes: Vec::new(),
+        outer: None,
+        declarations: Vec::new(),
         refs: HashMap::new(),
     };
     gather.visit_program(&program);
@@ -151,6 +162,10 @@ pub fn resolve(text: &str, element: &ElementRef, prop: &str, ctx: &ResolveContex
         return EditTarget::Locked(LockReason::ElementNotFound);
     }
 
+    if gather.attr.is_some() && gather.spread_after {
+        // `<Rect x={5} {...p} />`: the spread may set `x` after the attribute.
+        return EditTarget::Locked(LockReason::Spread);
+    }
     let Some(shape) = &gather.attr else {
         if gather.has_spread {
             return EditTarget::Locked(LockReason::Spread);
@@ -181,8 +196,11 @@ pub fn has_attribute(text: &str, element: &ElementRef, prop: &str) -> bool {
         prop,
         found: false,
         has_spread: false,
+        spread_after: false,
         attr: None,
         scopes: Vec::new(),
+        outer: None,
+        declarations: Vec::new(),
         refs: HashMap::new(),
     };
     gather.visit_program(&program);
@@ -195,7 +213,7 @@ fn resolve_shape(shape: &Shape, gather: &Gather, text: &str, ctx: &ResolveContex
             span: *span,
             value: *value,
         },
-        Shape::Interpolate(call) => resolve_keyframe(call, gather, text, ctx.local_frame),
+        Shape::Interpolate(call) => resolve_keyframe(call, gather, text, ctx),
         Shape::Call(callee) => EditTarget::Locked(LockReason::UnsupportedCall {
             callee: callee.clone(),
         }),
@@ -216,6 +234,9 @@ fn resolve_identifier(name: &str, gather: &Gather, text: &str, ctx: &ResolveCont
             name: name.to_string(),
         })
     };
+    if gather.declared_more_than_once(name) {
+        return unresolved();
+    }
     let Some(Binding::Const(shape)) = gather.lookup(name) else {
         return unresolved();
     };
@@ -243,12 +264,15 @@ fn resolve_keyframe(
     call: &Interpolate,
     gather: &Gather,
     text: &str,
-    local_frame: f64,
+    ctx: &ResolveContext,
 ) -> EditTarget {
     let not_literal = || expression(text, call.call);
     let Input::Frame { name, offset } = &call.input else {
         return not_literal();
     };
+    if gather.declared_more_than_once(name) {
+        return EditTarget::Locked(LockReason::UnresolvedIdentifier { name: name.clone() });
+    }
     let frame_bound = matches!(
         gather.lookup(name),
         Some(Binding::Const(Shape::Call(callee))) if callee == "useCurrentFrame"
@@ -259,8 +283,11 @@ fn resolve_keyframe(
     if !frame_bound || inputs.is_empty() || inputs.len() != outputs.len() {
         return not_literal();
     }
+    if ctx.frame_uncertain {
+        return EditTarget::Locked(LockReason::FrameUncertain);
+    }
 
-    let frame = local_frame - offset;
+    let frame = ctx.local_frame - offset;
     if let Some(k) = inputs.iter().position(|i| (i - frame).abs() <= TOLERANCE) {
         let (span, value) = outputs[k];
         return EditTarget::Keyframe {
@@ -348,9 +375,16 @@ struct Gather<'t> {
     prop: &'t str,
     found: bool,
     has_spread: bool,
+    /// A spread follows the last `prop` attribute.
+    spread_after: bool,
     attr: Option<Shape>,
     /// Functions enclosing the element, outermost first.
     scopes: Vec<Scope>,
+    /// The outermost function enclosing the element.
+    outer: Option<oxc_span::Span>,
+    /// Every binding the file declares (variables, parameters, catch
+    /// parameters, destructured names, functions, imports), with its offset.
+    declarations: Vec<(String, u32)>,
     refs: HashMap<String, usize>,
 }
 
@@ -361,6 +395,25 @@ impl Gather<'_> {
             .iter()
             .rev()
             .find_map(|s| s.bindings.iter().find(|(n, _)| n == name).map(|(_, b)| b))
+    }
+
+    /// Whether `name` is declared more than once in the outermost function
+    /// enclosing the element (anywhere in the file when there is none). Only
+    /// function-level `const`s are modelled, so a second declaration in a
+    /// block, loop, `catch` or nested function could be the one in effect.
+    /// A module-level declaration is never resolved, and one inside the
+    /// function shadows it, so those are not counted.
+    fn declared_more_than_once(&self, name: &str) -> bool {
+        self.declarations
+            .iter()
+            .filter(|(declared, at)| {
+                declared == name
+                    && self
+                        .outer
+                        .is_none_or(|outer| outer.start <= *at && *at < outer.end)
+            })
+            .count()
+            > 1
     }
 
     fn encloses_element(&self, span: oxc_span::Span) -> bool {
@@ -504,6 +557,9 @@ fn callee_name(callee: &Expression<'_>) -> String {
 impl<'a> Visit<'a> for Gather<'_> {
     fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
         let pushed = self.encloses_element(it.span);
+        if pushed && self.outer.is_none() {
+            self.outer = Some(it.span);
+        }
         if pushed {
             self.push_scope(&it.params, it.body.as_deref());
         }
@@ -514,6 +570,9 @@ impl<'a> Visit<'a> for Gather<'_> {
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
         if self.encloses_element(it.span) {
+            if self.outer.is_none() {
+                self.outer = Some(it.span);
+            }
             let body = match &it.body {
                 ArrowFunctionBody::FunctionBody(b) => Some(&**b),
                 _ => None,
@@ -521,6 +580,10 @@ impl<'a> Visit<'a> for Gather<'_> {
             self.push_scope(&it.params, body);
         }
         oxc_ast_visit::walk::walk_arrow_function_expression(self, it);
+    }
+
+    fn visit_binding_identifier(&mut self, it: &BindingIdentifier<'a>) {
+        self.declarations.push((it.name.to_string(), it.span.start));
     }
 
     fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
@@ -532,7 +595,10 @@ impl<'a> Visit<'a> for Gather<'_> {
             self.found = true;
             for item in &it.attributes {
                 match item {
-                    JSXAttributeItem::SpreadAttribute(_) => self.has_spread = true,
+                    JSXAttributeItem::SpreadAttribute(_) => {
+                        self.has_spread = true;
+                        self.spread_after = self.attr.is_some();
+                    }
                     JSXAttributeItem::Attribute(attr) => {
                         let JSXAttributeName::Identifier(name) = &attr.name else {
                             continue;
@@ -557,6 +623,7 @@ impl<'a> Visit<'a> for Gather<'_> {
                             }),
                         };
                         self.attr = Some(shape);
+                        self.spread_after = false;
                     }
                 }
             }
