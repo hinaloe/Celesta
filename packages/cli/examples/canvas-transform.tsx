@@ -9,7 +9,8 @@ import { Stack } from '@celesta/layout';
 //   - the green Rect has no x: dragging it writes `x` into the tag;
 //   - the Text's x is keyframed: editable on frames 0, 30, and 60, read-only
 //     between them;
-//   - the Stack's children get their position from the Stack;
+//   - the Stack's children are editable: their x and y are offsets from
+//     the slot the Stack gives each (the Stack itself has no Select);
 //   - the three Rects from `.map()` are one element rendered three times:
 //     locked as repeated;
 //   - the orange Rect's x is an expression: locked;
