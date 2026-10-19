@@ -434,6 +434,24 @@ const label = <>New <Span style={{ fontWeight: 700 }}>2.0</Span></>;
 const m = useTextMetrics(label, style);
 ```
 
+A caret after typed text, and a second label after the first: measure
+instead of multiplying the character count by a font's advance (`0.6 em`
+holds for one monospace font, and breaks on CJK, emoji, and any other
+family). `textCaret(metrics, offset)` gives the position after `offset`
+characters:
+
+```tsx
+const style = { fontFamily: 'JetBrains Mono', fontSize: 40 };
+function Prompt({ typed }: { typed: string }) {
+  const line = useTextMetrics(`$ ${typed}`, style);
+  const caret = textCaret(line, 2 + typed.length);
+  return <Group>
+    <Text style={{ ...style, fill: { type: 'solid', color: '#ffffff' } }}>{`$ ${typed}`}</Text>
+    <Rect x={caret.x} y={4} width={useTextMetrics('M', style).width} height={44} fill="#3DDC84" />
+  </Group>;
+}
+```
+
 A centered row: measure each item, add padding and a fixed gap, and offset
 the row by `(width - total) / 2`. The full example is
 `packages/cli/examples/with-text-metrics.tsx` in the Celesta repository.

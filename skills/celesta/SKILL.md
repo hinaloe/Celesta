@@ -130,8 +130,11 @@ produces a video that differs between preview and export.
    `--template <name>` and edit its `props.json` and data file instead.
 2. **Write or edit the source.** Keep media next to the entry and reference
    it with `./relative/paths`. Prefer small named components and data arrays
-   over one big `Root`. Before hand-rolling timing math or layout, check the
-   helpers: [animation.md](references/animation.md#pick-a-helper) (scenes in a
+   over one big `Root`. Before writing a helper (`clamp`, an eased
+   `progress`, a `sin` hash, a timecode, a width from a character count, a
+   lookup of the current section), check
+   [helpers.md](references/helpers.md): Celesta already has it. For timing
+   math and layout, see [animation.md](references/animation.md#pick-a-helper) (scenes in a
    row, staggered entrances, beats, cues, camera), and
    [text.md](references/text.md) (measuring, fitting text into a box,
    Japanese `lineBreak: 'phrase'`, `<Composition lang="ja-JP">` so CJK text
@@ -214,6 +217,7 @@ Load only the one you need; each is self-contained.
 | `Text`, `TextStyle`, fonts and fallback, font stacks (和欧混植), text language (`lang`), emoji, line breaking, `TextReveal`, `useTypewriter`, `useCountUp`, `useTextMetrics`/`measureText`, `TextBox`/`useFitText`/`fitText` | [text.md](references/text.md) |
 | Subtitle files: reading SRT/WebVTT (`parseSubtitles`), `<Subtitles>`, writing them with `formatSubtitles` or `--subtitles` on export | [subtitles.md](references/subtitles.md) |
 | Syntax-highlighted code, typing code, highlighted lines, carets, drawing code lines yourself (`@celesta/code`) | [code.md](references/code.md) |
+| About to write a small helper (clamp, eased progress, random hash, timecode, text width, current section): the API that already does it | [helpers.md](references/helpers.md) |
 | Seeded random, noise, clamp/lerp/remap, waves, angles, points (`@celesta/math`) | [math.md](references/math.md) |
 | A seamless loop (Shorts, TikTok): loop length from beats and bars, periodic motion, looping noise, folding the music's tail back, `inspect.mjs --loop`, exporting with `--loop` | [loops.md](references/loops.md) |
 | Custom WGSL filters: ripples, glitches, color grades (`@celesta/shader`, the `shader` prop); ordering built-in filters among them | [shader.md](references/shader.md) |
