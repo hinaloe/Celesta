@@ -301,6 +301,55 @@ fn flips_a_card() {
     assert_eq!(pixel_at(&frame, 190, 200)[3], 0, "edge-on");
 }
 
+/// A group turned about its `origin` draws as the nested groups it stands
+/// for: one at `position + origin` that turns, holding one moved back.
+#[test]
+fn turns_a_group_about_its_origin() {
+    let Some(mut renderer) = transparent_renderer() else {
+        return;
+    };
+    let content = || {
+        vec![
+            corner_rect("a", 40.0, 50.0, 120.0, 100.0, "#FF0000FF"),
+            corner_rect("b", 90.0, 70.0, 40.0, 40.0, "#0000FFFF"),
+        ]
+    };
+    type Turn = fn(&mut EvaluatedTransform);
+    let cases: [(&str, Turn); 2] = [
+        ("perspective", |transform| {
+            transform.rotation_y = 50.0;
+            transform.rotation_x = -20.0;
+            transform.perspective = Some(400.0);
+        }),
+        ("flat", |transform| {
+            transform.rotation = 30.0;
+            transform.scale = Point { x: 0.5, y: 1.5 };
+        }),
+    ];
+    for (case, turn) in cases {
+        let about_origin = transformed(group_at(10.0, -5.0, content()), |transform| {
+            transform.origin = Point { x: 110.0, y: 90.0 };
+            turn(transform);
+        });
+        let nested = transformed(
+            group_at(120.0, 85.0, vec![group_at(-110.0, -90.0, content())]),
+            turn,
+        );
+        let about_origin = renderer
+            .render(&sized_scene(200, 200, vec![about_origin]))
+            .unwrap();
+        let nested = renderer
+            .render(&sized_scene(200, 200, vec![nested]))
+            .unwrap();
+        // The blue rect around the origin stays put as the group turns.
+        assert_eq!(pixel_at(&about_origin, 120, 85), [0, 0, 255, 255], "{case}");
+        // The two homographies are the same up to rounding, which can move
+        // a projected edge's coverage by a level on some GPUs (lavapipe).
+        let difference = max_difference(&about_origin, &nested, 0..200);
+        assert!(difference <= 1, "{case}: {difference}");
+    }
+}
+
 #[test]
 fn nests_projective_groups() {
     let Some(mut renderer) = transparent_renderer() else {

@@ -96,14 +96,17 @@ const MAX_BLUR = 64;
 
 /**
  * The matrix a layer with transform `t` draws its content through under
- * `parent`: the 2x2 of its `linear` part `l` and its position, or today's
- * translate, rotate, and scale when it turns flat (`l` is `null`). A
- * projective layer draws through its plane instead.
+ * `parent`: the 2x2 of its `linear` part `l` about its origin and its
+ * position, or today's translate, rotate, and scale when it turns flat (`l`
+ * is `null`). A projective layer draws through its plane instead.
  */
 function layerMatrix(parent: DOMMatrix, t: Transform, l: Matrix3 | null): DOMMatrix {
-  const moved = parent.translate(t.position.x, t.position.y);
-  if (!l) return moved.rotate(t.rotation).scale(t.scale.x, t.scale.y);
-  return moved.multiply(new DOMMatrix([l[0][0], l[1][0], l[0][1], l[1][1], 0, 0]));
+  const { x: ox, y: oy } = t.origin ?? { x: 0, y: 0 };
+  const moved = parent.translate(t.position.x + ox, t.position.y + oy);
+  const turned = l
+    ? moved.multiply(new DOMMatrix([l[0][0], l[1][0], l[0][1], l[1][1], 0, 0]))
+    : moved.rotate(t.rotation).scale(t.scale.x, t.scale.y);
+  return ox === 0 && oy === 0 ? turned : turned.translate(-ox, -oy);
 }
 
 /** The largest magnitude a linear entry may have before the layer is not drawn, as in the GPU renderer. */

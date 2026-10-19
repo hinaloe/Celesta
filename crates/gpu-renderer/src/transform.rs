@@ -184,7 +184,8 @@ impl Affine {
     };
 
     pub(crate) fn from_transform(transform: &EvaluatedTransform) -> Self {
-        Self::from_linear(&transform.linear(), transform.position)
+        let linear = transform.linear();
+        Self::from_linear(&linear, transform.translation(&linear))
     }
 
     /// `from_transform` of a transform that only turns by `rotation` degrees

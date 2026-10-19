@@ -967,11 +967,11 @@ fn a_layer_without_opacity_is_opaque() {
 /// A frame of 100,000 layers is moved and copied layer by layer while it is
 /// parsed and rendered; the rarely used text style and effects live behind
 /// boxes so every layer stays small. The 3D transform fields took it from 312
-/// to 368 bytes.
+/// to 368 bytes, and the transform origin to 384.
 #[test]
 fn layers_stay_small() {
     assert!(
-        std::mem::size_of::<Layer>() <= 368,
+        std::mem::size_of::<Layer>() <= 384,
         "Layer is {} bytes",
         std::mem::size_of::<Layer>()
     );
@@ -1136,6 +1136,84 @@ fn facing_follows_the_accumulated_orientation() {
     assert!(!faces_away(&o(ry(90.0))));
     assert!(!faces_away(&multiply3(&o(ry(100.0)), &o(ry(180.0)))));
     assert!(faces_away(&multiply3(&o(ry(30.0)), &o(ry(180.0)))));
+}
+
+/// A group turned about `origin` is the group moved to `position + origin`
+/// and turned, holding a group moved back by `origin`.
+#[test]
+fn origin_is_a_nested_group_moved_back() {
+    let origin = Point { x: 960.0, y: 540.0 };
+    for (perspective, rotation_y, rotation, scale) in [
+        (Some(2000.0), 40.0, 0.0, 1.0),
+        (None, 0.0, 30.0, 1.5),
+        (Some(800.0), -70.0, 10.0, 0.5),
+    ] {
+        let t = EvaluatedTransform {
+            position: Point { x: 12.0, y: -7.0 },
+            origin,
+            rotation_y,
+            rotation,
+            scale: Point { x: scale, y: scale },
+            perspective,
+            ..Default::default()
+        };
+        let outer = EvaluatedTransform {
+            position: Point { x: 972.0, y: 533.0 },
+            origin: Point { x: 0.0, y: 0.0 },
+            ..t
+        };
+        let inner = EvaluatedTransform {
+            position: Point {
+                x: -960.0,
+                y: -540.0,
+            },
+            ..Default::default()
+        };
+        let nested = multiply3(&outer.homography(), &inner.homography());
+        assert!(close(&t.homography(), &nested), "{t:?}");
+        assert_eq!(t.is_projective(), perspective.is_some());
+        // The vanishing point: the plane's `origin` lands at position + origin.
+        let [x, y, w] = project(&t.homography(), origin.x, origin.y);
+        assert!((x - 972.0).abs() < 1e-9 && (y - 533.0).abs() < 1e-9 && (w - 1.0).abs() < 1e-12);
+    }
+}
+
+#[test]
+fn translation_is_the_affine_homography_s_offset() {
+    let t = EvaluatedTransform {
+        position: Point { x: 5.0, y: 6.0 },
+        origin: Point { x: 100.0, y: 50.0 },
+        rotation: 90.0,
+        scale: Point { x: 2.0, y: 1.0 },
+        ..Default::default()
+    };
+    let h = t.homography();
+    let Point { x, y } = t.translation(&t.linear());
+    assert!((x - h[0][2]).abs() < 1e-9 && (y - h[1][2]).abs() < 1e-9);
+    // Untransformed, the origin does not move the layer.
+    let still = EvaluatedTransform {
+        position: Point { x: 5.0, y: 6.0 },
+        origin: Point { x: 100.0, y: 50.0 },
+        ..Default::default()
+    };
+    assert_eq!(still.translation(&still.linear()), still.position);
+    assert!(close(
+        &still.homography(),
+        &[[1.0, 0.0, 5.0], [0.0, 1.0, 6.0], [0.0, 0.0, 1.0]]
+    ));
+}
+
+#[test]
+fn origin_round_trips_and_stays_out_of_json_at_zero() {
+    let t: EvaluatedTransform =
+        serde_json::from_value(serde_json::json!({"origin": {"x": 960.0, "y": 540.0}})).unwrap();
+    assert_eq!(t.origin, Point { x: 960.0, y: 540.0 });
+    assert_eq!(
+        serde_json::to_value(t).unwrap()["origin"],
+        serde_json::json!({"x": 960.0, "y": 540.0})
+    );
+    let json = serde_json::to_value(EvaluatedTransform::default()).unwrap();
+    assert!(json.get("origin").is_none());
 }
 
 #[test]

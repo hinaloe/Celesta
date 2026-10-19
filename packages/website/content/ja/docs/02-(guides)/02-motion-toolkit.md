@@ -49,10 +49,10 @@ export default function Root() {
 | `'zoom'` | 両方のシーンが点を中心に拡縮し、次のシーンがフェードインします。 | `direction`（`'in'` か `'out'`）、`scale`（1.5）、`center` |
 | `'dissolve'` | 次のシーンがマスごとに現れます。 | `cellSize`（16 px）、`seed`（0） |
 | `'blur'` | 前のシーンがぼけて消え、次のシーンのぼけが取れながら現れます。 | `amount`（32 px、最大 64） |
-| `'flip'` | カードのように裏返ります。 | `shade`（0.4）：横を向いた面の暗さ |
-| `'cube'` | 立方体の 2 面が 4 分の 1 回転します。 | `shade`（0.4） |
+| `'flip'` | カードのように裏返ります。 | `shade`（0.4）：横を向いた面の暗さ。`perspective`（なし）：指定したピクセルの距離から見て、中央を軸に 3D で回します |
+| `'cube'` | 立方体の 2 面が 4 分の 1 回転します。 | `shade`（0.4）。`perspective`（なし）：2 面が接する辺を軸に 3D で回します |
 
-`'flip'` と `'cube'` は遠近法を使わずに描きます。面は細くなりながら暗くなり、立方体は回転の途中で縮んで常にシリーズの幅に収まります。どの種類もプレビュー、書き出し、ブラウザのエディタで同じように描かれます。
+既定では `'flip'` と `'cube'` は遠近法を使わずに描きます。面は細くなりながら暗くなり、立方体は回転の途中で縮んで常にシリーズの幅に収まります。`flip({ perspective: 2000 })` のように `perspective` を指定すると 3D で回ります。flip はシリーズの中央を軸に、cube は 2 面が接する辺を軸に回り、この辺はシリーズを横切りながら視点の位置にもなります。どの種類もプレビュー、書き出し、ブラウザのエディタで同じように描かれます。
 
 トランジションの動きや切り抜きは、シリーズの大きさを基準にします。スライドで押し出す距離、ワイプの終わる位置、アイリスの中心がこれで決まります。既定ではコンポジションの大きさ、`<SafeArea>` や `<Fit>` の中ではその領域の大きさです。小さな枠の中で使うときは、`<TransitionSeries>` に枠の `width` と `height` を指定し、`Group` で配置します（シーンが枠の外にはみ出さないようにするには `clip` も指定します）。
 
@@ -64,7 +64,7 @@ export default function Root() {
 
 ### トランジションを定義する
 
-`defineTransition({ name, present })` で `type` に渡すトランジションを作れます。`present` は重なった各フレームで、イージング後の `progress`、重なりの中の `frame` と `durationInFrames`、`from`、シリーズの `width` と `height` を受け取ります。そして、次のシーン（`enter`）と前のシーン（`exit`）の `Group` の props を返します。位置、拡縮、透明度、`clip`、`blur`、色補正、`shader`、`mask` を指定できます。組み込みの種類も同じ仕組みで書かれており、`useTransitionSeriesScene()` は定義したトランジションを `name` で返します。カスタム WGSL シェーダーはプレビューと書き出しで動き、ブラウザのエディタでは動きません。
+`defineTransition({ name, present })` で `type` に渡すトランジションを作れます。`present` は重なった各フレームで、イージング後の `progress`、重なりの中の `frame` と `durationInFrames`、`from`、シリーズの `width` と `height` を受け取ります。そして、次のシーン（`enter`）と前のシーン（`exit`）の `Group` の props を返します。位置、拡縮、透明度、`clip`、`blur`、色補正、`shader`、`mask` を指定できます。シーンの Group はシリーズの左上を軸に回るので、中央を軸に 3D で回すには `rotationX` や `rotationY`、`perspective` とあわせて `originX: width / 2, originY: height / 2` を返します（`examples/with-3d-transition.tsx` を参照）。組み込みの種類も同じ仕組みで書かれており、`useTransitionSeriesScene()` は定義したトランジションを `name` で返します。カスタム WGSL シェーダーはプレビューと書き出しで動き、ブラウザのエディタでは動きません。
 
 ```tsx file=examples/custom-transition.tsx title="マスクで定義したブラインドと、中心をずらしたアイリス"
 ```

@@ -701,3 +701,20 @@ test('a skewed layer draws through its linear part, and an edge-on one not at al
   assert.equal((await fills(at(10, 20, { rotationY: 60 }))).length, 1);
   renderer.dispose();
 });
+
+test('a layer turns and scales about its origin', async t => {
+  const { canvas, operations } = pixelCanvases(t);
+  const renderer = new SceneCanvas(new Map());
+  const matrixOf = async transform => {
+    operations.length = 0;
+    await renderer.draw(canvas(), { width: 100, height: 100, layers: [square(transform)] });
+    return operations.find(([kind]) => kind === 'fill')[4];
+  };
+  // Scaled 2x about (5, 5), which stays at position + origin = (15, 25).
+  const flat = await matrixOf(at(10, 20, { scale: { x: 2, y: 2 }, origin: { x: 5, y: 5 } }));
+  assert.deepEqual([flat.a, flat.d, flat.e, flat.f], [2, 2, 5, 15]);
+  // Skewed (through the linear part) about (0, 10): the row y = 10 does not slide.
+  const skewed = await matrixOf(at(10, 20, { skew: { x: 45, y: 0 }, origin: { x: 0, y: 10 } }));
+  assert.ok(Math.abs(skewed.e - 0) < 1e-9 && Math.abs(skewed.f - 20) < 1e-9, `${skewed.e}, ${skewed.f}`);
+  renderer.dispose();
+});

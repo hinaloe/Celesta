@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   IDENTITY3, effectScale, facesAway, homography, invert3, isProjective, linear, multiply3, perspectiveDistance,
-  planeBands, planeRaster, project, projectedBounds, stretchAt, tapCount, turnFlat, turnsFlat, warp,
+  planeBands, planeRaster, project, projectedBounds, stretchAt, tapCount, translation, turnFlat, turnsFlat, warp,
 } from '../src/projection.ts';
 
 // The values of `celesta_composition`'s and `celesta_gpu_renderer::plane`'s tests.
@@ -65,6 +65,28 @@ test('a perspective rotationY turns the right edge away', () => {
   assert.ok(Math.abs(h[0][2] - 10) < 1e-12 && Math.abs(h[1][2] - 20) < 1e-12);
   assert.ok(isProjective(t));
   assert.ok(project(h, 100, 0)[2] > 1, 'farther');
+});
+
+test('an origin is a nested group moved back', () => {
+  const origin = { x: 960, y: 540 };
+  for (const [perspective, rotationY, rotation, scale] of [[2000, 40, 0, 1], [undefined, 0, 30, 1.5], [800, -70, 10, 0.5]]) {
+    const turn = { rotationY, rotation, scale: { x: scale, y: scale }, ...(perspective ? { perspective } : {}) };
+    const t = transform({ position: { x: 12, y: -7 }, origin, ...turn });
+    const outer = transform({ position: { x: 972, y: 533 }, ...turn });
+    const inner = transform({ position: { x: -960, y: -540 } });
+    assert.ok(close(homography(t), multiply3(homography(outer), homography(inner))), JSON.stringify(t));
+    const [x, y] = project(homography(t), origin.x, origin.y);
+    assert.ok(Math.abs(x - 972) < 1e-9 && Math.abs(y - 533) < 1e-9);
+  }
+});
+
+test('the translation is the affine homography offset', () => {
+  const t = transform({ position: { x: 5, y: 6 }, origin: { x: 100, y: 50 }, rotation: 90, scale: { x: 2, y: 1 } });
+  const h = homography(t);
+  const { x, y } = translation(t, linear(t));
+  assert.ok(Math.abs(x - h[0][2]) < 1e-9 && Math.abs(y - h[1][2]) < 1e-9);
+  const still = transform({ position: { x: 5, y: 6 }, origin: { x: 100, y: 50 } });
+  assert.deepEqual(translation(still, linear(still)), still.position);
 });
 
 test('a perspective distance must be finite and positive', () => {

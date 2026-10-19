@@ -150,18 +150,37 @@ export function turnFlat(orientation: Matrix3, t: Transform): Matrix3 {
 }
 
 /**
+ * Where the linear part `l` moves the layer's own origin in the parent:
+ * `position + origin − l · origin`, so the layer turns and scales about
+ * `origin` and stays at `position` untransformed.
+ */
+export function translation(t: Transform, l: Matrix3): { x: number; y: number } {
+  const o = t.origin;
+  if (!o || (o.x === 0 && o.y === 0)) return t.position;
+  return {
+    x: t.position.x + o.x - (l[0][0] * o.x + l[0][1] * o.y),
+    y: t.position.y + o.y - (l[1][0] * o.x + l[1][1] * o.y),
+  };
+}
+
+/**
  * The map from the layer plane (relative to its anchor) to the parent's
- * plane, folding position and perspective into the linear part `l`.
+ * plane, folding position, origin, and perspective into the linear part
+ * `l`. The perspective's vanishing point is `position + origin`.
  */
 export function homography(t: Transform, l: Matrix3 = linear(t)): Matrix3 {
-  const { x: px, y: py } = t.position;
+  const { x: ox, y: oy } = t.origin ?? { x: 0, y: 0 };
+  const px = t.position.x + ox, py = t.position.y + oy;
   const d = perspectiveDistance(t);
   const inverse = d === null ? 0 : 1 / d;
-  return [
+  const h: Matrix3 = [
     [l[0][0] - px * l[2][0] * inverse, l[0][1] - px * l[2][1] * inverse, px],
     [l[1][0] - py * l[2][0] * inverse, l[1][1] - py * l[2][1] * inverse, py],
     [-l[2][0] * inverse, -l[2][1] * inverse, 1],
   ];
+  if (ox === 0 && oy === 0) return h;
+  // `h · T(−origin)`: the plane's point `origin` is the one `h` sends to `position + origin`.
+  return h.map(([a, b, c]) => [a, b, c - a * ox - b * oy]) as Matrix3;
 }
 
 /** Whether the transform needs a homography rather than an affine map; `l` is its `linear` part. */

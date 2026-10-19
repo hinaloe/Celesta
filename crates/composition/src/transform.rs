@@ -16,6 +16,8 @@ pub struct Transform {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor: Option<AnimatablePoint>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<AnimatablePoint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skew: Option<AnimatablePoint>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rotation_x: Option<Animatable<f64>>,

@@ -47,6 +47,24 @@ export interface CommonProps {
   /** Vertical pivot: 0 top, 1 bottom, 0.5 centre. Defaults to 0. See `anchorX`. */
   anchorY?: number;
   /**
+   * The point `scale`, `rotation`, `skew`, `rotationX`, and `rotationY` turn
+   * about, which is also the vanishing point of `perspective`: an offset in
+   * the object's own pixels from its anchor (from a `Group`'s, `Path`'s, or
+   * `Instances`'s own origin, as they have no box to anchor in). Defaults to
+   * 0. Unlike the anchor it does not move the object: untransformed, it
+   * stays where `x`/`y` put it. Turns a group about its centre without
+   * nesting a second group:
+   *
+   * ```tsx
+   * <Group originX={width / 2} originY={height / 2} rotationY={angle} perspective={2000}>
+   *   {children}
+   * </Group>
+   * ```
+   */
+  originX?: number;
+  /** Vertical pivot offset in pixels. Defaults to 0. See `originX`. */
+  originY?: number;
+  /**
    * Shear along the x axis, in degrees: points slide sideways in
    * proportion to their height. Defaults to 0. Like CSS `skewX()`. See
    * `rotationX` for how it composes with the other transform props.
@@ -62,8 +80,9 @@ export interface CommonProps {
    * The transform composes as position · perspective · rotationX ·
    * rotationY · rotation · skew · scale, rightmost first, so the object
    * is scaled, then skewed, then turned, then tilted, then projected and
-   * placed. A `Group` turns about its origin, other layers about their
-   * anchor, which is also the vanishing point. Children flatten into the
+   * placed. A `Group` turns about its own origin, other layers about their
+   * anchor, moved by `originX`/`originY`; that point is also the vanishing
+   * point. Children flatten into the
    * parent's plane: a rotated `Group` carries its children as one flat
    * picture, with no depth sorting between them.
    */

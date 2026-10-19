@@ -49,10 +49,10 @@ Each scene is an ordinary Sequence whose frame 0 is the first frame of its trans
 | `'zoom'` | Both scenes zoom about a point while the next fades in. | `direction` (`'in'` or `'out'`), `scale` (1.5), `center` |
 | `'dissolve'` | The next scene shows through square by square. | `cellSize` (16 px), `seed` (0) |
 | `'blur'` | The previous scene blurs away as the next comes into focus. | `amount` (32 px, up to 64) |
-| `'flip'` | The picture turns over like a card. | `shade` (0.4): how dark a face gets as it turns |
-| `'cube'` | Two faces of a cube turn a quarter turn. | `shade` (0.4) |
+| `'flip'` | The picture turns over like a card. | `shade` (0.4): how dark a face gets as it turns; `perspective` (none): turns it in 3D about the centre, seen from this many pixels |
+| `'cube'` | Two faces of a cube turn a quarter turn. | `shade` (0.4); `perspective` (none): turns the faces in 3D about the edge they share |
 
-`'flip'` and `'cube'` are drawn without perspective: the faces narrow and darken, and the cube is scaled down mid-turn so it always spans the series. Every type draws the same in preview, export, and the browser editor.
+By default `'flip'` and `'cube'` are drawn without perspective: the faces narrow and darken, and the cube is scaled down mid-turn so it always spans the series. With a `perspective`, as in `flip({ perspective: 2000 })`, they turn in 3D instead: the flip about the series' centre, the cube about the edge its faces share, which crosses the series and is also where the viewer looks from. Every type draws the same in preview, export, and the browser editor.
 
 Transitions move and cut across the series’ size: how far a slide pushes, where a wipe ends, where an iris centres. That is the composition’s size, or the area of an enclosing `<SafeArea>` or `<Fit>`. For a series in a smaller frame, give `<TransitionSeries>` the frame’s `width` and `height`, and place it with a `Group` (with a `clip` if the scenes must not slide out of the frame):
 
@@ -64,7 +64,7 @@ Transitions move and cut across the series’ size: how far a slide pushes, wher
 
 ### Your own transitions
 
-`defineTransition({ name, present })` makes a transition to pass as `type`. On every overlapped frame, `present` gets the eased `progress`, the `frame` and `durationInFrames` of the overlap, `from`, and the series’ `width` and `height`, and returns `Group` props for the scene coming in (`enter`) and the one going out (`exit`): a position, scale, opacity, `clip`, `blur`, color filter, `shader`, or `mask`. The built-in types are written the same way, and `useTransitionSeriesScene()` reports a defined transition by its `name`. Custom WGSL shaders run in preview and export, not in the browser editor.
+`defineTransition({ name, present })` makes a transition to pass as `type`. On every overlapped frame, `present` gets the eased `progress`, the `frame` and `durationInFrames` of the overlap, `from`, and the series’ `width` and `height`, and returns `Group` props for the scene coming in (`enter`) and the one going out (`exit`): a position, scale, opacity, `clip`, `blur`, color filter, `shader`, or `mask`. A scene's group turns about the series' top-left corner; return `originX: width / 2, originY: height / 2` with a `rotationX` or `rotationY` and a `perspective` to turn it in 3D about the centre (see `examples/with-3d-transition.tsx`). The built-in types are written the same way, and `useTransitionSeriesScene()` reports a defined transition by its `name`. Custom WGSL shaders run in preview and export, not in the browser editor.
 
 ```tsx file=examples/custom-transition.tsx title="Blinds defined with a mask, then an off-centre iris"
 ```

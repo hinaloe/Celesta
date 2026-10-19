@@ -38,7 +38,7 @@ function frameOf(result) {
   return frame;
 }
 
-const NEW_KEYS = ['skew', 'rotationX', 'rotationY', 'perspective', 'backfaceVisibility'];
+const NEW_KEYS = ['origin', 'skew', 'rotationX', 'rotationY', 'perspective', 'backfaceVisibility'];
 
 test('skew, 3D rotation, perspective, and backfaceVisibility serialize into transform', () => {
   const frame = frameOf(
@@ -63,6 +63,17 @@ test('a Group takes rotationX and leaves the other new fields out', () => {
   for (const key of ['skew', 'perspective', 'backfaceVisibility']) {
     assert.equal(key in transform, false, key);
   }
+});
+
+test('a Group takes originX and originY as its origin', () => {
+  const frame = frameOf(
+    render(
+      `      <Group id="g" originX={50} originY={25} rotationY={40} perspective={400}><Rect width={10} height={10} /></Group>`,
+    ),
+  );
+  const { transform } = frame.scene.layers[0];
+  assert.deepEqual(transform.origin, { x: 50, y: 25 });
+  assert.equal(transform.rotationY, 40);
 });
 
 test('a perspective that is not finite and positive is omitted', () => {
