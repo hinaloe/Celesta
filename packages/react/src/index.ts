@@ -98,6 +98,7 @@ export { useCurrentFrame, useCurrentTime, useDebugGuides, useIsPreview, useVideo
 export type { VideoConfig } from './hooks';
 
 export { frameToTimecode, timecodeToFrame } from './time';
+export type { TimecodeOptions } from './time';
 
 export { beatAt, cueAt, useBeat, useCue } from './timing';
 export type { ActiveCue, Beat, BeatOptions, Cue } from './timing';

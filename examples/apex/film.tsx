@@ -24,6 +24,6 @@ export default function Root() {
         <Series.Sequence key={name} durationInFrames={durationInFrames}><Scene /></Series.Sequence>
       ))}
     </Series>
-    <Hud total={durationInFrames} />
+    <Hud />
   </Composition>;
 }

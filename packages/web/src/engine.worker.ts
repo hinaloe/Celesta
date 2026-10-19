@@ -6,6 +6,7 @@ import { mount, setAudioDecoder, setTextMeasurer } from '../../react/src/interna
 import type { EntryComponent, MountedComposition } from '../../react/src/internal';
 import * as character from '../../character/src/index';
 import * as codeComponents from '../../code/src/index';
+import * as components from '../../components/src/index';
 import * as debug from '../../debug/src/index';
 import * as layout from '../../layout/src/index';
 import * as lottie from '../../lottie/src/index';
@@ -28,6 +29,7 @@ const modules: Record<(typeof runtimeModules)[number], unknown> = {
   '@celesta/shapes': shapes,
   '@celesta/lottie': lottie,
   '@celesta/layout': layout,
+  '@celesta/components': components,
   '@celesta/transitions': transitions,
   '@celesta/text': text,
   '@celesta/debug': debug,

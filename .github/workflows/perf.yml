@@ -39,6 +39,7 @@ on:
       - "packages/character/src/**"
       - "packages/cli/src/**"
       - "packages/code/src/**"
+      - "packages/components/src/**"
       - "packages/layout/src/**"
       - "packages/math/src/**"
       - "packages/media-utils/src/**"

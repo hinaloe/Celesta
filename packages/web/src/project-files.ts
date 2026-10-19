@@ -8,6 +8,7 @@ export const runtimeModules = [
   '@celesta/shapes',
   '@celesta/lottie',
   '@celesta/layout',
+  '@celesta/components',
   '@celesta/transitions',
   '@celesta/text',
   '@celesta/debug',
