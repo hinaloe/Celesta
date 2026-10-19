@@ -2,7 +2,7 @@
 // Run after `pnpm run build`.
 
 import assert from 'node:assert/strict';
-import { createElement as h } from 'react';
+import { createContext, createElement as h, useContext } from 'react';
 import { test } from 'vitest';
 
 import { Composition, Group, MotionBlur, Rect, Sequence } from '../dist/index.js';
@@ -48,7 +48,7 @@ test('localFrame is the frame of the component that wrote the element, above a S
   const composition = mount(() => comp(jsxDEV(Scene, {}, undefined, false, at('entry.tsx', 3, 5))));
   const report = reportFor(composition, 60);
   assert.equal(report.localFrame, 60);
-  assert.equal(report.frameUncertain, undefined);
+  assert.deepEqual(report.candidateFrames, [30, 60]);
 });
 
 test('localFrame follows a Sequence above the writing component', () => {
@@ -69,7 +69,7 @@ test('a component passing children through does not own them', () => {
   const composition = mount(() => comp(jsxDEV(Scene, {}, undefined, false, at('entry.tsx', 3, 5))));
   const report = reportFor(composition, 60);
   assert.equal(report.localFrame, 60);
-  assert.equal(report.frameUncertain, undefined);
+  assert.deepEqual(report.candidateFrames, [30, 60]);
 });
 
 test('a MotionBlur moment function is written by the component around it', () => {
@@ -80,7 +80,41 @@ test('a MotionBlur moment function is written by the component around it', () =>
   assert.equal(reportFor(composition, 60).localFrame, 60);
 });
 
-test('a render prop called below a frame change makes the frame uncertain', () => {
+// `frame` may be read by any component above the element: the candidates are
+// the frames handed down by every frame provider on the way to the root.
+
+test('candidateFrames lists each frame above the element once, nearest first', () => {
+  const composition = mount(() =>
+    comp(sequence(10, sequence(0, sequence(20, rectAt(5), 6), 5), 4)),
+  );
+  // 60 at the root, 50 under `from={10}` (and `from={0}` inside it), 30 under `from={20}`.
+  assert.deepEqual(reportFor(composition, 60).candidateFrames, [30, 50, 60]);
+});
+
+test('candidateFrames covers a render function nested in an object prop', () => {
+  function Later({ config }) {
+    return config.render();
+  }
+  function Scene() {
+    return sequence(30, jsxDEV(Later, { config: { render: () => rectAt(5) } }, undefined, false, at('scene.tsx', 3, 5)));
+  }
+  const composition = mount(() => comp(jsxDEV(Scene, {}, undefined, false, at('entry.tsx', 3, 5))));
+  assert.deepEqual(reportFor(composition, 60).candidateFrames, [30, 60]);
+});
+
+test('candidateFrames covers a render function passed through context', () => {
+  const Render = createContext(null);
+  function Consumer() {
+    return useContext(Render)();
+  }
+  function Scene() {
+    return h(Render.Provider, { value: () => rectAt(5) }, sequence(30, jsxDEV(Consumer, {}, undefined, false, at('scene.tsx', 3, 5))));
+  }
+  const composition = mount(() => comp(jsxDEV(Scene, {}, undefined, false, at('entry.tsx', 3, 5))));
+  assert.deepEqual(reportFor(composition, 60).candidateFrames, [30, 60]);
+});
+
+test('candidateFrames covers a render prop called below a frame change', () => {
   function Later({ render }) {
     return sequence(30, render(), 9);
   }
@@ -88,17 +122,9 @@ test('a render prop called below a frame change makes the frame uncertain', () =
     return sequence(10, jsxDEV(Later, { render: () => rectAt(5) }, undefined, false, at('scene.tsx', 4, 5)));
   }
   const composition = mount(() => comp(jsxDEV(Scene, {}, undefined, false, at('entry.tsx', 3, 5))));
-  assert.equal(reportFor(composition, 60).frameUncertain, true);
-
-  // Without a frame change above it, the render prop's caller sees the
-  // same frame as whoever wrote it.
-  function Plain() {
-    return jsxDEV(Later, { render: () => rectAt(5) }, undefined, false, at('scene.tsx', 4, 5));
-  }
-  const plain = mount(() => comp(jsxDEV(Plain, {}, undefined, false, at('entry.tsx', 3, 5))));
-  const report = reportFor(plain, 60);
-  assert.equal(report.localFrame, 60);
-  assert.equal(report.frameUncertain, undefined);
+  const report = reportFor(composition, 60);
+  assert.deepEqual(report.candidateFrames, [20, 50, 60]);
+  assert.equal('frameUncertain' in report, false);
 });
 
 test('props are the transform props the primitive received', () => {
