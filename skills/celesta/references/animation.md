@@ -27,6 +27,7 @@ For randomness and noise, use [`@celesta/math`](math.md).
 - [MotionBlur and Trail](#motionblur-and-trail)
 - [Series and computeSeries](#series-and-computeseries)
 - [Scenes and useScene](#scenes-and-usescene)
+- [FrameChrome](#framechrome)
 - [TransitionSeries](#transitionseries)
 - [Stagger](#stagger)
 - [Transition](#transition)
@@ -44,6 +45,7 @@ For randomness and noise, use [`@celesta/math`](math.md).
 | A bouncy pop-in | `spring` |
 | Scenes back to back | `Series` + `computeSeries` |
 | Named chapters, with a HUD that shows the current one and its progress | `defineScenes` + `Scenes` + `useScene` |
+| Corner brackets, a title, the timecode, the chapter, and a progress bar around the picture | `FrameChrome` |
 | Scenes joined by a cut, cross-fade, slide, or wipe | `TransitionSeries` + `computeTransitionSeries` |
 | A background animation or a short BGM repeated | `Loop` |
 | A past frame redrawn in place (rewind, flashback, thumbnails) | `FreezeFrame` |
@@ -349,6 +351,46 @@ function Hud() {
 </Composition>
 ```
 
+## FrameChrome
+
+The overlay a film keeps around the picture, laid out inside `margin` from
+the canvas size, so it holds its places on landscape, vertical, and square
+canvases. Only what is turned on is drawn:
+
+| Prop | Draws |
+| --- | --- |
+| `corners` | an L bracket in each corner (`cornerLength` 24, `strokeWidth` 2) |
+| `title`, `subtitle` | top left: the title at `titleWeight` (700), then the subtitle at `fontWeight` and `subtitleOpacity` (0.6) |
+| `timecode` | top right: `frameToTimecode`; `timecodeHours={false}` drops the hours |
+| `chapters` + `scenes` | bottom left: the current scene's `name`, or `formatChapter(state)` |
+| `caption` | bottom right: any text |
+| `progress` | a bar `progressInset` (half the margin) above the bottom edge, from `margin` to `margin`; with `scenes`, one segment per scene, as wide as it is long (`segments={false}` keeps one bar) |
+
+Labels sit beside the brackets (`gap` 14), centred on the arm;
+`positions={{ timecode: 'bottom-right' }}` moves one, and two in one corner
+throw. `color` and `progressColor` take hex or `<Theme>` color names,
+`fontFamily` a `<Theme>` font name. The bar is empty on the first frame and
+full on frame `durationInFrames - 1` (defaults to the length of `scenes`,
+else of the composition), and scene segments fill as one bar, so it does not
+restart at a cut. `trackOpacity` (0.25) shows the unfilled part.
+
+`blendMode="difference"` keeps the overlay readable over dark and light
+scenes; `progressBlendMode="normal"` keeps a colored bar out of the blend.
+`scenes` is read on the caller's clock: place `<FrameChrome>` beside the
+`<Scenes>`, on the same timeline. To hide it over some scenes, wrap it:
+`useScene(SCENES)?.id === 'logo' ? null : <FrameChrome … />`.
+
+```tsx
+<Theme fonts={{ mono: 'JetBrains Mono' }} colors={{ paper: '#f4f1ea', accent: '#ff4d1f' }}>
+  <Scenes scenes={SCENES} />
+  <FrameChrome margin={56} corners timecode chapters progress scenes={SCENES}
+    title="CELESTA" subtitle="/ FEATURE TOUR" caption="1920×1080 · 30 FPS"
+    color="paper" fontFamily="mono" blendMode="difference" />
+</Theme>
+```
+
+Runnable: [`packages/cli/examples/with-frame-chrome.tsx`](../../../packages/cli/examples/with-frame-chrome.tsx).
+
 ## TransitionSeries
 
 Scenes back to back with transitions between them; the overlaps and the
@@ -559,4 +601,6 @@ props from the frame it is given ([MotionBlur and Trail](#motionblur-and-trail))
 `timecodeToFrame(timecode, fps)`: `'01:02.500'`, `'1:02:03'`, or `'12.5'` →
 frame number. Handy for syncing to timestamps the user gives you.
 `frameToTimecode(frame, fps)` goes the other way, formatting `HH:MM:SS:FF`
-for an on-screen clock.
+for an on-screen clock; `frameToTimecode(frame, fps, { hours: false })`
+gives `MM:SS:FF`, the minutes counting past 59. For a whole HUD around the
+picture, see [FrameChrome](#framechrome).

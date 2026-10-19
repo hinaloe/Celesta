@@ -52,16 +52,29 @@ export function timecodeToFrame(timecode: string, fps: number): number {
   return Math.round(seconds * fps);
 }
 
+export interface TimecodeOptions {
+  /**
+   * `false` leaves the hours out: `MM:SS:FF`, the minutes counting on past
+   * 59 instead of wrapping. Defaults to `true`.
+   */
+  hours?: boolean;
+}
+
 /**
  * Formats a frame as an `HH:MM:SS:FF` timecode, where `FF` counts frames
- * within the second. Negative frames are formatted as frame 0.
+ * within the second, or `MM:SS:FF` with `{ hours: false }`. Negative frames
+ * are formatted as frame 0.
  */
-export function frameToTimecode(frame: number, fps: number): string {
+export function frameToTimecode(frame: number, fps: number, options: TimecodeOptions = {}): string {
   if (!Number.isInteger(fps) || fps <= 0) {
     throw new Error('frameToTimecode() requires a positive integer fps');
   }
   const whole = Math.max(0, Math.floor(frame));
   const seconds = Math.floor(whole / fps);
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}:${pad(whole % fps)}`;
+  const tail = `${pad(seconds % 60)}:${pad(whole % fps)}`;
+  if (options.hours === false) {
+    return `${pad(Math.floor(seconds / 60))}:${tail}`;
+  }
+  return `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}:${tail}`;
 }

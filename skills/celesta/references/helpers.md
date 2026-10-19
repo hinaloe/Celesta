@@ -14,11 +14,12 @@ preview and export, and other people (and agents) reading the file know them.
 | A hex color blended by hand | `interpolateColor(f, [a, b], ['#…', '#…'])` | `@celesta/react` |
 | `fract(Math.sin(i * 12.9898 + …) * 43758.5453)` | `random(seed)`, `randomRange(seed, min, max)`, `randomInt(...)` | `@celesta/math` |
 | Wobble from summed sines | `noise(seed, t)`, `loopNoise(seed, t, period)` for loops | `@celesta/math` |
-| `pad2(minutes) + ':' + pad2(seconds) + …` | `frameToTimecode(f, fps)` (`HH:MM:SS:FF`), `timecodeToFrame('01:02.5', fps)` | `@celesta/react` |
+| `pad2(minutes) + ':' + pad2(seconds) + …` | `frameToTimecode(f, fps)` (`HH:MM:SS:FF`, or `MM:SS:FF` with `{ hours: false }`), `timecodeToFrame('01:02.5', fps)` | `@celesta/react` |
 | SRT/WebVTT times written by hand | `formatSubtitles(cues, { fps, format })` | `@celesta/react` |
 | `text.length * fontSize * 0.6` | `useTextMetrics(text, style).width`, `textCaret(metrics, offset)` | `@celesta/react` |
 | A text width measured during `prepare()` | `measureText(text, style, { fonts })` | `@celesta/react` |
 | `[...items].reverse().find((s) => f >= s.at)` | `useCue(cues)`, `cueAt(cues, f)` | `@celesta/react` |
+| Corner brackets, a timecode, and a progress bar drawn by hand in a HUD | `<FrameChrome corners timecode progress />` | `@celesta/react` |
 | `from: i * 6` on each item | `<Stagger each={6}>` | `@celesta/react` |
 | Scene start frames summed by hand | `<Series>` + `computeSeries` | `@celesta/react` |
 | A beat counter from the BPM | `useBeat({ bpm })` | `@celesta/react` |
@@ -74,7 +75,7 @@ More: [math.md](math.md).
 import { frameToTimecode } from '@celesta/react';
 
 frameToTimecode(1234, 30);           // '00:00:41:04'
-frameToTimecode(1234, 30).slice(3);  // '00:41:04', minutes:seconds:frames
+frameToTimecode(1234, 30, { hours: false });  // '00:41:04', minutes:seconds:frames
 ```
 
 For subtitle files, build the cues and let `formatSubtitles` write the
