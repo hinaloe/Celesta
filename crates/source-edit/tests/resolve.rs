@@ -506,6 +506,44 @@ fn an_eased_between_candidate_cannot_be_ruled_out() {
 }
 
 #[test]
+fn a_custom_easing_keyframe_candidate_cannot_be_ruled_out() {
+    // At frame 30 the runtime gives 100 + easing(0) * (200 - 100) = 150, not
+    // the keyframe's 100, so frame 30 stays a candidate next to frame 60.
+    let text = "export const A = () => {\n  const frame = useCurrentFrame();\n  return <Sequence from={30}><Rect x={interpolate(frame, [0, 30, 45, 60], [0, 100, 200, 150], { easing: t => t === 0 ? 0.5 : t })} /></Sequence>;\n};\n";
+    assert_eq!(
+        run(text, "x", &at_frames(&[30.0, 60.0], Some(150.0))),
+        locked(LockReason::FrameUncertain)
+    );
+    // Options the keyframe value cannot be read from are no better.
+    for options in [
+        "opts",
+        "{ ...opts }",
+        "{ easing }",
+        "{ ['easing']: Easings.linear }",
+    ] {
+        let text = animated(
+            "",
+            &format!("x={{interpolate(frame, [0, 30, 60], [0, 100, 200], {options})}}"),
+        );
+        assert_eq!(
+            run(&text, "x", &at_frames(&[30.0, 60.0], Some(200.0))),
+            locked(LockReason::FrameUncertain),
+            "{options}"
+        );
+    }
+    // A named easing starts each segment at 0 and ends it at 1.
+    let text = animated(
+        "",
+        "x={interpolate(frame, [0, 30, 60], [0, 100, 200], { easing: Easings.easeInOut, extrapolateLeft: 'clamp' })}",
+    );
+    let target = run(&text, "x", &at_frames(&[30.0, 60.0], Some(200.0)));
+    assert!(
+        matches!(target, EditTarget::Keyframe { frame: 60.0, .. }),
+        "{target:?}"
+    );
+}
+
+#[test]
 fn a_linear_between_candidate_is_ruled_out_by_its_value() {
     let text = animated("", "x={interpolate(frame, [0, 30], [100, 400])}");
     // Frame 15 gives 250, so the received 400 is the keyframe at 30.

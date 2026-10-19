@@ -4,7 +4,8 @@ use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     ArrowFunctionBody, ArrowFunctionExpression, BinaryOperator, BindingIdentifier, CallExpression,
     Expression, Function, FunctionBody, IdentifierReference, JSXAttributeItem, JSXAttributeName,
-    JSXAttributeValue, JSXOpeningElement, Statement, UnaryOperator, VariableDeclarationKind,
+    JSXAttributeValue, JSXOpeningElement, ObjectPropertyKind, Statement, UnaryOperator,
+    VariableDeclarationKind,
 };
 use oxc_ast_visit::Visit;
 use oxc_span::GetSpan;
@@ -270,9 +271,11 @@ fn resolve_identifier(name: &str, gather: &Gather, text: &str, ctx: &ResolveCont
 ///
 /// `frame` is one of `ctx.candidate_frames`, and the received value tells
 /// them apart: a candidate whose value differs is ruled out. A keyframe's
-/// value is its `outputRange` entry whatever the easing; between or outside
-/// the keyframes the value is known only without an `options` argument
-/// (linear, `extend` extrapolation), and a candidate there is kept otherwise.
+/// value is its `outputRange` entry when the easing gives 0 and 1 at the ends
+/// of each segment (none, or a named `Easings` one), and a keyframe candidate
+/// is kept otherwise; between or outside the keyframes the value is known only
+/// without an `options` argument (linear, `extend` extrapolation), and a
+/// candidate there is kept otherwise.
 /// The survivors must all point at the same target, or the frame is
 /// uncertain.
 fn resolve_keyframe(
@@ -312,7 +315,8 @@ fn resolve_keyframe(
     for &candidate in &ctx.candidate_frames {
         let place = place_of(inputs, candidate - offset);
         let value = match place {
-            Place::Keyframe(k) => Some(values[k]),
+            Place::Keyframe(k) if call.keyframes_exact => Some(values[k]),
+            Place::Keyframe(_) => None,
             Place::Between { .. } | Place::Outside if !call.has_options => {
                 linear(inputs, &values, candidate - offset)
             }
@@ -456,6 +460,11 @@ struct Interpolate {
     /// A fourth (`options`) argument is written: easing or extrapolation
     /// may change the value between and outside the keyframes.
     has_options: bool,
+    /// The value at each `inputRange` entry is its `outputRange` entry: the
+    /// easing is absent or a named `Easings` member, so it gives 0 and 1 at
+    /// the ends of a segment. A hand-written one may not
+    /// (`t => t === 0 ? 0.5 : t`).
+    keyframes_exact: bool,
 }
 
 #[derive(Debug)]
@@ -642,7 +651,37 @@ fn interpolate_of(call: &CallExpression<'_>) -> Interpolate {
         input_range: numbers(1).map(|v| v.into_iter().map(|(_, n)| n).collect()),
         output_range: numbers(2),
         has_options: call.arguments.len() > 3,
+        keyframes_exact: arg(3).is_none_or(known_easing),
     }
+}
+
+/// Whether `options` is an object literal whose `easing`, if written, is a
+/// plain `Easings.<name>`.
+fn known_easing(options: &Expression<'_>) -> bool {
+    let Expression::ObjectExpression(object) = options.without_parentheses() else {
+        return false;
+    };
+    object.properties.iter().all(|property| {
+        let ObjectPropertyKind::ObjectProperty(property) = property else {
+            return false;
+        };
+        if property.computed {
+            return false;
+        }
+        if property
+            .key
+            .static_name()
+            .is_none_or(|name| name != "easing")
+        {
+            return true;
+        }
+        !property.shorthand
+            && matches!(
+                property.value.without_parentheses(),
+                Expression::StaticMemberExpression(m)
+                    if matches!(&m.object, Expression::Identifier(id) if id.name == "Easings")
+            )
+    })
 }
 
 fn other(expr: &Expression<'_>) -> Shape {

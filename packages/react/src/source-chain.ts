@@ -87,6 +87,7 @@ function isPrimitive(type: unknown): boolean {
 
 interface Fiber {
   return: Fiber | null;
+  alternate?: Fiber | null;
   child?: Fiber | null;
   sibling?: Fiber | null;
   stateNode?: unknown;
@@ -110,6 +111,33 @@ function typeName(type: unknown): string {
   return 'Anonymous';
 }
 
+/** Steps from a fiber to the one above it. */
+type Up = (fiber: Fiber) => Fiber | null;
+
+/**
+ * Which of a fiber and its alternate is in the committed tree. A host node
+ * keeps the fiber of the last render that changed its props (the reconciler
+ * skips `commitUpdate` otherwise), and a subtree React bailed out of keeps
+ * `return` pointers into the previous render, so both a node's fiber and the
+ * fibers above it can hold an earlier frame. The committed tree is the one
+ * reachable through `child` and `sibling` from the root's `current`.
+ */
+function committedFibers(start: Fiber | null): (fiber: Fiber) => Fiber {
+  let top = start;
+  while (top?.return) top = top.return;
+  const root = (top?.stateNode as { current?: Fiber } | null | undefined)?.current;
+  if (!root) return (fiber) => fiber;
+  const committed = new Set<Fiber>();
+  const stack: Fiber[] = [root];
+  while (stack.length > 0) {
+    const fiber = stack.pop() as Fiber;
+    committed.add(fiber);
+    if (fiber.sibling) stack.push(fiber.sibling);
+    if (fiber.child) stack.push(fiber.child);
+  }
+  return (fiber) => (committed.has(fiber) || !fiber.alternate ? fiber : fiber.alternate);
+}
+
 /**
  * The elements that produced `node`, nearest first: the host element itself,
  * then each component element above it, each at the position it was written.
@@ -127,9 +155,11 @@ function sourceFibers(
   node: HostNode,
   resolveFile: (fileName: string) => string,
   layerIdOf?: (node: HostNode) => string | undefined,
+  committed: (fiber: Fiber) => Fiber = (fiber) => fiber,
 ): { entry: LayerSourceEntry; fiber: Fiber }[] {
   const chain: { entry: LayerSourceEntry; fiber: Fiber }[] = [];
-  for (let fiber = node.fiber as Fiber | null | undefined; fiber; fiber = fiber.return) {
+  const start = node.fiber as Fiber | null | undefined;
+  for (let fiber = start ? committed(start) : null; fiber; fiber = fiber.return ? committed(fiber.return) : null) {
     const source = sourceOfProps(fiber.memoizedProps ?? fiber.pendingProps);
     if (!source) continue;
     const file = resolveFile(source.fileName);
@@ -178,12 +208,15 @@ export function layerSourceReport(
 ): LayerSourceReport {
   const ids = new Map<HostNode, string>();
   for (const [id, hostNode] of layerNodes) if (!ids.has(hostNode)) ids.set(hostNode, id);
-  const found = sourceFibers(node, resolveFile, (hostNode) => ids.get(hostNode));
+  const start = (node.fiber as Fiber | null | undefined) ?? null;
+  const committed = committedFibers(start);
+  const up: Up = (fiber) => (fiber.return ? committed(fiber.return) : null);
+  const found = sourceFibers(node, resolveFile, (hostNode) => ids.get(hostNode), committed);
   const chain = found.map(({ entry }) => entry);
   if (chain.length === 0) return { chain };
 
   const primitive = found.find(({ entry }) => entry.kind === 'primitive');
-  const element = primitive?.fiber ?? (node.fiber as Fiber | null | undefined) ?? null;
+  const element = primitive?.fiber ?? (start ? committed(start) : null);
 
   const props: ReceivedProps = {};
   const received = (primitive?.fiber.memoizedProps ?? primitive?.fiber.pendingProps ?? {}) as Record<string, unknown>;
@@ -198,15 +231,15 @@ export function layerSourceReport(
   for (const other of layerNodes.values()) {
     if (seen.has(other)) continue;
     seen.add(other);
-    const first = sourceChain(other, resolveFile)[0];
+    const first = sourceFibers(other, resolveFile, undefined, committed)[0]?.entry;
     if (first && first.file === innermost.file && first.line === innermost.line && first.column === innermost.column) {
       renderCount++;
     }
   }
   return {
     chain,
-    localFrame: ownerFrame(element),
-    candidateFrames: framesAbove(element),
+    localFrame: ownerFrame(element, up),
+    candidateFrames: framesAbove(element, up),
     props,
     renderCount,
   };
@@ -225,8 +258,8 @@ function providedFrame(fiber: Fiber): number | undefined {
 }
 
 /** The frame `useCurrentFrame()` reports in a component at `fiber`. */
-function frameAt(fiber: Fiber | null): number | undefined {
-  for (let above = fiber?.return ?? null; above; above = above.return) {
+function frameAt(fiber: Fiber | null, up: Up): number | undefined {
+  for (let above = fiber ? up(fiber) : null; above; above = up(above)) {
     const frame = providedFrame(above);
     if (frame !== undefined) return frame;
   }
@@ -265,9 +298,9 @@ function passesDown(props: unknown, target: object): boolean {
 }
 
 /** The distinct frames the providers above `fiber` hand down, nearest first. */
-function framesAbove(fiber: Fiber | null): number[] {
+function framesAbove(fiber: Fiber | null, up: Up): number[] {
   const frames: number[] = [];
-  for (let above = fiber?.return ?? null; above; above = above.return) {
+  for (let above = fiber ? up(fiber) : null; above; above = up(above)) {
     const frame = providedFrame(above);
     if (frame !== undefined && !frames.includes(frame)) frames.push(frame);
   }
@@ -283,16 +316,16 @@ function framesAbove(fiber: Fiber | null): number[] {
  * prop, a function from context, ...), so this is only a guess; the editor
  * checks `candidateFrames` instead of trusting it.
  */
-function ownerFrame(primitive: Fiber | null): number {
-  const atElement = frameAt(primitive) ?? 0;
+function ownerFrame(primitive: Fiber | null, up: Up): number {
+  const atElement = frameAt(primitive, up) ?? 0;
   if (!primitive) return atElement;
   const target = (primitive.memoizedProps ?? primitive.pendingProps) as object | null;
-  for (let fiber = primitive.return; fiber; fiber = fiber.return) {
+  for (let fiber = up(primitive); fiber; fiber = up(fiber)) {
     if (!isAuthorComponent(fiber)) continue;
     const props = fiber.memoizedProps ?? fiber.pendingProps;
     if (target && passesDown(props, target)) continue;
     // Outside every provider (an entry's root, say), no frame can be read.
-    return frameAt(fiber) ?? atElement;
+    return frameAt(fiber, up) ?? atElement;
   }
   return atElement;
 }

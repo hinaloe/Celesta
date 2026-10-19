@@ -127,6 +127,22 @@ test('candidateFrames covers a render prop called below a frame change', () => {
   assert.equal('frameUncertain' in report, false);
 });
 
+test('the report reads the frame just rendered when the element props did not change', () => {
+  // The Rect's props are the same every frame, so its host node keeps the
+  // fiber of an earlier render; its parents still hold that render's frames.
+  function Scene() {
+    return sequence(30, rectAt(5, { x: 100 }));
+  }
+  for (const renders of [1, 2, 3]) {
+    const composition = mount(() => comp(jsxDEV(Scene, {}, undefined, false, at('entry.tsx', 3, 5))));
+    let id;
+    for (let i = 0; i < renders; i++) id = layerIds(composition.renderAt(time(30), null).scene.layers).at(-1);
+    const report = composition.layerSource(time(60), id, resolve);
+    assert.deepEqual(report.candidateFrames, [30, 60], `after ${renders} renders`);
+    assert.equal(report.localFrame, 60, `after ${renders} renders`);
+  }
+});
+
 test('props are the transform props the primitive received', () => {
   const composition = mount(() =>
     comp(jsxDEV(Rect, { x: 12, rotation: 5, width: 1, height: 1, fill: '#fff' }, undefined, false, at('entry.tsx', 5, 7))),
