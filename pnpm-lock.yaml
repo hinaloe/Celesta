@@ -1267,6 +1267,9 @@ importers:
       '@celesta/character':
         specifier: workspace:*
         version: link:../packages/character
+      '@celesta/components':
+        specifier: workspace:*
+        version: link:../packages/components
       '@celesta/layout':
         specifier: workspace:*
         version: link:../packages/layout
