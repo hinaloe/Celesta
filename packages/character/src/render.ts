@@ -258,12 +258,13 @@ function dialogueContent(node: HostNode, walk: HostWalk): LayerContent {
   } else if (props.held !== true) {
     // `${id}.subtitle` is already final (prefixed inside a <FreezeFrame>),
     // so it goes in as the path rather than as an authored id.
+    const { emphasisStyles: _emphasisStyles, ...subtitle } = character.subtitle ?? {};
     layers.push(
       ...walk.layers(
         {
           type: 'text',
           props: {
-            ...character.subtitle,
+            ...subtitle,
             ...(props.subtitleStyle !== undefined ? { style: props.subtitleStyle } : {}),
             id: undefined,
             children: props.text,
@@ -297,9 +298,14 @@ registerHostElement('dialogue', {
       walk.collectAudio({ ...node.props, src: node.props.audio });
     }
   },
-  // The line is the subtitle for as long as it is up; a held line is not.
+  // The line is the subtitle for as long as it is up, or a page of it for
+  // the page's frames; a held line, or a frame no page covers, is not.
   subtitles(node, walk) {
-    if (node.props.held !== true) {
+    if (node.props.held === true) return;
+    const cue = node.props.subtitleCue as { text: string; from: number; to: number } | undefined;
+    if (cue) {
+      walk.collectSubtitle(cue.text, cue.from, cue.to);
+    } else {
       walk.collectSubtitle(flattenTextContent(node.props.text as ReactNode, '<Dialogue> children').text);
     }
   },

@@ -31,6 +31,7 @@
 ```
 
 - **音声**は非圧縮 WAV が必要です。母音を読めるよう、文字起こしはかなまたはローマ字で書いてください。漢字はスキップされます。
+- **字幕と別の発話テキスト**：並べる台詞にかなの `spokenText` を付け（`text: 'HPが1です。'`、`spokenText: 'えいちぴーがいちです。'`）、`prepare()` で `loadDialogueLipSync(lines)` を呼びます。字幕と字幕ファイルには `text` が出て、口と音声合成エンジンは `spokenText` に従います。
 - **PSD の立ち絵**は `face/mouth/a` のようなパスで口のレイヤーを指定します。立ち絵ファイルは全フォルダが非表示のことが多いので、`layers` にレイヤーパス配列、PSDTool の状態文字列、または `loadPsdPreset()` で読み込んだ `.pfv` のお気に入りを指定して表示レイヤーを選びます。
 - **画像の立ち絵**も口パクできます。`portrait.lipSync` に、形ごとに立ち絵と同じサイズの透明な口画像を指定します。こうすると重ねたときに位置が揃います。
 - 手動で口を動かすには、`CharacterView` または `Dialogue` に `mouth="a"`（または別の形）を渡します。`useLipSync(track)` で現在の形を取得し、別の場所で使えます。
@@ -38,6 +39,8 @@
 ## 会話を自動で並べる
 
 prepare() で planDialogue(lines, { fps, gap, sceneLeadIn }) を呼ぶと、音声の長さを測って台詞を順に並べます。durationInFrames を指定した台詞は計測しません。gap と leadIn は秒、durationInFrames はフレーム単位です。各台詞には audio または正の durationInFrames が必要です。Composition の長さを plan から設定し、DialogueSeries の views で話者名と表示先を対応付けます。演出のタイミングには plan の line()、startOf()、range()、scene() を使えます。
+
+長い台詞は、音声と口パクを 1 本のまま、字幕だけをページごとに表示できます。`subtitlePages`（台詞の開始からのフレームで `{ from, durationInFrames?, text }`、ページを並べると台詞の `text` になる）を書くか、`prepare()` で `paginateSubtitles(lines, { fps, style, maxWidth, maxLines })` に実際の文字計測から分けさせます。`emphasis`（書記素クラスタ単位の範囲と色・太さ、または話者の `subtitle.emphasisStyles` の名前）は、どのページに来ても語を強調します。`subtitle.render` にはページ、その強調、台詞と同じ時計が渡るので、帯の入場はやり直されません。
 
 ```tsx file=examples/dialogue-series.tsx title="dialogue-series.tsx"
 ```
@@ -64,7 +67,7 @@ const lines = await importVoiceFolder({ directory: './voices/akane', speaker: 'a
 plan = await planDialogue(lines, { fps: 30 });
 ```
 
-テキストは UTF-8 として読みます。`encoding: 'utf-16le'` や `'shift_jis'` も指定できます。読めないファイルは文字化けした字幕にせず、パス付きのエラーになります。マニフェスト（`{ "lines": [{ "file": "voice-1", "id", "speaker", "text", "reading", "scene", "expression", "gap" }] }`）を渡すと、ID、順番、話者、字幕、かなの読み、シーン、表情、間を上書きできます。口の母音はかなの `reading`、なければテキストから取ります。漢字を含み読みのない台詞は、警告を出して口の開閉だけにします。
+テキストは UTF-8 として読みます。`encoding: 'utf-16le'` や `'shift_jis'` も指定できます。読めないファイルは文字化けした字幕にせず、パス付きのエラーになります。マニフェスト（`{ "lines": [{ "file": "voice-1", "id", "speaker", "text", "spokenText", "scene", "expression", "gap" }] }`）を渡すと、ID、順番、話者、字幕、かなの発話テキスト、シーン、表情、間を上書きできます。口の母音はかなの `spokenText`、なければテキストから取ります。漢字を含み `spokenText` のない台詞は、警告を出して口の開閉だけにします。
 
 開いている間に録音やテキストを保存し直す、追加する、削除すると、エントリーのフォルダーの外にあってもプレビューが再読み込みされ、長くなった台詞の後ろの台詞も後ろにずれます。書き込み途中のペアでは再読み込みが失敗し、保存が終わるまで直前の正しいプレビューを表示し続けます（`incomplete: 'skip'` を渡すと、そうした台詞を除いて読み込みます）。読めるのは非圧縮の PCM または float の WAV です。
 

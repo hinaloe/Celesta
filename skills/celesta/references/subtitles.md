@@ -3,13 +3,14 @@
 Reading subtitles from an SRT or WebVTT file, drawing them, and writing a
 video's subtitles out as files beside it, one per language and format if
 needed, or without the video. `parseSubtitles`,
-`formatSubtitles`, and `<Subtitles>` come from `@celesta/react`.
+`formatSubtitles`, and `<Subtitles>` come from `@celesta/react`;
+`<CaptionTrack>` from `@celesta/components`.
 `<Dialogue>` lines ([dialogue.md](dialogue.md)) go into the same file.
 
 ## Contents
 
 - [Read a file](#read-a-file)
-- [Draw the cues](#draw-the-cues)
+- [Draw the cues](#draw-the-cues): CaptionTrack
 - [Write the subtitle file on export](#write-the-subtitle-file-on-export)
 - [Several languages](#several-languages)
 - [Subtitles without the video](#subtitles-without-the-video)
@@ -58,8 +59,71 @@ The cues come out in file order; sort them by `from` before using
 
 ## Draw the cues
 
-Give each cue its own `<Sequence>`, and add `<Subtitles cues>` so an export
-can write them out:
+`<CaptionTrack cues>` from `@celesta/components` draws the cue on each
+frame on a band and declares the cues for the export's subtitle file. It
+needs no `<Character>`, voice, or audio:
+
+```tsx
+import { CaptionTrack } from '@celesta/components';
+
+<CaptionTrack cues={cues} />
+<CaptionTrack cues={[
+  { id: 'intro', from: 0, durationInFrames: 60, text: 'こんにちは' },
+  { id: 'next', from: 60, durationInFrames: 90, text: '動画を作ります',
+    emphasis: [{ start: 0, end: 2, style: 'key' }] },
+]} emphasisStyles={{ key: { color: '#ffd166', fontWeight: 700 } }} />
+```
+
+- **Timing.** A cue (`SubtitleCue` plus optional `emphasis`) is shown on
+  frames `[from, from + durationInFrames)`, counted from the enclosing
+  `<Sequence>`'s start; the [timed range](text.md#timed-ranges) rules apply.
+  Frames no cue covers show nothing; a cue outside the enclosing sequence
+  never shows. Overlapping cues throw, naming both, unless
+  `overlap="latest"` lets the later one cut the earlier short. `from` and
+  `durationInFrames` must be whole numbers (`parseSubtitles()` gives them).
+  A cue with empty `text` shows no band, though a `render` callback is
+  still called for it (to draw, say, a speaker tag). Seeking to any frame, in any
+  order, draws the same picture.
+- **Layout.** The band sits at the bottom of the layout area (`position`
+  `'top'` / `'middle'` / `'bottom'`, `align` `'left'` / `'center'` /
+  `'right'`), inside `safeArea` (as `<SafeArea padding>`, e.g.
+  `'vertical-social'`) and `margin` (6% of the area's shorter side). Text
+  wraps at `maxWidth` (80% of the room) with `lineBreak: 'phrase'`, keeps
+  `\n`, and takes at most `maxLines` (2). With `minFontSize` below
+  `fontSize` it shrinks to fit (through `useFitText`); a caption that still
+  does not fit shows its first `maxLines` lines, or fails the render with
+  `overflow="error"`.
+- **Look.** `fontSize` (4.4% of the shorter side), `lineHeight` (1.4, a
+  multiple), `fontFamily`, `color` (hex or `<Theme>` name), `style` (more
+  `TextStyle`), `background` (band fill, `#000000b3`; `null` for none),
+  `padding` (0.3 em / 0.6 em), `cornerRadius` (0.2 em), and `panel` for
+  other `<Panel>` props such as `stroke` or `shadow`.
+- **Emphasis.** `emphasis` ranges count grapheme clusters, with styles
+  inline or named in `emphasisStyles`; see [Emphasis
+  ranges](text.md#emphasis-ranges). Bad ranges or styles throw with the cue
+  named.
+- **Entrance and exit.** `enter` / `exit` take a `<Motion>` effect, `null`
+  to cut; both default to a fade over a tenth of a second. A cue that
+  starts where the one before it ends cuts in (and that one does not fade
+  out), so back-to-back captions swap without a blink.
+- **Custom drawing.** `render={(props) => …}` replaces the band and text,
+  called as a component inside the cue's own `<Sequence>` and its Motion.
+  It gets `cue`, `index`, `text`, `content` (spans included), `emphasis`
+  (resolved), `frame` and `durationInFrames` (the cue's clock, the same as
+  `useCurrentFrame()` inside it), the fitted `style`, `metrics`, `maxWidth`,
+  `fits`, and `box`, where the default band would be. Replacing the band
+  never changes which cue shows on a frame or its clock.
+- **Subtitle file.** The track declares its cues with `<Subtitles>`
+  (`lang` sets their language); `subtitles={false}` leaves them out, for a
+  second track drawing the same cues.
+- SRT/ASS styling is not read; cues from `parseSubtitles()` have plain
+  text, so add `emphasis` in code.
+
+See [`packages/cli/examples/with-caption-track.tsx`](../../../packages/cli/examples/with-caption-track.tsx)
+and `examples/captions/`.
+
+To draw cues yourself, give each one its own `<Sequence>`, and add
+`<Subtitles cues>` so an export can write them out:
 
 ```tsx
 <Subtitles cues={cues} />
@@ -75,8 +139,8 @@ can write them out:
 sequence is cut to it, the way `<Audio>` plays only inside it. It cannot be
 inside `<Static>`, and inside `<FreezeFrame>` it contributes nothing.
 
-`examples/captions/` draws each cue in a band sized with `useTextMetrics()`
-and shows the cue's own SRT block next to a timeline.
+`examples/captions/` draws the cues with `<CaptionTrack>` and shows each
+cue's own SRT block next to a timeline.
 
 ## Write the subtitle file on export
 

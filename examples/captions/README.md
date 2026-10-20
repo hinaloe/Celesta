@@ -4,14 +4,13 @@ Captions from an SRT file, and the video's subtitles written back out as a
 file. Twelve seconds at 30 fps, 1920 × 1080.
 
 `captions.srt` is imported as text and read with `parseSubtitles()` into
-frame-timed cues. Each cue is drawn for its own `<Sequence>`: a band sized to
-its text with `useTextMetrics()`, the cue's SRT block as
-`formatSubtitles()` writes it, and a timeline of every cue with the
-playhead. `<Subtitles cues>` declares the cues for the exported file. The
-file leaves 8–10 s empty for a `<Dialogue>` line, whose `subtitle.render`
-draws the same band; it goes into the exported file too.
-
-The band stands in for the `CaptionTrack` component of issue #197.
+frame-timed cues. `<CaptionTrack>` (from `@celesta/components`) draws the
+cue on each frame in a band, with two words of cue 2 emphasized by grapheme
+range, and declares the cues for the exported file. Each cue's
+`<Sequence>` shows its SRT block as `formatSubtitles()` writes it, beside a
+timeline of every cue with the playhead. The file leaves 8–10 s empty for a
+`<Dialogue>` line, whose `subtitle.render` draws the same band with a
+one-cue `<CaptionTrack>`; it goes into the exported file too.
 
 The composition is `film.tsx`. The fonts come from Google Fonts, so the
 first export needs a network connection. From the repository root:

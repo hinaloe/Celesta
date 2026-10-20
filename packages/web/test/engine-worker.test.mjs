@@ -125,7 +125,7 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
   // registered with its scene walker.
   const split = await send({ id: 9, type: 'compile', source: `import { React, Assets, Composition } from '@celesta/react';
     import { Center } from '@celesta/layout';
-    import { Badge, Counter, MediaFrame, Panel } from '@celesta/components';
+    import { Badge, CaptionTrack, Counter, MediaFrame, Panel } from '@celesta/components';
     import { Circle } from '@celesta/shapes';
     import { Character, CharacterView } from '@celesta/character';
     export default function Root() {
@@ -138,11 +138,19 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
         <Badge padding={4} fill="#000000">ab</Badge>
         <Counter value={1234.5} decimals={1} durationInFrames={0} suffix=" 件" />
         <MediaFrame kind="image" src="shot.png" width={40} height={30} padding={2} fit="cover" />
+        <CaptionTrack enter={null} exit={null} background={null}
+          cues={[{ from: 0, durationInFrames: 1, text: 'a👍b', emphasis: [{ start: 1, end: 3, style: { color: '#ff0000' } }] }]} />
       </Composition>;
     }` });
   assert.equal(split.error, undefined);
   const splitFrame = await send({ id: 10, type: 'frame', frame: 0 });
-  const [center, view, panel, badge, counter, frame] = splitFrame.value.scene.layers;
+  const [center, view, panel, badge, counter, frame, caption] = splitFrame.value.scene.layers;
+  // A caption's emphasis counts grapheme clusters, here too: the emoji and the "b".
+  const firstText = (layer) => layer.content.type === 'text'
+    ? layer.content
+    : (layer.content.layers ?? []).map(firstText).find(Boolean);
+  const captionText = firstText(caption);
+  assert.deepEqual([captionText.text, captionText.style.colorRuns], ['a👍b', [{ start: 1, end: 3, color: '#ff0000' }]]);
   // A MediaFrame's image gets the area inside its padding and the fit.
   const image = frame.content.layers[0].content.layers[0].content.layers[0].content;
   assert.deepEqual([image.type, image.width, image.height, image.fit, image.asset.location], ['image', 36, 26, 'cover', { type: 'file', path: 'shot.png' }]);

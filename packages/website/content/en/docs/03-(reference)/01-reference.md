@@ -61,6 +61,8 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | `Dialogue` | `@celesta/character` | Shows a line as a subtitle, plays its `audio`, and changes the view’s expression while active, optionally at cue times within the line. |
 | `expressionAt` | `@celesta/character` | The expression a line’s `expression` (a name or `{ at, expression }` cues) picks at a time into the line. |
 | `loadLipSync` / `useLipSync` | `@celesta/character` | Generate mouth shapes from a WAV recording, and read the current shape. |
+| `paginateSubtitles` | `@celesta/character` | Split long dialogue subtitles into timed pages from the measured text, aligned to speech timing through an explicit segment mapping or shared out approximately; lines also take `subtitlePages` and `emphasis` by hand. |
+| `loadDialogueLipSync` / `spokenTextOf` | `@celesta/character` | Give planned lines waveform lip sync from their local WAVs and their `spokenText` (what the line says, apart from the subtitle `text`). |
 | `loadPsdPreset` | `@celesta/character` | Load visible PSD layers from a PSDTool `.pfv` favorite. |
 
 **Layout, data, and tools**
@@ -68,12 +70,15 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | API | Package | Use it for |
 | --- | --- | --- |
 | `TextBox` / `fitText` / `useFitText` / `measureText` / `useTextMetrics` | `@celesta/text` `@celesta/react` | Measure shaped text or choose a font size for a box; see [Text & fonts](/en/docs/text-fonts/). |
+| `emphasisContent` / `resolveEmphasis` / `sliceEmphasis` / `graphemes` | `@celesta/text` | Emphasize part of a text given as data, by grapheme-cluster ranges with a color and weight, drawn as `<Span>`s. |
+| `resolveTimedRanges` / `timedRangeAt` | `@celesta/text` | Check things shown on half-open frame ranges (captions, subtitle pages) for gaps, overlaps, and range, and find the one on a frame. |
 | `FrameChrome` | `@celesta/components` | Corner brackets, a title, the timecode, the current chapter, and a progress bar around the picture, laid out from the canvas size. |
 | `PatternBackground` | `@celesta/components` | Dots, a grid, stripes, or marks of your own repeated over the canvas or an area, clipped to it, and moved with the frame. |
 | `Panel` | `@celesta/components` | A box of a given size with a background, a border, rounded corners, and a shadow; its children lay out inside its padding, optionally clipped to it. |
 | `Badge` | `@celesta/components` | A label on a `Panel` sized from its measured text, with an optional decoration before the text, round ends with `cornerRadius="pill"`, and wrapping at a `maxWidth`. |
 | `Counter` / `StatCard` / `formatNumber` | `@celesta/components` | A counting number formatted with a fixed locale (`'en-US'` by default), decimals, a prefix or suffix, or a formatter; on its own, or on a card with a label and a note. |
 | `BarChart` / `Ranking` | `@celesta/components` | Horizontal bars that grow in turn while their values count up from the same progress; `Ranking` adds ranks and states whether rows are sorted. |
+| `CaptionTrack` | `@celesta/components` | Timed captions from data alone (`parseSubtitles()` cues or your own), the one on each frame on a band: wrapped to a line limit, with emphasis, fading in and out, or drawn by a `render` callback on the same cue clock. |
 | `MediaFrame` | `@celesta/components` | An image or a video (`kind`) fitted into a framed `Panel`, contain or cover, with rounded corners, a border, and a caption; a video keeps its playback and sound. See [Images, video & sound](/en/docs/media/). |
 | `Motion` | `@celesta/components` | One element that fades, moves, or scales in, holds exactly as written, and leaves, in the enclosing sequence's window or one of its own. For transitions between whole scenes, use `TransitionSeries`. |
 | `TitleCard` | `@celesta/components` | A title screen: a chapter number, kicker, title, and subtitle in one block, placed left, centered, or right and top, middle, or bottom inside the canvas or a safe area. The title keeps its line breaks and shrinks to fit; the pieces enter one after another or together. |

@@ -2,7 +2,7 @@
 // pairs each name.wav with its name.txt, so the lines, subtitles, lengths,
 // and lip sync come from the files rather than from code. Order follows
 // the names naturally (voice-2 before voice-10); manifest.json gives ids,
-// kana readings for the mouth shapes, and expressions.
+// a kana spokenText for the mouth shapes, and expressions.
 //
 // While this is open in the editor, resave a recording (or edit a .txt)
 // under examples/assets/voice-folder/shizuku and the preview reloads with

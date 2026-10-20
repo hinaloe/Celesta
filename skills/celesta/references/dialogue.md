@@ -18,12 +18,14 @@ Dialogue scenes combine three pieces:
 ## Contents
 
 - [React: a two-line conversation](#react-a-two-line-conversation)
-- [Timing a script from its voices](#timing-a-script-from-its-voices)
+- [Timing a script from its voices](#timing-a-script-from-its-voices), with
+  [spoken text](#spoken-text-and-subtitle-text) apart from the subtitle
 - [Importing a voice tool's export folder](#importing-a-voice-tools-export-folder)
 - [Matching voice levels and ducking background audio](#matching-voice-levels-and-ducking-background-audio)
 - [Synthesizing a script with VOICEVOX](#synthesizing-a-script-with-voicevox)
 - [Changing the face within a line](#changing-the-face-within-a-line)
 - [Drawing the subtitle yourself](#drawing-the-subtitle-yourself)
+- [Subtitle pages and emphasis](#subtitle-pages-and-emphasis): subtitlePages, emphasis, paginateSubtitles
 - [React props](#react-props)
 - [Automatic lip sync](#automatic-lip-sync)
 - [PSD portraits](#psd-portraits)
@@ -204,8 +206,38 @@ The plan:
 | `holdSubtitle` | Keep a `subtitle.render` band up through the gap after each line (see [Drawing the subtitle yourself](#drawing-the-subtitle-yourself)). Default false. |
 | `dialogueProps` | `(planned) => props` merged into each `<Dialogue>`, e.g. to move one subtitle. |
 
-For lip sync, load each track in `prepare()` and put it on the line:
-`lines = await Promise.all(lines.map(async (l) => ({ ...l, lipSync: await loadLipSync({ src: l.audio, text: l.reading }) })))`.
+### Spoken text and subtitle text
+
+A line's `text` is what its subtitle shows; `spokenText` is what it says,
+when that differs: a reading for `HPが1` (`'えいちぴーがいち'`), or the text
+without its `<Span>`s. Speech engines (`prepareNarration()`) read it and
+waveform lip sync takes its vowels from it. It is never drawn and never
+goes into the `--subtitles` file. Without it the line says its `text`,
+which must then be a string. `spokenTextOf(line)` returns it the same way.
+
+For waveform lip sync from local WAVs, call `loadDialogueLipSync(lines)` in
+`prepare()` before `planDialogue()`. Each line with an `audio` file and no
+`lipSync` of its own gets the track `loadLipSync()` would build from its
+WAV and its spoken text:
+
+```tsx
+const lines = await loadDialogueLipSync([
+  { id: 'danger', speaker: 'zunda', audio: './voices/danger.wav',
+    text: 'HPが1です。', spokenText: 'えいちぴーがいちです。' },
+]);
+plan = await planDialogue(lines, { fps: 30 });
+```
+
+- Write `spokenText` in kana or romaji: only those give vowels. A line
+  whose text has kanji and no `spokenText`, or whose spoken text has no
+  vowels, only opens and closes its mouth, with a warning to `onWarning`
+  (default `console.warn`). `hopHz` is passed to the analysis.
+- Lines without `audio`, or with a `lipSync`, come back as they are. A
+  remote URL or a file that is not PCM/float WAV fails with the line named.
+- The voice, its lip sync, and its subtitle stay one line: one clip and one
+  mouth clock, however the subtitle is shown.
+
+See `packages/cli/examples/with-spoken-text.tsx`.
 
 A missing voice file fails `prepare()` with
 `planDialogue(): voice file for line "how" not found: ./voices/03.wav (looked at …)`.
@@ -249,8 +281,8 @@ transcript: line breaks as `\n`, surrounding whitespace trimmed), `audio`,
   `'shift_jis'`, or a function `(bytes, file) => string`. A transcript that
   does not decode cleanly fails with its path; it never shows as `�`.
 - **Lip sync** (`lipSync`): `'waveform'` (default) spreads the vowels of the
-  line's kana/romaji `reading` (else the transcript) over the voiced span.
-  Kanji give no vowels: a line with kanji and no `reading`, or with no vowels,
+  line's kana/romaji `spokenText` (else the transcript) over the voiced span.
+  Kanji give no vowels: a line with kanji and no `spokenText`, or with no vowels,
   falls back to `'amplitude'` (mouth `a` while loud, closed otherwise) and
   warns. `false` makes no track. This is an approximation, not phoneme timing.
 - **Incomplete pairs** (`incomplete`): a WAV without its TXT (or the reverse),
@@ -261,12 +293,14 @@ transcript: line breaks as `\n`, surrounding whitespace trimmed), `audio`,
 
 `manifest.json` lists lines by `file` (the name without extension); listed
 lines come first in the listed order, the rest follow in natural order.
-Every field but `file` is optional; unknown keys fail:
+Every field but `file` is optional; unknown keys fail. `spokenText` is the
+line's [spoken text](#spoken-text-and-subtitle-text) (the key was `reading`
+before; a manifest that still says `reading` fails and says so):
 
 ```json
 {
   "lines": [
-    { "file": "voice-1", "id": "hello", "speaker": "aoi", "text": "表示する字幕", "reading": "ひょうじするじまく",
+    { "file": "voice-1", "id": "hello", "speaker": "aoi", "text": "表示する字幕", "spokenText": "ひょうじするじまく",
       "scene": "intro", "expression": "smile", "gap": 0.5 },
     { "file": "voice-2", "expression": [{ "at": 1.2, "expression": "smile" }] }
   ]
@@ -429,7 +463,7 @@ Each line is a `DialogueLine` plus:
 | --- | --- |
 | `id` | Required and unique; errors name it. |
 | `speaker` | Key of `options.speakers` (and of `<DialogueSeries views>`). |
-| `spokenText` | What the engine reads, e.g. a reading for `HP` or text without `<Span>`s. Defaults to `text`, which must then be a string. |
+| `spokenText` | What the engine reads, e.g. a reading for `HP` or text without `<Span>`s; the `DialogueLine` field (see [Spoken text and subtitle text](#spoken-text-and-subtitle-text)). Defaults to `text`, which must then be a string. |
 | `voice` | Per-line override of the speaker's settings (`styleId`, `query`, `interrogativeUpspeak`, `katakanaEnglish`, `revision`); `query` merges field by field. |
 
 A line that already has `audio` is returned as it is and never synthesized,
@@ -578,13 +612,16 @@ const subtitle: CharacterSubtitle = {
 
 | Field | Notes |
 | --- | --- |
-| `text` | The line's text, as a plain string. |
-| `content` | The line as written, [`<Span>`](text.md#rich-text-with-span)s included: `<Text style={style}>{content}</Text>` keeps its emphasis. |
+| `text` | The text shown, as a plain string: the line's, or with [subtitle pages](#subtitle-pages-and-emphasis) the current page's. |
+| `content` | `text` as it is drawn, [`<Span>`](text.md#rich-text-with-span)s and `emphasis` included: `<Text style={style}>{content}</Text>` keeps its emphasis. |
+| `lineText` | The whole line's text, whichever page shows. |
 | `character` | `{ id, name, displayName }` of the speaker. `displayName` is `<Character displayName>`, or `name` without one. |
-| `metrics` | The line measured with the subtitle's `style` and `maxWidth`, spans included, as `<Text>` lays it out (`width`, `height`, `lines`, …). Measured only when read, so a `render` that never reads it (nor spreads or destructures it) also works in `inspect.mjs --no-native`; one that does needs the exporter ([verify.md](verify.md#measured-text---native)). |
+| `metrics` | `content` measured with the subtitle's `style` and `maxWidth`, spans and emphasis included, as `<Text>` lays it out (`width`, `height`, `lines`, …): the page shown, for a paged line. Measured only when read, so a `render` that never reads it (nor spreads or destructures it) also works in `inspect.mjs --no-native`; one that does needs the exporter ([verify.md](verify.md#measured-text---native)). |
 | `style`, `maxWidth` | The subtitle's own, for drawing the text. |
-| `held` | True while the line has ended but the subtitle is kept up (below): draw the band, not the text. `text` and `metrics` stay the line's. |
-| `frame`, `durationInFrames` | Frames since the subtitle appeared and how long it stays: the enclosing `<Sequence>`, or the run of lines under `holdSubtitle`. Use them to fade the band in and out. |
+| `held` | True while the line has ended but the subtitle is kept up (below), and on frames of a paged line no page covers: draw the band, not the text. `text` and `metrics` stay those of the line (the page shown last). |
+| `page` | For a paged line, `{ index, count, from, durationInFrames, frame, text, timing }`: the page shown, its frames on the line's clock, and `frame`, frames since it started, for animating a page turn. Null for a line without pages. |
+| `emphasis` | The emphasis on `text`, resolved (`{ start, end, text, name?, style }`, in `text`'s grapheme clusters). |
+| `frame`, `durationInFrames` | Frames since the subtitle appeared and how long it stays: the enclosing `<Sequence>`, or the run of lines under `holdSubtitle`. Pages never change them. Use them to fade the band in and out. |
 
 To keep the band up between lines, use `<DialogueSeries holdSubtitle>`: in
 the gap after each line, `render` is called for that line with
@@ -598,6 +635,111 @@ in a held gap. Without `<DialogueSeries>`, place
 `<Dialogue character={view} held>{previousText}</Dialogue>` in the gap
 yourself.
 
+## Subtitle pages and emphasis
+
+A long line can show its subtitle a page at a time while its one voice
+plays on, and emphasize words in a color or weight. Pages change only what
+the subtitle shows: the voice is still one clip, the lip sync one track on
+the line's clock, and a `subtitle.render` band keeps its `frame`.
+
+```tsx
+const line: DialogueLine = {
+  id: 'danger', speaker: 'zunda', audio: './danger.wav',
+  text: 'HPが1です。回復しましょう。',
+  spokenText: 'えいちぴーがいちです。かいふくしましょう。',
+  subtitlePages: [
+    { from: 0, durationInFrames: 45, text: 'HPが1です。' },
+    { from: 45, text: '回復しましょう。' },
+  ],
+  emphasis: [{ start: 3, end: 4, style: 'danger' }, { start: 7, end: 9, style: { fontWeight: 900 } }],
+};
+// <Character … subtitle={{ style, maxWidth, emphasisStyles: { danger: { color: '#ff6060', fontWeight: 800 } } }} />
+```
+
+**Pages** (`subtitlePages`, also a `<Dialogue>` prop):
+
+- `from` counts frames from the line's start (its voice's first frame). A
+  page shows on `[from, from + durationInFrames)`; without
+  `durationInFrames` it lasts until the next page, and the last page until
+  the line ends: the voice's end, or the end of the gap under
+  `holdThroughGap`. Frames only; for seconds, use `Math.round(s * fps)`.
+- The pages, in order, are the line's `text`: each continues where the one
+  before ends, and only whitespace between two (a space, a `\n`) may be
+  left out. So the text is never written twice in different words, and the
+  subtitle file and `lineText` keep the whole line.
+- A frame no page covers (before the first, or a gap between two) shows no
+  text: a plain subtitle draws nothing, and `subtitle.render` gets
+  `held: true` with the page shown last, so a band stays up at its size. A
+  page with `text: ''` is a deliberate blank.
+- Under `holdSubtitle`, the held band after the line is sized from its last
+  page.
+- `planDialogue()` refuses, naming the line and the page, a page outside
+  the voice (`from` past the end, or a `durationInFrames` that runs past
+  it), pages out of order or overlapping, a page whose text does not
+  continue the line's, pages that leave text out, an unknown `timing`, and
+  pages on a line whose `text` holds `<Span>`s. The planned line's
+  `subtitlePages` gives each page's frames and its grapheme range of the
+  text.
+- When the voice is re-recorded at another length, manual `from`s stay
+  where they are: a page past the new end is an error, and an open-ended
+  last page follows the end. Pages from `paginateSubtitles()` are
+  recomputed on every `prepare()`, so they follow the voice.
+- The `--subtitles` file gets one cue per page, for the page's frames.
+- `timing` labels how `from` was found: `'manual'` (default), `'aligned'`,
+  or `'approximate'`; `subtitle.render` gets it in `page.timing`.
+
+**Emphasis** (`emphasis`, also a `<Dialogue>` prop): ranges of the whole
+line's text in grapheme clusters, as [`emphasisContent()`](text.md#emphasis-ranges)
+counts them, so an emoji or a letter with combining marks is never split.
+A `style` is `{ color?, fontWeight? }` or a name in the speaker's
+`subtitle.emphasisStyles`; colors may be `<Theme>` names. Each page shows
+the part of the emphasis that falls on it, drawn with `<Span>`s inside the
+one `<Text>`, so the page still wraps, measures, and keeps its baseline as
+one paragraph. Ranges that are empty, outside the text, or overlapping are
+refused by `planDialogue()`; an unknown style name or a bad color when the
+line is drawn, naming the line. A line with `emphasis` or pages needs its
+`text` as a string; a line with `<Span>`s keeps working as before.
+
+### Splitting long lines with `paginateSubtitles()`
+
+```tsx
+import { loadDialogueLipSync, paginateSubtitles, planDialogue } from '@celesta/character';
+
+export async function prepare() {
+  const voiced = await loadDialogueLipSync(script);
+  const paged = await paginateSubtitles(voiced, {
+    fps: 30, style: SUBTITLE.style, maxWidth: SUBTITLE.maxWidth, maxLines: 2, emphasisStyles: EMPHASIS,
+  });
+  plan = await planDialogue(paged, { fps: 30 });
+}
+```
+
+- Each line is measured with `measureText()`, with the style, width,
+  emphasis weights, fonts (`fonts`), and theme (`theme`) given: pass the
+  speaker's `subtitle` values. A line taking more than `maxLines` lines (2)
+  or more than `maxHeight` pixels gets a page per that many measured lines;
+  a line that fits, a line with `subtitlePages` of its own, and a line
+  whose `text` holds `<Span>`s are returned as they are.
+- Pages break where the measured lines do, so `lineBreak: 'phrase'` keeps
+  Japanese phrases whole; never inside a grapheme cluster. Whitespace at a
+  break is dropped; `\n` stays a line break.
+- A measured line wider than `maxWidth` (a word that cannot wrap) fails,
+  naming the line and the word; `overlong: 'keep'` leaves it on its page.
+- **Timing.** With `speechTiming: (line) => timing` (a `SpeechTiming`,
+  e.g. `timingFromVoicevox(line.narration.query)`) and the line's
+  `subtitleSegments`, `[{ text, moras }]`, pages break only between
+  segments (a break inside one moves back to the segment's start) and
+  start on their first mora's frame: `timing: 'aligned'`. The segments must
+  spell out the text exactly and their moras add up to the timing's;
+  otherwise the call fails, naming the line and segment. Without both, the
+  voice's frames are shared out in proportion to each page's non-space
+  clusters: `timing: 'approximate'`, an estimate, not an alignment. Mora
+  counts are never guessed from string offsets.
+- Every generated page starts where the one before ends, and the last runs
+  to the line's end.
+
+See `packages/cli/examples/with-subtitle-pages.tsx`.
+
 ## React props
 
 ### `<Character>`
@@ -607,7 +749,7 @@ yourself.
 | `name` | Name; also the id unless `id` is given. |
 | `displayName` | Name shown to viewers, e.g. on a name plate (`character.displayName` in `subtitle.render`). Defaults to `name`. |
 | `portrait` | Image portrait or PSD portrait (below). |
-| `subtitle` | Subtitle placement and style: common layer props (`x`, `y`, `anchorX`, …) plus `style` (a `TextStyle`) and `maxWidth`. Positions are canvas coordinates unless the `Dialogue` itself is moved. For Japanese subtitles, set `style.lineBreak: 'phrase'` so lines wrap between phrases ([text.md](text.md#line-breaking)). `render` draws it yourself ([above](#drawing-the-subtitle-yourself)). |
+| `subtitle` | Subtitle placement and style: common layer props (`x`, `y`, `anchorX`, …) plus `style` (a `TextStyle`) and `maxWidth`. Positions are canvas coordinates unless the `Dialogue` itself is moved. For Japanese subtitles, set `style.lineBreak: 'phrase'` so lines wrap between phrases ([text.md](text.md#line-breaking)). `render` draws it yourself ([above](#drawing-the-subtitle-yourself)); `emphasisStyles` names the styles its lines' `emphasis` uses ([above](#subtitle-pages-and-emphasis)). |
 
 Image portrait:
 
@@ -642,9 +784,11 @@ portrait is drawn at its natural size; use `scale` for large artwork.
 | `startFrom`, `muted` | As on `<Audio>`. |
 | `x`, `y`, `opacity`, … | Move or fade the **subtitle**, useful inside a `<Transition>`. |
 | `held` | Keep the subtitle up after its line: `subtitle.render` gets `held: true`; a plain subtitle draws nothing. Give it no `audio` or `expression`. |
+| `subtitlePages`, `emphasis` | The subtitle a page at a time, on the enclosing `<Sequence>`'s clock, and emphasis by grapheme range ([below](#subtitle-pages-and-emphasis)). Need the children as one string. |
 
 An export with `--subtitles film.srt` writes every line that is not `held`
-into an SRT or WebVTT file, for as long as its sequence shows it
+into an SRT or WebVTT file, for as long as its sequence shows it, and a
+paged line as one cue per page, for the page's frames
 ([subtitles.md](subtitles.md#write-the-subtitle-file-on-export)).
 
 ## Automatic lip sync
@@ -676,7 +820,8 @@ export async function prepare() {
   (hiragana/katakana) and the Latin letters a/i/u/e/o are read; kanji and
   other letters are skipped. `ー` repeats the previous vowel, and small kana
   (`ゃ`, `ぁ`) replace it. Pass a kana reading as `text` even when the
-  subtitle shows kanji.
+  subtitle shows kanji; for planned lines, put it in `spokenText` and use
+  [`loadDialogueLipSync()`](#spoken-text-and-subtitle-text).
 - The track is sampled on the **local clock**: its time 0 is the start of
   the enclosing `<Sequence>`, so start the sequence when the voice starts.
 - `lipSync` on a `<CharacterView>` drives the mouth for as long as the view

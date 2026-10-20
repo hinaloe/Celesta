@@ -6,9 +6,13 @@ import type { AnimatedNumber } from '@celesta/react';
 import { entryRelativePath, isRemoteUrl } from '@celesta/react/internal';
 import { mediaDurationInFrames, preloadMedia } from '@celesta/media-utils';
 
-import { Dialogue, SubtitleRunContext } from './components';
+import type { TextEmphasis } from '@celesta/text';
+
+import { Dialogue, DialogueLineContext, SubtitleRunContext } from './components';
 import type { CharacterViewProps, CharacterViewReference, DialogueExpression, DialogueProps } from './components';
 import type { LipSyncTrack } from './lipsync';
+import { checkEmphasisRanges, resolveSubtitlePages } from './subtitle-pages';
+import type { ResolvedSubtitlePage, SubtitlePage, SubtitleSegment } from './subtitle-pages';
 import type { VoiceLevelLineSetting } from './voice-level';
 
 /** One line of a script, as passed to `planDialogue()`. */
@@ -20,6 +24,34 @@ export interface DialogueLine {
   id?: string;
   /** Subtitle text; may hold `<Span>`. */
   text: React.ReactNode;
+  /**
+   * What the line says, when it differs from what its subtitle shows: a
+   * reading such as `'エイチピーがいち'` for `'HPが1'`, or the text without
+   * its `<Span>`s. Speech engines (`prepareNarration()`) read it and
+   * waveform lip sync (`loadDialogueLipSync()`, `importVoiceFolder()`)
+   * takes its vowels from it; it is never shown and never goes into the
+   * subtitle file. Defaults to `text`, which must then be a string.
+   */
+  spokenText?: string;
+  /**
+   * The subtitle a page at a time while the one voice plays on, timed in
+   * frames from the line's start (see `SubtitlePage`); `paginateSubtitles()`
+   * makes them from measured text. Needs `text` as a string.
+   */
+  subtitlePages?: readonly SubtitlePage[];
+  /**
+   * Parts of `text` to emphasize, in grapheme clusters of the whole line,
+   * with styles inline or named in the speaker's `subtitle.emphasisStyles`;
+   * each page shows the part that falls on it. Needs `text` as a string.
+   */
+  emphasis?: readonly TextEmphasis[];
+  /**
+   * How `text` lines up with the voice, for `paginateSubtitles()` with a
+   * speech timing: the text in consecutive pieces, each with the number of
+   * moras the engine speaks for it. Pages then break only between pieces
+   * and start on their first mora. Ignored everywhere else.
+   */
+  subtitleSegments?: readonly SubtitleSegment[];
   /**
    * Voice file, resolved from the entry file like `<Audio src>`. Its length
    * is the line's length unless `durationInFrames` is given.
@@ -83,6 +115,12 @@ export interface PlannedDialogueLine<L extends DialogueLine = DialogueLine> {
   leadInFrames: number;
   /** `durationInFrames + gapInFrames`: frames until the next line's lead-in. */
   spanInFrames: number;
+  /**
+   * The line's `subtitlePages`, checked, in order, with their frames on the
+   * line's clock (an open-ended last page runs to the end of the voice) and
+   * where each sits in the text.
+   */
+  subtitlePages?: ResolvedSubtitlePage[];
 }
 
 /** A window of the timeline; spread it onto a `<Sequence>`. */
@@ -140,6 +178,9 @@ export async function planDialogue<L extends DialogueLine>(
     if (ids.has(id)) {
       throw new Error(`planDialogue(): line id "${id}" is used more than once`);
     }
+    if (line.spokenText !== undefined && typeof line.spokenText !== 'string') {
+      throw new Error(`planDialogue(): line "${id}": spokenText must be a string`);
+    }
     ids.add(id);
     return id;
   });
@@ -159,6 +200,11 @@ export async function planDialogue<L extends DialogueLine>(
     at += leadInFrames;
     const from = at;
     at += durationInFrames + gapInFrames;
+    const what = `planDialogue(): ${label}`;
+    checkEmphasisRanges(line.text, line.emphasis, what);
+    const subtitlePages = line.subtitlePages === undefined
+      ? undefined
+      : resolveSubtitlePages(line.text, line.subtitlePages, durationInFrames, what);
     return {
       id: labels[index],
       index,
@@ -168,6 +214,7 @@ export async function planDialogue<L extends DialogueLine>(
       gapInFrames,
       leadInFrames,
       spanInFrames: durationInFrames + gapInFrames,
+      ...(subtitlePages ? { subtitlePages } : {}),
     };
   });
   const total = at;
@@ -235,7 +282,8 @@ function seconds(value: number, what: string): number {
   return value;
 }
 
-async function lineDuration(line: DialogueLine, id: string, fps: number): Promise<number> {
+/** @internal A line's length in frames: its `durationInFrames`, or its voice measured. */
+export async function lineDuration(line: DialogueLine, id: string, fps: number): Promise<number> {
   const label = `line "${id}"`;
   if (line.durationInFrames !== undefined) {
     if (!Number.isInteger(line.durationInFrames) || line.durationInFrames <= 0) {
@@ -342,14 +390,19 @@ export function DialogueSeries<L extends DialogueLine>({
         lipSync: line.lipSync,
         volume: line.volume,
         muted: line.muted,
+        subtitlePages: line.subtitlePages,
+        emphasis: line.emphasis,
         ...dialogueProps?.(entry),
         children: line.text,
       };
       const lineInFrames = holdThroughGap ? entry.spanInFrames : entry.durationInFrames;
+      // Pages count on the line's clock, through the gap under holdThroughGap.
+      const onLine = (offset: number, element: React.ReactElement) =>
+        React.createElement(DialogueLineContext.Provider, { value: { id: entry.id, offset, durationInFrames: lineInFrames } }, element);
       const spoken = React.createElement(
         Sequence,
         { key: entry.id, from: entry.from, durationInFrames: lineInFrames },
-        React.createElement(Dialogue, props),
+        onLine(0, React.createElement(Dialogue, props)),
       );
       const run = runs.get(entry);
       if (!run) {
@@ -371,8 +424,11 @@ export function DialogueSeries<L extends DialogueLine>({
             React.createElement(
               Sequence,
               { from: heldFrom, durationInFrames: heldInFrames },
-              React.createElement(Dialogue, {
+              // Past the line's end, so a paged line holds its last page.
+              onLine(lineInFrames, React.createElement(Dialogue, {
                 character,
+                subtitlePages: line.subtitlePages,
+                emphasis: line.emphasis,
                 ...dialogueProps?.(entry),
                 held: true,
                 audio: undefined,
@@ -380,7 +436,7 @@ export function DialogueSeries<L extends DialogueLine>({
                 mouth: undefined,
                 lipSync: undefined,
                 children: line.text,
-              }),
+              })),
             ),
           ),
         );

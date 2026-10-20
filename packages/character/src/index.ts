@@ -31,6 +31,19 @@ export type {
   PlannedDialogueLine,
 } from './dialogue-series';
 
+export { paginateSubtitles } from './paginate-subtitles';
+export type { PaginateSubtitlesOptions } from './paginate-subtitles';
+export type {
+  ResolvedSubtitlePage,
+  SubtitlePage,
+  SubtitlePageInfo,
+  SubtitlePageTiming,
+  SubtitleSegment,
+} from './subtitle-pages';
+
+export { loadDialogueLipSync, spokenTextOf } from './spoken-text';
+export type { LoadDialogueLipSyncOptions } from './spoken-text';
+
 export { importVoiceFolder, naturalCompare } from './voice-folder';
 export type {
   ImportVoiceFolderOptions,

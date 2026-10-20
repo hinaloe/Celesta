@@ -61,6 +61,8 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `Dialogue` | `@celesta/character` | 字幕を表示し、`audio` を再生し、有効な間の表情を変更します。行の途中の時刻で表情を切り替えることもできます。 |
 | `expressionAt` | `@celesta/character` | 行の `expression`（名前、または `{ at, expression }` の切り替え）が、行の中のある時刻に選ぶ表情を返します。 |
 | `loadLipSync` / `useLipSync` | `@celesta/character` | WAV から口の形を生成し、現在の形を取得します。 |
+| `paginateSubtitles` | `@celesta/character` | 長い台詞の字幕を、実際の文字計測から時間指定のページに分けます。明示した区切りと読みの対応があれば音声タイミングに合わせ、なければ近似で配分します。台詞には `subtitlePages` と `emphasis` を手で書くこともできます。 |
+| `loadDialogueLipSync` / `spokenTextOf` | `@celesta/character` | 並べる台詞に、ローカルの WAV と `spokenText`（字幕の `text` とは別に、実際に話す内容）から波形の口パクを付けます。 |
 | `loadPsdPreset` | `@celesta/character` | PSDTool の `.pfv` のお気に入りから、表示レイヤーを読み込みます。 |
 
 **レイアウト・データ・ツール**
@@ -68,12 +70,15 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | API | パッケージ | 用途 |
 | --- | --- | --- |
 | `TextBox` / `fitText` / `useFitText` / `measureText` / `useTextMetrics` | `@celesta/text` `@celesta/react` | 組版後の文字を測ったり、枠に収まる文字サイズを選んだりします。詳しくは[テキストとフォント](/ja/docs/text-fonts/)を参照してください。 |
+| `emphasisContent` / `resolveEmphasis` / `sliceEmphasis` / `graphemes` | `@celesta/text` | データで渡す文字の一部を、書記素クラスタ単位の範囲と色・太さで強調し、`<Span>` として描きます。 |
+| `resolveTimedRanges` / `timedRangeAt` | `@celesta/text` | 半開区間のフレーム範囲で表示するもの（字幕、字幕のページ）の空白・重なり・範囲外を検証し、あるフレームのものを探します。 |
 | `FrameChrome` | `@celesta/components` | 四隅のブラケット・タイトル・タイムコード・現在の章・プログレスバーを、キャンバスの大きさに合わせて画面の周りに描きます。 |
 | `PatternBackground` | `@celesta/components` | ドット・格子・ストライプ、または自前のマークを、キャンバスや指定した領域いっぱいに繰り返して描き、クリップします。フレームに合わせて動かせます。 |
 | `Panel` | `@celesta/components` | 背景・枠線・角丸・影を持つ指定サイズの枠です。子は余白の内側に配置され、枠でクリップすることもできます。 |
 | `Badge` | `@celesta/components` | 文字を計測した寸法の `Panel` に載せたラベルです。文字の前の装飾、`cornerRadius="pill"` による半円の両端、`maxWidth` での折り返しに対応します。 |
 | `Counter` / `StatCard` / `formatNumber` | `@celesta/components` | 数えた数値を、固定の locale（既定 `'en-US'`）・小数桁・prefix / suffix・formatter で整形して描きます。単独でも、ラベルと補足を載せたカードでも使えます。 |
 | `BarChart` / `Ranking` | `@celesta/components` | 時間差で伸びる横棒と、同じ進捗で数える数値です。`Ranking` は順位を加え、ソートするかどうかを明示します。 |
+| `CaptionTrack` | `@celesta/components` | データだけで出す時間指定の字幕（`parseSubtitles()` の cue や自前の配列）。各フレームの字幕を帯に載せ、行数の上限まで折り返し、強調し、フェードで出し入れします。`render` で描き方を差し替えても cue の時計は変わりません。 |
 | `MediaFrame` | `@celesta/components` | 画像または動画（`kind` で指定）を `Panel` の枠に contain / cover で収め、角丸・枠線・キャプションを付けます。動画の再生設定と音声はそのまま保たれます。 |
 | `Motion` | `@celesta/components` | 一つの要素をフェード・移動・拡大で登場させ、書いたままの状態で保持し、退場させます。表示区間は外側の Sequence の区間か、自前で指定した区間です。シーン同士のつなぎには `TransitionSeries` を使います。 |
 | `TitleCard` | `@celesta/components` | 章番号・キッカー・タイトル・副題を一つのブロックにまとめたタイトル画面です。キャンバスやセーフエリアの中で、左・中央・右と上・中央・下に置きます。タイトルは明示改行を保ち、収まるまで文字を小さくします。各要素は時間差で、またはまとめて登場します。 |

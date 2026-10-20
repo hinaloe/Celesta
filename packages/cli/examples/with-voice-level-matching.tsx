@@ -24,7 +24,7 @@
 import * as React from 'react';
 
 import { Assets, Audio, Composition, Group, Rect, Text, frameKeyframes, useCurrentFrame } from '@celesta/react';
-import { Character, CharacterView, DialogueSeries, loadLipSync, matchVoiceLevels, planDialogue } from '@celesta/character';
+import { Character, CharacterView, DialogueSeries, loadDialogueLipSync, matchVoiceLevels, planDialogue } from '@celesta/character';
 import type { AnimatedNumber, AssetReference, FrameKeyframe, TextStyle } from '@celesta/react';
 import type {
   CharacterSubtitle,
@@ -88,19 +88,15 @@ let bgmVolume: AnimatedNumber;
 let gameVolume: AnimatedNumber;
 
 export async function prepare(): Promise<void> {
-  const lines = await Promise.all(
-    script.map(async (line): Promise<Line> => {
-      const audio = `${DEMO}/voices/${line.id}.wav`;
-      return {
-        id: line.id,
-        speaker: line.speaker as Speaker,
-        text: line.text,
-        audio,
-        expression: line.expression,
-        lipSync: await loadLipSync({ src: audio, text: line.reading }),
-      };
-    }),
-  );
+  // The subtitle shows `text`; the mouth follows the kana `spokenText`.
+  const lines = await loadDialogueLipSync(script.map((line): Line => ({
+    id: line.id,
+    speaker: line.speaker as Speaker,
+    text: line.text,
+    spokenText: line.reading,
+    audio: `${DEMO}/voices/${line.id}.wav`,
+    expression: line.expression,
+  })));
   // Decoding and analysis happen here, once; each frame only reads volumes.
   const matched = await matchVoiceLevels(lines, LEVELS);
   levels = matched.report;

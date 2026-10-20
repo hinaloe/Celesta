@@ -501,7 +501,7 @@ function hostWalk(id: string, context: WalkContext, audio: AudioClipDescriptor[]
     resolveAsset,
     layers: (node, path) => walkNode(node, path, context, audio),
     collectAudio: (props) => collectAudioClip(props, context, audio),
-    collectSubtitle: (text) => collectSubtitle(text, 0, Infinity, context),
+    collectSubtitle: (text, from = 0, to = Infinity) => collectSubtitle(text, from, to, context),
   };
 }
 

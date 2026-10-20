@@ -6,7 +6,9 @@
 import * as React from 'react';
 import type { ReactNode } from 'react';
 
-import { Group, useCurrentTime } from '@celesta/react';
+import { Group, useCurrentFrame, useCurrentTime, useVideoConfig } from '@celesta/react';
+import { emphasisContent, resolveEmphasis } from '@celesta/text';
+import type { EmphasisStyle, ResolvedEmphasis, TextEmphasis } from '@celesta/text';
 import type {
   AnimatedNumber, AssetInput, AssetReference, CommonProps, ResolvedTheme, TextMetrics, TextStyle,
 } from '@celesta/react';
@@ -29,6 +31,8 @@ import type { MeasureTextRequest } from '@celesta/react/internal';
 import type { BlinkTiming } from './blink';
 import { useOptionalLipSync } from './lipsync';
 import type { LipSyncTrack } from './lipsync';
+import { resolveSubtitlePages, shownSubtitle } from './subtitle-pages';
+import type { SubtitlePage, SubtitlePageInfo } from './subtitle-pages';
 import './render';
 
 /** A declared character, as its `<Character>` ref holds it. */
@@ -207,6 +211,12 @@ export interface CharacterSubtitle extends CommonProps {
    * component, so it may use hooks.
    */
   render?: (props: SubtitleRenderProps) => ReactNode;
+  /**
+   * Emphasis styles by name, for the `emphasis` of this character's lines
+   * whose `style` is a string, such as `{ danger: { color: '#ff6060',
+   * fontWeight: 700 } }`.
+   */
+  emphasisStyles?: Readonly<Record<string, EmphasisStyle>>;
 }
 
 /** The speaker of a subtitle, as given to `CharacterSubtitle.render`. */
@@ -219,25 +229,39 @@ export interface SubtitleCharacter {
 
 /** What `CharacterSubtitle.render` draws from. */
 export interface SubtitleRenderProps {
-  /** The line's text. */
+  /** The text shown: the line's, or with `subtitlePages` the current page's. */
   text: string;
-  /** The line as given, spans included: draw it with `<Text style={style}>{content}</Text>`. */
+  /**
+   * `text` as it is drawn, spans and emphasis included: draw it with
+   * `<Text style={style}>{content}</Text>`.
+   */
   content: ReactNode;
+  /** The whole line's text, whichever page is shown. */
+  lineText: string;
   character: SubtitleCharacter;
   /**
-   * `text` measured with the subtitle's `style` and `maxWidth`, as `<Text>`
-   * lays it out. Measured when first read.
+   * `content` measured with the subtitle's `style` and `maxWidth`, as
+   * `<Text>` lays it out. Measured when first read.
    */
   readonly metrics: TextMetrics;
   style: TextStyle;
   maxWidth?: number;
   /**
    * True while the line has ended but the subtitle is kept up until the next
-   * one (`<Dialogue held>`, `<DialogueSeries holdSubtitle>`): draw the band,
-   * not the text. `text` and `metrics` are still the line's, so a band
+   * one (`<Dialogue held>`, `<DialogueSeries holdSubtitle>`), and on frames
+   * of a line no subtitle page covers: draw the band, not the text. `text`
+   * and `metrics` are still the line's (the page shown last), so a band
    * sized from them keeps its size.
    */
   held: boolean;
+  /**
+   * The page shown, for a line with `subtitlePages`, else null: its index
+   * and count, its frames on the line's clock, and `frame`, frames since it
+   * started, for animating a page turn.
+   */
+  page: SubtitlePageInfo | null;
+  /** The emphasis on `text`, checked, in order, and counted in its grapheme clusters. */
+  emphasis: ResolvedEmphasis[];
   /**
    * Frames since the subtitle appeared: since the enclosing `<Sequence>`
    * started, or under `<DialogueSeries holdSubtitle>` since the run of
@@ -319,10 +343,29 @@ export interface DialogueProps extends CommonProps {
    * the line itself. `<DialogueSeries holdSubtitle>` places these for you.
    */
   held?: boolean;
+  /**
+   * The subtitle a page at a time, on the line's clock (frame 0 is the
+   * enclosing `<Sequence>`'s start); see `SubtitlePage`. Needs the
+   * children as one string. The voice and lip sync are not affected.
+   */
+  subtitlePages?: readonly SubtitlePage[];
+  /**
+   * Parts of the line's text to emphasize, in grapheme clusters, with styles
+   * inline or named in the speaker's `subtitle.emphasisStyles`. Needs the
+   * children as one string.
+   */
+  emphasis?: readonly TextEmphasis[];
 }
 
 /** @internal Set by `<DialogueSeries holdSubtitle>`: where each line sits in its run. */
 export const SubtitleRunContext = React.createContext<{ offset: number; durationInFrames: number } | null>(null);
+
+/**
+ * @internal Set by `<DialogueSeries>`: the line a `<Dialogue>` shows, where
+ * its frame 0 sits on the line's clock (later for a held copy), and how
+ * long the line is up, which an open-ended last page runs to.
+ */
+export const DialogueLineContext = React.createContext<{ id: string; offset: number; durationInFrames: number } | null>(null);
 
 // The ref is typed as the core `AssetReference`, like every other asset, so
 // one `useRef<AssetReference>()` style works for all of them; it holds a
@@ -418,7 +461,7 @@ export const CharacterView = React.forwardRef<CharacterViewReference, CharacterV
 
 /** Renders a character portrait and its configured subtitle as one layer. */
 export function Dialogue(props: DialogueProps): ReturnType<typeof React.createElement> {
-  const { children, lipSync, mouth, expression, ...rest } = props;
+  const { children, lipSync, mouth, expression, subtitlePages, emphasis, ...rest } = props;
   const tracked = useOptionalLipSync(lipSync);
   const time = useCurrentTime();
   const scope = useViewScope();
@@ -426,7 +469,10 @@ export function Dialogue(props: DialogueProps): ReturnType<typeof React.createEl
     ? (scopedViewReference(scope, props.character) as DialogueProps['character'])
     : props.character;
   const theme = React.useContext(ThemeContext);
-  const [subtitle, subtitleStyle] = useRenderedSubtitle(character, children, props.held === true, theme);
+  const speaker = useSpeaker(character);
+  const shown = useShownSubtitle(children, subtitlePages, emphasis, speaker, theme);
+  const held = props.held === true || !shown.covered;
+  const [subtitle, subtitleStyle] = useRenderedSubtitle(speaker, shown, held, theme);
   return React.createElement(
     'dialogue',
     {
@@ -434,7 +480,9 @@ export function Dialogue(props: DialogueProps): ReturnType<typeof React.createEl
       character,
       // A plain subtitle is drawn by render.ts, past every <Theme>, so it
       // gets the text and style with their names already looked up.
-      text: themeTextContent(children, theme),
+      text: themeTextContent(shown.content, theme),
+      held,
+      ...(shown.cue ? { subtitleCue: shown.cue } : {}),
       ...(subtitleStyle !== undefined ? { subtitleStyle } : {}),
       mouth: mouth ?? tracked,
       expression: expressionAt(expression, time.value / time.timescale),
@@ -444,36 +492,107 @@ export function Dialogue(props: DialogueProps): ReturnType<typeof React.createEl
 }
 
 /**
- * The subtitle a `subtitle.render` draws for this line, or null for a
- * plain subtitle, which render.ts draws as a `text` layer; and the
- * subtitle's style with `theme`'s names looked up, when that changes it.
+ * The character a `<Dialogue>`'s view shows. A view mounted in this same
+ * commit has no ref yet; render.ts reconciles once more after the commit
+ * attaches it.
  */
-function useRenderedSubtitle(
-  view: React.RefObject<CharacterViewReference | null>,
-  children: ReactNode,
-  held: boolean,
-  theme: ResolvedTheme,
-): [ReactNode, TextStyle | undefined] {
+function useSpeaker(view: React.RefObject<CharacterViewReference | null>): CharacterReference | null | undefined {
   const requestRerender = React.useContext(RerenderRequestContext);
-  const runtime = React.useContext(CompositionRuntimeContext);
-  const run = React.useContext(SubtitleRunContext);
-  const fonts = useMeasurementFonts();
-  // A view mounted in this same commit has no ref yet; render.ts reconciles
-  // once more after the commit attaches it.
   const viewNode = view?.current as { props?: { character?: unknown } } | null | undefined;
   if (viewNode == null) {
     requestRerender();
   }
   const characterInput = viewNode?.props?.character;
-  const character = (
+  return (
     characterInput && typeof characterInput === 'object' && 'current' in characterInput
       ? characterInput.current
       : characterInput
   ) as CharacterReference | null | undefined;
+}
+
+/** What a `<Dialogue>`'s subtitle shows on this frame. */
+interface ShownSubtitle {
+  /** Drawn as the subtitle: the children, or the page with its emphasis as spans. */
+  content: ReactNode;
+  /** The whole line's text, when it is one string. */
+  lineText: string | null;
+  page: SubtitlePageInfo | null;
+  emphasis: ResolvedEmphasis[];
+  /** False on a frame of the line no page covers: draw the band, not the text. */
+  covered: boolean;
+  /** The page for the subtitle file, in seconds of the enclosing `<Sequence>`. */
+  cue?: { text: string; from: number; to: number };
+}
+
+function hasNamedStyle(emphasis: readonly TextEmphasis[] | undefined): boolean {
+  return Array.isArray(emphasis) && emphasis.some((entry) => typeof entry?.style === 'string');
+}
+
+function useShownSubtitle(
+  children: ReactNode,
+  pages: readonly SubtitlePage[] | undefined,
+  emphasis: readonly TextEmphasis[] | undefined,
+  speaker: CharacterReference | null | undefined,
+  theme: ResolvedTheme,
+): ShownSubtitle {
+  const line = React.useContext(DialogueLineContext);
+  const { fps, durationInFrames } = useVideoConfig();
+  const frame = useCurrentFrame();
+  if (pages === undefined && emphasis === undefined) {
+    return { content: children, lineText: typeof children === 'string' ? children : null, page: null, emphasis: [], covered: true };
+  }
+  const what = line ? `line "${line.id}"` : '<Dialogue>';
+  if (typeof children !== 'string') {
+    throw new Error(`${what}: subtitlePages and emphasis need the line's text as one string; style it with emphasis instead of <Span>`);
+  }
+  // Named styles are the speaker's, known once its view is attached.
+  const resolved = speaker || !hasNamedStyle(emphasis)
+    ? resolveEmphasis(children, emphasis, { styles: speaker?.subtitle?.emphasisStyles, theme, what })
+    : [];
+  if (pages === undefined) {
+    return { content: emphasisContent(children, resolved), lineText: children, page: null, emphasis: resolved, covered: true };
+  }
+  const offset = line?.offset ?? 0;
+  const resolvedPages = resolveSubtitlePages(children, pages, line?.durationInFrames ?? durationInFrames, what);
+  const lineFrame = frame + offset;
+  const shown = shownSubtitle(resolvedPages, lineFrame, resolved);
+  const { page } = shown;
+  return {
+    content: emphasisContent(page.text, shown.emphasis),
+    lineText: children,
+    page: {
+      index: page.index,
+      count: resolvedPages.length,
+      from: page.from,
+      durationInFrames: page.end - page.from,
+      frame: lineFrame - page.from,
+      text: page.text,
+      timing: page.timing,
+    },
+    emphasis: shown.emphasis,
+    covered: shown.covered,
+    ...(shown.covered ? { cue: { text: page.text, from: (page.from - offset) / fps, to: (page.end - offset) / fps } } : {}),
+  };
+}
+
+/**
+ * The subtitle a `subtitle.render` draws for this line, or null for a
+ * plain subtitle, which render.ts draws as a `text` layer; and the
+ * subtitle's style with `theme`'s names looked up, when that changes it.
+ */
+function useRenderedSubtitle(
+  character: CharacterReference | null | undefined,
+  shown: ShownSubtitle,
+  held: boolean,
+  theme: ResolvedTheme,
+): [ReactNode, TextStyle | undefined] {
+  const runtime = React.useContext(CompositionRuntimeContext);
+  const run = React.useContext(SubtitleRunContext);
+  const fonts = useMeasurementFonts();
   const subtitle = character?.subtitle;
   const render = subtitle?.render;
   const themedStyle = themedTextStyle(subtitle?.style, {}, theme, '<Dialogue> subtitle');
-  const flat = render ? flattenTextContent(themeTextContent(children, theme), '<Dialogue> children') : null;
+  const flat = render ? flattenTextContent(themeTextContent(shown.content, theme), '<Dialogue> children') : null;
   const text = flat?.text ?? '';
   const style = withInheritedText(themedStyle ?? {}, runtime ?? {});
   const maxWidth = subtitle?.maxWidth;
@@ -497,11 +616,12 @@ function useRenderedSubtitle(
     return [null, changedStyle];
   }
   const localFrame = Math.round(secondsFromTime(runtime.time) * runtime.fps);
-  const { style: _style, maxWidth: _maxWidth, render: _render, id: _id, ...placement } = subtitle;
+  const { style: _style, maxWidth: _maxWidth, render: _render, id: _id, emphasisStyles: _emphasisStyles, ...placement } = subtitle;
   const name = character.name ?? character.id;
   const info: SubtitleRenderProps = {
     text,
-    content: children,
+    content: shown.content,
+    lineText: shown.lineText ?? text,
     character: { id: character.id, name, displayName: character.displayName ?? name },
     get metrics() {
       return measure();
@@ -509,6 +629,8 @@ function useRenderedSubtitle(
     style,
     ...(maxWidth !== undefined ? { maxWidth } : {}),
     held,
+    page: shown.page,
+    emphasis: shown.emphasis,
     frame: localFrame + (run?.offset ?? 0),
     durationInFrames: run?.durationInFrames ?? runtime.durationInFrames,
   };
