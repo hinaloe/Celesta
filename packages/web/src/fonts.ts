@@ -6,6 +6,56 @@ const unresolved = new Set<string>();
 const fontSet = () => 'document' in globalThis ? document.fonts : (globalThis as unknown as { fonts: FontFaceSet }).fonts;
 let fontSetVersion = 0;
 
+/** Each loaded face's file and descriptors, so `featureFamily` can make a copy of it. */
+const faceSources = new WeakMap<FontFace, { bytes: ArrayBuffer; descriptors: FontFaceDescriptors }>();
+/** `featureFamily`'s faces by the family name it gave them. */
+const featureFaces = new Map<string, FontFace[]>();
+
+/** Drops every `featureFamily` face, so the next ones copy the fonts loaded now. */
+function dropFeatureFaces(): void {
+  if (featureFaces.size === 0) return;
+  for (const faces of featureFaces.values()) for (const face of faces) fontSet().delete(face);
+  featureFaces.clear();
+  fontSetVersion++;
+}
+
+/**
+ * A family drawing `family`'s loaded faces with `settings`, a CSS
+ * `font-feature-settings` value, under `label`. Canvas text has no
+ * font-feature-settings of its own, so each family and feature set gets
+ * copies of its faces with the `featureSettings` descriptor. A face made
+ * from a file is ready at once in Chromium; elsewhere `featureFacesLoaded()`
+ * waits for it. Throws for a family with no face loaded with `<Font>`, as
+ * installed fonts cannot be copied.
+ */
+export function featureFamily(family: string, settings: string, label: string): string {
+  const name = `${family} [celesta-features ${label}]`;
+  if (featureFaces.has(name)) return name;
+  const sources = [...loaded.values()].flatMap(entry => entry.faces).filter(face => face.family === family);
+  if (sources.length === 0) {
+    throw new Error(`fontFeatures need "${family}" loaded with <Font>: the browser renderer cannot apply OpenType features to installed fonts.`);
+  }
+  const faces = sources.map(face => {
+    const source = faceSources.get(face);
+    if (!source) throw new Error(`fontFeatures cannot use "${family}": its font CSS gives no url() to load it from.`);
+    return new FontFace(name, source.bytes, { ...source.descriptors, featureSettings: settings });
+  });
+  for (const face of faces) fontSet().add(face);
+  fontSetVersion++;
+  featureFaces.set(name, faces);
+  return name;
+}
+
+/** Waits for the faces `featureFamily` made, where they do not load at once. */
+export async function featureFacesLoaded(): Promise<void> {
+  await Promise.all([...featureFaces.values()].flat().map(face => face.loaded));
+}
+
+/** Whether a face `featureFamily` made is still loading. */
+export function featureFacesPending(): boolean {
+  return [...featureFaces.values()].flat().some(face => face.status !== 'loaded');
+}
+
 /**
  * A family that never matches, named after the worker's font set as it is
  * now; `cssFont` puts it after `sans-serif`. Chromium's workers keep each
@@ -69,6 +119,7 @@ export function releaseFonts(urls: Iterable<string>): void {
     for (const face of loaded.get(url)?.faces ?? []) { fontSet().delete(face); fontSetVersion++; }
     loaded.delete(url);
   }
+  dropFeatureFaces();
 }
 
 /** The dedicated worker owns a single project's font set. */
@@ -94,7 +145,13 @@ export function loadFonts(assets: Asset[], resolve: (asset: Asset) => string): P
       loaded.set(url, entry);
       const add = async (face: FontFace) => {
         await face.load();
-        if (loaded.get(url) === entry) { fontSet().add(face); fontSetVersion++; entry.faces.push(face); }
+        if (loaded.get(url) === entry) { fontSet().add(face); fontSetVersion++; entry.faces.push(face); dropFeatureFaces(); }
+      };
+      // Faces are made from their files, kept for `featureFamily` to copy.
+      const fromBytes = (family: string, bytes: ArrayBuffer, descriptors: FontFaceDescriptors = {}) => {
+        const face = new FontFace(family, bytes, descriptors);
+        faceSources.set(face, { bytes, descriptors });
+        return face;
       };
       entry.promise = (async () => {
         try {
@@ -112,12 +169,21 @@ export function loadFonts(assets: Asset[], resolve: (asset: Asset) => string): P
               try {
                 const property = (name: string) => block.match(new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([^;]+)`))?.[1].trim();
                 const family = property('font-family')?.replace(/^['"]|['"]$/g, '');
-                const src = property('src')?.replace(/url\(([^)]+)\)/g, (_, location: string) => `url(${JSON.stringify(new URL(location.replace(/^['"]|['"]$/g, ''), url).href)})`);
+                const src = property('src');
                 if (!family || !src) throw new Error(`Invalid font CSS: ${url}`);
-                await add(new FontFace(family, src, {
+                const descriptors: FontFaceDescriptors = {
                   weight: property('font-weight') ?? 'normal', style: property('font-style') ?? 'normal',
                   unicodeRange: property('unicode-range') ?? 'U+0-10FFFF',
-                }));
+                };
+                const locations = Array.from(src.matchAll(/url\(([^)]+)\)/g), ([, location]) => new URL(location.replace(/^['"]|['"]$/g, ''), url).href);
+                // The first url() is the one the stylesheet prefers; `src` with
+                // only local() faces stays as written, and has no file to copy.
+                if (locations.length === 0) await add(new FontFace(family, src, descriptors));
+                else {
+                  const response = await fetch(locations[0]);
+                  if (!response.ok) throw new Error(`Could not load font: ${locations[0]} (${response.status}).`);
+                  await add(fromBytes(family, await response.arrayBuffer(), descriptors));
+                }
               } catch (cause) {
                 if (google) throw cause;
                 console.warn(`Could not load a font face from ${url}; using the default font.`, cause);
@@ -125,7 +191,7 @@ export function loadFonts(assets: Asset[], resolve: (asset: Asset) => string): P
             }));
           } else {
             const bytes = await response.arrayBuffer();
-            await add(new FontFace(fontName(bytes), bytes));
+            await add(fromBytes(fontName(bytes), bytes));
           }
         } catch (cause) {
           if (google) {

@@ -44,7 +44,9 @@ test('Unicode font names, preload requirements, cached failures and partial CSS 
     await loadFonts([font], resolve);
     requireLoadedFonts([font], resolve);
   }
-  assert.equal(fetched.length, 4);
+  // The stylesheet's two faces are fetched as files, once each.
+  assert.equal(fetched.length, 6);
+  assert.deepEqual(fetched.slice(4), ['https://fonts.test/bad.woff', 'https://fonts.test/good.woff']);
   assert.deepEqual([...faces].map(face => face.family), ['UnicodeFamily', 'Good']);
   assert.equal(warnings.length, 3);
   const unresolved = { id: 'local', location: { type: 'file', path: 'local.ttf' } };
@@ -58,7 +60,7 @@ test('Unicode font names, preload requirements, cached failures and partial CSS 
   assert.throws(() => requireLoadedFonts([unicode], resolve), /preloaded fonts/);
   await loadFonts([asset('missing.ttf')], resolve);
   await loadFonts([unresolved], missingMedia);
-  assert.equal(fetched.length, 5);
+  assert.equal(fetched.length, 7);
   assert.equal(warnings.length, 6);
   resetFonts();
 });
@@ -76,6 +78,7 @@ test('Google Fonts loads every Japanese split face and reports unknown names wit
   globalThis.fetch = async url => {
     hits++;
     if (url.includes('Missing')) return new Response('', { status: 400 });
+    if (url.endsWith('.woff2')) return new Response(new Uint8Array(4));
     return new Response(`
       @font-face {font-family: 'Noto Sans JP'; font-weight: 700; src: url(https://fonts.gstatic.com/japanese.woff2); unicode-range: U+3040-30FF}
       @font-face {font-family: 'Noto Sans JP'; font-weight: 700; src: url(https://fonts.gstatic.com/latin.woff2); unicode-range: U+0000-00FF}
@@ -86,7 +89,8 @@ test('Google Fonts loads every Japanese split face and reports unknown names wit
   const resolve = asset => asset.location.url;
   await loadFonts([font], resolve);
   await loadFonts([font], resolve);
-  assert.equal(hits, 1);
+  // The stylesheet, then each split face's file.
+  assert.equal(hits, 3);
   assert.deepEqual([...faces].map(face => [face.family, face.descriptors.weight, face.descriptors.unicodeRange]), [
     ['Noto Sans JP', '700', 'U+3040-30FF'], ['Noto Sans JP', '700', 'U+0000-00FF'],
   ]);
@@ -100,7 +104,7 @@ test('Google Fonts loads every Japanese split face and reports unknown names wit
       assert.throws(() => requireLoadedFonts([missing], resolve), /preloaded fonts/);
     }
   }
-  assert.equal(hits, 5);
+  assert.equal(hits, 7);
 });
 
 test('loadedFamilies lists the families of each font in list order', async t => {

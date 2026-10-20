@@ -80,14 +80,16 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
   const values = await Promise.all([first, firstFrame, second, secondFrame]);
   assert.deepEqual(responses.map(response => response.id), [1, 2, 3, 4]);
   for (const response of values) assert.equal(response.error, undefined);
-  assert.deepEqual(requested, ['https://first.test/font.css', 'https://second.test/font.css']);
+  // Each stylesheet, then the font file it points to, whose bytes the face is made from.
+  assert.deepEqual(requested, ['https://first.test/font.css', 'https://first.test/demo.woff', 'https://second.test/font.css', 'https://second.test/demo.woff']);
   assert.equal(mountCount, 2);
   assert.equal(cleanupCount, 1);
   assert.equal(values[1].value.scene.layers[0].content.width, 60);
   assert.equal(values[1].value.audio.length, 0);
   assert.equal(values[3].value.audio.length, 1);
   assert.equal(fonts.size, 1);
-  assert.match([...fonts][0].source, /second\.test\/demo\.woff/);
+  // The stand-in server answers the font file with the stylesheet's text.
+  assert.match(new TextDecoder().decode([...fonts][0].source), /second\.test\/demo\.woff/);
   // The mount measured Demo before <Font> loaded it; frames measure with it.
   // A frame-dependent string is not the mount's memoized result.
   const growing = `import { Composition, Font, Rect, useCurrentFrame, useTextMetrics } from '@celesta/react';

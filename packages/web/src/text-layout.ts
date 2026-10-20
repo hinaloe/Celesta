@@ -1,5 +1,5 @@
-import { fontSetFamily } from './fonts';
-import type { Asset, FontFamily, FontRun, TextStyle } from './types';
+import { featureFacesLoaded, featureFacesPending, featureFamily, fontSetFamily } from './fonts';
+import type { Asset, FontFamily, FontFeatures, FontRun, TextStyle } from './types';
 export type { FontRun };
 
 type MeasureTextRequest = { text: string; style: TextStyle; maxWidth?: number; fonts: Asset[] };
@@ -13,14 +13,52 @@ type Context = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 /**
  * The canvas font for `style`, with `run`'s weight and family over its own.
  * A font stack becomes the CSS family list, so the browser picks each
- * character's family from it. In a worker, the font set's family follows
- * `sans-serif` (`fontSetFamily`).
+ * character's family from it. With features (the text's, and `run`'s
+ * merged over them), each family is its `featureFamily` copy drawing them.
+ * In a worker, the font set's family follows `sans-serif` (`fontSetFamily`).
  */
 export function cssFont(style: TextStyle, run?: FontRun): string {
   const family = run?.fontFamily ?? style.fontFamily;
-  const families = (Array.isArray(family) ? family : family ? [family] : []).map(name => JSON.stringify(name) + ', ');
+  let names = Array.isArray(family) ? [...family] : family ? [family] : [];
+  const features = Object.entries({ ...style.fontFeatures, ...run?.fontFeatures }).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  if (features.length > 0) {
+    if (names.length === 0) {
+      throw new Error('fontFeatures need a fontFamily loaded with <Font>: the browser renderer cannot apply OpenType features to installed fonts.');
+    }
+    const settings = features.map(([tag, value]) => `${JSON.stringify(tag)} ${Number(value)}`).join(', ');
+    const label = features.map(([tag, value]) => `${tag}=${Number(value)}`).join(',');
+    names = names.map(name => featureFamily(name, settings, label));
+  }
+  const families = names.map(name => JSON.stringify(name) + ', ');
   const fontSet = fontSetFamily();
   return `${run?.fontWeight ?? style.fontWeight ?? 400} ${style.fontSize ?? 32}px ${families.join('')}system-ui, sans-serif${fontSet ? `, ${JSON.stringify(fontSet)}` : ''}`;
+}
+
+/** A CSS `font-feature-settings` tag: four characters from U+20 to U+7E. */
+const FEATURE_TAG = /^[\x20-\x7e]{4}$/;
+
+/** Throws unless `features` maps feature tags to `true`, `false`, or whole numbers from 0 to 2³² − 1. */
+export function checkFontFeatures(features: FontFeatures | null | undefined): void {
+  if (features == null) return;
+  if (typeof features !== 'object' || Array.isArray(features)) throw new Error('Text fontFeatures must be an object of feature tags');
+  for (const [tag, value] of Object.entries(features)) {
+    if (!FEATURE_TAG.test(tag)) throw new Error(`Text font feature tag ${JSON.stringify(tag)} must be four ASCII characters, such as "liga"`);
+    if (typeof value !== 'boolean' && !(Number.isInteger(value) && value >= 0 && value <= 0xffffffff)) {
+      throw new Error(`Text font feature ${tag} must be true, false, or a whole number from 0 up`);
+    }
+  }
+}
+
+/**
+ * Checks `style`'s features and its font runs', and makes the families
+ * `cssFont` draws them with, waiting for them where they do not load at once.
+ */
+export async function loadFeatureFonts(style: TextStyle): Promise<void> {
+  checkFontFeatures(style.fontFeatures);
+  for (const run of style.fontRuns ?? []) checkFontFeatures(run.fontFeatures);
+  cssFont(style);
+  for (const run of style.fontRuns ?? []) cssFont(style, run);
+  await featureFacesLoaded();
 }
 
 /**
@@ -166,9 +204,15 @@ export function textLines(ctx: Context, text: string, maxWidth?: number | null, 
 export function textMeasurer() {
   const ctx = new OffscreenCanvas(1, 1).getContext('2d')!;
   return ({ text, style, maxWidth }: MeasureTextRequest): TextMetrics => {
+    checkFontFeatures(style.fontFeatures);
+    for (const run of style.fontRuns ?? []) checkFontFeatures(run.fontFeatures);
     textStyle(ctx, style);
     const runs = style.fontRuns ?? [];
     checkFontRuns(runs, Array.from(text).length);
+    for (const run of runs) cssFont(style, run);
+    if (featureFacesPending()) {
+      throw new Error('Browser text measurements with fontFeatures need their fonts ready. Call await measureText(..., { fonts }) with the same style in prepare() first.');
+    }
     const measure = (text: string, start: number) => measureLine(ctx, style, text, start, runs).width;
     const ranges = textLineRanges(ctx, text, maxWidth, style.lang, runs.length ? measure : undefined);
     const lines = ranges.map(range => range.text);

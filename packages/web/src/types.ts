@@ -43,7 +43,9 @@ export type PathCommand =
   | { type: 'close' };
 /** A family name, or a font stack tried in order. */
 export type FontFamily = string | readonly string[];
-export type FontRun = { start: number; end: number; fontWeight?: number | null; fontFamily?: FontFamily | null };
+/** OpenType features by tag, as CSS `font-feature-settings`: on, off, or an alternate's number. */
+export type FontFeatures = { readonly [tag: string]: boolean | number };
+export type FontRun = { start: number; end: number; fontWeight?: number | null; fontFamily?: FontFamily | null; fontFeatures?: FontFeatures | null };
 export type TextStyle = {
   lang?: string | null;
   /** `'loaded'` appends the scene's loaded font families to `fontFamily`. */
@@ -56,6 +58,8 @@ export type TextStyle = {
   align?: 'left' | 'center' | 'right' | null;
   lineHeight?: number | null;
   letterSpacing?: number | { em: number } | null;
+  /** Needs every family it applies to loaded with `<Font>`; a font run's are merged over these. */
+  fontFeatures?: FontFeatures | null;
   colorRuns?: { start: number; end: number; color: string }[];
   fontRuns?: FontRun[];
   visibleCharacters?: number | null;
