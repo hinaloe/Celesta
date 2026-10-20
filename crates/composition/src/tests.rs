@@ -651,13 +651,13 @@ fn text_font_runs_round_trip_and_stay_out_of_plain_styles() {
                 start: 1,
                 end: 3,
                 font_weight: Some(700),
-                font_family: None,
+                ..TextFontRun::default()
             },
             TextFontRun {
                 start: 3,
                 end: 4,
-                font_weight: None,
                 font_family: Some("Bebas Neue".into()),
+                ..TextFontRun::default()
             },
         ]
     );

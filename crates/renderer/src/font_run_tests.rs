@@ -14,6 +14,7 @@ pub(crate) fn run(
         end,
         font_weight: weight,
         font_family: family.map(Into::into),
+        font_features: None,
     }
 }
 
