@@ -165,6 +165,7 @@ Set `blendMode` on any layer to change how it combines with what is beneath it, 
 | `Stack` | Places each child `spacing` pixels apart, `vertical` by default or `horizontal`. |
 | `Grid` | Places children into `columns` of `columnWidth` × `rowHeight` cells, with optional gaps. |
 | `Fit` | Scales content designed at `sourceWidth` × `sourceHeight` to `contain` or `cover` the current area. |
+| `LayoutBounds` | Makes `width` × `height` the area nested helpers see, without moving or drawing anything. |
 
 ```tsx title="A centered list inside a safe margin"
 <SafeArea padding={96}>
@@ -182,6 +183,29 @@ Set `blendMode` on any layer to change how it combines with what is beneath it, 
 ```
 
 Helpers position child origins; they do not measure what the children draw. Anchor children at `0.5` when you want them centered on those points.
+
+## Panels
+
+`Panel` from `@celesta/components` draws a box of a given `width` and `height` with a `fill`, a border (`stroke`, `strokeWidth`, drawn inside the edge), a `cornerRadius`, and a `shadow` cast by the background. Its children start inside its `padding` (a number or `{ top, right, bottom, left }`), and `Center`, `Fit`, and `useLayoutBounds()` inside see the area within the padding. It draws the shadow, the background, the children, then the border, so content never covers the border; `clip` cuts the children to the rounded box. `anchorX` and `anchorY` pick the point placed at `x`/`y`, which `rotation` and `scale` turn about. Sizes, padding, the radius, and the border width must be finite and not negative.
+
+```tsx title="A caption card"
+<Panel x={120} y={600} width={720} height={320} padding={32}
+  fill="#182030" stroke="#2C3A50" cornerRadius={20} clip
+  shadow={{ color: "#00000099", blur: 32, offsetX: 0, offsetY: 16 }}>
+  <Text maxWidth={656} style={{ fontSize: 40 }}>What this step does.</Text>
+</Panel>
+```
+
+`Badge` from `@celesta/components` is a label on a `Panel` sized from its measured text, so the background fits Japanese, Latin, and proportional fonts and follows the text as it changes. It takes the text's `style` (or the `fontFamily`, `fontSize`, `fontWeight`, and `color` shorthand), the panel's `fill`, `stroke`, `shadow`, and anchors, a `padding` (8 above and below, 16 at the sides by default), and a `cornerRadius` (8 by default, or `"pill"` for round ends; there is no separate chip component). `leading` draws a decoration such as a dot before the text, in a box `leadingWidth` wide and one line tall, `gap` before the text. With `maxWidth`, long text wraps and the badge grows taller.
+
+```tsx title="A chapter label and a chip with a dot"
+<Badge x={120} y={80} fill="#204060" fontSize={28} color="#FFFFFF">第1章</Badge>
+<Badge x={120} y={160} fill="#10121A" cornerRadius="pill" fontSize={22} color="#5BC0FF"
+  leading={<Center><Rect anchorX={0.5} anchorY={0.5} width={8} height={8} cornerRadius={4} fill="#3D5BFF" /></Center>}
+  leadingWidth={8} gap={12}>
+  {"<Composition fps={30}>"}
+</Badge>
+```
 
 ## Vertical video for Shorts, TikTok, and Reels
 

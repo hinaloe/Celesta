@@ -279,6 +279,9 @@ importers:
       '@celesta/code':
         specifier: workspace:*
         version: link:../../packages/code
+      '@celesta/components':
+        specifier: workspace:*
+        version: link:../../packages/components
       '@celesta/debug':
         specifier: workspace:*
         version: link:../../packages/debug
@@ -322,6 +325,12 @@ importers:
       '@celesta/character':
         specifier: workspace:*
         version: link:../../packages/character
+      '@celesta/components':
+        specifier: workspace:*
+        version: link:../../packages/components
+      '@celesta/layout':
+        specifier: workspace:*
+        version: link:../../packages/layout
       '@celesta/react':
         specifier: workspace:*
         version: link:../../packages/react
@@ -811,6 +820,9 @@ importers:
 
   packages/components:
     dependencies:
+      '@celesta/layout':
+        specifier: workspace:*
+        version: link:../layout
       '@celesta/math':
         specifier: workspace:*
         version: link:../math
@@ -1255,6 +1267,9 @@ importers:
       '@celesta/character':
         specifier: workspace:*
         version: link:../packages/character
+      '@celesta/components':
+        specifier: workspace:*
+        version: link:../packages/components
       '@celesta/layout':
         specifier: workspace:*
         version: link:../packages/layout

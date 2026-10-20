@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@celesta/character": "workspace:*",
+    "@celesta/components": "workspace:*",
     "@celesta/layout": "workspace:*",
     "@celesta/media-utils": "workspace:*",
     "@celesta/project": "workspace:*",

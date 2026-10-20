@@ -1,5 +1,6 @@
 import { Group, Rect, Text, useTextMetrics } from '@celesta/react';
 import { highlightCode } from '@celesta/code';
+import { Panel } from '@celesta/components';
 import type { CodeLanguage } from '@celesta/code';
 import { codeTheme } from './codeTheme';
 import { C, FONT, solid } from './theme';
@@ -26,8 +27,7 @@ export function DiffPanel({ x, y, width, file, code, language = 'tsx', typed }: 
   // The caret sits on the line being typed.
   const current = lines.findIndex((line) => typed < line.start + line.columns.length);
   return (
-    <Group x={x} y={y} clip={{ width, height, cornerRadius: 10 }}>
-      <Rect width={width} height={height} fill={C.panel} stroke={C.line} strokeWidth={2} cornerRadius={10} />
+    <Panel x={x} y={y} width={width} height={height} fill={C.panel} stroke={C.line} strokeWidth={2} cornerRadius={10} clip>
       <Rect y={HEAD - 2} width={width} height={2} fill={C.line} />
       <Text x={PAD} y={HEAD / 2} anchorY={0.5} style={{ ...label, fill: solid(C.grey) }}>{file}</Text>
       <Text x={width - PAD} y={HEAD / 2} anchorX={1} anchorY={0.5} style={{ ...label, fill: solid(C.red) }}>-0</Text>
@@ -54,6 +54,6 @@ export function DiffPanel({ x, y, width, file, code, language = 'tsx', typed }: 
           </Group>
         );
       })}
-    </Group>
+    </Panel>
   );
 }

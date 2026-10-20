@@ -423,7 +423,11 @@ return <Text style={{ ...style, visibleCharacters: length }}>{content}</Text>;
 ### `useCountUp(to, { from?, delay?, durationInFrames?, easing?, decimals? })`
 
 A number that counts to `to` (default 30 frames, `easeOutExpo`), rounded to
-`decimals`. Format it yourself, e.g. `value.toLocaleString('en-US')`.
+`decimals`. Format it yourself, e.g. `value.toLocaleString('en-US')`, or
+draw it with `<Counter>` from `@celesta/components`, which counts with the
+same defaults and prints with a fixed locale, decimals, and a prefix or
+suffix; `<StatCard>` and `<BarChart>` print theirs the same way. See
+[react-core.md](react-core.md#counter-statcard-barchart-ranking-numbers-and-bar-charts).
 
 ## Measure text
 
@@ -489,6 +493,12 @@ draws:
 const label = <>New <Span style={{ fontWeight: 700 }}>2.0</Span></>;
 const m = useTextMetrics(label, style);
 ```
+
+For a plain label like these, `<Badge>` from `@celesta/components` does the
+measuring and the sizing, with a decoration before the text and wrapping at
+a `maxWidth`: `<Badge fill="#28A34A" cornerRadius="pill" padding={{ top: 12,
+right: 24, bottom: 12, left: 24 }} style={style} color="#ffffff">{label}</Badge>`.
+See [react-core.md](react-core.md#badge-labels-sized-to-their-text).
 
 A caret after typed text, and a second label after the first: measure
 instead of multiplying the character count by a font's advance (`0.6 em`

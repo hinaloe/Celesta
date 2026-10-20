@@ -1,9 +1,11 @@
-export { Center, Fit, Grid, SafeArea, Stack, safeAreaInsets, useLayoutBounds } from './layout';
+export { Center, Fit, Grid, LayoutBounds, SafeArea, Stack, safeAreaInsets, useLayoutBounds } from './layout';
 export type {
   CenterProps,
   FitProps,
   GridProps,
   Insets,
+  LayoutBoundsProps,
+  LayoutSize,
   SafeAreaPreset,
   SafeAreaProps,
   SafeAreaValue,

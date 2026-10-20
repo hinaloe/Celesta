@@ -9,6 +9,7 @@ Titles that reveal themselves, a camera that travels, and lines that draw on. Li
 | `TextReveal` | Lines of a string slide up from behind their own masks, one after another. Set `lineHeight`, `from`, `stagger`, and `durationInFrames`; `align` pivots each line. `\n` breaks a line; with `maxWidth`, lines also wrap where `<Text maxWidth>` wraps (`style.lineBreak: 'phrase'` included), and each wrapped line is revealed on its own. |
 | `useTypewriter(text, options)` | The typed-so-far `text`, its `length`, `done`, and `caretVisible`: steady while typing, blinking while idle. |
 | `useCountUp(to, options)` | A number counting to `to`, with `from`, `delay`, `durationInFrames`, `easing`, and `decimals`. |
+| `Counter`, `StatCard` (`@celesta/components`) | A `<Text>` drawing a counted number formatted, and a card with a label, the number, and a note. They count with `useCountUp`'s default timing and print with `locale` (`'en-US'` by default, never the machine's), `decimals` (always shown), `prefix`/`suffix`, or a `formatter`. With `anchorX={1}` the last digit and the unit stay in place as digits are added. |
 
 ```tsx title="An editorial title reveal"
 <TextReveal x={160} y={300} lineHeight={200} stagger={6}
@@ -42,6 +43,15 @@ For other shapes, `<Path>` takes `points` (with `closed`) or SVG-like `commands`
 Every line and shape stroke takes `dash`, the lengths of its dashes and gaps in turn (like SVG’s `stroke-dasharray`), and `dashOffset`, which shifts them along the line. `dash={[0, 12]}` with `cap="round"` draws dots, and `dashOffset={-frame}` makes the dashes flow towards the end. The pattern is anchored at the first point, so a dashed polyline drawn on with `progress` keeps its dashes in place. Closed shapes run their dashes clockwise: from the rightmost point of a circle or an ellipse, and from the end of a `Rect`’s top-left corner. An `<Arrow>` dashes only its shaft.
 
 A `<Path>` draws part of its stroke too, with `progress` and `progressStart` (0–1 of the path’s length); curves are split exactly along their length. Dashes stay where they are on the whole path, whichever part is drawn. A `fill` always covers the whole shape.
+
+`BarChart` from `@celesta/components` draws horizontal bars from an array of `{ id, label, value }`: a label column, a bar growing from 0, and the value past the bar's end or lined up at the right edge, each row starting `stagger` frames after the one above. The bar's length and the printed number come from the same progress, so the number always matches the bar; it is formatted as `Counter` formats it. `Ranking` adds a rank column and needs `order`: sorted by value (`'descending'` or `'ascending'`, equal values keeping their order) or kept as given (`'input'`). Values must be finite and 0 or more, and ids unique.
+
+```tsx title="Bars that grow in turn"
+<BarChart x={120} y={240} width={1000} stagger={8} decimals={1} suffix=" s" data={[
+  { id: 'a', label: 'A', value: 12.4 },
+  { id: 'b', label: 'B', value: 8.1 },
+]} />
+```
 
 ## Moving along and between paths
 

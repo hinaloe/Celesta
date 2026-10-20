@@ -1,6 +1,11 @@
-import { Easings, Group, Rect, Video, progress, useCurrentFrame } from '@celesta/react';
+import { MediaFrame } from '@celesta/components';
+import { Easings, Group, Rect, progress, useCurrentFrame } from '@celesta/react';
 import { Label } from '../components/Label';
-import { C, TOOL } from '../constants';
+import { C, FONT, TOOL } from '../constants';
+
+/** `color` (#RRGGBB) at `opacity`. */
+const withAlpha = (color: string, opacity: number) =>
+  color + Math.round(Math.min(1, Math.max(0, opacity)) * 255).toString(16).padStart(2, '0');
 
 const SPEC: [string, string][] = [
   ['1,500', 'particles orbiting and twinkling'],
@@ -24,16 +29,12 @@ export function Nebula() {
   const list = progress(f, 44, 24, Easings.easeOutExpo);
   return (
     <>
-      <Group x={x} y={y}>
-        <Rect x={-6 * m} y={-6 * m} width={1920 * scale + 12 * m} height={1080 * scale + 12 * m} cornerRadius={14 * m}
-          fill={TOOL.celesta.color} opacity={m} />
-        <Group clip={{ width: 1920 * scale, height: 1080 * scale, cornerRadius: 10 * m }}>
-          <Group scale={scale}><Video src="./bench/out/celesta.mp4" /></Group>
-        </Group>
-        <Label y={1080 * scale + 24} size={16} font="mono" weight={400} color={C.grey} opacity={m}>
-          bench/celesta/nebula.tsx · exported by Celesta
-        </Label>
-      </Group>
+      {/* The 1920×1080 export in a frame whose mat, corners, and caption grow in as it moves aside. */}
+      <MediaFrame kind="video" src="./bench/out/celesta.mp4" sourceWidth={1920} sourceHeight={1080}
+        x={x - 6 * m} y={y - 6 * m} width={1920 * scale + 12 * m} height={1080 * scale + 12 * m}
+        padding={6 * m} cornerRadius={14 * m} fill={withAlpha(TOOL.celesta.color, m)}
+        caption="bench/celesta/nebula.tsx · exported by Celesta" captionGap={24 - 6 * m}
+        captionStyle={{ fontFamily: FONT.mono, fontSize: 16, fontWeight: 400, fill: { type: 'solid', color: withAlpha(C.grey, m) } }} />
       <Group x={96 - 40 * (1 - list)} y={110} opacity={list}>
         <Rect y={6} width={36} height={4} fill={TOOL.celesta.color} />
         <Label x={52} size={18} font="mono" weight={700} color={TOOL.celesta.color} spacing={3}>01 — THE TEST SCENE</Label>

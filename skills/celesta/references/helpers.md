@@ -21,6 +21,11 @@ preview and export, and other people (and agents) reading the file know them.
 | `[...items].reverse().find((s) => f >= s.at)` | `useCue(cues)`, `cueAt(cues, f)` | `@celesta/react` |
 | Corner brackets, a timecode, and a progress bar drawn by hand in a HUD | `<FrameChrome corners timecode progress />` | `@celesta/components` |
 | `Array.from({ length: cols * rows }, …)` of `<Rect>` dots or grid lines | `<PatternBackground pattern="dots" spacing={80} size={3} />` | `@celesta/components` |
+| A card as a `<Group clip>` around a `<Rect>` of the same size, with the content at `x={PAD} y={PAD}` | `<Panel width height padding={PAD} fill cornerRadius clip>` | `@celesta/components` |
+| `useTextMetrics(label)` and a `<Rect width={m.width + PAD * 2}>` behind a `<Text>` for a tag or chip | `<Badge fill padding cornerRadius="pill" leading leadingWidth>` | `@celesta/components` |
+| `useCountUp(n)` printed with `toLocaleString()` and a unit in a `<Text>` | `<Counter value={n} suffix=" 件" anchorX={1} />` (`<StatCard>` with a label) | `@celesta/components` |
+| Bars as `<Rect width={track * value / max * grow}>` with a counting value beside each and `from: start + i * stagger` | `<BarChart data width stagger />` (`<Ranking order>` with ranks) | `@celesta/components` |
+| A `<Rect>` frame behind a `<Group clip>` around `<Group scale={w / 1920}><Video /></Group>`, and a `<Text>` caption under it | `<MediaFrame kind="video" sourceWidth sourceHeight width height fit cornerRadius caption />` | `@celesta/components` |
 | `from: i * 6` on each item | `<Stagger each={6}>` | `@celesta/react` |
 | Scene start frames summed by hand | `<Series>` + `computeSeries` | `@celesta/react` |
 | A beat counter from the BPM | `useBeat({ bpm })` | `@celesta/react` |

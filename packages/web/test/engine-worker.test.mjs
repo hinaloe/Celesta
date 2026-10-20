@@ -94,10 +94,13 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
   assert.equal(fallback.error, undefined);
   assert.equal(fonts.size, 1);
 
-  // Split packages share the worker's core runtime: layout bounds, and the
-  // character elements registered with its scene walker.
+  // Split packages share the worker's core runtime: layout bounds (also
+  // across packages, as a Panel's for a Center inside it), the text
+  // measurer (a Badge sizes itself with it), and the character elements
+  // registered with its scene walker.
   const split = await send({ id: 9, type: 'compile', source: `import { React, Assets, Composition } from '@celesta/react';
     import { Center } from '@celesta/layout';
+    import { Badge, Counter, MediaFrame, Panel } from '@celesta/components';
     import { Circle } from '@celesta/shapes';
     import { Character, CharacterView } from '@celesta/character';
     export default function Root() {
@@ -106,12 +109,25 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
         <Assets><Character ref={actor} name="a" portrait={{ defaultExpression: 'n', expressions: { n: 'n.png' } }} /></Assets>
         <Center><Circle radius={5} fill="#ffffff" /></Center>
         <CharacterView character={actor} />
+        <Panel width={40} height={20} padding={5}><Center><Circle radius={2} fill="#ffffff" /></Center></Panel>
+        <Badge padding={4} fill="#000000">ab</Badge>
+        <Counter value={1234.5} decimals={1} durationInFrames={0} suffix=" 件" />
+        <MediaFrame kind="image" src="shot.png" width={40} height={30} padding={2} fit="cover" />
       </Composition>;
     }` });
   assert.equal(split.error, undefined);
   const splitFrame = await send({ id: 10, type: 'frame', frame: 0 });
-  const [center, view] = splitFrame.value.scene.layers;
+  const [center, view, panel, badge, counter, frame] = splitFrame.value.scene.layers;
+  // A MediaFrame's image gets the area inside its padding and the fit.
+  const image = frame.content.layers[0].content.layers[0].content.layers[0].content;
+  assert.deepEqual([image.type, image.width, image.height, image.fit, image.asset.location], ['image', 36, 26, 'cover', { type: 'file', path: 'shot.png' }]);
+  // The worker formats with the same fixed locale as the native runtime.
+  assert.equal(counter.content.text, '1,234.5 件');
   assert.deepEqual(center.transform.position, { x: 50, y: 50 });
+  assert.deepEqual(panel.content.layers[0].content.layers[0].transform.position, { x: 15, y: 5 });
+  // The stub canvas's two 10 px characters and the default 38.4 px line
+  // box (32 px text × 1.2), plus the padding.
+  assert.deepEqual([badge.content.layers[0].content.width, badge.content.layers[0].content.height], [28, 46.4]);
   assert.deepEqual(view.content.layers[0].content.asset.location, { type: 'file', path: 'n.png' });
   const missing = await send({ id: 11, type: 'compile', source: `import { ProjectTimeline } from '@celesta/project'; export default ProjectTimeline;` });
   assert.match(missing.error, /unavailable in the web editor/);

@@ -11,7 +11,8 @@ import {
   progress,
   useCurrentFrame,
 } from '@celesta/react';
-import { TextBox, useCountUp } from '@celesta/text';
+import { Counter } from '@celesta/components';
+import { TextBox } from '@celesta/text';
 import { useProjectProperty } from '@celesta/project';
 
 // A ranking card. The title, subtitle, colors, format and data file come from
@@ -32,14 +33,15 @@ import { useProjectProperty } from '@celesta/project';
 const FPS = 30;
 // Timing, in frames. The header fades in over HEADER_IN. Rows start entering
 // at ROW_START, one every ROW_STAGGER, each fading in over ROW_IN; BAR_DELAY
-// after a row starts, its bar grows and its score counts up over BAR_GROW.
-// The finished card holds for HOLD before the end.
+// after a row starts, its bar grows and its score counts up over BAR_GROW,
+// both through BAR_EASING. The finished card holds for HOLD before the end.
 const HEADER_IN = 18;
 const ROW_START = 24;
 const ROW_STAGGER = 8;
 const ROW_IN = 16;
 const BAR_DELAY = 4;
 const BAR_GROW = 30;
+const BAR_EASING = Easings.easeOutQuart;
 const HOLD = 75;
 const MAX_ROWS = 6;
 
@@ -234,8 +236,7 @@ function RankRow({ row, index, top }: { row: Row; index: number; top: number }) 
   const accent = useProjectProperty<string>('accent');
   const delay = ROW_START + index * ROW_STAGGER;
   const enter = progress(frame, delay, ROW_IN, Easings.easeOutCubic);
-  const grow = progress(frame, delay + BAR_DELAY, BAR_GROW, Easings.easeOutQuart);
-  const score = useCountUp(row.score, { delay: delay + BAR_DELAY, durationInFrames: BAR_GROW });
+  const grow = progress(frame, delay + BAR_DELAY, BAR_GROW, BAR_EASING);
   const x = layout.left;
   const y = layout.rowsTop + index * layout.rowPitch + ROW_RISE * (1 - enter);
   const textY = y + layout.textY;
@@ -276,16 +277,19 @@ function RankRow({ row, index, top }: { row: Row; index: number; top: number }) 
         fill={accent}
         opacity={enter}
       />
-      <Text
+      {/* Counts with the bar's timing and easing, so the score matches the bar. */}
+      <Counter
         x={x + layout.rowWidth - ROW_PADDING}
         y={textY}
         anchorY={0.5}
         anchorX={1}
         opacity={enter}
+        value={row.score}
+        delay={delay + BAR_DELAY}
+        durationInFrames={BAR_GROW}
+        easing={BAR_EASING}
         style={{ fontFamily: FONT, fontSize: ROW_TEXT_SIZE, fontWeight: 700, fill: { type: 'solid', color: theme.text } }}
-      >
-        {score.toLocaleString('en-US')}
-      </Text>
+      />
     </>
   );
 }

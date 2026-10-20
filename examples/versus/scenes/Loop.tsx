@@ -1,8 +1,8 @@
+import { BarChart } from '@celesta/components';
 import { Easings, Group, Rect, progress, useCurrentFrame } from '@celesta/react';
-import { Bars } from '../components/Bars';
 import { Footnote, Header, ToolTag } from '../components/Chrome';
 import { Label } from '../components/Label';
-import { C, ORDER, TOOL, type ToolId } from '../constants';
+import { C, FONT, ORDER, TOOL, type ToolId } from '../constants';
 import { LOOP, LOOP_RUNS, SETUP } from '../data';
 
 const NEEDS: Record<ToolId, string[]> = {
@@ -10,6 +10,13 @@ const NEEDS: Record<ToolId, string[]> = {
   fframes: ['Rust toolchain + LLVM (libclang)', 'FFmpeg 9 shared build: FFMPEG_DIR, DLLs on PATH', 'Vulkan GPU',
     `${SETUP.fframes.install} (${SETUP.fframes.seconds} s)`],
   celesta: ['Install the app. Node.js is bundled.'],
+};
+
+// What each tool redoes after the edit.
+const CHANGE: Record<ToolId, string> = {
+  remotion: 're-bundle + Chromium',
+  fframes: 'cargo build --release',
+  celesta: 're-bundle',
 };
 
 export function Loop() {
@@ -43,14 +50,23 @@ export function Loop() {
         <Label size={18} font="mono" weight={700} color={C.grey} spacing={3} opacity={progress(f, 60, 16, Easings.easeOutCubic)}>
           CHANGE ONE COLOR → FRAME 300 AS PNG
         </Label>
-        <Group y={66}>
-          <Bars f={f} start={70} width={870} max={Math.max(...Object.values(LOOP)) * 1.05} unit="s" labelWidth={240}
-            bars={[
-              { key: 'remotion', label: 'Remotion', sub: 're-bundle + Chromium', value: LOOP.remotion, color: TOOL.remotion.color },
-              { key: 'fframes', label: 'fframes', sub: 'cargo build --release', value: LOOP.fframes, color: TOOL.fframes.color },
-              { key: 'celesta', label: 'Celesta', sub: 're-bundle', value: LOOP.celesta, color: TOOL.celesta.color, strong: true },
-            ]} />
-        </Group>
+        {/* Bars that grow in turn while their values count up; Celesta's in full color.
+            The others' bars are at 75% opacity. */}
+        <BarChart y={66} width={870} max={Math.max(...Object.values(LOOP)) * 1.05} decimals={1} suffix=" s"
+          delay={70} stagger={10} durationInFrames={40} easing={Easings.easeOutCubic} fadeInFrames={16}
+          labelWidth={240} labelGap={0} valueWidth={150} valueGap={20}
+          rowHeight={64} rowGap={56} barHeight={56} cornerRadius={10} trackColor="#FFFFFF08"
+          labelStyle={{ fontFamily: FONT.sans, fontSize: 28, fontWeight: 700, fill: { type: 'solid', color: C.ink } }}
+          noteStyle={{ fontFamily: FONT.sans, fontSize: 18, fontWeight: 400, fill: { type: 'solid', color: C.grey } }}
+          valueStyle={{ fontFamily: FONT.mono, fontSize: 38, fontWeight: 700, fill: { type: 'solid', color: C.ink } }}
+          data={ORDER.map((id) => {
+            const strong = id === 'celesta';
+            return {
+              id, label: TOOL[id].name, note: CHANGE[id], value: LOOP[id],
+              color: strong ? TOOL[id].color : `${TOOL[id].color}BF`,
+              textColor: strong ? TOOL[id].color : undefined,
+            };
+          })} />
         <Label y={460} size={22} lineHeight={34} weight={400} color={C.soft} opacity={progress(f, 150, 20, Easings.easeOutCubic)}>
           {'Rust recompiles on every change.\nIn the Celesta app, saving the file reloads the preview.'}
         </Label>

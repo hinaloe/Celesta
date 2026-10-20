@@ -29,8 +29,12 @@ provides `react` (18.x) and those packages; never install them from npm.
 - [Lottie animations](#lottie-animations)
 - [Instances (particles)](#instances-particles)
 - [PatternBackground (dots, grid, stripes)](#patternbackground-dots-grid-stripes)
+- [Panel (cards and boxes with padding)](#panel-cards-and-boxes-with-padding)
+- [Badge (labels sized to their text)](#badge-labels-sized-to-their-text)
+- [Counter, StatCard, BarChart, Ranking (numbers and bar charts)](#counter-statcard-barchart-ranking-numbers-and-bar-charts)
 - [Static (still subtrees)](#static-still-subtrees)
 - [Video](#video)
+- [MediaFrame (images and videos in a frame)](#mediaframe-images-and-videos-in-a-frame)
 - [Audio](#audio)
 - [Font and Assets](#font-and-assets)
 - [Layout helpers](#layout-helpers)
@@ -605,6 +609,198 @@ const crosses: PatternTile = {
 
 Runnable: [`packages/cli/examples/with-pattern-background.tsx`](../../../packages/cli/examples/with-pattern-background.tsx).
 
+## Panel (cards and boxes with padding)
+
+Imported from `@celesta/components`. A box of a given size with a
+background, a border, rounded corners, and a shadow, whose children lay out
+inside its padding. Use it for caption cards, callouts, and code or stat
+panels instead of a `<Group>` with a `<Rect>`, a hand-set `x={PAD}`, and a
+`clip` repeating the same size.
+
+| Prop | Default | Notes |
+| --- | --- | --- |
+| `width`, `height` | required | Outer size, padding included. Not measured from the content. |
+| `padding` | `0` | A number, or `{ top, right, bottom, left }` (missing edges are 0). |
+| `fill` | none | Hex, `<Theme>` color name, or gradient `Paint` (in the panel's local pixels). |
+| `stroke`, `strokeWidth` | none, `2` | The border, drawn inside the edge like `Rect`'s. |
+| `cornerRadius` | `0` | Rounds the background, the border, and the clip alike. |
+| `shadow` | none | `{ color, blur, offsetX, offsetY }`, cast by the background only; needs a `fill`. `color` may be a theme name. |
+| `clip` | `false` | Draws the content only inside the panel's rounded rectangle. |
+| `anchorX`, `anchorY` | `0` | The point of the panel at `x`/`y`, and the point `rotation` and `scale` turn about. |
+
+Other common props (`x`, `y`, `rotation`, `scale`, `opacity`, effects) apply
+to the whole panel.
+
+- The children's origin is the top-left of the area inside the padding.
+  `<Center>`, `<Fit>`, `<SafeArea>`, and `useLayoutBounds()` inside see that
+  area, so `<Center>` centres in it and text can wrap to its width.
+- Bottom to top it draws the shadow, the `fill`, the children, then the
+  `stroke`, so content reaching the edge never covers the border. `clip`
+  cuts the children to the whole rounded box (padding included, as CSS
+  `overflow: hidden`) and never cuts the shadow.
+- `width`, `height`, `padding`, `cornerRadius`, and `strokeWidth` must be
+  finite and not negative, or it throws. Padding wider than the panel leaves
+  a content area of 0 starting at the left and top padding. A `shadow`
+  without a `fill` throws.
+
+```tsx
+import { Panel } from '@celesta/components';
+import { Center } from '@celesta/layout';
+
+<Panel x={120} y={600} width={720} height={320} padding={32}
+  fill="#182030" stroke="#2C3A50" cornerRadius={20} clip
+  shadow={{ color: '#00000099', blur: 32, offsetX: 0, offsetY: 16 }}>
+  <Text maxWidth={656} style={textStyle}>What this step does.</Text>
+</Panel>
+
+// Centred on a point and scaled about it.
+<Panel x={960} y={540} anchorX={0.5} anchorY={0.5} scale={pop}
+  width={220} height={64} fill="#F4F1EA" cornerRadius={32}>
+  <Center><Text anchorX={0.5} anchorY={0.5}>NEW</Text></Center>
+</Panel>
+```
+
+Runnable: [`packages/cli/examples/with-panel.tsx`](../../../packages/cli/examples/with-panel.tsx).
+
+## Badge (labels sized to their text)
+
+Imported from `@celesta/components`. A label on a [`Panel`](#panel-cards-and-boxes-with-padding)
+whose size comes from the measured text: tags, chapter labels, chips, and
+pills. It passes the same text and style to `useTextMetrics()` and `<Text>`,
+so the background fits Japanese, Latin, and proportional fonts without
+estimating widths from the number of characters, and follows the text when
+it or the font changes. There is no separate `Chip`: a chip is a badge with
+`cornerRadius="pill"`.
+
+| Prop | Default | Notes |
+| --- | --- | --- |
+| `children` | required | The label: text, which may hold `<Span>`. |
+| `style`, `fontFamily`, `fontSize`, `fontWeight`, `color` | none | The label's `TextStyle` and the same shorthand as `<Text>`; theme names work. |
+| `padding` | `{ top: 8, right: 16, bottom: 8, left: 16 }` | As `Panel` takes it. |
+| `cornerRadius` | `8` | A radius, or `'pill'` for half the badge's height. |
+| `leading`, `leadingWidth` | none | A decoration before the text (a dot, an icon) and the width it lays out in; `leading` without `leadingWidth` throws. |
+| `gap` | `8` | Space between `leading` and the text. |
+| `maxWidth` | none | The widest the badge may be, padding included. |
+| `fill`, `stroke`, `strokeWidth`, `shadow`, `clip`, `anchorX`, `anchorY` | as `Panel` | Passed to the `Panel`. |
+
+- Size: the text's advance width plus `leadingWidth + gap` and the padding
+  across; its line boxes plus the padding down (`useTextMetrics()`'s
+  `height`, so one line and several alike). The text sits on its baseline at
+  `padding.top + ascent`. Empty text keeps one line box, so the badge does
+  not collapse while text is typed in.
+- `leading` lays out in a box `leadingWidth` wide and one line tall at the
+  start of the content, so `<Center>` in it centres on the first line.
+- `maxWidth`: longer text wraps onto more lines and the badge grows taller.
+  A single word wider than the room is cut off at the edge, as with
+  `<Text maxWidth>`; pass `clip` to cut it at the rounded box. Truncating
+  with an ellipsis is not supported.
+- `anchorX`/`anchorY`, `x`/`y`, `rotation`, `scale`, and `opacity` apply to
+  the whole badge, so the background and the text move together.
+- `padding`, `cornerRadius`, `gap`, `leadingWidth`, and `maxWidth` must be
+  finite and not negative, or it throws.
+
+```tsx
+import { Badge } from '@celesta/components';
+import { Center } from '@celesta/layout';
+
+<Badge x={120} y={80} fill="#204060" fontFamily="ja" fontSize={28} color="#FFFFFF">第1章</Badge>
+
+// A chip with a dot, centred on a point and scaled about it.
+<Badge x={960} y={840} anchorX={0.5} anchorY={0.5} scale={pop}
+  fill="#10121A" stroke="#2C3A50" strokeWidth={1} cornerRadius="pill"
+  padding={{ top: 14, right: 24, bottom: 14, left: 20 }}
+  fontFamily="mono" fontSize={22} color="#5BC0FF"
+  leading={<Center><Rect anchorX={0.5} anchorY={0.5} width={8} height={8} cornerRadius={4} fill="#3D5BFF" /></Center>}
+  leadingWidth={8} gap={12}>
+  {'<Composition fps={30}>'}
+</Badge>
+```
+
+Runnable: [`packages/cli/examples/with-badge.tsx`](../../../packages/cli/examples/with-badge.tsx).
+
+## Counter, StatCard, BarChart, Ranking (numbers and bar charts)
+
+Imported from `@celesta/components`. Components that count numbers and
+print them one way, with `formatNumber(value, format)`, also exported:
+
+| Format prop | Default | Notes |
+| --- | --- | --- |
+| `locale` | `'en-US'` | Digit grouping and the decimal mark (`1,234.5`; `'de-DE'` gives `1.234,5`). Fixed, so the machine's locale never changes the output. |
+| `decimals` | `0` | Decimal places, always shown (`12.0`); rounded half up. 0 to 20. |
+| `prefix`, `suffix` | none | Text around the number: `suffix=" 件"`. |
+| `formatter` | none | `(value) => string`, given the value rounded to `decimals`, instead of the locale's formatting; `prefix` and `suffix` still go around it. |
+
+A value that rounds to 0 prints without a minus sign. Values must be finite,
+or it throws.
+
+The count timing is `delay` (default 0), `durationInFrames` (default 30; 0
+jumps to the value at `delay`), and `easing` (default `easeOutExpo`), the
+same defaults as `useCountUp`.
+
+- **`<Counter value from?>`**: a `<Text>` (every other prop is `Text`'s)
+  printing a number that counts from `from` (default 0) to `value`, down as
+  well as up and through negative numbers. The text grows from its anchor:
+  `anchorX={1}` keeps the last digit and the suffix in place as digits are
+  added. There is no tabular-figures option; a proportional font's digits
+  differ in width, so use a monospaced font when no digit may move.
+- **`<StatCard value label? note?>`**: a `Panel` (its props, `padding`
+  default 32, `cornerRadius` default 16) with the label, the counting
+  number, and the note stacked with `gap` (default 8). `labelStyle`,
+  `valueStyle`, `noteStyle`, and `color` style them; `align` (`'left'`,
+  `'center'`, `'right'`) places the lines and the edge the number grows
+  from. It is sized once, from the widest line and the number at `from` and
+  at `value`, so it does not grow mid-count; `width`/`height` size it
+  yourself, centring the lines.
+- **`<BarChart data width>`**: horizontal bars, one row per
+  `{ id, label?, value, color?, textColor?, note? }`. A label column (as wide
+  as the widest label or note, or `labelWidth`, cutting longer labels off),
+  then a bar from 0 that is `value / max` of the room (`max` defaults to the
+  largest value; larger values stop at full length), then the value: past
+  the bar's end (`valuePosition="end"`, the default) or lined up at the
+  right edge (`"right"`, last digits in place). Room for the values is the
+  widest final value, or `valueWidth`.
+  - Each row starts `stagger` frames after the one above, from `delay`,
+    fades in over `fadeInFrames` (default 8), and over `durationInFrames`
+    its bar grows and its value counts up from 0 **with the same
+    progress**, so the number always matches the bar.
+  - Sizes: `rowHeight` (default the taller of `barHeight` and the label with
+    its note), `rowGap` 16, `barHeight` 28, `cornerRadius` 4, `labelGap` 24,
+    `valueGap` 16. Colors: `barColor` (`#4F8CFF`), `trackColor` (a
+    full-length track behind each bar; none by default), and per item
+    `color` (the bar) and `textColor` (label and value, over the styles'
+    fill); hex or theme names.
+  - `order`: `'input'` (default) keeps the given order; `'descending'` and
+    `'ascending'` sort by value, equal values keeping their given order.
+    Rows are keyed by `id`, which must be unique.
+  - Values must be finite and 0 or more (bars grow from 0 to the right;
+    diverging bars are not supported). A value of 0 draws no bar; when every
+    value (or `max`) is 0 no bar has length and the values print 0. Empty
+    `data` draws nothing.
+- **`<Ranking order data width>`**: a `BarChart` with a rank column. `order`
+  is required, so whether rows are sorted is always explicit. The rank is
+  the row's position from the top (1 first; equal values get consecutive
+  ranks in their given order), printed by `formatRank` (default
+  `String(rank)`) in `rankStyle` (default `labelStyle`), right-aligned in
+  `rankWidth` (default the widest rank) before `rankGap` (24).
+
+```tsx
+import { BarChart, Counter, Ranking, StatCard } from '@celesta/components';
+
+<Counter x={1800} y={120} anchorX={1} value={1280} suffix=" 件" fontSize={96} fontWeight={700} />
+<StatCard x={120} y={600} width={420} height={240} fill="#182030" color="#F4F1EA"
+  label="総ダウンロード" value={1280} suffix=" 件" note="2026 年 10 月" />
+<BarChart x={120} y={240} width={1000} stagger={8} decimals={1} suffix=" s" data={[
+  { id: 'a', label: 'A', value: 12.4 },
+  { id: 'b', label: 'B', value: 8.1 },
+]} />
+<Ranking x={120} y={240} width={1600} order="descending" valuePosition="right"
+  formatRank={(rank) => String(rank).padStart(2, '0')}
+  data={rows.map((row) => ({ id: row.id, label: row.name, value: row.score }))} />
+```
+
+Runnable: [`packages/cli/examples/with-counter.tsx`](../../../packages/cli/examples/with-counter.tsx),
+[`packages/cli/examples/with-bar-chart.tsx`](../../../packages/cli/examples/with-bar-chart.tsx).
+
 ## Static (still subtrees)
 
 `<Static>` marks content that stays the same from frame to frame. React
@@ -659,7 +855,8 @@ sound would play twice. Compositions written for earlier versions, where a
 
 To show a 1280×720 clip full-screen in a 1920×1080 composition, wrap it in
 `<Fit sourceWidth={1280} sourceHeight={720}>` (see
-[Layout helpers](#layout-helpers)).
+[Layout helpers](#layout-helpers)). To fit it into a framed box with rounded
+corners and a caption, use [`MediaFrame`](#mediaframe-images-and-videos-in-a-frame).
 
 HDR video (PQ or HLG, such as iPhone footage) and BT.2020 SDR video are
 converted to SDR the way Chrome draws them onto a canvas, so the native
@@ -668,6 +865,55 @@ preview, the export, and `@celesta/web` agree. The HDR reference white
 footage looks darker than a white `<Rect>` beside it; highlights roll off up
 to the file's MaxCLL (1000 nits without one). Export is SDR.
 `preloadMedia()` reports `video.hdr` (`'pq'` or `'hlg'`) for such a file.
+
+## MediaFrame (images and videos in a frame)
+
+Imported from `@celesta/components`. An image or a video fitted into a
+`width`×`height` frame drawn by [`Panel`](#panel-cards-and-boxes-with-padding),
+with an optional caption under it. Use it instead of a `<Rect>` behind a
+`<Group clip>` around a scaled `<Video>` with a `<Text>` placed under it.
+
+| Prop | Default | Notes |
+| --- | --- | --- |
+| `kind` | required | `'image'` or `'video'`. Never guessed from the file name. |
+| `src`, `name` | required, none | As `<Image>` / `<Video>` take them (paths, URLs, asset refs). |
+| `width`, `height` | required | The frame, padding included. |
+| `fit` | `'contain'` | `'contain'` shows all of the media, centred, on the `fill`; `'cover'` fills the area, cropped, centred. |
+| `sourceWidth`, `sourceHeight` | required for video | The video's size: `<Video>` draws at its own size, so it is needed to fit it. Read it once with `preloadMedia()` in `prepare()`. |
+| `padding` | `0` | A mat between the frame's edge and the media, as `Panel` takes it. |
+| `fill`, `stroke`, `strokeWidth`, `cornerRadius`, `shadow`, `anchorX`, `anchorY` | as `Panel` | The border draws over the media. |
+| `caption`, `captionStyle`, `captionGap` | none, `{ fontSize: 20 }`, `12` | Text under the frame, wrapped to its width (`captionStyle.align` aligns it), its line box `captionGap` below the frame. |
+| `variant` | `'plain'` | The decoration; only `'plain'` exists (browser and device chrome are not provided yet). |
+| `startFrom`, `playbackRate`, `loop` | as `Image` / `Video` | For an animated image or a video. |
+| `volume`, `muted` | as `Video` | Video only. |
+
+- The media is clipped to the area inside the padding, its corners rounded
+  by `cornerRadius` less the narrowest padding edge (never below 0).
+- An image is an `<Image>` given that area and `fit`, so it needs no size.
+- A video is a `<Video>` scaled and centred in the area, with every playback
+  prop passed through unchanged: it starts with the enclosing `<Sequence>`,
+  and its soundtrack is collected exactly as a bare `<Video>`'s.
+- The anchor and the transforms apply to the frame, the media, and the
+  caption together.
+- An unknown `kind`, `fit`, or `variant`, a video without a positive source
+  size, and negative or non-finite sizes throw.
+
+```tsx
+import { MediaFrame } from '@celesta/components';
+import { preloadMedia } from '@celesta/media-utils';
+import type { MediaInfo } from '@celesta/media-utils';
+
+let clip: MediaInfo;
+export async function prepare() { clip = await preloadMedia('./demo.mp4'); }
+
+<MediaFrame kind="video" src={clip.src} sourceWidth={clip.video!.width} sourceHeight={clip.video!.height}
+  x={120} y={120} width={960} height={540} fit="cover" cornerRadius={24} startFrom={2}
+  caption="アプリのプレビュー" captionStyle={{ fontSize: 24, fill: { type: 'solid', color: '#8A97A8' } }} />
+<MediaFrame kind="image" src="./shot.png" width={480} height={640} fit="contain"
+  padding={12} fill="#182030" cornerRadius={20} />
+```
+
+Runnable: [`packages/cli/examples/with-media-frame.tsx`](../../../packages/cli/examples/with-media-frame.tsx).
 
 ## Audio
 
@@ -737,13 +983,16 @@ Anchor children at `0.5` to center them on those points.
 
 | Component | Props | Behavior |
 | --- | --- | --- |
-| `Center` | common props | Moves the origin to the center of the canvas or the enclosing `SafeArea`/`Fit`. `x`/`y` offset from there. |
+| `Center` | common props | Moves the origin to the center of the canvas or the enclosing `SafeArea`/`Fit`/`LayoutBounds` (and so `Panel`). `x`/`y` offset from there. |
 | `SafeArea` | `padding`: number, `{ top, right, bottom, left }` (missing edges are 0), or `'vertical-social'` | Insets children; nested helpers see the smaller area. A preset is sized from the canvas ([vertical video](#vertical-video-shorts-tiktok-reels)). |
 | `Stack` | `spacing` (required), `direction`: `'vertical'` (default) or `'horizontal'` | Child *i* is placed at `i * spacing`. |
 | `Grid` | `columns`, `columnWidth`, `rowHeight`, `columnGap?`, `rowGap?` | Fills cells row by row; each child's origin is its cell's top-left. |
 | `Fit` | `sourceWidth`, `sourceHeight`, `mode`: `'contain'` (default) or `'cover'` | Scales content designed at the source size to the current area and centers it. |
+| `LayoutBounds` | `width`, `height` | Makes that the area nested helpers see, without moving or drawing anything. For components with a size of their own; `Panel` uses it for its content area. |
 
-`useLayoutBounds()` returns the current area's `{ width, height }`.
+`useLayoutBounds()` returns the current area's `{ width, height }`. For a
+box with a background and padding around its content, use
+[`Panel`](#panel-cards-and-boxes-with-padding).
 
 ```tsx
 <SafeArea padding={96}>

@@ -14,6 +14,18 @@
 
 frameKeyframes(keys, { fps, origin? }) は、フレーム番号から音量・再生速度・ピッチのキーフレームを作ります。時刻は Audio を囲む Sequence の時計で (frame - origin) / fps 秒となり、origin の既定値は 0 です。音声のフェードなどに使えます。ブラウザでの書き出しは、固定の音量と再生速度に限られ、ピッチは使えません。
 
+## 枠に入れて表示する
+
+`@celesta/components` の `MediaFrame` は、画像や動画を指定した `width` × `height` の枠に収めます。枠は `Panel` が描き（背景、メディアの上に描く枠線、角丸、影、`padding` による余白）、下に任意の `caption` を付けられます。メディアの種類は `kind`（`"image"` または `"video"`）で明示し、ファイル名からは推測しません。`fit="contain"`（既定）は全体を中央に表示し、`"cover"` は枠を埋めてはみ出す部分を切り取ります。`Video` は自身のサイズで描画されるため、動画には `sourceWidth` と `sourceHeight` も必要です。`prepare()` で `preloadMedia()` を 1 回呼んで取得してください。`startFrom`、`playbackRate`、`volume`、`muted`、`loop` はそのまま `Video` に渡るので、`Sequence` と同時に始まり、音声も単独の `Video` と同じに鳴ります。現在の装飾は plain だけです。
+
+```tsx title="角丸の枠に入れた動画"
+let clip: MediaInfo;
+export async function prepare() { clip = await preloadMedia("./demo.mp4"); }
+
+<MediaFrame kind="video" src={clip.src} sourceWidth={clip.video!.width} sourceHeight={clip.video!.height}
+  width={960} height={540} fit="cover" cornerRadius={24} caption="アプリのプレビュー" />
+```
+
 ## ピッチを変える
 
 `Audio` のピッチは既定では速度に連動します。テープと同じで、`playbackRate={1.25}` にすると速く、高くなります。2 つの props で切り離せます。

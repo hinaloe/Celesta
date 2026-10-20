@@ -14,6 +14,18 @@
 
 frameKeyframes(keys, { fps, origin? }) builds volume, playbackRate, or pitch keyframes from frame numbers. Times are (frame - origin) / fps on the enclosing sequence’s clock; origin defaults to 0. Use it for audio fades. The browser exporter supports only constant volume and playback rate, and does not support pitch.
 
+## Show media in a frame
+
+`MediaFrame` from `@celesta/components` fits an image or a video into a frame of a given `width` and `height`, drawn by `Panel` (background, border over the media, rounded corners, shadow, and a `padding` mat), with an optional `caption` under it. `kind` (`"image"` or `"video"`) says which the media is; it is never guessed from the file name. `fit="contain"` (the default) shows all of it, centred; `"cover"` fills the frame, cropped. A `Video` draws at its own size, so a video also needs `sourceWidth` and `sourceHeight`: read them once with `preloadMedia()` in `prepare()`. `startFrom`, `playbackRate`, `volume`, `muted`, and `loop` reach the `Video` unchanged, so it starts with its `Sequence` and sounds as a bare `Video` would. Only the plain frame exists for now.
+
+```tsx title="A clip in a rounded frame"
+let clip: MediaInfo;
+export async function prepare() { clip = await preloadMedia("./demo.mp4"); }
+
+<MediaFrame kind="video" src={clip.src} sourceWidth={clip.video!.width} sourceHeight={clip.video!.height}
+  width={960} height={540} fit="cover" cornerRadius={24} caption="App preview" />
+```
+
 ## Change the pitch
 
 By default an `Audio`'s pitch follows its speed, like tape: `playbackRate={1.25}` is faster and higher. Two props separate them.

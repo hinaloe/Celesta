@@ -165,6 +165,7 @@ const ripple = defineShader({
 | `Stack` | 子を `spacing` ピクセル間隔で並べます。既定は `vertical`、`horizontal` も選べます。 |
 | `Grid` | `columns` 列、`columnWidth` × `rowHeight` のセルに子を配置します。間隔も指定できます。 |
 | `Fit` | `sourceWidth` × `sourceHeight` で設計した内容を、現在の領域に `contain` または `cover` で合わせます。 |
+| `LayoutBounds` | 内側のヘルパーが見る領域を `width` × `height` にします。子を動かさず、何も描きません。 |
 
 ```tsx title="セーフマージン内の中央揃えリスト"
 <SafeArea padding={96}>
@@ -182,6 +183,29 @@ const ripple = defineShader({
 ```
 
 ヘルパーは子の原点を配置し、描画サイズは計測しません。配置点を中心にするには、子のアンカーを `0.5` にします。
+
+## パネル
+
+`@celesta/components` の `Panel` は、`width` × `height` の枠に背景（`fill`）、枠線（`stroke`・`strokeWidth`。枠の内側に描きます）、角丸（`cornerRadius`）、背景が落とす影（`shadow`）をまとめて描きます。子は `padding`（数値または `{ top, right, bottom, left }`）の内側から配置され、内側の `Center`・`Fit`・`useLayoutBounds()` は余白を除いた領域を参照します。描く順序は影、背景、子、枠線で、内容が枠線を覆うことはありません。`clip` を付けると子を角丸の枠で切り取ります。`anchorX`・`anchorY` は `x`・`y` に置く点で、`rotation` と `scale` もこの点を中心にします。寸法・余白・角丸・枠線の太さは有限の 0 以上でなければなりません。
+
+```tsx title="説明カード"
+<Panel x={120} y={600} width={720} height={320} padding={32}
+  fill="#182030" stroke="#2C3A50" cornerRadius={20} clip
+  shadow={{ color: "#00000099", blur: 32, offsetX: 0, offsetY: 16 }}>
+  <Text maxWidth={656} style={{ fontSize: 40 }}>説明文</Text>
+</Panel>
+```
+
+`@celesta/components` の `Badge` は、文字を実際に計測した寸法の `Panel` に載せたラベルです。日本語・英数字・比例フォントのどれでも背景が文字に合い、文字が変わればその場で背景も変わります。文字の `style`（または `fontFamily`・`fontSize`・`fontWeight`・`color` の省略形）、`Panel` の `fill`・`stroke`・`shadow`・アンカー、`padding`（既定は上下 8・左右 16）、`cornerRadius`（既定は 8。`"pill"` で両端が半円になります。チップ用の別コンポーネントはありません）を受け取ります。`leading` は文字の前に描く装飾（ドットなど）で、幅 `leadingWidth`・1 行分の高さの領域に配置され、文字との間は `gap` です。`maxWidth` を指定すると長い文字は折り返し、バッジは縦に伸びます。
+
+```tsx title="章ラベルとドット付きのチップ"
+<Badge x={120} y={80} fill="#204060" fontSize={28} color="#FFFFFF">第1章</Badge>
+<Badge x={120} y={160} fill="#10121A" cornerRadius="pill" fontSize={22} color="#5BC0FF"
+  leading={<Center><Rect anchorX={0.5} anchorY={0.5} width={8} height={8} cornerRadius={4} fill="#3D5BFF" /></Center>}
+  leadingWidth={8} gap={12}>
+  {"<Composition fps={30}>"}
+</Badge>
+```
 
 ## Shorts・TikTok・Reels 向けの縦型動画
 
