@@ -88,7 +88,7 @@ test('withTextRuns keeps plain styles as they are and refuses mixed run sources'
   assert.throws(() => withTextRuns({ colorRuns: [{ start: 0, end: 1, color: '#fff' }] }, flat, '<Text>'),
     /<Text> cannot combine style.colorRuns with <Span> fill/);
   assert.throws(() => withTextRuns({ fontRuns: [{ start: 0, end: 1, fontWeight: 400 }] }, flat, '<Text>'),
-    /<Text> cannot combine style.fontRuns with <Span> fontWeight or fontFamily/);
+    /<Text> cannot combine style.fontRuns with <Span> fontWeight, fontFamily, or fontFeatures/);
   // Each list is refused only against spans that write it.
   const colorOnly = flattenTextContent(h(Span, { style: { fill: '#ff0000' } }, 'a'), 'x');
   assert.deepEqual(withTextRuns({ fontRuns: [{ start: 0, end: 1, fontWeight: 700 }] }, colorOnly, '<Text>').colorRuns,
@@ -152,7 +152,7 @@ test('useFitText refuses style.colorRuns with a Span fill, as fitText does', () 
     useFitText(['a', h(Span, { style: { fontWeight: 700 } }, 'b')], { ...options, style: { fontRuns: [{ start: 0, end: 1, fontWeight: 400 }] } });
     return null;
   }
-  assert.throws(() => scene(frame(h(WeightProbe))), /useFitText\(\) cannot combine style.fontRuns with <Span> fontWeight or fontFamily/);
+  assert.throws(() => scene(frame(h(WeightProbe))), /useFitText\(\) cannot combine style.fontRuns with <Span> fontWeight, fontFamily, or fontFeatures/);
 });
 
 test('subtitles carry spans to the text layer and to render', () => {

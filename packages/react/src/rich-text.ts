@@ -5,7 +5,8 @@
 import * as React from 'react';
 import type { ReactNode } from 'react';
 
-import type { FontFamily, Paint, TextColorRun, TextFontRun, TextStyle } from './scene';
+import { checkFontFeatures } from './font-features';
+import type { FontFamily, FontFeatures, Paint, TextColorRun, TextFontRun, TextStyle } from './scene';
 import { type ResolvedTheme, themeColor, themeFont } from './theme';
 
 export interface SpanStyle {
@@ -15,6 +16,8 @@ export interface SpanStyle {
   fontWeight?: number;
   /** A family name, or a font stack: names tried in order for each character. */
   fontFamily?: FontFamily;
+  /** OpenType features, merged tag by tag over the text's (and outer spans') `fontFeatures`. */
+  fontFeatures?: FontFeatures;
 }
 
 export interface SpanProps {
@@ -29,7 +32,7 @@ export interface SpanProps {
 }
 
 /**
- * Changes the fill, weight, or family of part of a text, which is still
+ * Changes the fill, weight, family, or OpenType features of part of a text, which is still
  * laid out as one paragraph. Valid only inside the content of `<Text>`,
  * `<TextBox>`, `<TextReveal>`, `<Dialogue>`, and text measurements.
  */
@@ -50,11 +53,18 @@ interface Inherited {
   color?: string;
   fontWeight?: number;
   fontFamily?: FontFamily;
+  fontFeatures?: FontFeatures;
 }
 
 function sameFamily(a: FontFamily | null | undefined, b: FontFamily | null | undefined): boolean {
   if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((name, i) => name === b[i]);
   return a === b;
+}
+
+function sameFeatures(a: FontFeatures | null | undefined, b: FontFeatures | null | undefined): boolean {
+  if (a == null || b == null) return a == b;
+  const tags = Object.keys(a);
+  return tags.length === Object.keys(b).length && tags.every((tag) => b[tag] !== undefined && Number(a[tag]) === Number(b[tag]));
 }
 
 /** The color formats the renderer reads; checked here so a bad one fails at the span, not at export. */
@@ -105,6 +115,10 @@ function resolveSpan(style: SpanStyle | undefined, inherited: Inherited): Inheri
     }
     next.fontFamily = Array.isArray(family) ? [...family] : style.fontFamily;
   }
+  if (style?.fontFeatures !== undefined) {
+    checkFontFeatures(style.fontFeatures, '<Span>');
+    next.fontFeatures = { ...inherited.fontFeatures, ...style.fontFeatures };
+  }
   return next;
 }
 
@@ -137,13 +151,15 @@ export function flattenTextContent(content: ReactNode, what: string): FlatText {
       if (inherited.color !== undefined) {
         push(colorRuns, { start, end: length, color: inherited.color }, (a, b) => a.color === b.color);
       }
-      if (inherited.fontWeight !== undefined || inherited.fontFamily !== undefined) {
+      if (inherited.fontWeight !== undefined || inherited.fontFamily !== undefined || inherited.fontFeatures !== undefined) {
         push(fontRuns, {
           start,
           end: length,
           ...(inherited.fontWeight !== undefined ? { fontWeight: inherited.fontWeight } : {}),
           ...(inherited.fontFamily !== undefined ? { fontFamily: inherited.fontFamily } : {}),
-        }, (a, b) => a.fontWeight === b.fontWeight && sameFamily(a.fontFamily, b.fontFamily));
+          ...(inherited.fontFeatures !== undefined ? { fontFeatures: inherited.fontFeatures } : {}),
+        }, (a, b) => a.fontWeight === b.fontWeight && sameFamily(a.fontFamily, b.fontFamily)
+          && sameFeatures(a.fontFeatures, b.fontFeatures));
       }
       return;
     }
@@ -207,7 +223,7 @@ export function withTextRuns(style: TextStyle, flat: FlatText, owner: string): T
     throw new Error(`${owner} cannot combine style.colorRuns with <Span> fill`);
   }
   if (flat.fontRuns.length > 0 && (style.fontRuns?.length ?? 0) > 0) {
-    throw new Error(`${owner} cannot combine style.fontRuns with <Span> fontWeight or fontFamily`);
+    throw new Error(`${owner} cannot combine style.fontRuns with <Span> fontWeight, fontFamily, or fontFeatures`);
   }
   return {
     ...style,

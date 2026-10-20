@@ -6,6 +6,7 @@
 import * as React from 'react';
 import type { ReactNode } from 'react';
 
+import { checkFontFeatures } from './font-features';
 import type { FontFamily, Paint, TextStyle } from './scene';
 
 /** Font stacks and colors by name, as `<Theme>` takes them and `useTheme()` returns them. */
@@ -127,7 +128,8 @@ export interface TextShorthand {
 /**
  * @internal `style` with `shorthand` filling what it leaves unset, and
  * `theme`'s names looked up. `style` itself when nothing changes, so text
- * without shorthand or theme names keeps its style object.
+ * without shorthand or theme names keeps its style object. Throws on
+ * malformed `fontFeatures`.
  */
 export function themedTextStyle(
   style: TextStyle | undefined,
@@ -147,6 +149,8 @@ export function themedTextStyle(
     set('fill', { type: 'solid', color: shorthandColor(shorthand.color, theme, owner) });
   }
   if (next?.fontFamily != null) set('fontFamily', themeFont(next.fontFamily, theme));
+  // Every text style passes here on its way to the renderer.
+  if (next?.fontFeatures != null) checkFontFeatures(next.fontFeatures, owner);
   if (next?.fill != null) set('fill', themePaint(next.fill, theme));
   if (next?.stroke != null) {
     const strokes = Array.isArray(next.stroke) ? next.stroke : [next.stroke];
