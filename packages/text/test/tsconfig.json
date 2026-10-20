@@ -1,13 +1,15 @@
 {
+  // Type-checks the tests against the package's declarations. Run with
+  // `tsc -b test`, which builds the package first when dist/ is missing or stale.
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "composite": false,
     "declaration": false,
-    "incremental": false,
     "noEmit": true,
     "rootDir": "..",
+    "tsBuildInfoFile": "../dist/test.tsbuildinfo",
     "types": ["node"]
   },
   "include": ["./**/*.mts"],
-  "references": []
+  "references": [{ "path": ".." }]
 }
