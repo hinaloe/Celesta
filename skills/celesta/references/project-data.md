@@ -169,11 +169,13 @@ Props must be plain JSON values; declare them with a `type` alias, not an
 `range`, `transform`, and `opacity` still come from the JSON.
 
 ```tsx
+import { LowerThird } from '@celesta/components';
+
 type LowerThirdProps = { name: string; role: string };
-function LowerThird({ name, role }: LowerThirdProps) {
-  return <Text style={{ fontSize: 48 }}>{`${name} · ${role}`}</Text>;
+function NameCaption({ name, role }: LowerThirdProps) {
+  return <LowerThird title={name} subtitle={role} />;
 }
-registerComponent<LowerThirdProps>('LowerThird', LowerThird, {
+registerComponent<LowerThirdProps>('LowerThird', NameCaption, {
   name: { type: 'string', defaultValue: 'Mira' },
   role: { type: 'string', defaultValue: 'Host' },
 });
