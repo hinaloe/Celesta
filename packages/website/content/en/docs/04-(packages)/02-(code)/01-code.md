@@ -34,7 +34,7 @@ export default function Root() {
 
 ## Fonts
 
-Use a **monospaced** font. `Code` defaults to JetBrains Mono at 24 px with a line height of 1.5 × the font size. Load the font file with `<Font src="…" />`, as above, or install it on the machine that renders. If the font is missing, Celesta falls back as it does for any text.
+Use a **monospaced** font. `Code` defaults to JetBrains Mono at 24 px with a line height of 1.5 × the font size. Load the font file with `<Font src="…" />`, as above, or install it on the machine that renders. If the font is missing, export falls back as it does for any text. The browser preview needs the font loaded with `<Font>`: `Code` turns ligatures off, which the preview can do only in fonts it loaded.
 
 ## Props
 

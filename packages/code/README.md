@@ -67,8 +67,10 @@ function Example() {
 
 Load the named monospaced font with Celesta's `<Font src="..." />`, or install
 it on the rendering machine. Defaults are JetBrains Mono, 24 px, and a line
-height of 1.5 × font size. If the font is missing, Celesta uses its normal font
-fallback. The example loads the repository's IBM Plex Mono font explicitly.
+height of 1.5 × font size. If the font is missing, export uses Celesta's normal
+font fallback. The browser preview needs it loaded with `<Font>`, since it can
+turn ligatures off (see `style` below) only in fonts it loaded. The example
+loads the repository's IBM Plex Mono font explicitly.
 
 - `children` is a source string, including indentation and trailing newlines.
 - `language` is `tsx`, `ts`, `json`, `bash`, or `text` (the default).

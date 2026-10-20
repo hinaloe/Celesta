@@ -4,7 +4,7 @@ import { codeThemes, highlightCode } from '@celesta/code';
 const source = `const message: string = 'Hello, Celesta.';
 console.log(message);`;
 
-const style = { fontFamily: 'IBM Plex Mono', fontSize: 40, lineHeight: 60 };
+const style = { fontFamily: 'IBM Plex Mono', fontSize: 40, lineHeight: 60, fontFeatures: { liga: false, calt: false } };
 const theme = codeThemes.dark;
 // The same lines and colors Code would draw.
 const lines = highlightCode(source, { language: 'ts', theme });

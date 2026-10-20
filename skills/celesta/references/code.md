@@ -45,7 +45,7 @@ export default function Root() {
 | --- | --- |
 | `children` | The source string, including indentation and trailing newlines. |
 | `language` | `'tsx'`, `'ts'`, `'json'`, `'bash'`, or `'text'` (default, no highlighting). |
-| `style` | A `TextStyle`. Defaults: `JetBrains Mono`, 24 px, `lineHeight` 1.5 × `fontSize` (px), and `fontFeatures: { liga: false, calt: false }`, so `===` and `->` show as written; `style.fontFeatures` is merged over that tag by tag (`{ liga: true }` turns ligatures back on). `align` must be `'left'` (or omitted); text never wraps. The theme supplies each run's fill color. |
+| `style` | A `TextStyle`. Defaults: `JetBrains Mono`, 24 px, `lineHeight` 1.5 × `fontSize` (px), and `fontFeatures: { liga: false, calt: false }`, so `===` and `->` show as written; `style.fontFeatures` is merged over that tag by tag (`{ liga: true }` turns ligatures back on). The browser preview applies features only to fonts loaded with `<Font>`, so there the family must be loaded. `align` must be `'left'` (or omitted); text never wraps. The theme supplies each run's fill color. |
 | `theme` | `codeThemes.dark` (default), `codeThemes.light`, or your own (see [Themes](#themes)). |
 | `visibleCharacters` | How much of the source to show, in Unicode code points of the **original** source (a tab costs 1, LF 1, CRLF 2). Fractions round down; negative shows nothing; default `Infinity`. |
 | `highlightLines` | One-based line numbers to band. A band covers the whole line box and the full source width, even while only part of it is typed. |
