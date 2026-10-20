@@ -55,11 +55,19 @@ jobs:
       # Installing FFmpeg takes about two minutes on macOS (Homebrew), so the
       # Rust toolchain, Node.js, and the JS packages install meanwhile.
       # rust-cache waits for it: FFMPEG_VERSION is part of its key, and a
-      # background step's environment reaches later steps only after `wait`.
+      # background step's environment reaches later steps only after a wait.
       # It starts after the Linux packages, as both use apt.
       - id: ffmpeg
+        if: runner.os != 'Windows'
         uses: ./.github/actions/setup-ffmpeg
         background: true
+
+      # Windows only downloads the pre-built package (about 10 seconds), and
+      # there a background composite action fails now and then: the runner
+      # rewrites event.json as each step starts, and two steps starting at
+      # once collide on the file lock (actions/runner#4641).
+      - if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-ffmpeg
 
       # rust-cache hashes every installed toolchain; exclude the runner's moving stable.
       - name: Isolate Rust toolchain
@@ -83,7 +91,9 @@ jobs:
       - name: Install JS packages
         run: pnpm install --frozen-lockfile
 
-      - wait: ffmpeg
+      # FFmpeg is the only background step so far; Windows has none to wait
+      # for, and `wait` does not take `if`.
+      - wait-all:
 
       # Pull requests restore main's cache; saving their own copies only
       # crowds main's entries out of the repository's cache quota.
