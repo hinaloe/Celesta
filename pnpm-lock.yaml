@@ -276,6 +276,9 @@ importers:
 
   examples/delta:
     dependencies:
+      '@celesta/character':
+        specifier: workspace:*
+        version: link:../../packages/character
       '@celesta/code':
         specifier: workspace:*
         version: link:../../packages/code
@@ -288,6 +291,9 @@ importers:
       '@celesta/layout':
         specifier: workspace:*
         version: link:../../packages/layout
+      '@celesta/lottie':
+        specifier: workspace:*
+        version: link:../../packages/lottie
       '@celesta/math':
         specifier: workspace:*
         version: link:../../packages/math
