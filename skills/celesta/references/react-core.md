@@ -32,6 +32,7 @@ provides `react` (18.x) and those packages; never install them from npm.
 - [Panel (cards and boxes with padding)](#panel-cards-and-boxes-with-padding)
 - [Badge (labels sized to their text)](#badge-labels-sized-to-their-text)
 - [Counter, StatCard, BarChart, Ranking (numbers and bar charts)](#counter-statcard-barchart-ranking-numbers-and-bar-charts)
+- [Callout (a note with a line to its target)](#callout-a-note-with-a-line-to-its-target)
 - [Static (still subtrees)](#static-still-subtrees)
 - [Video](#video)
 - [MediaFrame (images and videos in a frame)](#mediaframe-images-and-videos-in-a-frame)
@@ -800,6 +801,58 @@ import { BarChart, Counter, Ranking, StatCard } from '@celesta/components';
 
 Runnable: [`packages/cli/examples/with-counter.tsx`](../../../packages/cli/examples/with-counter.tsx),
 [`packages/cli/examples/with-bar-chart.tsx`](../../../packages/cli/examples/with-bar-chart.tsx).
+
+## Callout (a note with a line to its target)
+
+Imported from `@celesta/components`. A box with a title and text, sized
+from the measured text like [`Badge`](#badge-labels-sized-to-their-text),
+and a line from the box to a `target` point ending in an arrowhead. Use it
+instead of a `<Rect>`, a `<Text>`, and a `<Line>` or `<Arrow>` placed by
+hand.
+
+| Prop | Default | Notes |
+| --- | --- | --- |
+| `target` | required | `{ x, y }`, the point the line ends at. |
+| `x`, `y` | required | Where the box goes, in the same coordinates as `target`. |
+| `anchorX`, `anchorY` | `0` | Which point of the box is at `x`/`y`, as fractions of its width and measured height (`anchorY={0.5}` centres it on `y`). It only places the box. |
+| `width` | required | The box, padding included. Its height is the measured title and text plus the padding. |
+| `title`, `text` | none | Text, which may hold `<Span>`, wrapped inside the padding. Either may be left out. |
+| `titleStyle`, `textStyle`, `color` | `{ fontSize: 28, fontWeight: 700 }`, `{ fontSize: 22 }`, none | `color` is a hex or theme name for both, unless a style sets a fill. |
+| `gap` | `8` | Between the title and the text. |
+| `padding`, `cornerRadius`, `fill`, `stroke`, `strokeWidth`, `shadow` | `20`, `12`, none | The box, as `Panel` takes them. |
+| `side` | `'auto'` | The edge the line leaves from, at its middle: `'auto'` takes the edge facing the target (of how far it lies outside across and down, the larger), or `'top'`, `'right'`, `'bottom'`, `'left'`. |
+| `route` | `'straight'` | `'elbow'` goes straight out of the edge, then turns once to the target. |
+| `lineColor`, `lineWidth`, `dash`, `cap` | `#FFFFFF`, `2`, none, `'round'` | The line; `lineColor` takes theme names. The arrowhead stays solid. |
+| `head`, `headLength`, `headWidth` | `'arrow'`, as `Arrow` | `'none'` ends the line at the target without a head. |
+| `lineProgress` | `1` | How much of the line is drawn, 0–1 of its length from the target; animate it to grow the line from the target to the box. |
+| `opacity`, `lang`, `fontFallback`, `id` | | For the whole callout. |
+
+- `target`, `x`, and `y` are in the Callout's parent's coordinates, and the
+  Callout has no transform of its own (no `scale` or `rotation`): it would
+  move the line's end off the target. Put it in the same `<Group>` as what
+  it points at, and the line stays on the target whatever that group's
+  transform. Animate `target`, `x`, and `y` and the line follows.
+- A target inside the box draws no line.
+- The line is drawn under the box, so the box's border covers its end.
+- To fade it in and out, wrap it in `<Motion enter="fade">`. The moving
+  presets (`fade-up`, `scale`, …) move the whole group, the line's target
+  end included, off the target.
+- Following a moving object automatically, reading another layer's
+  position, and keeping several callouts from overlapping are not provided.
+
+```tsx
+import { Callout } from '@celesta/components';
+
+<Callout target={{ x: 960, y: 540 }} x={1200} y={240} width={480}
+  title="ここに注目" text="対象の特徴を説明します"
+  fill="#182030" color="#F4F1EA" lineColor="#FF4D1F" />
+
+// From a named edge, turning once; growing from the target.
+<Callout target={{ x: 400, y: 800 }} x={600} y={420} width={360} side="bottom" route="elbow"
+  title="Elbow" lineProgress={progress(frame, 0, 20)} />
+```
+
+Runnable: [`packages/cli/examples/with-callout.tsx`](../../../packages/cli/examples/with-callout.tsx).
 
 ## Static (still subtrees)
 

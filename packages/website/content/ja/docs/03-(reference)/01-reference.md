@@ -78,6 +78,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `Badge` | `@celesta/components` | 文字を計測した寸法の `Panel` に載せたラベルです。文字の前の装飾、`cornerRadius="pill"` による半円の両端、`maxWidth` での折り返しに対応します。 |
 | `Counter` / `StatCard` / `formatNumber` | `@celesta/components` | 数えた数値を、固定の locale（既定 `'en-US'`）・小数桁・prefix / suffix・formatter で整形して描きます。単独でも、ラベルと補足を載せたカードでも使えます。 |
 | `BarChart` / `Ranking` | `@celesta/components` | 時間差で伸びる横棒と、同じ進捗で数える数値です。`Ranking` は順位を加え、ソートするかどうかを明示します。 |
+| `Callout` | `@celesta/components` | 計測したタイトルと本文で高さを決める注釈の枠と、同じ座標系の対象点へ向かう直線または折れ線の矢印です。 |
 | `CaptionTrack` | `@celesta/components` | データだけで出す時間指定の字幕（`parseSubtitles()` の cue や自前の配列）。各フレームの字幕を帯に載せ、行数の上限まで折り返し、強調し、フェードで出し入れします。`render` で描き方を差し替えても cue の時計は変わりません。 |
 | `MediaFrame` | `@celesta/components` | 画像または動画（`kind` で指定）を `Panel` の枠に contain / cover で収め、角丸・枠線・キャプションを付けます。動画の再生設定と音声はそのまま保たれます。 |
 | `Motion` | `@celesta/components` | 一つの要素をフェード・移動・拡大で登場させ、書いたままの状態で保持し、退場させます。表示区間は外側の Sequence の区間か、自前で指定した区間です。シーン同士のつなぎには `TransitionSeries` を使います。 |
