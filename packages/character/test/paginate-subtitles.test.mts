@@ -1,17 +1,22 @@
 // `paginateSubtitles()` against a fixed measurer: every code point is
-// `fontSize` wide, ASCII words never break, other text breaks anywhere, and
-// `\n` always does. No fonts or speech engine are needed.
+// `fontSize` wide (twice that at weight 700 or more), ASCII words never
+// break, other text breaks anywhere, and `\n` always does. No fonts or speech
+// engine are needed.
 
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'vitest';
 
+import type { GlyphMetrics, TextMetrics } from '@celesta/react';
 import { setTextMeasurer } from '@celesta/react/internal';
+import type { MeasureTextRequest } from '@celesta/react/internal';
 import { paginateSubtitles, planDialogue } from '../dist/index.js';
+import type { DialogueLine, PaginateSubtitlesOptions, SpeechTiming } from '../dist/index.js';
 
-function measure({ text, style, maxWidth = Infinity }) {
+function measure({ text, style, maxWidth = Infinity }: MeasureTextRequest): TextMetrics {
   const size = style.fontSize ?? 10;
-  const weight = (index) => (style.fontRuns ?? []).some((run) => run.start <= index && index < run.end && run.fontWeight >= 700) ? 2 : 1;
-  const rows = [{ start: 0, glyphs: [] }];
+  const weight = (index: number) =>
+    (style.fontRuns ?? []).some((run) => run.start <= index && index < run.end && (run.fontWeight ?? 0) >= 700) ? 2 : 1;
+  const rows: { start: number; glyphs: GlyphMetrics[] }[] = [{ start: 0, glyphs: [] }];
   let x = 0;
   let index = 0;
   const tokens = text.split('\n').flatMap((paragraph, p) => [...(p > 0 ? ['\n'] : []), ...(paragraph.match(/[A-Za-z]+|[\s\S]/gu) ?? [])]);
@@ -28,7 +33,9 @@ function measure({ text, style, maxWidth = Infinity }) {
       rows.push({ start: index, glyphs: [] });
       x = 0;
     }
-    rows[rows.length - 1].glyphs.push({ start: index, end: index + length, x, width, line: rows.length - 1, text: token, rtl: false, inkAscent: 0, inkDescent: 0 });
+    rows[rows.length - 1].glyphs.push({
+      start: index, end: index + length, x, width, line: rows.length - 1, text: token, rtl: false, inkAscent: 0, inkDescent: 0,
+    });
     x += width;
     index += length;
   }
@@ -40,7 +47,7 @@ function measure({ text, style, maxWidth = Infinity }) {
   };
 }
 
-let requests;
+let requests: MeasureTextRequest[];
 beforeEach(() => {
   requests = [];
   setTextMeasurer(async (request) => {
@@ -49,20 +56,25 @@ beforeEach(() => {
   }, measure);
 });
 
-const base = { fps: 30, style: { fontSize: 10 }, maxWidth: 60, maxLines: 1 };
+const base: PaginateSubtitlesOptions = { fps: 30, style: { fontSize: 10 }, maxWidth: 60, maxLines: 1 };
 
 /** A speech timing with one mora every `step` seconds. */
-function timing(moras, step = 0.1) {
+function timing(moras: number, step = 0.1): SpeechTiming {
   const list = Array.from({ length: moras }, (_, i) => ({
     text: 'ア', start: i * step, end: (i + 1) * step, consonant: null,
     vowel: { phoneme: 'a', start: i * step, end: (i + 1) * step }, accentPhrase: 0,
   }));
-  return { exact: true, durationInSeconds: moras * step, speech: { start: 0, end: moras * step }, accentPhrases: [], moras: list, pauses: [], phonemes: [] };
+  return {
+    exact: true, durationInSeconds: moras * step, speech: { start: 0, end: moras * step },
+    accentPhrases: [], moras: list, pauses: [], phonemes: [],
+  };
 }
 
-test('a line that fits, a line with pages, and a styled line are left as they are', async () => {
-  const fits = { id: 'short', text: 'みじかい', durationInFrames: 30 };
-  const manual = { id: 'manual', text: 'あいうえおかきくけこ', durationInFrames: 30, subtitlePages: [{ from: 0, text: 'あいうえおかきくけこ' }] };
+const texts = (line: DialogueLine) => line.subtitlePages?.map((page) => page.text);
+
+test('a line that fits and a line with pages are left as they are', async () => {
+  const fits: DialogueLine = { id: 'short', text: 'みじかい', durationInFrames: 30 };
+  const manual: DialogueLine = { id: 'manual', text: 'あいうえおかきくけこ', durationInFrames: 30, subtitlePages: [{ from: 0, text: 'あいうえおかきくけこ' }] };
   const [a, b] = await paginateSubtitles([fits, manual], base);
   assert.equal(a, fits);
   assert.equal(b, manual);
@@ -80,24 +92,24 @@ test('long text splits where the measured lines do, with frames shared out and m
   assert.deepEqual([requests[0].maxWidth, requests[0].style.fontSize], [60, 10]);
   // The pages are valid for planDialogue.
   const plan = await planDialogue([line], { fps: 30 });
-  assert.deepEqual(plan.lines[0].subtitlePages.map((page) => [page.from, page.end]), [[0, 32], [32, 64], [64, 90]]);
+  assert.deepEqual(plan.lines[0].subtitlePages?.map((page) => [page.from, page.end]), [[0, 32], [32, 64], [64, 90]]);
 });
 
 test('maxLines and maxHeight both limit the lines on a page', async () => {
   const text = 'あいうえおかきくけこさしすせそたちつてと';
   const [two] = await paginateSubtitles([{ id: 'x', text, durationInFrames: 60 }], { ...base, maxLines: 2 });
-  assert.deepEqual(two.subtitlePages.map((page) => page.text), ['あいうえおかきくけこさし', 'すせそたちつてと']);
+  assert.deepEqual(texts(two), ['あいうえおかきくけこさし', 'すせそたちつてと']);
   const [tall] = await paginateSubtitles([{ id: 'x', text, durationInFrames: 60 }], { ...base, maxLines: 9, maxHeight: 25 });
-  assert.deepEqual(tall.subtitlePages.map((page) => page.text), ['あいうえおかきくけこさし', 'すせそたちつてと']);
+  assert.deepEqual(texts(tall), ['あいうえおかきくけこさし', 'すせそたちつてと']);
   await assert.rejects(paginateSubtitles([{ id: 'x', text, durationInFrames: 60 }], { ...base, maxHeight: 5 }), /line "x": maxHeight 5 px is less than one line/);
 });
 
 test('breaks never cut a grapheme cluster, and whitespace at a break is dropped', async () => {
   // The family emoji is 5 code points; the measurer would break inside it.
   const [line] = await paginateSubtitles([{ id: 'emoji', text: 'あいう👨‍👩‍👧えおか', durationInFrames: 60 }], base);
-  assert.deepEqual(line.subtitlePages.map((page) => page.text), ['あいう👨‍👩‍👧', 'えおか']);
+  assert.deepEqual(texts(line), ['あいう👨‍👩‍👧', 'えおか']);
   const [spaced] = await paginateSubtitles([{ id: 'spaced', text: 'Hi you all', durationInFrames: 60 }], { ...base, maxWidth: 30 });
-  assert.deepEqual(spaced.subtitlePages.map((page) => page.text), ['Hi', 'you', 'all']);
+  assert.deepEqual(texts(spaced), ['Hi', 'you', 'all']);
   await planDialogue([line, spaced], { fps: 30 });
 });
 
@@ -106,7 +118,7 @@ test('emphasis is measured at its weight', async () => {
   const [line] = await paginateSubtitles([{
     id: 'bold', text: 'あいうえおかき', durationInFrames: 60, emphasis: [{ start: 0, end: 2, style: 'loud' }],
   }], { ...base, emphasisStyles: { loud: { fontWeight: 800 } } });
-  assert.deepEqual(line.subtitlePages.map((page) => page.text), ['あいうえ', 'おかき']);
+  assert.deepEqual(texts(line), ['あいうえ', 'おかき']);
   await assert.rejects(
     paginateSubtitles([{ id: 'bad', text: 'あい', durationInFrames: 60, emphasis: [{ start: 0, end: 1, style: 'nope' }] }], base),
     /paginateSubtitles\(\): line "bad": emphasis 0 names the unknown style "nope"/,
@@ -114,7 +126,7 @@ test('emphasis is measured at its weight', async () => {
 });
 
 test('with speech timing and segments, pages break between segments and start on their first mora', async () => {
-  const line = {
+  const line: DialogueLine = {
     id: 'danger', text: 'HPが1です。回復しましょう。', spokenText: 'えいちぴーがいちです。かいふくしましょう。', durationInFrames: 90,
     subtitleSegments: [
       { text: 'HPが', moras: 5 }, { text: '1です。', moras: 4 }, { text: '回復', moras: 4 }, { text: 'しましょう。', moras: 4 },
@@ -131,14 +143,17 @@ test('with speech timing and segments, pages break between segments and start on
   ]);
   // Eight columns would break after "回"; the page ends before "回復" instead.
   const [snapped] = await paginateSubtitles([line], { ...base, maxWidth: 80, speechTiming: () => timing(17) });
-  assert.deepEqual(snapped.subtitlePages.map((page) => [page.from, page.text]), [[0, 'HPが1です。'], [27, '回復しましょう。']]);
+  assert.deepEqual(snapped.subtitlePages?.map((page) => [page.from, page.text]), [[0, 'HPが1です。'], [27, '回復しましょう。']]);
   // Without segments the same line is approximate.
   const [rough] = await paginateSubtitles([{ ...line, subtitleSegments: undefined }], { ...base, maxWidth: 80, speechTiming: () => timing(17) });
-  assert.ok(rough.subtitlePages.every((page) => page.timing === 'approximate'));
+  assert.ok(rough.subtitlePages?.every((page) => page.timing === 'approximate'));
 });
 
 test('an inconsistent segment mapping is refused with the line and segment named', async () => {
-  const line = { id: 'danger', text: 'HPが1です。回復', durationInFrames: 90, subtitleSegments: [{ text: 'HPが', moras: 5 }, { text: '2です。', moras: 4 }, { text: '回復', moras: 4 }] };
+  const line: DialogueLine = {
+    id: 'danger', text: 'HPが1です。回復', durationInFrames: 90,
+    subtitleSegments: [{ text: 'HPが', moras: 5 }, { text: '2です。', moras: 4 }, { text: '回復', moras: 4 }],
+  };
   const options = { ...base, maxWidth: 70, speechTiming: () => timing(13) };
   await assert.rejects(paginateSubtitles([line], options), /line "danger": segment 1 \("2です。"\) does not continue the line's text at cluster 3/);
   await assert.rejects(
@@ -156,10 +171,10 @@ test('an inconsistent segment mapping is refused with the line and segment named
 });
 
 test('a word wider than maxWidth fails, or stays on its page with overlong keep', async () => {
-  const line = { id: 'word', text: 'Supercalifragilistic ok', durationInFrames: 60 };
+  const line: DialogueLine = { id: 'word', text: 'Supercalifragilistic ok', durationInFrames: 60 };
   await assert.rejects(paginateSubtitles([line], base), /line "word": "Supercalifragilistic" is 200 px wide, wider than maxWidth 60/);
   const [kept] = await paginateSubtitles([line], { ...base, overlong: 'keep' });
-  assert.deepEqual(kept.subtitlePages.map((page) => page.text), ['Supercalifragilistic', 'ok']);
+  assert.deepEqual(texts(kept), ['Supercalifragilistic', 'ok']);
 });
 
 test('pages that cannot all start inside the line are refused', async () => {

@@ -136,7 +136,7 @@ function segmentBoundaries(
 export async function paginateSubtitles<L extends DialogueLine>(
   lines: readonly L[],
   options: PaginateSubtitlesOptions,
-): Promise<L[]> {
+): Promise<(L & Pick<DialogueLine, 'subtitlePages'>)[]> {
   const { fps, style, maxWidth, maxLines = 2, maxHeight, fonts, theme, emphasisStyles, overlong = 'error' } = options;
   if (!Number.isFinite(fps) || fps <= 0) throw new Error('paginateSubtitles() requires a positive finite fps');
   if (!Number.isFinite(maxWidth) || maxWidth <= 0) throw new Error('paginateSubtitles() requires a positive maxWidth');
@@ -145,7 +145,7 @@ export async function paginateSubtitles<L extends DialogueLine>(
     throw new Error('paginateSubtitles(): maxHeight must be a positive number of pixels');
   }
   const resolvedTheme = { fonts: theme?.fonts ?? {}, colors: theme?.colors ?? {} };
-  return Promise.all(lines.map(async (line, index): Promise<L> => {
+  return Promise.all(lines.map(async (line, index): Promise<L & Pick<DialogueLine, 'subtitlePages'>> => {
     const id = line.id ?? String(index);
     const { text } = line;
     if (line.subtitlePages !== undefined || typeof text !== 'string') return line;
