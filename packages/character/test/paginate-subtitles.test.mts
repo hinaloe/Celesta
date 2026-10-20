@@ -9,8 +9,8 @@ import { beforeEach, test } from 'vitest';
 import type { GlyphMetrics, TextMetrics } from '@celesta/react';
 import { setTextMeasurer } from '@celesta/react/internal';
 import type { MeasureTextRequest } from '@celesta/react/internal';
-import { paginateSubtitles, planDialogue } from '../dist/index.js';
-import type { DialogueLine, PaginateSubtitlesOptions, SpeechTiming } from '../dist/index.js';
+import { paginateSubtitles, planDialogue } from '../src/index.js';
+import type { DialogueLine, PaginateSubtitlesOptions, SpeechTiming } from '../src/index.js';
 
 function measure({ text, style, maxWidth = Infinity }: MeasureTextRequest): TextMetrics {
   const size = style.fontSize ?? 10;

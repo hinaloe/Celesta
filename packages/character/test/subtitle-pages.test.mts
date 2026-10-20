@@ -10,10 +10,10 @@ import { Assets, Composition, Rect, Span, Text } from '@celesta/react';
 import type { AssetReference, Layer, LayerContent, Scene, TextMetrics } from '@celesta/react';
 import { mount, setTextMeasurer } from '@celesta/react/internal';
 import type { AudioClipDescriptor, MeasureTextRequest } from '@celesta/react/internal';
-import { Character, CharacterView, Dialogue, DialogueSeries, lipSyncFromKeyframes, planDialogue } from '../dist/index.js';
+import { Character, CharacterView, Dialogue, DialogueSeries, lipSyncFromKeyframes, planDialogue } from '../src/index.js';
 import type {
   CharacterSubtitle, CharacterViewReference, DialogueLine, DialogueSeriesProps, SubtitleRenderProps,
-} from '../dist/index.js';
+} from '../src/index.js';
 
 const h = React.createElement;
 
