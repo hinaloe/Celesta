@@ -12,7 +12,7 @@
 - `Sequence` 内のメディアはシーケンスの開始と同時に始まり、終了時に止まります。
 - `volume` と音声の `playbackRate` には数値またはキーフレームを使えます。時刻は親シーケンスの開始からの秒数で、`{ value, timescale }` の形式です。
 
-frameKeyframes(keys, { fps, origin? }) は、フレーム番号から音量・再生速度・ピッチのキーフレームを作ります。時刻は Audio を囲む Sequence の時計で (frame - origin) / fps 秒となり、origin の既定値は 0 です。音声のフェードなどに使えます。ブラウザでの書き出しは、固定の音量と再生速度に限られ、ピッチは使えません。
+frameKeyframes(keys, { fps, origin? }) は、フレーム番号から音量・再生速度・ピッチのキーフレームを作ります。時刻は Audio を囲む Sequence の時計で (frame - origin) / fps 秒となり、origin の既定値は 0 です。声の下で音楽を下げるなど、フェードでは表せない音量の変化に使えます。ブラウザでの書き出しは、固定の音量と再生速度に限られ、ピッチは使えません。
 
 ## 枠に入れて表示する
 
@@ -25,6 +25,23 @@ export async function prepare() { clip = await preloadMedia("./demo.mp4"); }
 <MediaFrame kind="video" src={clip.src} sourceWidth={clip.video!.width} sourceHeight={clip.video!.height}
   width={960} height={540} fit="cover" cornerRadius={24} caption="アプリのプレビュー" />
 ```
+
+## フェードイン・フェードアウト
+
+`fadeIn` と `fadeOut` は秒数を取ります。クリップは聞こえ始めてから `fadeIn` 秒かけて無音から立ち上がり、聞こえなくなる前の `fadeOut` 秒で無音まで下がります。
+
+```tsx
+<Sequence durationInFrames={300}>
+  <Audio src="bgm.mp3" volume={0.6} fadeIn={1.5} fadeOut={3} />
+</Sequence>
+```
+
+- フェードの位置は、クリップが聞こえ始める位置と聞こえなくなる位置で決まります。つまり `Sequence` の両端か、それより短く切る外側の `Sequence` の両端です。シーケンスの長さを変えると、フェードアウトもその終わりに追従します。
+- フェードは `volume` に掛け合わされます。`volume` が数値でもキーフレームでも同じで、置き換えはしません。
+- フェードは振幅に対して直線的に変化します。ほかのカーブはまだ選べません。
+- `fadeIn` と `fadeOut` の合計がクリップより長いときは、2 つが重なって掛け合わされるので、最大音量には届きません。
+- フェードはファイルではなくタイムライン上の時間で決まります。`loop` で繰り返されることはなく、`playbackRate` や `pitch` で伸び縮みもしません。クリップより先にファイルが終わる場合、フェードアウトは音が止まったあとにかかります。
+- 指定できるのは `Audio` と、プロジェクト JSON の `audio` アイテム（時刻で指定）だけです。`Video` の音声や `Dialogue` の声には使えません。負の値はエラーになります。ブラウザ書き出しでも同じようにかかります。
 
 ## ピッチを変える
 

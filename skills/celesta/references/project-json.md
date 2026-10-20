@@ -184,6 +184,17 @@ sets the pitch). Heard transposition is
 `2^(pitch/12) × (preservePitch ? 1 : playbackRate)`. `video` items do not take
 them, and `@celesta/web`'s `exportMp4` rejects them.
 
+`fadeIn` / `fadeOut` (times, `{ "value": 3, "timescale": 2 }`, ≥ 0, default
+0) ramp the item linearly from silence at its start and to silence at its
+end, multiplying `volume`. They are timed on the item's `range`, so `loop`,
+`playbackRate`, and `pitch` do not move them; fades longer than the item
+overlap and multiply. `video` items and dialogue voices do not take them.
+
+```json
+{ "type": "audio", "asset": "bgm", "volume": 0.6,
+  "fadeIn": { "value": 3, "timescale": 2 }, "fadeOut": { "value": 3, "timescale": 1 } }
+```
+
 ### image
 
 ```json

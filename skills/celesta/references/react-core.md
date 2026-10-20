@@ -927,11 +927,38 @@ Runnable: [`packages/cli/examples/with-media-frame.tsx`](../../../packages/cli/e
 | `volume` | Linear gain, number or [keyframes](#keyframe-values). Default `1`. |
 | `muted` | Default `false`. |
 | `loop` | Past the end of the file, starts over from its beginning. Default `false`: silence. |
+| `fadeIn` | Seconds to rise from silence where the clip starts being heard. Default `0`. |
+| `fadeOut` | Seconds to fall to silence where the clip stops being heard. Default `0`. |
 
 `pitch` and `preservePitch` apply to `<Audio>` only, not to a `<Video>`'s
 soundtrack or `<Dialogue>` voices. Preview and export sound the same;
 `@celesta/web`'s `exportMp4` rejects a clip that uses them ("Audio pitch and
 preservePitch are not supported by browser export yet.").
+
+`fadeIn` / `fadeOut` are `<Audio>` only too, and `exportMp4` applies them.
+
+- **Edges of what is heard.** The fades sit at the edges of the clip's
+  audible window: its innermost `<Sequence>`, or an outer one that cuts it
+  shorter. The fade-out follows the sequence's end when its length changes;
+  nothing needs recomputing. Use them instead of `frameKeyframes` for a
+  plain fade in or out.
+- They multiply `volume` (number or keyframes), so a fade and a ducking
+  curve combine.
+- Linear in amplitude; there is no curve option yet.
+- Fades that add up to more than the clip overlap and multiply: the clip
+  never reaches full volume.
+- Timed on the timeline, not the file: `loop` does not repeat them, and
+  `playbackRate` / `pitch` do not stretch them. A file that ends before the
+  clip does is already silent when the fade-out falls.
+- A negative or non-finite value throws.
+
+```tsx
+<Sequence durationInFrames={300}>
+  <Audio src="./bgm.wav" volume={0.6} fadeIn={1.5} fadeOut={3} />
+</Sequence>
+```
+
+Runnable: [`packages/cli/examples/with-audio-fade.tsx`](../../../packages/cli/examples/with-audio-fade.tsx).
 
 Bare, an `<Audio>` spans the whole composition. Inside a `<Sequence>` it
 starts when the sequence starts and stops when it ends. An `<Audio>` behind a
@@ -1146,16 +1173,17 @@ with `interpolate` ([animation.md](animation.md#interpolate)).
 
 Builds the same keyframes from frame numbers. Each key is
 `{ frame, value, easing? }`; `easing` shapes the segment that ends at that
-key and defaults to `'linear'`. Fade in over 15 frames and out over the
-last 15 of a 90-frame sequence:
+key and defaults to `'linear'`. For a plain fade in or out, use
+[`fadeIn` / `fadeOut`](#audio) instead. Dip the BGM under a voice from
+frame 30 to 60, on top of its fades:
 
 ```tsx
 const { fps } = useVideoConfig();
-<Audio src="./bgm.wav" volume={frameKeyframes([
-  { frame: 0, value: 0 },
-  { frame: 15, value: 0.8, easing: 'ease-out' },
-  { frame: 75, value: 0.8 },
-  { frame: 90, value: 0, easing: 'ease-in' },
+<Audio src="./bgm.wav" fadeIn={0.5} fadeOut={0.5} volume={frameKeyframes([
+  { frame: 25, value: 0.8 },
+  { frame: 30, value: 0.3, easing: 'ease-out' },
+  { frame: 60, value: 0.3 },
+  { frame: 65, value: 0.8, easing: 'ease-in' },
 ], { fps })} />
 ```
 
