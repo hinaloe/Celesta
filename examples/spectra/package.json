@@ -3,12 +3,12 @@
   "private": true,
   "dependencies": {
     "@celesta/code": "workspace:*",
+    "@celesta/components": "workspace:*",
     "@celesta/layout": "workspace:*",
     "@celesta/math": "workspace:*",
     "@celesta/react": "workspace:*",
     "@celesta/shapes": "workspace:*",
     "@celesta/text": "workspace:*",
-    "@celesta/transitions": "workspace:*",
     "react": "^19.3.0"
   },
   "devDependencies": {

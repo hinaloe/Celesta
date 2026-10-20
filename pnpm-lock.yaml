@@ -623,6 +623,9 @@ importers:
       '@celesta/code':
         specifier: workspace:*
         version: link:../../packages/code
+      '@celesta/components':
+        specifier: workspace:*
+        version: link:../../packages/components
       '@celesta/layout':
         specifier: workspace:*
         version: link:../../packages/layout
@@ -638,9 +641,6 @@ importers:
       '@celesta/text':
         specifier: workspace:*
         version: link:../../packages/text
-      '@celesta/transitions':
-        specifier: workspace:*
-        version: link:../../packages/transitions
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -826,6 +826,12 @@ importers:
       '@celesta/math':
         specifier: workspace:*
         version: link:../math
+      '@celesta/text':
+        specifier: workspace:*
+        version: link:../text
+      '@celesta/transitions':
+        specifier: workspace:*
+        version: link:../transitions
     devDependencies:
       '@celesta/react':
         specifier: workspace:*

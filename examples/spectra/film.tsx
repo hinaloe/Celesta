@@ -1,7 +1,7 @@
 // SPECTRA: a performance reel that puts most of Celesta's renderer to work
 // in one 11.5-second, 60 fps film. See README.md.
-import { Assets, Composition, Font, Group, Rect, Series, Text, computeSeries, frameToTimecode, useCurrentFrame } from '@celesta/react';
-import { Transition } from '@celesta/transitions';
+import { Motion } from '@celesta/components';
+import { Assets, Composition, Easings, Font, Group, Rect, Series, Text, computeSeries, frameToTimecode, useCurrentFrame } from '@celesta/react';
 
 import { Geometry } from './scenes/Geometry';
 import { Ignition } from './scenes/Ignition';
@@ -57,11 +57,11 @@ export default function Root() {
       <Series>
         {SCENES.map((Scene, i) => (
           <Series.Sequence key={CHAPTERS[i]} durationInFrames={CHAPTER} offset={i === 0 ? 0 : -OVERLAP}>
-            <Transition type={['fade', 'scale']} scaleFrom={0.96} durationInFrames={OVERLAP} direction="in">
-              <Transition type="fade" durationInFrames={OVERLAP} direction="out">
-                <Scene />
-              </Transition>
-            </Transition>
+            <Motion
+              enter={{ type: 'scale', scaleFrom: 0.96, durationInFrames: OVERLAP, easing: Easings.linear }}
+              exit={{ type: 'fade', durationInFrames: OVERLAP, easing: Easings.linear }}>
+              <Scene />
+            </Motion>
           </Series.Sequence>
         ))}
       </Series>

@@ -1,32 +1,21 @@
-import { PatternBackground } from '@celesta/components';
-import { Easings, Group, Rect, progress } from '@celesta/react';
-import { C, TOOL, W, type ToolId } from '../constants';
+import { PatternBackground, TitleCard } from '@celesta/components';
+import { Easings, Group, Rect } from '@celesta/react';
+import { C, FONT, TOOL, W, type ToolId } from '../constants';
 import { Label } from './Label';
 
-// Kicker and headline at the top left of a scene. The headline rises from
-// behind a mask, one line at a time.
-export function Header({ f, n, title, sub, color = TOOL.celesta.color }: {
-  f: number; n: string; title: string; sub?: string; color?: string;
+// Kicker, headline, and subtitle at the top left of a scene, rising in one
+// after another.
+export function Header({ n, title, sub, color = TOOL.celesta.color }: {
+  n: string; title: string; sub?: string; color?: string;
 }) {
-  const lines = title.split('\n');
   return (
-    <Group x={96} y={92}>
-      <Group opacity={progress(f, 0, 12, Easings.easeOutCubic)}>
-        <Rect y={6} width={Math.max(1, 36 * progress(f, 0, 16, Easings.easeOutExpo))} height={4} fill={color} />
-        <Label x={52} size={18} font="mono" weight={700} color={color} spacing={3}>{n}</Label>
-      </Group>
-      {lines.map((line, i) => {
-        const p = progress(f, 4 + i * 4, 22, Easings.easeOutExpo);
-        return (
-          <Group key={i} y={40 + i * 76} clip={{ x: -8, y: -10, width: 1800, height: 92 }}>
-            <Label y={80 * (1 - p)} size={72} weight={700} spacing={-2}>{line}</Label>
-          </Group>
-        );
-      })}
-      {sub ? (
-        <Label y={52 + lines.length * 76} size={24} weight={400} color={C.soft} opacity={progress(f, 14, 16, Easings.easeOutCubic)}>{sub}</Label>
-      ) : null}
-    </Group>
+    <TitleCard kicker={n} kickerRule title={title} subtitle={sub} verticalAlign="top"
+      padding={{ top: 90, right: 96, bottom: 96, left: 96 }} gap={11}
+      fontFamily={FONT.sans} color={C.ink} subtitleColor={C.soft} accentColor={color}
+      titleSize={72} titleLineHeight={76 / 72} titleStyle={{ letterSpacing: -2 }}
+      subtitleSize={24} subtitleStyle={{ lineHeight: 32 }}
+      kickerSize={18} kickerStyle={{ fontFamily: FONT.mono, letterSpacing: 3 }}
+      enter={{ type: 'fade-up', durationInFrames: 18, distance: 24, easing: Easings.easeOutExpo }} exit={null} stagger={5} />
   );
 }
 

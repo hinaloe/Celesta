@@ -52,3 +52,13 @@ test('Transition evaluates fade, slide, and scale from the local sequence frame'
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('applyTransition is the effect Transition draws, on top of the group\'s own props', async () => {
+  const { applyTransition } = await import('../dist/index.js');
+  const own = { opacity: 0.5, x: 10, y: 20, scale: 2, scaleX: 3, rotation: 15 };
+  assert.deepEqual(applyTransition(own, { type: ['fade', 'slide', 'scale'], slideFrom: 'bottom', distance: 40, scaleFrom: 0.5 }, 0.5),
+    { ...own, opacity: 0.25, x: 10, y: 40, scale: 1.5, scaleX: 2.25, scaleY: undefined });
+  // At rest the props come back as written.
+  assert.deepEqual(applyTransition(own, { type: ['fade', 'slide', 'scale'] }, 1), { ...own, scaleY: undefined });
+  assert.throws(() => applyTransition({}, { type: 'zoom' }, 1), /unknown <Transition> type "zoom"/);
+});

@@ -6,8 +6,8 @@ renderer to work, made as a benchmark for performance tuning. It is the
 [`docs/performance/benchmarking.md`](../../docs/performance/benchmarking.md)).
 
 Five 150-frame chapters play in a `<Series>`, each overlapping the one before
-by 15 frames, where two chapters draw at once through `<Transition>`
-crossfades. A HUD with the chapter, timecode and progress, and a multiply
+by 15 frames, where two chapters draw at once: each chapter's `<Motion>`
+fades and scales it in and fades it out. A HUD with the chapter, timecode and progress, and a multiply
 vignette, sit over all of them.
 
 | Chapter | What it exercises |

@@ -12,7 +12,7 @@ export function Files() {
   const f = useCurrentFrame();
   return (
     <>
-      <Header f={f} n="03 — SYNTAX" title="What one video takes." sub="Every file written to get NEBULA to an MP4." />
+      <Header n="03 — SYNTAX" title="What one video takes." sub="Every file written to get NEBULA to an MP4." />
       {ORDER.map((id, i) => {
         const p = progress(f, 14 + i * 8, 22, Easings.easeOutExpo);
         const x = 96 + i * (COL + 24);
