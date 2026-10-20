@@ -11,9 +11,7 @@ import {
   Group,
   Image,
   Rect,
-  Sequence,
   defineProjectProperties,
-  frameKeyframes,
   getProjectProperty,
   interpolate,
   progress,
@@ -38,7 +36,6 @@ import type {
   ImageCharacterPortrait,
   SubtitleRenderProps,
 } from '@celesta/character';
-import { mediaDurationInFrames, preloadMedia } from '@celesta/media-utils';
 import { useProjectProperty } from '@celesta/project';
 import { TextBox } from '@celesta/text';
 
@@ -190,8 +187,6 @@ type Line = DialogueLine & { speaker: string };
 let cast: CastMember[] = [];
 // Filled by prepare(): every line's timing, from its voice or its text.
 let plan: DialoguePlan<Line>;
-// The music's length, to repeat it when the conversation runs longer.
-let musicFrames: number | undefined;
 
 // `getProjectProperty` sees the same values the render does, so the script
 // read here and the duration planned from it always match.
@@ -282,9 +277,6 @@ export async function prepare(): Promise<void> {
     };
   }));
   plan = await planDialogue(planned, { fps: FPS, gap: LINE_GAP_SECONDS, sceneLeadIn: SCENE_LEAD_IN_SECONDS });
-
-  const music = getProjectProperty<string>('music');
-  musicFrames = music === '' ? undefined : mediaDurationInFrames(await preloadMedia(music), FPS);
 }
 
 // A recorded line's lip sync, with a failure to read the recording (a file
@@ -448,32 +440,12 @@ function SubtitleBand({ text, character, held, frame, durationInFrames }: Subtit
   );
 }
 
-// The music from the start, repeated when it is shorter than the
+// The music from the start, starting over when it is shorter than the
 // conversation, fading out over the last MUSIC_FADE_SECONDS.
-function Music({ durationInFrames }: { durationInFrames: number }) {
+function Music() {
   const music = useProjectProperty<string>('music');
   if (music === '') return null;
-  const loop = musicFrames ?? durationInFrames;
-  const fadeStart = durationInFrames - MUSIC_FADE_SECONDS * FPS;
-  return (
-    <>
-      {Array.from({ length: Math.ceil(durationInFrames / loop) }, (_, index) => {
-        const from = index * loop;
-        const volume = frameKeyframes(
-          [
-            { frame: fadeStart, value: MUSIC_VOLUME },
-            { frame: durationInFrames, value: 0 },
-          ],
-          { fps: FPS, origin: from },
-        );
-        return (
-          <Sequence key={index} from={from} durationInFrames={Math.min(loop, durationInFrames - from)}>
-            <Audio src={music} volume={volume} />
-          </Sequence>
-        );
-      })}
-    </>
-  );
+  return <Audio src={music} loop volume={MUSIC_VOLUME} fadeOut={MUSIC_FADE_SECONDS} />;
 }
 
 export default function Conversation() {
@@ -497,7 +469,7 @@ export default function Conversation() {
       <Title />
       {cast.map((member, index) => <Member key={member.id} member={member} index={index} />)}
       <DialogueSeries plan={plan} views={Object.fromEntries(cast.map(({ id, view }) => [id, view]))} holdSubtitle />
-      <Music durationInFrames={plan.durationInFrames} />
+      <Music />
     </Composition>
   );
 }

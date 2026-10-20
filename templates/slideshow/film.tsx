@@ -9,15 +9,12 @@ import {
   Group,
   Image,
   Rect,
-  Sequence,
   defineProjectProperties,
-  frameKeyframes,
   getProjectProperty,
   progress,
   useCurrentFrame,
 } from '@celesta/react';
 import type { Paint } from '@celesta/react';
-import { mediaDurationInFrames, preloadMedia } from '@celesta/media-utils';
 import { useProjectProperty } from '@celesta/project';
 import { TextBox } from '@celesta/text';
 import { TransitionSeries, computeTransitionSeries } from '@celesta/transitions';
@@ -139,8 +136,6 @@ const REMOTE = /^https?:\/\//i;
 
 let slides: Slide[] = [];
 let slideFrames = 0;
-// The music's length, to repeat it when the slideshow runs longer.
-let musicFrames: number | undefined;
 
 // `getProjectProperty` sees the same values the render does, so the slides
 // read here and the duration computed from them always match.
@@ -179,9 +174,6 @@ export async function prepare(): Promise<void> {
   if (slideFrames < 2 * TRANSITION_FRAMES) {
     throw new Error(`secondsPerSlide is ${seconds}; it must be at least ${((2 * TRANSITION_FRAMES) / FPS).toFixed(2)}`);
   }
-
-  const music = getProjectProperty<string>('music');
-  musicFrames = music === '' ? undefined : mediaDurationInFrames(await preloadMedia(music), FPS);
 }
 
 // Relative image paths resolve from the slides file's folder (or URL).
@@ -323,32 +315,12 @@ function SlideScene({ slide, index }: { slide: Slide; index: number }) {
   );
 }
 
-// The music from the start, repeated when it is shorter than the slideshow,
-// fading out over the last MUSIC_FADE_SECONDS.
-function Music({ durationInFrames }: { durationInFrames: number }) {
+// The music from the start, starting over when it is shorter than the
+// slideshow, fading out over the last MUSIC_FADE_SECONDS.
+function Music() {
   const music = useProjectProperty<string>('music');
   if (music === '') return null;
-  const loop = musicFrames ?? durationInFrames;
-  const fadeStart = durationInFrames - MUSIC_FADE_SECONDS * FPS;
-  return (
-    <>
-      {Array.from({ length: Math.ceil(durationInFrames / loop) }, (_, index) => {
-        const from = index * loop;
-        const volume = frameKeyframes(
-          [
-            { frame: fadeStart, value: 1 },
-            { frame: durationInFrames, value: 0 },
-          ],
-          { fps: FPS, origin: from },
-        );
-        return (
-          <Sequence key={index} from={from} durationInFrames={Math.min(loop, durationInFrames - from)}>
-            <Audio src={music} volume={volume} />
-          </Sequence>
-        );
-      })}
-    </>
-  );
+  return <Audio src={music} loop fadeOut={MUSIC_FADE_SECONDS} />;
 }
 
 export default function Slideshow() {
@@ -377,7 +349,7 @@ export default function Slideshow() {
           </TransitionSeries.Sequence>,
         ])}
       </TransitionSeries>
-      <Music durationInFrames={durationInFrames} />
+      <Music />
     </Composition>
   );
 }
