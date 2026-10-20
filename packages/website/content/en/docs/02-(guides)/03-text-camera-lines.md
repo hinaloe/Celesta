@@ -54,6 +54,14 @@ A `<Path>` draws part of its stroke too, with `progress` and `progressStart` (0â
 ]} />
 ```
 
+`Callout` from `@celesta/components` points at something: a box at `x`/`y`, `width` wide, holding a `title` and `text` and as tall as they measure, and a line from the box to a `target` point ending in an arrowhead. The line leaves the middle of the edge facing the target (or the `side` you name) and runs `straight` or as an `elbow` that turns once; `lineProgress` grows it from the target. `target`, `x`, and `y` are in the same coordinates, so a callout in the same `<Group>` as what it points at stays on it whatever that group's transform, and the line follows an animated target. A target inside the box draws no line.
+
+```tsx title="A note with an arrow"
+<Callout target={{ x: 960, y: 540 }} x={1200} y={240} width={480}
+  title="Look here" text="What this part does."
+  fill="#182030" color="#F4F1EA" lineColor="#FF4D1F" />
+```
+
 ## Moving along and between paths
 
 Functions that take `commands` return points as `{ x, y }`, the same shape as the commands (`pointOnPolyline` returns `[x, y]`, like its `points`).

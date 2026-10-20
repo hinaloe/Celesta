@@ -838,6 +838,9 @@ importers:
       '@celesta/math':
         specifier: workspace:*
         version: link:../math
+      '@celesta/shapes':
+        specifier: workspace:*
+        version: link:../shapes
       '@celesta/text':
         specifier: workspace:*
         version: link:../text

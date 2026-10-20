@@ -2,6 +2,8 @@ export { Badge } from './badge';
 export type { BadgeProps } from './badge';
 export { BarChart, Ranking } from './bar-chart';
 export type { BarChartItem, BarChartOrder, BarChartProps, RankingProps } from './bar-chart';
+export { Callout } from './callout';
+export type { CalloutProps, CalloutRoute, CalloutSide } from './callout';
 export { CaptionTrack } from './caption-track';
 export type { CaptionCue, CaptionRenderProps, CaptionTrackProps } from './caption-track';
 export { formatNumber } from './count';

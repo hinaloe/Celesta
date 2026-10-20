@@ -16,6 +16,7 @@
     { "path": "../../layout" },
     { "path": "../../math" },
     { "path": "../../react" },
+    { "path": "../../shapes" },
     { "path": "../../text" },
     { "path": "../../transitions" }
   ]

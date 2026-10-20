@@ -125,7 +125,7 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
   // registered with its scene walker.
   const split = await send({ id: 9, type: 'compile', source: `import { React, Assets, Composition } from '@celesta/react';
     import { Center } from '@celesta/layout';
-    import { Badge, CaptionTrack, Counter, MediaFrame, Panel } from '@celesta/components';
+    import { Badge, Callout, CaptionTrack, Counter, MediaFrame, Panel } from '@celesta/components';
     import { Circle } from '@celesta/shapes';
     import { Character, CharacterView } from '@celesta/character';
     export default function Root() {
@@ -140,17 +140,24 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
         <MediaFrame kind="image" src="shot.png" width={40} height={30} padding={2} fit="cover" />
         <CaptionTrack enter={null} exit={null} background={null}
           cues={[{ from: 0, durationInFrames: 1, text: 'a👍b', emphasis: [{ start: 1, end: 3, style: { color: '#ff0000' } }] }]} />
+        <Callout target={{ x: 90, y: 70 }} x={0} y={50} width={60} padding={4} fill="#000000" title="ab" />
       </Composition>;
     }` });
   assert.equal(split.error, undefined);
   const splitFrame = await send({ id: 10, type: 'frame', frame: 0 });
-  const [center, view, panel, badge, counter, frame, caption] = splitFrame.value.scene.layers;
+  const [center, view, panel, badge, counter, frame, caption, callout] = splitFrame.value.scene.layers;
   // A caption's emphasis counts grapheme clusters, here too: the emoji and the "b".
   const firstText = (layer) => layer.content.type === 'text'
     ? layer.content
     : (layer.content.layers ?? []).map(firstText).find(Boolean);
   const captionText = firstText(caption);
   assert.deepEqual([captionText.text, captionText.style.colorRuns], ['a👍b', [{ start: 1, end: 3, color: '#ff0000' }]]);
+  // A Callout's arrow, from @celesta/shapes, ends at its target, and its box
+  // is the measured title (a 33.6 px line box at 28 px) plus the padding.
+  const [arrow, box] = callout.content.layers;
+  assert.equal(arrow.content.type, 'path');
+  assert.ok(arrow.content.commands.some((command) => command.x === 90 && command.y === 70));
+  assert.equal(box.content.layers[0].content.height, 41.6);
   // A MediaFrame's image gets the area inside its padding and the fit.
   const image = frame.content.layers[0].content.layers[0].content.layers[0].content;
   assert.deepEqual([image.type, image.width, image.height, image.fit, image.asset.location], ['image', 36, 26, 'cover', { type: 'file', path: 'shot.png' }]);
