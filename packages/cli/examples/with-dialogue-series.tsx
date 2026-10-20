@@ -28,7 +28,7 @@ import {
   Character,
   CharacterView,
   DialogueSeries,
-  loadLipSync,
+  loadDialogueLipSync,
   planDialogue,
 } from '@celesta/character';
 import type { AssetReference, TextStyle } from '@celesta/react';
@@ -37,7 +37,6 @@ import type {
   CharacterViewReference,
   DialogueLine,
   DialoguePlan,
-  LipSyncTrack,
   PlannedDialogueLine,
   SubtitleRenderProps,
 } from '@celesta/character';
@@ -70,21 +69,16 @@ const views = { shizuku: React.createRef<CharacterViewReference>(), komugi: Reac
 let plan: DialoguePlan<Line>;
 
 export async function prepare(): Promise<void> {
-  const lines = await Promise.all(
-    script.map(async (line): Promise<Line> => {
-      const audio = `${DEMO}/voices/${line.id}.wav`;
-      const lipSync: LipSyncTrack = await loadLipSync({ src: audio, text: line.reading });
-      return {
-        id: line.id,
-        scene: line.scene,
-        speaker: line.speaker as Speaker,
-        text: line.text,
-        audio,
-        expression: line.expression,
-        lipSync,
-      };
-    }),
-  );
+  // The subtitle shows `text`; the mouth follows the kana `spokenText`.
+  const lines = await loadDialogueLipSync(script.map((line): Line => ({
+    id: line.id,
+    scene: line.scene,
+    speaker: line.speaker as Speaker,
+    text: line.text,
+    spokenText: line.reading,
+    audio: `${DEMO}/voices/${line.id}.wav`,
+    expression: line.expression,
+  })));
   // A 0.3 s gap after each line, and a 1.5 s pause before a new scene.
   plan = await planDialogue(lines, { fps: FPS, gap: 0.3, sceneLeadIn: 1.5 });
 }

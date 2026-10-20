@@ -18,7 +18,8 @@ Dialogue scenes combine three pieces:
 ## Contents
 
 - [React: a two-line conversation](#react-a-two-line-conversation)
-- [Timing a script from its voices](#timing-a-script-from-its-voices)
+- [Timing a script from its voices](#timing-a-script-from-its-voices), with
+  [spoken text](#spoken-text-and-subtitle-text) apart from the subtitle
 - [Importing a voice tool's export folder](#importing-a-voice-tools-export-folder)
 - [Matching voice levels and ducking background audio](#matching-voice-levels-and-ducking-background-audio)
 - [Synthesizing a script with VOICEVOX](#synthesizing-a-script-with-voicevox)
@@ -204,8 +205,38 @@ The plan:
 | `holdSubtitle` | Keep a `subtitle.render` band up through the gap after each line (see [Drawing the subtitle yourself](#drawing-the-subtitle-yourself)). Default false. |
 | `dialogueProps` | `(planned) => props` merged into each `<Dialogue>`, e.g. to move one subtitle. |
 
-For lip sync, load each track in `prepare()` and put it on the line:
-`lines = await Promise.all(lines.map(async (l) => ({ ...l, lipSync: await loadLipSync({ src: l.audio, text: l.reading }) })))`.
+### Spoken text and subtitle text
+
+A line's `text` is what its subtitle shows; `spokenText` is what it says,
+when that differs: a reading for `HPが1` (`'えいちぴーがいち'`), or the text
+without its `<Span>`s. Speech engines (`prepareNarration()`) read it and
+waveform lip sync takes its vowels from it. It is never drawn and never
+goes into the `--subtitles` file. Without it the line says its `text`,
+which must then be a string. `spokenTextOf(line)` returns it the same way.
+
+For waveform lip sync from local WAVs, call `loadDialogueLipSync(lines)` in
+`prepare()` before `planDialogue()`. Each line with an `audio` file and no
+`lipSync` of its own gets the track `loadLipSync()` would build from its
+WAV and its spoken text:
+
+```tsx
+const lines = await loadDialogueLipSync([
+  { id: 'danger', speaker: 'zunda', audio: './voices/danger.wav',
+    text: 'HPが1です。', spokenText: 'えいちぴーがいちです。' },
+]);
+plan = await planDialogue(lines, { fps: 30 });
+```
+
+- Write `spokenText` in kana or romaji: only those give vowels. A line
+  whose text has kanji and no `spokenText`, or whose spoken text has no
+  vowels, only opens and closes its mouth, with a warning to `onWarning`
+  (default `console.warn`). `hopHz` is passed to the analysis.
+- Lines without `audio`, or with a `lipSync`, come back as they are. A
+  remote URL or a file that is not PCM/float WAV fails with the line named.
+- The voice, its lip sync, and its subtitle stay one line: one clip and one
+  mouth clock, however the subtitle is shown.
+
+See `packages/cli/examples/with-spoken-text.tsx`.
 
 A missing voice file fails `prepare()` with
 `planDialogue(): voice file for line "how" not found: ./voices/03.wav (looked at …)`.
@@ -249,8 +280,8 @@ transcript: line breaks as `\n`, surrounding whitespace trimmed), `audio`,
   `'shift_jis'`, or a function `(bytes, file) => string`. A transcript that
   does not decode cleanly fails with its path; it never shows as `�`.
 - **Lip sync** (`lipSync`): `'waveform'` (default) spreads the vowels of the
-  line's kana/romaji `reading` (else the transcript) over the voiced span.
-  Kanji give no vowels: a line with kanji and no `reading`, or with no vowels,
+  line's kana/romaji `spokenText` (else the transcript) over the voiced span.
+  Kanji give no vowels: a line with kanji and no `spokenText`, or with no vowels,
   falls back to `'amplitude'` (mouth `a` while loud, closed otherwise) and
   warns. `false` makes no track. This is an approximation, not phoneme timing.
 - **Incomplete pairs** (`incomplete`): a WAV without its TXT (or the reverse),
@@ -261,12 +292,14 @@ transcript: line breaks as `\n`, surrounding whitespace trimmed), `audio`,
 
 `manifest.json` lists lines by `file` (the name without extension); listed
 lines come first in the listed order, the rest follow in natural order.
-Every field but `file` is optional; unknown keys fail:
+Every field but `file` is optional; unknown keys fail. `spokenText` is the
+line's [spoken text](#spoken-text-and-subtitle-text) (the key was `reading`
+before; a manifest that still says `reading` fails and says so):
 
 ```json
 {
   "lines": [
-    { "file": "voice-1", "id": "hello", "speaker": "aoi", "text": "表示する字幕", "reading": "ひょうじするじまく",
+    { "file": "voice-1", "id": "hello", "speaker": "aoi", "text": "表示する字幕", "spokenText": "ひょうじするじまく",
       "scene": "intro", "expression": "smile", "gap": 0.5 },
     { "file": "voice-2", "expression": [{ "at": 1.2, "expression": "smile" }] }
   ]
@@ -429,7 +462,7 @@ Each line is a `DialogueLine` plus:
 | --- | --- |
 | `id` | Required and unique; errors name it. |
 | `speaker` | Key of `options.speakers` (and of `<DialogueSeries views>`). |
-| `spokenText` | What the engine reads, e.g. a reading for `HP` or text without `<Span>`s. Defaults to `text`, which must then be a string. |
+| `spokenText` | What the engine reads, e.g. a reading for `HP` or text without `<Span>`s; the `DialogueLine` field (see [Spoken text and subtitle text](#spoken-text-and-subtitle-text)). Defaults to `text`, which must then be a string. |
 | `voice` | Per-line override of the speaker's settings (`styleId`, `query`, `interrogativeUpspeak`, `katakanaEnglish`, `revision`); `query` merges field by field. |
 
 A line that already has `audio` is returned as it is and never synthesized,
@@ -676,7 +709,8 @@ export async function prepare() {
   (hiragana/katakana) and the Latin letters a/i/u/e/o are read; kanji and
   other letters are skipped. `ー` repeats the previous vowel, and small kana
   (`ゃ`, `ぁ`) replace it. Pass a kana reading as `text` even when the
-  subtitle shows kanji.
+  subtitle shows kanji; for planned lines, put it in `spokenText` and use
+  [`loadDialogueLipSync()`](#spoken-text-and-subtitle-text).
 - The track is sampled on the **local clock**: its time 0 is the start of
   the enclosing `<Sequence>`, so start the sequence when the voice starts.
 - `lipSync` on a `<CharacterView>` drives the mouth for as long as the view

@@ -31,6 +31,7 @@ Emphasize part of a line with `<Span>` inside the `Dialogue`. A `subtitle.render
 ```
 
 - **Voices** must be uncompressed WAV files. Write the transcript in kana or romaji so its vowels can be read; kanji are skipped.
+- **Spoken text** apart from the subtitle: give a planned line a kana `spokenText` (`text: 'HPが1です。'`, `spokenText: 'えいちぴーがいちです。'`) and call `loadDialogueLipSync(lines)` in `prepare()`. The subtitle and the subtitle file show `text`; the mouth and speech engines follow `spokenText`.
 - **PSD portraits** name their mouth layers by path, such as `face/mouth/a`. Layered “tachie” files usually save every folder hidden, so pick visible layers with `layers`: an array of layer paths, a PSDTool layer-state string, or a `.pfv` favorite loaded with `loadPsdPreset()`.
 - **Image portraits** can lip-sync too. Give `portrait.lipSync` one transparent mouth image per shape, the same size as the portrait, so each lines up when drawn over it.
 - To drive a mouth yourself, pass `mouth="a"` (or another shape) to a `CharacterView` or `Dialogue`. `useLipSync(track)` returns the current shape if you want to react to it elsewhere.
@@ -64,7 +65,7 @@ const lines = await importVoiceFolder({ directory: './voices/akane', speaker: 'a
 plan = await planDialogue(lines, { fps: 30 });
 ```
 
-Transcripts are UTF-8 unless you pass `encoding: 'utf-16le'` or `'shift_jis'`; one that does not decode fails with its path instead of showing garbled text. An optional manifest (`{ "lines": [{ "file": "voice-1", "id", "speaker", "text", "reading", "scene", "expression", "gap" }] }`) overrides ids, order, speaker, subtitle, kana reading, scene, expression, and gap. Mouth vowels come from the kana `reading` or the transcript; a line with kanji and no reading only opens and closes its mouth, with a warning.
+Transcripts are UTF-8 unless you pass `encoding: 'utf-16le'` or `'shift_jis'`; one that does not decode fails with its path instead of showing garbled text. An optional manifest (`{ "lines": [{ "file": "voice-1", "id", "speaker", "text", "spokenText", "scene", "expression", "gap" }] }`) overrides ids, order, speaker, subtitle, kana spoken text, scene, expression, and gap. Mouth vowels come from the kana `spokenText` or the transcript; a line with kanji and no `spokenText` only opens and closes its mouth, with a warning.
 
 While the composition is open, resaving, adding, or deleting a recording or its text reloads the preview, even in a folder outside the entry's directory, and later lines move with a longer take. A pair caught halfway through being written fails the reload and keeps the last good preview until the save completes (pass `incomplete: 'skip'` to leave such lines out instead). Only uncompressed PCM or float WAV is read.
 

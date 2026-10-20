@@ -131,10 +131,10 @@ test('planDialogue lays imported lines out from their real lengths', async () =>
   });
 });
 
-test('a manifest overrides ids, order, speaker, text, reading, scene, expression, and gap', async () => {
+test('a manifest overrides ids, order, speaker, text, spokenText, scene, expression, and gap', async () => {
   const manifest = {
     lines: [
-      { file: 'voice-2', id: 'greeting', speaker: 'aoi', text: '今日は', reading: 'きょうは', scene: 'intro', expression: 'smile', gap: 0.5 },
+      { file: 'voice-2', id: 'greeting', speaker: 'aoi', text: '今日は', spokenText: 'きょうは', scene: 'intro', expression: 'smile', gap: 0.5 },
       { file: 'Voice-1', expression: [{ at: 0.2, expression: 'angry' }] },
     ],
   };
@@ -153,11 +153,11 @@ test('a manifest overrides ids, order, speaker, text, reading, scene, expression
       assert.deepEqual(lines.map((line) => line.id), ['greeting', 'voice-1', 'voice-3']);
       assert.equal(lines[0].speaker, 'aoi');
       assert.equal(lines[0].text, '今日は');
-      assert.equal(lines[0].reading, 'きょうは');
+      assert.equal(lines[0].spokenText, 'きょうは');
       assert.equal(lines[0].scene, 'intro');
       assert.equal(lines[0].expression, 'smile');
       assert.equal(lines[0].gap, 0.5);
-      // The reading, not the kanji text, gives the vowels: き(i) ょ(o) う(u) は(a).
+      // The spoken text, not the kanji subtitle, gives the vowels: き(i) ょ(o) う(u) は(a).
       assert.equal(lines[0].lipSync.mouthAtSeconds(0.01), 'o');
       assert.deepEqual(lines[1].expression, [{ at: 0.2, expression: 'angry' }]);
       assert.equal(lines[2].speaker, 'akane');
@@ -168,6 +168,8 @@ test('a manifest overrides ids, order, speaker, text, reading, scene, expression
 test('manifest mistakes are reported with the file and the line', async () => {
   const cases = [
     [{ lines: [{ file: 'voice-1', colour: 'red' }] }, /lines\[0\] has unknown key "colour"/],
+    [{ lines: [{ file: 'voice-1', reading: 'あ' }] }, /lines\[0\]\.reading is now spokenText/],
+    [{ lines: [{ file: 'voice-1', spokenText: 1 }] }, /lines\[0\]\.spokenText must be a string/],
     [{ lines: [{ file: 'voice-1.wav' }] }, /without its extension: "voice-1"/],
     [{ lines: [{ file: 'voice-1', gap: -1 }] }, /lines\[0\]\.gap must be a number of seconds >= 0/],
     [{ lines: [{ file: 'voice-9' }] }, /lists "voice-9", but the folder has no voice-9\.wav/],
@@ -260,7 +262,7 @@ test('text without kana vowels falls back to an open/closed mouth with a warning
     const warnings = [];
     const lines = await importVoiceFolder({ directory: '.', onWarning: (m) => warnings.push(m) });
     assert.equal(warnings.length, 2);
-    assert.match(warnings[0], /line "k" has kanji and no reading/);
+    assert.match(warnings[0], /line "k" has kanji and no spokenText/);
     assert.match(warnings[1], /line "n" has no kana or romaji vowels/);
     assert.equal(lines[0].lipSync.mouthAtSeconds(0.1), 'a');
     const off = await importVoiceFolder({ directory: '.', lipSync: false, ...quiet });

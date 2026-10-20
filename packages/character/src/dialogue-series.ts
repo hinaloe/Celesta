@@ -21,6 +21,15 @@ export interface DialogueLine {
   /** Subtitle text; may hold `<Span>`. */
   text: React.ReactNode;
   /**
+   * What the line says, when it differs from what its subtitle shows: a
+   * reading such as `'エイチピーがいち'` for `'HPが1'`, or the text without
+   * its `<Span>`s. Speech engines (`prepareNarration()`) read it and
+   * waveform lip sync (`loadDialogueLipSync()`, `importVoiceFolder()`)
+   * takes its vowels from it; it is never shown and never goes into the
+   * subtitle file. Defaults to `text`, which must then be a string.
+   */
+  spokenText?: string;
+  /**
    * Voice file, resolved from the entry file like `<Audio src>`. Its length
    * is the line's length unless `durationInFrames` is given.
    */
@@ -139,6 +148,9 @@ export async function planDialogue<L extends DialogueLine>(
     const id = line.id ?? String(index);
     if (ids.has(id)) {
       throw new Error(`planDialogue(): line id "${id}" is used more than once`);
+    }
+    if (line.spokenText !== undefined && typeof line.spokenText !== 'string') {
+      throw new Error(`planDialogue(): line "${id}": spokenText must be a string`);
     }
     ids.add(id);
     return id;

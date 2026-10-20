@@ -189,7 +189,7 @@ layers sit; it does not prove the rendered pixels.
 | `@celesta/layout` | `Center`, `Stack`, `Grid`, `Fit`, `SafeArea`, `safeAreaInsets`, `LayoutBounds`, `useLayoutBounds`, `Camera` |
 | `@celesta/transitions` | `Transition`, `applyTransition`, `TransitionSeries`, `useTransitionSeriesScene`, `useTransitionVolume`, `defineTransition`, and the transition functions `iris`, `clockWipe`, `zoom`, `dissolve`, `blur`, `flip`, `cube`, `crossfade`, `slide`, `wipe` |
 | `@celesta/text` | `TextReveal`, `useTypewriter`, `useCountUp`, `TextBox`, `fitText`, `useFitText`, `emphasisContent`/`resolveEmphasis`/`sliceEmphasis`/`graphemes` (emphasis by grapheme range), `resolveTimedRanges`/`timedRangeAt` (half-open frame ranges) |
-| `@celesta/character` | `Character`, `CharacterView`, `Dialogue`, `DialogueSeries`, `planDialogue`, `importVoiceFolder`, `loadLipSync`, `useLipSync`, `lipSyncFromSpeechTiming`, `speechVowelShape`, `blinkPhase`, `loadPsdPreset`, and their types |
+| `@celesta/character` | `Character`, `CharacterView`, `Dialogue`, `DialogueSeries`, `planDialogue`, `importVoiceFolder`, `loadLipSync`, `loadDialogueLipSync`, `spokenTextOf`, `useLipSync`, `lipSyncFromSpeechTiming`, `speechVowelShape`, `blinkPhase`, `loadPsdPreset`, and their types |
 | `@celesta/media-utils` | `preloadMedia`, `mediaDurationInFrames`, `loadAudioSpectrum`, `useAudioSpectrum`, `spectrumAt`, `analyzeAudioSpectrum` |
 | `@celesta/project` | `ProjectProvider`, `ProjectTimeline`, `ProjectTrack`, `useProject`, `useProjectProperty`, `useProjectTrack`, `loadProject`, and the project file types |
 | `@celesta/debug` | `DebugOverlay`, `DebugBounds` |

@@ -21,8 +21,9 @@ import { entryRelativePath, trackPrepareDependency } from '@celesta/react/intern
 
 import type { DialogueExpression } from './components';
 import type { DialogueLine } from './dialogue-series';
-import { decodeWav, lipSyncFromAudio, vowelShapes } from './lipsync';
+import { decodeWav, lipSyncFromAudio } from './lipsync';
 import type { LipSyncTrack, WavAudio } from './lipsync';
+import { waveformVowelText } from './spoken-text';
 
 /** Text encodings `importVoiceFolder()` decodes transcripts with. */
 export type VoiceTextEncoding = 'utf-8' | 'utf-16le' | 'shift_jis';
@@ -47,10 +48,10 @@ export interface ImportVoiceFolderOptions {
   encoding?: VoiceTextEncoding | VoiceTextDecoder;
   /**
    * `'waveform'` (default): the mouth opens with the voice's loudness and
-   * takes the vowels of the line's kana/romaji `reading`, else its
+   * takes the vowels of the line's kana/romaji `spokenText`, else its
    * transcript, spread over the voiced span. A line whose text has kanji
-   * and no `reading`, or no vowels at all, falls back to `'amplitude'` with
-   * a warning. `'amplitude'`: open (`a`) and closed only. `false`: no track.
+   * and no `spokenText`, or no vowels at all, falls back to `'amplitude'`
+   * with a warning. `'amplitude'`: open (`a`) and closed only. `false`: no track.
    */
   lipSync?: 'waveform' | 'amplitude' | false;
   /** JSON file of per-line overrides (see `VoiceManifest`), resolved from the entry file. */
@@ -76,8 +77,8 @@ export interface VoiceManifestEntry {
   speaker?: string;
   /** Subtitle text in place of the transcript. */
   text?: string;
-  /** Kana or romaji the lip sync takes its vowels from, in place of the transcript. */
-  reading?: string;
+  /** The line's `spokenText`: kana or romaji the lip sync takes its vowels from, in place of the transcript. */
+  spokenText?: string;
   scene?: string;
   expression?: DialogueExpression;
   /** Seconds of silence after the line. */
@@ -99,8 +100,8 @@ export interface VoiceLine extends DialogueLine {
   text: string;
   /** The snapshot of the WAV this import read; see `source.wav` for the original. */
   audio: string;
-  /** The manifest's `reading`, if any. */
-  reading?: string;
+  /** The manifest's `spokenText`, if any. */
+  spokenText?: string;
   /** The WAV's length. */
   durationInSeconds: number;
   /** Absolute paths of the pair. */
@@ -202,23 +203,12 @@ export async function importVoiceFolder(options: ImportVoiceFolderOptions): Prom
     }
 
     const id = entry?.id ?? pair.stem;
-    const reading = entry?.reading;
+    const spokenText = entry?.spokenText;
     let track: LipSyncTrack | undefined;
     if (lipSync !== false) {
-      let vowels = '';
-      if (lipSync === 'waveform') {
-        const spoken = reading ?? transcript;
-        if (reading === undefined && /\p{Script=Han}/u.test(spoken)) {
-          warn(
-            `importVoiceFolder(): line "${id}" has kanji and no reading, so its mouth only opens and closes; ` +
-              'add a kana `reading` in the manifest for vowel shapes',
-          );
-        } else if (vowelShapes(spoken).length === 0) {
-          warn(`importVoiceFolder(): line "${id}" has no kana or romaji vowels, so its mouth only opens and closes`);
-        } else {
-          vowels = spoken;
-        }
-      }
+      const vowels = lipSync === 'waveform'
+        ? waveformVowelText(spokenText ?? transcript, spokenText !== undefined, id, 'importVoiceFolder()', warn)
+        : '';
       track = lipSyncFromAudio(audio, vowels);
     }
 
@@ -231,7 +221,7 @@ export async function importVoiceFolder(options: ImportVoiceFolderOptions): Prom
     };
     const speaker = entry?.speaker ?? options.speaker;
     if (speaker !== undefined) line.speaker = speaker;
-    if (reading !== undefined) line.reading = reading;
+    if (spokenText !== undefined) line.spokenText = spokenText;
     if (entry?.scene !== undefined) line.scene = entry.scene;
     if (entry?.expression !== undefined) line.expression = entry.expression;
     if (entry?.gap !== undefined) line.gap = entry.gap;
@@ -439,7 +429,7 @@ function normalizeText(text: string): string {
   return text.replace(/\r\n?/g, '\n').trim();
 }
 
-const MANIFEST_KEYS = new Set(['file', 'id', 'speaker', 'text', 'reading', 'scene', 'expression', 'gap']);
+const MANIFEST_KEYS = new Set(['file', 'id', 'speaker', 'text', 'spokenText', 'scene', 'expression', 'gap']);
 
 function readManifest(src: string): VoiceManifest {
   const file = entryRelativePath(src);
@@ -473,12 +463,13 @@ function readManifest(src: string): VoiceManifest {
     if (!isObject(value)) fail(`${at} must be an object`);
     const entry = value as Record<string, unknown>;
     for (const key of Object.keys(entry)) {
+      if (key === 'reading') fail(`${at}.reading is now spokenText, the name every dialogue line uses`);
       if (!MANIFEST_KEYS.has(key)) fail(`${at} has unknown key "${key}"`);
     }
     if (typeof entry.file !== 'string' || entry.file.length === 0) fail(`${at}.file must be a non-empty string`);
     const fileName = (entry.file as string).replace(/\\/g, '/');
     if (/\.(wav|txt)$/i.test(fileName)) fail(`${at}.file names the pair without its extension: "${fileName.replace(/\.(wav|txt)$/i, '')}"`);
-    for (const key of ['id', 'speaker', 'text', 'reading', 'scene'] as const) {
+    for (const key of ['id', 'speaker', 'text', 'spokenText', 'scene'] as const) {
       if (entry[key] !== undefined && typeof entry[key] !== 'string') fail(`${at}.${key} must be a string`);
     }
     if (entry.id === '') fail(`${at}.id must not be empty`);

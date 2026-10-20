@@ -31,6 +31,9 @@ export type {
   PlannedDialogueLine,
 } from './dialogue-series';
 
+export { loadDialogueLipSync, spokenTextOf } from './spoken-text';
+export type { LoadDialogueLipSyncOptions } from './spoken-text';
+
 export { importVoiceFolder, naturalCompare } from './voice-folder';
 export type {
   ImportVoiceFolderOptions,

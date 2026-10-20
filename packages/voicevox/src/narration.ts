@@ -79,12 +79,7 @@ export interface NarrationLine extends DialogueLine {
   id: string;
   /** Key into `options.speakers`. Optional when the line has its own `audio`. */
   speaker?: string;
-  /**
-   * What the engine reads, when it differs from the subtitle: a reading
-   * ('エイチピー') or text without markup. Defaults to `text`, which must
-   * then be a string.
-   */
-  spokenText?: string;
+  // `spokenText` (from `DialogueLine`) is what the engine reads; it defaults to `text`.
   /** Overrides the speaker's settings for this line; `query` is merged field by field. */
   voice?: Partial<VoicevoxVoiceSettings>;
 }
