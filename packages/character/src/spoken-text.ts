@@ -72,7 +72,7 @@ export interface LoadDialogueLipSyncOptions {
 export async function loadDialogueLipSync<L extends DialogueLine>(
   lines: readonly L[],
   options: LoadDialogueLipSyncOptions = {},
-): Promise<L[]> {
+): Promise<(L & Pick<DialogueLine, 'lipSync'>)[]> {
   const warn = options.onWarning ?? ((message: string) => console.warn(message));
   const caller = 'loadDialogueLipSync()';
   // The files are read side by side; warnings still come in script order.
@@ -92,7 +92,7 @@ export async function loadDialogueLipSync<L extends DialogueLine>(
       throw new Error(`${caller}: line "${id}": could not read ${line.audio} as a WAV (${message})`);
     }
   }));
-  return lines.map((line, index): L => {
+  return lines.map((line, index): L & Pick<DialogueLine, 'lipSync'> => {
     const audio = decoded[index];
     if (!audio) return line;
     const id = line.id ?? String(index);
