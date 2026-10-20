@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { resolveTimedRanges, timedRangeAt } from '../dist/index.js';
-import type { ResolveTimedRangesOptions, TimedItem } from '../dist/index.js';
+import { resolveTimedRanges, timedRangeAt } from '../src/index.js';
+import type { ResolveTimedRangesOptions, TimedItem } from '../src/index.js';
 
 const what = '<CaptionTrack>';
 
