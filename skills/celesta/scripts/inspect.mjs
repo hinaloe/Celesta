@@ -496,6 +496,8 @@ async function inspectEntry(options) {
             `${clip.sourceStart ? `, starting ${fmt(clip.sourceStart)} s into the file` : ''}` +
             `${typeof clip.volume === 'number' && clip.volume !== 1 ? `, volume ${fmt(clip.volume)}` : ''}` +
             `${typeof clip.volume === 'object' ? ', volume keyframes' : ''}` +
+            `${clip.fadeIn ? `, fading in over ${fmt(clip.fadeIn)} s` : ''}` +
+            `${clip.fadeOut ? `, fading out over ${fmt(clip.fadeOut)} s` : ''}` +
             `${clip.loop ? ', looping' : ''}${clip.muted ? ', muted' : ''}${checkFile(clip.src)}`,
         );
       }
