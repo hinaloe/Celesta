@@ -1,4 +1,4 @@
-import { Assets, Audio, Composition, Font, Sequence, frameKeyframes } from '@celesta/react';
+import { Assets, Audio, Composition, Font, Sequence } from '@celesta/react';
 import type { ReactElement } from 'react';
 import { Character, DialogueSeries } from '@celesta/character';
 import type { CharacterSubtitle } from '@celesta/character';
@@ -76,11 +76,7 @@ export default function Root() {
       <DialogueSeries plan={plan} views={{ kiritan: CAST.kiritan.view, zunko: CAST.zunko.view }} holdThroughGap />
 
       {/* The score sits under the voices and fades out over the last second. */}
-      <Audio src="./score.wav" volume={frameKeyframes([
-        { frame: 0, value: 0.32 },
-        { frame: end - FPS, value: 0.32 },
-        { frame: end, value: 0, easing: 'ease-in' },
-      ], { fps: FPS })} />
+      <Audio src="./score.wav" volume={0.32} fadeOut={1} />
     </Composition>
   );
 }
