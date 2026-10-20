@@ -196,9 +196,9 @@ export interface Typewriter {
  * const { text, caretVisible } = useTypewriter('npm run build', { from: 10 });
  * ```
  *
- * For a caret after the text, use a monospaced font: every character is then
- * the same width (0.6 em in JetBrains Mono), so `length * advance` is where
- * the caret goes.
+ * For typed text with a caret, use `<TypewriterText>` from
+ * `@celesta/components`: it times the typing with this hook and places the
+ * caret on the measured layout, so any font, `\n`, and wrapping work.
  *
  * `content` may hold `<Span>`: pass `length` to `style.visibleCharacters` of
  * a `<Text>` with the same content to reveal it without changing its layout.

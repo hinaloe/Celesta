@@ -5,7 +5,7 @@ fonts and fallback, line breaking (including Japanese phrases), text
 animation helpers, measuring text, and fitting text into a box. `Text` and
 measuring come from `@celesta/react`; `TextReveal`, `useTypewriter`,
 `useCountUp`, `TextBox`, `useFitText`, and `fitText` from `@celesta/text`;
-`TitleCard` from `@celesta/components`.
+`TitleCard` and `TypewriterText` from `@celesta/components`.
 Syntax-highlighted code is in [code.md](code.md).
 
 ## Contents
@@ -18,7 +18,7 @@ Syntax-highlighted code is in [code.md](code.md).
 - [Fonts, fallback, and emoji](#fonts-fallback-and-emoji)
 - [Font stacks (和欧混植)](#font-stacks-和欧混植)
 - [Language and fallback fonts](#language-and-fallback-fonts)
-- [Text motion](#text-motion): TextReveal, useTypewriter, useCountUp
+- [Text motion](#text-motion): TextReveal, TypewriterText, useTypewriter, useCountUp
 - [Measure text](#measure-text): useTextMetrics, measureText
 - [Fit text into a box](#fit-text-into-a-box): TextBox, useFitText, fitText
 - [Title cards](#title-cards): TitleCard
@@ -403,13 +403,64 @@ top-left of the first line box.
 </Composition>
 ```
 
+### `<TypewriterText>`
+
+Text that types itself out with a caret, from `@celesta/components`. It
+times the typing with `useTypewriter` (same `from`, `framesPerChar`, and
+`blinkFrames`, so it shows what the hook returns on every frame), draws the
+complete text once with `style.visibleCharacters`, and places the caret with
+`textCaret()` on that layout. No monospaced font is needed: the caret
+follows proportional fonts, Japanese, `\n`, `maxWidth` wrapping, and
+`style.align`.
+
+```tsx
+import { TypewriterText } from '@celesta/components';
+
+<TypewriterText x={160} y={300} from={12} framesPerChar={2}
+  caretShape="block" fontFamily="mono" fontSize={40} color="paper">
+  pnpm run build
+</TypewriterText>
+```
+
+Props: `children` (text, which may hold `<Span>`), `style`, the shorthand
+`fontFamily`/`fontSize`/`fontWeight`/`color`, `lang`, `maxWidth`, `from`
+(0), `framesPerChar` (1), `blinkFrames` (one second), `caret` (`true`),
+`caretShape` (`'line'` or `'block'`), `caretColor` (hex or `<Theme>` name;
+defaults to the text's solid fill, else white), `caretWidth`,
+`caretHeight`, plus common props.
+
+- **Placement**: `anchorX`/`anchorY` pivot on the finished text's box as
+  `measureText()` reports it (0 the top of the first line box, 1 the bottom
+  of the last), or `anchorY="baseline"` on the first baseline. The box is
+  the finished text's, so nothing shifts while it types: `anchorX={0.5}`
+  centers the whole line from the first frame.
+- **Caret size**: a line is 6% of the font's line height wide (at least
+  2px); a block is one `0` wide, one cell in a monospaced font. Both are as
+  tall as the font's own line, centered on the line box, so a larger
+  `style.lineHeight` does not stretch them.
+- **Before `from`** nothing is typed and the caret blinks at the start;
+  **while typing** it stays on after the last typed character; **once
+  done** it blinks after the last character. Empty text draws only the
+  blinking caret. To hide the caret from some frame on, compute `caret`
+  (`caret={frame < 60}`).
+- **Units**: one Unicode code point per step, as `useTypewriter` counts.
+  Emoji with several code points (ZWJ sequences, flags, skin tones) and
+  combining marks take several steps; between them the caret sits partway
+  across the cluster.
+- **Wrapping**: at a `maxWidth` wrap, the caret moves to the next line once
+  the character before the wrap is typed. After a typed `\n`, it is at the
+  start of the next line.
+- **Browser preview**: the browser measurer has no glyph positions, so the
+  caret is measured from the typed part of its line instead, without
+  `<Span>` fonts.
+
 ### `useTypewriter(text, { from?, framesPerChar?, blinkFrames? })`
 
 Returns `{ text, length, done, caretVisible }`. Counts by code point, so kana
 and emoji count once. `framesPerChar` below 1 types several characters per
 frame. The caret is steady while typing and blinks (period `blinkFrames`,
-default one second) otherwise. To place a caret after the typed text,
-measure it: `useTextMetrics(text, style).width`. For code, pass `length` to
+default one second) otherwise. For typed text with a caret, use
+[`<TypewriterText>`](#typewritertext). For code, pass `length` to
 `<Code visibleCharacters>` ([code.md](code.md)).
 
 `text` may hold `<Span>`; `text` in the result is then the plain string. To

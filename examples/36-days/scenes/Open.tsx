@@ -1,7 +1,6 @@
-import { Easings, Group, Rect, interpolate, progress, textCaret, useCurrentFrame, useTextMetrics } from '@celesta/react';
+import { TypewriterText } from '@celesta/components';
+import { Easings, Group, Rect, interpolate, progress, useCurrentFrame, useTextMetrics } from '@celesta/react';
 import { Camera } from '@celesta/layout';
-import { useTypewriter } from '@celesta/text';
-import { Caret } from '../components/Caret';
 import { Label, textStyle } from '../components/Label';
 import { BEAT, C, H, W } from '../constants';
 import { DAYS } from '../data';
@@ -12,11 +11,9 @@ const LOG = DAYS.flatMap((d) => Array.from({ length: d.commits }, () => d.date))
 
 export function Open() {
   const f = useCurrentFrame();
-  const typed = useTypewriter(PROMPT, { from: 6, blinkFrames: BEAT });
   const size = 40;
-  // The whole prompt line, measured once: the typed text starts after `$ `,
-  // and the caret sits at the end of what is typed so far.
-  const line = useTextMetrics(`$ ${PROMPT}`, textStyle('mono', size));
+  // The typed command starts after `$ `.
+  const prompt = useTextMetrics('$ ', textStyle('mono', size)).width;
   // The camera aims past the year of the first date (`YYYY-`).
   const year = useTextMetrics(LOG[0].slice(0, 5), textStyle('mono', 28)).width;
   const x0 = 160;
@@ -38,8 +35,11 @@ export function Open() {
         y={interpolate(aim, [0, 1], [H / 2, firstY])} zoom={1 + 7 * dive}>
         <Group x={x0} y={y0}>
           <Label size={size} font="mono" weight={700} color={C.mint} ay={0.5}>$</Label>
-          <Label x={textCaret(line, 2).x} size={size} font="mono" ay={0.5}>{typed.text}</Label>
-          <Caret x={textCaret(line, 2 + typed.length).x} size={size} visible={f < 60 && typed.caretVisible} />
+          {/* The caret goes away when the command runs and the log starts. */}
+          <TypewriterText x={prompt} anchorY={0.5} from={6} blinkFrames={BEAT} style={textStyle('mono', size)}
+            caret={f < 60} caretShape="block" caretColor={C.mint}>
+            {PROMPT}
+          </TypewriterText>
         </Group>
         {shown > 0 && <Label x={x0} y={firstY} size={28} font="mono" ay={0.5}>{LOG[0]}</Label>}
         <Group y={firstY + 24} clip={{ x: -W, width: W * 3, height: rows * 44 }}>

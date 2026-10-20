@@ -27,3 +27,5 @@ export { StatCard } from './stat-card';
 export type { StatCardProps } from './stat-card';
 export { TitleCard } from './title-card';
 export type { TitleCardProps } from './title-card';
+export { TypewriterText } from './typewriter-text';
+export type { TypewriterCaretShape, TypewriterTextProps } from './typewriter-text';
