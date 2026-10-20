@@ -766,6 +766,12 @@ interface FreezeFrameLink {
   /** `frame` as the rounded root time, in microseconds, which cycles compare. */
   time: number;
   id?: string;
+  /** The children's element types, which tell a replay of this `<FreezeFrame>` from another one. */
+  children: unknown[];
+}
+
+function sameChildren(a: readonly unknown[], b: readonly unknown[]): boolean {
+  return a.length === b.length && a.every((type, index) => type === b[index]);
 }
 
 /**
@@ -810,9 +816,10 @@ export interface FreezeFrameProps extends CommonProps {
  * Authored `id`s inside are prefixed with this layer's id.
  * Project layers (`<ProjectTimeline />`, `<ProjectTrack />`) are evaluated at
  * the current frame only, so they throw inside. A `<FreezeFrame>` inside
- * another at the same frame (a film that freezes a frame where it plays this
- * very `<FreezeFrame>`) would draw itself forever, so it throws, naming the
- * frames it is nested in; so does nesting more than 16 deep.
+ * another at the same frame with the same kind of children (a film that
+ * freezes a frame where it plays this very `<FreezeFrame>`) would draw itself
+ * forever, so it throws, naming the frames it is nested in; so does nesting
+ * more than 16 deep.
  */
 export function FreezeFrame(props: FreezeFrameProps): ReturnType<typeof React.createElement> {
   const context = React.useContext(CompositionRuntimeContext);
@@ -826,10 +833,16 @@ export function FreezeFrame(props: FreezeFrameProps): ReturnType<typeof React.cr
     throw new Error('<FreezeFrame> requires a finite `frame`');
   }
   const time = secondsToTime(props.frame / root.fps);
-  const chain = [...ancestors, { frame: props.frame, time: time.value, id: props.id }];
+  const children = React.Children.toArray(props.children).map((child) =>
+    React.isValidElement(child) ? child.type : typeof child,
+  );
+  const chain = [...ancestors, { frame: props.frame, time: time.value, id: props.id, children }];
   // React's reconciler grows the tree without recursing, so a cycle would
-  // run until the heap is gone; name it here instead.
-  if (ancestors.some((ancestor) => ancestor.time === time.value)) {
+  // run until the heap is gone; name it here instead. Every frame is a
+  // function of its time, so the same children at the same time inside
+  // themselves repeat forever; other children there (a poster frozen at
+  // frame 0 holding a still of its own) end.
+  if (ancestors.some((ancestor) => ancestor.time === time.value && sameChildren(ancestor.children, children))) {
     throw new Error(
       `<FreezeFrame frame={${props.frame}}> draws itself: it is inside a <FreezeFrame> at the same frame ` +
         `(${describeFreezeChain(chain)})`,

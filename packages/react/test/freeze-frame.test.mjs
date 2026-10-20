@@ -33,8 +33,16 @@ test('a film that freezes a frame where it plays itself names the cycle', () => 
 });
 
 test('frames that round to the same time are the same frame', () => {
-  const Body = () => h(FreezeFrame, { frame: 10 }, h(FreezeFrame, { frame: 10 + 1e-9 }, rect(0)));
-  expect(() => mount(film(Body)).renderAt(at(0), null)).toThrow(/frame 10 > frame 10\.000000001\)$/);
+  const Still = ({ depth }) => h(FreezeFrame, { frame: 10 + depth * 1e-9 }, h(Still, { depth: depth + 1 }));
+  expect(() => mount(film(() => h(Still, { depth: 0 }))).renderAt(at(0), null)).toThrow(
+    /frame 10 > frame 10\.000000001\)$/,
+  );
+});
+
+test('other children at the same frame are not a cycle', () => {
+  const Body = () => h(FreezeFrame, { frame: 10 }, rect(0), h(FreezeFrame, { frame: 10 }, rect(1)));
+  const [outer] = mount(film(Body)).renderAt(at(0), null).scene.layers;
+  assert.equal(outer.content.layers[1].content.layers[0].transform.position.x, 1);
 });
 
 test('nesting past the limit names the chain', () => {
