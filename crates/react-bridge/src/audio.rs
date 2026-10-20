@@ -80,8 +80,8 @@ pub fn react_audio_clips(clips: &[ReactAudioClipDescriptor], entry_dir: &Path) -
                 r#loop: clip.r#loop,
                 pitch: clip.pitch,
                 preserve_pitch: clip.preserve_pitch,
-                fade_in: Time::ZERO,
-                fade_out: Time::ZERO,
+                fade_in: react_seconds_to_time(clip.fade_in),
+                fade_out: react_seconds_to_time(clip.fade_out),
             }
         })
         .collect()

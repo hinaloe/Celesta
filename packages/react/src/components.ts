@@ -920,6 +920,17 @@ export interface AudioProps extends CommonProps {
    * together, as before.
    */
   preservePitch?: boolean;
+  /**
+   * Seconds the clip takes to rise from silence where it starts being
+   * heard. Defaults to 0. The fade multiplies `volume`.
+   */
+  fadeIn?: number;
+  /**
+   * Seconds the clip takes to fall to silence where it stops being heard:
+   * the end of its innermost `<Sequence>`, or of an outer one that cuts it
+   * shorter. Defaults to 0. The fade multiplies `volume`.
+   */
+  fadeOut?: number;
 }
 
 /**

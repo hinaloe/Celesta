@@ -38,6 +38,8 @@ fn static_clip(src: &str, start: f64, duration: f64, volume: f64) -> ReactAudioC
         video: false,
         pitch: Animatable::Static(0.0),
         preserve_pitch: false,
+        fade_in: 0.0,
+        fade_out: 0.0,
     }
 }
 
@@ -83,6 +85,8 @@ fn builds_a_react_audio_graph_with_ranges_and_keyframed_volume() {
         video: false,
         pitch: Animatable::Static(0.0),
         preserve_pitch: false,
+        fade_in: 0.25,
+        fade_out: 0.5,
     }];
 
     let graph = build_audio_graph(&clips, Path::new("/entry/root"), None).unwrap();
@@ -110,6 +114,8 @@ fn builds_a_react_audio_graph_with_ranges_and_keyframed_volume() {
         Path::new("/entry/root/./voice.wav"),
         "relative sources resolve against the entry's own directory"
     );
+    assert_eq!(clip.fade_in.as_seconds().unwrap(), 0.25);
+    assert_eq!(clip.fade_out.as_seconds().unwrap(), 0.5);
 }
 
 #[test]
