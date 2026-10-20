@@ -81,7 +81,8 @@ import { CaptionTrack } from '@celesta/components';
   never shows. Overlapping cues throw, naming both, unless
   `overlap="latest"` lets the later one cut the earlier short. `from` and
   `durationInFrames` must be whole numbers (`parseSubtitles()` gives them).
-  A cue with empty `text` shows no band. Seeking to any frame, in any
+  A cue with empty `text` shows no band, though a `render` callback is
+  still called for it (to draw, say, a speaker tag). Seeking to any frame, in any
   order, draws the same picture.
 - **Layout.** The band sits at the bottom of the layout area (`position`
   `'top'` / `'middle'` / `'bottom'`, `align` `'left'` / `'center'` /
