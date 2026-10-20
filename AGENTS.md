@@ -2,6 +2,7 @@ When updating a pull request branch with changes from its base branch, rebase th
 
 * For rendering-related changes, attach screenshots of the same scene taken before and after the rendering change.
 * When a new feature supersedes the content of an existing example, update the corresponding example scene in the same pull request.
+* Use Vitest for tests and write test code in TypeScript.
 
 <!-- BEGIN:turborepo-agent-rules -->
 
