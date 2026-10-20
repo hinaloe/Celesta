@@ -1,19 +1,29 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import React from 'react';
+import type { ReactElement } from 'react';
 
 import { Composition, Text, Theme } from '@celesta/react';
-import { emphasisContent, graphemes, resolveEmphasis, sliceEmphasis } from '../dist/index.js';
+import type { Layer, LayerContent, ResolvedTheme, Scene } from '@celesta/react';
 import { mount } from '@celesta/react/internal';
+import { emphasisContent, graphemes, resolveEmphasis, sliceEmphasis } from '../dist/index.js';
+import type { EmphasisOptions, TextEmphasis } from '../dist/index.js';
 
 const FAMILY = '👨‍👩‍👧';
 const FLAG = '🇯🇵';
 const ACCENTED = 'é';
 const YOSHI = '𠮷';
 
-function render(element) {
+type TextContent = Extract<LayerContent, { type: 'text' }>;
+
+function render(element: ReactElement): Scene {
   const Root = () => React.createElement(Composition, { width: 640, height: 360, fps: 30, durationInFrames: 1 }, element);
   return mount(Root).renderAt({ value: 0, timescale: 30 }, null).scene;
+}
+
+function textOf(layer: Layer | undefined): TextContent {
+  assert.equal(layer?.content.type, 'text');
+  return layer!.content as TextContent;
 }
 
 test('graphemes keeps emoji sequences, flags, combining marks, and surrogate pairs whole', () => {
@@ -34,7 +44,7 @@ test('resolveEmphasis counts clusters, sorts, and looks up named styles', () => 
 });
 
 test('resolveEmphasis resolves <Theme> color names it is given', () => {
-  const theme = { fonts: {}, colors: { accent: '#28a34a' } };
+  const theme: ResolvedTheme = { fonts: {}, colors: { accent: '#28a34a' } };
   const [entry] = resolveEmphasis('abc', [{ start: 0, end: 1, style: { color: 'accent' } }], { theme });
   assert.equal(entry.style.color, '#28a34a');
   assert.throws(
@@ -45,8 +55,9 @@ test('resolveEmphasis resolves <Theme> color names it is given', () => {
 
 test('resolveEmphasis refuses ranges, styles, and overlaps it cannot draw', () => {
   const what = 'line "danger"';
-  const bad = (emphasis, pattern, options = {}) =>
-    assert.throws(() => resolveEmphasis(`HP${FAMILY}`, emphasis, { what, ...options }), pattern);
+  // Wrong on purpose: the checks are for data that comes in untyped.
+  const bad = (emphasis: unknown, pattern: RegExp, options: EmphasisOptions = {}) =>
+    assert.throws(() => resolveEmphasis(`HP${FAMILY}`, emphasis as TextEmphasis[], { what, ...options }), pattern);
   bad([{ start: 0, end: 4, style: {} }], /line "danger": emphasis 0 \(0–4\) must cover at least one of the text's 3 grapheme clusters/);
   bad([{ start: 2, end: 2, style: {} }], /emphasis 0 \(2–2\)/);
   bad([{ start: -1, end: 1, style: {} }], /emphasis 0 \(-1–1\)/);
@@ -55,9 +66,9 @@ test('resolveEmphasis refuses ranges, styles, and overlaps it cannot draw', () =
   bad([{ start: 0, end: 1, style: { color: '#ff6060', fontSize: 40 } }], /unknown property "fontSize"/);
   bad([{ start: 0, end: 1, style: { color: 'red' } }], /color "red" is neither/);
   bad([{ start: 0, end: 1, style: { fontWeight: 0 } }], /fontWeight must be a whole number from 1 to 1000/);
-  bad([{ start: 0, end: 1, style: 'x' }], /style "x" has unknown property "underline"/, { styles: { x: { underline: true } } });
+  bad([{ start: 0, end: 1, style: 'x' }], /style "x" has unknown property "underline"/, { styles: { x: { underline: true } as never } });
   bad([{ start: 0, end: 2, style: {} }, { start: 1, end: 3, style: {} }], /emphasis 1 \(1–3\) overlaps emphasis 0 \(0–2\)/);
-  assert.throws(() => resolveEmphasis(`HP`, { start: 0 }, { what }), /line "danger": emphasis must be a list/);
+  bad({ start: 0 }, /line "danger": emphasis must be a list/);
 });
 
 test('emphasisContent draws as <Span> runs over the right code points', () => {
@@ -67,10 +78,10 @@ test('emphasisContent draws as <Span> runs over the right code points', () => {
     { start: 1, end: 2, style: { color: '#ff6060' } },
     { start: 2, end: 3, style: { fontWeight: 700 } },
   ]);
-  const [layer] = render(React.createElement(Text, { style: { fontSize: 20 } }, content)).layers;
-  assert.equal(layer.content.text, text);
-  assert.deepEqual(layer.content.style.colorRuns, [{ start: 5, end: 6, color: '#ff6060' }]);
-  assert.deepEqual(layer.content.style.fontRuns, [{ start: 6, end: 7, fontWeight: 700 }]);
+  const layer = textOf(render(React.createElement(Text, { style: { fontSize: 20 }, children: content })).layers[0]);
+  assert.equal(layer.text, text);
+  assert.deepEqual(layer.style.colorRuns, [{ start: 5, end: 6, color: '#ff6060' }]);
+  assert.deepEqual(layer.style.fontRuns, [{ start: 6, end: 7, fontWeight: 700 }]);
 });
 
 test('emphasisContent with no emphasis is the text itself', () => {
@@ -79,11 +90,11 @@ test('emphasisContent with no emphasis is the text itself', () => {
 });
 
 test('emphasisContent inside <Theme> takes resolved colors', () => {
-  const theme = { fonts: {}, colors: { hot: '#ff0000' } };
+  const theme: ResolvedTheme = { fonts: {}, colors: { hot: '#ff0000' } };
   const content = emphasisContent('ab', [{ start: 1, end: 2, style: 'warn' }], { theme, styles: { warn: { color: 'hot' } } });
-  const scene = render(React.createElement(Theme, { colors: { hot: '#00ff00' } }, React.createElement(Text, null, content)));
+  const scene = render(React.createElement(Theme, { colors: { hot: '#00ff00' } }, React.createElement(Text, { children: content })));
   // The style was resolved against the theme given, not the one it is drawn in.
-  assert.deepEqual(scene.layers[0].content.style.colorRuns, [{ start: 1, end: 2, color: '#ff0000' }]);
+  assert.deepEqual(textOf(scene.layers[0]).style.colorRuns, [{ start: 1, end: 2, color: '#ff0000' }]);
 });
 
 test('sliceEmphasis cuts emphasis to part of the text and rebases it', () => {

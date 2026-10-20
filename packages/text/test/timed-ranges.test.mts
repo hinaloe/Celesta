@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
 import { resolveTimedRanges, timedRangeAt } from '../dist/index.js';
+import type { ResolveTimedRangesOptions, TimedItem } from '../dist/index.js';
 
 const what = '<CaptionTrack>';
 
@@ -11,14 +12,15 @@ test('ranges are half open and looked up on their boundary frames', () => {
     { from: 45, durationInFrames: 15 },
   ], { what });
   assert.deepEqual(ranges, [{ index: 0, from: 0, end: 30 }, { index: 1, from: 45, end: 60 }]);
-  assert.equal(timedRangeAt(ranges, -1), null);
-  assert.equal(timedRangeAt(ranges, 0).index, 0);
-  assert.equal(timedRangeAt(ranges, 29).index, 0);
+  const at = (frame: number) => timedRangeAt(ranges, frame)?.index ?? null;
+  assert.equal(at(-1), null);
+  assert.equal(at(0), 0);
+  assert.equal(at(29), 0);
   // The gap between them shows nothing.
-  assert.equal(timedRangeAt(ranges, 30), null);
-  assert.equal(timedRangeAt(ranges, 44), null);
-  assert.equal(timedRangeAt(ranges, 45).index, 1);
-  assert.equal(timedRangeAt(ranges, 60), null);
+  assert.equal(at(30), null);
+  assert.equal(at(44), null);
+  assert.equal(at(45), 1);
+  assert.equal(at(60), null);
 });
 
 test('items are sorted by from, keeping list order for ties', () => {
@@ -40,7 +42,7 @@ test('an open end lasts until the next item, or the end given', () => {
 });
 
 test('with an end, items outside it are errors', () => {
-  const label = (index) => `page ${index}`;
+  const label = (index: number) => `page ${index}`;
   assert.throws(
     () => resolveTimedRanges([{ from: 0, durationInFrames: 100 }], { what: 'line "a"', end: 90, label }),
     /line "a": page 0 \(frames 0–100\) is outside frames 0–90/,
@@ -52,7 +54,7 @@ test('with an end, items outside it are errors', () => {
 });
 
 test('overlaps are errors unless the later item may cut the earlier one', () => {
-  const items = [
+  const items: TimedItem[] = [
     { from: 0, durationInFrames: 50 },
     { from: 30, durationInFrames: 30 },
     { from: 30, durationInFrames: 10 },
@@ -70,7 +72,9 @@ test('overlaps are errors unless the later item may cut the earlier one', () => 
 });
 
 test('bad frames and order are refused with the item named', () => {
-  const bad = (items, pattern, options = {}) => assert.throws(() => resolveTimedRanges(items, { what, ...options }), pattern);
+  // Wrong on purpose: the checks are for data that comes in untyped.
+  const bad = (items: unknown[], pattern: RegExp, options: Partial<ResolveTimedRangesOptions> = {}) =>
+    assert.throws(() => resolveTimedRanges(items as TimedItem[], { what, ...options }), pattern);
   bad([{ from: 1.5, durationInFrames: 10 }], /item 0 needs a whole-number `from`, got 1.5/);
   bad([{ from: 0, durationInFrames: 0 }], /item 0 needs a whole-number `durationInFrames` of at least 1, got 0/);
   bad([{ from: 0, durationInFrames: Number.NaN }], /got NaN/);
