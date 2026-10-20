@@ -28,6 +28,7 @@ preview and export, and other people (and agents) reading the file know them.
 | A `<Rect>` frame behind a `<Group clip>` around `<Group scale={w / 1920}><Video /></Group>`, and a `<Text>` caption under it | `<MediaFrame kind="video" sourceWidth sourceHeight width height fit cornerRadius caption />` | `@celesta/components` |
 | `opacity={progress(f, 0, 12) * (1 - progress(f, d - 10, 10))}`, or an entrance `<Transition>` nested in an exit one | `<Motion enter="fade-up" exit="fade">` | `@celesta/components` |
 | A chapter number, kicker, title, and subtitle placed and staggered by hand | `<TitleCard chapter="01" kicker="…" title="…" subtitle="…" />` | `@celesta/components` |
+| A name and role on a `<Rect>` band measured with `useTextMetrics` and slid in from a corner | `<LowerThird title="…" subtitle="…" placement="bottom-left" />` | `@celesta/components` |
 | `useTypewriter` text plus a caret `<Rect>` at `length * advance` or `textCaret(…)` | `<TypewriterText caretShape="block">…</TypewriterText>` | `@celesta/components` |
 | `from: i * 6` on each item | `<Stagger each={6}>` | `@celesta/react` |
 | Scene start frames summed by hand | `<Series>` + `computeSeries` | `@celesta/react` |

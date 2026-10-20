@@ -77,6 +77,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `MediaFrame` | `@celesta/components` | 画像または動画（`kind` で指定）を `Panel` の枠に contain / cover で収め、角丸・枠線・キャプションを付けます。動画の再生設定と音声はそのまま保たれます。 |
 | `Motion` | `@celesta/components` | 一つの要素をフェード・移動・拡大で登場させ、書いたままの状態で保持し、退場させます。表示区間は外側の Sequence の区間か、自前で指定した区間です。シーン同士のつなぎには `TransitionSeries` を使います。 |
 | `TitleCard` | `@celesta/components` | 章番号・キッカー・タイトル・副題を一つのブロックにまとめたタイトル画面です。キャンバスやセーフエリアの中で、左・中央・右と上・中央・下に置きます。タイトルは明示改行を保ち、収まるまで文字を小さくします。各要素は時間差で、またはまとめて登場します。 |
+| `LowerThird` | `@celesta/components` | 名前と任意の肩書きを、文字に合わせた帯とアクセントの線で、キャンバスやセーフエリアの隅に表示するテロップです。長い行は折り返し、収まるまで文字を小さくします。帯が入ってから各行が続き、外側の Sequence の終わりで退場します。 |
 | `TypewriterText` | `@celesta/components` | 文字を一文字ずつ入力して見せ、計測した組版の位置に線またはブロックのカーソルを置きます。フォントを問わず、`\n` や折り返しにも追従します。 |
 | `Center`, `SafeArea`, `Stack`, `Grid`, `Fit`, `LayoutBounds` | `@celesta/layout` | 子のレイヤーを配置します。[レイアウトのヘルパー](/ja/docs/layout/)を参照。 |
 | `preloadMedia` / `mediaDurationInFrames` | `@celesta/media-utils` | `prepare()` 内でメディアの長さとサイズを取得します。 |

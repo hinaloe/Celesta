@@ -5,7 +5,7 @@ fonts and fallback, line breaking (including Japanese phrases), text
 animation helpers, measuring text, and fitting text into a box. `Text` and
 measuring come from `@celesta/react`; `TextReveal`, `useTypewriter`,
 `useCountUp`, `TextBox`, `useFitText`, and `fitText` from `@celesta/text`;
-`TitleCard` and `TypewriterText` from `@celesta/components`.
+`TitleCard`, `LowerThird`, and `TypewriterText` from `@celesta/components`.
 Syntax-highlighted code is in [code.md](code.md).
 
 ## Contents
@@ -22,6 +22,7 @@ Syntax-highlighted code is in [code.md](code.md).
 - [Measure text](#measure-text): useTextMetrics, measureText
 - [Fit text into a box](#fit-text-into-a-box): TextBox, useFitText, fitText
 - [Title cards](#title-cards): TitleCard
+- [Lower thirds](#lower-thirds): LowerThird
 - [Verifying text](#verifying-text)
 
 ## The Text layer
@@ -695,6 +696,48 @@ import { TitleCard } from '@celesta/components';
 
 Runnable: [`packages/cli/examples/with-title-card.tsx`](../../../packages/cli/examples/with-title-card.tsx)
 (a staggered card, a calm one, and a vertical card inside `'vertical-social'`).
+
+## Lower thirds
+
+`<LowerThird title subtitle? …>` from `@celesta/components` puts a name
+and a role on a band in a corner of the current area (the canvas, a
+`<SafeArea>`, or a `<Fit>`), inside `safeArea` and `margin`. The band is a
+[`<Panel>`](react-core.md#panel-cards-and-boxes-with-padding) as wide as the longer line, with an
+accent bar on its outer edge. Each line keeps its `\n` breaks, wraps at the
+band's widest, and shrinks with `useFitText` until it fits its line limit.
+It needs no character or dialogue: give it the text.
+
+```tsx
+import { LowerThird } from '@celesta/components';
+
+<Sequence from={30} durationInFrames={120}>
+  <LowerThird title="夏猫" subtitle="ソフトウェアエンジニア" accent="#60A0FF" />
+</Sequence>
+```
+
+| Prop | Notes |
+| --- | --- |
+| `placement` | `'bottom-left'` (default), `'bottom-center'`, `'bottom-right'`, `'top-left'`, `'top-right'`. The lines align toward the side the band sits on, and the accent goes on that edge. |
+| `safeArea`, `margin` | As `<SafeArea padding>` (such as `'vertical-social'`), then the space to the band. `margin` defaults to 6% of the area's shorter side. |
+| `maxWidth`, `padding`, `gap` | The widest the band may be (defaults: 60% of the room on a landscape area, all of it otherwise), the space inside the band, and between the lines. |
+| `background`, `cornerRadius`, `accent`, `accentWidth` | The band's fill (hex, `<Theme>` color name, or `Paint`; default `#000000B3`), its rounding, and the accent bar's color (default `color`) and width (`0` for none). |
+| `fontFamily`, `color`, `subtitleColor` | Family or `<Theme>` font name for both lines; hex colors or `<Theme>` color names. |
+| `titleSize`, `minTitleSize`, `maxTitleLines`, `titleLineHeight` | The title's largest and smallest sizes (defaults 4.5% of the shorter side, and 60% of that), its line limit (2), and its line height as a multiple (1.2). |
+| `subtitleSize`, `minSubtitleSize`, `maxSubtitleLines`, `subtitleLineHeight` | Likewise for the subtitle (2.6%, 80% of that, 2, 1.35). |
+| `titleStyle`, `subtitleStyle` | Extra `TextStyle` over each line's defaults. |
+| `enter`, `exit` | The band's [`<Motion>`](animation.md#motion) effects (`null` cuts). Defaults: fading in while moving toward the middle of the area, and `'fade'`. |
+| `textEnter`, `stagger` | How each line arrives inside the band, `stagger` frames after the band and after each other, as [title cards](#title-cards) stagger their pieces. Defaults: a short `fade-up`, a fifth of a second. The lines leave with the band. |
+
+- **Timing.** The caption uses the enclosing sequence's window: wrap it in
+  a `<Sequence from durationInFrames>` for the stretch it should show; the
+  band leaves at its end.
+- **Speaker names in dialogue.** `<DialogueSeries>` draws its own subtitles
+  and name plates ([dialogue.md](dialogue.md)); `LowerThird` is for a
+  caption you place yourself.
+
+Runnable: [`packages/cli/examples/with-lower-third.tsx`](../../../packages/cli/examples/with-lower-third.tsx)
+(bottom-left with a role, bottom-right without, and a long Japanese name in a
+vertical composition).
 
 ## Verifying text
 

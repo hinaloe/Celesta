@@ -14,8 +14,8 @@ import { useFitText } from '@celesta/text';
 import type { FitTextStyle } from '@celesta/text';
 
 import { hexColor } from './color';
-import { Motion } from './motion';
 import type { MotionEffect } from './motion';
+import { defaultStagger, nonNegative, positive, solid, staggeredPiece } from './text-block';
 
 export interface TitleCardProps {
   /** The headline. `\n` breaks a line; long titles wrap and shrink to fit. */
@@ -101,17 +101,6 @@ interface Piece {
   node: (offset: number) => ReactNode;
 }
 
-function positive(value: number, name: string): number {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error(`<TitleCard> ${name} must be a finite number greater than 0`);
-  }
-  return value;
-}
-
-function solid(color: string): TextStyle['fill'] {
-  return { type: 'solid', color };
-}
-
 /**
  * A title screen inside the current layout area (the canvas, a
  * `<SafeArea>`, or a `<Fit>`): a chapter number, kicker, title, and
@@ -141,13 +130,13 @@ export function TitleCard(props: TitleCardProps): ReturnType<typeof React.create
     enter = { type: 'fade-up', distance: Math.round(side * 0.03) }, exit = 'fade',
   } = props;
   const minTitleSize = Math.min(props.minTitleSize ?? Math.round(titleSize * 0.4), titleSize);
-  const stagger = props.stagger ?? (enter === null ? 0 : Math.round(canvas.fps / 5));
+  const stagger = props.stagger ?? defaultStagger(enter, canvas.fps);
   for (const [name, value] of [['titleSize', titleSize], ['minTitleSize', minTitleSize], ['subtitleSize', subtitleSize],
     ['kickerSize', kickerSize], ['chapterSize', chapterSize]] as const) {
-    positive(value, name);
+    positive('TitleCard', name, value);
   }
-  if (!Number.isFinite(gap) || gap < 0) throw new Error('<TitleCard> gap must be a finite non-negative number');
-  if (!Number.isFinite(stagger) || stagger < 0) throw new Error('<TitleCard> stagger must be a finite non-negative number');
+  nonNegative('TitleCard', 'gap', gap);
+  nonNegative('TitleCard', 'stagger', stagger);
 
   const ink = hexColor(color, theme, 'TitleCard', 'color');
   const soft = hexColor(subtitleColor, theme, 'TitleCard', 'subtitleColor');
@@ -231,18 +220,10 @@ export function TitleCard(props: TitleCardProps): ReturnType<typeof React.create
 
   const height = pieces.reduce((sum, piece) => sum + piece.height, 0) + gap * (pieces.length - 1);
   let y = top + (verticalAlign === 'top' ? 0 : verticalAlign === 'middle' ? (room.height - height) / 2 : room.height - height);
-  const animated = enter !== null || exit !== null;
   const placed = pieces.map((piece, index) => {
     const at = { key: piece.key, x: columnLeft + anchor, y, originY: piece.height / 2 };
     y += piece.height + gap;
-    const children = piece.node(-anchor);
-    if (!animated && stagger === 0) return React.createElement(Group, at, children);
-    return React.createElement(Motion, {
-      ...at,
-      from: stagger > 0 && index > 0 ? index * stagger : undefined,
-      enter: enter ?? undefined,
-      exit: exit ?? undefined,
-    }, children);
+    return staggeredPiece(index, at, { enter, exit, stagger }, piece.node(-anchor));
   });
 
   const backdrop = background === undefined || background === null
