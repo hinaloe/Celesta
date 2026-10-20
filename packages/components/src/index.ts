@@ -8,6 +8,8 @@ export { Counter } from './counter';
 export type { CounterProps } from './counter';
 export { FrameChrome } from './frame-chrome';
 export type { FrameChromeLabel, FrameChromeProps, FrameCorner } from './frame-chrome';
+export { LowerThird } from './lower-third';
+export type { LowerThirdPlacement, LowerThirdProps } from './lower-third';
 export { MediaFrame } from './media-frame';
 export type { MediaFit, MediaFrameImageProps, MediaFrameProps, MediaFrameVariant, MediaFrameVideoProps } from './media-frame';
 export { Motion } from './motion';
