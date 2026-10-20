@@ -6,7 +6,9 @@ use serde_json::Value;
 use crate::blend::BlendMode;
 use crate::instances::{F32Column, InstanceShape, U8Column};
 use crate::tagged::TypeTagged;
-use crate::{Animatable, BackfaceVisibility, Paint, Rational, Stroke, TextStyle, Time, TimeRange};
+use crate::{
+    Animatable, BackfaceVisibility, Paint, Rational, Stroke, TextStyle, Time, TimeError, TimeRange,
+};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
@@ -402,6 +404,17 @@ pub fn zero_pitch() -> Animatable<f64> {
 /// Whether `pitch` is the default, so [`AudioClip`] can leave it out.
 pub fn is_zero_pitch(pitch: &Animatable<f64>) -> bool {
     matches!(pitch, Animatable::Static(value) if *value == 0.0)
+}
+
+/// The default for [`AudioClip::fade_in`] and [`AudioClip::fade_out`]: no
+/// fade.
+pub fn zero_fade() -> Time {
+    Time::ZERO
+}
+
+/// Whether a fade is the default, so [`AudioClip`] can leave it out.
+pub fn is_zero_fade(fade: &Time) -> bool {
+    fade.value == 0
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1183,6 +1196,54 @@ pub struct AudioClip {
     /// together.
     #[serde(default, skip_serializing_if = "is_false")]
     pub preserve_pitch: bool,
+    /// How long the clip takes to rise from silence at the start of `range`.
+    /// See [`AudioFade`].
+    #[serde(default = "zero_fade", skip_serializing_if = "is_zero_fade")]
+    pub fade_in: Time,
+    /// How long the clip takes to fall to silence at the end of `range`. See
+    /// [`AudioFade`].
+    #[serde(default = "zero_fade", skip_serializing_if = "is_zero_fade")]
+    pub fade_out: Time,
+}
+
+impl AudioClip {
+    /// The clip's fades in seconds, for a mixer to apply sample by sample.
+    pub fn fade(&self) -> Result<AudioFade, TimeError> {
+        Ok(AudioFade {
+            fade_in: self.fade_in.as_seconds()?,
+            fade_out: self.fade_out.as_seconds()?,
+            duration: self.range.duration.as_seconds()?,
+        })
+    }
+}
+
+/// An [`AudioClip`]'s fade-in and fade-out, a gain the mixer multiplies into
+/// `volume`.
+///
+/// Each fade is a linear ramp between silence at an edge of the clip's
+/// `range` and full gain, timed on the timeline: the source's position,
+/// `playback_rate`, `loop`, and `pitch` do not move it. When the fades
+/// overlap, their gains multiply, so the clip never reaches full gain.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AudioFade {
+    fade_in: f64,
+    fade_out: f64,
+    duration: f64,
+}
+
+impl AudioFade {
+    /// The gain at `local_seconds` into the clip's range, from 0 to 1. A fade
+    /// of 0 or less leaves the gain alone.
+    pub fn gain(&self, local_seconds: f64) -> f64 {
+        let mut gain = 1.0;
+        if self.fade_in > 0.0 {
+            gain *= (local_seconds / self.fade_in).clamp(0.0, 1.0);
+        }
+        if self.fade_out > 0.0 {
+            gain *= ((self.duration - local_seconds) / self.fade_out).clamp(0.0, 1.0);
+        }
+        gain
+    }
 }
 
 /// The frame of an animated image to draw.

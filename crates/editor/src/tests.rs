@@ -196,6 +196,8 @@ fn clip_waveforms_follow_source_ranges_and_playback_rate() {
         r#loop: false,
         pitch: Animatable::Static(0.0),
         preserve_pitch: false,
+        fade_in: Time::ZERO,
+        fade_out: Time::ZERO,
     };
     let peaks = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
 
@@ -224,6 +226,14 @@ fn clip_waveforms_follow_source_ranges_and_playback_rate() {
         clip_level_envelope(&[0.4, 0.6, 0.8, 0.0], &clip),
         vec![0.2, 0.3, 0.4, 0.0]
     );
+
+    // Fades scale the level as the mixer does.
+    clip.fade_in = Time::new(1, 2);
+    clip.fade_out = Time::new(1, 2);
+    assert_eq!(
+        clip_level_envelope(&[0.4, 0.6, 0.8, 0.8], &clip),
+        vec![0.0, 0.15, 0.4, 0.2]
+    );
 }
 
 #[test]
@@ -248,6 +258,8 @@ fn react_audio_clips_take_one_track_per_file_and_more_only_to_overlap() {
         r#loop: false,
         pitch: Animatable::Static(0.0),
         preserve_pitch: false,
+        fade_in: Time::ZERO,
+        fade_out: Time::ZERO,
     };
     let tracks = react_tracks(
         &[
@@ -321,6 +333,8 @@ fn react_videos_take_video_tracks_and_keep_their_sound_on_audio_tracks() {
         r#loop: false,
         pitch: Animatable::Static(0.0),
         preserve_pitch: false,
+        fade_in: Time::ZERO,
+        fade_out: Time::ZERO,
     };
     let videos = HashMap::from([
         ("react-audio:1".to_owned(), true),

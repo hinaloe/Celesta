@@ -453,6 +453,8 @@ fn mixes_audio_at_exact_timeline_and_source_offsets() {
             r#loop: false,
             pitch: Animatable::Static(0.0),
             preserve_pitch: false,
+            fade_in: Time::ZERO,
+            fade_out: Time::ZERO,
         }],
     };
 
@@ -533,6 +535,8 @@ fn loops_audio_from_the_start_of_the_source_past_its_end() {
             r#loop: true,
             pitch: Animatable::Static(0.0),
             preserve_pitch: false,
+            fade_in: Time::ZERO,
+            fade_out: Time::ZERO,
         }],
     };
     let left = |graph: &AudioGraph| {
@@ -646,6 +650,8 @@ fn clip(range_start_s: f64, duration_s: f64) -> AudioClip {
         r#loop: false,
         pitch: Animatable::Static(0.0),
         preserve_pitch: false,
+        fade_in: Time::ZERO,
+        fade_out: Time::ZERO,
     }
 }
 
@@ -924,6 +930,95 @@ fn slow_rate_with_preserved_pitch_keeps_pitch_and_stays_continuous() {
         let level = rms(&left, start, start + 0.05);
         assert!(level > 0.2, "rms {level} at {start} s");
     }
+}
+
+#[test]
+fn fades_ramp_the_clip_in_and_out_at_its_range_edges() {
+    let mut clip = clip(1.0, 4.0);
+    clip.volume = Animatable::Static(0.5);
+    clip.fade_in = seconds(1.0);
+    clip.fade_out = seconds(2.0);
+
+    let left = mix_left(clip, tone(440.0, 0.0, 6.0, 6.0), 6.0);
+
+    // A sine of amplitude 0.5 has an RMS of 0.5 / √2; volume halves it, and
+    // a linear ramp from 0 to 1 scales the RMS by 1 / √3.
+    let full = 0.25 / 2.0_f64.sqrt();
+    let ramp = full / 3.0_f64.sqrt();
+    assert_eq!(rms(&left, 0.0, 1.0), 0.0);
+    assert_near(rms(&left, 1.0, 2.0).into(), ramp, 0.01);
+    assert_near(rms(&left, 2.0, 3.0).into(), full, 0.01);
+    assert_near(rms(&left, 3.0, 5.0).into(), ramp, 0.01);
+    assert_eq!(rms(&left, 5.0, 6.0), 0.0);
+    // Half way through each ramp, the gain is a half.
+    assert_near(rms(&left, 1.45, 1.55).into(), full * 0.5, 0.05);
+    assert_near(rms(&left, 3.95, 4.05).into(), full * 0.5, 0.05);
+}
+
+#[test]
+fn fade_out_follows_the_end_of_the_range() {
+    let fade_end = |duration_s: f64| {
+        let mut clip = clip(0.0, duration_s);
+        clip.fade_out = seconds(1.0);
+        let left = mix_left(clip, tone(440.0, 0.0, 6.0, 6.0), 6.0);
+        let full = 0.5 / 2.0_f64.sqrt();
+        assert_near(rms(&left, 0.0, duration_s - 1.0).into(), full, 0.01);
+        assert_near(
+            rms(&left, duration_s - 1.0, duration_s).into(),
+            full / 3.0_f64.sqrt(),
+            0.01,
+        );
+        assert_eq!(rms(&left, duration_s, 6.0), 0.0);
+    };
+    fade_end(3.0);
+    fade_end(5.0);
+}
+
+#[test]
+fn fades_multiply_with_keyframed_volume() {
+    let mut clip = clip(0.0, 2.0);
+    clip.volume = linear(0.0, 1.0, 2.0);
+    clip.fade_out = seconds(2.0);
+
+    let left = mix_left(clip, tone(440.0, 0.0, 2.0, 2.0), 2.0);
+
+    // The gain is t/2 × (2 - t)/2, at its peak of 1/4 at t = 1.
+    let full = 0.5 / 2.0_f64.sqrt();
+    assert_near(rms(&left, 0.95, 1.05).into(), full * 0.25, 0.05);
+    assert!(rms(&left, 0.0, 0.1) < 0.01 && rms(&left, 1.9, 2.0) < 0.01);
+}
+
+#[test]
+fn fades_are_timed_on_the_timeline_not_the_source() {
+    // A 1 s source looped at double speed restarts four times in 2 s; the
+    // fade in still spans the clip's first second only.
+    let mut clip = clip(0.0, 2.0);
+    clip.r#loop = true;
+    clip.playback_rate = Animatable::Static(2.0);
+    clip.fade_in = seconds(1.0);
+
+    let left = mix_left(clip, tone(220.0, 0.0, 1.0, 1.0), 2.0);
+
+    let full = 0.5 / 2.0_f64.sqrt();
+    assert_near(rms(&left, 0.0, 1.0).into(), full / 3.0_f64.sqrt(), 0.02);
+    assert_near(rms(&left, 1.0, 2.0).into(), full, 0.02);
+}
+
+#[test]
+fn stretched_clips_fade_too() {
+    let mut clip = clip(0.0, 3.0);
+    clip.pitch = Animatable::Static(12.0);
+    clip.fade_in = seconds(1.0);
+    clip.fade_out = seconds(1.0);
+
+    let left = mix_left(clip, tone(440.0, 0.0, 3.0, 3.0), 3.0);
+
+    let middle = f64::from(rms(&left, 1.2, 1.8));
+    assert!(middle > 0.3, "rms {middle} in the middle");
+    assert!(f64::from(rms(&left, 0.0, 0.1)) < middle * 0.15);
+    assert!(f64::from(rms(&left, 2.9, 3.0)) < middle * 0.15);
+    assert_near(rms(&left, 0.45, 0.55).into(), middle * 0.5, 0.1);
+    assert_near(rms(&left, 2.45, 2.55).into(), middle * 0.5, 0.1);
 }
 
 #[test]

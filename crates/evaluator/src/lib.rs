@@ -176,6 +176,8 @@ impl<'project> Evaluator<'project> {
                         r#loop: false,
                         pitch: Animatable::Static(0.0),
                         preserve_pitch: false,
+                        fade_in: Time::ZERO,
+                        fade_out: Time::ZERO,
                     }),
                     _ => {}
                 }
@@ -392,6 +394,8 @@ impl<'project> Evaluator<'project> {
             r#loop: false,
             pitch: Animatable::Static(0.0),
             preserve_pitch: false,
+            fade_in: Time::ZERO,
+            fade_out: Time::ZERO,
         })
     }
 

@@ -146,6 +146,9 @@ fn source_peak(peaks: &[f32], source_duration: f64, start: f64, end: f64) -> f32
 
 pub(crate) fn clip_level_envelope(waveform: &[f32], clip: &AudioClip) -> Vec<f32> {
     let bucket_count = waveform.len();
+    let Ok(fade) = clip.fade() else {
+        return vec![0.0; bucket_count];
+    };
     waveform
         .iter()
         .enumerate()
@@ -153,10 +156,14 @@ pub(crate) fn clip_level_envelope(waveform: &[f32], clip: &AudioClip) -> Vec<f32
             let Some(local_time) = time_fraction(clip.range.duration, bucket, bucket_count) else {
                 return 0.0;
             };
-            let Ok(volume) = evaluate_f64(&clip.volume, local_time) else {
+            let (Ok(volume), Ok(seconds)) = (
+                evaluate_f64(&clip.volume, local_time),
+                local_time.as_seconds(),
+            ) else {
                 return 0.0;
             };
-            (*peak * volume.clamp(0.0, 16.0) as f32).clamp(0.0, 1.0)
+            let gain = volume.clamp(0.0, 16.0) * fade.gain(seconds);
+            (*peak * gain as f32).clamp(0.0, 1.0)
         })
         .collect()
 }

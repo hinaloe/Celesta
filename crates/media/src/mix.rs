@@ -79,6 +79,7 @@ pub fn mix_audio_graph_cancellable(
             .map(|duration| duration.as_seconds())
             .transpose()?
             .map(|duration| source_start_seconds + duration);
+        let fade = clip.fade()?;
         let start = sample_ceil(clip.range.start, graph.sample_rate)?.clamp(0, frame_count as i64);
         let end = sample_ceil(clip.range.end()?, graph.sample_rate)?.clamp(0, frame_count as i64);
         if needs_stretch(clip) {
@@ -122,7 +123,8 @@ pub fn mix_audio_graph_cancellable(
                 (source_frame + 1).min(source.frame_count() - 1)
             };
             let fraction = (source_position - source_frame as f64) as f32;
-            let volume = evaluate_f64(&clip.volume, local_time)?.clamp(0.0, 16.0) as f32;
+            let volume = (evaluate_f64(&clip.volume, local_time)?.clamp(0.0, 16.0)
+                * fade.gain(local_time.as_seconds()?)) as f32;
             for channel in 0..usize::from(CHANNELS) {
                 let from = source.samples[source_frame * usize::from(CHANNELS) + channel];
                 let to = source.samples[next_frame * usize::from(CHANNELS) + channel];
