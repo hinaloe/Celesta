@@ -4,6 +4,20 @@ type FontLoad = { promise: Promise<void>; ready: boolean; faces: FontFace[] };
 const loaded = new Map<string, FontLoad>();
 const unresolved = new Set<string>();
 const fontSet = () => 'document' in globalThis ? document.fonts : (globalThis as unknown as { fonts: FontFaceSet }).fonts;
+let fontSetVersion = 0;
+
+/**
+ * A family that never matches, named after the worker's font set as it is
+ * now; `cssFont` puts it after `sans-serif`. Chromium's workers keep each
+ * canvas font string's resolution after their FontFaceSet changes, so a
+ * string resolved before a face was added keeps measuring with the
+ * fallback, and one resolved while a face was there keeps it after its
+ * removal. A new name per change makes a new string. Documents drop the
+ * resolution, so their strings stay as written.
+ */
+export function fontSetFamily(): string | undefined {
+  return fontSetVersion === 0 || 'document' in globalThis ? undefined : `celesta-font-set-${fontSetVersion}`;
+}
 
 function fontName(bytes: ArrayBuffer): string {
   const view = new DataView(bytes);
@@ -52,7 +66,7 @@ export function loadedFamilies(assets: readonly Asset[], resolve: (asset: Asset)
 
 export function releaseFonts(urls: Iterable<string>): void {
   for (const url of urls) {
-    for (const face of loaded.get(url)?.faces ?? []) fontSet().delete(face);
+    for (const face of loaded.get(url)?.faces ?? []) { fontSet().delete(face); fontSetVersion++; }
     loaded.delete(url);
   }
 }
@@ -80,7 +94,7 @@ export function loadFonts(assets: Asset[], resolve: (asset: Asset) => string): P
       loaded.set(url, entry);
       const add = async (face: FontFace) => {
         await face.load();
-        if (loaded.get(url) === entry) { fontSet().add(face); entry.faces.push(face); }
+        if (loaded.get(url) === entry) { fontSet().add(face); fontSetVersion++; entry.faces.push(face); }
       };
       entry.promise = (async () => {
         try {

@@ -1,3 +1,4 @@
+import { fontSetFamily } from './fonts';
 import type { Asset, FontFamily, FontRun, TextStyle } from './types';
 export type { FontRun };
 
@@ -12,12 +13,14 @@ type Context = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 /**
  * The canvas font for `style`, with `run`'s weight and family over its own.
  * A font stack becomes the CSS family list, so the browser picks each
- * character's family from it.
+ * character's family from it. In a worker, the font set's family follows
+ * `sans-serif` (`fontSetFamily`).
  */
 export function cssFont(style: TextStyle, run?: FontRun): string {
   const family = run?.fontFamily ?? style.fontFamily;
   const families = (Array.isArray(family) ? family : family ? [family] : []).map(name => JSON.stringify(name) + ', ');
-  return `${run?.fontWeight ?? style.fontWeight ?? 400} ${style.fontSize ?? 32}px ${families.join('')}system-ui, sans-serif`;
+  const fontSet = fontSetFamily();
+  return `${run?.fontWeight ?? style.fontWeight ?? 400} ${style.fontSize ?? 32}px ${families.join('')}system-ui, sans-serif${fontSet ? `, ${JSON.stringify(fontSet)}` : ''}`;
 }
 
 /**

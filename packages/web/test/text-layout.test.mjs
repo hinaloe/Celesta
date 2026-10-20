@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cssFont, letterSpacingPx, measureLine, runPieces, textLines, textLineRanges, textMeasurer, textStyle, withLoadedFallback } from '../src/text-layout.ts';
+import { build } from 'esbuild-wasm';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+
+// Bundled with the font set it reads, which the tests below change.
+const directory = mkdtempSync(fileURLToPath(new URL('../node_modules/.text-layout-test-', import.meta.url)));
+const result = await build({
+  stdin: { contents: `export * from './text-layout.ts'; export { loadFonts, resetFonts } from './fonts.ts';`, resolveDir: fileURLToPath(new URL('../src/', import.meta.url)), loader: 'ts' },
+  bundle: true, write: false, format: 'esm',
+});
+const modulePath = join(directory, 'text-layout.mjs');
+writeFileSync(modulePath, result.outputFiles[0].text);
+const { cssFont, letterSpacingPx, loadFonts, measureLine, resetFonts, runPieces, textLines, textLineRanges, textMeasurer, textStyle, withLoadedFallback } = await import(pathToFileURL(modulePath));
+rmSync(directory, { recursive: true });
 
 test('wrapping uses the requested language, including with older canvas contexts', t => {
   const locales = [], Segmenter = Intl.Segmenter;
@@ -174,4 +188,21 @@ test('fontFallback "loaded" extends a span family when the text has none', () =>
   const resolved = withLoadedFallback(style, ['Noto Sans JP']);
   assert.deepEqual(resolved.fontRuns, [{ start: 0, end: 2, fontFamily: ['JetBrains Mono', 'Noto Sans JP'] }]);
   assert.equal(resolved.fontFamily, undefined);
+});
+
+// Last: the tests above expect the strings of a worker whose font set never changed.
+test('a worker font names its font set after sans-serif, anew on each change', async t => {
+  const originals = { fonts: globalThis.fonts, FontFace: globalThis.FontFace, fetch: globalThis.fetch };
+  t.after(() => { resetFonts(); Object.assign(globalThis, originals); });
+  globalThis.fonts = new Set();
+  globalThis.FontFace = class { constructor(family) { this.family = family; } async load() { return this; } };
+  globalThis.fetch = async () => new Response('@font-face { font-family: Demo; src: url(demo.woff); }', { headers: { 'content-type': 'text/css' } });
+  const style = { fontSize: 20, fontFamily: 'Demo' };
+  const fonts = [cssFont(style)];
+  await loadFonts([{ location: { type: 'url', url: 'https://fonts.test/demo.css' } }], asset => asset.location.url);
+  fonts.push(cssFont(style));
+  resetFonts();
+  fonts.push(cssFont(style));
+  assert.equal(new Set(fonts).size, 3);
+  for (const font of fonts) assert.match(font, /^400 20px "Demo", system-ui, sans-serif(, "celesta-font-set-\d+")?$/);
 });
