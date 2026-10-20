@@ -80,6 +80,27 @@ test('a font run\'s features merge over the text\'s, and its family takes them',
     '400 48px "JetBrains Mono [celesta-features ss01=1]", system-ui, sans-serif');
 });
 
+test('a face is made from the first file the browser can read, which its copies share', async () => {
+  const fetched: string[] = [];
+  globals.fetch = (async (url: string) => {
+    fetched.push(url);
+    return url.endsWith('.css')
+      ? new Response(`@font-face {font-family: Legacy; src: url(legacy.eot?#iefix) format('embedded-opentype'), url("legacy.svg#font") format("svg"), url(legacy.woff) format("woff"), url(legacy.ttf) format('truetype')}
+        @font-face {font-family: Plain; src: local(Plain), url(plain.otf)}
+        @font-face {font-family: Installed; src: local(Installed)}`, { headers: { 'content-type': 'text/css' } })
+      : new Response(new TextEncoder().encode(url));
+  }) as typeof fetch;
+  const legacy: Asset = { id: 'legacy', location: { type: 'url', url: 'https://fonts.test/legacy.css' } };
+  await loadFonts([legacy], resolve);
+  assert.deepEqual(fetched, ['https://fonts.test/legacy.css', 'https://fonts.test/legacy.woff', 'https://fonts.test/plain.otf']);
+  const installed = faces().find((face) => face.family === 'Installed');
+  assert.equal(installed?.source, 'local(Installed)');
+  cssFont({ fontFamily: 'Legacy', fontFeatures: { liga: false } });
+  assert.equal(new TextDecoder().decode(copies()[0]!.source as ArrayBuffer), 'https://fonts.test/legacy.woff');
+  assert.throws(() => cssFont({ fontFamily: 'Installed', fontFeatures: { liga: false } }),
+    /fontFeatures cannot use "Installed": its font CSS gives no url\(\) to load it from/);
+});
+
 test('features need every family they apply to loaded with <Font>', async () => {
   await loadFonts([mono], resolve);
   assert.throws(() => cssFont({ fontSize: 48, fontFeatures: { liga: false } }),

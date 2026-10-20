@@ -175,13 +175,17 @@ export function loadFonts(assets: Asset[], resolve: (asset: Asset) => string): P
                   weight: property('font-weight') ?? 'normal', style: property('font-style') ?? 'normal',
                   unicodeRange: property('unicode-range') ?? 'U+0-10FFFF',
                 };
-                const locations = Array.from(src.matchAll(/url\(([^)]+)\)/g), ([, location]) => new URL(location.replace(/^['"]|['"]$/g, ''), url).href);
-                // The first url() is the one the stylesheet prefers; `src` with
-                // only local() faces stays as written, and has no file to copy.
-                if (locations.length === 0) await add(new FontFace(family, src, descriptors));
+                // The first url() the browser can read, as it would pick: one
+                // without a format() hint, or a WOFF2, WOFF, TrueType, or
+                // OpenType one, not EOT or SVG. `src` with none (only local()
+                // faces) stays as written, and has no file to copy.
+                const location = Array.from(src.matchAll(/url\(([^)]+)\)(?:\s*format\(([^)]+)\))?/g))
+                  .find(([, , format]) => format === undefined || /^['"]?(woff2|woff|truetype|opentype)['"]?$/i.test(format.trim()))?.[1];
+                if (location === undefined) await add(new FontFace(family, src, descriptors));
                 else {
-                  const response = await fetch(locations[0]);
-                  if (!response.ok) throw new Error(`Could not load font: ${locations[0]} (${response.status}).`);
+                  const file = new URL(location.replace(/^['"]|['"]$/g, ''), url).href;
+                  const response = await fetch(file);
+                  if (!response.ok) throw new Error(`Could not load font: ${file} (${response.status}).`);
                   await add(fromBytes(family, await response.arrayBuffer(), descriptors));
                 }
               } catch (cause) {
