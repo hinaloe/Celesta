@@ -149,7 +149,7 @@ type TextStyle = {
   fontWeight?: number;     // 100–900
   fill?: Paint;                                   // { type: 'solid', color } or a gradient
   stroke?: Stroke | readonly Stroke[];            // outline(s); Stroke = { paint: Paint; width: number }
-  align?: 'left' | 'center' | 'right';
+  align?: 'left' | 'center' | 'right';  // each line within maxWidth, or within the widest line without it
   lineHeight?: number;     // px, > 0 (TextBox's lineHeight is a multiple instead)
   letterSpacing?: number | { em: number };  // px, or a multiple of fontSize, after each glyph; may be negative
   lineBreak?: 'normal' | 'phrase';  // where maxWidth may wrap; default 'normal'

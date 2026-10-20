@@ -940,6 +940,121 @@ fn single_line_text_keeps_the_width_of_its_spaces() {
     assert_eq!(spaced.height(), equals.height());
 }
 
+/// Each line's left and right edge in `metrics`, from its glyphs.
+fn line_edges(metrics: &TextMetrics) -> Vec<(f64, f64)> {
+    (0..metrics.lines)
+        .map(|line| {
+            let glyphs = metrics.glyphs.iter().filter(|glyph| glyph.line == line);
+            glyphs.fold((f64::MAX, f64::MIN), |(left, right), glyph| {
+                (left.min(glyph.x), right.max(glyph.x + glyph.width))
+            })
+        })
+        .collect()
+}
+
+#[test]
+fn align_without_max_width_measures_lines_within_the_widest() {
+    let mut rasterizer = TextRasterizer::new();
+    let style = |align| TextStyle {
+        font_size: Some(40.0),
+        align: Some(align),
+        ..TextStyle::default()
+    };
+    let text = "a\nbbbbbbbb\nccc";
+    let center = rasterizer.measure(text, &style(celesta_composition::TextAlign::Center), None);
+    let edges = line_edges(&center);
+    assert_eq!(edges.len(), 3);
+    for (left, right) in &edges {
+        assert!(
+            (left + right - center.width).abs() < 1e-3,
+            "line {left}–{right} is not centered in {}",
+            center.width
+        );
+    }
+    assert!(edges[0].0 > 0.0, "the short line should be moved right");
+    let right = rasterizer.measure(text, &style(celesta_composition::TextAlign::Right), None);
+    for (_, line_right) in line_edges(&right) {
+        assert!(
+            (line_right - right.width).abs() < 1e-3,
+            "line ends at {line_right}, not {}",
+            right.width
+        );
+    }
+    // Alignment moves lines, not the box.
+    let left = rasterizer.measure(text, &style(celesta_composition::TextAlign::Left), None);
+    assert_eq!((center.width, center.height), (left.width, left.height));
+    assert_eq!((right.width, right.height), (left.width, left.height));
+}
+
+#[test]
+fn align_without_max_width_draws_lines_within_the_widest() {
+    let line_height = 60.0;
+    // Each line's leftmost and rightmost ink column.
+    let ink_columns = |align| {
+        let scene = Scene {
+            width: 400,
+            height: 240,
+            frame_rate: Rational::new(30, 1),
+            time: Time::ZERO,
+            fonts: Vec::new(),
+            layers: vec![Layer {
+                id: "lines".to_owned(),
+                transform: EvaluatedTransform {
+                    position: Point { x: 20.0, y: 20.0 },
+                    anchor: Point { x: 0.0, y: 0.0 },
+                    ..EvaluatedTransform::default()
+                },
+                opacity: 1.0,
+                blend_mode: BlendMode::Normal,
+                effects: Default::default(),
+                content: LayerContent::Text {
+                    text: "a\nbbbbbbbb\nccc".to_owned(),
+                    style: Box::new(TextStyle {
+                        font_size: Some(40.0),
+                        line_height: Some(line_height),
+                        align: Some(align),
+                        fill: Some(Paint::Solid {
+                            color: "#FFFFFFFF".to_owned(),
+                        }),
+                        ..TextStyle::default()
+                    }),
+                    max_width: None,
+                    baseline_anchor: false,
+                },
+            }],
+            shaders: Vec::new(),
+        };
+        let frame = CpuRenderer::default().render(&scene).unwrap();
+        (0..3)
+            .map(|line| {
+                let top = 20 + line * line_height as u32;
+                let columns: Vec<u32> = (0..frame.width())
+                    .filter(|&x| {
+                        (top..top + line_height as u32).any(|y| pixel(&frame, x, y)[0] > 128)
+                    })
+                    .collect();
+                (columns[0], columns[columns.len() - 1])
+            })
+            .collect::<Vec<_>>()
+    };
+    let center = ink_columns(celesta_composition::TextAlign::Center);
+    let middle = |(left, right): (u32, u32)| f64::from(left + right) / 2.0;
+    for line in [0, 2] {
+        // Side bearings differ between letters, so allow a few pixels.
+        assert!(
+            (middle(center[line]) - middle(center[1])).abs() <= 4.0,
+            "centered lines {center:?} do not share a center"
+        );
+    }
+    let right = ink_columns(celesta_composition::TextAlign::Right);
+    for line in [0, 2] {
+        assert!(
+            right[line].1.abs_diff(right[1].1) <= 4,
+            "right-aligned lines {right:?} do not end together"
+        );
+    }
+}
+
 fn stop(offset: f64, color: &str) -> celesta_composition::GradientStop {
     celesta_composition::GradientStop {
         offset,

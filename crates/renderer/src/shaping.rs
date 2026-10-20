@@ -10,12 +10,12 @@ use crate::rect::dilate_mask;
 use crate::text::{AnchorBox, GlyphMetrics, RasterizedText, TextMetrics, TextWindow};
 use crate::types::{Color, RgbaFrame};
 use celesta_composition::{LineBreak, TextAlign, TextFontRun, TextStyle};
+use cosmic_text::Command;
 use cosmic_text::{
     Align, Attrs, AttrsList, Buffer, BufferLine, Color as CosmicColor, Family, FontSystem,
     LayoutGlyph, LineEnding, LineIter, Metrics, PhysicalGlyph, Renderer, Shaping, SwashCache,
     SwashContent, Weight, Wrap,
 };
-use cosmic_text::Command;
 use std::sync::Arc;
 
 impl TextRasterizer {
@@ -315,6 +315,20 @@ impl TextRasterizer {
             buffer.set_size(&mut self.font_system, Some(width), None);
         }
         buffer.shape_until_scroll(&mut self.font_system, false);
+        // Without a width, cosmic-text aligns each line within itself, so
+        // `center` and `right` moved nothing. Align the lines within the
+        // widest one instead, as the browser does; nothing wraps at it.
+        if width.is_none()
+            && matches!(alignment, Some(Align::Center | Align::Right))
+            && buffer.lines.len() > 1
+        {
+            let widest = buffer
+                .layout_runs()
+                .fold(0.0_f32, |widest, run| widest.max(run.line_w));
+            buffer.set_wrap(&mut self.font_system, Wrap::None);
+            buffer.set_size(&mut self.font_system, Some(widest), None);
+            buffer.shape_until_scroll(&mut self.font_system, false);
+        }
         let buffer = Arc::new(buffer);
         // Bound retained layouts; long documents do not grow the cache forever.
         if let Some(key) = key {

@@ -102,6 +102,8 @@ pub struct TextStyle {
     /// draws the 7px one next to the glyphs and the 14px one around it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stroke: Option<TextStroke>,
+    /// Where each line sits within the text's `max_width`, or within its
+    /// widest line when it has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub align: Option<TextAlign>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
