@@ -61,7 +61,7 @@ Celesta.app/
       NODE-LICENSE
 ```
 
-Node.js 24.20.0 is downloaded from nodejs.org and verified against the official
+Node.js 26.10.0 is downloaded from nodejs.org and verified against the official
 SHA256 checksums. Use `--node-version` to select a different version. Only the
 Node executable and license are extracted; npm is not included. JavaScript
 dependencies are copied from the locked installation without pnpm symlinks.
