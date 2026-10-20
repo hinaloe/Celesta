@@ -73,7 +73,10 @@ fallback. The example loads the repository's IBM Plex Mono font explicitly.
 - `children` is a source string, including indentation and trailing newlines.
 - `language` is `tsx`, `ts`, `json`, `bash`, or `text` (the default).
 - `style` is Celesta's `TextStyle`. Text is left aligned and does not wrap.
-  The theme supplies each run's fill color.
+  The theme supplies each run's fill color. Ligatures and contextual
+  alternates are off (`fontFeatures: { liga: false, calt: false }`), so
+  `===` and `->` show as written; `style.fontFeatures` is merged over that
+  tag by tag, and `{ liga: true }` turns ligatures back on.
 - `visibleCharacters` counts Unicode code points in the **original source**,
   matching `useTypewriter().length`. A tab costs one character, LF costs one,
   and CRLF costs two. Fractions are rounded down, negative counts show nothing,
@@ -191,14 +194,15 @@ Each `HighlightedCodeLine` has:
   passed as `style.colorRuns` as they are. Adjacent tokens of the same color
   share one run, which keeps the first token's `type`.
 
-Draw each non-empty line as one `Text` with `Code`'s style, its baseline at the
-ascent of `'M'` below the line's top, to match `Code` exactly:
+Draw each non-empty line as one `Text` with `Code`'s style (its features
+included), its baseline at the ascent of `'M'` below the line's top, to match
+`Code` exactly:
 
 ```tsx
 import { Group, Text, useTextMetrics } from '@celesta/react';
 import { codeThemes, highlightCode } from '@celesta/code';
 
-const style = { fontFamily: 'IBM Plex Mono', fontSize: 24, lineHeight: 36 };
+const style = { fontFamily: 'IBM Plex Mono', fontSize: 24, lineHeight: 36, fontFeatures: { liga: false, calt: false } };
 const theme = codeThemes.dark;
 const lines = highlightCode(source, { language: 'ts', theme });
 
