@@ -43,7 +43,8 @@ const mono = (size: number, color: string, weight = 400) =>
 
 /**
  * A frame of the film, small. Only frames that replay nothing themselves:
- * the outro replays this card, so the card must not replay the outro.
+ * the outro replays this card, so the card must not replay the outro
+ * (`<FreezeFrame>` throws on that cycle).
  */
 function Thumb({ at, width, height }: { at: number; width: number; height: number }) {
   const Film = useContext(FilmContext);

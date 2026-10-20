@@ -87,7 +87,7 @@ Every frame is a function of the frame number, so `<FreezeFrame frame>` can draw
 </Group>
 ```
 
-Directly inside, `useCurrentFrame()` returns `frame`, rounded to a whole frame (a `Sequence` within it still counts from its own start), and sequences, video, lip sync, and blinking all show that moment. A fixed `frame` holds still; with `frame` read from `useCurrentFrame()` in your root component, `frame={frame - 90}` replays 90 frames behind (three seconds at 30 fps). Frozen children are silent. A `CharacterView` drawn inside leaves its ref to the live view, and a `Dialogue` inside drives only a view inside the same `FreezeFrame`. Project layers (`ProjectTimeline`, `ProjectTrack`) are evaluated for the current frame only and cannot be drawn inside.
+Directly inside, `useCurrentFrame()` returns `frame`, rounded to a whole frame (a `Sequence` within it still counts from its own start), and sequences, video, lip sync, and blinking all show that moment. A fixed `frame` holds still; with `frame` read from `useCurrentFrame()` in your root component, `frame={frame - 90}` replays 90 frames behind (three seconds at 30 fps). Frozen children are silent. A `CharacterView` drawn inside leaves its ref to the live view, and a `Dialogue` inside drives only a view inside the same `FreezeFrame`. Project layers (`ProjectTimeline`, `ProjectTrack`) are evaluated for the current frame only and cannot be drawn inside. A video may hold a smaller copy of itself, but a `FreezeFrame` whose frame plays that same `FreezeFrame` again would draw itself forever, so it throws an error naming the frames involved, as does nesting `FreezeFrame`s more than 16 deep.
 
 ## Blur fast motion
 

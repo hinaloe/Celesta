@@ -761,6 +761,35 @@ export function Sequence(props: SequenceProps): ReturnType<typeof React.createEl
   );
 }
 
+interface FreezeFrameLink {
+  frame: number;
+  /** `frame` as the rounded root time, in microseconds, which cycles compare. */
+  time: number;
+  id?: string;
+  /** The children's element types, which tell a replay of this `<FreezeFrame>` from another one. */
+  children: unknown[];
+}
+
+function sameChildren(a: readonly unknown[], b: readonly unknown[]): boolean {
+  return a.length === b.length && a.every((type, index) => type === b[index]);
+}
+
+/**
+ * How many `<FreezeFrame>`s may enclose one another. Each level replays the
+ * film at another frame, so a film that freezes a moving frame of itself
+ * (`frame={frame + 1}`) never repeats one, yet never ends either.
+ */
+const MAX_FREEZE_FRAME_DEPTH = 16;
+
+/** The `<FreezeFrame>`s enclosing this point, outermost first. */
+const FreezeFrameChainContext = React.createContext<readonly FreezeFrameLink[]>([]);
+
+function describeFreezeChain(chain: readonly FreezeFrameLink[]): string {
+  return chain
+    .map((link) => (link.id === undefined ? `frame ${link.frame}` : `frame ${link.frame} (id "${link.id}")`))
+    .join(' > ');
+}
+
 export interface FreezeFrameProps extends CommonProps {
   /**
    * Composition frame the children are drawn at, counted on the root
@@ -786,11 +815,16 @@ export interface FreezeFrameProps extends CommonProps {
  * short composition (a poster, say) can draw a frame of a longer video.
  * Authored `id`s inside are prefixed with this layer's id.
  * Project layers (`<ProjectTimeline />`, `<ProjectTrack />`) are evaluated at
- * the current frame only, so they throw inside.
+ * the current frame only, so they throw inside. A `<FreezeFrame>` inside
+ * another at the same frame with the same kind of children (a film that
+ * freezes a frame where it plays this very `<FreezeFrame>`) would draw itself
+ * forever, so it throws, naming the frames it is nested in; so does nesting
+ * more than 16 deep.
  */
 export function FreezeFrame(props: FreezeFrameProps): ReturnType<typeof React.createElement> {
   const context = React.useContext(CompositionRuntimeContext);
   const root = React.useContext(RootRuntimeContext);
+  const ancestors = React.useContext(FreezeFrameChainContext);
   const [scope] = React.useState(() => ({}));
   if (!context || !root) {
     throw new Error('<FreezeFrame> must be called from within a Celesta <Composition>');
@@ -799,6 +833,27 @@ export function FreezeFrame(props: FreezeFrameProps): ReturnType<typeof React.cr
     throw new Error('<FreezeFrame> requires a finite `frame`');
   }
   const time = secondsToTime(props.frame / root.fps);
+  const children = React.Children.toArray(props.children).map((child) =>
+    React.isValidElement(child) ? child.type : typeof child,
+  );
+  const chain = [...ancestors, { frame: props.frame, time: time.value, id: props.id, children }];
+  // React's reconciler grows the tree without recursing, so a cycle would
+  // run until the heap is gone; name it here instead. Every frame is a
+  // function of its time, so the same children at the same time inside
+  // themselves repeat forever; other children there (a poster frozen at
+  // frame 0 holding a still of its own) end.
+  if (ancestors.some((ancestor) => ancestor.time === time.value && sameChildren(ancestor.children, children))) {
+    throw new Error(
+      `<FreezeFrame frame={${props.frame}}> draws itself: it is inside a <FreezeFrame> at the same frame ` +
+        `(${describeFreezeChain(chain)})`,
+    );
+  }
+  if (chain.length > MAX_FREEZE_FRAME_DEPTH) {
+    throw new Error(
+      `<FreezeFrame frame={${props.frame}}> is nested more than ${MAX_FREEZE_FRAME_DEPTH} deep ` +
+        `(${describeFreezeChain(chain)})`,
+    );
+  }
   // A frame past the composition's end is drawn as if the video went on, as
   // render.ts's walker decides in `childFreezeContext`. The frozen clock is
   // the root's inside, so a `<Sequence>` there places its window against it.
@@ -815,7 +870,15 @@ export function FreezeFrame(props: FreezeFrameProps): ReturnType<typeof React.cr
     React.createElement(
       CompositionRuntimeContext.Provider,
       { value: frozen },
-      React.createElement(FreezeFrameContext.Provider, { value: scope }, React.createElement('freeze-frame', props)),
+      React.createElement(
+        FreezeFrameContext.Provider,
+        { value: scope },
+        React.createElement(
+          FreezeFrameChainContext.Provider,
+          { value: chain },
+          React.createElement('freeze-frame', props),
+        ),
+      ),
     ),
   );
 }

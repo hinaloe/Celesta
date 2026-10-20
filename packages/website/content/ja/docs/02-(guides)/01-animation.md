@@ -87,7 +87,7 @@ function Badge() {
 </Group>
 ```
 
-直下の `useCurrentFrame()` は整数に丸めた `frame` を返します（その内側の `Sequence` は自身の開始から数えます）。シーケンス、映像、口パク、まばたきもその時点を表示します。固定の `frame` は静止し、ルートの `useCurrentFrame()` から取得した `frame` で `frame={frame - 90}` を使うと 90 フレーム前（30 fps なら 3 秒前）を再生します。固定された子は無音です。内側の `CharacterView` の ref はライブ側のビューを指し、内側の `Dialogue` は同じ `FreezeFrame` 内のビューだけを操作します。プロジェクトのレイヤー（`ProjectTimeline`、`ProjectTrack`）は現在のフレームでしか評価されず、内側には描画できません。
+直下の `useCurrentFrame()` は整数に丸めた `frame` を返します（その内側の `Sequence` は自身の開始から数えます）。シーケンス、映像、口パク、まばたきもその時点を表示します。固定の `frame` は静止し、ルートの `useCurrentFrame()` から取得した `frame` で `frame={frame - 90}` を使うと 90 フレーム前（30 fps なら 3 秒前）を再生します。固定された子は無音です。内側の `CharacterView` の ref はライブ側のビューを指し、内側の `Dialogue` は同じ `FreezeFrame` 内のビューだけを操作します。プロジェクトのレイヤー（`ProjectTimeline`、`ProjectTrack`）は現在のフレームでしか評価されず、内側には描画できません。映像の中に自分自身の縮小版を描くことはできますが、`FreezeFrame` の `frame` がその `FreezeFrame` 自身を再び描く時点だと無限に描き続けることになるため、関わったフレームを示すエラーになります。`FreezeFrame` を 16 段より深く入れ子にした場合もエラーになります。
 
 ## 速い動きをぼかす
 
