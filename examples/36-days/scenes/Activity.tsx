@@ -1,10 +1,11 @@
+import { Callout } from '@celesta/components';
 import type { PolylinePoint } from '@celesta/shapes';
 import { Easings, Group, Rect, progress, useCue, useCurrentFrame } from '@celesta/react';
-import { Line, Polyline, pointOnPolyline } from '@celesta/shapes';
+import { Polyline, pointOnPolyline } from '@celesta/shapes';
 import { useCountUp } from '@celesta/text';
 import { Exit } from '../components/Exit';
 import { Header } from '../components/Header';
-import { Label } from '../components/Label';
+import { Label, textStyle } from '../components/Label';
 import { C, H, W } from '../constants';
 import { DAYS, NON_MERGE } from '../data';
 
@@ -68,11 +69,12 @@ export function Activity() {
           const p = progress(active.frame, 0, 12, Easings.easeOutExpo);
           const x = barX(callout.day) + CHART.bar / 2;
           const top = CHART.base - DAYS[callout.day].commits * CHART.unit - 14;
+          // The label sits `lift` above the bar, 12 px right of a line that
+          // grows up to it from the bar's top.
           return (
-            <Group opacity={p}>
-              <Line x1={x} y1={top} x2={x} y2={top - callout.lift * p} stroke={C.paper} cap="butt" />
-              <Label x={x + 12} y={top - callout.lift} size={28} font="ja" weight={700} ay={0.5}>{callout.text}</Label>
-            </Group>
+            <Callout target={{ x, y: top }} x={x} y={top - callout.lift} anchorY={0.5} width={600}
+              padding={{ left: 12 }} side="left" head="none" lineColor={C.paper} cap="butt"
+              lineProgress={p} opacity={p} text={callout.text} textStyle={textStyle('ja', 28, C.paper, 700)} />
           );
         })()}
       </Exit>
