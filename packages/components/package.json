@@ -25,6 +25,7 @@
   "dependencies": {
     "@celesta/layout": "workspace:*",
     "@celesta/math": "workspace:*",
+    "@celesta/shapes": "workspace:*",
     "@celesta/text": "workspace:*",
     "@celesta/transitions": "workspace:*"
   },
