@@ -176,6 +176,12 @@ pub enum TimelineContent {
         pitch: Option<Animatable<f64>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preserve_pitch: Option<bool>,
+        /// How long the item takes to rise from silence at its start.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fade_in: Option<Time>,
+        /// How long the item takes to fall to silence at its end.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fade_out: Option<Time>,
     },
     Image {
         asset: AssetId,

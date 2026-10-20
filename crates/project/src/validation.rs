@@ -280,6 +280,8 @@ impl Validator<'_> {
                 playback_rate,
                 volume,
                 pitch,
+                fade_in,
+                fade_out,
                 ..
             } => {
                 self.asset_ref(&format!("{path}.content.asset"), asset, AssetKind::Audio);
@@ -291,6 +293,11 @@ impl Validator<'_> {
                         |v| v.is_finite() && (-24.0..=24.0).contains(v),
                         "must be finite and between -24 and 24",
                     );
+                }
+                for (name, fade) in [("fadeIn", fade_in), ("fadeOut", fade_out)] {
+                    if let Some(fade) = fade {
+                        self.time(&format!("{path}.content.{name}"), *fade, true);
+                    }
                 }
             }
             TimelineContent::Image {
