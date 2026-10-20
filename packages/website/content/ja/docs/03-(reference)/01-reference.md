@@ -68,6 +68,8 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | API | パッケージ | 用途 |
 | --- | --- | --- |
 | `TextBox` / `fitText` / `useFitText` / `measureText` / `useTextMetrics` | `@celesta/text` `@celesta/react` | 組版後の文字を測ったり、枠に収まる文字サイズを選んだりします。詳しくは[テキストとフォント](/ja/docs/text-fonts/)を参照してください。 |
+| `emphasisContent` / `resolveEmphasis` / `sliceEmphasis` / `graphemes` | `@celesta/text` | データで渡す文字の一部を、書記素クラスタ単位の範囲と色・太さで強調し、`<Span>` として描きます。 |
+| `resolveTimedRanges` / `timedRangeAt` | `@celesta/text` | 半開区間のフレーム範囲で表示するもの（字幕、字幕のページ）の空白・重なり・範囲外を検証し、あるフレームのものを探します。 |
 | `FrameChrome` | `@celesta/components` | 四隅のブラケット・タイトル・タイムコード・現在の章・プログレスバーを、キャンバスの大きさに合わせて画面の周りに描きます。 |
 | `PatternBackground` | `@celesta/components` | ドット・格子・ストライプ、または自前のマークを、キャンバスや指定した領域いっぱいに繰り返して描き、クリップします。フレームに合わせて動かせます。 |
 | `Panel` | `@celesta/components` | 背景・枠線・角丸・影を持つ指定サイズの枠です。子は余白の内側に配置され、枠でクリップすることもできます。 |

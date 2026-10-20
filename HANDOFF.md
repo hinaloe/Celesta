@@ -100,7 +100,7 @@ compositions: no package a composition imports depends on them, though
 | `packages/layout` (`@celesta/layout`) | Layout containers and `Camera`. |
 | `packages/components` (`@celesta/components`) | High-level components built on the core's public API, such as `FrameChrome`, `PatternBackground`, `Panel`, `Badge`, `Counter`, `StatCard`, `BarChart`, and `MediaFrame`. |
 | `packages/transitions` (`@celesta/transitions`) | `Transition` and `TransitionSeries`. |
-| `packages/text` (`@celesta/text`) | Text motion and box-fitted text. |
+| `packages/text` (`@celesta/text`) | Text motion, box-fitted text, emphasis by grapheme range, and timed frame ranges shared by captions and dialogue subtitles. |
 | `packages/character` (`@celesta/character`) | Characters, dialogue, subtitles, lip sync, blinking, and PSD presets. |
 | `packages/media-utils` (`@celesta/media-utils`) | Media metadata helpers. |
 | `packages/project` (`@celesta/project`) | Companion project data, properties, and timeline layers. |

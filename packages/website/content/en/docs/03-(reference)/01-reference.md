@@ -68,6 +68,8 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | API | Package | Use it for |
 | --- | --- | --- |
 | `TextBox` / `fitText` / `useFitText` / `measureText` / `useTextMetrics` | `@celesta/text` `@celesta/react` | Measure shaped text or choose a font size for a box; see [Text & fonts](/en/docs/text-fonts/). |
+| `emphasisContent` / `resolveEmphasis` / `sliceEmphasis` / `graphemes` | `@celesta/text` | Emphasize part of a text given as data, by grapheme-cluster ranges with a color and weight, drawn as `<Span>`s. |
+| `resolveTimedRanges` / `timedRangeAt` | `@celesta/text` | Check things shown on half-open frame ranges (captions, subtitle pages) for gaps, overlaps, and range, and find the one on a frame. |
 | `FrameChrome` | `@celesta/components` | Corner brackets, a title, the timecode, the current chapter, and a progress bar around the picture, laid out from the canvas size. |
 | `PatternBackground` | `@celesta/components` | Dots, a grid, stripes, or marks of your own repeated over the canvas or an area, clipped to it, and moved with the frame. |
 | `Panel` | `@celesta/components` | A box of a given size with a background, a border, rounded corners, and a shadow; its children lay out inside its padding, optionally clipped to it. |

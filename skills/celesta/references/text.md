@@ -4,7 +4,8 @@ Drawing text in a React composition: the `<Text>` layer, `TextStyle`,
 fonts and fallback, line breaking (including Japanese phrases), text
 animation helpers, measuring text, and fitting text into a box. `Text` and
 measuring come from `@celesta/react`; `TextReveal`, `useTypewriter`,
-`useCountUp`, `TextBox`, `useFitText`, and `fitText` from `@celesta/text`;
+`useCountUp`, `TextBox`, `useFitText`, `fitText`, the emphasis ranges, and
+the timed ranges from `@celesta/text`;
 `TitleCard`, `LowerThird`, and `TypewriterText` from `@celesta/components`.
 Syntax-highlighted code is in [code.md](code.md).
 
@@ -13,6 +14,8 @@ Syntax-highlighted code is in [code.md](code.md).
 - [The Text layer](#the-text-layer)
 - [Shorthand props and `<Theme>`](#shorthand-props-and-theme)
 - [Rich text with `<Span>`](#rich-text-with-span)
+- [Emphasis ranges](#emphasis-ranges): emphasisContent, resolveEmphasis, graphemes
+- [Timed ranges](#timed-ranges): resolveTimedRanges, timedRangeAt
 - [TextStyle](#textstyle)
 - [Line breaking](#line-breaking)
 - [Fonts, fallback, and emoji](#fonts-fallback-and-emoji)
@@ -142,6 +145,74 @@ measures as one, and its baseline stays where the text's own glyphs put it.
   slightly from export at span edges.
 
 See [`examples/rich-text`](../../../examples/rich-text/film.tsx).
+
+## Emphasis ranges
+
+For text that comes as data (captions, dialogue lines), `@celesta/text`
+marks emphasis as ranges instead of `<Span>` elements, and turns them into
+spans. `<CaptionTrack>` and `<Dialogue>` subtitles take the same shape.
+
+```tsx
+import { emphasisContent } from '@celesta/text';
+
+const styles = { danger: { color: '#ff6060', fontWeight: 700 } };
+<Text style={captionStyle}>
+  {emphasisContent('HPが1です。', [{ start: 3, end: 4, style: 'danger' }], { styles, theme: useTheme() })}
+</Text>
+```
+
+- `TextEmphasis` is `{ start, end, style }`: grapheme clusters `[start,
+  end)`, counted from 0. `graphemes(text)` splits a text the same way: an
+  emoji sequence (`👨‍👩‍👧`), a flag (`🇯🇵`), a letter with combining marks
+  (`é`), or a surrogate pair (`𠮷`) is one cluster, so a range can
+  never cut one.
+- `style` is an `EmphasisStyle`, `{ color?, fontWeight? }`, or the name of
+  one in `options.styles`. `color` is a hex color or, with `options.theme`
+  (`useTheme()`), a `<Theme>` color name. An emphasis with an empty style
+  changes nothing but is still reported, for a custom render to style.
+- `resolveEmphasis(text, emphasis, { styles?, theme?, what? })` checks the
+  ranges and returns them sorted, each with its `text`, its style (color
+  resolved to hex), and its `name` when it named one. It throws, naming
+  `what` and the emphasis by index, for a range that is empty, not whole
+  numbers, or outside the text's clusters; ranges that overlap; an unknown
+  style name; a style property other than `color` and `fontWeight`; and a
+  color or weight a `<Span>` cannot draw.
+- `emphasisContent(text, emphasis, options)` returns the text with a
+  `<Span>` per range (the text itself when there are none), for `<Text>`,
+  `<TextBox>`, `useTextMetrics`, or anything else that takes text. Draw the
+  whole text in one `<Text>` so it still wraps and keeps one baseline.
+- `sliceEmphasis(resolved, start, end)` cuts resolved emphasis to clusters
+  `[start, end)` and counts it from `start`: the emphasis of one page or
+  line of a longer text.
+- Emphasis needs the text as a string. Text that already holds `<Span>`
+  uses spans throughout instead.
+
+## Timed ranges
+
+`resolveTimedRanges(items, options)` checks things shown for a while
+(captions, subtitle pages) and `timedRangeAt(ranges, frame)` finds the one
+on a frame. `<CaptionTrack>` and dialogue subtitle pages use them, so they
+share these rules:
+
+- An item `{ from, durationInFrames? }` is shown on frames
+  `[from, from + durationInFrames)`: on `from`, not on `from +
+  durationInFrames`. `from` is a whole number and `durationInFrames` a whole
+  number of at least 1.
+- Without `durationInFrames`, an item lasts until the next item's `from`;
+  the last one until `options.end`. Without `end`, every item but the ones
+  something follows needs a duration.
+- Frames no item covers (before the first, between two, after the last)
+  have none: `timedRangeAt` returns null.
+- With `end`, items must fit `[0, end)`. Without it they may sit anywhere,
+  including before frame 0, as a `<Sequence>` may.
+- Overlapping items throw unless `overlap: 'latest'`, which lets the one
+  starting later (or, starting together, the one later in the list) cut
+  the other short. Touching items (one ends where the next starts) do not
+  overlap.
+- Items are sorted by `from`; `ordered: true` requires them listed in order.
+- Errors name `options.what` and the item: `label(index)`, or `item <index>`.
+
+See [`packages/cli/examples/with-text-emphasis.tsx`](../../../packages/cli/examples/with-text-emphasis.tsx).
 
 ## TextStyle
 
