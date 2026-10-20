@@ -7,8 +7,8 @@ import { Composition, Rect, Sequence, Text, Theme, useCurrentFrame } from '@cele
 import type { Layer, LayerContent, Scene, TextMetrics } from '@celesta/react';
 import { mount, setTextMeasurer } from '@celesta/react/internal';
 import type { MeasureTextRequest, MountedComposition } from '@celesta/react/internal';
-import { CaptionTrack } from '../dist/index.js';
-import type { CaptionCue, CaptionRenderProps, CaptionTrackProps } from '../dist/index.js';
+import { CaptionTrack } from '../src/index.js';
+import type { CaptionCue, CaptionRenderProps, CaptionTrackProps } from '../src/index.js';
 
 const h = React.createElement;
 
