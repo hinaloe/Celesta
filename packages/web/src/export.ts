@@ -2,7 +2,7 @@ import { AudioBufferSource, BufferTarget, CanvasSource, Mp4OutputFormat, Output,
 import type { AudioClip, CompositionConfig } from './types';
 import { SceneCanvas } from './scene-canvas';
 import { Engine } from './engine';
-import { assertBrowserMixable } from './audio-support';
+import { assertBrowserMixable, fadeGains } from './audio-support';
 
 async function mixAudio(clips: AudioClip[], renderer: SceneCanvas, duration: number): Promise<AudioBuffer> {
   const sampleRate = 48_000;
@@ -24,7 +24,9 @@ async function mixAudio(clips: AudioClip[], renderer: SceneCanvas, duration: num
     const offset = source.loop ? ((clip.sourceStart % buffer.duration) + buffer.duration) % buffer.duration : clip.sourceStart;
     const gain = context.createGain();
     gain.gain.value = clip.volume;
-    source.connect(gain).connect(context.destination);
+    let output: AudioNode = source.connect(gain);
+    for (const fade of fadeGains(context, clip)) output = output.connect(fade);
+    output.connect(context.destination);
     if (clip.start < duration) source.start(Math.max(0, clip.start), offset, Math.min(clip.duration, duration - clip.start) * clip.playbackRate);
   }
   return context.startRendering();
