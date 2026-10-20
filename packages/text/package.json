@@ -1,6 +1,6 @@
 {
   "name": "@celesta/text",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "description": "Text animation (TextReveal, typewriter, count-up) and box-fitted text for Celesta compositions.",
   "license": "MIT OR Apache-2.0",
