@@ -44,7 +44,7 @@ export default function Root() {
 | --- | --- |
 | `children` | ソースの文字列。 |
 | `language` | `tsx`、`ts`、`json`、`bash`、または `text`（既定、色なし）。 |
-| `style` | Celesta の `TextStyle`。`fontFamily`、`fontSize`、`lineHeight` などを指定します。左揃えで折り返さず、色はテーマが設定します。ほかの `align` はエラーです。 |
+| `style` | Celesta の `TextStyle`。`fontFamily`、`fontSize`、`lineHeight` などを指定します。左揃えで折り返さず、色はテーマが設定します。ほかの `align` はエラーです。合字は切ってあり（`fontFeatures: { liga: false, calt: false }`）、`===` や `->` は書いたとおりに描かれます。`fontFeatures: { liga: true }` で合字を戻せます。 |
 | `theme` | トークンの色、既定の文字色、行の強調色。既定は `codeThemes.dark`。 |
 | `tabSize` | タブ幅を文字数で指定します。既定は `2`。 |
 | `highlightLines` | 帯で強調する行番号。1 始まりです。 |

@@ -135,7 +135,7 @@ Set `fontFallback="loaded"` to try the fonts loaded with `<Font>` before the sys
 
 ## Emphasize part of a text
 
-`<Span>` changes the `fill`, `fontWeight`, or `fontFamily` of part of a text. The whole text is still laid out as one paragraph: it wraps, aligns, and measures as one, and its baseline stays where the text’s own letters put it. Spans nest; a weight the family lacks uses its nearest weight.
+`<Span>` changes the `fill`, `fontWeight`, `fontFamily`, or `fontFeatures` of part of a text. The whole text is still laid out as one paragraph: it wraps, aligns, and measures as one, and its baseline stays where the text’s own letters put it. Spans nest; a weight the family lacks uses its nearest weight.
 
 ```tsx title="An emphasized word in one paragraph"
 <Text style={{ fontSize: 48, fill: { type: 'solid', color: '#ffffff' } }}>
@@ -144,6 +144,23 @@ Set `fontFallback="loaded"` to try the fonts loaded with `<Font>` before the sys
 ```
 
 Spans work in `<Text>`, `<TextBox>`, `<TextReveal>`, and `<Dialogue>`, in `DialogueSeries` lines, and in `useTextMetrics()`, `measureText()`, `useFitText()`, `fitText()`, and `useTypewriter()`; pass the typed length to `visibleCharacters` to type rich text without changing its layout. A component that returns a span cannot be used inside text. Set `lang` on Japanese, Chinese, or Korean text with spans: a span splits shaping, and without a language the characters next to it can fall back to a different font. The browser preview draws each span with its own font and can differ slightly from export at span edges.
+
+## Turn ligatures and other OpenType features on or off
+
+`fontFeatures` switches a font’s OpenType features, as CSS `font-feature-settings` does. A coding font such as JetBrains Mono joins `===`, `->`, and `!=` into single symbols with its `liga` and `calt` features. Turn them off to show code as it is written:
+
+```tsx title="Code as written, without ligatures"
+<Assets>
+  <Font google="JetBrains Mono" weights={[400]} />
+</Assets>
+<Text style={{ fontFamily: 'JetBrains Mono', fontSize: 48, fontFeatures: { liga: false, calt: false } }}>
+  {'a === b'}
+</Text>
+```
+
+Each key is a four-character feature tag, such as `liga`, `calt`, `kern`, `zero`, `tnum`, or `ss01`, and each value is `true`, `false`, or the number of an alternate (`salt: 2`). A tag the font does not have changes nothing; a malformed tag or value throws. `<Span style={{ fontFeatures }}>` changes features for part of a text, even inside a word, merged tag by tag over the text’s. Measurements shape with the same features, so measured and drawn widths agree. `<Code>` turns `liga` and `calt` off by default.
+
+The browser preview applies features only to fonts loaded with `<Font>`, and throws for text with `fontFeatures` that uses an installed font or no `fontFamily`. Export applies them to installed fonts too.
 
 ## Measure and fit text
 

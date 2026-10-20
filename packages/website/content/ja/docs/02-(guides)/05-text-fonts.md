@@ -103,7 +103,7 @@
 
 ## 文章の一部を強調する
 
-`<Span>` は文章の一部の `fill`、`fontWeight`、`fontFamily` を変えます。文章全体は一つの段落として組まれたままで、折り返し・揃え・計測も一つの段落として行われ、基準線は文章自身の文字が決める位置から動きません。Span は入れ子にでき、書体にないウェイトは最も近いウェイトで描かれます。
+`<Span>` は文章の一部の `fill`、`fontWeight`、`fontFamily`、`fontFeatures` を変えます。文章全体は一つの段落として組まれたままで、折り返し・揃え・計測も一つの段落として行われ、基準線は文章自身の文字が決める位置から動きません。Span は入れ子にでき、書体にないウェイトは最も近いウェイトで描かれます。
 
 ```tsx title="一つの段落の中で一語を強調する"
 <Text style={{ fontSize: 48, fill: { type: 'solid', color: '#ffffff' } }}>
@@ -112,6 +112,23 @@
 ```
 
 Span は `<Text>`、`<TextBox>`、`<TextReveal>`、`<Dialogue>`、`DialogueSeries` の台詞と、`useTextMetrics()`、`measureText()`、`useFitText()`、`fitText()`、`useTypewriter()` で使えます。打鍵の長さを `visibleCharacters` に渡すと、組版を変えずに装飾付きの文章を打鍵表示できます。Span を返すコンポーネントは文章の中では使えません。日本語・中国語・韓国語の文章で Span を使うときは `lang` を指定してください。Span は shaping を分割するため、言語の指定がないと、Span の隣の文字が別の書体で描かれる場合があります。ブラウザーのプレビューは Span ごとにその書体で描くため、Span の境目で書き出し結果とわずかに異なる場合があります。
+
+## 合字などの OpenType 機能を切り替える
+
+`fontFeatures` は、CSS の `font-feature-settings` と同じように、書体の OpenType 機能を切り替えます。JetBrains Mono のようなコード用の書体は、`liga` と `calt` の機能で `===` や `->`、`!=` を一つの記号にまとめます。コードを書いたとおりに見せるときは、これらを切ります。
+
+```tsx title="合字を使わず、コードを書いたとおりに描く"
+<Assets>
+  <Font google="JetBrains Mono" weights={[400]} />
+</Assets>
+<Text style={{ fontFamily: 'JetBrains Mono', fontSize: 48, fontFeatures: { liga: false, calt: false } }}>
+  {'a === b'}
+</Text>
+```
+
+キーは `liga`、`calt`、`kern`、`zero`、`tnum`、`ss01` などの 4 文字の機能タグで、値は `true`、`false`、または代替字形の番号（`salt: 2`）です。書体にない機能を指定しても何も変わりません。タグや値の形が正しくないとエラーになります。`<Span style={{ fontFeatures }}>` は文章の一部の機能を、単語の途中でも切り替えます。指定はタグごとに文章の指定に重なります。計測も同じ機能の指定で字形を決めるため、計測した幅と描いた幅は一致します。`<Code>` は既定で `liga` と `calt` を切ります。
+
+ブラウザーのプレビューは、`<Font>` で読み込んだ書体にだけ機能を適用し、`fontFeatures` を指定した文章がインストール済みの書体を使う場合や `fontFamily` を指定していない場合はエラーになります。書き出しではインストール済みの書体にも適用されます。
 
 ## 文字を測る・枠に収める
 
