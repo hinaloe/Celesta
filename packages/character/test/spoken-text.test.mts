@@ -13,8 +13,8 @@ import type { AssetReference } from '@celesta/react';
 import { mount } from '@celesta/react/internal';
 import {
   Character, CharacterView, DialogueSeries, loadDialogueLipSync, loadLipSync, planDialogue, spokenTextOf,
-} from '../dist/index.js';
-import type { CharacterViewReference, DialogueLine, LipSyncTrack } from '../dist/index.js';
+} from '../src/index.js';
+import type { CharacterViewReference, DialogueLine, LipSyncTrack } from '../src/index.js';
 
 const h = React.createElement;
 
