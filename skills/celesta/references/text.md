@@ -452,8 +452,7 @@ defaults to the text's solid fill, else white), `caretWidth`,
   start of the next line.
 - **Browser preview**: the browser measurer has no glyph positions, so the
   caret is measured from the typed part of its line instead, without
-  `<Span>` fonts. Without `maxWidth`, `style.align` moves lines in the
-  browser but not in export.
+  `<Span>` fonts.
 
 ### `useTypewriter(text, { from?, framesPerChar?, blinkFrames? })`
 
