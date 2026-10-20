@@ -23,7 +23,8 @@
   },
   "dependencies": {
     "@celesta/math": "workspace:*",
-    "@celesta/media-utils": "workspace:*"
+    "@celesta/media-utils": "workspace:*",
+    "@celesta/text": "workspace:*"
   },
   "peerDependencies": {
     "@celesta/react": "0.0.0",

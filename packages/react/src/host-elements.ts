@@ -34,9 +34,10 @@ export interface HostWalk extends HostVisit {
   collectAudio(props: Record<string, unknown>): void;
   /**
    * Reports `text` as a subtitle shown for the whole enclosing `<Sequence>`,
-   * for the export's subtitle file. Ignored inside a `<FreezeFrame>`.
+   * or from second `from` to `to` of it, for the export's subtitle file.
+   * Ignored inside a `<FreezeFrame>`.
    */
-  collectSubtitle(text: string): void;
+  collectSubtitle(text: string, from?: number, to?: number): void;
 }
 
 export interface HostElement {

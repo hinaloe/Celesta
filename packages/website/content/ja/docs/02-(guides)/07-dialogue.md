@@ -40,6 +40,8 @@
 
 prepare() で planDialogue(lines, { fps, gap, sceneLeadIn }) を呼ぶと、音声の長さを測って台詞を順に並べます。durationInFrames を指定した台詞は計測しません。gap と leadIn は秒、durationInFrames はフレーム単位です。各台詞には audio または正の durationInFrames が必要です。Composition の長さを plan から設定し、DialogueSeries の views で話者名と表示先を対応付けます。演出のタイミングには plan の line()、startOf()、range()、scene() を使えます。
 
+長い台詞は、音声と口パクを 1 本のまま、字幕だけをページごとに表示できます。`subtitlePages`（台詞の開始からのフレームで `{ from, durationInFrames?, text }`、ページを並べると台詞の `text` になる）を書くか、`prepare()` で `paginateSubtitles(lines, { fps, style, maxWidth, maxLines })` に実際の文字計測から分けさせます。`emphasis`（書記素クラスタ単位の範囲と色・太さ、または話者の `subtitle.emphasisStyles` の名前）は、どのページに来ても語を強調します。`subtitle.render` にはページ、その強調、台詞と同じ時計が渡るので、帯の入場はやり直されません。
+
 ```tsx file=examples/dialogue-series.tsx title="dialogue-series.tsx"
 ```
 

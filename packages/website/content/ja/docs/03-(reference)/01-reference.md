@@ -61,6 +61,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `Dialogue` | `@celesta/character` | 字幕を表示し、`audio` を再生し、有効な間の表情を変更します。行の途中の時刻で表情を切り替えることもできます。 |
 | `expressionAt` | `@celesta/character` | 行の `expression`（名前、または `{ at, expression }` の切り替え）が、行の中のある時刻に選ぶ表情を返します。 |
 | `loadLipSync` / `useLipSync` | `@celesta/character` | WAV から口の形を生成し、現在の形を取得します。 |
+| `paginateSubtitles` | `@celesta/character` | 長い台詞の字幕を、実際の文字計測から時間指定のページに分けます。明示した区切りと読みの対応があれば音声タイミングに合わせ、なければ近似で配分します。台詞には `subtitlePages` と `emphasis` を手で書くこともできます。 |
 | `loadDialogueLipSync` / `spokenTextOf` | `@celesta/character` | 並べる台詞に、ローカルの WAV と `spokenText`（字幕の `text` とは別に、実際に話す内容）から波形の口パクを付けます。 |
 | `loadPsdPreset` | `@celesta/character` | PSDTool の `.pfv` のお気に入りから、表示レイヤーを読み込みます。 |
 

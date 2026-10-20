@@ -697,6 +697,9 @@ importers:
       '@celesta/media-utils':
         specifier: workspace:*
         version: link:../media-utils
+      '@celesta/text':
+        specifier: workspace:*
+        version: link:../text
     devDependencies:
       '@celesta/react':
         specifier: workspace:*

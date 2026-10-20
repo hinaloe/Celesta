@@ -61,6 +61,7 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | `Dialogue` | `@celesta/character` | Shows a line as a subtitle, plays its `audio`, and changes the view’s expression while active, optionally at cue times within the line. |
 | `expressionAt` | `@celesta/character` | The expression a line’s `expression` (a name or `{ at, expression }` cues) picks at a time into the line. |
 | `loadLipSync` / `useLipSync` | `@celesta/character` | Generate mouth shapes from a WAV recording, and read the current shape. |
+| `paginateSubtitles` | `@celesta/character` | Split long dialogue subtitles into timed pages from the measured text, aligned to speech timing through an explicit segment mapping or shared out approximately; lines also take `subtitlePages` and `emphasis` by hand. |
 | `loadDialogueLipSync` / `spokenTextOf` | `@celesta/character` | Give planned lines waveform lip sync from their local WAVs and their `spokenText` (what the line says, apart from the subtitle `text`). |
 | `loadPsdPreset` | `@celesta/character` | Load visible PSD layers from a PSDTool `.pfv` favorite. |
 

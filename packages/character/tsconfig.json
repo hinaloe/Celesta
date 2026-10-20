@@ -19,6 +19,7 @@
   "references": [
     { "path": "../react" },
     { "path": "../math" },
-    { "path": "../media-utils" }
+    { "path": "../media-utils" },
+    { "path": "../text" }
   ]
 }

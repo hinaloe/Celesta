@@ -40,6 +40,8 @@ Emphasize part of a line with `<Span>` inside the `Dialogue`. A `subtitle.render
 
 Call planDialogue(lines, { fps, gap, sceneLeadIn }) in prepare(). It measures each audio file unless durationInFrames is supplied, then places the lines back to back. gap and leadIn use seconds; durations use frames. Every line needs audio or a positive durationInFrames. Set Composition durationInFrames from the plan and pass speaker names to DialogueSeries through views. The plan exposes line(), startOf(), range(), and scene() for other direction.
 
+A long line can show its subtitle a page at a time while its one voice and lip sync play on: give it `subtitlePages` (`{ from, durationInFrames?, text }` in frames from the line's start, the pages together spelling the line's `text`), or let `paginateSubtitles(lines, { fps, style, maxWidth, maxLines })` split it from the measured text in `prepare()`. `emphasis` ranges (grapheme clusters, with a color and weight, or a name from the speaker's `subtitle.emphasisStyles`) color words on whichever page they fall. `subtitle.render` gets the page, its emphasis, and the same line clock, so a band never restarts.
+
 ```tsx file=examples/dialogue-series.tsx title="dialogue-series.tsx"
 ```
 
