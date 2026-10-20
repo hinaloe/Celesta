@@ -207,10 +207,22 @@ pub struct ReactAudioClipDescriptor {
     /// set.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub preserve_pitch: bool,
+    /// Seconds the clip rises from silence over after `start`. Reported only
+    /// when not 0.
+    #[serde(default, skip_serializing_if = "is_zero_seconds")]
+    pub fade_in: f64,
+    /// Seconds the clip falls to silence over before its end. Reported only
+    /// when not 0.
+    #[serde(default, skip_serializing_if = "is_zero_seconds")]
+    pub fade_out: f64,
     /// The soundtrack of a `<Video>`, not an `<Audio>`. Reported only when
     /// set.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub video: bool,
+}
+
+fn is_zero_seconds(seconds: &f64) -> bool {
+    *seconds == 0.0
 }
 
 /// One subtitle a frame shows, from `<Subtitles>` or a `<Dialogue>` line:

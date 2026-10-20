@@ -26,11 +26,11 @@ pub use animation::{AnimationError, evaluate_f64, integrate_f64};
 pub use blend::BlendMode;
 pub use instances::{F32Column, InstanceShape, U8Column, instance_size};
 pub use model::{
-    AssetLocation, AudioClip, AudioGraph, Clip, DEFAULT_MITER_LIMIT, EvaluatedTransform, GroupMask,
-    ImageAnimation, ImageFit, Layer, LayerContent, LayerEffects, LayerFilter, LayerGlow,
+    AssetLocation, AudioClip, AudioFade, AudioGraph, Clip, DEFAULT_MITER_LIMIT, EvaluatedTransform,
+    GroupMask, ImageAnimation, ImageFit, Layer, LayerContent, LayerEffects, LayerFilter, LayerGlow,
     LayerShader, LayerShadow, LineCap, LineDash, LineJoin, MaskMode, MediaTiming, PathCommand,
-    Point, ResolvedAsset, Scene, ShaderParam, ShaderParamType, ShaderSource, is_zero_pitch,
-    zero_pitch,
+    Point, ResolvedAsset, Scene, ShaderParam, ShaderParamType, ShaderSource, is_zero_fade,
+    is_zero_pitch, zero_fade, zero_pitch,
 };
 pub use projection::{
     BackfaceVisibility, IDENTITY3, Matrix3, faces_away, invert3, multiply3, multiply3_flat,

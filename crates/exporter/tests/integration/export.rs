@@ -745,6 +745,8 @@ fn exports_a_pitched_audio_clip() {
                 muted: None,
                 pitch: Some(Animatable::Static(7.0)),
                 preserve_pitch: Some(true),
+                fade_in: None,
+                fade_out: None,
             },
             enabled: None,
             transform: None,
@@ -837,6 +839,8 @@ fn with_audio(mut project: Project, dir: &Path, lavfi: &str, name: &str) -> Proj
                 muted: None,
                 pitch: None,
                 preserve_pitch: None,
+                fade_in: None,
+                fade_out: None,
             },
             enabled: None,
             transform: None,
@@ -846,6 +850,54 @@ fn with_audio(mut project: Project, dir: &Path, lavfi: &str, name: &str) -> Proj
         }],
     });
     project
+}
+
+#[test]
+fn exports_an_audio_clip_with_fades() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut project = with_audio(
+        transparent_project(directory.path()),
+        directory.path(),
+        "sine=frequency=440:sample_rate=8000:duration=1",
+        "sound.wav",
+    );
+    let TimelineContent::Audio {
+        fade_in, fade_out, ..
+    } = &mut project.tracks.last_mut().unwrap().items[0].content
+    else {
+        unreachable!();
+    };
+    *fade_in = Some(Time::new(1, 4));
+    *fade_out = Some(Time::new(1, 2));
+    let Some(output) = export_as(&project, directory.path(), VideoFormat::Mp4, "clip.mp4") else {
+        return;
+    };
+
+    let (samples, sample_rate) = decoded_audio(&output);
+    let rms = |from: f64, to: f64| {
+        let rate = f64::from(sample_rate);
+        let window = &samples[(from * rate) as usize..(to * rate) as usize];
+        (window
+            .iter()
+            .map(|sample| f64::from(sample * sample))
+            .sum::<f64>()
+            / window.len() as f64)
+            .sqrt()
+    };
+    // A linear ramp scales a sine's RMS by 1 / √3.
+    let full = rms(0.3, 0.45);
+    let near = |actual: f64, expected: f64| {
+        assert!(
+            (actual - expected).abs() <= expected * 0.1,
+            "RMS {actual}, expected about {expected}"
+        );
+    };
+    near(full, 0.125 / 2.0_f64.sqrt());
+    near(rms(0.0, 0.25), full / 3.0_f64.sqrt());
+    near(rms(0.5, 1.0), full / 3.0_f64.sqrt());
+    near(rms(0.7, 0.8), full * 0.5);
+    assert!(rms(0.0, 0.02) < full * 0.1);
+    assert!(rms(0.98, 1.0) < full * 0.1);
 }
 
 #[test]

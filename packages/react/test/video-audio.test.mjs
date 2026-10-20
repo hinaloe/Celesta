@@ -101,6 +101,40 @@ test('<Audio> pitch and preservePitch reach its clip, shifted like volume', () =
   expect('preservePitch' in c).toBe(false);
 });
 
+test('<Audio> fades reach its clip, timed from the window heard', () => {
+  const composition = mount(root(120,
+    h(Audio, { src: './bgm.wav', volume: 0.6, fadeIn: 1.5, fadeOut: 3 }),
+    // The outer window cuts the clip's head and tail; the fades stay at the
+    // edges of what is heard rather than moving with the clip's own clock.
+    h(Sequence, { from: 30, durationInFrames: 30 },
+      h(Sequence, { from: -15 }, h(Audio, { src: './cut.wav', fadeIn: 0.25, fadeOut: 0.5 }))),
+    h(Audio, { src: './plain.wav', fadeIn: 0, fadeOut: 0 })));
+  const [bgm, cut, plain] = at(composition, 45).audio;
+  expect(bgm).toMatchObject({ volume: 0.6, start: 0, duration: 4, fadeIn: 1.5, fadeOut: 3 });
+  expect(cut).toMatchObject({ start: 1, duration: 1, fadeIn: 0.25, fadeOut: 0.5 });
+  expect('fadeIn' in plain || 'fadeOut' in plain).toBe(false);
+});
+
+test('<Audio> fadeOut follows the end of its sequence', () => {
+  const report = (durationInFrames) => at(mount(root(120,
+    h(Sequence, { durationInFrames }, h(Audio, { src: './bgm.wav', fadeOut: 1 })))), 0).audio[0];
+  expect(report(60)).toMatchObject({ duration: 2, fadeOut: 1 });
+  expect(report(90)).toMatchObject({ duration: 3, fadeOut: 1 });
+});
+
+test('<Audio> rejects a negative or non-finite fade', () => {
+  for (const props of [{ fadeIn: -1 }, { fadeOut: Number.NaN }, { fadeIn: '1' }]) {
+    const composition = mount(root(30, h(Audio, { src: './a.wav', ...props })));
+    expect(() => at(composition, 0)).toThrow(/<Audio> fade(In|Out) must be a finite number of seconds of at least 0/);
+  }
+});
+
+test('<Video> never reports fades', () => {
+  const composition = mount(root(30, h(Video, { src: './clip.mp4', fadeIn: 1, fadeOut: 1 })));
+  const [clip] = at(composition, 0).audio;
+  expect('fadeIn' in clip || 'fadeOut' in clip).toBe(false);
+});
+
 test('<Video> never reports pitch', () => {
   const composition = mount(root(30, h(Video, { src: './clip.mp4', playbackRate: 2, pitch: 4, preservePitch: true })));
   const [clip] = at(composition, 0).audio;

@@ -387,6 +387,57 @@ fn audio_items_without_pitch_round_trip_unchanged() {
 }
 
 #[test]
+fn audio_item_fades_validate_and_round_trip() {
+    let project_with = |fades: Value| {
+        let mut json: Value = serde_json::from_str(&audio_project_json(None)).unwrap();
+        let content = &mut json["tracks"][0]["items"][0]["content"];
+        for (key, value) in fades.as_object().unwrap() {
+            content[key] = value.clone();
+        }
+        Project::from_json(&json.to_string())
+    };
+
+    let saved = project_with(serde_json::json!({
+        "fadeIn": {"value": 3, "timescale": 2},
+        "fadeOut": {"value": 0, "timescale": 1},
+    }))
+    .unwrap()
+    .to_json()
+    .unwrap();
+    let TimelineContent::Audio {
+        fade_in, fade_out, ..
+    } = &Project::from_json(&saved).unwrap().tracks[0].items[0].content
+    else {
+        panic!("expected an audio item");
+    };
+    assert_eq!(*fade_in, Some(Time::new(3, 2)));
+    assert_eq!(*fade_out, Some(Time::ZERO));
+    assert!(
+        !Project::from_json(&audio_project_json(None))
+            .unwrap()
+            .to_json()
+            .unwrap()
+            .contains("fade")
+    );
+
+    let LoadError::Validation(errors) = project_with(serde_json::json!({
+        "fadeIn": {"value": -1, "timescale": 1},
+        "fadeOut": {"value": 1, "timescale": 0},
+    }))
+    .unwrap_err() else {
+        panic!("expected validation errors");
+    };
+    let paths: Vec<_> = errors.as_slice().iter().map(|error| &error.path).collect();
+    assert_eq!(
+        paths,
+        [
+            "tracks[0].items[0].content.fadeIn",
+            "tracks[0].items[0].content.fadeOut",
+        ]
+    );
+}
+
+#[test]
 fn lip_sync_configuration_and_cues_round_trip() {
     let mut project =
         Project::from_json(include_str!("../../../examples/voiceroid.celesta.json")).unwrap();

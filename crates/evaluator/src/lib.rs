@@ -147,6 +147,8 @@ impl<'project> Evaluator<'project> {
                         muted,
                         pitch,
                         preserve_pitch,
+                        fade_in,
+                        fade_out,
                     } => {
                         let mut clip = self.media_clip(
                             item,
@@ -158,6 +160,8 @@ impl<'project> Evaluator<'project> {
                         )?;
                         clip.pitch = pitch.clone().unwrap_or(Animatable::Static(0.0));
                         clip.preserve_pitch = preserve_pitch.unwrap_or(false);
+                        clip.fade_in = fade_in.unwrap_or(Time::ZERO);
+                        clip.fade_out = fade_out.unwrap_or(Time::ZERO);
                         clips.push(clip);
                     }
                     TimelineContent::Dialogue {
@@ -176,6 +180,8 @@ impl<'project> Evaluator<'project> {
                         r#loop: false,
                         pitch: Animatable::Static(0.0),
                         preserve_pitch: false,
+                        fade_in: Time::ZERO,
+                        fade_out: Time::ZERO,
                     }),
                     _ => {}
                 }
@@ -392,6 +398,8 @@ impl<'project> Evaluator<'project> {
             r#loop: false,
             pitch: Animatable::Static(0.0),
             preserve_pitch: false,
+            fade_in: Time::ZERO,
+            fade_out: Time::ZERO,
         })
     }
 

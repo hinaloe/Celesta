@@ -927,6 +927,7 @@ fn batched_audio_graph_matches_full_frame_evaluation_when_node_is_available() {
         "examples/with-conditional-audio.tsx",
         "examples/with-sequence.tsx",
         "examples/with-volume-fade.tsx",
+        "examples/with-audio-fade.tsx",
         "examples/with-transition-series.tsx",
         "test/fixtures/audio-collection.tsx",
     ] {
@@ -1154,22 +1155,53 @@ fn frame_keyframes_fade_audio_in_the_collected_graph_when_node_is_available() {
         celesta_composition::evaluate_f64(&clip.volume, Time::new(frame, 30)).unwrap()
     };
 
-    // BGM: frames 0-15 fade in to 0.8, frames 75-90 fade out.
+    // BGM: starts at frame 15 and fades in and out over half a second at
+    // each end of its range, which runs to the end of the composition.
     let bgm = clips[0];
-    assert_eq!(bgm.range.start.as_seconds().unwrap(), 0.0);
-    assert_eq!(volume_at(bgm, 0), 0.0);
-    assert_eq!(volume_at(bgm, 15), 0.8);
-    assert_eq!(volume_at(bgm, 75), 0.8);
-    assert!(volume_at(bgm, 80) < 0.8);
-    assert_eq!(volume_at(bgm, 90), 0.0);
+    assert_eq!(bgm.range.start.as_seconds().unwrap(), 0.5);
+    assert_eq!(bgm.range.duration.as_seconds().unwrap(), 2.5);
+    assert_eq!(bgm.fade_in.as_seconds().unwrap(), 0.5);
+    assert_eq!(bgm.fade_out.as_seconds().unwrap(), 0.5);
+    // Its keys, written in composition frames with origin 15, dip it from
+    // 0.8 to 0.3 under the voice (frames 45-75).
+    assert_eq!(volume_at(bgm, 0), 0.8);
+    assert!((volume_at(bgm, 25) - 0.8).abs() < 1e-4);
+    assert!((volume_at(bgm, 30) - 0.3).abs() < 1e-4);
+    assert!((volume_at(bgm, 60) - 0.3).abs() < 1e-4);
+    assert!((volume_at(bgm, 65) - 0.8).abs() < 1e-4);
 
-    // Voice: starts at frame 45 inside nested sequences; keys written in
-    // composition frames with origin 45 fade in over its first 6 frames.
+    // Voice: frames 45-75 at full volume.
     let voice = clips[1];
     assert_eq!(voice.range.start.as_seconds().unwrap(), 1.5);
-    assert_eq!(volume_at(voice, 0), 0.0);
-    assert!((volume_at(voice, 3) - 0.5).abs() < 1e-4);
-    assert_eq!(volume_at(voice, 6), 1.0);
+    assert_eq!(voice.range.duration.as_seconds().unwrap(), 1.0);
+    assert_eq!(voice.volume, celesta_composition::Animatable::Static(1.0));
+}
+
+#[test]
+fn audio_fades_follow_the_sequence_in_the_collected_graph_when_node_is_available() {
+    let Some((node, cli_script, package_root)) = live_react_runtime() else {
+        return;
+    };
+
+    let entry = package_root.join("examples/with-audio-fade.tsx");
+    let mut bridge = ReactBridge::spawn(&node, &cli_script, &entry).unwrap();
+    let graph = bridge
+        .collect_audio_graph(48_000, 1.0, entry.parent().unwrap())
+        .unwrap();
+    let [bgm] = graph.clips.as_slice() else {
+        panic!("expected one clip, got {:?}", graph.clips);
+    };
+    assert_eq!(bgm.range.start.as_seconds().unwrap(), 0.0);
+    assert_eq!(bgm.range.duration.as_seconds().unwrap(), 5.0);
+    assert_eq!(bgm.volume, celesta_composition::Animatable::Static(0.6));
+    assert_eq!(bgm.fade_in.as_seconds().unwrap(), 1.5);
+    assert_eq!(bgm.fade_out.as_seconds().unwrap(), 3.0);
+    // The mixer's gain: silent at both ends, full between the fades.
+    let fade = bgm.fade().unwrap();
+    assert_eq!(fade.gain(0.0), 0.0);
+    assert_eq!(fade.gain(1.75), 1.0);
+    assert_eq!(fade.gain(3.5), 0.5);
+    assert_eq!(fade.gain(5.0), 0.0);
 }
 
 #[test]

@@ -129,5 +129,7 @@ export type AudioClip = {
   loop?: boolean;
   pitch?: number | { type: 'keyframes'; keyframes: unknown[] };
   preservePitch?: boolean;
+  fadeIn?: number;
+  fadeOut?: number;
 };
 export type Frame = { scene: Scene; audio: AudioClip[] };

@@ -371,6 +371,8 @@ fn audio_graph_preserves_source_range_and_playback_mapping() {
         muted: None,
         pitch: None,
         preserve_pitch: None,
+        fade_in: None,
+        fade_out: None,
     };
 
     let audio = Evaluator::new(&project).unwrap().audio_graph().unwrap();
@@ -390,6 +392,8 @@ fn audio_graph_carries_pitch_and_preserve_pitch() {
         muted: None,
         pitch,
         preserve_pitch,
+        fade_in: None,
+        fade_out: None,
     };
     let mut project = example();
     project.tracks[0].items[0].content = audio_content(Some(Animatable::Static(-3.0)), Some(true));
@@ -421,6 +425,30 @@ fn audio_graph_carries_pitch_and_preserve_pitch() {
     let audio = Evaluator::new(&project).unwrap().audio_graph().unwrap();
     assert_eq!(audio.clips[0].pitch, Animatable::Static(0.0));
     assert!(!audio.clips[0].preserve_pitch);
+}
+
+#[test]
+fn audio_graph_carries_fades_of_audio_items_only() {
+    let mut project = example();
+    project.tracks[0].items[0].content = TimelineContent::Audio {
+        asset: "voice-001".to_owned(),
+        source_range: None,
+        playback_rate: None,
+        volume: None,
+        muted: None,
+        pitch: None,
+        preserve_pitch: None,
+        fade_in: Some(Time::new(3, 2)),
+        fade_out: Some(Time::new(3, 1)),
+    };
+    let audio = Evaluator::new(&project).unwrap().audio_graph().unwrap();
+    assert_eq!(audio.clips[0].fade_in, Time::new(3, 2));
+    assert_eq!(audio.clips[0].fade_out, Time::new(3, 1));
+
+    // Dialogue voices have no fades.
+    let audio = Evaluator::new(&example()).unwrap().audio_graph().unwrap();
+    assert_eq!(audio.clips[0].fade_in, Time::ZERO);
+    assert_eq!(audio.clips[0].fade_out, Time::ZERO);
 }
 
 #[test]

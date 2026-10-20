@@ -517,6 +517,12 @@ pub fn describe_frame(
             Some(Value::Object(_) | Value::Array(_)) => line.push_str(", volume keyframes"),
             _ => {}
         }
+        if truthy(clip.get("fadeIn")) {
+            let _ = write!(line, ", fading in over {} s", fmt(num(&clip["fadeIn"])));
+        }
+        if truthy(clip.get("fadeOut")) {
+            let _ = write!(line, ", fading out over {} s", fmt(num(&clip["fadeOut"])));
+        }
         if truthy(clip.get("loop")) {
             line.push_str(", looping");
         }
@@ -840,6 +846,19 @@ mod tests {
         assert_eq!(
             warnings,
             ["component \"Foo\" is not registered; export will fail"]
+        );
+    }
+
+    #[test]
+    fn names_audio_fades() {
+        let audio = json!({ "src": "./bgm.wav", "start": 0, "duration": 10, "volume": 0.6, "fadeIn": 1.5, "fadeOut": 3, "loop": true });
+        let (output, _, _) = describe(vec![], vec![audio]);
+        assert!(
+            output.ends_with(
+                "audio ./bgm.wav from 0 s for 10 s, volume 0.6, fading in over 1.5 s, \
+                 fading out over 3 s, looping  ← MISSING FILE\n"
+            ),
+            "{output}"
         );
     }
 

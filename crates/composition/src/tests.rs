@@ -1258,3 +1258,60 @@ fn audio_clip_pitch_fields_default_and_stay_out_of_json() {
     assert!(text.contains(r#""pitch":-2.5"#) && text.contains(r#""preservePitch":true"#));
     assert_eq!(serde_json::from_str::<AudioClip>(&text).unwrap(), shifted);
 }
+
+#[test]
+fn audio_clip_fades_default_and_stay_out_of_json() {
+    let json = r#"{"id":"a","asset":{"id":"a","location":{"type":"file","path":"a.wav"}},"range":{"start":{"value":0,"timescale":1},"duration":{"value":4,"timescale":1}},"sourceStart":{"value":0,"timescale":1},"playbackRate":1.0,"volume":1.0,"muted":false}"#;
+    let clip: AudioClip = serde_json::from_str(json).unwrap();
+    assert_eq!(clip.fade_in, Time::ZERO);
+    assert_eq!(clip.fade_out, Time::ZERO);
+    assert_eq!(serde_json::to_string(&clip).unwrap(), json);
+
+    let faded = AudioClip {
+        fade_in: Time::new(3, 2),
+        fade_out: Time::new(1, 1),
+        ..clip
+    };
+    let text = serde_json::to_string(&faded).unwrap();
+    assert!(
+        text.contains(r#""fadeIn":{"value":3,"timescale":2}"#)
+            && text.contains(r#""fadeOut":{"value":1,"timescale":1}"#)
+    );
+    assert_eq!(serde_json::from_str::<AudioClip>(&text).unwrap(), faded);
+}
+
+#[test]
+fn audio_fade_ramps_linearly_at_both_edges_of_the_range() {
+    let json = r#"{"id":"a","asset":{"id":"a","location":{"type":"file","path":"a.wav"}},"range":{"start":{"value":10,"timescale":1},"duration":{"value":4,"timescale":1}},"sourceStart":{"value":0,"timescale":1},"playbackRate":1.0,"volume":1.0,"muted":false}"#;
+    let clip: AudioClip = serde_json::from_str(json).unwrap();
+    assert_eq!(clip.fade().unwrap().gain(0.0), 1.0);
+
+    let fade = AudioClip {
+        fade_in: Time::new(1, 1),
+        fade_out: Time::new(2, 1),
+        ..clip.clone()
+    }
+    .fade()
+    .unwrap();
+    // Local seconds, not timeline seconds: the range starting at 10 does not
+    // matter.
+    assert_eq!(fade.gain(0.0), 0.0);
+    assert_eq!(fade.gain(0.5), 0.5);
+    assert_eq!(fade.gain(1.0), 1.0);
+    assert_eq!(fade.gain(2.0), 1.0);
+    assert_eq!(fade.gain(3.0), 0.5);
+    assert_eq!(fade.gain(4.0), 0.0);
+    assert_eq!(fade.gain(-1.0), 0.0);
+    assert_eq!(fade.gain(5.0), 0.0);
+
+    // Fades longer than the clip overlap, and their gains multiply.
+    let overlapping = AudioClip {
+        fade_in: Time::new(4, 1),
+        fade_out: Time::new(4, 1),
+        ..clip
+    }
+    .fade()
+    .unwrap();
+    assert_eq!(overlapping.gain(2.0), 0.25);
+    assert_eq!(overlapping.gain(1.0), 0.25 * 0.75);
+}

@@ -283,6 +283,8 @@ fn deserializes_audio_clips_from_a_frame_response() {
             video: false,
             pitch: Animatable::Static(0.0),
             preserve_pitch: false,
+            fade_in: 0.0,
+            fade_out: 0.0,
         }]
     );
 }
@@ -527,7 +529,41 @@ fn audio_descriptor(src: &str, start: f64) -> ReactAudioClipDescriptor {
         video: false,
         pitch: Animatable::Static(0.0),
         preserve_pitch: false,
+        fade_in: 0.0,
+        fade_out: 0.0,
     }
+}
+
+#[test]
+fn react_audio_fades_default_to_zero_and_become_clip_times() {
+    let mut descriptor: ReactAudioClipDescriptor = serde_json::from_value(serde_json::json!({
+        "src": "./bgm.wav",
+        "sourceStart": 0.0,
+        "playbackRate": 1.0,
+        "volume": 0.6,
+        "muted": false,
+        "start": 0.0,
+        "duration": 10.0,
+    }))
+    .unwrap();
+    assert_eq!((descriptor.fade_in, descriptor.fade_out), (0.0, 0.0));
+    assert!(!serde_json::to_string(&descriptor).unwrap().contains("fade"));
+
+    descriptor = serde_json::from_value(serde_json::json!({
+        "src": "./bgm.wav",
+        "sourceStart": 0.0,
+        "playbackRate": 1.0,
+        "volume": 0.6,
+        "muted": false,
+        "start": 0.0,
+        "duration": 10.0,
+        "fadeIn": 1.5,
+        "fadeOut": 3.0,
+    }))
+    .unwrap();
+    let clips = react_audio_clips(&[descriptor], Path::new("/entry"));
+    assert_eq!(clips[0].fade_in.as_seconds().unwrap(), 1.5);
+    assert_eq!(clips[0].fade_out.as_seconds().unwrap(), 3.0);
 }
 
 #[test]

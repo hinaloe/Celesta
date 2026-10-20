@@ -54,6 +54,7 @@ pub(crate) fn mix_stretched_clip(
         Time::samples(range_start_frame + frame, sample_rate).checked_sub(clip.range.start)
     };
     let source_start_seconds = clip.source_start.as_seconds()?;
+    let fade = clip.fade()?;
     // The source frame clip frame `frame` reads; rounding positions rather
     // than per-block counts keeps blocks from drifting.
     let source_frame = |frame: i64| -> Result<i64, AudioMixError> {
@@ -115,8 +116,9 @@ pub(crate) fn mix_stretched_clip(
                 if heard < skip || heard >= produced {
                     continue;
                 }
-                let volume =
-                    evaluate_f64(&clip.volume, local_time(heard)?)?.clamp(0.0, 16.0) as f32;
+                let local_time = local_time(heard)?;
+                let volume = (evaluate_f64(&clip.volume, local_time)?.clamp(0.0, 16.0)
+                    * fade.gain(local_time.as_seconds()?)) as f32;
                 let at = (range_start_frame + heard) as usize * CHANNELS;
                 for (mixed, sample) in output[at..at + CHANNELS].iter_mut().zip(frame) {
                     *mixed += sample * volume;

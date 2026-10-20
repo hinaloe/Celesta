@@ -128,6 +128,10 @@ export interface AudioClipDescriptor {
   pitch?: AnimatedNumber;
   /** Playback rate changes duration only, not pitch. Present only when set. */
   preservePitch?: true;
+  /** Seconds the clip rises from silence over after `start`. Present only when not 0. */
+  fadeIn?: number;
+  /** Seconds the clip falls to silence over before `start + duration`. Present only when not 0. */
+  fadeOut?: number;
   /** The soundtrack of a `<Video>`, not an `<Audio>`. Present only when set. */
   video?: true;
 }
@@ -1176,6 +1180,9 @@ function collectAudioClip(
   video = false,
 ): void {
   const source = resolveAsset(props.src);
+  // A `<Video>`'s soundtrack has no fades.
+  const fadeIn = video ? 0 : fadeSeconds(props.fadeIn, 'fadeIn');
+  const fadeOut = video ? 0 : fadeSeconds(props.fadeOut, 'fadeOut');
   // An audio clip can play no earlier than its own local zero and not at
   // all outside the enclosing sequence window.
   const startSec = Math.max(context.rangeStartSec, context.originSec);
@@ -1204,8 +1211,23 @@ function collectAudioClip(
     ...(props.loop === true ? { loop: true } : {}),
     ...(pitch !== 0 ? { pitch: shiftAnimated(pitch, -clipped) } : {}),
     ...(!video && props.preservePitch === true ? { preservePitch: true } : {}),
+    // Fades are timed from the edges of the window heard, not shifted by
+    // `clipped` like keyframes, so cutting the clip keeps them at its ends.
+    ...(fadeIn !== 0 ? { fadeIn } : {}),
+    ...(fadeOut !== 0 ? { fadeOut } : {}),
     ...(video ? { video: true } : {}),
   });
+}
+
+/** An `<Audio>` fade in seconds; absent is no fade. */
+function fadeSeconds(value: unknown, name: string): number {
+  if (value === undefined) {
+    return 0;
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`<Audio> ${name} must be a finite number of seconds of at least 0`);
+  }
+  return value;
 }
 
 /**
