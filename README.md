@@ -116,6 +116,11 @@ pnpm run typecheck:examples
 cargo test --workspace --locked
 ```
 
+Tests that need a GPU adapter, Node.js, or a color emoji font print a line
+starting with `skipping` and pass when it is missing. On a machine with a GPU,
+set `CELESTA_REQUIRE_GPU=1` so a missing adapter fails the GPU tests instead.
+CI lists the skipped tests in each job's summary.
+
 See the [CI workflow](.github/workflows/ci.yml) for the full checks and platform
 setup. For rendering changes, include screenshots of the same scene before and
 after the change.
