@@ -12,6 +12,9 @@ use celesta_composition::Rational;
 pub(crate) const GAP: u32 = 8;
 const BACKGROUND: [u8; 3] = [0x20, 0x20, 0x20];
 const LABEL_COLOR: [u8; 3] = [0xf0, 0xf0, 0xf0];
+/// A frame that failed to render is a tile of this color, marked `FAILED`.
+const FAILED_COLOR: [u8; 3] = [0x6e, 0x1f, 0x1f];
+const FAILED_TEXT: &str = "FAILED";
 /// Transparent frame pixels are shown over a checkerboard of these squares.
 const CHECKER: u32 = 8;
 const CHECKER_COLORS: [u8; 2] = [0x99, 0x66];
@@ -135,13 +138,48 @@ impl Sheet {
                 size.0, size.1, expected.0, expected.1
             ));
         }
+        let (left, top) = self.tile_origin(index);
+        self.draw_tile(left, top, frame);
+        self.draw_label(left, top, frame_number);
+        Ok(())
+    }
+
+    /// Fills tile `index` with a block marked `FAILED` in place of composition
+    /// frame `frame_number`, which could not be rendered, and labels it.
+    pub(crate) fn place_failed(&mut self, index: usize, frame_number: u64) {
+        let (left, top) = self.tile_origin(index);
+        for y in top..top + self.tile_height {
+            let row = (y as usize * self.width as usize + left as usize) * 4;
+            let pixels = &mut self.pixels[row..row + self.tile_width as usize * 4];
+            for pixel in pixels.as_chunks_mut::<4>().0 {
+                pixel[..3].copy_from_slice(&FAILED_COLOR);
+            }
+        }
+        // As large as fits in the middle of the tile, leaving a margin.
+        let fitting = (1..=self.label_scale * 2).rev().find(|&scale| {
+            text_width(FAILED_TEXT, scale) + 4 * scale <= self.tile_width
+                && GLYPH_HEIGHT * scale <= self.tile_height
+        });
+        if let Some(scale) = fitting {
+            let text_left = left + (self.tile_width - text_width(FAILED_TEXT, scale)) / 2;
+            let text_top = top + (self.tile_height - GLYPH_HEIGHT * scale) / 2;
+            self.draw_text(text_left, text_top, FAILED_TEXT, scale);
+        }
+        self.draw_label(left, top, frame_number);
+    }
+
+    /// The top-left corner of tile `index`.
+    fn tile_origin(&self, index: usize) -> (u32, u32) {
         let index = index as u32;
         let (column, row) = (index % self.columns, index / self.columns);
         let label_height = (GLYPH_HEIGHT + 4) * self.label_scale;
         let left = GAP + column * (self.tile_width + GAP);
         let top = GAP + row * (self.tile_height + label_height + GAP);
-        self.draw_tile(left, top, frame);
+        (left, top)
+    }
 
+    /// Labels the tile at `left`, `top` with its frame number and timecode.
+    fn draw_label(&mut self, left: u32, top: u32, frame_number: u64) {
         let timecode = timecode(frame_number, self.frame_rate);
         let full = format!("#{frame_number} {timecode}");
         let short = format!("#{frame_number}");
@@ -156,7 +194,6 @@ impl Sheet {
         if let Some((text, scale)) = fitting {
             self.draw_text(left, label_top, text, scale);
         }
-        Ok(())
     }
 
     fn draw_tile(&mut self, left: u32, top: u32, frame: &[u8]) {
@@ -318,6 +355,12 @@ fn glyph(character: char) -> [u8; GLYPH_HEIGHT as usize] {
         '9' => [0x0e, 0x11, 0x11, 0x0f, 0x01, 0x02, 0x0c],
         ':' => [0x00, 0x0c, 0x0c, 0x00, 0x0c, 0x0c, 0x00],
         '#' => [0x0a, 0x0a, 0x1f, 0x0a, 0x1f, 0x0a, 0x0a],
+        'A' => [0x0e, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11],
+        'D' => [0x1e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1e],
+        'E' => [0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x1f],
+        'F' => [0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x10],
+        'I' => [0x0e, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0e],
+        'L' => [0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1f],
         _ => [0; GLYPH_HEIGHT as usize],
     }
 }
@@ -359,6 +402,34 @@ mod tests {
             area_taps(2, 4).iter().map(|t| t.first).collect::<Vec<_>>(),
             [0, 0, 1, 1]
         );
+    }
+
+    #[test]
+    fn a_failed_tile_is_filled_and_marked_in_place() {
+        let mut sheet = Sheet::new(64, 36, 2, 2, 64, 1_000, Rational::new(30, 1)).unwrap();
+        sheet.place(0, 0, &[255; 64 * 36 * 4], (64, 36)).unwrap();
+        sheet.place_failed(1, 30);
+        let at = |x: u32, y: u32| {
+            let index = ((y * sheet.width() + x) * 4) as usize;
+            [
+                sheet.pixels()[index],
+                sheet.pixels()[index + 1],
+                sheet.pixels()[index + 2],
+            ]
+        };
+        let left = GAP + 64 + GAP;
+        assert_eq!(at(GAP + 1, GAP + 1), [255; 3]);
+        assert_eq!(at(left, GAP), FAILED_COLOR);
+        assert_eq!(at(left + 63, GAP + 35), FAILED_COLOR);
+        assert_eq!(at(left - 1, GAP), BACKGROUND);
+        let text = |top: u32, bottom: u32| {
+            (top..bottom)
+                .flat_map(|y| (left..left + 64).map(move |x| (x, y)))
+                .filter(|&(x, y)| at(x, y) == LABEL_COLOR)
+                .count()
+        };
+        assert!(text(GAP, GAP + 36) > 0, "no FAILED mark in the tile");
+        assert!(text(GAP + 36, sheet.height()) > 0, "no frame label");
     }
 
     #[test]

@@ -67,6 +67,22 @@ struct ErrorReport {
     /// rejected project property, each with its key.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     issues: Vec<Issue>,
+    /// The zero-based composition frame that failed, when one did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    frame: Option<u64>,
+    /// With `frames_failed`: each frame the contact sheet shows as a failed
+    /// tile, in sheet order.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    failed_frames: Vec<FailedFrame>,
+}
+
+/// One frame of a contact sheet that could not be evaluated or rendered.
+#[derive(Serialize)]
+struct FailedFrame {
+    frame: u64,
+    /// The code the error would have on its own, such as `react` or `render`.
+    code: &'static str,
+    message: String,
 }
 
 #[derive(Serialize)]
@@ -376,6 +392,8 @@ pub fn usage(message: &str) -> Report {
             message: message.trim().trim_start_matches("error: ").to_owned(),
             hint: None,
             issues: Vec::new(),
+            frame: None,
+            failed_frames: Vec::new(),
         }),
         source: None,
         props_file: None,
@@ -450,13 +468,53 @@ fn output(file: ExportedFile, frame_rate: Option<Rational>) -> Output {
 }
 
 fn error_report(error: &ExportError, hints: HintStyle) -> ErrorReport {
-    let cli = hints == HintStyle::Cli;
     let mut issues = Vec::new();
-    let (code, hint) = match error {
+    let (frame, failed_frames) = match error {
+        ExportError::Frame(failure) => (Some(failure.frame), Vec::new()),
+        ExportError::FramesFailed { failures, .. } => (
+            None,
+            failures
+                .iter()
+                .map(|failure| FailedFrame {
+                    frame: failure.frame,
+                    code: classify(&failure.error, hints, &mut Vec::new()).0,
+                    message: failure.error.to_string(),
+                })
+                .collect(),
+        ),
+        _ => (None, Vec::new()),
+    };
+    let (code, hint) = classify(error, hints, &mut issues);
+    ErrorReport {
+        code,
+        message: error.to_string(),
+        hint,
+        issues,
+        frame,
+        failed_frames,
+    }
+}
+
+/// The code and hint of `error`, collecting its issues into `issues`. A
+/// frame's failure has the code of what failed.
+fn classify(
+    error: &ExportError,
+    hints: HintStyle,
+    issues: &mut Vec<Issue>,
+) -> (&'static str, Option<&'static str>) {
+    let cli = hints == HintStyle::Cli;
+    match error {
+        ExportError::Frame(failure) => classify(&failure.error, hints, issues),
+        ExportError::FramesFailed { .. } => (
+            "frames_failed",
+            Some(
+                "the sheet was written with failed tiles; fix the frames in failedFrames and export again",
+            ),
+        ),
         ExportError::Project(LoadError::Io(_)) => ("project_io", None),
         ExportError::Project(LoadError::Json(_)) => ("project_json", None),
         ExportError::Project(LoadError::Validation(errors)) => {
-            issues = errors
+            *issues = errors
                 .as_slice()
                 .iter()
                 .map(|error| Issue {
@@ -470,7 +528,7 @@ fn error_report(error: &ExportError, hints: HintStyle) -> ErrorReport {
         ExportError::Render(_) => ("render", None),
         ExportError::Audio(_) => ("audio", None),
         ExportError::React(ReactBridgeError::InvalidProperties(invalid)) => {
-            issues = invalid
+            *issues = invalid
                 .iter()
                 .map(|issue| Issue {
                     path: (!issue.key.is_empty()).then(|| issue.key.clone()),
@@ -541,12 +599,6 @@ fn error_report(error: &ExportError, hints: HintStyle) -> ErrorReport {
         ),
         ExportError::Cancelled => ("cancelled", None),
         ExportError::TimelineTooLong => ("timeline_too_long", None),
-    };
-    ErrorReport {
-        code,
-        message: error.to_string(),
-        hint,
-        issues,
     }
 }
 
@@ -815,6 +867,84 @@ mod tests {
             assert_eq!(mcp_code, cli_code);
             assert!(!mcp_hint.contains("--"), "{mcp_hint}");
         }
+    }
+
+    fn bad_color() -> ExportError {
+        ExportError::React(ReactBridgeError::Render(
+            "<Rect> fill \"ink\" is not a color".to_owned(),
+        ))
+    }
+
+    #[test]
+    fn a_failed_frame_keeps_its_code_and_names_the_frame() {
+        let value = report(|_| Err(bad_color().at_frame(99)));
+        assert_eq!(value["error"]["code"], "react");
+        assert_eq!(value["error"]["frame"], 99);
+        assert_eq!(
+            value["error"]["message"],
+            "frame 99: could not evaluate React export: could not render the composition: \
+             <Rect> fill \"ink\" is not a color"
+        );
+        assert!(value["error"].get("failedFrames").is_none());
+        // Cancelling is never one frame's failure.
+        let value = report(|_| Err(ExportError::Cancelled.at_frame(3)));
+        assert_eq!(value["error"]["code"], "cancelled");
+        assert!(value["error"].get("frame").is_none());
+    }
+
+    #[test]
+    fn a_contact_sheet_with_failed_frames_lists_each_one() {
+        let value = report(|progress| {
+            progress(ExportProgress::Wrote(ExportedFile::ContactSheet {
+                path: PathBuf::from("/tmp/sheet.png"),
+                frames: vec![0, 10, 20],
+                columns: 5,
+            }));
+            Err(ExportError::FramesFailed {
+                path: PathBuf::from("/tmp/sheet.png"),
+                frames: 3,
+                failures: vec![
+                    crate::FrameFailure {
+                        frame: 10,
+                        error: bad_color(),
+                    },
+                    crate::FrameFailure {
+                        frame: 20,
+                        error: ExportError::Render(
+                            celesta_gpu_renderer::GpuRenderError::MapCallbackDropped,
+                        ),
+                    },
+                ],
+            })
+        });
+        assert_eq!(value["status"], "error");
+        assert_eq!(value["error"]["code"], "frames_failed");
+        assert!(value["error"].get("frame").is_none());
+        assert!(
+            value["error"]["hint"]
+                .as_str()
+                .unwrap()
+                .contains("failedFrames")
+        );
+        let message = value["error"]["message"].as_str().unwrap();
+        assert!(
+            message.starts_with("2 of 3 contact sheet frames failed; /tmp/sheet.png")
+                && message.contains("\n  frame 10: could not evaluate React export")
+                && message.contains("\n  frame 20: could not render export"),
+            "{message}"
+        );
+        let failed = &value["error"]["failedFrames"];
+        assert_eq!(failed[0]["frame"], 10);
+        assert_eq!(failed[0]["code"], "react");
+        assert_eq!(
+            failed[0]["message"],
+            "could not evaluate React export: could not render the composition: \
+             <Rect> fill \"ink\" is not a color"
+        );
+        assert_eq!(failed[1]["frame"], 20);
+        assert_eq!(failed[1]["code"], "render");
+        // The sheet was written all the same.
+        assert_eq!(value["outputs"][0]["type"], "contactSheet");
     }
 
     #[test]

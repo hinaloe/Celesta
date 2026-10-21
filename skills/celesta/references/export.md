@@ -190,6 +190,12 @@ Celesta-export --json --react scene.tsx --every 150 --contact-sheet sheet.webp
   the output's extension.
 - WebP holds at most 16383 pixels on each side; a larger contact sheet is
   rejected before rendering.
+- A contact sheet carries on past a frame that fails to evaluate or render:
+  that tile is marked `FAILED`, the sheet is written, and the export then
+  fails with `frames_failed`, listing each failed frame (see
+  [JSON results](#json-results) and
+  [verify.md](verify.md#contact-sheets)). Separate stills stop at the first
+  failed frame.
 - Check frames for yourself as PNG ([verify.md](verify.md)); JPEG and WebP
   compression can blur fine text and edges.
 - The MCP `render_frames` tool takes `format` (`png`, `jpeg`, or `webp`) and
@@ -246,6 +252,24 @@ props file, the result also has `propsFile` (its path) and `propsFileAuto`
   before the failure. `composition` is included when the failure happened
   after the composition was loaded. A `usage` error report has only
   `status` and `error`.
+- When one composition frame failed, `error.frame` is its zero-based number
+  and `message` starts with `frame <n>: `; `code` says what failed
+  (`react`, `render`, `evaluation`, …), as it would for any other failure.
+- When a contact sheet had frames that failed, the sheet is still written
+  and listed in `outputs`, and `error.code` is `frames_failed`.
+  `error.failedFrames` lists each failed tile in sheet order as
+  `{frame, code, message}`, with the `code` and `message` that frame's
+  failure would have on its own (`error` and `outputs` shown, messages cut):
+
+  ```json
+  {"status":"error",
+   "error":{"code":"frames_failed",
+            "message":"1 of 13 contact sheet frames failed; /tmp/sheet.png shows them as failed tiles:\n  frame 120: could not evaluate React export: …",
+            "hint":"the sheet was written with failed tiles; fix the frames in failedFrames and export again",
+            "failedFrames":[{"frame":120,"code":"react","message":"could not evaluate React export: …"}]},
+   "outputs":[{"type":"contactSheet","path":"/tmp/sheet.png","columns":5,
+               "frames":[0,10,20,30,40,50,60,70,80,90,100,110,120]}]}
+  ```
 
 | `error.code` | Meaning |
 | --- | --- |
@@ -261,10 +285,12 @@ props file, the result also has `propsFile` (its path) and `propsFileAuto`
 | `project_io`, `project_json` | The project file could not be read or is not valid JSON. |
 | `project_validation` | The project is invalid; `error.issues` lists each `{path, message}`. |
 | `react` | The React entry failed to load or render; read `message` and look it up in [errors.md](errors.md). |
+| `frames_failed` | A contact sheet was written, but the frames in `error.failedFrames` failed and show as `FAILED` tiles. |
 | `evaluation`, `render`, `audio`, `ffmpeg`, `io`, `time` | The export failed at that stage; read `message`. |
 | `cancelled` | The export was cancelled (`--stdin-cancel`); what it was writing was removed. |
 
-The exit status is 0 on success, 1 when the export fails, and 2 for usage
+The exit status is 0 on success, 1 when the export fails (a contact sheet
+with failed frames included, though it is written), and 2 for usage
 errors. An installed Celesta older than this option rejects it with
 `unexpected argument '--json'`; then use `--no-ui` and read the text output
 below.

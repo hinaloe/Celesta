@@ -1,5 +1,5 @@
 use crate::control::{CompositionInfo, ExportCancellation, ExportProgress, ExportedFile};
-use crate::error::ExportError;
+use crate::error::{ExportError, FrameFailure};
 use crate::exporter::Exporter;
 use crate::options::{BitDepth, ColorConversion, VideoFormat};
 use crate::project::{absolutize_fonts, absolutize_layers, visual_only_project};
@@ -8,9 +8,9 @@ use crate::react::{CompanionProject, ReactRuntimeOptions};
 use crate::render::{
     ReportedFontWarnings, ensure_not_cancelled, export_renderer, frame_count, report_font_fallbacks,
 };
-use celesta_composition::{Rational, Time};
+use celesta_composition::{Rational, Scene, Time};
 use celesta_evaluator::{EvaluationError, Evaluator};
-use celesta_gpu_renderer::{Color, GpuRenderOptions};
+use celesta_gpu_renderer::{Color, GpuFrame, GpuRenderOptions, GpuRenderer};
 use celesta_project::Project;
 use celesta_react_bridge::ProjectFrame;
 use image::codecs::jpeg::JpegEncoder;
@@ -327,7 +327,7 @@ impl Destination {
         &mut self,
         index: usize,
         frame: u64,
-        rendered: &celesta_gpu_renderer::GpuFrame,
+        rendered: &GpuFrame,
         overwrite: bool,
     ) -> Result<Option<ExportedFile>, ExportError> {
         match &mut self.layout {
@@ -353,6 +353,18 @@ impl Destination {
                 )
                 .map(|()| None)
                 .map_err(invalid),
+        }
+    }
+
+    /// Marks tile `index` as composition frame `frame`, which failed. Only a
+    /// contact sheet has a place for it; separate files return false.
+    fn place_failed(&mut self, index: usize, frame: u64) -> bool {
+        match &mut self.layout {
+            Layout::Files(_) => false,
+            Layout::Sheet(sheet) => {
+                sheet.place_failed(index, frame);
+                true
+            }
         }
     }
 
@@ -569,6 +581,61 @@ fn flatten(pixels: &[u8], background: Color) -> Vec<u8> {
         .collect()
 }
 
+/// Renders the scene `scene_at` builds for each of `frames` into
+/// `destination`, then finishes it. Every failure names its frame. A contact
+/// sheet carries on past a frame that cannot be evaluated or rendered, with a
+/// failed tile in its place, and once the sheet is written fails with
+/// [`ExportError::FramesFailed`] listing each one; separate files stop at the
+/// first failure.
+#[allow(clippy::too_many_arguments)]
+fn render_stills(
+    frames: &[u64],
+    mut destination: Destination,
+    renderer: &mut GpuRenderer,
+    output: &Path,
+    overwrite: bool,
+    cancellation: &ExportCancellation,
+    progress: &mut impl FnMut(ExportProgress),
+    mut scene_at: impl FnMut(u64) -> Result<Scene, ExportError>,
+) -> Result<(), ExportError> {
+    let mut fallbacks = ReportedFontWarnings::default();
+    let mut failures = Vec::new();
+    for (index, &frame) in frames.iter().enumerate() {
+        ensure_not_cancelled(cancellation)?;
+        progress(ExportProgress::Rendering {
+            frame: index as u64 + 1,
+            total: frames.len() as u64,
+        });
+        let rendered =
+            scene_at(frame).and_then(|scene| renderer.render(&scene).map_err(ExportError::Render));
+        report_font_fallbacks(renderer, &mut fallbacks, progress);
+        let file = match rendered {
+            Ok(rendered) => destination.accept(index, frame, &rendered, overwrite),
+            Err(error) if error.is_frame_scoped() && destination.place_failed(index, frame) => {
+                failures.push(FrameFailure { frame, error });
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+        .map_err(|error| error.at_frame(frame))?;
+        if let Some(file) = file {
+            progress(ExportProgress::Wrote(file));
+        }
+    }
+    if let Some(file) = destination.finish(frames, output, overwrite)? {
+        progress(ExportProgress::Wrote(file));
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(ExportError::FramesFailed {
+            path: output.to_owned(),
+            frames: frames.len(),
+            failures,
+        })
+    }
+}
+
 impl Exporter {
     /// Exports exact zero-based project frames without video encoding or audio mixing.
     /// Multiple selections append `-000090` style frame numbers to the output stem.
@@ -624,7 +691,7 @@ impl Exporter {
             frame_rate,
             request.contact_sheet,
         )?;
-        let mut destination = Destination::prepare(
+        let destination = Destination::prepare(
             &frames,
             total,
             request.contact_sheet,
@@ -646,27 +713,19 @@ impl Exporter {
             self.options.render_quality,
             self.options.driver,
         )?;
-        let mut fallbacks = ReportedFontWarnings::default();
-        for (index, &frame) in frames.iter().enumerate() {
-            ensure_not_cancelled(cancellation)?;
-            progress(ExportProgress::Rendering {
-                frame: index as u64 + 1,
-                total: frames.len() as u64,
-            });
-            let time = Time::frames(frame as i64, frame_rate).map_err(ExportError::Time)?;
-            let scene = evaluator.scene_at(time).map_err(ExportError::Evaluation)?;
-            let rendered = renderer.render(&scene).map_err(ExportError::Render)?;
-            report_font_fallbacks(&renderer, &mut fallbacks, &mut progress);
-            if let Some(file) =
-                destination.accept(index, frame, &rendered, self.options.overwrite)?
-            {
-                progress(ExportProgress::Wrote(file));
-            }
-        }
-        if let Some(file) = destination.finish(&frames, output, self.options.overwrite)? {
-            progress(ExportProgress::Wrote(file));
-        }
-        Ok(())
+        render_stills(
+            &frames,
+            destination,
+            &mut renderer,
+            output,
+            self.options.overwrite,
+            cancellation,
+            &mut progress,
+            |frame| {
+                let time = Time::frames(frame as i64, frame_rate).map_err(ExportError::Time)?;
+                evaluator.scene_at(time).map_err(ExportError::Evaluation)
+            },
+        )
     }
 
     /// Exports selected React frames with one runtime/prepare call and shared font/asset caches.
@@ -744,7 +803,7 @@ impl Exporter {
             metadata.frame_rate,
             request.contact_sheet,
         )?;
-        let mut destination = Destination::prepare(
+        let destination = Destination::prepare(
             &frames,
             metadata.duration_in_frames,
             request.contact_sheet,
@@ -785,61 +844,53 @@ impl Exporter {
             self.options.render_quality,
             self.options.driver,
         )?;
-        let mut fallbacks = ReportedFontWarnings::default();
-        for (index, &frame) in frames.iter().enumerate() {
-            ensure_not_cancelled(cancellation)?;
-            progress(ExportProgress::Rendering {
-                frame: index as u64 + 1,
-                total: frames.len() as u64,
-            });
-            let time =
-                Time::frames(frame as i64, metadata.frame_rate).map_err(ExportError::Time)?;
-            let project_frame = project_evaluator
-                .as_ref()
-                .zip(filtered_project.as_ref())
-                .map(
-                    |(evaluator, filtered_project)| -> Result<_, EvaluationError> {
-                        let mut scene = evaluator.scene_at(time)?;
-                        let mut tracks = BTreeMap::new();
-                        for track in &filtered_project.tracks {
-                            let mut layers = evaluator.layers_for_track(&track.id, time)?;
-                            if let Some(asset_root) = project_asset_root {
-                                absolutize_layers(&mut layers, asset_root);
+        render_stills(
+            &frames,
+            destination,
+            &mut renderer,
+            output,
+            self.options.overwrite,
+            cancellation,
+            &mut progress,
+            |frame| {
+                let time =
+                    Time::frames(frame as i64, metadata.frame_rate).map_err(ExportError::Time)?;
+                let project_frame = project_evaluator
+                    .as_ref()
+                    .zip(filtered_project.as_ref())
+                    .map(
+                        |(evaluator, filtered_project)| -> Result<_, EvaluationError> {
+                            let mut scene = evaluator.scene_at(time)?;
+                            let mut tracks = BTreeMap::new();
+                            for track in &filtered_project.tracks {
+                                let mut layers = evaluator.layers_for_track(&track.id, time)?;
+                                if let Some(asset_root) = project_asset_root {
+                                    absolutize_layers(&mut layers, asset_root);
+                                }
+                                tracks.insert(track.id.clone(), layers);
                             }
-                            tracks.insert(track.id.clone(), layers);
-                        }
-                        if let Some(asset_root) = project_asset_root {
-                            absolutize_layers(&mut scene.layers, asset_root);
-                        }
-                        Ok((scene.layers, tracks))
-                    },
-                )
-                .transpose()
-                .map_err(ExportError::Evaluation)?;
-            let evaluation = bridge
-                .evaluate_at(
-                    time,
-                    project_frame.as_ref().map(|(layers, tracks)| ProjectFrame {
-                        layers: layers.as_slice(),
-                        tracks,
-                    }),
-                )
-                .map_err(ExportError::React)?;
-            let mut scene = evaluation.scene;
-            scene.fonts.extend(project_fonts.iter().cloned());
-
-            let rendered = renderer.render(&scene).map_err(ExportError::Render)?;
-            report_font_fallbacks(&renderer, &mut fallbacks, &mut progress);
-            if let Some(file) =
-                destination.accept(index, frame, &rendered, self.options.overwrite)?
-            {
-                progress(ExportProgress::Wrote(file));
-            }
-        }
-        if let Some(file) = destination.finish(&frames, output, self.options.overwrite)? {
-            progress(ExportProgress::Wrote(file));
-        }
-        Ok(())
+                            if let Some(asset_root) = project_asset_root {
+                                absolutize_layers(&mut scene.layers, asset_root);
+                            }
+                            Ok((scene.layers, tracks))
+                        },
+                    )
+                    .transpose()
+                    .map_err(ExportError::Evaluation)?;
+                let evaluation = bridge
+                    .evaluate_at(
+                        time,
+                        project_frame.as_ref().map(|(layers, tracks)| ProjectFrame {
+                            layers: layers.as_slice(),
+                            tracks,
+                        }),
+                    )
+                    .map_err(ExportError::React)?;
+                let mut scene = evaluation.scene;
+                scene.fonts.extend(project_fonts.iter().cloned());
+                Ok(scene)
+            },
+        )
     }
 }
 

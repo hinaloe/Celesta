@@ -272,6 +272,33 @@ async fn contact_sheet_returns_one_image() {
 }
 
 #[tokio::test]
+async fn contact_sheet_with_a_failed_frame_returns_the_sheet_and_the_frame() {
+    if !runtime_built() {
+        return;
+    }
+    // Frame 10's fill is no color, so its tile fails.
+    let (_dir, entry) = entry(&scene(20).replace(
+        "fill=\"#ff3366\"",
+        "fill={useCurrentFrame() === 10 ? 'ink' : '#ff3366'}",
+    ));
+    let (client, _) = client().await;
+    let result = call(
+        &client,
+        "contact_sheet",
+        json!({ "source": entry, "every": 5 }),
+    )
+    .await;
+    assert!(is_error(&result), "{}", text(&result));
+    let images = typed_images(&result);
+    assert_eq!(images.len(), 1, "{}", text(&result));
+    assert!(images[0].1.starts_with(PNG_SIGNATURE));
+    let report = structured(&result);
+    assert_eq!(report["error"]["code"], "frames_failed");
+    assert_eq!(report["error"]["failedFrames"][0]["frame"], 10);
+    assert_eq!(report["outputs"][0]["frames"], json!([0, 5, 10, 15, 19]));
+}
+
+#[tokio::test]
 async fn render_frames_writes_and_returns_jpeg_and_webp() {
     if !runtime_built() {
         return;
