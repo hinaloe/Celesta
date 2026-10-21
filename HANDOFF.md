@@ -36,18 +36,21 @@ bridge tests:
 
 ```sh
 pnpm install
-pnpm --dir packages/react run codegen
 pnpm run build:runtime
 ```
 
 `celesta-react-bridge` spawns the compiled `packages/cli/dist/cli.js`.
-`pnpm run build:runtime` builds `@celesta/cli` and every package it depends on,
-in dependency order; `pnpm run test:runtime` runs their tests.
-The codegen script generates `packages/react/src/generated/*.ts` from Rust
-composition/project types through the `codegen` feature and ts-rs. Both
-`src/generated/` and `dist/` are gitignored build output. Regenerate bindings
-when their Rust types change. `.cargo/config.toml` sets the export directory
-and maps large integers to TypeScript `number` for the bridge's JSON protocol.
+`pnpm run build:runtime` runs Turborepo's `build` for `@celesta/cli` and every
+package it depends on, in dependency order; `pnpm run test:runtime` runs their
+tests. `@celesta/react`'s build first runs its `codegen` script, which generates
+`packages/react/src/generated/*.ts` from Rust composition/project types through
+the `codegen` feature and ts-rs. Both `src/generated/` and `dist/` are
+gitignored build output. Turborepo caches `codegen` by the Cargo manifests,
+lockfile, `.cargo/config.toml`, and the `composition` and `project` crates, so
+`build:runtime` regenerates the bindings only when those change; a package's
+own `pnpm run build` skips codegen. `.cargo/config.toml` sets the export
+directory and maps large integers to TypeScript `number` for the bridge's JSON
+protocol.
 
 The Celesta packages are not published to npm: user entries resolve `react`
 and every `@celesta/*` package to the bundled runtime, which is `@celesta/cli`
@@ -325,13 +328,12 @@ cargo test -p celesta-project -p celesta-composition --features codegen
 cargo clippy -p celesta-composition -p celesta-project --all-targets --features codegen -- -D warnings
 ```
 
-For React changes, regenerate and build the runtime, then run its tests:
+For React changes, build the runtime (which regenerates the bindings when the
+Rust types changed), then run its tests:
 
 ```sh
-cd packages/react
-pnpm run codegen
-pnpm run build
-pnpm test
+pnpm run build:runtime
+pnpm --dir packages/react test
 ```
 
 Live bridge tests require Node and built React runtime dependencies/output;

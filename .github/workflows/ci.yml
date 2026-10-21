@@ -109,6 +109,8 @@ jobs:
 
       # celesta-react-bridge and celesta-exporter tests spawn the compiled
       # packages/cli/dist/cli.js, so build the CLI and every package it serves first.
+      # build:runtime runs codegen as well; running it first adds --locked and
+      # its timings, and leaves the second run only the tests to repeat.
       - name: Build Celesta packages
         run: |
           pnpm --dir packages/react run codegen --locked --timings

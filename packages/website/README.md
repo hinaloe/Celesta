@@ -9,7 +9,8 @@ and `packages/react`, deployed to Cloudflare Workers.
 
 Use Node.js 22.12+ (Node.js 24 LTS recommended) and the pnpm version declared in the root `package.json`.
 `@celesta/web` imports generated types from `@celesta/react`, so run
-`pnpm --dir packages/react run codegen` once in a fresh checkout.
+`pnpm run build:runtime` from the repository root in a fresh checkout and after
+the Rust types change.
 
 ```sh
 cd packages/website
