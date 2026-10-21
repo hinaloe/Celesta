@@ -43,7 +43,7 @@ export {
 export type { InheritedText, MeasureTextRequest } from './text-measure';
 export { flattenTextContent, sliceTextRuns, themeTextContent, withTextRuns } from './rich-text';
 export type { FlatText } from './rich-text';
-export { ThemeContext, mergeTheme, resolvedTheme, themedTextStyle } from './theme';
+export { ThemeContext, mergeTheme, resolvedTheme, themedShapePaint, themedTextStyle } from './theme';
 
 export { decodeAudio, probeMedia, setAudioDecoder, setMediaProbe } from './media';
 export type {

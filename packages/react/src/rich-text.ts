@@ -7,7 +7,7 @@ import type { ReactNode } from 'react';
 
 import { checkFontFeatures } from './font-features';
 import type { FontFamily, FontFeatures, Paint, TextColorRun, TextFontRun, TextStyle } from './scene';
-import { type ResolvedTheme, themeColor, themeFont } from './theme';
+import { type ResolvedTheme, themeColor, themeFont, themePaint } from './theme';
 
 export interface SpanStyle {
   /** A hex color (`"#RRGGBB"` or `"#RRGGBBAA"`) or a solid `Paint` with one; other formats throw. */
@@ -84,9 +84,7 @@ function spanStyle(props: SpanProps): SpanStyle | undefined {
 /** A span fill with a `<Theme>` color name looked up; `fill` itself when it names none. */
 function themeSpanFill(fill: SpanStyle['fill'], theme: ResolvedTheme): SpanStyle['fill'] {
   if (typeof fill === 'string') return themeColor(fill, theme);
-  if (fill?.type !== 'solid' || typeof fill.color !== 'string') return fill;
-  const color = themeColor(fill.color, theme);
-  return color === fill.color ? fill : { ...fill, color };
+  return fill && typeof fill === 'object' ? themePaint(fill, theme) : fill;
 }
 
 function resolveSpan(style: SpanStyle | undefined, inherited: Inherited): Inherited {

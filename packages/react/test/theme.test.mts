@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { Composition, Group, Rect, Sequence, Span, Text, Theme, measureText, useTextMetrics, useTheme } from '../src/index.js';
 import * as browser from '../src/browser.js';
 import { mount } from '../src/render.js';
-import type { ResolvedTheme, TextMetrics } from '../src/index.js';
+import type { Paint, ResolvedTheme, TextMetrics } from '../src/index.js';
 import { setTextMeasurer } from '../src/text-measure.js';
 import type { MeasureTextRequest } from '../src/text-measure.js';
 
@@ -93,6 +93,46 @@ test('an unknown font name is a family name; an unknown color shorthand throws',
     '<Text> color "papr" is neither a #RRGGBB or #RRGGBBAA color nor a <Theme> color name (paper, ink)',
   );
   expect(() => scene(h(Text, null, h(Span, { color: 'paper' }, 'A')))).toThrow('<Span> fill must be a #RRGGBB');
+});
+
+test('<Rect> looks up <Theme> color names in fill, stroke, and gradient stops', () => {
+  const gradient: Paint = { type: 'linear', start: { x: 0, y: 0 }, end: { x: 10, y: 0 }, stops: [
+    { offset: 0, color: 'paper' }, { offset: 1, color: '#00000000' },
+  ] };
+  const [solid, painted, dashed] = scene(h(Theme, { colors },
+    h(Rect, { key: 'a', width: 10, height: 10, fill: 'ink', stroke: 'paper', strokeWidth: 2 }),
+    h(Rect, { key: 'b', width: 10, height: 10, fill: gradient, stroke: { type: 'solid', color: 'ink' }, strokeWidth: 2 }),
+    h(Rect, { key: 'c', width: 10, height: 10, fill: 'ink', stroke: 'paper', strokeWidth: 2, dash: [2, 2] }),
+  )).layers;
+  const rect = contentOf(solid, 'rect');
+  expect(rect.fill).toEqual({ type: 'solid', color: '#111111' });
+  expect(rect.stroke?.paint).toEqual({ type: 'solid', color: '#f4f1ea' });
+  const gradientRect = contentOf(painted, 'rect');
+  expect(gradientRect.fill).toEqual({ ...gradient, stops: [{ offset: 0, color: '#f4f1ea' }, { offset: 1, color: '#00000000' }] });
+  expect(gradientRect.stroke?.paint).toEqual({ type: 'solid', color: '#111111' });
+  const [fill, outline] = childrenOf(dashed);
+  expect(contentOf(fill, 'rect').fill).toEqual({ type: 'solid', color: '#111111' });
+  expect(contentOf(outline, 'path').stroke?.paint).toEqual({ type: 'solid', color: '#f4f1ea' });
+});
+
+test('a <Rect> color that is neither hex nor a <Theme> name throws with the names', () => {
+  expect(() => scene(h(Theme, { colors }, h(Rect, { width: 1, height: 1, fill: 'inc' })))).toThrow(
+    '<Rect> fill "inc" is neither a #RRGGBB or #RRGGBBAA color nor a <Theme> color name (paper, ink)',
+  );
+  expect(() => scene(h(Rect, { width: 1, height: 1, stroke: { type: 'solid', color: 'ink' }, strokeWidth: 1 }))).toThrow(
+    '<Rect> stroke color "ink" is neither a #RRGGBB or #RRGGBBAA color nor a <Theme> color name',
+  );
+  expect(() => scene(h(Theme, { colors }, h(Rect, { width: 1, height: 1, fill: {
+    type: 'radial', center: { x: 0, y: 0 }, radius: 1, stops: [{ offset: 0, color: 'ink' }, { offset: 1, color: 'red' }],
+  } })))).toThrow('<Rect> fill stop 1 color "red" is neither');
+});
+
+test('text gradient stops look up <Theme> color names', () => {
+  const fill: Paint = { type: 'linear', start: { x: 0, y: 0 }, end: { x: 1, y: 0 }, stops: [
+    { offset: 0, color: 'ink' }, { offset: 1, color: 'paper' },
+  ] };
+  const { style } = content(h(Theme, { colors }, h(Text, { style: { fill }, children: 'A' })));
+  expect(style.fill).toEqual({ ...fill, stops: [{ offset: 0, color: '#111111' }, { offset: 1, color: '#f4f1ea' }] });
 });
 
 test('<Theme> rejects bad entries', () => {

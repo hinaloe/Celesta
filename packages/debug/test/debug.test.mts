@@ -69,7 +69,7 @@ const rects = (layers: Layer[]): RectBox[] =>
 
 test('guides draw only when a frame asks for them', () => {
   const [plain, guides] = render(
-    `<DebugOverlay /><DebugBounds width={100} height={50}><Rect width={100} height={50} fill="#fff" /></DebugBounds>`,
+    `<DebugOverlay /><DebugBounds width={100} height={50}><Rect width={100} height={50} fill="#ffffff" /></DebugBounds>`,
     [{}, { debugGuides: true }],
   );
   assert.equal(plain.length, 1);

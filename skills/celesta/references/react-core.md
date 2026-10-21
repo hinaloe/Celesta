@@ -1216,7 +1216,7 @@ export async function prepare() {
 }
 function Bars() {
   const { bands, rms } = useAudioSpectrum(music);
-  return <>{bands.map((level, i) => <Rect key={i} x={i * 20} y={400} width={16} height={4 + level * 300} anchorY={1} fill="#fff" />)}</>;
+  return <>{bands.map((level, i) => <Rect key={i} x={i * 20} y={400} width={16} height={4 + level * 300} anchorY={1} fill="#ffffff" />)}</>;
 }
 // <Audio src={music.src!} /> plays the same file.
 ```

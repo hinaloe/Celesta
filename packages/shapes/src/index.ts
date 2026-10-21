@@ -1,7 +1,7 @@
 import * as React from 'react';
 
 import { Group, Rect } from '@celesta/react';
-import { markPrimitive } from '@celesta/react/internal';
+import { ThemeContext, markPrimitive, themedShapePaint } from '@celesta/react/internal';
 import type { CommonProps, LineCap, LineJoin, Paint, PathCommand } from '@celesta/react';
 
 import { trimCommands, trimStartIntoSubpath } from './path-geometry';
@@ -31,7 +31,10 @@ export type PolylinePoint = readonly [number, number];
 type PathLayerProps = Omit<CommonProps, 'anchorX' | 'anchorY'>;
 
 interface StrokeProps extends PathLayerProps {
-  /** Hex color (`"#RRGGBB"` or `"#RRGGBBAA"`) or a gradient `Paint` of the stroke. */
+  /**
+   * Hex color (`"#RRGGBB"` or `"#RRGGBBAA"`), `<Theme>` color name, or a
+   * gradient `Paint` of the stroke, whose stop colors may be names too.
+   */
   stroke?: string | Paint;
   /** Thickness in pixels. Defaults to 2. */
   strokeWidth?: number;
@@ -85,8 +88,9 @@ export interface PathProps extends StrokeProps {
   /** Joins the last of `points` back to the first, without a seam. */
   closed?: boolean;
   /**
-   * Fills the inside of the path (non-zero rule), as a hex color or a
-   * `Paint` in the path's own coordinates. Omit for no fill.
+   * Fills the inside of the path (non-zero rule), as a hex color, a
+   * `<Theme>` color name, or a `Paint` in the path's own coordinates. Omit
+   * for no fill.
    */
   fill?: string | Paint;
   /**
@@ -170,6 +174,10 @@ export function Path({
       throw new Error(`<Path> requires a number for \`${name}\`, got NaN`);
     }
   }
+  const theme = React.useContext(ThemeContext);
+  const themedFill = themedShapePaint(props.fill, theme, '<Path>', 'fill');
+  if (themedFill !== props.fill) props = { ...props, fill: themedFill };
+  stroke = themedShapePaint(stroke, theme, '<Path>', 'stroke');
   const whole = commands ?? commandsThrough(points ?? [], closed);
   const strokeStyle = {
     stroke,
@@ -309,11 +317,12 @@ export interface EllipseProps extends CommonProps, ShapeDashProps {
   /** Height of the ellipse's bounding box, in pixels. 0 draws nothing. */
   height: number;
   /**
-   * Hex color or a gradient `Paint` in the shape's local pixels (origin at
-   * its bounding box's top-left, as for `<Rect>`). Omit for no fill.
+   * Hex color, `<Theme>` color name, or a gradient `Paint` in the shape's
+   * local pixels (origin at its bounding box's top-left, as for `<Rect>`).
+   * Omit for no fill.
    */
   fill?: string | Paint;
-  /** Hex color or `Paint` of a stroke drawn inside the outline, as for `<Rect>`. */
+  /** Hex color, `<Theme>` color name, or `Paint` of a stroke drawn inside the outline, as for `<Rect>`. */
   stroke?: string | Paint;
   /** Thickness in pixels, at most half the shorter side. Defaults to 2. */
   strokeWidth?: number;
@@ -331,7 +340,10 @@ export interface ArrowProps extends PathLayerProps {
   /** Tip point, where the head points. */
   x2: number;
   y2: number;
-  /** Hex color or a gradient `Paint` (in the arrow's coordinates) of the whole arrow. Defaults to white. */
+  /**
+   * Hex color, `<Theme>` color name, or a gradient `Paint` (in the arrow's
+   * coordinates) of the whole arrow. Defaults to white.
+   */
   stroke?: string | Paint;
   /** Thickness of the shaft in pixels. Defaults to 2. */
   strokeWidth?: number;
@@ -1016,8 +1028,9 @@ interface ClosedShapeProps extends StrokeProps {
    */
   cap?: LineCap;
   /**
-   * Hex color or a gradient `Paint` in the shape's local pixels (origin at
-   * its box's top-left, as for `<Rect>`). Omit for no fill.
+   * Hex color, `<Theme>` color name, or a gradient `Paint` in the shape's
+   * local pixels (origin at its box's top-left, as for `<Rect>`). Omit for
+   * no fill.
    */
   fill?: string | Paint;
 }

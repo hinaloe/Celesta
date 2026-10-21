@@ -1,7 +1,7 @@
-// Named fonts and colors for text: a `<Theme>` gives font stacks and colors
-// names, and `<Text>`, `<Span>`, and text measurements look those names up
-// before the text reaches the renderer, which only ever sees family names
-// and hex colors.
+// Named fonts and colors: a `<Theme>` gives font stacks and colors names,
+// and `<Text>`, `<Span>`, text measurements, `<Rect>`, and `<Path>` look
+// those names up before anything reaches the renderer, which only ever sees
+// family names and hex colors.
 
 import * as React from 'react';
 import type { ReactNode } from 'react';
@@ -58,12 +58,13 @@ export function mergeTheme(outer: ResolvedTheme, inner: ThemeValues): ResolvedTh
 }
 
 /**
- * Names fonts and colors for the text inside it: `<Text fontFamily="mono"
- * color="paper">`, and the same names in `style` and in `<Span>`. A nested
- * `<Theme>` adds to the names around it, its own winning where both name
- * the same thing. A name no theme defines is used as it is: a font name as a
- * family name, a color as a color, so the `color` shorthand throws unless it
- * is a hex color.
+ * Names fonts and colors for what is inside it: `<Text fontFamily="mono"
+ * color="paper">`, the same names in `style` and in `<Span>`, and colors in
+ * `<Rect>` and `<Path>` `fill` and `stroke`, gradient stops included. A
+ * nested `<Theme>` adds to the names around it, its own winning where both
+ * name the same thing. A name no theme defines is used as it is: a font
+ * name as a family name, a color as a color, so the `color` shorthand and a
+ * shape's colors throw unless they are hex colors.
  */
 export function Theme({ fonts, colors, children }: ThemeProps): ReturnType<typeof React.createElement> {
   const outer = React.useContext(ThemeContext);
@@ -93,24 +94,65 @@ export function themeColor(color: string, theme: ResolvedTheme): string {
   return Object.prototype.hasOwnProperty.call(theme.colors, color) ? theme.colors[color]! : color;
 }
 
-/** A color name from `theme`, or `color` itself, which must then be a hex color. */
-function shorthandColor(color: unknown, theme: ResolvedTheme, owner: string): string {
-  if (typeof color !== 'string') throw new Error(`${owner} color must be a string`);
+/** A color name from `theme`, or `color` itself, which must then be a hex color; `what` names it in the error. */
+function hexOrThemeColor(color: unknown, theme: ResolvedTheme, what: string): string {
+  if (typeof color !== 'string') throw new Error(`${what} must be a string`);
   const resolved = themeColor(color, theme);
   if (!HEX_COLOR.test(resolved)) {
     const names = Object.keys(theme.colors);
     throw new Error(
-      `${owner} color ${JSON.stringify(color)} is neither a #RRGGBB or #RRGGBBAA color nor a <Theme> color name`
+      `${what} ${JSON.stringify(color)} is neither a #RRGGBB or #RRGGBBAA color nor a <Theme> color name`
         + (names.length > 0 ? ` (${names.join(', ')})` : ''),
     );
   }
   return resolved;
 }
 
-function themePaint(paint: Paint, theme: ResolvedTheme): Paint {
-  if (paint.type !== 'solid' || typeof paint.color !== 'string') return paint;
-  const color = themeColor(paint.color, theme);
-  return color === paint.color ? paint : { ...paint, color };
+function shorthandColor(color: unknown, theme: ResolvedTheme, owner: string): string {
+  return hexOrThemeColor(color, theme, `${owner} color`);
+}
+
+/**
+ * @internal A shape's `fill` or `stroke` with `theme`'s color names looked
+ * up: the color itself, a solid paint's color, and each gradient stop's.
+ * Throws, naming `owner` and `prop`, on a color that is neither a hex color
+ * nor a name. `paint` itself when nothing changes.
+ */
+export function themedShapePaint<T extends string | Paint | undefined>(
+  paint: T,
+  theme: ResolvedTheme,
+  owner: string,
+  prop: string,
+): T {
+  if (paint === undefined) return paint;
+  if (typeof paint === 'string') return hexOrThemeColor(paint, theme, `${owner} ${prop}`) as T;
+  const value = paint as Paint;
+  if (value.type === 'solid') {
+    const color = hexOrThemeColor(value.color, theme, `${owner} ${prop} color`);
+    return (color === value.color ? paint : { ...value, color }) as T;
+  }
+  if (!Array.isArray(value.stops)) return paint;
+  const stops = value.stops.map((stop, i) => {
+    const color = hexOrThemeColor(stop?.color, theme, `${owner} ${prop} stop ${i} color`);
+    return color === stop.color ? stop : { ...stop, color };
+  });
+  return (stops.every((stop, i) => stop === value.stops[i]) ? paint : { ...value, stops }) as T;
+}
+
+/** A paint with `theme`'s color names looked up in its color or gradient stops; `paint` itself when it names none. */
+export function themePaint(paint: Paint, theme: ResolvedTheme): Paint {
+  if (paint.type === 'solid') {
+    if (typeof paint.color !== 'string') return paint;
+    const color = themeColor(paint.color, theme);
+    return color === paint.color ? paint : { ...paint, color };
+  }
+  if (!Array.isArray(paint.stops)) return paint;
+  const stops = paint.stops.map((stop) => {
+    if (typeof stop?.color !== 'string') return stop;
+    const color = themeColor(stop.color, theme);
+    return color === stop.color ? stop : { ...stop, color };
+  });
+  return stops.every((stop, i) => stop === paint.stops[i]) ? paint : { ...paint, stops };
 }
 
 /** Text's shorthand for the most used parts of its style. */
