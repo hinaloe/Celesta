@@ -1,0 +1,9 @@
+{
+  // locales.test.ts imports worker.ts, which needs the workerd runtime types
+  // (worker-configuration.d.ts, from `wrangler types`) that tsconfig.json leaves out.
+  "extends": "../tsconfig.worker.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["./locales.test.ts", "../worker-configuration.d.ts"]
+}

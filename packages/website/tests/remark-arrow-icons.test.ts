@@ -1,28 +1,48 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import type { PhrasingContent } from 'mdast';
+import { test } from 'vitest';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import { remarkArrowIcons } from '../plugins/remark-arrow-icons.ts';
 
 const processor = unified().use(remarkParse).use(remarkArrowIcons);
 
+/**
+ * The `data` fields mdast-util-to-hast reads, which the plugin sets on an icon. Its module augmentation
+ * of mdast's `Data` is not a dependency here, so the node's own `data` type does not list them.
+ */
+interface HastData {
+  hName?: string;
+  hProperties?: Record<string, unknown>;
+}
+
+/** A node of the compact tree `paragraph` returns. */
+type Compact = string | { icon: string; hidden: unknown } | { type: string; children: Compact[] } | { type: string; value: string | undefined };
+
 /** The first paragraph's content as a compact tree: text as strings, icons as `{ icon, hidden }` (its classes after `nr-icon`), other nodes as `{ type, children | value }`. */
-function paragraph(markdown) {
+function paragraph(markdown: string): Compact[] {
   const tree = processor.runSync(processor.parse(markdown));
-  const compact = (node) => {
-    if (node.data?.hName === 'span') return { icon: node.data.hProperties.className.slice(1).join(' '), hidden: node.data.hProperties['aria-hidden'] };
+  const compact = (node: PhrasingContent): Compact => {
+    const data: HastData | undefined = node.data;
+    if (data?.hName === 'span') {
+      const className = data.hProperties?.className;
+      assert.ok(Array.isArray(className), 'an icon has a class list');
+      return { icon: className.slice(1).join(' '), hidden: data.hProperties?.['aria-hidden'] };
+    }
     if (node.type === 'text') return node.value;
     if ('children' in node) return { type: node.type, children: node.children.map(compact) };
-    return { type: node.type, value: node.value };
+    return { type: node.type, value: 'value' in node ? node.value : undefined };
   };
-  const first = tree.children[0].type === 'list' ? tree.children[0].children[0].children[0] : tree.children[0];
+  const [block] = tree.children;
+  const first = block.type === 'list' ? block.children[0].children[0] : block;
+  assert.ok(first.type === 'paragraph', 'the first block is a paragraph');
   return first.children.map(compact);
 }
 
 /** An icon span; `at` is `start` or `end` when the glyph began or ended its text node. */
-const icon = (name, at) => ({ icon: at ? `nr-icon-${name} nr-icon-at-${at}` : `nr-icon-${name}`, hidden: 'true' });
+const icon = (name: string, at?: 'start' | 'end') => ({ icon: at ? `nr-icon-${name} nr-icon-at-${at}` : `nr-icon-${name}`, hidden: 'true' });
 /** The text a reader (or Pagefind, or copy-paste) gets: icons contribute nothing. */
-const text = (nodes) => nodes.map((node) => (typeof node === 'string' ? node : 'children' in node ? text(node.children) : node.value ?? '')).join('');
+const text = (nodes: Compact[]): string => nodes.map((node) => (typeof node === 'string' ? node : 'children' in node ? text(node.children) : 'value' in node ? node.value ?? '' : '')).join('');
 
 test('a trailing ↗ in link text becomes an icon inside the link', () => {
   assert.deepEqual(paragraph('[Report a problem on GitHub ↗](https://github.com/mika-f/Celesta/issues)\n'), [
@@ -88,8 +108,9 @@ test('arrows in inline code and code blocks stay', () => {
     { type: 'inlineCode', value: '←' },
     '.',
   ]);
-  const tree = processor.runSync(processor.parse('```ts\nconst x = 0; // 0 → 1\n```\n'));
-  assert.equal(tree.children[0].value, 'const x = 0; // 0 → 1');
+  const [code] = processor.runSync(processor.parse('```ts\nconst x = 0; // 0 → 1\n```\n')).children;
+  assert.ok(code.type === 'code', 'the block is a code block');
+  assert.equal(code.value, 'const x = 0; // 0 → 1');
 });
 
 test('text without an arrow is untouched', () => {

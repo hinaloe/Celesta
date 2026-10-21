@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { copy, isLocale } from '../site/copy/index.ts';
 import { playgroundCopy } from '../playground/copy.ts';
 
 /** Every leaf path with the kind of value found there. */
-function leaves(value, path = '') {
+function leaves(value: unknown, path = ''): [path: string, kind: string][] {
   if (typeof value === 'object' && value !== null) {
     return Object.entries(value).flatMap(([key, child]) => leaves(child, path ? `${path}.${key}` : key));
   }

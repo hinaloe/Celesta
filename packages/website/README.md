@@ -30,7 +30,7 @@ below). Re-save the Markdown file that includes them, or restart `pnpm dev`.
 | `pnpm dev` | Island watch build + `makit dev` |
 | `pnpm build` | Type-check, build the island, `makit build`, then the post-build step; writes `dist/` |
 | `pnpm check` | `makit check`: configuration, metadata, and links without building |
-| `pnpm test` | Unit tests in `tests/` |
+| `pnpm test` | Type-check, then run the Vitest unit tests in `tests/` |
 | `pnpm check:examples` | Type-check the playground scene and `examples/` against the real packages |
 | `pnpm preview` | `makit preview`: serve `dist/` |
 | `pnpm preview:cloudflare` | Build, then serve `dist/` through the Worker with local Wrangler |
@@ -101,7 +101,7 @@ Add the chapter to **both** locales, in the same group directory and position:
    ```
 
    Add `navigation: { title: '…' }` for a shorter sidebar label.
-3. Add the slug to the list in `tests/content.test.mjs`, which pins every chapter, its order,
+3. Add the slug to the list in `tests/content.test.ts`, which pins every chapter, its order,
    and its group in both locales.
 
 Link between chapters with root-absolute URLs in the same locale, such as
@@ -295,7 +295,7 @@ Reel, Apex, Afterimage, Signal, Spectra, and 36 Days run in the browser. Prism a
 need native PSD and voice preparation, and Versus needs generated benchmark videos; their pages
 link to the source and setup instructions instead. Add a work to `site/showcase-catalog.ts`, add
 its description to both copy files, and add `pages/showcase/<slug>.tsx` and `.meta.ts`
-(`tests/content.test.mjs` checks that every work has both). Keep `showcaseAssetDirectories` in
+(`tests/content.test.ts` checks that every work has both). Keep `showcaseAssetDirectories` in
 sync when an example needs new fonts or images.
 
 ## Verification

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { downloadLinks } from '../site/downloads.ts';
 
 const latest = 'https://github.com/mika-f/Celesta/releases/latest';

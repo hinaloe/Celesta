@@ -18,7 +18,7 @@
     "preview:cloudflare": "pnpm build && wrangler dev",
     "deploy:check": "pnpm build && wrangler deploy --dry-run",
     "deploy": "pnpm build && wrangler deploy",
-    "test": "node --experimental-strip-types --test tests/*.test.mjs"
+    "test": "wrangler types && tsc -p tests && tsc -p tests/tsconfig.worker.json && vitest run"
   },
   "dependencies": {
     "@celesta/web": "workspace:*",

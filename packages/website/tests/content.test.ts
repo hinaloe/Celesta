@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { showcase } from '../site/showcase-catalog.ts';
 
@@ -17,10 +17,17 @@ const slugs = [
 const groups = ['getting-started', 'guides', 'reference', 'packages', 'more'];
 
 /** `04-(packages)` → `packages`, `02-math-noise.md` → `math-noise`. */
-const bare = name => name.replace(/\.md$/, '').replace(/^\d+-/, '').replace(/^\((.*)\)$/, '$1');
+const bare = (name: string) => name.replace(/\.md$/, '').replace(/^\d+-/, '').replace(/^\((.*)\)$/, '$1');
+
+/** A chapter's Markdown file: its slug, the directory it sits in, and its path. */
+interface Chapter {
+  slug: string;
+  dir: string;
+  path: string;
+}
 
 /** The chapters under `dir` in navigation order, with the directory each one sits in. */
-function chapters(dir) {
+function chapters(dir: string): Chapter[] {
   return readdirSync(dir).sort().flatMap(name => {
     const path = join(dir, name);
     if (statSync(path).isDirectory()) return chapters(path);
@@ -28,8 +35,8 @@ function chapters(dir) {
   });
 }
 
-const docsDir = locale => join(root, 'content', locale, 'docs');
-const markdownFiles = locale => [join(docsDir(locale), 'index.md'), ...chapters(docsDir(locale)).map(chapter => chapter.path)];
+const docsDir = (locale: string) => join(root, 'content', locale, 'docs');
+const markdownFiles = (locale: string) => [join(docsDir(locale), 'index.md'), ...chapters(docsDir(locale)).map(chapter => chapter.path)];
 
 test('both locales have the same 26 chapters in the same groups', () => {
   for (const locale of locales) {
@@ -49,8 +56,8 @@ test('both locales have the same 26 chapters in the same groups', () => {
 test('sub-pages follow their package page', () => {
   for (const locale of locales) {
     const found = chapters(docsDir(locale));
-    const at = slug => found.findIndex(chapter => chapter.slug === slug);
-    const dirOf = slug => found[at(slug)].dir;
+    const at = (slug: string) => found.findIndex(chapter => chapter.slug === slug);
+    const dirOf = (slug: string) => found[at(slug)].dir;
     for (const [child, parent] of [['math-noise', 'math'], ['math-shaping', 'math'], ['code-typing', 'code']]) {
       assert.equal(dirOf(child), dirOf(parent), `${locale}:${child} shares a directory with ${parent}`);
       assert.ok(at(child) > at(parent), `${locale}:${child} sorts after ${parent}`);
@@ -94,13 +101,13 @@ test('every include exists', () => {
 });
 
 /** Tab groups, tabs, accordions, and toggles in a chapter, as Makit 0.9 container directives. */
-const containers = markdown => Object.fromEntries(['tabs', 'tab', 'accordion', 'toggle'].map(name => [name, markdown.match(new RegExp(`^:{3,}${name}\\[`, 'gm'))?.length ?? 0]));
+const containers = (markdown: string) => Object.fromEntries(['tabs', 'tab', 'accordion', 'toggle'].map(name => [name, markdown.match(new RegExp(`^:{3,}${name}\\[`, 'gm'))?.length ?? 0]));
 
 test('both locales have the same tabs and toggles in every chapter', () => {
   const [en, ja] = locales.map(locale => new Map(chapters(docsDir(locale)).map(chapter => [chapter.slug, containers(readFileSync(chapter.path, 'utf8'))])));
   for (const slug of slugs) assert.deepEqual(ja.get(slug), en.get(slug), `${slug}: ja matches en`);
   // The old site's OS pickers and details blocks (Task 14), plus the debug-guides contact sheet, subtitle file, and looping video main added to Export.
-  const expected = {
+  const expected: Record<string, ReturnType<typeof containers>> = {
     'installation': { tabs: 1, tab: 3, accordion: 0, toggle: 0 },
     'build-from-source': { tabs: 1, tab: 3, accordion: 0, toggle: 0 },
     'create-project': { tabs: 1, tab: 2, accordion: 0, toggle: 0 },
@@ -126,10 +133,17 @@ test('platform tabs replace the flattened pickers', () => {
   }
 });
 
+/** A `::::tabs` group: its closing fence, its `default`, and its tab labels in order. */
+interface TabGroup {
+  fence: string;
+  default: string | undefined;
+  labels: string[];
+}
+
 /** Each `::::tabs` group in a chapter: its `default` and its tab labels in order. */
-function tabGroups(markdown) {
-  const groups = [];
-  let group;
+function tabGroups(markdown: string): TabGroup[] {
+  const groups: TabGroup[] = [];
+  let group: TabGroup | undefined;
   // Windows checkouts may have CRLF line endings.
   for (const line of markdown.split(/\r?\n/)) {
     const start = /^(:{4,})tabs\[[^\]]*\](?:\{default="([^"]*)"\})?$/.exec(line);
@@ -147,13 +161,16 @@ test('tab labels are the old picker buttons, the same in both locales, and each 
   const [en, ja] = locales.map(locale => new Map(chapters(docsDir(locale)).map(chapter => [chapter.slug, tabGroups(readFileSync(chapter.path, 'utf8'))])));
   let groups = 0;
   for (const slug of slugs) {
-    assert.deepEqual(ja.get(slug).map(group => group.labels), en.get(slug).map(group => group.labels), `${slug}: ja tab labels match en`);
-    for (const [locale, chapter] of [['en', en], ['ja', ja]]) {
-      for (const group of chapter.get(slug)) {
+    const enGroups = en.get(slug);
+    const jaGroups = ja.get(slug);
+    assert.ok(enGroups && jaGroups, `${slug}: both locales have the chapter`);
+    assert.deepEqual(jaGroups.map(group => group.labels), enGroups.map(group => group.labels), `${slug}: ja tab labels match en`);
+    for (const [locale, chapter] of [['en', enGroups], ['ja', jaGroups]] as const) {
+      for (const group of chapter) {
         groups++;
         // The old pickers' buttons read exactly macOS / Windows / Linux, in that order (ruling R30).
         assert.deepEqual(group.labels, ['macOS', 'Windows', 'Linux'].slice(0, group.labels.length), `${locale}:${slug}: tab labels are the old button labels`);
-        assert.ok(group.labels.includes(group.default), `${locale}:${slug}: default "${group.default}" names a tab`);
+        assert.ok(group.default !== undefined && group.labels.includes(group.default), `${locale}:${slug}: default "${group.default}" names a tab`);
       }
     }
   }

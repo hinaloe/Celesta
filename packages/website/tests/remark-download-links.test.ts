@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, test } from 'node:test';
+import { afterEach, test } from 'vitest';
 import remarkParse from 'remark-parse';
 import remarkStringify from 'remark-stringify';
 import { unified } from 'unified';
@@ -7,7 +7,7 @@ import { remarkDownloadLinks } from '../plugins/remark-download-links.ts';
 
 const names = ['CELESTA_DOWNLOAD_URL', 'CELESTA_DOWNLOAD_URL_MACOS', 'CELESTA_DOWNLOAD_URL_WINDOWS'];
 const saved = Object.fromEntries(names.map(name => [name, process.env[name]]));
-const setEnv = (values) => {
+const setEnv = (values: Partial<Record<string, string>>) => {
   for (const name of names) {
     if (values[name] === undefined) delete process.env[name];
     else process.env[name] = values[name];
@@ -16,7 +16,7 @@ const setEnv = (values) => {
 afterEach(() => setEnv(saved));
 
 const processor = unified().use(remarkParse).use(remarkDownloadLinks).use(remarkStringify);
-const run = (markdown) => processor.process(markdown).then(String);
+const run = (markdown: string) => processor.process(markdown).then(String);
 
 test('rewrites each download target', async () => {
   setEnv({ CELESTA_DOWNLOAD_URL: 'https://example.com/all', CELESTA_DOWNLOAD_URL_MACOS: 'https://example.com/m.dmg', CELESTA_DOWNLOAD_URL_WINDOWS: 'https://example.com/w.exe' });

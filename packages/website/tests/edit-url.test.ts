@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { withPackagePath } from '../site/edit-url.ts';
 
 test('inserts the package directory after the branch', () => {

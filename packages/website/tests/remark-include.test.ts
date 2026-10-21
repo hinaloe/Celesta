@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import type { Code } from 'mdast';
+import { test } from 'vitest';
 import remarkDirective from 'remark-directive';
 import remarkParse from 'remark-parse';
 import remarkStringify from 'remark-stringify';
@@ -20,7 +21,7 @@ writeFileSync(join(base, 'repo/examples/b.json'), '{}\n');
 writeFileSync(join(base, 'outside.txt'), 'secret\n');
 
 const processor = unified().use(remarkParse).use(remarkInclude, { root }).use(remarkStringify);
-const run = (markdown, data = {}) => {
+const run = (markdown: string, data: Record<string, unknown> = {}) => {
   const file = new VFile(markdown);
   Object.assign(file.data, data);
   return processor.process(file).then(String);
@@ -80,9 +81,11 @@ test('fills a fence inside a tab, as Makit 0.9 parses tabs (remark-directive)', 
   const tabs = unified().use(remarkParse).use(remarkDirective).use(remarkInclude, { root });
   const tree = await tabs.run(tabs.parse('::::tabs[Platform]{default="macOS"}\n:::tab[macOS]\n\n```tsx file=examples/a.tsx title="Scene"\n```\n\n:::\n::::\n'));
   const [group] = tree.children;
-  assert.equal(group.type, 'containerDirective');
+  assert.ok(group.type === 'containerDirective', 'the group is a container directive');
   const [, tab] = group.children; // the label paragraph, then the tab
+  assert.ok(tab.type === 'containerDirective', 'the tab is a container directive');
   assert.equal(tab.name, 'tab');
-  const code = tab.children.find(node => node.type === 'code');
+  const code = tab.children.find((node): node is Code => node.type === 'code');
+  assert.ok(code, 'the tab holds a code block');
   assert.deepEqual({ meta: code.meta, value: code.value }, { meta: 'title="Scene"', value: 'export {}' });
 });

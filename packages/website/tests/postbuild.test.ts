@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { afterEach, test } from 'node:test';
+import { afterEach, test } from 'vitest';
 import { fillMarkdown, fillMarkdownOutputs, setDocumentLanguage, setLanguages } from '../scripts/postbuild.mjs';
 
 const names = ['CELESTA_DOWNLOAD_URL', 'CELESTA_DOWNLOAD_URL_MACOS', 'CELESTA_DOWNLOAD_URL_WINDOWS'];
@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 /** A package root with one example file, and a dist/ holding the given files. */
-function fixture(files) {
+function fixture(files: Record<string, string>) {
   const root = mkdtempSync(join(tmpdir(), 'postbuild-'));
   mkdirSync(join(root, 'examples'));
   writeFileSync(join(root, 'examples', 'a.tsx'), 'export const a = 1;\n');
@@ -23,7 +23,7 @@ function fixture(files) {
     mkdirSync(dirname(join(root, 'dist', path)), { recursive: true });
     writeFileSync(join(root, 'dist', path), contents);
   }
-  return { root, dist: join(root, 'dist'), read: path => readFileSync(join(root, 'dist', path), 'utf8') };
+  return { root, dist: join(root, 'dist'), read: (path: string) => readFileSync(join(root, 'dist', path), 'utf8') };
 }
 
 const page = [

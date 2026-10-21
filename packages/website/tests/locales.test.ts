@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { preferredLocale } from '../site/locales.ts';
 import worker from '../worker.ts';
 
@@ -18,8 +18,9 @@ test('negotiate browser preferences, quality values, regional tags and fallback'
 });
 
 test('only the root negotiates: explicit languages and assets keep their URLs', async () => {
-  const calls = [];
-  const env = { ASSETS: { fetch(request) { calls.push(request.url); return new Response('asset'); } } };
+  const calls: string[] = [];
+  // The Worker only fetches from ASSETS; connect() completes the Fetcher type.
+  const env: Env = { ASSETS: { async fetch(request: Request) { calls.push(request.url); return new Response('asset'); }, connect() { throw new Error('unused'); } } };
   const response = await worker.fetch(new Request('https://celesta.natsuneko.cat/?ref=launch', { headers: { 'Accept-Language': 'ja' } }), env);
   assert.equal(response.status, 302);
   assert.equal(response.headers.get('Location'), 'https://celesta.natsuneko.cat/ja/?ref=launch');
