@@ -7,5 +7,6 @@
     "noEmit": true,
     "rootDir": ".."
   },
-  "include": ["./**/*.mts"]
+  "include": ["./**/*.mts"],
+  "references": [{ "path": "../../media-utils" }]
 }

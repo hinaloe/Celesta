@@ -12,6 +12,7 @@ export default defineConfig({
     { find: /^\.\/entry-dir$/, replacement: `${packages}/react/src/entry-dir.browser.ts` },
     { find: /^@celesta\/react$/, replacement: `${packages}/react/src/browser.ts` },
     { find: /^@celesta\/react\/internal$/, replacement: `${packages}/react/src/internal.ts` },
+    { find: /^@celesta\/media-utils\/duck$/, replacement: `${packages}/media-utils/src/duck.ts` },
     { find: /^@celesta\/([a-z-]+)$/, replacement: `${packages}/$1/src/index.ts` },
   ] },
   build: {

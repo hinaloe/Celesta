@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { assertBrowserMixable, fadeGains, scheduleClip } from '../src/audio-support.js';
+import { duckEnvelope } from '@celesta/media-utils/duck';
+import { assertBrowserMixable, audibleEnd, duckCurves, fadeGains, scheduleClip } from '../src/audio-support.js';
 import { automationEvents } from '../src/keyframes.js';
 import type { AutomationEvent } from '../src/keyframes.js';
 import type { AnimatedNumber, AudioClip, Keyframe, KeyframeEasing } from '../src/types.js';
@@ -124,4 +125,38 @@ test('a clip after the end of the mix is not scheduled', () => {
   const context = recording();
   scheduleClip(context, { ...base, start: 5 }, buffer, 5);
   assert.equal(context.sources.length, 0);
+});
+
+const voice = (start: number, duration: number, fields: Partial<AudioClip> = {}): AudioClip =>
+  ({ ...base, src: 'voice.wav', start, duration, duckGroup: 'voice', ...fields });
+const bed: AudioClip = { ...base, src: 'bed.wav', duration: 6, duck: { under: 'voice' } };
+
+test('duckCurves gives a ducked clip the curve of the voices, on its own clock', () => {
+  const later = { ...bed, start: 1 };
+  const curves = duckCurves([voice(2, 2), later], [10, 10]);
+  assert.equal(curves[0], undefined);
+  assert.deepEqual(curves[1], duckEnvelope([[2, 4]], {}, { origin: 1 }));
+});
+test('a muted voice and the ducked clip itself do not count', () => {
+  const curves = duckCurves([voice(2, 2, { muted: true }), { ...bed, duckGroup: 'voice' }], [10, 10]);
+  assert.equal(curves[1], 1);
+});
+test('a voice counts until its source ends, or for its whole range when it loops', () => {
+  assert.equal(audibleEnd(voice(2, 3), 1), 3);
+  assert.equal(audibleEnd(voice(2, 3, { loop: true }), 1), 5);
+  assert.equal(audibleEnd(voice(2, 3, { sourceStart: 2 }), 1), 2);
+  // At a rate going 1 → 2 over 2 s, a 2 s source runs out where t + t² / 4 = 2.
+  const rate = keys([0, 1], [2, 2, 'linear']);
+  assert.ok(Math.abs(audibleEnd(voice(0, 4, { playbackRate: rate }), 2) - (Math.sqrt(12) - 2)) < 1e-6);
+});
+test('invalid groups throw', () => {
+  assert.throws(() => duckCurves([voice(0, 1, { duckGroup: '' }), bed], [1, 1]), /duckGroup must be a non-empty name/);
+  assert.throws(() => duckCurves([{ ...bed, duck: { under: [] } }], [1]), /duck\.under must be a non-empty name/);
+});
+test('scheduleClip chains the ducking curve after the fades', () => {
+  const curve = duckEnvelope([[2, 4]], {}, { origin: 0 });
+  const context = recording();
+  scheduleClip(context, { ...bed, fadeIn: 1 }, buffer, 10, curve);
+  assert.equal(context.gains.length, 3);
+  assert.deepEqual(context.gains[2].events, recorded(automationEvents(curve, 0, 6)));
 });

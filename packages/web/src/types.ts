@@ -135,7 +135,8 @@ export type KeyframeEasing =
   | 'ease-in-back' | 'ease-out-back' | 'ease-in-out-back'
   | 'ease-in-elastic' | 'ease-out-elastic' | 'ease-in-out-elastic'
   | 'ease-in-bounce' | 'ease-out-bounce' | 'ease-in-out-bounce';
-export type Keyframe = { time: { value: number; timescale: number }; value: number; easing?: KeyframeEasing };
+/** `easing` absent or `null` is linear, as in the generated `Keyframe`. */
+export type Keyframe = { time: { value: number; timescale: number }; value: number; easing?: KeyframeEasing | null };
 /** A static value or keyframes over clip-local time, as Rust's `Animatable<f64>`. */
 export type AnimatedNumber = number | { type: 'keyframes'; keyframes: Keyframe[] };
 export type AudioClip = {
@@ -151,5 +152,9 @@ export type AudioClip = {
   preservePitch?: boolean;
   fadeIn?: number;
   fadeOut?: number;
+  /** The group the clip's sound belongs to, for other clips' `duck.under`. */
+  duckGroup?: string;
+  /** How the clip ducks, as authored on `<Audio duck>`. */
+  duck?: { under: string | string[]; to?: number | { db: number }; attack?: number; release?: number; holdGap?: number };
 };
 export type Frame = { scene: Scene; audio: AudioClip[] };
