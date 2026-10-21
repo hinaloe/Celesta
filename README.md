@@ -96,10 +96,13 @@ and later are not supported yet.
 git clone https://github.com/mika-f/Celesta.git celesta
 cd celesta
 pnpm install
-pnpm --dir packages/react run codegen
 pnpm run build:runtime
 cargo run -p celesta-editor --release -- packages/cli/examples/title.tsx
 ```
+
+`pnpm run build:runtime` also generates the TypeScript bindings from the Rust
+types. It regenerates them only when those Rust sources change, so run it again
+after pulling.
 
 On Linux, clone the repository before preparing FFmpeg so the guide's build
 script is available. The [source of the build guide](packages/website/content/en/docs/05-(more)/03-build-from-source.md)

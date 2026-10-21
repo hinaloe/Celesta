@@ -54,11 +54,10 @@ cd celesta
 
 ## 3. React ランタイムをビルドする
 
-アプリを起動する前に、ワークスペースの依存関係をインストールし、共有の型定義と React ランタイムをビルドします。
+アプリを起動する前に、ワークスペースの依存関係をインストールし、React ランタイムをビルドします。このビルドは Rust のソースから共有の型定義も生成するので、ソースを更新したあとにも実行し直してください。
 
 ```sh title="ソースから React ランタイムをビルド"
 pnpm install
-pnpm --dir packages/react run codegen
 pnpm run build:runtime
 ```
 

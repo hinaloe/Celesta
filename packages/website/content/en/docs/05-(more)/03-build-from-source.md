@@ -54,11 +54,10 @@ cd celesta
 
 ## 3. Build the React runtime
 
-Before launching a source build, install the workspace dependencies, generate the shared types, and build the React runtime:
+Before launching a source build, install the workspace dependencies and build the React runtime. The build also generates the shared types from the Rust source, so run it again after updating the source:
 
 ```sh title="Build the React runtime from source"
 pnpm install
-pnpm --dir packages/react run codegen
 pnpm run build:runtime
 ```
 
