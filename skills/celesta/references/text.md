@@ -67,12 +67,13 @@ text:
 <Text style={{ fontFamily: 'Inter', fontSize: 18, fontWeight: 700, fill: { type: 'solid', color: '#F4F1EA' } }}>A</Text>
 ```
 
-`<Theme>` names fonts and colors for the text inside it, so a film's
+`<Theme>` names fonts and colors for everything inside it, so a film's
 palette and type live in one place instead of a `Label` wrapper:
 
 ```tsx
 <Theme fonts={{ display: 'Inter', mono: ['JetBrains Mono', 'Noto Sans JP'] }}
        colors={{ paper: '#F4F1EA', ink: '#111111', accent: '#FF4D1F' }}>
+  <Rect width={1920} height={1080} fill="ink" />
   <Text x={56} y={56} fontFamily="mono" fontSize={18} fontWeight={700} color="paper">
     CELESTA <Span color="accent">REEL</Span>
   </Text>
@@ -81,18 +82,38 @@ palette and type live in one place instead of a `Label` wrapper:
 
 - A font name may stand for a [font stack](#font-stacks-和欧混植). Colors
   are `#RRGGBB` or `#RRGGBBAA`; anything else in a `<Theme>` throws.
-- Names work in the shorthand props, in `style.fontFamily`, in solid
-  `style.fill`, `style.stroke` paints and `style.colorRuns`, and in a
-  `<Span>`'s `fontFamily` and fill (gradient stops are not looked up).
+- Font names work in:
+  - `<Text>`'s `fontFamily` and `style.fontFamily`;
+  - a `<Span>`'s `fontFamily` and `style.fontFamily`;
+  - the `fontFamily` of the components below and of `@celesta/components`.
+- Color names work in:
+  - `<Text>`'s `color`, and `style.fill`, `style.stroke` paints and
+    `style.colorRuns`;
+  - a `<Span>`'s `color` and `style.fill`;
+  - `<Rect>` and `<Path>` `fill` and `stroke`, and so `<Line>`,
+    `<Polyline>`, `<Circle>`, `<Ellipse>`, `<Arrow>`, `<Triangle>`,
+    `<Polygon>`, `<Star>`, `<Pie>`, and `<Heart>` from `@celesta/shapes`;
+  - the color props of `@celesta/components` (`Panel`, `Badge`,
+    `StatCard`, `PatternBackground`, …; each prop's doc says so).
+
+  A paint's color and each gradient stop's color are looked up alike.
 - A name no theme defines is used as it is: a font name as a family name
   (so `fontFamily="Georgia"` still works inside a theme), a color as a
-  color. The `color` shorthand must then be a hex color, or the text
-  throws with the theme's color names.
+  color. The `color` shorthand, a shape's `fill` and `stroke`, and the
+  components' colors must then be hex colors, or the element throws with
+  its name and the theme's color names:
+  `<Rect> fill "inc" is neither a #RRGGBB or #RRGGBBAA color nor a <Theme> color name (paper, ink, accent)`.
+  The error comes from the frame that draws the element; to find such
+  mistakes in every frame before exporting, run
+  `inspect.mjs film.tsx --every 1` ([verify.md](verify.md#inspectmjs)).
+  `style.fill` and the other text paints are not checked here: a name they
+  do not find reaches the renderer, which fails the frame.
 - A nested `<Theme>` adds to the one around it, its own names winning. It
   passes through `<Group>`, `<Sequence>`, and every other component, like
   any React context.
-- `useTheme()` returns the merged `{ fonts, colors }`, for anything that is
-  not text: `<Rect fill={useTheme().colors.accent}>`.
+- `useTheme()` returns the merged `{ fonts, colors }`, for anything that
+  does not look names up, such as `interpolateColor()` or `<Instances>`:
+  `interpolateColor(t, [0, 1], [colors.ink, colors.accent])`.
 - `<TextBox>`, `<TextReveal>`, `useTypewriter()`, and `<Dialogue>`
   (its line and its character's `subtitle.style`) look up the names of
   the `<Theme>`s around them in their `style` and spans, as `<Text>` does.

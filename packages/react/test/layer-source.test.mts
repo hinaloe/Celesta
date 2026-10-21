@@ -156,7 +156,7 @@ test('the report reads the frame just rendered when the element props did not ch
 
 test('props are the transform props the primitive received', () => {
   const composition = mount(() =>
-    comp(jsxDEV(Rect, { x: 12, rotation: 5, width: 1, height: 1, fill: '#fff' }, undefined, false, at('entry.tsx', 5, 7))),
+    comp(jsxDEV(Rect, { x: 12, rotation: 5, width: 1, height: 1, fill: '#ffffff' }, undefined, false, at('entry.tsx', 5, 7))),
   );
   assert.deepEqual(reportFor(composition, 0).props, { x: 12, rotation: 5 });
 });

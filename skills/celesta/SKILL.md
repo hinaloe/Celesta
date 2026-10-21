@@ -75,9 +75,9 @@ produces a video that differs between preview and export.
 3. **`Text` children are strings or numbers only.** Build strings with
    template literals: `` {`${name} · Lv.${level}`} `` rather than mixing
    elements inside `Text`.
-4. **Colors are hex strings**, `#RRGGBB` or `#RRGGBBAA`. `Rect`/`Path` take
-   `fill="#ff0000"`; text styles take paint objects:
-   `fill: { type: 'solid', color: '#ff0000' }`.
+4. **Colors are hex strings**, `#RRGGBB` or `#RRGGBBAA`, or the names of a
+   `<Theme>` around them. `Rect`/`Path` take `fill="#ff0000"`; text styles
+   take paint objects: `fill: { type: 'solid', color: '#ff0000' }`.
 5. **Every frame is a pure function of the frame number.** Derive motion from
    `useCurrentFrame()` / `useCurrentTime()`. Never use `Math.random()`,
    `Date.now()`, timers, `useEffect`, or state that accumulates across

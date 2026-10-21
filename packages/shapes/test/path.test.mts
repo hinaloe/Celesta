@@ -28,7 +28,7 @@ function render(body: string, { allowFailure = false, frames = 1 }: { allowFailu
   const entry = join(dir, 'entry.tsx');
   writeFileSync(
     entry,
-    `import { Composition, Sequence } from '@celesta/react'; import { Arrow, Circle, Ellipse, Line, Path, Polyline } from '@celesta/shapes';\n` +
+    `import { Composition, Sequence, Theme } from '@celesta/react'; import { Arrow, Circle, Ellipse, Line, Path, Polyline } from '@celesta/shapes';\n` +
       `export default function Root() {\n` +
       `  return (\n` +
       `    <Composition width={300} height={200} fps={30} durationInFrames={${frames}}>\n` +
@@ -179,6 +179,33 @@ test('a line is a two-point path with round caps', () => {
     stroke: { paint: { type: 'solid', color: '#00FF00' }, width: 4 },
     lineCap: 'round',
   });
+});
+
+test('a path looks up <Theme> color names, and names neither hex nor a theme color', () => {
+  const commands = `[{ type: 'moveTo', x: 0, y: 0 }, { type: 'lineTo', x: 10, y: 0 }, { type: 'lineTo', x: 10, y: 10 }]`;
+  const [, frame] = render(
+    `<Theme colors={{ ink: '#101010', paper: '#f4f1ea' }}>
+       <Path fill="paper" stroke="ink" strokeWidth={2} commands={${commands}} />
+       <Path progress={0.5} fill="paper" stroke={{ type: 'linear', start: { x: 0, y: 0 }, end: { x: 10, y: 0 },
+         stops: [{ offset: 0, color: 'ink' }, { offset: 1, color: 'paper' }] }} strokeWidth={2} commands={${commands}} />
+     </Theme>`,
+  );
+  const [whole, trimmed] = frame!.scene.layers;
+  const path = contentOf(whole, 'path');
+  assert.deepEqual(path.fill, { type: 'solid', color: '#f4f1ea' });
+  assert.deepEqual(path.stroke?.paint, { type: 'solid', color: '#101010' });
+  const [fill, stroke] = contentOf(trimmed, 'group').layers;
+  assert.deepEqual(contentOf(fill, 'path').fill, { type: 'solid', color: '#f4f1ea' });
+  const strokePaint = contentOf(stroke, 'path').stroke?.paint;
+  assert.ok(strokePaint?.type === 'linear');
+  assert.deepEqual(strokePaint.stops.map((stop) => stop.color), ['#101010', '#f4f1ea']);
+
+  const [, failed] = render(
+    `<Theme colors={{ ink: '#101010' }}><Path stroke="inc" strokeWidth={2} commands={${commands}} /></Theme>`,
+    { allowFailure: true },
+  );
+  // The error arrives as a JSON line, its quotes escaped.
+  assert.match(failed.error ?? '', /<Path> stroke \\"inc\\" is neither a #RRGGBB or #RRGGBBAA color nor a <Theme> color name \(ink\)/);
 });
 
 test('path commands and styles are validated', () => {

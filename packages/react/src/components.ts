@@ -17,7 +17,7 @@ import type {
 } from './shader';
 import { markPrimitive, markTransparent } from './source-chain';
 import { themeTextContent } from './rich-text';
-import { type TextShorthand, ThemeContext, themedTextStyle } from './theme';
+import { type TextShorthand, ThemeContext, themedShapePaint, themedTextStyle } from './theme';
 import { endsWithComposition, isBefore, secondsFromTime, secondsToTime } from './time';
 
 // Unlike the pre-reconciler tree walker, these are real function components:
@@ -317,12 +317,13 @@ export interface RectProps extends CommonProps {
   width: number;
   height: number;
   /**
-   * Hex fill color (`"#RRGGBB"` or `"#RRGGBBAA"`), or a `Paint` for a linear or
-   * radial gradient in the rect's local pixels (origin at its top-left).
-   * Omit for no fill.
+   * Hex fill color (`"#RRGGBB"` or `"#RRGGBBAA"`) or `<Theme>` color name,
+   * or a `Paint` for a linear or radial gradient in the rect's local pixels
+   * (origin at its top-left), whose colors may be theme names too. Omit for
+   * no fill.
    */
   fill?: string | Paint;
-  /** Stroke color or `Paint`; has no visible effect without `strokeWidth`. */
+  /** Stroke color, as for `fill`, or `Paint`; has no visible effect without `strokeWidth`. */
   stroke?: string | Paint;
   strokeWidth?: number;
   cornerRadius?: number;
@@ -583,7 +584,13 @@ export function Text({ fontFamily, fontSize, fontWeight, color, ...props }: Text
 }
 
 /** A flat-shaded rectangle, optionally rounded and/or stroked. */
-export function Rect({ dash, dashOffset, cap, ...props }: RectProps): ReturnType<typeof React.createElement> {
+export function Rect({ dash, dashOffset, cap, ...authored }: RectProps): ReturnType<typeof React.createElement> {
+  const theme = React.useContext(ThemeContext);
+  const themedFill = themedShapePaint(authored.fill, theme, '<Rect>', 'fill');
+  const themedStroke = themedShapePaint(authored.stroke, theme, '<Rect>', 'stroke');
+  const props = themedFill === authored.fill && themedStroke === authored.stroke
+    ? authored
+    : { ...authored, fill: themedFill, stroke: themedStroke };
   const { width, height, fill, stroke, strokeWidth = 0, cornerRadius = 0, anchorX = 0, anchorY = 0, ...common } = props;
   if (dash === undefined || dash.length === 0 || stroke === undefined || !(strokeWidth > 0)) {
     return React.createElement('rect', props);

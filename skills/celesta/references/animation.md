@@ -346,7 +346,7 @@ function Hud() {
   return (
     <Group>
       <Text x={60} y={60}>{scene.name}</Text>
-      <Rect x={60} y={90} width={300 * scene.progress} height={4} fill="#fff" />
+      <Rect x={60} y={90} width={300 * scene.progress} height={4} fill="#ffffff" />
     </Group>
   );
 }

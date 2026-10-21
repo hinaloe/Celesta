@@ -56,7 +56,9 @@ test('a frame has no cons or sliced strings in ids, text, colors, asset paths, o
           React.Fragment,
           null,
           h(Text, null, `FRAME ${frame} / 600`),
-          h(Rect, { id: `authored-${frame}-rect`, width: 1, height: 1, fill: `rgba(${frame}, 0, 0, 0.5)` }),
+          // <Rect> only passes hex colors, too short to be cons strings; a
+          // host rect takes any string.
+          h('rect', { id: `authored-${frame}-rect`, width: 1, height: 1, fill: `rgba(${frame}, 0, 0, 0.5)` }),
           h(Image, { src: `images/frame-${frame}.png`.slice(0, 20) }),
           h(Rect, { width: 1, height: 1, shader: shaderEffect(shader, [1], 0) }),
           // Columns over 1 MiB, which Node's Buffer#toString returns as
