@@ -1,6 +1,6 @@
 use crate::actions::{ClearExportRange, ExportProject, SetExportIn, SetExportOut};
 use crate::export_worker::{ExportRequest, ExportSource};
-use crate::helpers::{export_output, export_range_for, export_suggested_name};
+use crate::helpers::{ExportLoudness, export_output, export_range_for, export_suggested_name};
 use crate::problems::{Source, error_chain};
 use crate::view::EditorView;
 use celesta_exporter::{ExportCancellation, ExportProgress, VideoFormat};
@@ -117,6 +117,7 @@ impl EditorView {
             output: output.clone(),
             format,
             range,
+            loudness: self.export_loudness.target(),
             cancellation: cancellation.clone(),
             driver: self.driver,
         };
@@ -131,6 +132,11 @@ impl EditorView {
             self.export_cancellation = None;
             self.problems.fail(Source::Export, error);
         }
+    }
+
+    pub(crate) fn set_export_loudness(&mut self, loudness: ExportLoudness, cx: &mut Context<Self>) {
+        self.export_loudness = loudness;
+        cx.notify();
     }
 
     /// Marks the current playhead frame as the export in-point, dropping a

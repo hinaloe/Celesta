@@ -1,7 +1,7 @@
 use crate::preview::{CpuPreviewFrame, PreviewPresentation};
 use celesta_composition::{Rational, Time};
 use celesta_editor_core::ClipKind;
-use celesta_exporter::{AudioLoudness, ExportProgress, ExportRange, VideoFormat};
+use celesta_exporter::{AudioLoudness, ExportProgress, ExportRange, LoudnessTarget, VideoFormat};
 use celesta_gpu_renderer::PreviewFrame as GpuPreviewFrame;
 use gpui_kit::RenderImage;
 use image::{Frame, ImageBuffer, Rgba};
@@ -74,6 +74,46 @@ pub(crate) fn export_loudness_label(loudness: &AudioLoudness) -> String {
         (Some(lufs), Some(peak)) => format!("{lufs:.1} LUFS, {peak:.1} dBTP"),
         (None, Some(peak)) => format!("too short to measure LUFS, {peak:.1} dBTP"),
         (_, None) => "silent".to_owned(),
+    }
+}
+
+/// The loudness the next export brings its mix to, picked next to Export…
+/// and kept for the rest of the session.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ExportLoudness {
+    /// Leave the mix as it is (it is still measured).
+    #[default]
+    Off,
+    Streaming,
+    Broadcast,
+}
+
+impl ExportLoudness {
+    pub(crate) const ALL: [Self; 3] = [Self::Off, Self::Streaming, Self::Broadcast];
+
+    pub(crate) fn target(self) -> Option<LoudnessTarget> {
+        match self {
+            Self::Off => None,
+            Self::Streaming => Some(LoudnessTarget::STREAMING),
+            Self::Broadcast => Some(LoudnessTarget::BROADCAST),
+        }
+    }
+
+    /// The short name the title bar button shows.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::Streaming => "Streaming",
+            Self::Broadcast => "Broadcast",
+        }
+    }
+
+    /// The menu item: the name and, for a target, its loudness.
+    pub(crate) fn menu_label(self) -> String {
+        match self.target() {
+            Some(target) => format!("{} ({} LUFS)", self.name(), target.integrated_lufs),
+            None => self.name().to_owned(),
+        }
     }
 }
 

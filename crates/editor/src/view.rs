@@ -2,6 +2,7 @@ use crate::audio::{AudioMixWorker, MasterVolumeDrag};
 use crate::component_schema::ComponentSchemaWorker;
 use crate::edit_history::EditHistory;
 use crate::export_worker::ExportWorker;
+use crate::helpers::ExportLoudness;
 use crate::layer_select::SourceLookup;
 use crate::media_probe::{MediaAssetInfo, MediaProbeWorker};
 use crate::meter::MasterLevels;
@@ -192,6 +193,8 @@ pub(crate) struct EditorView {
     pub(crate) export_in_frame: Option<i64>,
     pub(crate) export_out_frame: Option<i64>,
     pub(crate) choosing_export_path: bool,
+    /// The loudness Export… brings the mix to, for the rest of the session.
+    pub(crate) export_loudness: ExportLoudness,
     pub(crate) gpu_name: SharedString,
     /// The graphics API from `--driver`, kept for projects opened later and
     /// for exports.
@@ -380,6 +383,7 @@ impl EditorView {
             export_in_frame: None,
             export_out_frame: None,
             choosing_export_path: false,
+            export_loudness: ExportLoudness::default(),
             gpu_name,
             driver,
             focus_handle: None,
