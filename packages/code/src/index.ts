@@ -90,8 +90,8 @@ export interface CodeProps extends CommonProps {
   language?: CodeLanguage;
   /**
    * Use a monospaced font. Alignment is always left; wrapping is disabled.
-   * Ligatures and contextual alternates (`liga`, `calt`) are off, so `===`
-   * reads as written; `fontFeatures` turns them back on tag by tag.
+   * `fontFeatures: { liga: false, calt: false }` shows `===` and `->` as
+   * written in a font with coding ligatures.
    */
   style?: TextStyle;
   theme?: CodeTheme;
@@ -112,16 +112,7 @@ function codeStyle(style: TextStyle = {}): TextStyle {
   if (!Number.isFinite(fontSize) || fontSize <= 0 || !Number.isFinite(lineHeight) || lineHeight <= 0) {
     throw new Error('Code requires positive fontSize and lineHeight');
   }
-  return {
-    ...style,
-    fontFamily: style.fontFamily ?? 'JetBrains Mono',
-    fontSize,
-    lineHeight,
-    align: 'left',
-    // Code shows the characters as written: no `===` or `->` ligatures,
-    // unless the style turns them back on.
-    fontFeatures: { liga: false, calt: false, ...style.fontFeatures },
-  };
+  return { ...style, fontFamily: style.fontFamily ?? 'JetBrains Mono', fontSize, lineHeight, align: 'left' };
 }
 
 /** Syntax-highlighted code built from Celesta's Text and Rect primitives. */

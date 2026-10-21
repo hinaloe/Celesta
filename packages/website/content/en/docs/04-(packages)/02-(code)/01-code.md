@@ -34,7 +34,7 @@ export default function Root() {
 
 ## Fonts
 
-Use a **monospaced** font. `Code` defaults to JetBrains Mono at 24 px with a line height of 1.5 × the font size. Load the font file with `<Font src="…" />`, as above, or install it on the machine that renders. If the font is missing, export falls back as it does for any text. The browser preview needs the font loaded with `<Font>`: `Code` turns ligatures off, which the preview can do only in fonts it loaded.
+Use a **monospaced** font. `Code` defaults to JetBrains Mono at 24 px with a line height of 1.5 × the font size. Load the font file with `<Font src="…" />`, as above, or install it on the machine that renders. If the font is missing, Celesta falls back as it does for any text.
 
 ## Props
 
@@ -44,7 +44,7 @@ Use a **monospaced** font. `Code` defaults to JetBrains Mono at 24 px with a lin
 | --- | --- |
 | `children` | The source, as a string. |
 | `language` | `tsx`, `ts`, `json`, `bash`, or `text` (the default, which applies no coloring). |
-| `style` | A Celesta `TextStyle`: `fontFamily`, `fontSize`, `lineHeight`, and so on. Text is left aligned and never wraps, and the theme supplies each run’s fill color. Other `align` values throw. Ligatures are off (`fontFeatures: { liga: false, calt: false }`), so `===` and `->` show as written; `fontFeatures: { liga: true }` turns them back on. |
+| `style` | A Celesta `TextStyle`: `fontFamily`, `fontSize`, `lineHeight`, and so on. Text is left aligned and never wraps, and the theme supplies each run’s fill color. Other `align` values throw. |
 | `theme` | Token colors, a foreground fallback, and the line highlight color. `codeThemes.dark` by default. |
 | `tabSize` | Width of a tab stop, counted in characters. Defaults to `2`. |
 | `highlightLines` | One-based line numbers to mark with a highlight band. |

@@ -1,6 +1,5 @@
-// <Code> draws the characters as written: coding ligatures (`===`, `->`)
-// are off unless its style turns them back on, and the measurements its
-// layout uses shape the same way.
+// <Code> draws with the font's own features, ligatures included; a style's
+// fontFeatures reach every line and the measurements its layout uses.
 
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
@@ -44,17 +43,17 @@ function render(style?: TextStyle): { texts: TextContent[]; requests: MeasureTex
   return { texts: textLayers(scene.layers), requests };
 }
 
-test('Code turns ligatures and contextual alternates off', () => {
+test('Code sets no features of its own', () => {
   const { texts, requests } = render();
   assert.equal(texts.length, 2);
-  for (const text of texts) assert.deepEqual(text.style.fontFeatures, { liga: false, calt: false });
   assert.ok(requests.length > 0);
-  for (const request of requests) assert.deepEqual(request.style.fontFeatures, { liga: false, calt: false });
+  for (const { style } of [...texts, ...requests]) assert.equal(style.fontFeatures, undefined);
 });
 
-test('a Code style turns features on over the defaults, tag by tag', () => {
-  const { texts, requests } = render({ fontFeatures: { liga: true, zero: true } });
+test('a Code style\'s features reach every line and measurement', () => {
+  const { texts, requests } = render({ fontFeatures: { liga: false, calt: false } });
+  assert.equal(texts.length, 2);
   for (const { style } of [...texts, ...requests]) {
-    assert.deepEqual(style.fontFeatures, { liga: true, calt: false, zero: true });
+    assert.deepEqual(style.fontFeatures, { liga: false, calt: false });
   }
 });

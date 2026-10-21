@@ -34,7 +34,7 @@ export default function Root() {
 
 ## フォント
 
-**等幅**フォントを使います。`Code` の既定は JetBrains Mono、24 px、行高は文字サイズの 1.5 倍です。上のように `<Font src="…" />` で読み込むか、描画するマシンにインストールします。不足時、書き出しではほかのテキストと同様にフォールバックします。ブラウザーのプレビューでは `<Font>` で読み込む必要があります。`Code` は合字を切っており、プレビューが合字を切れるのは読み込んだ書体だけだからです。
+**等幅**フォントを使います。`Code` の既定は JetBrains Mono、24 px、行高は文字サイズの 1.5 倍です。上のように `<Font src="…" />` で読み込むか、描画するマシンにインストールします。不足時はほかのテキストと同様にフォールバックします。
 
 ## props
 
@@ -44,7 +44,7 @@ export default function Root() {
 | --- | --- |
 | `children` | ソースの文字列。 |
 | `language` | `tsx`、`ts`、`json`、`bash`、または `text`（既定、色なし）。 |
-| `style` | Celesta の `TextStyle`。`fontFamily`、`fontSize`、`lineHeight` などを指定します。左揃えで折り返さず、色はテーマが設定します。ほかの `align` はエラーです。合字は切ってあり（`fontFeatures: { liga: false, calt: false }`）、`===` や `->` は書いたとおりに描かれます。`fontFeatures: { liga: true }` で合字を戻せます。 |
+| `style` | Celesta の `TextStyle`。`fontFamily`、`fontSize`、`lineHeight` などを指定します。左揃えで折り返さず、色はテーマが設定します。ほかの `align` はエラーです。 |
 | `theme` | トークンの色、既定の文字色、行の強調色。既定は `codeThemes.dark`。 |
 | `tabSize` | タブ幅を文字数で指定します。既定は `2`。 |
 | `highlightLines` | 帯で強調する行番号。1 始まりです。 |

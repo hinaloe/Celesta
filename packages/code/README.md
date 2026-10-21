@@ -67,18 +67,15 @@ function Example() {
 
 Load the named monospaced font with Celesta's `<Font src="..." />`, or install
 it on the rendering machine. Defaults are JetBrains Mono, 24 px, and a line
-height of 1.5 × font size. If the font is missing, export uses Celesta's normal
-font fallback. The browser preview needs it loaded with `<Font>`, since it can
-turn ligatures off (see `style` below) only in fonts it loaded. The example
-loads the repository's IBM Plex Mono font explicitly.
+height of 1.5 × font size. If the font is missing, Celesta uses its normal font
+fallback. The example loads the repository's IBM Plex Mono font explicitly.
 
 - `children` is a source string, including indentation and trailing newlines.
 - `language` is `tsx`, `ts`, `json`, `bash`, or `text` (the default).
 - `style` is Celesta's `TextStyle`. Text is left aligned and does not wrap.
-  The theme supplies each run's fill color. Ligatures and contextual
-  alternates are off (`fontFeatures: { liga: false, calt: false }`), so
-  `===` and `->` show as written; `style.fontFeatures` is merged over that
-  tag by tag, and `{ liga: true }` turns ligatures back on.
+  The theme supplies each run's fill color. In a font with coding ligatures,
+  `fontFeatures: { liga: false, calt: false }` shows `===` and `->` as
+  written.
 - `visibleCharacters` counts Unicode code points in the **original source**,
   matching `useTypewriter().length`. A tab costs one character, LF costs one,
   and CRLF costs two. Fractions are rounded down, negative counts show nothing,
@@ -196,15 +193,14 @@ Each `HighlightedCodeLine` has:
   passed as `style.colorRuns` as they are. Adjacent tokens of the same color
   share one run, which keeps the first token's `type`.
 
-Draw each non-empty line as one `Text` with `Code`'s style (its features
-included), its baseline at the ascent of `'M'` below the line's top, to match
-`Code` exactly:
+Draw each non-empty line as one `Text` with `Code`'s style, its baseline at the
+ascent of `'M'` below the line's top, to match `Code` exactly:
 
 ```tsx
 import { Group, Text, useTextMetrics } from '@celesta/react';
 import { codeThemes, highlightCode } from '@celesta/code';
 
-const style = { fontFamily: 'IBM Plex Mono', fontSize: 24, lineHeight: 36, fontFeatures: { liga: false, calt: false } };
+const style = { fontFamily: 'IBM Plex Mono', fontSize: 24, lineHeight: 36 };
 const theme = codeThemes.dark;
 const lines = highlightCode(source, { language: 'ts', theme });
 
