@@ -152,10 +152,19 @@ jobs:
       # crates/gpu-renderer/src/tests.rs), so under `cargo test` they ran one by
       # one. nextest skips doctests; the workspace has none.
       # Linux has lavapipe; missing it must fail rather than skip GPU tests.
+      # The ci profile (.config/nextest.toml) writes a JUnit report that keeps
+      # passing tests' output, where the next step finds self-skipped tests.
       - name: Test
         env:
           CELESTA_REQUIRE_GPU: ${{ runner.os == 'Linux' && '1' || '0' }}
-        run: cargo nextest run --workspace --locked --no-fail-fast
+        run: cargo nextest run --workspace --locked --no-fail-fast --profile ci
+
+      # A test that cannot run here passes after printing "skipping ...", so
+      # list those as warnings and in the job summary rather than leave them
+      # hidden among the passes.
+      - name: Report skipped tests
+        if: ${{ !cancelled() }}
+        run: node scripts/report-skipped-tests.mjs target/nextest/ci/junit.xml
 
       - name: Upload Cargo build timings
         if: always()

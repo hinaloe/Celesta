@@ -15,6 +15,16 @@ use celesta_project::{
 use ez_ffmpeg::stream_info::{StreamInfo, find_audio_stream_info, find_video_stream_info};
 use ez_ffmpeg::{FfmpegContext, Input, Output};
 
+/// Reports a test skipped for want of a GPU adapter, or fails it when
+/// `CELESTA_REQUIRE_GPU=1` says the machine has one.
+fn skip_without_gpu(error: &impl std::fmt::Display) {
+    assert!(
+        std::env::var("CELESTA_REQUIRE_GPU").as_deref() != Ok("1"),
+        "GPU tests require an adapter: {error}"
+    );
+    eprintln!("skipping live export test: no GPU adapter is available: {error}");
+}
+
 /// Renders a synthetic `lavfi` source to a lossless MKV fixture through the
 /// linked FFmpeg libraries, forcing the output frame rate so the container
 /// records a real frame-duration hint.
@@ -97,7 +107,7 @@ fn exports_frame_exact_mp4_with_silent_audio() {
     match exporter.export_project(&project, directory.path(), &output) {
         Ok(()) => {}
         Err(ExportError::Render(GpuRenderError::RequestAdapter(error))) => {
-            eprintln!("skipping live export test: no GPU adapter is available: {error}");
+            skip_without_gpu(&error);
             return;
         }
         Err(error) => panic!("export failed: {error}"),
@@ -229,7 +239,7 @@ fn exports_only_the_selected_range_shifted_to_zero() {
     match full.export_project(&project, directory.path(), &full_output) {
         Ok(()) => {}
         Err(ExportError::Render(GpuRenderError::RequestAdapter(error))) => {
-            eprintln!("skipping live export test: no GPU adapter is available: {error}");
+            skip_without_gpu(&error);
             return;
         }
         Err(error) => panic!("full export failed: {error}"),
@@ -399,9 +409,11 @@ fn converting_colors_on_the_gpu_matches_the_encoder_conversion() {
             &format!("gpu-{bit_depth}.mp4"),
         ) {
             Ok(output) => output,
-            Err(ExportError::Render(
-                GpuRenderError::RequestAdapter(_) | GpuRenderError::UnsupportedReadbackFormat(_),
-            )) => {
+            Err(ExportError::Render(GpuRenderError::RequestAdapter(error))) => {
+                skip_without_gpu(&error);
+                return;
+            }
+            Err(ExportError::Render(GpuRenderError::UnsupportedReadbackFormat(_))) => {
                 eprintln!("skipping GPU color conversion test: not supported here");
                 return;
             }
@@ -523,7 +535,7 @@ fn export_as(project: &Project, dir: &Path, format: VideoFormat, name: &str) -> 
     {
         Ok(()) => Some(output),
         Err(ExportError::Render(GpuRenderError::RequestAdapter(error))) => {
-            eprintln!("skipping live export test: no GPU adapter is available: {error}");
+            skip_without_gpu(&error);
             None
         }
         Err(error) => panic!("{format} export failed: {error}"),
@@ -1004,7 +1016,7 @@ fn a_looping_mp4_starts_its_sound_from_its_end() {
         {
             Ok(()) => Some(output),
             Err(ExportError::Render(GpuRenderError::RequestAdapter(error))) => {
-                eprintln!("skipping live export test: no GPU adapter is available: {error}");
+                skip_without_gpu(&error);
                 None
             }
             Err(error) => panic!("export failed: {error}"),
@@ -1104,7 +1116,7 @@ export default function Root() {
     ) {
         Ok(()) => {}
         Err(ExportError::Render(GpuRenderError::RequestAdapter(error))) => {
-            eprintln!("skipping live export test: no GPU adapter is available: {error}");
+            skip_without_gpu(&error);
             return;
         }
         Err(error) => panic!("React WebM export failed: {error}"),
@@ -1178,7 +1190,7 @@ export default function Root() {
     ) {
         Ok(()) => {}
         Err(ExportError::Render(GpuRenderError::RequestAdapter(error))) => {
-            eprintln!("skipping live export test: no GPU adapter is available: {error}");
+            skip_without_gpu(&error);
             return;
         }
         Err(error) => panic!("React subtitle export failed: {error}"),
