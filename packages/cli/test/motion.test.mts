@@ -15,7 +15,7 @@ import type { FrameMessage } from '../src/cli.js';
 import { contentOf } from './layer-content.mjs';
 
 // The render() tests exercise the built CLI (bin/ loads dist/cli.js): run
-// `pnpm build` first.
+// `pnpm run build:runtime` (repository root) first.
 
 const cli = fileURLToPath(new URL('../bin/celesta-react-render.js', import.meta.url));
 
@@ -130,7 +130,9 @@ test('cueAt finds the cue in effect and its neighbours', () => {
   assert.equal(active.frame, 5);
   assert.equal(active.previous?.name, 'a');
   assert.equal(active.next?.name, 'c');
-  assert.equal(cueAt(cues, 99)?.next, undefined);
+  const last = cueAt(cues, 99);
+  assert.ok(last);
+  assert.equal(last.next, undefined);
   assert.throws(() => cueAt([{ at: 5 }, { at: 1 }], 0), /sorted/);
 });
 

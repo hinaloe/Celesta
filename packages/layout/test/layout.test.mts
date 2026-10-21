@@ -9,7 +9,8 @@ import { test } from 'vitest';
 import type { Layer, LayerContent, Scene } from '@celesta/react';
 
 // Integration tests of the build: each test renders through the CLI, which
-// loads @celesta/layout from its dist/, so `pnpm build` must run first.
+// loads @celesta/layout from its dist/, so `pnpm run build:runtime` (repository
+// root) must run first.
 const cli = fileURLToPath(new URL('../../cli/bin/celesta-react-render.js', import.meta.url));
 
 type Content<T extends LayerContent['type']> = Extract<LayerContent, { type: T }>;

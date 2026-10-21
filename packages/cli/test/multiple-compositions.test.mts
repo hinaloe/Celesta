@@ -69,7 +69,8 @@ test('rejects missing, empty, duplicate and unknown IDs with useful diagnostics'
   assert.throws(() => mount(() => root({ id: 'a' }), 'missing'), /unknown.*missing.*available: a/);
 });
 
-// Exercises the built CLI (inspect.mjs runs dist/cli.js): run `pnpm build` first.
+// Exercises the built CLI (inspect.mjs runs dist/cli.js): run `pnpm run
+// build:runtime` (repository root) first.
 test('inspect.mjs exposes the list and selects frames with shared entry properties', () => {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-compositions-'));
   const entry = join(dir, 'entry.tsx');

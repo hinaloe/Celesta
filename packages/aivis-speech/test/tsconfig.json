@@ -9,6 +9,8 @@
     "rootDir": "..",
     "tsBuildInfoFile": "../node_modules/.cache/test.tsbuildinfo",
     // The tests use Array.prototype.at, Buffer and structuredClone.
+    // The src/ the tests import is checked under this lib too; only the build
+    // checks it against the package's own.
     "lib": ["ES2022"],
     "types": ["node"]
   },

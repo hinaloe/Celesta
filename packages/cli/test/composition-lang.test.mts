@@ -190,7 +190,8 @@ test('fitted text measures with the inherited language and preserves explicit ov
   assert.deepEqual(options.style, { fontFamily: 'Test Font' });
 });
 
-// Exercises the built CLI (bin/ loads dist/cli.js): run `pnpm build` first.
+// Exercises the built CLI (bin/ loads dist/cli.js): run `pnpm run
+// build:runtime` (repository root) first.
 test('CLI inherits composition language for subtitles and preview requests from older bridges', () => {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-composition-lang-'));
   const entry = join(dir, 'entry.tsx');

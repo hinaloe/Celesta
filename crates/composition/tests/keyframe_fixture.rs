@@ -1,5 +1,5 @@
 //! Pins `evaluate_f64` / `integrate_f64` to `tests/fixtures/keyframe-evaluation.json`,
-//! which `packages/web/test/keyframes.test.mjs` checks the browser port against.
+//! which `packages/web/test/keyframes.test.mts` checks the browser port against.
 
 use celesta_composition::{Animatable, Time, evaluate_f64, integrate_f64};
 use serde::Deserialize;

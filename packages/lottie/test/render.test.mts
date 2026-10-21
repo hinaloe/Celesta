@@ -1,6 +1,6 @@
 // `<Lottie>` through the CLI: the scene it draws, scrubbing, timing, and
 // warnings. Integration tests of the build: the CLI loads @celesta/lottie
-// from its dist/, so `pnpm build` must run first.
+// from its dist/, so `pnpm run build:runtime` (repository root) must run first.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -70,7 +70,6 @@ function render(body: string, { frames = [0], data = demo, allowFailure = false 
   }
 }
 
-/** Every layer below `layers`, depth first, masks included. */
 /** `layer`'s content, checked to be of `type`. */
 function contentOf<T extends LayerContent['type']>(layer: Layer | undefined, type: T): Content<T> {
   assert.ok(layer, `a ${type} layer`);
@@ -83,6 +82,7 @@ function contentIf<T extends LayerContent['type']>(layer: Layer, type: T): Conte
   return layer.content.type === type ? (layer.content as Content<T>) : undefined;
 }
 
+/** Every layer below `layers`, depth first, masks included. */
 function* walk(layers: Layer[]): Generator<Layer> {
   for (const layer of layers) {
     yield layer;

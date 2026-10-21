@@ -1,6 +1,7 @@
-// planDialogue() and expressionAt(), and <DialogueSeries> through the CLI.
-// The CLI renders are integration tests of the build: the CLI loads
-// @celesta/character from dist/, so run them after `pnpm run build`.
+// planDialogue() and expressionAt(), and <DialogueSeries> through the CLI. The
+// CLI renders are integration tests of the build: the CLI loads
+// @celesta/character from dist/, so run them after `pnpm run build:runtime`
+// (repository root).
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';

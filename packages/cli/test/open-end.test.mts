@@ -1,6 +1,7 @@
-// `openEnd` frame requests: inspect.mjs --loop evaluates frame N (one past
-// the last) as if the video went on, to compare it with frame 0. Run after
-// `pnpm build`: the test exercises the built CLI (bin/ loads dist/cli.js).
+// `openEnd` frame requests: inspect.mjs --loop evaluates frame N (one past the
+// last) as if the video went on, to compare it with frame 0. Run after `pnpm
+// run build:runtime` (repository root): the test exercises the built CLI (bin/
+// loads dist/cli.js).
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

@@ -1,5 +1,5 @@
-// Tests for `prepareNarration()` against a mock VOICEVOX Engine. Run after
-// building @celesta/character: pnpm --dir packages/voicevox test
+// Tests for `prepareNarration()` against a mock VOICEVOX Engine:
+// pnpm --dir packages/voicevox test
 //
 // The mock answers `/audio_query` with the Zundamon fixture (plus a field
 // Celesta does not know, which must survive into the saved query, and its
@@ -354,7 +354,7 @@ test('cancellation and timeouts reject without leaving an entry', async () => {
   );
   await assert.rejects(
     prepareNarration(script.slice(0, 1), { speakers, cacheDir, timeout: 100 }),
-    (error: NarrationError) => error.stage === 'synthesis' && /did not answer within 100 ms/.test(error.message),
+    (error) => error instanceof NarrationError && error.stage === 'synthesis' && /did not answer within 100 ms/.test(error.message),
   );
   assert.ok(!existsSync(cacheDir) || readdirSync(cacheDir).length === 0);
 });
@@ -394,7 +394,7 @@ test('an unavailable engine and malformed answers are reported by stage', async 
   await closed.close();
   await assert.rejects(
     prepareNarration(script.slice(0, 1), { speakers: speakersFor(closed), cacheDir }),
-    (error: NarrationError) => error.stage === 'audio_query' && /could not reach the VOICEVOX Engine at http:\/\/127\.0\.0\.1:\d+/.test(error.message),
+    (error) => error instanceof NarrationError && error.stage === 'audio_query' && /could not reach the VOICEVOX Engine at http:\/\/127\.0\.0\.1:\d+/.test(error.message),
   );
 
   const notJson = await mockEngine((request) => (request.path === '/audio_query' ? { body: '<html>' } : undefined));
@@ -446,7 +446,7 @@ test('a cache directory that cannot be written fails at write', async () => {
   writeFileSync(join(cacheDir, '..', 'blocked'), 'a file, not a directory');
   await assert.rejects(
     prepareNarration(script.slice(0, 1), { speakers: speakersFor(engine), cacheDir: join(cacheDir, '..', 'blocked') }),
-    (error: NarrationError) => error.stage === 'write' && /could not write the cache entry/.test(error.message),
+    (error) => error instanceof NarrationError && error.stage === 'write' && /could not write the cache entry/.test(error.message),
   );
 });
 

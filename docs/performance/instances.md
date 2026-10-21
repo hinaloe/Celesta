@@ -59,7 +59,7 @@ base64.
 `@celesta/react` therefore encodes a column in pieces of 384 KiB of data
 (512 KiB of text, whole 3-byte groups so the pieces concatenate into the
 base64 of the whole) and joins them, which copies them into one flat
-string. `packages/react/test/flat-strings.test.mjs` renders a
+string. `packages/react/test/flat-strings.test.mts` renders a
 300,000-particle `Instances` and finds no non-flat string.
 
 Measured in isolation, stringifying an object holding one external

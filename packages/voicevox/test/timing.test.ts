@@ -1,5 +1,4 @@
-// Unit tests for timingFromVoicevox. Run after building @celesta/character:
-// pnpm --dir packages/voicevox test
+// Unit tests for timingFromVoicevox: pnpm --dir packages/voicevox test
 //
 // Fixtures are described in lipsync.test.ts.
 

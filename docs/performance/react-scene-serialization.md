@@ -117,7 +117,7 @@ strings.
 
 ## Correctness
 
-`packages/react/test/flat-strings.test.mjs` renders deep groups, a
+`packages/react/test/flat-strings.test.mts` renders deep groups, a
 template-literal text, an authored id, a template color, and a sliced asset
 path, and asserts that the frame has no cons or sliced strings. It checks
 with `%HaveSameMap`/`%IsInternalizedString` under `--allow-natives-syntax`,

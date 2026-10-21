@@ -1,5 +1,4 @@
-// Unit tests for lipSyncFromAivisSpeech. Run after building
-// @celesta/character: pnpm --dir packages/aivis-speech test
+// Unit tests for lipSyncFromAivisSpeech: pnpm --dir packages/aivis-speech test
 
 import assert from 'node:assert/strict';
 import { test } from 'vitest';

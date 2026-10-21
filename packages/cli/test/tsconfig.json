@@ -3,7 +3,7 @@
   // builds the packages this one depends on first, when their dist/ is
   // missing or stale; this package itself needs no build. The tests that
   // start bin/ or dist/cli.js, or read dist/project-types, still need
-  // `pnpm build` (each says so).
+  // `pnpm run build:runtime` at the repository root (each says so).
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "composite": false,
@@ -15,6 +15,8 @@
     "rootDir": "../../..",
     "tsBuildInfoFile": "../node_modules/.cache/test.tsbuildinfo",
     // The tests run on current Node (findLast, ...), not the runtime's ES2021 floor.
+    // The src/ the tests import is checked under this lib too; only the build
+    // checks it against the package's own.
     "lib": ["ES2023"],
     "types": ["node"]
   },

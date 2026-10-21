@@ -38,7 +38,8 @@ test('a failed export rejects with the report error', { skip }, async () => {
 });
 
 test('an exporter too old for the flags says so', { skip }, async () => {
-  await assert.rejects(getComposition({ source: 'film.tsx', ...run('old') }), (error: CelestaExportError) => {
+  await assert.rejects(getComposition({ source: 'film.tsx', ...run('old') }), (error) => {
+    assert.ok(error instanceof CelestaExportError);
     assert.equal(error.code, 'usage');
     assert.match(error.hint!, /older than @celesta\/exporter/);
     return true;
@@ -46,7 +47,8 @@ test('an exporter too old for the flags says so', { skip }, async () => {
 });
 
 test('an exporter that ends without a report keeps its stderr', { skip }, async () => {
-  await assert.rejects(getComposition({ source: 'film.tsx', ...run('crash') }), (error: CelestaExportError) => {
+  await assert.rejects(getComposition({ source: 'film.tsx', ...run('crash') }), (error) => {
+    assert.ok(error instanceof CelestaExportError);
     assert.equal(error.code, 'exporter_failed');
     assert.match(error.stderr!, /boom/);
     return true;

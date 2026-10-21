@@ -10,9 +10,10 @@ import type { Layer, LayerFilter, Scene, ShaderSource } from '@celesta/react';
 import { defineShader } from '../src/index.js';
 import type { ShaderParamSpec } from '../src/index.js';
 
-// The tests that render are integration tests of the build: they go through
-// the CLI, which loads @celesta/shader from its dist/, so `pnpm build` must
-// run first. The in-process test below imports the source.
+// The tests that render are integration tests of the build: they go through the
+// CLI, which loads @celesta/shader from its dist/, so `pnpm run build:runtime`
+// (repository root) must run first. The in-process test below imports the
+// source.
 const cli = fileURLToPath(new URL('../../cli/bin/celesta-react-render.js', import.meta.url));
 
 const WGSL = 'fn effect(input: EffectInput) -> vec4f { return source_at(input.position); }';

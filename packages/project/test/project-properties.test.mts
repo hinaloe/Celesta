@@ -1,9 +1,9 @@
-// Project property values from outside the source (--props, --props-file and
-// a companion project) reach the CLI on the first stdin line when it runs
-// with --properties-stdin. They are checked against defineProjectProperties()
-// before prepare() and are readable from prepare() and from rendering.
-// Integration tests of the build: they run the CLI, which loads
-// @celesta/project from its dist/. Run after `pnpm run build`.
+// Project property values from outside the source (--props, --props-file and a
+// companion project) reach the CLI on the first stdin line when it runs with
+// --properties-stdin. They are checked against defineProjectProperties() before
+// prepare() and are readable from prepare() and from rendering. Integration
+// tests of the build: they run the CLI, which loads @celesta/project from its
+// dist/. Run after `pnpm run build:runtime` (repository root).
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

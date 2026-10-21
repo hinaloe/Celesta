@@ -1,7 +1,8 @@
-// Portrait blinking: the pure `blinkPhase()` schedule, and the layers or
-// images a <CharacterView> renders on blinking and open frames. The renders
-// are integration tests of the build: they run the CLI, which loads
-// @celesta/character from dist/, so run them after `pnpm run build`.
+// Portrait blinking: the pure `blinkPhase()` schedule, and the layers or images
+// a <CharacterView> renders on blinking and open frames. The renders are
+// integration tests of the build: they run the CLI, which loads
+// @celesta/character from dist/, so run them after `pnpm run build:runtime`
+// (repository root).
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

@@ -1,6 +1,6 @@
 // PSD portraits through the CLI. These are integration tests of the build:
 // the CLI loads @celesta/character from dist/, so run them after
-// `pnpm run build`.
+// `pnpm run build:runtime` (repository root).
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

@@ -1,7 +1,9 @@
 {
   // Type-checks the tests together with the src/ they import. `tsc -b test`
   // builds the packages this one depends on first, when their dist/ is
-  // missing or stale; this package itself needs no build.
+  // missing or stale, but not this package: the tests that render go through
+  // the CLI, which loads this package's dist/, so they need
+  // `pnpm run build:runtime` at the repository root after a change to src/.
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "composite": false,

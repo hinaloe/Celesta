@@ -1,5 +1,4 @@
-// Unit tests for the VOICEVOX AudioQuery adapter. Run after building
-// @celesta/character: pnpm --dir packages/voicevox test
+// Unit tests for the VOICEVOX AudioQuery adapter: pnpm --dir packages/voicevox test
 //
 // `voicevox-zundamon-konnichiwa.json` is a real VOICEVOX Engine `audio_query`
 // response (Zundamon, normal style) for 「こんにちは、ずんだもんなのだ。」.

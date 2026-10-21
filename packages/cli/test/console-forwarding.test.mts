@@ -1,8 +1,9 @@
-// The bridge CLI (src/cli.ts) speaks a JSON-lines protocol over stdout that
-// the Rust side (crates/react-bridge) parses one line at a time. A stray
-// `console.log` in a composition must not land on that stream — it is routed
-// to stderr instead, where the bridge inherits it to the user's terminal.
-// Run after `pnpm build`: the tests exercise the built CLI (bin/ loads dist/cli.js).
+// The bridge CLI (src/cli.ts) speaks a JSON-lines protocol over stdout that the
+// Rust side (crates/react-bridge) parses one line at a time. A stray
+// `console.log` in a composition must not land on that stream — it is routed to
+// stderr instead, where the bridge inherits it to the user's terminal. Run
+// after `pnpm run build:runtime` (repository root): the tests exercise the
+// built CLI (bin/ loads dist/cli.js).
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

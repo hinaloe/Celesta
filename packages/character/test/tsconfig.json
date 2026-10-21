@@ -7,6 +7,8 @@
     "composite": false,
     "declaration": false,
     // The tests run on Node 22+, past the ES2021 the package's output targets.
+    // The src/ the tests import is checked under this lib too; only the build
+    // checks it against the package's own.
     "lib": ["ES2022"],
     "noEmit": true,
     "rootDir": "..",

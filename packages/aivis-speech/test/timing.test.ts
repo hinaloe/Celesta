@@ -1,5 +1,4 @@
-// Unit tests for timingFromAivisSpeech. Run after building @celesta/character:
-// pnpm --dir packages/aivis-speech test
+// Unit tests for timingFromAivisSpeech: pnpm --dir packages/aivis-speech test
 //
 // The WAVs are synthesized by fixtures/voice.ts from known phoneme lengths
 // (the zundamon line VOICEVOX Engine reads in @celesta/voicevox's tests), so

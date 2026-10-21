@@ -1,4 +1,5 @@
-// Exercises the built CLI (bin/ loads dist/cli.js): run `pnpm build` first.
+// Exercises the built CLI (bin/ loads dist/cli.js): run `pnpm run
+// build:runtime` (repository root) first.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

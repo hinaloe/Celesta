@@ -1,6 +1,7 @@
 // `preview` frame requests: the editor's .tsx preview asks for whole frames
-// like an export does, and says so with `preview: true`. Run after
-// `pnpm build`: the test exercises the built CLI (bin/ loads dist/cli.js).
+// like an export does, and says so with `preview: true`. Run after `pnpm run
+// build:runtime` (repository root): the test exercises the built CLI (bin/
+// loads dist/cli.js).
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
