@@ -1,6 +1,6 @@
 // `preview` frame requests: the editor's .tsx preview asks for whole frames
 // like an export does, and says so with `preview: true`. Run after
-// `pnpm run build`.
+// `pnpm build`: the test exercises the built CLI (bin/ loads dist/cli.js).
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -10,9 +10,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 
+import type { Time } from '@celesta/react';
+import type { FrameMessage, FrameRequest } from '../src/cli.js';
+import { contentOf } from './layer-content.mjs';
+
 const cli = fileURLToPath(new URL('../bin/celesta-react-render.js', import.meta.url));
 
-function frames(requests) {
+function frames(requests: FrameRequest[]): FrameMessage[] {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-preview-'));
   const entry = join(dir, 'entry.tsx');
   writeFileSync(entry, `
@@ -42,7 +46,7 @@ function frames(requests) {
   }
 }
 
-const mode = (frame) => frame.scene.layers[0].content.text;
+const mode = (frame: FrameMessage) => contentOf(frame.scene.layers[0], 'text').text;
 
 test('useIsPreview() is true only in frames asked for with preview', () => {
   const time = { value: 0, timescale: 30 };
@@ -60,13 +64,16 @@ test('useIsPreview() is true only in frames asked for with preview', () => {
 });
 
 test('a <Static> that reads useIsPreview() is walked again when preview changes', () => {
-  const time = (value) => ({ value, timescale: 30 });
-  const fill = (frame, definitions) => {
+  const time = (value: number): Time => ({ value, timescale: 30 });
+  type Definitions = NonNullable<FrameMessage['statics']>;
+  const fill = (frame: FrameMessage, definitions: Definitions) => {
     const { content } = frame.scene.layers[1];
     const layers = content.type === 'staticRef'
-      ? definitions.find((definition) => definition.key === content.key).layers
-      : content.layers;
-    return layers[0].content.fill.color;
+      ? definitions.find((definition) => definition.key === content.key)?.layers
+      : contentOf(frame.scene.layers[1], 'group').layers;
+    const paint = contentOf(layers?.[0], 'rect').fill;
+    assert.equal(paint?.type, 'solid');
+    return paint.color;
   };
   const responses = frames([
     { time: time(0), compactTransforms: true, statics: { decoded: 0 } },
@@ -76,6 +83,7 @@ test('a <Static> that reads useIsPreview() is walked again when preview changes'
   const definitions = responses.flatMap((frame) => frame.statics ?? []);
   assert.deepEqual(responses.map((frame) => fill(frame, definitions)), ['#ffffff', '#ff0000', '#ffffff']);
   const [first, preview, plain] = responses;
-  assert.notEqual(preview.scene.layers[1].content.key, first.scene.layers[1].content.key);
-  assert.notEqual(plain.scene.layers[1].content.key, preview.scene.layers[1].content.key);
+  const key = (frame: FrameMessage) => contentOf(frame.scene.layers[1], 'staticRef').key;
+  assert.notEqual(key(preview), key(first));
+  assert.notEqual(key(plain), key(preview));
 });

@@ -1,15 +1,23 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import React from 'react';
+import type { ReactNode } from 'react';
 
 import { Assets, Composition, Group, Span, Text, useTextMetrics } from '@celesta/react';
+import type { AssetReference, FontFamily, Layer, LayerContent, TextMetrics } from '@celesta/react';
 import { TextBox, TextReveal, useFitText, useTypewriter } from '@celesta/text';
+import type { FitTextOptions, Typewriter } from '@celesta/text';
 import { Character, CharacterView, Dialogue, DialogueSeries, planDialogue } from '@celesta/character';
+import type { CharacterViewReference, SubtitleRenderProps } from '@celesta/character';
 import { flattenTextContent, mount, setTextMeasurer, sliceTextRuns, withTextRuns } from '@celesta/react/internal';
+import type { EntryComponent, MeasureTextRequest } from '@celesta/react/internal';
+import { contentOf } from './layer-content.mjs';
+
+type TextContent = Extract<LayerContent, { type: 'text' }>;
 
 const h = React.createElement;
-const scene = (Root) => mount(Root).renderAt({ value: 0, timescale: 30 }, null).scene;
-const frame = (...children) => () => h(Composition, { width: 400, height: 200, fps: 30, durationInFrames: 1 }, ...children);
+const scene = (Root: EntryComponent) => mount(Root).renderAt({ value: 0, timescale: 30 }, null).scene;
+const frame = (...children: ReactNode[]) => () => h(Composition, { width: 400, height: 200, fps: 30, durationInFrames: 1 }, ...children);
 
 test('flattening counts code points and resolves nested spans', () => {
   const flat = flattenTextContent([
@@ -51,7 +59,8 @@ test('a span takes a font stack, and equal stacks merge', () => {
   stack.push('Mutated');
   assert.deepEqual(flat.fontRuns[0].fontFamily, ['JetBrains Mono', 'Noto Sans JP']);
   for (const fontFamily of ['', ' ', [], ['Inter', ''], ['Inter', 3], 3]) {
-    assert.throws(() => flattenTextContent(h(Span, { style: { fontFamily } }, 'a'), '<Text> children'),
+    // Deliberately not font families.
+    assert.throws(() => flattenTextContent(h(Span, { style: { fontFamily: fontFamily as FontFamily } }, 'a'), '<Text> children'),
       /<Span> fontFamily must be a non-empty string or a non-empty array of them/, JSON.stringify(fontFamily));
   }
 });
@@ -70,7 +79,7 @@ test('flattening rejects what it cannot style', () => {
   assert.throws(() => flattenTextContent(h(Wrapped), '<Text> children'),
     /<Text> children must be a string, a number, or an array of those; style part of the text with <Span>/);
   // The renderer reads only #RRGGBB and #RRGGBBAA, so anything else fails here, not at export.
-  for (const fill of ['#f00', 'red', '#12345', { type: 'solid', color: 'rgb(0, 0, 0)' }]) {
+  for (const fill of ['#f00', 'red', '#12345', { type: 'solid', color: 'rgb(0, 0, 0)' }] as const) {
     assert.throws(() => flattenTextContent(h(Span, { style: { fill } }, 'a'), '<Text> children'),
       /<Span> fill must be a #RRGGBB or #RRGGBBAA color/, JSON.stringify(fill));
   }
@@ -109,15 +118,15 @@ test('a span rendered outside text content throws', () => {
 
 test('Text writes spans as runs and leaves plain text as it was', () => {
   const [plain, nothing, spanned] = scene(frame(
-    h(Text, { id: 'plain', style: { fontSize: 20 } }, 'Hello ', 3),
-    h(Text, { id: 'nothing' }, 'a', null, false),
-    h(Text, { id: 'spanned', style: { fontSize: 20 } }, '速い、', h(Span, { style: { fill: '#28A34A', fontWeight: 700 } }, 'カンタン'), '。'),
+    h(Text, { id: 'plain', style: { fontSize: 20 }, children: ['Hello ', 3] }),
+    h(Text, { id: 'nothing', children: ['a', null, false] }),
+    h(Text, { id: 'spanned', style: { fontSize: 20 }, children: ['速い、', h(Span, { style: { fill: '#28A34A', fontWeight: 700 } }, 'カンタン'), '。'] }),
   )).layers;
-  assert.deepEqual(plain.content.style, { fontSize: 20 });
-  assert.equal(plain.content.text, 'Hello 3');
-  assert.equal(nothing.content.text, 'a');
-  assert.equal(spanned.content.text, '速い、カンタン。');
-  assert.deepEqual(spanned.content.style, {
+  assert.deepEqual(contentOf(plain, 'text').style, { fontSize: 20 });
+  assert.equal(contentOf(plain, 'text').text, 'Hello 3');
+  assert.equal(contentOf(nothing, 'text').text, 'a');
+  assert.equal(contentOf(spanned, 'text').text, '速い、カンタン。');
+  assert.deepEqual(contentOf(spanned, 'text').style, {
     fontSize: 20,
     colorRuns: [{ start: 3, end: 7, color: '#28A34A' }],
     fontRuns: [{ start: 3, end: 7, fontWeight: 700 }],
@@ -125,23 +134,26 @@ test('Text writes spans as runs and leaves plain text as it was', () => {
 });
 
 test('TextBox measures and draws its spans', () => {
-  const requests = [];
-  setTextMeasurer(async () => { throw new Error('unused'); }, (request) => {
+  const requests: MeasureTextRequest[] = [];
+  setTextMeasurer(async () => { throw new Error('unused'); }, (request): TextMetrics => {
     requests.push(request);
-    return { width: Array.from(request.text).length * request.style.fontSize, height: request.style.fontSize, ascent: 8, descent: 2, lineHeight: 10, lines: 1, glyphs: [] };
+    const fontSize = request.style.fontSize ?? 0;
+    return { width: Array.from(request.text).length * fontSize, height: fontSize, ascent: 8, descent: 2, lineHeight: 10,
+      capHeight: 0, xHeight: 0, lines: 1, glyphs: [] };
   });
-  const [box] = scene(frame(h(TextBox, { width: 400, height: 100, minFontSize: 10, maxFontSize: 40 }, 'a', h(Span, { style: { fontWeight: 700 } }, 'b')))).layers;
+  const [box] = scene(frame(h(TextBox, { width: 400, height: 100, minFontSize: 10, maxFontSize: 40,
+    children: ['a', h(Span, { style: { fontWeight: 700 } }, 'b')] }))).layers;
   assert.ok(requests.length > 0);
   assert.ok(requests.every((request) => request.style.fontRuns?.[0]?.fontWeight === 700));
-  const text = box.content.layers[0];
-  assert.equal(text.content.text, 'ab');
-  assert.deepEqual(text.content.style.fontRuns, [{ start: 1, end: 2, fontWeight: 700 }]);
+  const text = contentOf(contentOf(box, 'group').layers[0], 'text');
+  assert.equal(text.text, 'ab');
+  assert.deepEqual(text.style.fontRuns, [{ start: 1, end: 2, fontWeight: 700 }]);
 });
 
 test('useFitText refuses style.colorRuns with a Span fill, as fitText does', () => {
-  const metrics = () => ({ width: 1, height: 1, ascent: 1, descent: 0, lineHeight: 1, lines: 1, glyphs: [] });
+  const metrics = (): TextMetrics => ({ width: 1, height: 1, ascent: 1, descent: 0, lineHeight: 1, capHeight: 0, xHeight: 0, lines: 1, glyphs: [] });
   setTextMeasurer(async () => metrics(), metrics);
-  const options = { width: 400, height: 100, minFontSize: 10, maxFontSize: 40, style: { colorRuns: [{ start: 0, end: 1, color: '#ffffff' }] } };
+  const options: FitTextOptions = { width: 400, height: 100, minFontSize: 10, maxFontSize: 40, style: { colorRuns: [{ start: 0, end: 1, color: '#ffffff' }] } };
   const content = ['a', h(Span, { style: { fill: '#ff0000' } }, 'b')];
   function Probe() {
     useFitText(content, options);
@@ -156,26 +168,28 @@ test('useFitText refuses style.colorRuns with a Span fill, as fitText does', () 
 });
 
 test('subtitles carry spans to the text layer and to render', () => {
-  const requests = [];
-  setTextMeasurer(async () => { throw new Error('unused'); }, (request) => {
+  const requests: MeasureTextRequest[] = [];
+  setTextMeasurer(async () => { throw new Error('unused'); }, (request): TextMetrics => {
     requests.push(request);
-    return { width: 10, height: 10, ascent: 8, descent: 2, lineHeight: 10, lines: 1, glyphs: [] };
+    return { width: 10, height: 10, ascent: 8, descent: 2, lineHeight: 10, capHeight: 0, xHeight: 0, lines: 1, glyphs: [] };
   });
   const portrait = { defaultExpression: 'normal', expressions: { normal: 'mira-normal.png' } };
-  let seen;
-  const make = (render) => {
-    const character = React.createRef();
-    const view = React.createRef();
+  let seen: SubtitleRenderProps | undefined;
+  const make = (render: ((props: SubtitleRenderProps) => ReactNode) | null) => {
+    const character = React.createRef<AssetReference>();
+    const view = React.createRef<CharacterViewReference>();
     return () => h(Composition, { width: 400, height: 200, fps: 30, durationInFrames: 1 },
       h(Assets, null, h(Character, { ref: character, name: 'mira', portrait, subtitle: { style: { fontSize: 20 }, ...(render ? { render } : {}) } })),
       h(CharacterView, { ref: view, character }),
-      h(Dialogue, { character: view }, 'ぜひ', h(Span, { style: { fill: '#ff0000' } }, '一度'), 'お試しを'));
+      h(Dialogue, { character: view, children: ['ぜひ', h(Span, { style: { fill: '#ff0000' } }, '一度'), 'お試しを'] }));
   };
   const plain = JSON.stringify(scene(make(null)));
   assert.match(plain, /"colorRuns":\[\{"start":2,"end":4,"color":"#ff0000"\}\]/);
-  scene(make((props) => { seen = props; return h(Text, { style: props.style }, props.content); }));
+  scene(make((props) => { seen = props; return h(Text, { style: props.style, children: props.content }); }));
+  assert.ok(seen);
   assert.equal(seen.text, 'ぜひ一度お試しを');
   assert.equal(seen.style.colorRuns, undefined);
+  assert.ok(Array.isArray(seen.content));
   assert.ok(React.isValidElement(seen.content[1]));
   // `metrics` is measured on first read only.
   assert.ok(!requests.some((request) => request.text === 'ぜひ一度お試しを'));
@@ -184,14 +198,14 @@ test('subtitles carry spans to the text layer and to render', () => {
 });
 
 test('DialogueSeries lines may hold spans', async () => {
-  const metrics = () => ({ width: 1, height: 1, ascent: 1, descent: 0, lineHeight: 1, lines: 1, glyphs: [] });
+  const metrics = (): TextMetrics => ({ width: 1, height: 1, ascent: 1, descent: 0, lineHeight: 1, capHeight: 0, xHeight: 0, lines: 1, glyphs: [] });
   setTextMeasurer(async () => metrics(), metrics);
   const plan = await planDialogue(
     [{ id: 'one', text: ['ぜひ', h(Span, { style: { fill: '#ff0000' } }, '一度')], durationInFrames: 10, speaker: 'mira' }],
     { fps: 30 },
   );
-  const character = React.createRef();
-  const view = React.createRef();
+  const character = React.createRef<AssetReference>();
+  const view = React.createRef<CharacterViewReference>();
   const Root = () => h(Composition, { width: 400, height: 200, fps: 30, durationInFrames: plan.durationInFrames },
     h(Assets, null, h(Character, {
       ref: character, name: 'mira',
@@ -206,10 +220,10 @@ test('DialogueSeries lines may hold spans', async () => {
 });
 
 test('useTextMetrics measures spans with their font runs; strings measure as before', () => {
-  const requests = [];
-  setTextMeasurer(async () => { throw new Error('unused'); }, (request) => {
+  const requests: MeasureTextRequest[] = [];
+  setTextMeasurer(async () => { throw new Error('unused'); }, (request): TextMetrics => {
     requests.push(request);
-    return { width: 1, height: 1, ascent: 1, descent: 0, lineHeight: 1, lines: 1, glyphs: [] };
+    return { width: 1, height: 1, ascent: 1, descent: 0, lineHeight: 1, capHeight: 0, xHeight: 0, lines: 1, glyphs: [] };
   });
   function Probe() {
     useTextMetrics('plain', { fontSize: 10, fill: { type: 'solid', color: '#fff' } });
@@ -223,27 +237,28 @@ test('useTextMetrics measures spans with their font runs; strings measure as bef
 });
 
 test('useTypewriter counts the code points of rich content', () => {
-  let typed;
+  let typed: Typewriter | undefined;
   function Probe() {
     typed = useTypewriter(['速い、', h(Span, { style: { fontWeight: 700 } }, 'カンタン')], { from: 0, framesPerChar: 1 });
     return null;
   }
   const Root = () => h(Composition, { width: 400, height: 200, fps: 30, durationInFrames: 30 }, h(Probe));
   mount(Root).renderAt({ value: 4, timescale: 30 }, null);
+  assert.ok(typed);
   assert.equal(typed.length, 5);
   assert.equal(typed.text, '速い、カン');
   assert.equal(typed.done, false);
 });
 
 /** Text layers, depth first. */
-function textContents(layers) {
+function textContents(layers: Layer[]): TextContent[] {
   return layers.flatMap((layer) =>
     layer.content.type === 'text' ? [layer.content] : layer.content.type === 'group' ? textContents(layer.content.layers) : []);
 }
 
 test('TextReveal splits a run that crosses a line', () => {
-  const texts = textContents(scene(frame(h(TextReveal, { style: { fontSize: 20 } },
-    'ab', h(Span, { style: { fontWeight: 700, fill: '#ff0000' } }, 'c\nd'), 'e'))).layers);
+  const texts = textContents(scene(frame(h(TextReveal, { style: { fontSize: 20 },
+    children: ['ab', h(Span, { style: { fontWeight: 700, fill: '#ff0000' } }, 'c\nd'), 'e'] }))).layers);
   assert.deepEqual(texts.map((text) => text.text), ['abc', 'de']);
   assert.deepEqual(texts[0].style.fontRuns, [{ start: 2, end: 3, fontWeight: 700 }]);
   assert.deepEqual(texts[1].style.fontRuns, [{ start: 0, end: 1, fontWeight: 700 }]);
@@ -251,6 +266,6 @@ test('TextReveal splits a run that crosses a line', () => {
 });
 
 test('TextReveal keeps string children as they were', () => {
-  const texts = textContents(scene(frame(h(TextReveal, { style: { fontSize: 20 } }, 'one\ntwo'))).layers);
+  const texts = textContents(scene(frame(h(TextReveal, { style: { fontSize: 20 }, children: 'one\ntwo' }))).layers);
   assert.deepEqual(texts.map((text) => [text.text, text.style]), [['one', { fontSize: 20 }], ['two', { fontSize: 20 }]]);
 });

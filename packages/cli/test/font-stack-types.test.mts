@@ -1,6 +1,6 @@
 // The staged project types accept font stacks wherever a family goes,
 // including read-only lists declared `as const`. Run after
-// `pnpm run build:runtime`.
+// `pnpm run build:runtime`: the test checks the build's dist/project-types.
 
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -45,6 +45,7 @@ test('the staged project types take font stacks, read-only ones included', () =>
       ...ts.sys,
       onUnRecoverableConfigFileDiagnostic: (diagnostic) => assert.fail(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')),
     });
+    assert.ok(config);
     const program = ts.createProgram(config.fileNames, config.options);
     const diagnostics = ts.getPreEmitDiagnostics(program).map((diagnostic) =>
       ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));

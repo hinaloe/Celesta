@@ -1,3 +1,5 @@
+// Exercises the built CLI (bin/ loads dist/cli.js): run `pnpm build` first.
+
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -6,11 +8,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 
+import type { FrameMessage, Message, ReadyMessage } from '../src/cli.js';
+
 const cli = fileURLToPath(new URL('../bin/celesta-react-render.js', import.meta.url));
 
 /** Splits stdout into the JSON messages its u32 little-endian prefixes delimit. */
-function messages(stdout) {
-  const result = [];
+function messages(stdout: Buffer): Message[] {
+  const result: Message[] = [];
   let offset = 0;
   while (offset < stdout.length) {
     const length = stdout.readUInt32LE(offset);
@@ -39,7 +43,7 @@ test('--length-prefixed frames every message with its UTF-8 byte count', () => {
     assert.equal(result.status, 0, result.stderr.toString());
     const framed = messages(result.stdout);
     assert.equal(framed.length, 2);
-    const [ready, frame] = framed;
+    const [ready, frame] = framed as [ReadyMessage, FrameMessage];
     assert.equal(ready.config.width, 64);
     // A multi-byte id checks that the prefix counts bytes, not characters.
     assert.equal(frame.scene.layers[0].id, '四角');

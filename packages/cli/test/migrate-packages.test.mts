@@ -11,14 +11,22 @@ import { addDependencies, migrateSource, movedExports } from '../../../skills/ce
 
 const script = fileURLToPath(new URL('../../../skills/celesta/scripts/migrate-packages.mjs', import.meta.url));
 
-/** Every name each package's declarations export, values and types, from one program. */
-function exportsOf(pkgs) {
+/**
+ * Every name each package's declarations export, values and types, from one
+ * program. Reads the packages' built dist/index.d.ts, which `tsc -b test`
+ * builds (test/tsconfig.json references them).
+ */
+function exportsOf(pkgs: string[]): Map<string, Set<string>> {
   const files = pkgs.map((pkg) => fileURLToPath(new URL(`../../${pkg}/dist/index.d.ts`, import.meta.url)));
   const program = ts.createProgram(files, { skipLibCheck: true, noEmit: true });
   const checker = program.getTypeChecker();
-  return new Map(pkgs.map((pkg, i) => [pkg, new Set(
-    checker.getExportsOfModule(checker.getSymbolAtLocation(program.getSourceFile(files[i]))).map((s) => s.getName()),
-  )]));
+  return new Map(pkgs.map((pkg, i) => {
+    const source = program.getSourceFile(files[i]);
+    assert.ok(source, files[i]);
+    const symbol = checker.getSymbolAtLocation(source);
+    assert.ok(symbol, files[i]);
+    return [pkg, new Set(checker.getExportsOfModule(symbol).map((s) => s.getName()))];
+  }));
 }
 
 // Only the names that left @celesta/react are checked: names the packages
@@ -27,8 +35,10 @@ function exportsOf(pkgs) {
 test('the moved names match what the packages export', { timeout: 60_000 }, () => {
   const exported = exportsOf(['react', ...Object.keys(movedExports).map((pkg) => pkg.slice('@celesta/'.length))]);
   const core = exported.get('react');
+  assert.ok(core);
   for (const [pkg, names] of Object.entries(movedExports)) {
     const own = exported.get(pkg.slice('@celesta/'.length));
+    assert.ok(own, pkg);
     for (const name of names) {
       assert.ok(own.has(name), `${pkg} does not export ${name}`);
       assert.ok(!core.has(name), `@celesta/react still exports ${name}`);

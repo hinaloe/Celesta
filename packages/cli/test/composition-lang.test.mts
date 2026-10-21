@@ -5,47 +5,52 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import React from 'react';
+import type { ElementType } from 'react';
 import { test } from 'vitest';
 
 import { Composition, Group, Sequence, Text, registerComponent, useCurrentFrame, useTextMetrics } from '@celesta/react';
+import type { CompositionConfig, Layer, LayerContent, Scene, TextMetrics } from '@celesta/react';
 import { TextBox, useFitText } from '@celesta/text';
 import { ProjectTimeline } from '@celesta/project';
 import { mount, createResolver, setTextMeasurer } from '@celesta/react/internal';
+import type { ComponentResolutions, MeasureTextRequest } from '@celesta/react/internal';
 
-function texts(layers) {
+type TextContent = Extract<LayerContent, { type: 'text' }>;
+
+function texts(layers: Layer[]): TextContent[] {
   return layers.flatMap(({ content }) => content.type === 'text' ? [content]
     : content.type === 'group' ? texts(content.layers) : []);
 }
 
 test('composition language reaches nested text, project layers, metrics and component previews', () => {
-  const requests = [];
-  setTextMeasurer(async () => { throw new Error('unexpected async measurement'); }, (request) => {
+  const requests: MeasureTextRequest[] = [];
+  setTextMeasurer(async () => { throw new Error('unexpected async measurement'); }, (request): TextMetrics => {
     requests.push(request);
     return { width: request.style.lang === 'zh-Hant' ? 80 : 40, height: 24,
-      ascent: 18, descent: 6, lineHeight: 24, lines: 1, glyphs: [] };
+      ascent: 18, descent: 6, lineHeight: 24, capHeight: 0, xHeight: 0, lines: 1, glyphs: [] };
   });
   const sharedStyle = Object.freeze({ fontSize: 40 });
   function Caption() {
     const inherited = useTextMetrics('inherited', sharedStyle);
     const override = useTextMetrics('override', { lang: 'zh-Hant' });
     return React.createElement(Group, null,
-      React.createElement(Text, { style: sharedStyle, maxWidth: inherited.width }, 'inherited'),
-      React.createElement(Text, { style: { lang: 'zh-Hant' }, maxWidth: override.width }, 'override'));
+      React.createElement(Text, { style: sharedStyle, maxWidth: inherited.width, children: 'inherited' }),
+      React.createElement(Text, { style: { lang: 'zh-Hant' }, maxWidth: override.width, children: 'override' }));
   }
   const config = { width: 400, height: 200, fps: 30, durationInFrames: 2 };
   const projectLayers = mount(() => React.createElement(Composition, config,
     React.createElement(Group, null,
-      React.createElement(Text, null, 'project'),
-      React.createElement(Text, { style: { lang: 'ko' } }, 'project override'))))
+      React.createElement(Text, { children: 'project' }),
+      React.createElement(Text, { style: { lang: 'ko' }, children: 'project override' }))))
     .renderAt({ value: 0, timescale: 30 }, null).scene.layers;
   const originalProjectLayers = structuredClone(projectLayers);
   const root = mount(() => {
     // Hooks in the entry itself also see the discovered composition language.
     const rootMetrics = useTextMetrics('root');
     return React.createElement(Composition, { ...config, lang: 'ja-JP' },
-      React.createElement(Text, { maxWidth: rootMetrics.width }, 'root'),
+      React.createElement(Text, { maxWidth: rootMetrics.width, children: 'root' }),
       React.createElement(Sequence, { from: 0 }, React.createElement(Caption)),
-      React.createElement(Text, { style: { lang: null } }, 'nullable'),
+      React.createElement(Text, { style: { lang: null }, children: 'nullable' }),
       React.createElement(ProjectTimeline));
   });
   assert.equal(root.config.lang, 'ja-JP');
@@ -65,25 +70,26 @@ test('composition language reaches nested text, project layers, metrics and comp
     [{ component: 'CompositionLanguageCaption', props: {} }],
     { ...config, time: { value: 0, timescale: 30 }, preview: true },
   ).components;
-  assert.deepEqual(texts(preview[0]), texts(scene.layers).filter(({ text }) => text === 'inherited' || text === 'override'));
+  assert.deepEqual(texts(preview[0]!), texts(scene.layers).filter(({ text }) => text === 'inherited' || text === 'override'));
   const plain = mount(() => React.createElement(Composition, config, React.createElement(Caption)));
   assert.equal(plain.config.lang, undefined);
   assert.equal(texts(plain.renderAt({ value: 0, timescale: 30 }, null).scene.layers)[0].style.lang, undefined);
-  assert.throws(() => mount(() => React.createElement(Composition, { ...config, lang: 42 })), /string `lang`/);
+  // `lang: 42` is deliberately not a string.
+  assert.throws(() => mount(() => React.createElement(Composition, { ...config, lang: 42 as unknown as string })), /string `lang`/);
 });
 
 test('nearest language scopes keep measurements, rendered text and previews aligned across frames', () => {
-  const requests = [];
-  const widths = { 'ja-JP': 40, 'zh-Hant': 80, 'ko-KR': 60 };
-  setTextMeasurer(async () => { throw new Error('unexpected async measurement'); }, (request) => {
+  const requests: MeasureTextRequest[] = [];
+  const widths: Partial<Record<string, number>> = { 'ja-JP': 40, 'zh-Hant': 80, 'ko-KR': 60 };
+  setTextMeasurer(async () => { throw new Error('unexpected async measurement'); }, (request): TextMetrics => {
     requests.push(request);
-    return { width: widths[request.style.lang] ?? 20, height: 24,
-      ascent: 18, descent: 6, lineHeight: 24, lines: 1, glyphs: [] };
+    return { width: widths[String(request.style.lang)] ?? 20, height: 24,
+      ascent: 18, descent: 6, lineHeight: 24, capHeight: 0, xHeight: 0, lines: 1, glyphs: [] };
   });
   const sharedStyle = Object.freeze({ fontSize: 40 });
-  function Caption({ label }) {
+  function Caption({ label }: { label: string }) {
     const metrics = useTextMetrics(label, sharedStyle);
-    return React.createElement(Text, { style: sharedStyle, maxWidth: metrics.width }, label);
+    return React.createElement(Text, { style: sharedStyle, maxWidth: metrics.width, children: label });
   }
   function Scopes() {
     const frame = useCurrentFrame();
@@ -96,9 +102,9 @@ test('nearest language scopes keep measurements, rendered text and previews alig
           React.createElement(Group, { lang: 'ja-JP' }, React.createElement(Caption, { label: 'nested' })))),
       React.createElement(Group, { lang: frame === 0 ? 'ja-JP' : 'zh-Hant' },
         React.createElement(Caption, { label: 'changing' })),
-      React.createElement(Text, { lang: 'fr', style: sharedStyle }, 'prop'),
-      React.createElement(Text, { lang: 'fr', style: { lang: 'ko-KR' } }, 'style'),
-      React.createElement(Text, { lang: '', style: sharedStyle }, 'system'));
+      React.createElement(Text, { lang: 'fr', style: sharedStyle, children: 'prop' }),
+      React.createElement(Text, { lang: 'fr', style: { lang: 'ko-KR' }, children: 'style' }),
+      React.createElement(Text, { lang: '', style: sharedStyle, children: 'system' }));
   }
   const config = { width: 400, height: 200, fps: 30, durationInFrames: 3 };
   const languages = ['ja-JP', 'zh-Hant', undefined];
@@ -116,14 +122,15 @@ test('nearest language scopes keep measurements, rendered text and previews alig
       const request = requests.findLast(({ text }) => text === layer.text);
       assert.ok(request, `no measurement for ${layer.text}`);
       assert.equal(request.style.lang, layer.style.lang);
-      assert.equal(layer.maxWidth, widths[layer.style.lang] ?? 20);
+      assert.equal(layer.maxWidth, widths[String(layer.style.lang)] ?? 20);
     }
     const preview = createResolver(languages[frame]).resolve(
       [{ component: 'ScopedLanguageCaption', props: {} }], { ...config, time, preview: true }).components;
-    assert.deepEqual(texts(preview[0]), content);
+    assert.deepEqual(texts(preview[0]!), content);
   }
   assert.deepEqual(sharedStyle, { fontSize: 40 });
-  for (const Component of [Group, Sequence, Text]) {
+  // `lang: 42` is deliberately not a string, which none of them accepts.
+  for (const Component of [Group, Sequence, Text] as ElementType[]) {
     assert.throws(() => {
       const invalid = mount(() => React.createElement(Composition, config,
         React.createElement(Component, { lang: 42 }, Component === Text ? 'invalid' : null)));
@@ -135,8 +142,8 @@ test('nearest language scopes keep measurements, rendered text and previews alig
 test('project layers inherit their enclosing scope without mutating the project', () => {
   const config = { width: 400, height: 200, fps: 30, durationInFrames: 1 };
   const projectLayers = mount(() => React.createElement(Composition, config,
-    React.createElement(Group, null, React.createElement(Text, null, 'project'),
-      React.createElement(Text, { style: { lang: 'ko-KR' } }, 'override'))))
+    React.createElement(Group, null, React.createElement(Text, { children: 'project' }),
+      React.createElement(Text, { style: { lang: 'ko-KR' }, children: 'override' }))))
     .renderAt({ value: 0, timescale: 30 }, null).scene.layers;
   const original = structuredClone(projectLayers);
   const root = mount(() => React.createElement(Composition, { ...config, lang: 'ja-JP' },
@@ -151,10 +158,11 @@ test('project layers inherit their enclosing scope without mutating the project'
 });
 
 test('fitted text measures with the inherited language and preserves explicit overrides', () => {
-  setTextMeasurer(async () => { throw new Error('unexpected async measurement'); }, ({ style }) => {
-    const width = style.fontSize * (style.lang === 'zh-Hant' ? 4 : style.lang === 'ja-JP' ? 2 : 1);
-    return { width, height: style.fontSize, ascent: style.fontSize, descent: 0,
-      lineHeight: style.fontSize, lines: 1, glyphs: [] };
+  setTextMeasurer(async () => { throw new Error('unexpected async measurement'); }, ({ style }): TextMetrics => {
+    const fontSize = style.fontSize ?? 0;
+    const width = fontSize * (style.lang === 'zh-Hant' ? 4 : style.lang === 'ja-JP' ? 2 : 1);
+    return { width, height: fontSize, ascent: fontSize, descent: 0,
+      lineHeight: fontSize, capHeight: 0, xHeight: 0, lines: 1, glyphs: [] };
   });
   const options = Object.freeze({ width: 40, height: 40, minFontSize: 5, maxFontSize: 30,
     style: Object.freeze({ fontFamily: 'Test Font' }) });
@@ -162,9 +170,9 @@ test('fitted text measures with the inherited language and preserves explicit ov
     const inherited = useFitText('fit', options);
     const override = useFitText('override', { ...options, style: { lang: 'zh-Hant' } });
     return React.createElement(Group, null,
-      React.createElement(Text, { style: inherited.style }, 'fit'),
-      React.createElement(Text, { style: override.style }, 'override'),
-      React.createElement(TextBox, options, 'box'));
+      React.createElement(Text, { style: inherited.style, children: 'fit' }),
+      React.createElement(Text, { style: override.style, children: 'override' }),
+      React.createElement(TextBox, { ...options, children: 'box' }));
   }
   const config = { width: 400, height: 200, fps: 30, durationInFrames: 1, lang: 'zh-Hant' };
   const ScopedCaption = () => React.createElement(Group, { lang: 'ja-JP' }, React.createElement(Caption));
@@ -178,10 +186,11 @@ test('fitted text measures with the inherited language and preserves explicit ov
     [{ component: 'CompositionLanguageFittedCaption', props: {} }],
     { ...config, time: { value: 0, timescale: 30 }, preview: true },
   ).components;
-  assert.deepEqual(texts(preview[0]), content);
+  assert.deepEqual(texts(preview[0]!), content);
   assert.deepEqual(options.style, { fontFamily: 'Test Font' });
 });
 
+// Exercises the built CLI (bin/ loads dist/cli.js): run `pnpm build` first.
 test('CLI inherits composition language for subtitles and preview requests from older bridges', () => {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-composition-lang-'));
   const entry = join(dir, 'entry.tsx');
@@ -213,10 +222,11 @@ test('CLI inherits composition language for subtitles and preview requests from 
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    const [metadata, frame, preview] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    const [metadata, frame, preview] = result.stdout.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line)) as
+      [{ config: CompositionConfig }, { scene: Scene }, ComponentResolutions];
     assert.equal(metadata.config.lang, 'ja-JP');
     assert.deepEqual(texts(frame.scene.layers).map(({ style }) => style.lang), ['ja-JP', 'ko-KR', 'zh-Hant']);
-    assert.equal(texts(preview.components[0])[0].style.lang, 'ja-JP');
+    assert.equal(texts(preview.components[0]!)[0].style.lang, 'ja-JP');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -1,3 +1,5 @@
+// Exercises the built CLI (bin/ loads dist/cli.js): run `pnpm build` first.
+
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -6,6 +8,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
+
+import type { FrameMessage, ReadyMessage } from '../src/cli.js';
+import { contentOf } from './layer-content.mjs';
 
 const cli = fileURLToPath(new URL('../bin/celesta-react-render.js', import.meta.url));
 const psd = fileURLToPath(new URL('../../../examples/assets/lipsync-fixture.psd', import.meta.url));
@@ -49,11 +54,11 @@ test('a project outside the workspace resolves its own dependency in Node and th
       input: '{"time":{"value":1,"timescale":30}}\n', encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr);
-    const [metadata, frame] = result.stdout.trim().split(/\r?\n/).map(JSON.parse);
+    const [metadata, frame] = result.stdout.trim().split(/\r?\n/).map((line) => JSON.parse(line)) as [ReadyMessage, FrameMessage];
     assert.equal(metadata.config.durationInFrames, 2);
     assert.equal(frame.scene.layers[0].id, 'external');
     assert.equal(frame.scene.layers[0].transform.position.x, 1);
-    assert.ok(frame.scene.layers[0].content.width > 0);
+    assert.ok(contentOf(frame.scene.layers[0], 'rect').width > 0);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

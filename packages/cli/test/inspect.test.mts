@@ -2,23 +2,43 @@
 // entry that measures and does not catch the refusal is reported as an
 // inspection the inspector does not support (exit code 2), not as a broken
 // scene. The native mode is covered by crates/exporter/tests/integration/inspect.rs.
-// Run after `pnpm run build`.
+// Run after `pnpm build`: the tests exercise the built CLI (inspect.mjs runs
+// dist/cli.js).
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import type { SpawnSyncReturns } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { test } from 'vitest';
 
+import type { FrameMessage, ReadyMessage } from '../src/cli.js';
+import { contentOf } from './layer-content.mjs';
+
 const inspector = fileURLToPath(new URL('../../../skills/celesta/scripts/inspect.mjs', import.meta.url));
 const runtime = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 
-function withEntry(prefix, body) {
+/** What `inspect.mjs --json` prints: every frame asked for, or the error that stopped it. */
+interface InspectReport {
+  ready: ReadyMessage;
+  frames: (FrameMessage & { frame: number; error?: string; status?: 'unsupported' })[];
+  error?: string;
+  status?: 'unsupported';
+}
+
+interface EntryContext {
+  dir: string;
+  entry: string;
+  write: (source: string) => void;
+  inspect: (...args: string[]) => SpawnSyncReturns<string>;
+}
+
+function withEntry(prefix: string, body: (context: EntryContext) => void) {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   const entry = join(dir, 'entry.tsx');
-  const inspect = (...args) =>
+  const inspect = (...args: string[]) =>
     spawnSync(process.execPath, [inspector, entry, '--no-native', '--runtime', runtime, ...args], { encoding: 'utf8', timeout: 15000 });
   try {
     body({ dir, entry, write: (source) => writeFileSync(entry, source), inspect });
@@ -53,14 +73,14 @@ test('measuring frames are unsupported, not errors, and scene errors still win',
     const json = inspect('--frames', '2,-1', '--json');
     assert.equal(json.status, 2, json.stderr);
     assert.deepEqual(
-      JSON.parse(json.stdout).frames.map(({ frame, status }) => [frame, status]),
+      (JSON.parse(json.stdout) as InspectReport).frames.map(({ frame, status }) => [frame, status]),
       [[2, 'unsupported'], [29, 'unsupported']],
     );
 
     const mixed = inspect('--frames', '2,1', '--json');
     assert.equal(mixed.status, 1, mixed.stderr);
-    const broken = JSON.parse(mixed.stdout).frames[1];
-    assert.match(broken.error, /broken scene/);
+    const broken = (JSON.parse(mixed.stdout) as InspectReport).frames[1];
+    assert.match(broken.error ?? '', /broken scene/);
     assert.equal(broken.status, undefined);
   });
 });
@@ -82,7 +102,7 @@ test('measuring before the handshake stops inspection as unsupported', () => {
     `);
     const json = inspect('--json');
     assert.equal(json.status, 2, json.stderr);
-    assert.equal(JSON.parse(json.stdout).status, 'unsupported');
+    assert.equal((JSON.parse(json.stdout) as InspectReport).status, 'unsupported');
 
     // An entry that catches the refusal falls back and inspects normally.
     write(`
@@ -94,7 +114,8 @@ test('measuring before the handshake stops inspection as unsupported', () => {
     `);
     const fallback = inspect('--json');
     assert.equal(fallback.status, 0, fallback.stderr);
-    assert.equal(JSON.parse(fallback.stdout).frames[0].scene.layers[0].content.text, 'Celesta');
+    const report: InspectReport = JSON.parse(fallback.stdout);
+    assert.equal(contentOf(report.frames[0].scene.layers[0], 'text').text, 'Celesta');
   });
 });
 
@@ -110,8 +131,8 @@ test('other startup failures are errors', () => {
     assert.match(text.stderr, /ERROR loading entry: .*prepare exploded/);
     const json = inspect('--json');
     assert.equal(json.status, 1, json.stderr);
-    assert.match(JSON.parse(json.stdout).error, /prepare exploded/);
-    assert.equal(JSON.parse(json.stdout).status, undefined);
+    assert.match((JSON.parse(json.stdout) as InspectReport).error ?? '', /prepare exploded/);
+    assert.equal((JSON.parse(json.stdout) as InspectReport).status, undefined);
   });
 });
 

@@ -8,7 +8,14 @@ import { test } from 'vitest';
 
 import * as celesta from '@celesta/react';
 import { Easings, beatAt, computeSeries, cueAt, frameToTimecode, progress } from '@celesta/react';
+import type { Layer } from '@celesta/react';
 import { pointOnPolyline } from '@celesta/shapes';
+import type { PolylinePoint } from '@celesta/shapes';
+import type { FrameMessage } from '../src/cli.js';
+import { contentOf } from './layer-content.mjs';
+
+// The render() tests exercise the built CLI (bin/ loads dist/cli.js): run
+// `pnpm build` first.
 
 const cli = fileURLToPath(new URL('../bin/celesta-react-render.js', import.meta.url));
 
@@ -16,7 +23,7 @@ const cli = fileURLToPath(new URL('../bin/celesta-react-render.js', import.meta.
  * Renders `frames` of a 300×200, 30 fps composition. `source` is module code
  * that defines `function Body()`, rendered inside the composition.
  */
-function render(source, frames = [0], durationInFrames = 60) {
+function render(source: string, frames = [0], durationInFrames = 60): Layer[][] {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-motion-'));
   const entry = join(dir, 'entry.tsx');
   writeFileSync(
@@ -37,7 +44,8 @@ function render(source, frames = [0], durationInFrames = 60) {
     const input = frames.map((frame) => JSON.stringify({ time: { value: frame, timescale: 30 } })).join('\n');
     const result = spawnSync(process.execPath, [cli, entry], { input: `${input}\n`, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    const [, ...responses] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    const [, ...responses]: (FrameMessage & { error?: string })[] = result.stdout.split(/\r?\n/).filter(Boolean)
+      .map((line) => JSON.parse(line));
     for (const response of responses) {
       assert.equal(response.error, undefined, response.error);
     }
@@ -48,7 +56,7 @@ function render(source, frames = [0], durationInFrames = 60) {
 }
 
 /** Every text layer's string, depth first. */
-function texts(layers) {
+function texts(layers: Layer[]): string[] {
   return layers.flatMap((layer) =>
     layer.content.type === 'text' ? [layer.content.text] : layer.content.type === 'group' ? texts(layer.content.layers) : [],
   );
@@ -74,8 +82,9 @@ test('every easing starts at exactly 0 and ends at exactly 1', () => {
 });
 
 test('entries import random and noise from @celesta/math', () => {
-  assert.equal(celesta.random, undefined);
-  assert.equal(celesta.noise, undefined);
+  // Names @celesta/react does not declare, looked up anyway.
+  assert.equal((celesta as Record<string, unknown>).random, undefined);
+  assert.equal((celesta as Record<string, unknown>).noise, undefined);
   const [layers] = render(
     `import { noise, random } from '@celesta/math';\n` +
       `function Body() {\n` +
@@ -115,12 +124,13 @@ test('cueAt finds the cue in effect and its neighbours', () => {
   const cues = [{ at: 10, name: 'a' }, { at: 20, name: 'b' }, { at: 40, name: 'c' }];
   assert.equal(cueAt(cues, 9), null);
   const active = cueAt(cues, 25);
+  assert.ok(active);
   assert.equal(active.cue.name, 'b');
   assert.equal(active.index, 1);
   assert.equal(active.frame, 5);
-  assert.equal(active.previous.name, 'a');
-  assert.equal(active.next.name, 'c');
-  assert.equal(cueAt(cues, 99).next, undefined);
+  assert.equal(active.previous?.name, 'a');
+  assert.equal(active.next?.name, 'c');
+  assert.equal(cueAt(cues, 99)?.next, undefined);
   assert.throws(() => cueAt([{ at: 5 }, { at: 1 }], 0), /sorted/);
 });
 
@@ -210,18 +220,20 @@ test('Line draws a two-point path, with optional round caps', () => {
     }`;
   const [[butt, round, ...rest]] = render(source);
   assert.equal(rest.length, 0, 'a zero-length butt line draws nothing');
-  assert.deepEqual(butt.content.commands, [
+  const buttPath = contentOf(butt, 'path');
+  const roundPath = contentOf(round, 'path');
+  assert.deepEqual(buttPath.commands, [
     { type: 'moveTo', x: 10, y: 20 },
     { type: 'lineTo', x: 10, y: 60 },
   ]);
-  assert.deepEqual(butt.content.stroke, { paint: { type: 'solid', color: '#FF0000' }, width: 4 });
-  assert.equal(butt.content.lineCap, undefined);
-  assert.equal(round.content.lineCap, 'round');
-  assert.equal(round.content.stroke.width, 10);
+  assert.deepEqual(buttPath.stroke, { paint: { type: 'solid', color: '#FF0000' }, width: 4 });
+  assert.equal(buttPath.lineCap, undefined);
+  assert.equal(roundPath.lineCap, 'round');
+  assert.equal(roundPath.stroke?.width, 10);
 });
 
 test('Polyline draws the first part of its length and pointOnPolyline finds the tip', () => {
-  const points = [[0, 0], [100, 0], [100, 100]];
+  const points: PolylinePoint[] = [[0, 0], [100, 0], [100, 100]];
   assert.deepEqual(pointOnPolyline(points, 0), [0, 0]);
   assert.deepEqual(pointOnPolyline(points, 0.75), [100, 50]);
   assert.deepEqual(pointOnPolyline(points, 2), [100, 100]);
@@ -232,7 +244,7 @@ test('Polyline draws the first part of its length and pointOnPolyline finds the 
     }`;
   const [[path]] = render(source);
   assert.equal(path.opacity, 0.5);
-  assert.deepEqual(path.content.commands, [
+  assert.deepEqual(contentOf(path, 'path').commands, [
     { type: 'moveTo', x: 0, y: 0 },
     { type: 'lineTo', x: 100, y: 0 },
     { type: 'lineTo', x: 100, y: 50 },
@@ -248,7 +260,7 @@ test('Camera puts its focus point at the center and zooms about it', () => {
   assert.deepEqual(outer.transform.position, { x: 150, y: 100 });
   assert.deepEqual(outer.transform.scale, { x: 2, y: 2 });
   assert.equal(outer.transform.rotation, 10);
-  const [inner] = outer.content.layers;
+  const [inner] = contentOf(outer, 'group').layers;
   assert.deepEqual(inner.transform.position, { x: -1000, y: -500 });
 
   const shaky = `
@@ -257,7 +269,7 @@ test('Camera puts its focus point at the center and zooms about it', () => {
     }`;
   const [[a], [b]] = render(shaky, [3, 3]);
   assert.deepEqual(a, b, 'shake is deterministic');
-  const { x, y } = a.content.layers[0].transform.position;
+  const { x, y } = contentOf(a, 'group').layers[0].transform.position;
   assert.ok(Math.abs(x + 150) <= 8 && Math.abs(y + 100) <= 8, `${x}, ${y}`);
 });
 
@@ -273,16 +285,16 @@ test('TextReveal masks each line and slides it up into place, staggered', () => 
     }`;
   const [[start], [half], [done]] = render(source, [0, 5, 30]);
   assert.deepEqual(start.transform.position, { x: 10, y: 20 });
-  const [one, two] = start.content.layers;
-  assert.equal(one.content.clip.height, 50);
+  const [one, two] = contentOf(start, 'group').layers;
+  assert.equal(contentOf(one, 'group').clip?.height, 50);
   assert.equal(two.transform.position.y, 50);
-  const text = (line) => line.content.layers[0];
-  assert.equal(text(one).content.text, 'ONE');
+  const text = (line: Layer) => contentOf(line, 'group').layers[0];
+  assert.equal(contentOf(text(one), 'text').text, 'ONE');
   assert.equal(text(one).transform.position.y, 90);
-  assert.equal(text(one).content.style.lineHeight, undefined);
-  assert.equal(text(half.content.layers[0]).transform.position.y, 65);
-  assert.equal(text(half.content.layers[1]).transform.position.y, 90);
-  assert.equal(text(done.content.layers[1]).transform.position.y, 40);
+  assert.equal(contentOf(text(one), 'text').style.lineHeight, undefined);
+  assert.equal(text(contentOf(half, 'group').layers[0]).transform.position.y, 65);
+  assert.equal(text(contentOf(half, 'group').layers[1]).transform.position.y, 90);
+  assert.equal(text(contentOf(done, 'group').layers[1]).transform.position.y, 40);
 });
 
 test('useTypewriter types by code point and blinks the caret while idle', () => {

@@ -1,6 +1,6 @@
 // `openEnd` frame requests: inspect.mjs --loop evaluates frame N (one past
 // the last) as if the video went on, to compare it with frame 0. Run after
-// `pnpm run build`.
+// `pnpm build`: the test exercises the built CLI (bin/ loads dist/cli.js).
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -10,9 +10,12 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 
+import type { FrameMessage, FrameRequest } from '../src/cli.js';
+import { contentOf } from './layer-content.mjs';
+
 const cli = fileURLToPath(new URL('../bin/celesta-react-render.js', import.meta.url));
 
-function render(requests) {
+function render(requests: FrameRequest[]): FrameMessage[] {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-open-end-'));
   const entry = join(dir, 'entry.tsx');
   writeFileSync(entry, `
@@ -43,7 +46,7 @@ test('openEnd keeps a sequence that reaches the end open past the last frame, an
   assert.deepEqual(plain.scene.layers, []);
   assert.equal(plain.openEnd, undefined);
   const [sequence] = open.scene.layers;
-  assert.deepEqual(sequence.content.layers.map((layer) => layer.content.type), ['rect']);
+  assert.deepEqual(contentOf(sequence, 'group').layers.map((layer) => layer.content.type), ['rect']);
   // An older runtime ignores the field; the echo tells inspect.mjs it was honored.
   assert.equal(open.openEnd, true);
 });

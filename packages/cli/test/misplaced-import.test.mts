@@ -1,3 +1,5 @@
+// Exercises the built CLI (bin/ loads dist/cli.js): run `pnpm build` first.
+
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -8,7 +10,7 @@ import { test } from 'vitest';
 
 const cli = fileURLToPath(new URL('../bin/celesta-react-render.js', import.meta.url));
 
-function load(source) {
+function load(source: string): { error: string } {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-imports-'));
   const entry = join(dir, 'entry.tsx');
   writeFileSync(entry, source);

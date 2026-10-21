@@ -1,5 +1,6 @@
 // `layerSource` requests: the editor asks which JSX produced a layer. Run
-// after `pnpm run build:runtime`.
+// after `pnpm run build:runtime`: the tests exercise the built CLI (bin/
+// loads dist/cli.js).
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -9,11 +10,18 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 
+import type { LayerSourceReport } from '@celesta/react/internal';
+import type { FrameMessage, Request } from '../src/cli.js';
+import { contentOf } from './layer-content.mjs';
+
+/** The answer to a `LayerSourceRequest`. */
+type LayerSourceMessage = { layerSource: LayerSourceReport | { chain: null } };
+
 const cli = fileURLToPath(new URL('../bin/celesta-react-render.js', import.meta.url));
 
 const time = { value: 0, timescale: 30 };
 
-function run(requests, flags = ['--source-locations']) {
+function run(requests: Request[], flags = ['--source-locations']) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'celesta-layer-source-')));
   const entry = join(dir, 'entry.tsx');
   const title = join(dir, 'title.tsx');
@@ -41,7 +49,8 @@ function run(requests, flags = ['--source-locations']) {
       input: requests.map((request) => `${JSON.stringify(request)}\n`).join(''),
       encoding: 'utf8',
     });
-    return { dir, entry, title, result, responses: result.stdout.trim().split('\n').slice(1).map((line) => JSON.parse(line)) };
+    const responses: (FrameMessage | LayerSourceMessage)[] = result.stdout.trim().split('\n').slice(1).map((line) => JSON.parse(line));
+    return { dir, entry, title, result, responses };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -50,7 +59,8 @@ function run(requests, flags = ['--source-locations']) {
 test('finds the JSX of a layer in another file', () => {
   const { responses, title, entry, result } = run([{ layerSource: 'title-rect', time, preview: true }]);
   assert.equal(result.status, 0, result.stderr);
-  const { chain } = responses[0].layerSource;
+  const { chain } = (responses[0] as LayerSourceMessage).layerSource;
+  assert.ok(chain, JSON.stringify(responses));
   assert.equal(chain[0].name, 'Rect');
   assert.equal(chain[0].file, title);
   assert.equal(chain[0].line, 3);
@@ -67,12 +77,13 @@ test('finds layers inside <Static>', () => {
     { time, compactTransforms: true, statics: { decoded: 1 } },
   ]);
   assert.equal(result.status, 0, result.stderr);
-  const [first, lookup, second] = responses;
-  assert.ok(lookup.layerSource.chain.length > 0);
+  const [first, lookup, second] = responses as [FrameMessage, LayerSourceMessage, FrameMessage];
+  assert.ok(lookup.layerSource.chain && lookup.layerSource.chain.length > 0);
   assert.equal(lookup.layerSource.chain[0].name, 'Rect');
-  const reference = (frame) => frame.scene.layers.find((layer) => layer.content.type === 'staticRef');
-  assert.equal(second.seq, first.seq + 1);
-  assert.equal(reference(second).content.key, reference(first).content.key);
+  const reference = (frame: FrameMessage) =>
+    contentOf(frame.scene.layers.find((layer) => layer.content.type === 'staticRef'), 'staticRef');
+  assert.equal(second.seq, first.seq! + 1);
+  assert.equal(reference(second).key, reference(first).key);
   assert.equal('statics' in second, false);
 });
 
@@ -89,8 +100,8 @@ test('answers [] without --source-locations', () => {
 
 test('does not change scenes', () => {
   const requests = [0, 1, 2].map((value) => ({ time: { value, timescale: 30 }, preview: true }));
-  const withFlag = run(requests).responses.map((frame) => frame.scene);
-  const without = run(requests, []).responses.map((frame) => frame.scene);
+  const withFlag = run(requests).responses.map((frame) => (frame as FrameMessage).scene);
+  const without = run(requests, []).responses.map((frame) => (frame as FrameMessage).scene);
   assert.equal(withFlag.length, 3);
   assert.deepEqual(withFlag, without);
 });
@@ -103,7 +114,7 @@ test('rejects unknown options', () => {
 
 // Host elements such as <CharacterView> and <Dialogue> build their child
 // layers themselves; those ids map to the host element's JSX.
-function runCharacter(requests) {
+function runCharacter(requests: Request[]) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'celesta-layer-source-character-')));
   const entry = join(dir, 'entry.tsx');
   // The <CharacterView> is on line 9, column 7; the <Dialogue> on line 10, column 7.
@@ -127,7 +138,8 @@ function runCharacter(requests) {
       input: requests.map((request) => `${JSON.stringify(request)}\n`).join(''),
       encoding: 'utf8',
     });
-    return { entry, result, responses: result.stdout.trim().split('\n').slice(1).map((line) => JSON.parse(line)) };
+    const responses: LayerSourceMessage[] = result.stdout.trim().split('\n').slice(1).map((line) => JSON.parse(line));
+    return { entry, result, responses };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -1,3 +1,5 @@
+// Exercises the built CLI (bin/ loads dist/cli.js): run `pnpm build` first.
+
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -6,9 +8,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 
+import type { Time } from '@celesta/react';
+import type { FrameMessage, FrameRequest } from '../src/cli.js';
+import { contentOf } from './layer-content.mjs';
+
 const cli = fileURLToPath(new URL('../bin/celesta-react-render.js', import.meta.url));
 
-function frames(requests) {
+function frames(requests: FrameRequest[]): FrameMessage[] {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-static-'));
   const entry = join(dir, 'entry.tsx');
   writeFileSync(entry, `
@@ -32,14 +38,14 @@ function frames(requests) {
 }
 
 test('frames asked for with statics number themselves and define what Rust lacks', () => {
-  const time = (value) => ({ value, timescale: 30 });
+  const time = (value: number): Time => ({ value, timescale: 30 });
   const [first, second] = frames([
     { time: time(0), compactTransforms: true, statics: { decoded: 0 } },
     { time: time(1), compactTransforms: true, statics: { decoded: 1 } },
   ]);
-  const { key } = first.scene.layers[0].content;
+  const { key } = contentOf(first.scene.layers[0], 'staticRef');
   assert.equal(first.seq, 1);
-  assert.deepEqual(first.statics.map((definition) => definition.key), [key]);
+  assert.deepEqual(first.statics?.map((definition) => definition.key), [key]);
   assert.equal('droppedStatics' in first, false);
   assert.equal(second.seq, 2);
   assert.equal('statics' in second, false);

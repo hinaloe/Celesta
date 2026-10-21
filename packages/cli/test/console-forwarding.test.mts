@@ -2,7 +2,7 @@
 // the Rust side (crates/react-bridge) parses one line at a time. A stray
 // `console.log` in a composition must not land on that stream — it is routed
 // to stderr instead, where the bridge inherits it to the user's terminal.
-// Run after `pnpm run build`:  node --test test/
+// Run after `pnpm build`: the tests exercise the built CLI (bin/ loads dist/cli.js).
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -11,6 +11,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
+
+import type { ReadyMessage } from '../src/cli.js';
 
 const cli = fileURLToPath(new URL('../bin/celesta-react-render.js', import.meta.url));
 
@@ -72,7 +74,7 @@ test('composition is loaded as ESM with its original import.meta paths', () => {
   try {
     const result = spawnSync(process.execPath, [cli, entry], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.ok(JSON.parse(result.stdout).config);
+    assert.ok((JSON.parse(result.stdout) as ReadyMessage).config);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
