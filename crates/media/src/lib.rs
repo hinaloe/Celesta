@@ -4,6 +4,7 @@
 mod color;
 mod converted;
 mod decoder;
+mod duck;
 mod error;
 mod ffmpeg;
 mod mix;
@@ -16,6 +17,7 @@ mod types;
 
 pub use color::{DynamicRange, VideoColor};
 pub use decoder::{AudioDecoder, VideoFrameDecoder};
+pub use duck::{audible_end, duck_curves_for};
 pub use error::{AudioMixError, MediaError};
 pub use ffmpeg::FfmpegBackend;
 pub use mix::{mix_audio_graph, mix_audio_graph_cancellable};
