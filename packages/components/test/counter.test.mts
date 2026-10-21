@@ -1,19 +1,37 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import * as React from 'react';
+import type { ReactElement } from 'react';
 
 import { Composition, Easings, Sequence } from '@celesta/react';
+import type { Layer, LayerContent, Paint } from '@celesta/react';
 import { mount } from '@celesta/react/internal';
-import { Counter, formatNumber } from '../dist/index.js';
+import { Counter, formatNumber } from '../src/index.js';
 
 const h = React.createElement;
 
-function render(element) {
+function render(element: ReactElement) {
   const composition = mount(() => h(Composition, { width: 1920, height: 1080, fps: 30, durationInFrames: 300 }, element));
-  return (frame = 0) => composition.renderAt({ value: frame, timescale: 30 }, null).scene.layers;
+  return (frame = 0): Layer[] => composition.renderAt({ value: frame, timescale: 30 }, null).scene.layers;
 }
 
-const textAt = (element, frame) => render(element)(frame)[0].content.text;
+/** A layer whose content is of type `T`. */
+type LayerOf<T extends LayerContent['type']> = Layer & { content: Extract<LayerContent, { type: T }> };
+
+/** `layer`, checked to have content of `type`. */
+function layerOf<T extends LayerContent['type']>(layer: Layer | undefined, type: T): LayerOf<T> {
+  assert.ok(layer, `a ${type} layer`);
+  assert.equal(layer.content.type, type);
+  return layer as LayerOf<T>;
+}
+
+/** The color of a solid paint. */
+function colorOf(paint: Paint | null | undefined): string {
+  assert.ok(paint && paint.type === 'solid', 'a solid paint');
+  return paint.color;
+}
+
+const textAt = (element: ReactElement, frame: number) => layerOf(render(element)(frame)[0], 'text').content.text;
 
 test('formatNumber groups digits for en-US unless given another locale', () => {
   assert.equal(formatNumber(1234567), '1,234,567');
@@ -37,7 +55,7 @@ test('formatNumber prints a value that rounds to 0 without a minus sign', () => 
 test('formatNumber puts prefix and suffix around the number, and around a formatter\'s text', () => {
   assert.equal(formatNumber(1280, { suffix: ' 件' }), '1,280 件');
   assert.equal(formatNumber(-42, { prefix: '$' }), '$-42');
-  const seen = [];
+  const seen: number[] = [];
   const text = formatNumber(3.14159, { decimals: 2, prefix: '[', suffix: ']', formatter: (value) => { seen.push(value); return `π≈${value}`; } });
   assert.equal(text, '[π≈3.14]');
   assert.deepEqual(seen, [3.14]);
@@ -58,7 +76,7 @@ test('a Counter counts from `from` to `value` over its duration, starting at its
 });
 
 test('a Counter counts down, through negative numbers, and with decimals', () => {
-  const linear = (t) => t;
+  const linear = (t: number) => t;
   assert.equal(textAt(h(Counter, { from: 10, value: -10, durationInFrames: 20, easing: linear }), 5), '5');
   assert.equal(textAt(h(Counter, { from: 10, value: -10, durationInFrames: 20, easing: linear }), 15), '-5');
   assert.equal(textAt(h(Counter, { value: 1, decimals: 2, durationInFrames: 3, easing: linear }), 1), '0.33');
@@ -82,12 +100,12 @@ test('a Counter of 0 frames jumps to its value at its delay', () => {
 });
 
 test('a Counter passes its other props to its Text, so the anchor keeps the last digit in place', () => {
-  const [layer] = render(h(Counter, { x: 1800, y: 100, anchorX: 1, value: 1280, suffix: ' 件', locale: 'en-US', fontSize: 96, color: '#ffffff' }))(60);
+  const layer = layerOf(render(h(Counter, { x: 1800, y: 100, anchorX: 1, value: 1280, suffix: ' 件', locale: 'en-US', fontSize: 96, color: '#ffffff' }))(60)[0], 'text');
   assert.equal(layer.content.text, '1,280 件');
   assert.deepEqual(layer.transform.position, { x: 1800, y: 100 });
   assert.equal(layer.transform.anchor.x, 1);
   assert.equal(layer.content.style.fontSize, 96);
-  assert.equal(layer.content.style.fill.color, '#ffffff');
+  assert.equal(colorOf(layer.content.style.fill), '#ffffff');
 });
 
 test('a Counter with a formatter prints its text', () => {
@@ -105,5 +123,7 @@ test('a Counter seeks to the same text it plays to, inside a nested Sequence', (
   const played = render(scene);
   for (let frame = 0; frame <= 25; frame += 1) played(frame);
   assert.deepEqual(played(25), render(scene)(25));
-  assert.equal(render(scene)(15)[0].content.layers[0].content.layers[0].content.text, '0');
+  const outer = layerOf(render(scene)(15)[0], 'group');
+  const inner = layerOf(outer.content.layers[0], 'group');
+  assert.equal(layerOf(inner.content.layers[0], 'text').content.text, '0');
 });

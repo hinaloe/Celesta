@@ -3,19 +3,28 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import React from 'react';
+import type { ReactElement, ReactNode } from 'react';
 
 import { Assets, Composition, FreezeFrame, Sequence, Span } from '@celesta/react';
-import { Character, CharacterView, Dialogue, DialogueSeries, planDialogue } from '../dist/index.js';
+import type { AssetReference } from '@celesta/react';
+import { Character, CharacterView, Dialogue, DialogueSeries, planDialogue } from '../src/index.js';
+import type { CharacterPortrait, CharacterViewReference, DialogueProps } from '../src/index.js';
 import { mount } from '@celesta/react/internal';
+import type { SubtitleDescriptor } from '@celesta/react/internal';
 
 const h = React.createElement;
 
-const portrait = { defaultExpression: 'calm', expressions: { calm: 'calm.png' } };
+const portrait: CharacterPortrait = { defaultExpression: 'calm', expressions: { calm: 'calm.png' } };
+
+// The line goes in as createElement's children, as JSX would pass it; they
+// replace the `children: undefined` that DialogueProps requires.
+const dialogue = (props: Omit<DialogueProps, 'children'>, ...children: ReactNode[]) =>
+  h(Dialogue, { ...props, children: undefined }, ...children);
 
 /** Every distinct subtitle reported over `frames` frames at 30 fps, in first-seen order. */
-function subtitles(Root, frames) {
+function subtitles(Root: () => ReactElement, frames: number) {
   const mounted = mount(Root);
-  const seen = new Map();
+  const seen = new Map<string, SubtitleDescriptor>();
   for (let frame = 0; frame < frames; frame++) {
     for (const cue of mounted.renderAt({ value: frame, timescale: 30 }, null).subtitles) {
       seen.set(JSON.stringify(cue), cue);
@@ -32,8 +41,8 @@ test('each dialogue line is a subtitle for as long as its sequence, held lines a
     ],
     { fps: 30 },
   );
-  const mira = React.createRef();
-  const view = React.createRef();
+  const mira = React.createRef<AssetReference>();
+  const view = React.createRef<CharacterViewReference>();
   const Root = () =>
     h(
       Composition,
@@ -47,8 +56,8 @@ test('each dialogue line is a subtitle for as long as its sequence, held lines a
 });
 
 test('a dialogue line reports its spans as plain text, and nothing inside a freeze frame', () => {
-  const mira = React.createRef();
-  const view = React.createRef();
+  const mira = React.createRef<AssetReference>();
+  const view = React.createRef<CharacterViewReference>();
   const Root = () =>
     h(
       Composition,
@@ -56,10 +65,10 @@ test('a dialogue line reports its spans as plain text, and nothing inside a free
       h(Assets, null, h(Character, { ref: mira, name: 'mira', portrait })),
       h(CharacterView, { ref: view, character: mira }),
       h(Sequence, { from: 5, durationInFrames: 10 },
-        h(Dialogue, { character: view }, 'Hello ', h(Span, { style: { color: '#ff0000' } }, 'world'))),
+        dialogue({ character: view }, 'Hello ', h(Span, { style: { fill: '#ff0000' } }, 'world'))),
       h(FreezeFrame, { frame: 7 },
         h(CharacterView, { ref: view, character: mira }),
-        h(Dialogue, { character: view }, 'Frozen')),
+        dialogue({ character: view }, 'Frozen')),
     );
   assert.deepEqual(subtitles(Root, 20), [['Hello world', 5, 15]]);
 });

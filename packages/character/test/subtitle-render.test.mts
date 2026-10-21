@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import React from 'react';
+import type { ReactElement, ReactNode } from 'react';
 
 import {
   Assets,
@@ -12,11 +13,16 @@ import {
   useCurrentFrame,
   registerComponent,
 } from '@celesta/react';
-import { Character, CharacterView, Dialogue, DialogueSeries, planDialogue } from '../dist/index.js';
+import type { AssetReference, Layer, LayerContent, Scene, TextMetrics } from '@celesta/react';
+import { Character, CharacterView, Dialogue, DialogueSeries, planDialogue } from '../src/index.js';
+import type {
+  CharacterPortrait, CharacterReference, CharacterSubtitle, CharacterViewReference, DialogueProps, SubtitleRenderProps,
+} from '../src/index.js';
 import { createResolver, mount, setTextMeasurer } from '@celesta/react/internal';
+import type { MeasureTextRequest } from '@celesta/react/internal';
 
 // Every character is `fontSize` wide and one line is `fontSize * 1.25` high.
-function measure({ text, style }) {
+function measure({ text, style }: Pick<MeasureTextRequest, 'text' | 'style'>): TextMetrics {
   const size = style.fontSize ?? 10;
   return {
     width: Array.from(text).length * size,
@@ -24,14 +30,16 @@ function measure({ text, style }) {
     ascent: size,
     descent: size * 0.25,
     lineHeight: size * 1.25,
+    capHeight: size * 0.7,
+    xHeight: size * 0.5,
     lines: 1,
     glyphs: [],
   };
 }
 
 function installMeasurer() {
-  const requests = [];
-  const sync = (request) => {
+  const requests: MeasureTextRequest[] = [];
+  const sync = (request: MeasureTextRequest) => {
     requests.push(request);
     return measure(request);
   };
@@ -41,32 +49,46 @@ function installMeasurer() {
 
 const h = React.createElement;
 
+// The line goes in as createElement's children, as JSX would pass it; they
+// replace the `children: undefined` that DialogueProps requires.
+const dialogue = (props: Omit<DialogueProps, 'children'>, ...children: ReactNode[]) =>
+  h(Dialogue, { ...props, children: undefined }, ...children);
+
+type Content<T extends LayerContent['type']> = Extract<LayerContent, { type: T }>;
+
+/** `layer`'s content, checked to be of `type`. */
+function contentOf<T extends LayerContent['type']>(layer: Layer | undefined, type: T): Content<T> {
+  assert.ok(layer, `a ${type} layer`);
+  assert.equal(layer.content.type, type);
+  return layer.content as Content<T>;
+}
+
 /** A band sized from the metrics, and the facts the render got as text. */
-function band({ text, character, metrics, held, frame, durationInFrames, maxWidth }) {
+function band({ text, character, metrics, held, frame, durationInFrames, maxWidth }: SubtitleRenderProps) {
   return h(
     React.Fragment,
     null,
     h(Rect, { id: 'band', width: metrics.width + 20, height: metrics.height, fill: '#000000' }),
-    h(Text, { id: 'facts' }, `${character.id}/${character.name}/${character.displayName}|${text}|${held}|${frame}/${durationInFrames}|${maxWidth}`),
-    held ? null : h(Text, { id: 'said' }, text),
+    h(Text, { id: 'facts', children: `${character.id}/${character.name}/${character.displayName}|${text}|${held}|${frame}/${durationInFrames}|${maxWidth}` }),
+    held ? null : h(Text, { id: 'said', children: text }),
   );
 }
 
-function subtitle(extra = {}) {
+function subtitle(extra: Partial<CharacterSubtitle> = {}): CharacterSubtitle {
   return { x: 100, y: 50, maxWidth: 600, style: { fontSize: 10 }, render: band, ...extra };
 }
 
-function portrait(name) {
+function portrait(name: string): CharacterPortrait {
   return { defaultExpression: 'calm', expressions: { calm: `${name}-calm.png`, smile: `${name}-smile.png` } };
 }
 
-function renderFrames(Root, frames) {
+function renderFrames(Root: () => ReactElement, frames: number[]): Scene[] {
   const mounted = mount(Root);
   return frames.map((frame) => mounted.renderAt({ value: frame, timescale: 30 }, null).scene);
 }
 
 /** Layers with an id, depth first. */
-function find(layers, id) {
+function find(layers: Layer[], id: string): Layer | undefined {
   for (const layer of layers) {
     if (layer.id === id) return layer;
     if (layer.content.type === 'group') {
@@ -77,13 +99,13 @@ function find(layers, id) {
   return undefined;
 }
 
-function texts(layers) {
+function texts(layers: Layer[]): string[] {
   return layers.flatMap((layer) =>
     layer.content.type === 'text' ? [layer.content.text] : layer.content.type === 'group' ? texts(layer.content.layers) : [],
   );
 }
 
-function images(layers) {
+function images(layers: Layer[]): string[] {
   return layers.flatMap((layer) =>
     layer.content.type === 'image' ? [layer.content.asset.id] : layer.content.type === 'group' ? images(layer.content.layers) : [],
   );
@@ -91,8 +113,9 @@ function images(layers) {
 
 test('subtitle.render draws the line from its text, speaker, metrics, and sequence', () => {
   const requests = installMeasurer();
-  const mira = React.createRef();
-  const view = React.createRef();
+  // Character's ref is the CharacterReference, which holds its subtitle.
+  const mira = React.createRef<CharacterReference>();
+  const view = React.createRef<CharacterViewReference>();
   // The view and the line mount together at frame 10, so the view's ref is
   // only attached by that commit.
   const Root = () =>
@@ -104,31 +127,33 @@ test('subtitle.render draws the line from its text, speaker, metrics, and sequen
         Sequence,
         { from: 10, durationInFrames: 30, lang: useCurrentFrame() < 20 ? 'ko-KR' : 'zh-Hant' },
         h(CharacterView, { ref: view, character: mira }),
-        h(Dialogue, { character: view, id: 'line', expression: 'smile' }, 'Hello', ' there'),
+        dialogue({ character: view, id: 'line', expression: 'smile' }, 'Hello', ' there'),
       ),
     );
   const [first, later] = renderFrames(Root, [10, 25]);
-  for (const [scene, frame] of [[first, 0], [later, 15]]) {
+  for (const [scene, frame] of [[first, 0], [later, 15]] as const) {
     const subtitleGroup = find(scene.layers, 'line.subtitle');
     assert.ok(subtitleGroup, 'the rendered subtitle sits in the dialogue layer');
     assert.deepEqual(subtitleGroup.transform.position, { x: 100, y: 50 });
-    assert.equal(find(scene.layers, 'band').content.width, 11 * 10 + 20);
-    assert.equal(find(scene.layers, 'facts').content.text, `mira/mira/ミラ|Hello there|false|${frame}/30|600`);
-    assert.equal(find(scene.layers, 'said').content.text, 'Hello there');
-    assert.equal(find(scene.layers, 'said').content.style.lang, frame === 0 ? 'ko-KR' : 'zh-Hant');
+    assert.equal(contentOf(find(scene.layers, 'band'), 'rect').width, 11 * 10 + 20);
+    assert.equal(contentOf(find(scene.layers, 'facts'), 'text').text, `mira/mira/ミラ|Hello there|false|${frame}/30|600`);
+    assert.equal(contentOf(find(scene.layers, 'said'), 'text').text, 'Hello there');
+    assert.equal(contentOf(find(scene.layers, 'said'), 'text').style.lang, frame === 0 ? 'ko-KR' : 'zh-Hant');
     assert.deepEqual(images(scene.layers), ['mira-smile.png']);
   }
   assert.ok(requests.some((request) => request.text === 'Hello there' && request.maxWidth === 600));
   assert.deepEqual([...new Set(requests.map((request) => request.style.lang))], ['ko-KR', 'zh-Hant']);
-  assert.equal(mira.current.subtitle.style.lang, undefined);
+  const reference = mira.current;
+  assert.ok(reference?.subtitle?.style);
+  assert.equal(reference.subtitle.style.lang, undefined);
 });
 
 test('a held Dialogue keeps a rendered band but no plain subtitle', () => {
   installMeasurer();
-  const mira = React.createRef();
-  const hana = React.createRef();
-  const miraView = React.createRef();
-  const hanaView = React.createRef();
+  const mira = React.createRef<AssetReference>();
+  const hana = React.createRef<AssetReference>();
+  const miraView = React.createRef<CharacterViewReference>();
+  const hanaView = React.createRef<CharacterViewReference>();
   const Root = () =>
     h(
       Composition,
@@ -141,8 +166,8 @@ test('a held Dialogue keeps a rendered band but no plain subtitle', () => {
       ),
       h(CharacterView, { ref: miraView, character: mira }),
       h(CharacterView, { ref: hanaView, character: hana }),
-      h(Dialogue, { character: miraView, held: true }, 'Bye'),
-      h(Dialogue, { character: hanaView, held: true }, 'Bye too'),
+      dialogue({ character: miraView, held: true }, 'Bye'),
+      dialogue({ character: hanaView, held: true }, 'Bye too'),
     );
   const [scene] = renderFrames(Root, [3]);
   // displayName falls back to name; the plain subtitle draws nothing.
@@ -154,20 +179,20 @@ test('subtitle.render measures only when it reads metrics', () => {
   const refuse = () => {
     throw new Error('cannot shape text');
   };
-  setTextMeasurer(async (request) => refuse(request), refuse);
-  const mira = React.createRef();
-  const view = React.createRef();
-  const Root = ({ render }) =>
+  setTextMeasurer(async () => refuse(), refuse);
+  const mira = React.createRef<AssetReference>();
+  const view = React.createRef<CharacterViewReference>();
+  const Root = ({ render }: { render: (props: SubtitleRenderProps) => ReactNode }) =>
     h(
       Composition,
       { width: 640, height: 360, fps: 30, durationInFrames: 30 },
       h(Assets, null, h(Character, { ref: mira, name: 'mira', portrait: portrait('mira'), subtitle: subtitle({ render }) })),
       h(CharacterView, { ref: view, character: mira }),
-      h(Dialogue, { character: view }, 'Hello'),
+      dialogue({ character: view }, 'Hello'),
     );
-  const plain = ({ text }) => h(Text, { id: 'said' }, text);
+  const plain = ({ text }: SubtitleRenderProps) => h(Text, { id: 'said', children: text });
   const [scene] = renderFrames(() => h(Root, { render: plain }), [0]);
-  assert.equal(find(scene.layers, 'said').content.text, 'Hello');
+  assert.equal(contentOf(find(scene.layers, 'said'), 'text').text, 'Hello');
   assert.throws(() => renderFrames(() => h(Root, { render: band }), [0]), /cannot shape text/);
 });
 
@@ -183,10 +208,10 @@ test('DialogueSeries holdSubtitle keeps the band through gaps and restarts it af
   );
   // one: 0–10, gap to 16; two: 16–26, gap to 32; lead-in to 47; three: 47–57, gap to 63.
   assert.deepEqual(plan.lines.map((line) => line.from), [0, 16, 47]);
-  const mira = React.createRef();
-  const hana = React.createRef();
-  const miraView = React.createRef();
-  const hanaView = React.createRef();
+  const mira = React.createRef<AssetReference>();
+  const hana = React.createRef<AssetReference>();
+  const miraView = React.createRef<CharacterViewReference>();
+  const hanaView = React.createRef<CharacterViewReference>();
   const Root = () =>
     h(
       Composition,
@@ -202,7 +227,10 @@ test('DialogueSeries holdSubtitle keeps the band through gaps and restarts it af
     );
   const frames = [0, 9, 12, 16, 30, 35, 47, 60];
   const scenes = renderFrames(Root, frames);
-  const facts = scenes.map((scene) => find(scene.layers, 'facts')?.content.text);
+  const facts = scenes.map((scene) => {
+    const layer = find(scene.layers, 'facts');
+    return layer && contentOf(layer, 'text').text;
+  });
   assert.deepEqual(facts, [
     'mira/mira/ミラ|First|false|0/32|600',
     'mira/mira/ミラ|First|false|9/32|600',
@@ -231,41 +259,42 @@ test('DialogueSeries holdSubtitle keeps the band through gaps and restarts it af
       h(DialogueSeries, { plan, views: { mira: miraView, hana: hanaView }, holdSubtitle: true, holdThroughGap: true }),
     );
   const [held] = renderFrames(HeldLines, [12]);
-  assert.equal(find(held.layers, 'facts').content.text, 'mira/mira/mira|First|false|12/32|600');
+  assert.equal(contentOf(find(held.layers, 'facts'), 'text').text, 'mira/mira/mira|First|false|12/32|600');
 });
 
 test('an editor preview draws a rendered subtitle whose view mounts with it', () => {
   const requests = installMeasurer();
-  const mira = React.createRef();
-  const view = React.createRef();
+  const mira = React.createRef<AssetReference>();
+  const view = React.createRef<CharacterViewReference>();
   registerComponent('SubtitlePreviewTest', () =>
     h(
       React.Fragment,
       null,
       h(Assets, null, h(Character, { ref: mira, name: 'mira', portrait: portrait('mira'), subtitle: subtitle() })),
       h(CharacterView, { ref: view, character: mira }),
-      h(Dialogue, { character: view }, 'Preview'),
+      dialogue({ character: view }, 'Preview'),
     ),
   );
   const { components: [layers] } = createResolver('ja-JP').resolve([{ component: 'SubtitlePreviewTest', props: {} }], {
     width: 640, height: 360, fps: 30, durationInFrames: 30, time: { value: 0, timescale: 30 }, preview: true,
   });
-  assert.equal(find(layers, 'facts').content.text, 'mira/mira/mira|Preview|false|0/30|600');
-  assert.equal(find(layers, 'said').content.style.lang, 'ja-JP');
-  assert.equal(requests.at(-1).style.lang, 'ja-JP');
+  assert.ok(layers, 'the component is registered');
+  assert.equal(contentOf(find(layers, 'facts'), 'text').text, 'mira/mira/mira|Preview|false|0/30|600');
+  assert.equal(contentOf(find(layers, 'said'), 'text').style.lang, 'ja-JP');
+  assert.equal(requests.at(-1)?.style.lang, 'ja-JP');
 });
 
 test('a rendered subtitle rejects children that are not text, like a plain one', () => {
   installMeasurer();
-  const mira = React.createRef();
-  const view = React.createRef();
+  const mira = React.createRef<AssetReference>();
+  const view = React.createRef<CharacterViewReference>();
   const Root = () =>
     h(
       Composition,
       { width: 640, height: 360, fps: 30, durationInFrames: 30 },
       h(Assets, null, h(Character, { ref: mira, name: 'mira', portrait: portrait('mira'), subtitle: subtitle() })),
       h(CharacterView, { ref: view, character: mira }),
-      h(Dialogue, { character: view }, 'Hi ', h('group', null)),
+      dialogue({ character: view }, 'Hi ', h('group', null)),
     );
   assert.throws(() => renderFrames(Root, [0]), /<Dialogue> children must be a string, a number, or an array of those/);
 });

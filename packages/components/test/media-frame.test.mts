@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'vitest';
 import * as React from 'react';
+import type { ReactElement } from 'react';
 
 import { Composition, Sequence, Video } from '@celesta/react';
+import type { Layer, LayerContent } from '@celesta/react';
 import { mount } from '@celesta/react/internal';
-import { MediaFrame } from '../dist/index.js';
+import type { MountedComposition } from '@celesta/react/internal';
+import { MediaFrame } from '../src/index.js';
+import type { MediaFrameProps, MediaFrameVideoProps } from '../src/index.js';
 import { installStubMeasurer } from './text-metrics-stub.mjs';
 
 const h = React.createElement;
@@ -13,47 +17,62 @@ beforeEach(() => {
   installStubMeasurer();
 });
 
-function composition(element, durationInFrames = 300) {
+function composition(element: ReactElement, durationInFrames = 300) {
   return mount(() => h(Composition, { width: 1920, height: 1080, fps: 30, durationInFrames }, element));
 }
 
-function render(element) {
+function render(element: ReactElement) {
   const mounted = composition(element);
-  return (frame = 0) => mounted.renderAt({ value: frame, timescale: 30 }, null).scene.layers;
+  return (frame = 0): Layer[] => mounted.renderAt({ value: frame, timescale: 30 }, null).scene.layers;
 }
 
+/** A layer whose content is of type `T`. */
+type LayerOf<T extends LayerContent['type']> = Layer & { content: Extract<LayerContent, { type: T }> };
+
+/** `layer`, checked to have content of `type`. */
+function layerOf<T extends LayerContent['type']>(layer: Layer | undefined, type: T): LayerOf<T> {
+  assert.ok(layer, `a ${type} layer`);
+  assert.equal(layer.content.type, type);
+  return layer as LayerOf<T>;
+}
+
+const is = <T extends LayerContent['type']>(type: T) => (layer: Layer): layer is LayerOf<T> => layer.content.type === type;
+
 /** The background, media clip group, media layer, caption, and border of a rendered frame. */
-function parts(frame) {
-  const layers = frame.content.layers;
-  const rects = layers.filter((layer) => layer.content.type === 'rect');
-  const content = layers.find((layer) => layer.content.type === 'group');
+function parts(frame: Layer | undefined) {
+  const layers = layerOf(frame, 'group').content.layers;
+  const rects = layers.filter(is('rect'));
+  const content = layerOf(layers.find(is('group')), 'group');
   const [clip, caption] = content.content.layers;
+  const clipGroup = layerOf(clip, 'group');
   return {
     background: rects.find((rect) => rect.content.fill), border: rects.find((rect) => rect.content.stroke),
-    content, clip, media: clip.content.layers[0], caption,
+    content, clip: clipGroup, media: clipGroup.content.layers[0], caption: caption && layerOf(caption, 'text'),
   };
 }
 
-const video = { kind: 'video', src: './clip.mp4', sourceWidth: 1920, sourceHeight: 1080 };
+const video = { kind: 'video', src: './clip.mp4', sourceWidth: 1920, sourceHeight: 1080 } as const satisfies Partial<MediaFrameVideoProps>;
 
 test('an image gets the area inside the padding and the fit, and is clipped there with rounded corners', () => {
   const [frame] = render(h(MediaFrame, {
     kind: 'image', src: './shot.png', x: 100, y: 50, width: 960, height: 540, padding: 10, fit: 'cover', cornerRadius: 24, fill: '#000000',
   }))();
   const { background, content, clip, media } = parts(frame);
+  assert.ok(background);
   assert.deepEqual(frame.transform.position, { x: 100, y: 50 });
   assert.deepEqual([background.content.width, background.content.height, background.content.cornerRadius], [960, 540, 24]);
   assert.deepEqual(content.transform.position, { x: 10, y: 10 });
   assert.deepEqual(clip.content.clip, { x: 0, y: 0, width: 940, height: 520, cornerRadius: 14 });
   assert.equal(media.content.type, 'image');
-  assert.deepEqual([media.content.width, media.content.height, media.content.fit], [940, 520, 'cover']);
+  const image = layerOf(media, 'image').content;
+  assert.deepEqual([image.width, image.height, image.fit], [940, 520, 'cover']);
 });
 
 test('fit defaults to contain, and an animated image keeps its playback props', () => {
   const [frame] = render(h(MediaFrame, { kind: 'image', src: './a.gif', width: 400, height: 300, startFrom: 0.5, playbackRate: 2, loop: false }))(0);
-  const { media } = parts(frame);
-  assert.equal(media.content.fit, 'contain');
-  assert.deepEqual(media.content.animation, { sourceTimeSeconds: 0.5, loop: false });
+  const image = layerOf(parts(frame).media, 'image').content;
+  assert.equal(image.fit, 'contain');
+  assert.deepEqual(image.animation, { sourceTimeSeconds: 0.5, loop: false });
 });
 
 test('a landscape video contained in a portrait frame is centred and letterboxed', () => {
@@ -85,7 +104,8 @@ test('a portrait video in a landscape frame: contain pillarboxes, cover crops to
 });
 
 test('the media corner radius is the frame\'s less the narrowest padding edge, never below 0', () => {
-  const radius = (props) => parts(render(h(MediaFrame, { ...video, width: 400, height: 300, ...props }))()[0]).clip.content.clip.cornerRadius;
+  const radius = (props: Partial<MediaFrameVideoProps>) =>
+    parts(render(h(MediaFrame, { ...video, width: 400, height: 300, ...props }))()[0]).clip.content.clip?.cornerRadius;
   assert.equal(radius({ cornerRadius: 24, padding: { top: 8, right: 12, bottom: 8, left: 12 } }), 16);
   assert.equal(radius({ cornerRadius: 6, padding: 10 }), 0);
   assert.equal(radius({}), 0);
@@ -93,9 +113,9 @@ test('the media corner radius is the frame\'s less the narrowest padding edge, n
 
 test('the border draws over the media', () => {
   const [frame] = render(h(MediaFrame, { ...video, width: 400, height: 300, fill: '#000000', stroke: '#FFFFFF', strokeWidth: 4 }))();
-  const layers = frame.content.layers;
+  const layers = layerOf(frame, 'group').content.layers;
   assert.deepEqual(layers.map((layer) => layer.content.type), ['rect', 'group', 'rect']);
-  assert.ok(parts(frame).border.content.stroke);
+  assert.ok(parts(frame).border?.content.stroke);
 });
 
 test('a video plays and sounds exactly as a bare Video does, inside a Sequence', () => {
@@ -103,8 +123,9 @@ test('a video plays and sounds exactly as a bare Video does, inside a Sequence',
   const framed = composition(h(Sequence, { from: 10, durationInFrames: 60 },
     h(MediaFrame, { kind: 'video', ...playback, sourceWidth: 1280, sourceHeight: 720, width: 640, height: 360, fit: 'cover' })), 90);
   const bare = composition(h(Sequence, { from: 10, durationInFrames: 60 }, h(Video, playback)), 90);
-  const videoOf = (mounted, frame) => {
-    const find = (layers) => layers.flatMap((layer) => layer.content.type === 'video' ? [layer] : find(layer.content.layers ?? []));
+  const videoOf = (mounted: MountedComposition, frame: number): LayerOf<'video'> | undefined => {
+    const find = (layers: Layer[]): LayerOf<'video'>[] => layers.flatMap((layer) =>
+      is('video')(layer) ? [layer] : find(layer.content.type === 'group' ? layer.content.layers : []));
     return find(mounted.renderAt({ value: frame, timescale: 30 }, null).scene.layers)[0];
   };
   for (const frame of [5, 10, 25, 69, 75]) {
@@ -112,7 +133,7 @@ test('a video plays and sounds exactly as a bare Video does, inside a Sequence',
   }
   // Both draw nothing outside the Sequence and the same video inside it.
   assert.equal(videoOf(framed, 5), undefined);
-  const inside = videoOf(framed, 25).content;
+  const inside = videoOf(framed, 25)!.content;
   assert.ok(Math.abs(inside.timing.sourceTimeSeconds - (1.5 + (15 / 30) * 2)) < 1e-9);
   assert.deepEqual(framed.collectAudio(), bare.collectAudio());
   assert.ok(framed.collectAudio().length > 0);
@@ -147,7 +168,9 @@ test('no caption draws no text', () => {
 });
 
 test('kind, fit, variant, and the video size are checked', () => {
-  const cases = [
+  // Deliberately invalid props, so they are not typed as MediaFrameProps; cast
+  // where they are passed.
+  const cases: [Record<string, unknown>, RegExp][] = [
     [{ ...video, kind: 'audio' }, /<MediaFrame> kind must be 'image' or 'video', not "audio"/],
     [{ ...video, kind: undefined }, /<MediaFrame> kind must be/],
     [{ ...video, fit: 'fill' }, /<MediaFrame> fit must be 'contain' or 'cover'/],
@@ -159,7 +182,7 @@ test('kind, fit, variant, and the video size are checked', () => {
     [{ ...video, width: -1 }, /<Panel> width must be/],
   ];
   for (const [props, message] of cases) {
-    assert.throws(() => render(h(MediaFrame, { width: 400, height: 300, ...props }))(), message, JSON.stringify(props));
+    assert.throws(() => render(h(MediaFrame, { width: 400, height: 300, ...props } as MediaFrameProps))(), message, JSON.stringify(props));
   }
 });
 

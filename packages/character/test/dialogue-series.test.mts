@@ -1,3 +1,7 @@
+// planDialogue() and expressionAt(), and <DialogueSeries> through the CLI.
+// The CLI renders are integration tests of the build: the CLI loads
+// @celesta/character from dist/, so run them after `pnpm run build`.
+
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -6,14 +10,20 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
 
-import { expressionAt, planDialogue } from '../dist/index.js';
+import type { AssetLocation, CompositionConfig, Layer } from '@celesta/react';
+import { expressionAt, planDialogue } from '../src/index.js';
+import type { DialogueExpression, ExpressionCue } from '../src/index.js';
 import { setMediaProbe } from '@celesta/react/internal';
+import type { ProbedMediaInfo } from '@celesta/react/internal';
+import { errorOf, parseMessage } from './render-cli.mjs';
+import type { FrameMessage } from './render-cli.mjs';
 
 const cli = fileURLToPath(new URL('../../cli/bin/celesta-react-render.js', import.meta.url));
 
 /** Seconds of each fake voice file, by base name. */
-const VOICES = { 'a.wav': 1, 'b.wav': 0.5, 'c.wav': 2.01, 'd.wav': 0.2 };
+const VOICES: Record<string, number> = { 'a.wav': 1, 'b.wav': 0.5, 'c.wav': 2.01, 'd.wav': 0.2 };
 
 function voiceDir() {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-dialogue-'));
@@ -23,23 +33,26 @@ function voiceDir() {
   return dir;
 }
 
-function fakeProbe(path) {
-  const seconds = VOICES[path.split(/[\\/]/).pop()];
+/** A probe answer, as the CLI takes it on stdin. */
+type ProbeResponse = { error: string } | { media: ProbedMediaInfo };
+
+function fakeProbe(path: string): ProbeResponse {
+  const seconds = VOICES[path.split(/[\\/]/).pop()!];
   return seconds === undefined
     ? { error: `cannot probe ${path}` }
     : { media: { durationSeconds: seconds, audio: [{ durationSeconds: seconds }] } };
 }
 
 /** Runs `fn` with `preloadMedia()` answered from VOICES, relative to a temp entry dir. */
-async function withVoices(fn) {
+async function withVoices<T>(fn: (probed: string[]) => Promise<T>): Promise<T> {
   const dir = voiceDir();
   const previous = process.env.CELESTA_REACT_ENTRY_DIR;
   process.env.CELESTA_REACT_ENTRY_DIR = dir;
-  const probed = [];
+  const probed: string[] = [];
   setMediaProbe(async (path) => {
     probed.push(path);
     const response = fakeProbe(path);
-    if (response.error) throw new Error(response.error);
+    if ('error' in response) throw new Error(response.error);
     return response.media;
   });
   try {
@@ -142,7 +155,7 @@ test('planDialogue explains missing voices and bad input', async () => {
  * Runs an entry through the CLI, answering media probes from VOICES, and
  * returns `{ config, frames }` for the requested frames.
  */
-async function renderEntry(t, source, frames) {
+async function renderEntry(t: TestContext, source: string, frames: number[]) {
   const dir = voiceDir();
   const entry = join(dir, 'entry.tsx');
   writeFileSync(entry, source);
@@ -150,24 +163,25 @@ async function renderEntry(t, source, frames) {
   t.signal.addEventListener('abort', () => child.kill(), { once: true });
   let stderr = '';
   child.stderr.on('data', (chunk) => { stderr += chunk; });
-  const exited = new Promise((resolve, reject) => {
+  const exited = new Promise<number | null>((resolve, reject) => {
     child.on('error', reject);
     child.on('exit', (code) => resolve(code));
   });
-  const send = (value) => child.stdin.write(JSON.stringify(value) + '\n');
-  const time = (frame) => ({ time: { value: frame, timescale: 30 } });
-  let config;
-  const results = [];
+  const send = (value: unknown) => child.stdin.write(JSON.stringify(value) + '\n');
+  const time = (frame: number) => ({ time: { value: frame, timescale: 30 } });
+  let config: CompositionConfig | undefined;
+  const results: FrameMessage[] = [];
   try {
     for await (const line of createInterface({ input: child.stdout })) {
-      const message = JSON.parse(line);
-      if (message.probeMedia) {
+      const message = parseMessage(line);
+      if ('probeMedia' in message) {
         send(fakeProbe(message.probeMedia.path));
-      } else if (message.config) {
+      } else if ('config' in message) {
         config = message.config;
         send(time(frames[0]));
       } else {
-        assert.equal(message.error, undefined, message.error);
+        assert.equal(errorOf(message), undefined, errorOf(message));
+        assert.ok('scene' in message);
         results.push(message);
         if (results.length < frames.length) send(time(frames[results.length]));
         else child.stdin.end();
@@ -182,17 +196,20 @@ async function renderEntry(t, source, frames) {
 }
 
 /** Every text layer's string, depth first. */
-function texts(layers) {
+function texts(layers: Layer[]): string[] {
   return layers.flatMap((layer) =>
     layer.content.type === 'text' ? [layer.content.text] : layer.content.type === 'group' ? texts(layer.content.layers) : [],
   );
 }
 
+/** Where an asset is: its file path, or its URL. */
+const pathOf = (location: AssetLocation) => (location.type === 'file' ? location.path : location.url);
+
 /** Every image asset path, depth first. */
-function images(layers) {
+function images(layers: Layer[]): string[] {
   return layers.flatMap((layer) =>
     layer.content.type === 'image'
-      ? [layer.content.asset.location.path.split(/[\\/]/).pop()]
+      ? [pathOf(layer.content.asset.location).split(/[\\/]/).pop()!]
       : layer.content.type === 'group' ? images(layer.content.layers) : [],
   );
 }
@@ -235,7 +252,7 @@ test('DialogueSeries plays each planned line in its window with its voice and sp
     [0, 29, 30, 52, 53, 67, 68, 98],
   );
   // one: 0–30 (+8 gap); two: lead-in 15, 53–68 (+8); three: 76–106, no gap.
-  assert.equal(config.durationInFrames, 106);
+  assert.equal(config?.durationInFrames, 106);
   assert.deepEqual(
     frames.map((frame) => texts(frame.scene.layers)),
     [['First'], ['First'], [], [], ['Second'], ['Second'], [], ['Third']],
@@ -248,7 +265,7 @@ test('DialogueSeries plays each planned line in its window with its voice and sp
     [false, false, false, true, true, true, true, true],
   );
   // Clip windows in composition frames.
-  const clips = (frame) => frame.audio.map(({ src, start, duration, volume }) => ({
+  const clips = (frame: FrameMessage) => frame.audio.map(({ src, start, duration, volume }) => ({
     src: src.split(/[\\/]/).pop(), start: Math.round(start * 30), frames: Math.round(duration * 30), volume,
   }));
   assert.deepEqual(clips(frames[0]), [{ src: 'a.wav', start: 0, frames: 30, volume: 1 }]);
@@ -258,7 +275,7 @@ test('DialogueSeries plays each planned line in its window with its voice and sp
 });
 
 test('expression cues change the face within a line and hold through the gap', async (t) => {
-  const source = (holdThroughGap) => `
+  const source = (holdThroughGap: boolean) => `
     import * as React from 'react';
     import { Assets, Composition, Sequence } from '@celesta/react';
     import { Character, CharacterView, Dialogue, DialogueSeries, planDialogue } from '@celesta/character';
@@ -296,7 +313,7 @@ test('expression cues change the face within a line and hold through the gap', a
     `;
   // one: 0–30, its gap 30–45; two starts at 45 with no expression.
   const frames = [0, 5, 6, 9, 10, 17, 18, 24, 25, 29, 30, 44, 45];
-  const faces = (result) => result.frames.map((frame) => images(frame.scene.layers).map((name) => name.split('-')[1]));
+  const faces = (result: { frames: FrameMessage[] }) => result.frames.map((frame) => images(frame.scene.layers).map((name) => name.split('-')[1]));
   assert.deepEqual(faces(await renderEntry(t, source(true), frames)), [
     ['calm', 'calm'], // before the first cue, the view's own face
     ['calm', 'calm'],
@@ -317,7 +334,7 @@ test('expression cues change the face within a line and hold through the gap', a
 });
 
 test('expressionAt picks the last cue at or before the time', () => {
-  const cues = [{ at: 0, expression: 'smile' }, { at: 1.237, expression: 'smug' }];
+  const cues: DialogueExpression = [{ at: 0, expression: 'smile' }, { at: 1.237, expression: 'smug' }];
   assert.equal(expressionAt(undefined, 3), undefined);
   assert.equal(expressionAt('smile', 3), 'smile');
   assert.equal(expressionAt([], 3), undefined);
@@ -328,7 +345,8 @@ test('expressionAt picks the last cue at or before the time', () => {
   assert.equal(expressionAt(cues, 99), 'smug');
   assert.throws(() => expressionAt([{ at: -1, expression: 'smile' }], 0), /cue 0 \("smile"\) needs `at` in seconds >= 0, got -1/);
   assert.throws(() => expressionAt([{ at: Number.NaN, expression: 'smile' }], 0), /needs `at` in seconds/);
-  assert.throws(() => expressionAt([{ at: 0 }], 0), /cue 0 needs an `expression` name/);
+  // A cue without an expression, cast to check the error.
+  assert.throws(() => expressionAt([{ at: 0 } as ExpressionCue], 0), /cue 0 needs an `expression` name/);
   assert.throws(
     () => expressionAt([{ at: 1, expression: 'smile' }, { at: 0.5, expression: 'smug' }], 2),
     /cue 1 \("smug"\) at 0.5 s comes before the cue before it \(1 s\)/,
@@ -336,7 +354,7 @@ test('expressionAt picks the last cue at or before the time', () => {
 });
 
 test('DialogueSeries can hold subtitles through the gap and reports unmapped speakers', async (t) => {
-  const source = (series) => `
+  const source = (series: string) => `
     import * as React from 'react';
     import { Assets, Composition } from '@celesta/react';
     import { Character, CharacterView, DialogueSeries, planDialogue } from '@celesta/character';
@@ -366,12 +384,13 @@ test('DialogueSeries can hold subtitles through the gap and reports unmapped spe
     const child = spawn(process.execPath, [cli, entry], { stdio: ['pipe', 'pipe', 'pipe'] });
     t.signal.addEventListener('abort', () => child.kill(), { once: true });
     const lines = createInterface({ input: child.stdout });
-    let error;
+    let error: string | undefined;
     for await (const line of lines) {
-      const message = JSON.parse(line);
-      if (message.probeMedia) child.stdin.write(JSON.stringify(fakeProbe(message.probeMedia.path)) + '\n');
-      else if (message.error) { error = message.error; child.stdin.end(); }
+      const message = parseMessage(line);
+      if ('probeMedia' in message) child.stdin.write(JSON.stringify(fakeProbe(message.probeMedia.path)) + '\n');
+      else if ('error' in message) { error = message.error; child.stdin.end(); }
     }
+    assert.ok(error, 'the CLI reports an error');
     assert.match(error, /line "0": speaker "mira" is not in `views`/);
   } finally {
     rmSync(dir, { recursive: true, force: true });

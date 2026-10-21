@@ -6,6 +6,8 @@
   "compilerOptions": {
     "composite": false,
     "declaration": false,
+    // The tests run on Node 22+, past the ES2021 the package's output targets.
+    "lib": ["ES2022"],
     "noEmit": true,
     "rootDir": "..",
     "tsBuildInfoFile": "../node_modules/.cache/test.tsbuildinfo",

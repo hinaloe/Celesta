@@ -1,6 +1,7 @@
 // Portrait blinking: the pure `blinkPhase()` schedule, and the layers or
-// images a <CharacterView> renders on blinking and open frames. Run after
-// `pnpm run build`.
+// images a <CharacterView> renders on blinking and open frames. The renders
+// are integration tests of the build: they run the CLI, which loads
+// @celesta/character from dist/, so run them after `pnpm run build`.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -10,14 +11,17 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 
-import { blinkPhase } from '../dist/index.js';
+import type { Layer, LayerContent } from '@celesta/react';
+import { blinkPhase } from '../src/index.js';
+import type { BlinkPhase, BlinkTiming } from '../src/index.js';
+import { frameOf, parseMessage } from './render-cli.mjs';
 
 const cli = fileURLToPath(new URL('../../cli/bin/celesta-react-render.js', import.meta.url));
 const psd = fileURLToPath(new URL('../../../examples/assets/lipsync-fixture.psd', import.meta.url));
 const FPS = 30;
 
 /** The first frame at or after `from` where `blinkPhase` is `phase`. */
-function firstFrame(phase, timing, from = 0) {
+function firstFrame(phase: BlinkPhase, timing: BlinkTiming, from = 0): number {
   for (let frame = from; frame < from + 100_000; frame += 1) {
     if (blinkPhase(frame, FPS, timing) === phase) return frame;
   }
@@ -30,7 +34,7 @@ function firstFrame(phase, timing, from = 0) {
  * (`[open, close]` JSX). Returns each frame's portrait: the `psd` layer
  * content, or the list of image paths for an image portrait.
  */
-function render({ portrait, view = '', wrap = ['', ''], frames }) {
+function render({ portrait, view = '', wrap = ['', ''], frames }: { portrait: string; view?: string; wrap?: [string, string]; frames: number[] }): Portrait[] {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-blink-'));
   const entry = join(dir, 'entry.tsx');
   writeFileSync(
@@ -49,30 +53,43 @@ function render({ portrait, view = '', wrap = ['', ''], frames }) {
     const input = frames.map((frame) => JSON.stringify({ time: { value: frame, timescale: FPS } })).join('\n');
     const result = spawnSync(process.execPath, [cli, entry], { input: `${input}\n`, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    const [, ...responses] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    const [, ...responses] = result.stdout.split(/\r?\n/).filter(Boolean).map(parseMessage);
     return responses.map((response) => {
-      assert.equal(response.error, undefined, response.error);
-      const find = (layers) => {
+      const { scene } = frameOf(response);
+      const find = (layers: Layer[]): Portrait => {
         for (const layer of layers) {
           if (layer.content.type === 'psd') return layer.content;
           if (layer.content.type === 'group') {
-            const images = layer.content.layers.filter((child) => child.content.type === 'image');
-            if (images.length) return images.map((child) => child.content.asset.location.path);
+            const images = layer.content.layers.flatMap((child) => (child.content.type === 'image' ? [child.content.asset.location] : []));
+            if (images.length) return images.map((location) => (location.type === 'file' ? location.path : location.url));
             const found = find(layer.content.layers);
             if (found) return found;
           }
         }
         return undefined;
       };
-      return find(response.scene.layers);
+      return find(scene.layers);
     });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
+type PsdContent = Extract<LayerContent, { type: 'psd' }>;
+/** A rendered portrait: a PSD's layer content, or an image portrait's image paths. */
+type Portrait = PsdContent | string[] | undefined;
+
+/** `portrait`, checked to be a PSD's. */
+function psdOf(portrait: Portrait): PsdContent {
+  assert.ok(portrait && !Array.isArray(portrait), 'a PSD portrait');
+  return portrait;
+}
+
+/** Renders a PSD portrait's `frames`; see `render`. */
+const renderPsd = (options: Parameters<typeof render>[0]) => render(options).map(psdOf);
+
 test('blinkPhase is a pure function of the frame and the seed', () => {
-  const run = (seed) => Array.from({ length: 3000 }, (_, frame) => blinkPhase(frame, FPS, { seed }));
+  const run = (seed: string | number) => Array.from({ length: 3000 }, (_, frame) => blinkPhase(frame, FPS, { seed }));
   assert.deepEqual(run('Hana'), run('Hana'));
   assert.deepEqual(run(7), run(7));
   assert.notDeepEqual(run('Hana'), run('Mira'));
@@ -81,8 +98,8 @@ test('blinkPhase is a pure function of the frame and the seed', () => {
 });
 
 test('blinks come about every interval, irregularly, and stay shut for duration', () => {
-  const starts = [];
-  const lengths = [];
+  const starts: number[] = [];
+  const lengths: number[] = [];
   let run = 0;
   for (let frame = 0; frame < 30 * 600; frame += 1) {
     const closed = blinkPhase(frame, FPS, { seed: 'Hana' }) === 'closed';
@@ -101,7 +118,7 @@ test('blinks come about every interval, irregularly, and stay shut for duration'
 });
 
 test('blink timing options change the rhythm', () => {
-  const count = (timing) => {
+  const count = (timing: BlinkTiming) => {
     let closed = 0;
     for (let frame = 0; frame < 30 * 600; frame += 1) {
       if (blinkPhase(frame, FPS, timing) === 'closed') closed += 1;
@@ -140,7 +157,7 @@ const PSD = `type: 'psd', src: ${JSON.stringify(psd)}, layers: ['body'], default
 
 test('a PSD portrait swaps its eye layers while it blinks', () => {
   const shut = firstFrame('closed', { seed: 'Hana' });
-  const [open, half, closed] = render({ portrait: PSD, frames: [0, shut - 1, shut] });
+  const [open, half, closed] = renderPsd({ portrait: PSD, frames: [0, shut - 1, shut] });
   assert.deepEqual(open.visibleLayers, ['body', 'face/calm']);
   assert.deepEqual(open.enabledLayers, ['eyes/open']);
   assert.deepEqual(open.disabledLayers, ['eyes/closed', 'eyes/half']);
@@ -152,46 +169,47 @@ test('a PSD portrait swaps its eye layers while it blinks', () => {
 
 test('a PSD portrait blinks while it lip-syncs', () => {
   const shut = firstFrame('closed', { seed: 'Hana' });
-  const [closed] = render({ portrait: PSD, view: 'mouth="a"', frames: [shut] });
+  const [closed] = renderPsd({ portrait: PSD, view: 'mouth="a"', frames: [shut] });
   assert.deepEqual(closed.enabledLayers, ['mouth/a', 'eyes/closed']);
-  assert.ok(closed.disabledLayers.includes('mouth/i'));
-  assert.ok(closed.disabledLayers.includes('eyes/open'));
+  assert.ok(closed.disabledLayers!.includes('mouth/i'));
+  assert.ok(closed.disabledLayers!.includes('eyes/open'));
 });
 
 test('a PSD expression blinks with its own eyes, or not at all', () => {
   const shut = firstFrame('closed', { seed: 'Hana' });
-  const [open, closed] = render({ portrait: PSD, view: 'expression="angry"', frames: [0, shut] });
+  const [open, closed] = renderPsd({ portrait: PSD, view: 'expression="angry"', frames: [0, shut] });
   assert.deepEqual(open.enabledLayers, ['face/angry/eyes/l', 'face/angry/eyes/r']);
   assert.deepEqual(open.disabledLayers, ['face/angry/eyes/shut']);
   // No half-shut layer of its own: the portrait's is not borrowed.
   assert.deepEqual(closed.enabledLayers, ['face/angry/eyes/shut']);
   assert.deepEqual(closed.disabledLayers, ['face/angry/eyes/l', 'face/angry/eyes/r']);
-  const [sleepy] = render({ portrait: PSD, view: 'expression="sleepy"', frames: [shut] });
+  const [sleepy] = renderPsd({ portrait: PSD, view: 'expression="sleepy"', frames: [shut] });
   assert.equal(sleepy.enabledLayers, undefined);
   assert.equal(sleepy.disabledLayers, undefined);
 });
 
 test('blink={false} holds the eyes open', () => {
   const shut = firstFrame('closed', { seed: 'Hana' });
-  const [held] = render({ portrait: PSD, view: 'blink={false}', frames: [shut] });
+  const [held] = renderPsd({ portrait: PSD, view: 'blink={false}', frames: [shut] });
   assert.deepEqual(held.enabledLayers, ['eyes/open']);
   assert.deepEqual(held.disabledLayers, ['eyes/closed', 'eyes/half']);
 });
 
 test('the seed and timing can be set on the portrait, an expression, or the view', () => {
   const shut = firstFrame('closed', { seed: 'other', interval: 2 });
-  const blinking = (frame, portrait, view = '') => render({ portrait, view, frames: [frame] })[0].enabledLayers.includes('eyes/closed');
+  const blinking = (frame: number, portrait: string, view = '') =>
+    renderPsd({ portrait, view, frames: [frame] })[0].enabledLayers!.includes('eyes/closed');
   assert.equal(blinking(shut, PSD, `blink={{ seed: 'other', interval: 2 }}`), true);
   assert.equal(blinking(shut, PSD.replace(`half: 'eyes/half' }`, `half: 'eyes/half', seed: 'other', interval: 2 }`)), true);
   // An expression's eyes inherit the portrait's timing.
   const angry = PSD.replace(`half: 'eyes/half' }`, `half: 'eyes/half', seed: 'other', interval: 2 }`);
-  const [frame] = render({ portrait: angry, view: 'expression="angry"', frames: [shut] });
+  const [frame] = renderPsd({ portrait: angry, view: 'expression="angry"', frames: [shut] });
   assert.deepEqual(frame.enabledLayers, ['face/angry/eyes/shut']);
 });
 
 test('blinks follow the composition frame, not the sequence one', () => {
   const shut = firstFrame('closed', { seed: 'Hana' }, 200);
-  const [inside] = render({
+  const [inside] = renderPsd({
     portrait: PSD,
     wrap: ['<Sequence from={137}>', '</Sequence>'],
     frames: [shut],

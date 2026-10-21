@@ -1,6 +1,8 @@
 // `importVoiceFolder()`: pairing, ordering, encodings, manifests, partial
 // writes, and the preparation dependencies the editor watches. Every fixture
-// is generated: PCM WAVs of a tone, transcripts in temporary folders.
+// is generated: PCM WAVs of a tone, transcripts in temporary folders. The
+// last test is an integration test of the build: it runs the CLI, which
+// loads @celesta/character from dist/.
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -11,13 +13,16 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, test } from 'vitest';
 
-import { decodeWav, importVoiceFolder, naturalCompare, planDialogue } from '../dist/index.js';
+import { decodeWav, importVoiceFolder, naturalCompare, planDialogue } from '../src/index.js';
+import type { VoiceTextEncoding } from '../src/index.js';
 import { prepareDependencies, setMediaProbe } from '@celesta/react/internal';
+import { errorOf, parseMessage } from './render-cli.mjs';
+import type { CliMessage } from './render-cli.mjs';
 
 const cli = fileURLToPath(new URL('../../cli/bin/celesta-react-render.js', import.meta.url));
 
 /** A mono 16-bit PCM WAV: `seconds` of a tone, loud enough to open the mouth. */
-function wav(seconds, sampleRate = 8000) {
+function wav(seconds: number, sampleRate = 8000): Buffer {
   const frames = Math.round(seconds * sampleRate);
   const bytes = Buffer.alloc(44 + frames * 2);
   bytes.write('RIFF', 0, 'ascii');
@@ -39,9 +44,9 @@ function wav(seconds, sampleRate = 8000) {
   return bytes;
 }
 
-let cache;
-let previousHome;
-let previousXdg;
+let cache: string;
+let previousHome: string | undefined;
+let previousXdg: string | undefined;
 beforeAll(() => {
   // Snapshots go to a throwaway cache, not the developer's.
   cache = mkdtempSync(join(tmpdir(), 'celesta-voice-cache-'));
@@ -59,7 +64,7 @@ afterAll(() => {
 });
 
 /** Runs `fn(dir)` with a temporary entry directory holding `files`. */
-async function withFolder(files, fn) {
+async function withFolder<T>(files: Record<string, string | Buffer>, fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-voices-'));
   for (const [name, contents] of Object.entries(files)) {
     mkdirSync(join(dir, name, '..'), { recursive: true });
@@ -109,9 +114,9 @@ test('a folder of pairs becomes lines with stable ids, subtitles, durations, and
       assert.equal(basename(lines[0].audio), 'voice-1.WAV');
       assert.deepEqual(readFileSync(lines[0].audio), readFileSync(lines[0].source.wav));
       // Waveform lip sync takes the transcript's vowels while the tone sounds.
-      assert.equal(lines[0].lipSync.mouthAtSeconds(0.05), 'a');
-      assert.equal(lines[0].lipSync.mouthAtSeconds(0.45), 'o');
-      assert.equal(lines[0].lipSync.durationInSeconds, 0.5);
+      assert.equal(lines[0].lipSync!.mouthAtSeconds(0.05), 'a');
+      assert.equal(lines[0].lipSync!.mouthAtSeconds(0.45), 'o');
+      assert.equal(lines[0].lipSync!.durationInSeconds, 0.5);
 
       const recursive = await importVoiceFolder({ directory: 'voices', recursive: true, ...quiet });
       assert.deepEqual(recursive.map((line) => line.id), ['sub/voice-4', 'voice-1', 'voice-2', 'voice-10']);
@@ -158,7 +163,7 @@ test('a manifest overrides ids, order, speaker, text, spokenText, scene, express
       assert.equal(lines[0].expression, 'smile');
       assert.equal(lines[0].gap, 0.5);
       // The spoken text, not the kanji subtitle, gives the vowels: き(i) ょ(o) う(u) は(a).
-      assert.equal(lines[0].lipSync.mouthAtSeconds(0.01), 'o');
+      assert.equal(lines[0].lipSync!.mouthAtSeconds(0.01), 'o');
       assert.deepEqual(lines[1].expression, [{ at: 0.2, expression: 'angry' }]);
       assert.equal(lines[2].speaker, 'akane');
     },
@@ -166,7 +171,7 @@ test('a manifest overrides ids, order, speaker, text, spokenText, scene, express
 });
 
 test('manifest mistakes are reported with the file and the line', async () => {
-  const cases = [
+  const cases: [unknown, RegExp][] = [
     [{ lines: [{ file: 'voice-1', colour: 'red' }] }, /lines\[0\] has unknown key "colour"/],
     [{ lines: [{ file: 'voice-1', reading: 'あ' }] }, /lines\[0\]\.reading is now spokenText/],
     [{ lines: [{ file: 'voice-1', spokenText: 1 }] }, /lines\[0\]\.spokenText must be a string/],
@@ -182,6 +187,7 @@ test('manifest mistakes are reported with the file and the line', async () => {
       { 'voice-1.wav': wav(0.1), 'voice-1.txt': 'あ', 'voice-2.wav': wav(0.1), 'voice-2.txt': 'い', 'm.json': JSON.stringify(manifest) },
       async (dir) => {
         await assert.rejects(importVoiceFolder({ directory: '.', manifest: 'm.json', ...quiet }), (error) => {
+          assert.ok(error instanceof Error);
           assert.match(error.message, expected);
           return true;
         });
@@ -207,7 +213,8 @@ test('transcripts decode as UTF-8 by default and as UTF-16LE or Shift_JIS when a
     const custom = await importVoiceFolder({ directory: 's', encoding: (bytes) => `${bytes.length} bytes` });
     assert.equal(custom[0].text, '4 bytes');
     await assert.rejects(importVoiceFolder({ directory: 's', encoding: () => 'bad �' }), /replacement characters/);
-    await assert.rejects(importVoiceFolder({ directory: 's', encoding: 'latin1' }), /unsupported encoding "latin1"/);
+    // Not a supported encoding, cast to check the error.
+    await assert.rejects(importVoiceFolder({ directory: 's', encoding: 'latin1' as VoiceTextEncoding }), /unsupported encoding "latin1"/);
   });
   // UTF-16LE without a BOM decodes as UTF-8 full of NULs.
   await withFolder({ 'a.wav': wav(0.1), 'a.txt': Buffer.from('hi', 'utf16le') }, async () => {
@@ -230,6 +237,7 @@ test('unpaired, empty, and truncated files fail with every file named, or are sk
     },
     async (dir) => {
       await assert.rejects(importVoiceFolder({ directory: '.' }), (error) => {
+        assert.ok(error instanceof Error);
         assert.match(error.message, new RegExp(`${escape(join(dir, 'lonely.wav'))} has no matching \\.txt file`));
         assert.match(error.message, new RegExp(`${escape(join(dir, 'orphan.txt'))} has no matching \\.wav file`));
         assert.match(error.message, /empty\.txt is incomplete \(the transcript is empty\)/);
@@ -237,7 +245,7 @@ test('unpaired, empty, and truncated files fail with every file named, or are sk
         assert.match(error.message, /incomplete: 'skip'/);
         return true;
       });
-      const warnings = [];
+      const warnings: string[] = [];
       const lines = await importVoiceFolder({ directory: '.', incomplete: 'skip', onWarning: (m) => warnings.push(m) });
       assert.deepEqual(lines.map((line) => line.id), ['good']);
       assert.equal(warnings.length, 4);
@@ -259,12 +267,12 @@ test('names that differ only in case pair, but two of one kind are ambiguous', a
 
 test('text without kana vowels falls back to an open/closed mouth with a warning', async () => {
   await withFolder({ 'k.wav': wav(0.2), 'k.txt': '今日は晴天', 'n.wav': wav(0.2), 'n.txt': '123' }, async () => {
-    const warnings = [];
+    const warnings: string[] = [];
     const lines = await importVoiceFolder({ directory: '.', onWarning: (m) => warnings.push(m) });
     assert.equal(warnings.length, 2);
     assert.match(warnings[0], /line "k" has kanji and no spokenText/);
     assert.match(warnings[1], /line "n" has no kana or romaji vowels/);
-    assert.equal(lines[0].lipSync.mouthAtSeconds(0.1), 'a');
+    assert.equal(lines[0].lipSync!.mouthAtSeconds(0.1), 'a');
     const off = await importVoiceFolder({ directory: '.', lipSync: false, ...quiet });
     assert.equal(off[0].lipSync, undefined);
   });
@@ -293,7 +301,7 @@ test('the folder, its files, and the manifest are recorded as preparation depend
     for (const file of ['v', 'v/a.wav', 'v/a.txt']) {
       const dependency = recorded.get(join(dir, file));
       assert.ok(dependency, `${file} is recorded`);
-      assert.match(dependency.mtimeNs, /^\d+$/);
+      assert.match(String(dependency.mtimeNs), /^\d+$/);
     }
     // A manifest that does not exist yet is watched for its creation.
     assert.deepEqual(recorded.get(join(dir, 'v/missing.json')), { path: join(dir, 'v/missing.json'), mtimeNs: null, size: null });
@@ -315,13 +323,15 @@ export default function Entry() { return <Composition width={16} height={16} fps
     const child = spawn(process.execPath, [cli, entry], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env } });
     t.signal.addEventListener('abort', () => child.kill(), { once: true });
     try {
-      let ready;
+      let ready: CliMessage | undefined;
       for await (const line of createInterface({ input: child.stdout })) {
-        ready = JSON.parse(line);
+        ready = parseMessage(line);
         child.stdin.end();
         break;
       }
-      assert.equal(ready.error, undefined, ready.error);
+      assert.ok(ready, 'a ready message');
+      assert.equal(errorOf(ready), undefined, errorOf(ready));
+      assert.ok('config' in ready, 'a ready message');
       assert.equal(ready.config.durationInFrames, 1);
       const paths = ready.dependencies.map((dependency) => dependency.path);
       assert.ok(paths.includes(join(dir, 'voices')));
@@ -333,6 +343,6 @@ export default function Entry() { return <Composition width={16} height={16} fps
   });
 });
 
-function escape(text) {
+function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

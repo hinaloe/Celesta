@@ -1,21 +1,25 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'vitest';
 import * as React from 'react';
+import type { ReactElement } from 'react';
 
 import { Composition, Sequence, Theme } from '@celesta/react';
+import type { Layer, LayerContent, Paint, TextMetrics } from '@celesta/react';
 import { SafeArea } from '@celesta/layout';
 import { mount, setTextMeasurer } from '@celesta/react/internal';
-import { TitleCard } from '../dist/index.js';
+import type { MeasureTextRequest, MountedComposition } from '@celesta/react/internal';
+import { TitleCard } from '../src/index.js';
+import type { TitleCardProps } from '../src/index.js';
 
 const h = React.createElement;
 
 // Every character is `fontSize` wide; lines break at `\n` and wrap at maxWidth.
-function measure({ text, style, maxWidth }) {
+function measure({ text, style, maxWidth }: Pick<MeasureTextRequest, 'text' | 'style' | 'maxWidth'>): TextMetrics {
   const size = style.fontSize ?? 10;
   const per = maxWidth === undefined ? Infinity : Math.max(1, Math.floor(maxWidth / size));
   const lines = text === '' ? [] : text.split('\n').flatMap((line) => {
     const chars = Array.from(line);
-    const out = [];
+    const out: string[] = [];
     for (let i = 0; i < Math.max(1, chars.length); i += per) out.push(chars.slice(i, i + per).join(''));
     return out;
   });
@@ -26,6 +30,8 @@ function measure({ text, style, maxWidth }) {
     ascent: size,
     descent: size * 0.25,
     lineHeight,
+    capHeight: size * 0.7,
+    xHeight: size * 0.5,
     lines: lines.length,
     glyphs: [],
     lineStarts: [0],
@@ -34,12 +40,25 @@ function measure({ text, style, maxWidth }) {
 
 beforeEach(() => setTextMeasurer(async (request) => measure(request), measure));
 
-const at = (composition, frame) => composition.renderAt({ value: frame, timescale: 30 }, null);
-const root = (child, { width = 1920, height = 1080, durationInFrames = 90 } = {}) => () =>
+const at = (composition: MountedComposition, frame: number) => composition.renderAt({ value: frame, timescale: 30 }, null);
+const root = (child: ReactElement, { width = 1920, height = 1080, durationInFrames = 90 } = {}) => () =>
   h(Composition, { width, height, fps: 30, durationInFrames }, child);
 
+/** A leaf layer's content, with where it ends up and its opacity (over any `x` of its own). */
+type Placed<C> = C extends unknown ? Omit<C, 'x' | 'y' | 'opacity'> & { x: number; y: number; opacity: number } : never;
+type Leaf = Placed<Exclude<LayerContent, { type: 'group' }>>;
+type LeafOf<T extends Leaf['type']> = Extract<Leaf, { type: T }>;
+
+const is = <T extends Leaf['type']>(type: T) => (leaf: Leaf): leaf is LeafOf<T> => leaf.type === type;
+
+/** The color of a solid paint. */
+function colorOf(paint: Paint | null | undefined): string {
+  assert.ok(paint && paint.type === 'solid', 'a solid paint');
+  return paint.color;
+}
+
 // Every text and rect layer with its position summed through its groups.
-function leaves(layers, x = 0, y = 0, opacity = 1, out = []) {
+function leaves(layers: Layer[], x = 0, y = 0, opacity = 1, out: Leaf[] = []): Leaf[] {
   for (const layer of layers) {
     const lx = x + layer.transform.position.x;
     const ly = y + layer.transform.position.y;
@@ -50,18 +69,18 @@ function leaves(layers, x = 0, y = 0, opacity = 1, out = []) {
   return out;
 }
 
-const texts = (composition, frame) => Object.fromEntries(
-  leaves(at(composition, frame).scene.layers).filter((l) => l.type === 'text').map((l) => [l.text, l]));
+const texts = (composition: MountedComposition, frame: number): Record<string, LeafOf<'text'>> => Object.fromEntries(
+  leaves(at(composition, frame).scene.layers).filter(is('text')).map((l) => [l.text, l]));
 
 // Top and bottom of a text layer, from its baseline and the fake metrics.
-function box(layer) {
-  const size = layer.style.fontSize;
+function box(layer: LeafOf<'text'>) {
+  const size = layer.style.fontSize!;
   const lineHeight = layer.style.lineHeight ?? size * 1.25;
-  const lines = measure({ text: layer.text, style: layer.style, maxWidth: layer.maxWidth }).lines;
+  const lines = measure({ text: layer.text, style: layer.style, maxWidth: layer.maxWidth ?? undefined }).lines;
   return { top: layer.y - size, bottom: layer.y - size + lines * lineHeight };
 }
 
-const still = { enter: null, exit: null };
+const still: Partial<TitleCardProps> = { enter: null, exit: null };
 
 test('the pieces stack top to bottom with the gap, and absent ones leave no space', () => {
   const full = texts(mount(root(h(TitleCard, {
@@ -81,14 +100,14 @@ test('the pieces stack top to bottom with the gap, and absent ones leave no spac
 });
 
 test('verticalAlign places the whole block, and align places every line', () => {
-  const props = { ...still, title: 'Title', subtitle: 'Sub', padding: 100, gap: 0, titleSize: 80, subtitleSize: 40 };
+  const props: TitleCardProps = { ...still, title: 'Title', subtitle: 'Sub', padding: 100, gap: 0, titleSize: 80, subtitleSize: 40 };
   const blockHeight = 80 * 1.1 + Math.round(40 * 1.4);
-  for (const [verticalAlign, top] of [['top', 100], ['middle', 100 + (880 - blockHeight) / 2], ['bottom', 980 - blockHeight]]) {
+  for (const [verticalAlign, top] of [['top', 100], ['middle', 100 + (880 - blockHeight) / 2], ['bottom', 980 - blockHeight]] as const) {
     const layers = texts(mount(root(h(TitleCard, { ...props, verticalAlign }))), 0);
     assert.equal(box(layers.Title).top, top, verticalAlign);
     assert.equal(box(layers.Sub).bottom, top + blockHeight, verticalAlign);
   }
-  for (const align of ['left', 'center', 'right']) {
+  for (const align of ['left', 'center', 'right'] as const) {
     const layers = texts(mount(root(h(TitleCard, { ...props, align, maxWidth: 800 }))), 0);
     const left = align === 'left' ? 100 : align === 'center' ? 100 + (1720 - 800) / 2 : 1820 - 800;
     for (const text of ['Title', 'Sub']) {
@@ -100,12 +119,13 @@ test('verticalAlign places the whole block, and align places every line', () => 
 });
 
 test('the kicker rule sits before the kicker, and the pair is placed by its measured width', () => {
-  for (const align of ['left', 'center', 'right']) {
+  for (const align of ['left', 'center', 'right'] as const) {
     const leafs = leaves(at(mount(root(h(TitleCard, {
       ...still, kicker: 'ABCD', kickerRule: 36, kickerSize: 20, title: 'T', align, padding: 100, maxWidth: 1000,
     }))), 0).scene.layers);
-    const rule = leafs.find((l) => l.type === 'rect');
-    const kicker = leafs.find((l) => l.text === 'ABCD');
+    const rule = leafs.find(is('rect'));
+    const kicker = leafs.filter(is('text')).find((l) => l.text === 'ABCD');
+    assert.ok(rule && kicker);
     const line = 36 + 16 + 80;
     const start = align === 'left' ? 100 : align === 'center' ? 100 + (1720 - 1000) / 2 + (1000 - line) / 2 : 100 + 1720 - line;
     assert.equal(rule.x, start, align);
@@ -122,7 +142,7 @@ test('an explicit line break is kept, and a long title shrinks to fit the room',
   const fitted = texts(mount(root(h(TitleCard, {
     ...still, title: long, subtitle: 'Sub', titleSize: 200, minTitleSize: 20, maxTitleLines: 2, padding: 100,
   }))), 0)[long];
-  const size = fitted.style.fontSize;
+  const size = fitted.style.fontSize!;
   assert.ok(size < 200 && size >= 20, `size ${size}`);
   assert.ok(measure({ text: long, style: fitted.style, maxWidth: 1720 }).lines <= 2);
   assert.ok(measure({ text: long, style: { ...fitted.style, fontSize: size + 1 }, maxWidth: 1720 }).lines > 2);
@@ -135,12 +155,13 @@ test('the text stays inside the padding and the safe area in landscape and portr
       title: 'A title long enough to wrap onto a few lines at the largest size', subtitle: 'A subtitle that wraps as well, at the column',
       background: '#102030', verticalAlign: 'bottom',
     }), { width, height })), 0).scene.layers);
-    const [background] = leafs;
+    const background = leafs[0];
+    assert.equal(background.type, 'rect');
     assert.deepEqual([background.type, background.x, background.y, background.width, background.height], ['rect', 0, 0, width, height]);
     const side = Math.min(width, height);
     const pad = Math.round(side * 0.09);
     const inset = { top: Math.round(0.1 * height), right: Math.round(0.185 * width), bottom: Math.round(0.2 * height), left: Math.round(width / 15) };
-    for (const layer of leafs.filter((l) => l.type === 'text')) {
+    for (const layer of leafs.filter(is('text'))) {
       const { top, bottom } = box(layer);
       const right = layer.x + (layer.maxWidth ?? measure({ text: layer.text, style: layer.style }).width);
       assert.ok(layer.x >= inset.left + pad, `${width}x${height} ${layer.text} left`);
@@ -166,31 +187,33 @@ test('colors and fonts take <Theme> names', () => {
   const leafs = leaves(at(mount(root(h(Theme, {
     fonts: { display: 'Inter' }, colors: { bg: '#000000', ink: '#ffffff', soft: '#888888', accent: '#ff3300' },
   }, card))), 0).scene.layers);
-  const fill = (text) => leafs.find((l) => l.text === text).style.fill.color;
+  const fill = (text: string) => colorOf(leafs.filter(is('text')).find((l) => l.text === text)?.style.fill);
   assert.deepEqual([fill('K'), fill('T'), fill('S')], ['#ff3300', '#ffffff', '#888888']);
-  assert.equal(leafs[0].fill.color ?? leafs[0].fill, '#000000');
-  assert.deepEqual(leafs.filter((l) => l.type === 'text').map((l) => l.style.fontFamily), ['Inter', 'Inter', 'Inter']);
+  const [background] = leafs;
+  assert.equal(background.type, 'rect');
+  assert.equal(colorOf(background.fill), '#000000');
+  assert.deepEqual(leafs.filter(is('text')).map((l) => l.style.fontFamily), ['Inter', 'Inter', 'Inter']);
 });
 
 test('the default staggers each piece in, top to bottom, and all leave together', () => {
   const composition = mount(root(h(TitleCard, { chapter: '01', kicker: 'K', title: 'T', subtitle: 'S' }), { durationInFrames: 60 }));
   // A fifth of a second apart: 0, 6, 12, 18.
-  const shown = (frame) => Object.keys(texts(composition, frame));
+  const shown = (frame: number) => Object.keys(texts(composition, frame));
   assert.deepEqual(shown(0), ['01']);
   assert.deepEqual(shown(6), ['01', 'K']);
   assert.deepEqual(shown(17), ['01', 'K', 'T']);
   assert.deepEqual(shown(18), ['01', 'K', 'T', 'S']);
-  const opacity = (frame) => Object.values(texts(composition, frame)).map((l) => l.opacity);
+  const opacity = (frame: number) => Object.values(texts(composition, frame)).map((l) => l.opacity);
   assert.deepEqual(opacity(40), [1, 1, 1, 1]);
   assert.deepEqual(opacity(59), [0, 0, 0, 0]);
   // fade-up: each piece starts below its place.
-  const t = (frame) => texts(composition, frame).T;
+  const t = (frame: number) => texts(composition, frame).T;
   assert.ok(t(12).y > t(40).y);
 });
 
 test('the calm setting brings every piece in at once, and null cuts', () => {
   const calm = mount(root(h(TitleCard, { kicker: 'K', title: 'T', subtitle: 'S', enter: 'fade', stagger: 0 })));
-  const opacities = (composition, frame) => Object.values(texts(composition, frame)).map((l) => l.opacity);
+  const opacities = (composition: MountedComposition, frame: number) => Object.values(texts(composition, frame)).map((l) => l.opacity);
   const middle = opacities(calm, 7);
   assert.equal(middle.length, 3);
   assert.ok(middle.every((o) => o === middle[0] && o > 0 && o < 1));
@@ -201,8 +224,8 @@ test('the calm setting brings every piece in at once, and null cuts', () => {
 
 test('scale grows each piece about its aligned anchor', () => {
   const composition = mount(root(h(TitleCard, { title: 'Title', align: 'center', enter: { type: 'scale', scaleFrom: 0.5 }, exit: null, maxWidth: 600 })));
-  const group = (frame) => {
-    const find = (layers, x = 0) => {
+  const group = (frame: number) => {
+    const find = (layers: Layer[], x = 0): { x: number; scale: number } | undefined => {
       for (const layer of layers) {
         if (layer.content.type !== 'group') continue;
         const inner = layer.content.layers;
@@ -212,7 +235,9 @@ test('scale grows each piece about its aligned anchor', () => {
       }
       return undefined;
     };
-    return find(at(composition, frame).scene.layers);
+    const found = find(at(composition, frame).scene.layers);
+    assert.ok(found);
+    return found;
   };
   assert.equal(group(3).x, 960);
   assert.ok(group(3).scale < 1);
@@ -230,7 +255,7 @@ test('TitleCard is the same at a frame whether played to or seeked, alone or in 
 });
 
 test('TitleCard rejects bad sizes and colors', () => {
-  const render = (props) => () => at(mount(root(h(TitleCard, { title: 'T', ...props }))), 0);
+  const render = (props: Partial<TitleCardProps>) => () => at(mount(root(h(TitleCard, { title: 'T', ...props }))), 0);
   assert.throws(render({ titleSize: 0 }), /titleSize/);
   assert.throws(render({ gap: -1 }), /gap/);
   assert.throws(render({ stagger: -2 }), /stagger/);

@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'vitest';
 import * as React from 'react';
+import type { ReactElement } from 'react';
 
 import { Composition, Sequence } from '@celesta/react';
+import type { Layer, LayerContent, Paint } from '@celesta/react';
 import { mount } from '@celesta/react/internal';
-import { StatCard } from '../dist/index.js';
+import { StatCard } from '../src/index.js';
+import type { StatCardProps } from '../src/index.js';
 import { installStubMeasurer } from './text-metrics-stub.mjs';
 
 const h = React.createElement;
@@ -13,21 +16,37 @@ beforeEach(() => {
   installStubMeasurer();
 });
 
-function render(element) {
+function render(element: ReactElement) {
   const composition = mount(() => h(Composition, { width: 1920, height: 1080, fps: 30, durationInFrames: 300 }, element));
-  return (frame = 0) => composition.renderAt({ value: frame, timescale: 30 }, null).scene.layers;
+  return (frame = 0): Layer[] => composition.renderAt({ value: frame, timescale: 30 }, null).scene.layers;
 }
 
-function parts(card) {
-  const layers = card.content.layers;
+/** A layer whose content is of type `T`. */
+type LayerOf<T extends LayerContent['type']> = Layer & { content: Extract<LayerContent, { type: T }> };
+
+/** `layer`, checked to have content of `type`. */
+function layerOf<T extends LayerContent['type']>(layer: Layer | undefined, type: T): LayerOf<T> {
+  assert.ok(layer, `a ${type} layer`);
+  assert.equal(layer.content.type, type);
+  return layer as LayerOf<T>;
+}
+
+/** The color of a solid paint. */
+function colorOf(paint: Paint | null | undefined): string {
+  assert.ok(paint && paint.type === 'solid', 'a solid paint');
+  return paint.color;
+}
+
+function parts(card: Layer | undefined) {
+  const layers = layerOf(card, 'group').content.layers;
   const background = layers.find((layer) => layer.content.type === 'rect' && layer.content.fill);
   const content = layers.find((layer) => layer.content.type === 'group');
-  return { background, texts: content.content.layers };
+  return { background: layerOf(background, 'rect'), texts: layerOf(content, 'group').content.layers.map((text) => layerOf(text, 'text')) };
 }
 
 // Text sizes that make the stub's widths easy: 10 px per character for the
 // value, 10 px for the label (20 px for Japanese), 8 px for the note.
-const styles = { fill: '#000000', valueStyle: { fontSize: 20 }, labelStyle: { fontSize: 20 }, noteStyle: { fontSize: 16 } };
+const styles: Partial<StatCardProps> = { fill: '#000000', valueStyle: { fontSize: 20 }, labelStyle: { fontSize: 20 }, noteStyle: { fontSize: 16 } };
 
 test('a card stacks the label, the number, and the note inside its padding', () => {
   const [card] = render(h(StatCard, { ...styles, x: 100, y: 200, fill: '#182030', label: '総数', value: 1280, suffix: ' 件', note: 'per week', padding: 20, gap: 10 }))(60);
@@ -75,7 +94,7 @@ test('the formatter, decimals, locale, and color reach the number', () => {
   const [card] = render(h(StatCard, { ...styles, value: 1234.5, decimals: 1, locale: 'de-DE', color: '#ffffff', durationInFrames: 0 }))(0);
   const [text] = parts(card).texts;
   assert.equal(text.content.text, '1.234,5');
-  assert.equal(text.content.style.fill.color, '#ffffff');
+  assert.equal(colorOf(text.content.style.fill), '#ffffff');
   const [formatted] = render(h(StatCard, { ...styles, value: 3, formatter: (value) => `${value}/5`, durationInFrames: 0 }))(0);
   assert.equal(parts(formatted).texts[0].content.text, '3/5');
 });

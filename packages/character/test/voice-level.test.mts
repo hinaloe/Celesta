@@ -6,7 +6,9 @@ import React from 'react';
 import { test } from 'vitest';
 
 import { Assets, Composition } from '@celesta/react';
+import type { AssetReference, KeyframeAnimation } from '@celesta/react';
 import { mount } from '@celesta/react/internal';
+import type { AudioClipDescriptor } from '@celesta/react/internal';
 
 import {
   Character,
@@ -17,20 +19,31 @@ import {
   matchVoiceLevels,
   planDialogue,
   scaleVolume,
-} from '../dist/index.js';
+} from '../src/index.js';
+import type { CharacterViewReference, DialogueLine, LipSyncTrack } from '../src/index.js';
 
 const h = React.createElement;
 const RATE = 48_000;
 // 20 ms analysis blocks are 960 frames at 48 kHz; a 200 Hz sine fits exactly
 // four periods in one, so every voiced block's power is exactly A² / 2.
 const BLOCK = 960;
-const db = (value) => 20 * Math.log10(value);
-const sineRmsDbfs = (amplitude) => db(amplitude) - 10 * Math.log10(2);
-const close = (actual, expected, tolerance = 0.01) =>
-  assert.ok(Math.abs(actual - expected) <= tolerance, `expected ${actual} to be within ${tolerance} of ${expected}`);
+const db = (value: number) => 20 * Math.log10(value);
+const sineRmsDbfs = (amplitude: number) => db(amplitude) - 10 * Math.log10(2);
+// `actual` is whatever the report holds there, which may be null or a
+// keyframed volume; anything but a close number fails.
+const close = (actual: unknown, expected: number, tolerance = 0.01) =>
+  assert.ok(typeof actual === 'number' && Math.abs(actual - expected) <= tolerance, `expected ${actual} to be within ${tolerance} of ${expected}`);
+
+/** The keyframes of a keyframed volume. */
+function keyframesOf(volume: AudioClipDescriptor['volume'] | undefined) {
+  assert.ok(volume !== undefined && typeof volume !== 'number', 'a keyframed volume');
+  return volume.keyframes;
+}
+
+type WavFormat = 'pcm16' | 'pcm24' | 'float32' | 'mulaw';
 
 /** Encodes channels of float samples as a WAV file. */
-function wav(channels, { format = 'float32', sampleRate = RATE } = {}) {
+function wav(channels: Float64Array[], { format = 'float32', sampleRate = RATE }: { format?: WavFormat; sampleRate?: number } = {}): Buffer {
   const bits = { pcm16: 16, pcm24: 24, float32: 32, mulaw: 8 }[format];
   const audioFormat = format === 'float32' ? 3 : format === 'mulaw' ? 7 : 1;
   const frames = channels[0].length;
@@ -67,7 +80,7 @@ function wav(channels, { format = 'float32', sampleRate = RATE } = {}) {
  * Speech-like mono: `syllables` bursts of a 200 Hz sine, each `blocksOn`
  * analysis blocks long, separated by `blocksOff` blocks of silence.
  */
-function speech(amplitude, { syllables = 10, blocksOn = 8, blocksOff = 4, floor = 0 } = {}) {
+function speech(amplitude: number, { syllables = 10, blocksOn = 8, blocksOff = 4, floor = 0 } = {}): Float64Array {
   const frames = syllables * (blocksOn + blocksOff) * BLOCK;
   const samples = new Float64Array(frames);
   for (let i = 0; i < frames; i += 1) {
@@ -78,7 +91,7 @@ function speech(amplitude, { syllables = 10, blocksOn = 8, blocksOff = 4, floor 
 }
 
 /** Writes files into a temp entry directory and runs `fn` with it as the entry dir. */
-async function withEntry(files, fn) {
+async function withEntry<T>(files: Record<string, Buffer>, fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-voice-level-'));
   for (const [name, bytes] of Object.entries(files)) writeFileSync(join(dir, name), bytes);
   const previous = process.env.CELESTA_REACT_ENTRY_DIR;
@@ -151,7 +164,7 @@ test('a quiet and a loud voice converge on the target when the bounds allow', as
     assert.deepEqual(report.lines.map((line) => line.status), ['matched', 'matched']);
     for (const line of report.lines) {
       close(line.rmsAfterDbfs, -20);
-      assert.ok(line.peakAfterDbfs <= -1);
+      assert.ok(line.peakAfterDbfs! <= -1);
       close(line.gain, 10 ** (line.gainDb / 20), 1e-12);
     }
     close(report.lines[0].gainDb, -20 - sineRmsDbfs(0.03));
@@ -182,7 +195,7 @@ test('boost, cut, and the peak ceiling bound the gain and say so', async () => {
       assert.equal(quiet.status, 'limited');
       assert.deepEqual(quiet.limitedBy, ['max-boost']);
       assert.equal(quiet.gainDb, 6);
-      assert.ok(quiet.desiredGainDb > 6);
+      assert.ok(quiet.desiredGainDb! > 6);
       // Full scale wants about -17 dB; the cut stops at -3 dB, and the ceiling
       // then takes it to -1 dBFS peak.
       assert.deepEqual(loud.limitedBy, ['max-cut']);
@@ -190,7 +203,7 @@ test('boost, cut, and the peak ceiling bound the gain and say so', async () => {
       // It wants more than 6 dB, and even 6 dB would push the click past -1 dBFS.
       assert.deepEqual(clickyLine.limitedBy, ['max-boost', 'peak-ceiling']);
       close(clickyLine.peakAfterDbfs, -1, 1e-6);
-      assert.ok(clickyLine.rmsAfterDbfs < -20);
+      assert.ok(clickyLine.rmsAfterDbfs! < -20);
     },
   );
   // The ceiling is the hardest bound: it cuts past maxCutDb.
@@ -218,9 +231,9 @@ test('silence, near-silence, and too-short recordings get finite unity gain', as
         assert.equal(line.rmsAfterDbfs, null);
         assert.equal(lines[index].volume, 0.7);
       }
-      assert.equal(report.lines[0].analysis.peakDbfs, null);
-      assert.ok(Number.isFinite(report.lines[1].analysis.peakDbfs));
-      close(report.lines[2].analysis.speechSeconds, 0.04, 1e-9);
+      assert.equal(report.lines[0].analysis?.peakDbfs, null);
+      assert.ok(Number.isFinite(report.lines[1].analysis?.peakDbfs));
+      close(report.lines[2].analysis?.speechSeconds, 0.04, 1e-9);
     },
   );
 });
@@ -244,7 +257,7 @@ test('speaker targets and offsets, and per-line opt-out and overrides', async ()
     );
     const targets = report.lines.map((line) => line.targetRmsDbfs);
     assert.deepEqual(targets.slice(0, 5), [-20, -21, -23, -19, -30]);
-    report.lines.slice(0, 5).forEach((line) => close(line.gainDb, line.targetRmsDbfs - rms));
+    report.lines.slice(0, 5).forEach((line) => close(line.gainDb, line.targetRmsDbfs! - rms));
     assert.deepEqual(report.lines.slice(5).map((line) => line.status), ['opted-out', 'fixed-gain', 'muted', 'no-audio']);
     assert.equal(report.lines[6].gainDb, -6);
     close(lines[6].volume, 0.5 * 10 ** (-6 / 20), 1e-12);
@@ -260,7 +273,7 @@ test('speaker targets and offsets, and per-line opt-out and overrides', async ()
 test('scaleVolume keeps keyframe times, easings, and same-time cuts', () => {
   assert.equal(scaleVolume(undefined, 2), 2);
   assert.equal(scaleVolume(0.5, 2), 1);
-  const keyed = {
+  const keyed: KeyframeAnimation<number> = {
     type: 'keyframes',
     keyframes: [
       { time: { value: 0, timescale: 1_000_000 }, value: 0 },
@@ -284,7 +297,7 @@ test('scaleVolume keeps keyframe times, easings, and same-time cuts', () => {
 test('analysis is cached by file content: re-saving a path re-measures, editing text does not', async () => {
   // Amplitudes no other test uses, so earlier tests have not cached these bytes.
   await withEntry({ 'line.wav': wav([speech(0.123)]) }, async (dir) => {
-    const script = (text) => [
+    const script = (text: string): DialogueLine[] => [
       { id: 'one', text, audio: 'line.wav', expression: 'smile' },
       { id: 'two', text: 'again', audio: './line.wav' },
     ];
@@ -298,7 +311,7 @@ test('analysis is cached by file content: re-saving a path re-measures, editing 
     writeFileSync(join(dir, 'line.wav'), wav([speech(0.456)]));
     const resaved = await matchVoiceLevels(script('hello'));
     assert.equal(resaved.report.lines.some((line) => line.cached === false), true);
-    close(resaved.report.lines[0].analysis.rmsDbfs, sineRmsDbfs(0.456));
+    close(resaved.report.lines[0].analysis?.rmsDbfs, sineRmsDbfs(0.456));
     close(resaved.report.lines[0].gainDb - first.report.lines[0].gainDb, db(0.123 / 0.456));
   });
 });
@@ -306,9 +319,9 @@ test('analysis is cached by file content: re-saving a path re-measures, editing 
 test('matching changes only gain: timing, lip sync, and the source file stay the same', async () => {
   const bytes = wav([speech(0.05)]);
   await withEntry({ 'v.wav': bytes }, async (dir) => {
-    const lipSync = { durationInSeconds: 2.4, mouthAtSeconds: () => 'a', mouthAtFrame: () => 'a' };
+    const lipSync: LipSyncTrack = { durationInSeconds: 2.4, mouthAtSeconds: () => 'a', mouthAtFrame: () => 'a' };
     const text = h('span', null, 'hi');
-    const original = { id: 'v', text, audio: 'v.wav', lipSync, durationInFrames: 72, gap: 0.5, mouth: 'auto' };
+    const original: DialogueLine = { id: 'v', text, audio: 'v.wav', lipSync, durationInFrames: 72, gap: 0.5, mouth: 'a' };
     const { lines, report } = await matchVoiceLevels([original]);
     const [matched] = lines;
     assert.notEqual(matched.volume, undefined);
@@ -316,7 +329,7 @@ test('matching changes only gain: timing, lip sync, and the source file stay the
     assert.equal(matched.lipSync, lipSync);
     assert.equal(matched.text, text);
     assert.ok(readFileSync(join(dir, 'v.wav')).equals(bytes));
-    close(report.lines[0].analysis.durationSeconds, 2.4, 1e-9);
+    close(report.lines[0].analysis?.durationSeconds, 2.4, 1e-9);
 
     const plan = await planDialogue(lines, { fps: 30 });
     const before = await planDialogue([original], { fps: 30 });
@@ -329,7 +342,7 @@ test('matching changes only gain: timing, lip sync, and the source file stay the
 
 test('the rendered audio graph carries the matched gain on numeric and keyframed volumes', async () => {
   await withEntry({ 'v.wav': wav([speech(0.05)]) }, async () => {
-    const fade = {
+    const fade: KeyframeAnimation<number> = {
       type: 'keyframes',
       keyframes: [
         { time: { value: 0, timescale: 1_000_000 }, value: 0 },
@@ -344,8 +357,8 @@ test('the rendered audio graph carries the matched gain on numeric and keyframed
     const gain = report.lines[0].gain;
     assert.ok(gain > 1);
     const plan = await planDialogue(lines, { fps: 30, gap: 0 });
-    const mira = React.createRef();
-    const view = React.createRef();
+    const mira = React.createRef<AssetReference>();
+    const view = React.createRef<CharacterViewReference>();
     const Root = () => h(Composition, { width: 32, height: 32, fps: 30, durationInFrames: plan.durationInFrames },
       h(Assets, null, h(Character, { ref: mira, name: 'Mira', portrait: { defaultExpression: 'calm', expressions: { calm: 'calm.png' } } })),
       h(CharacterView, { ref: view, character: mira }),
@@ -353,10 +366,11 @@ test('the rendered audio graph carries the matched gain on numeric and keyframed
     const clips = mount(Root).collectAudio();
     const first = clips.find((clip) => Math.round(clip.start * 30) === 0);
     const second = clips.find((clip) => Math.round(clip.start * 30) === 10);
-    close(first.volume, 0.8 * gain, 1e-12);
+    close(first?.volume, 0.8 * gain, 1e-12);
     // Sequence-local key times survive; only values are scaled.
-    assert.deepEqual(second.volume.keyframes.map((key) => key.time), fade.keyframes.map((key) => key.time));
-    assert.deepEqual(second.volume.keyframes.map((key) => key.easing), [undefined, 'ease-out', undefined]);
-    second.volume.keyframes.forEach((key, index) => close(key.value, fade.keyframes[index].value * gain, 1e-12));
+    const keyframes = keyframesOf(second?.volume);
+    assert.deepEqual(keyframes.map((key) => key.time), fade.keyframes.map((key) => key.time));
+    assert.deepEqual(keyframes.map((key) => key.easing), [undefined, 'ease-out', undefined]);
+    keyframes.forEach((key, index) => close(key.value, fade.keyframes[index].value * gain, 1e-12));
   });
 });

@@ -1,5 +1,5 @@
 // Unit tests for the pure helpers behind auto lip sync and PSD portrait
-// presets. Run after `pnpm run build`:  node --test test/
+// presets.
 //
 // The end-to-end paths (render.ts wiring, the Rust rasterizer) are covered
 // by `crates/react-bridge/tests/node_integration.rs` and
@@ -18,7 +18,8 @@ import {
   parsePfv,
   resolveVisibleLayers,
   vowelShapes,
-} from '../dist/index.js';
+} from '../src/index.js';
+import type { WavAudio } from '../src/index.js';
 
 const wavPath = fileURLToPath(new URL('../../../examples/assets/voices/001.wav', import.meta.url));
 const pfvPath = fileURLToPath(new URL('../../../examples/assets/lipsync-fixture.pfv', import.meta.url));
@@ -84,7 +85,7 @@ test('lipSyncTimeline gates silence closed and opens loud audio to vowels', () =
 });
 
 test('buildEnvelope produces one bucket per hop', () => {
-  const audio = { sampleRate: 1000, samples: new Float32Array(1000).fill(0.5) };
+  const audio: WavAudio = { sampleRate: 1000, samples: new Float32Array(1000).fill(0.5) };
   const envelope = buildEnvelope(audio, 100);
   assert.equal(envelope.length, 100);
   assert.ok(envelope.every((v) => Math.abs(v - 0.5) < 1e-6));

@@ -1,21 +1,25 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'vitest';
 import * as React from 'react';
+import type { ReactElement } from 'react';
 
 import { Composition, Sequence, Theme } from '@celesta/react';
+import type { Layer, LayerContent, Paint, TextMetrics } from '@celesta/react';
 import { SafeArea } from '@celesta/layout';
 import { mount, setTextMeasurer } from '@celesta/react/internal';
-import { LowerThird } from '../dist/index.js';
+import type { MeasureTextRequest, MountedComposition } from '@celesta/react/internal';
+import { LowerThird } from '../src/index.js';
+import type { LowerThirdPlacement, LowerThirdProps } from '../src/index.js';
 
 const h = React.createElement;
 
 // Every character is `fontSize` wide; lines break at `\n` and wrap at maxWidth.
-function measure({ text, style, maxWidth }) {
+function measure({ text, style, maxWidth }: Pick<MeasureTextRequest, 'text' | 'style' | 'maxWidth'>): TextMetrics {
   const size = style.fontSize ?? 10;
   const per = maxWidth === undefined ? Infinity : Math.max(1, Math.floor(maxWidth / size));
   const lines = text === '' ? [] : text.split('\n').flatMap((line) => {
     const chars = Array.from(line);
-    const out = [];
+    const out: string[] = [];
     for (let i = 0; i < Math.max(1, chars.length); i += per) out.push(chars.slice(i, i + per).join(''));
     return out;
   });
@@ -26,6 +30,8 @@ function measure({ text, style, maxWidth }) {
     ascent: size,
     descent: size * 0.25,
     lineHeight,
+    capHeight: size * 0.7,
+    xHeight: size * 0.5,
     lines: lines.length,
     glyphs: [],
     lineStarts: [0],
@@ -34,12 +40,25 @@ function measure({ text, style, maxWidth }) {
 
 beforeEach(() => setTextMeasurer(async (request) => measure(request), measure));
 
-const at = (composition, frame) => composition.renderAt({ value: frame, timescale: 30 }, null);
-const root = (child, { width = 1920, height = 1080, durationInFrames = 90 } = {}) => () =>
+const at = (composition: MountedComposition, frame: number) => composition.renderAt({ value: frame, timescale: 30 }, null);
+const root = (child: ReactElement, { width = 1920, height = 1080, durationInFrames = 90 } = {}) => () =>
   h(Composition, { width, height, fps: 30, durationInFrames }, child);
 
+/** A leaf layer's content, with where it ends up and its opacity (over any `x` of its own). */
+type Placed<C> = C extends unknown ? Omit<C, 'x' | 'y' | 'opacity'> & { x: number; y: number; opacity: number } : never;
+type Leaf = Placed<Exclude<LayerContent, { type: 'group' }>>;
+type LeafOf<T extends Leaf['type']> = Extract<Leaf, { type: T }>;
+
+const is = <T extends Leaf['type']>(type: T) => (leaf: Leaf): leaf is LeafOf<T> => leaf.type === type;
+
+/** The color of a solid paint. */
+function colorOf(paint: Paint | null | undefined): string {
+  assert.ok(paint && paint.type === 'solid', 'a solid paint');
+  return paint.color;
+}
+
 // Every text and rect layer with its position and opacity summed through its groups.
-function leaves(layers, x = 0, y = 0, opacity = 1, out = []) {
+function leaves(layers: Layer[], x = 0, y = 0, opacity = 1, out: Leaf[] = []): Leaf[] {
   for (const layer of layers) {
     const lx = x + layer.transform.position.x;
     const ly = y + layer.transform.position.y;
@@ -50,23 +69,23 @@ function leaves(layers, x = 0, y = 0, opacity = 1, out = []) {
   return out;
 }
 
-function parts(composition, frame) {
+function parts(composition: MountedComposition, frame: number) {
   const all = leaves(at(composition, frame).scene.layers);
-  const rects = all.filter((l) => l.type === 'rect');
-  const texts = Object.fromEntries(all.filter((l) => l.type === 'text').map((l) => [l.text, l]));
+  const rects = all.filter(is('rect'));
+  const texts: Record<string, LeafOf<'text'>> = Object.fromEntries(all.filter(is('text')).map((l) => [l.text, l]));
   return { band: rects[0], accent: rects[1], texts };
 }
 
 // Top and bottom of a text layer, from its baseline and the fake metrics.
-function box(layer) {
-  const size = layer.style.fontSize;
-  const lineHeight = layer.style.lineHeight;
-  const { lines } = measure({ text: layer.text, style: layer.style, maxWidth: layer.maxWidth });
+function box(layer: LeafOf<'text'>) {
+  const size = layer.style.fontSize!;
+  const lineHeight = layer.style.lineHeight!;
+  const { lines } = measure({ text: layer.text, style: layer.style, maxWidth: layer.maxWidth ?? undefined });
   return { top: layer.y - size, bottom: layer.y - size + lines * lineHeight, lines };
 }
 
-const still = { enter: null, exit: null, textEnter: null };
-const sized = {
+const still: Partial<LowerThirdProps> = { enter: null, exit: null, textEnter: null };
+const sized: Partial<LowerThirdProps> = {
   ...still, margin: 60, padding: { top: 10, right: 30, bottom: 10, left: 20 }, gap: 6, accentWidth: 8,
   titleSize: 40, titleLineHeight: 1.25, subtitleSize: 20, subtitleLineHeight: 1.5,
 };
@@ -94,7 +113,7 @@ test('without a subtitle the band holds the title alone', () => {
 });
 
 test('each placement sits in its corner inside the margin, its lines aligned toward it', () => {
-  const placed = (placement) => parts(mount(root(h(LowerThird, { ...sized, placement, title: 'Name', subtitle: 'Role' }))), 0);
+  const placed = (placement: LowerThirdPlacement) => parts(mount(root(h(LowerThird, { ...sized, placement, title: 'Name', subtitle: 'Role' }))), 0);
   const width = 8 + 20 + 160 + 30;
   const height = 10 + 50 + 6 + 30 + 10;
   const right = placed('bottom-right');
@@ -116,7 +135,7 @@ test('a long Japanese name wraps and shrinks to its line limit, drawn with the b
   }))), 0);
   const title = texts[name];
   const budget = 800 - 8 - 20 - 30;
-  assert.ok(title.style.fontSize < 60 && title.style.fontSize >= 20, `size ${title.style.fontSize}`);
+  assert.ok(title.style.fontSize! < 60 && title.style.fontSize! >= 20, `size ${title.style.fontSize}`);
   // Drawn at the band's column, it keeps the two lines it was fitted with at the budget.
   assert.equal(box(title).lines, 2);
   assert.equal(measure({ text: name, style: title.style, maxWidth: budget }).lines, 2);
@@ -137,7 +156,7 @@ test('in landscape and portrait the band stays inside the safe area and margin',
     // Landscape caps the band at 60% of the room; portrait lets it use all of it.
     assert.ok(band.width <= (width > height ? room * 0.6 : room) + 1e-9, `${width}x${height}`);
     for (const text of Object.values(texts)) {
-      assert.ok(text.x + text.maxWidth <= band.x + band.width + 1e-9, `${width}x${height} ${text.text}`);
+      assert.ok(text.x + text.maxWidth! <= band.x + band.width + 1e-9, `${width}x${height} ${text.text}`);
     }
   }
 });
@@ -151,7 +170,7 @@ test('LowerThird lays out in the area of an enclosing <SafeArea>', () => {
 test('in a <Sequence>, the band enters at its start, the lines follow, and all leave at its end', () => {
   const composition = mount(root(h(Sequence, { from: 10, durationInFrames: 60 },
     h(LowerThird, { title: 'Name', subtitle: 'Role' })), { durationInFrames: 80 }));
-  const shown = (frame) => parts(composition, frame);
+  const shown = (frame: number) => parts(composition, frame);
   assert.equal(shown(9).band, undefined);
   assert.equal(shown(10).band.opacity, 0);
   assert.deepEqual(Object.keys(shown(10).texts), []);
@@ -186,9 +205,9 @@ test('colors and fonts take <Theme> names', () => {
   const { band, accent, texts } = parts(mount(root(h(Theme, {
     fonts: { ui: 'Inter' }, colors: { bg: '#000000', ink: '#ffffff', soft: '#888888', accent: '#ff3300' },
   }, card))), 0);
-  assert.equal(band.fill.color ?? band.fill, '#000000');
-  assert.equal(accent.fill.color ?? accent.fill, '#ff3300');
-  assert.deepEqual([texts.T.style.fill.color, texts.S.style.fill.color], ['#ffffff', '#888888']);
+  assert.equal(colorOf(band.fill), '#000000');
+  assert.equal(colorOf(accent.fill), '#ff3300');
+  assert.deepEqual([colorOf(texts.T.style.fill), colorOf(texts.S.style.fill)], ['#ffffff', '#888888']);
   assert.deepEqual([texts.T.style.fontFamily, texts.S.style.fontFamily], ['Inter', 'Inter']);
 });
 
@@ -209,8 +228,9 @@ test('LowerThird is the same at a frame whether played to or seeked, alone or in
 });
 
 test('LowerThird rejects unknown placements, bad sizes, and bad colors', () => {
-  const render = (props) => () => at(mount(root(h(LowerThird, { title: 'T', ...props }))), 0);
-  assert.throws(render({ placement: 'middle' }), /unknown placement "middle"/);
+  const render = (props: Partial<LowerThirdProps>) => () => at(mount(root(h(LowerThird, { title: 'T', ...props }))), 0);
+  // Not a placement, cast to check the error.
+  assert.throws(render({ placement: 'middle' as LowerThirdPlacement }), /unknown placement "middle"/);
   assert.throws(render({ titleSize: 0 }), /titleSize/);
   assert.throws(render({ accentWidth: -1 }), /accentWidth/);
   assert.throws(render({ maxWidth: 0 }), /maxWidth/);
