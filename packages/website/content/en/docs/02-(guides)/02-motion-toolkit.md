@@ -53,6 +53,17 @@ export default function Root() {
 }
 ```
 
+Outside a `<Scenes>`, `useScene(list)` reads the list on the caller's clock, which a `<Sequence>` restarts at 0. If the video is laid out with `<Sequence>`s or `<TransitionSeries>` and the list only names its chapters, pass `{ clock: 'root' }` to read it on the composition's frame instead:
+
+```tsx title="The video's chapter, from inside a chapter"
+function Body() {
+  const scene = useScene(SCENES, { clock: 'root' }); // 'body' at frame 100, not 'intro'
+  return <Text>{scene?.name}</Text>;
+}
+
+<Sequence from={90} durationInFrames={240}><Body /></Sequence>
+```
+
 ## Transitions between scenes
 
 `<TransitionSeries>` lays scenes out like `Series`, with a `<TransitionSeries.Transition>` between two of them. A transition overlaps the scenes on either side by its `durationInFrames`, so `computeTransitionSeries()` returns each scene’s start and the total length, shortened by every overlap:

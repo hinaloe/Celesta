@@ -109,7 +109,7 @@ export { Series, Stagger, computeSeries } from './series';
 export type { SeriesItem, SeriesProps, SeriesSequenceProps, SeriesTiming, StaggerProps } from './series';
 
 export { Scenes, defineScenes, sceneAt, useScene } from './scenes';
-export type { PlacedScene, SceneEntry, SceneList, SceneState, ScenesProps } from './scenes';
+export type { PlacedScene, SceneEntry, SceneList, SceneState, ScenesProps, UseSceneOptions } from './scenes';
 
 export { Easings, interpolate, interpolateColor, progress, spring } from './animation';
 export type {

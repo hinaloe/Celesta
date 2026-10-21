@@ -1,6 +1,6 @@
 import { useContext } from 'react';
 import type { ReactNode } from 'react';
-import { Easings, FreezeFrame, Group, Loop, Rect, Text, interpolate, progress, sceneAt, useCurrentFrame, useTextMetrics } from '@celesta/react';
+import { Easings, FreezeFrame, Group, Loop, Rect, Text, interpolate, progress, useCurrentFrame, useScene, useTextMetrics } from '@celesta/react';
 import { chromaticAberration, pixelate } from '@celesta/shader';
 import { useFitText } from '@celesta/text';
 import { Backdrop } from '../components/Backdrop';
@@ -9,7 +9,7 @@ import { C, FONT, W, ease, solid } from '../components/theme';
 import { CAPTIONS } from './captions';
 import { FilmContext } from './film-context';
 import { useLayout } from './layout';
-import { BEAT, FEATURES, MUSIC_BEAT, SCENE_LIST, chapterAt } from './timeline';
+import { BEAT, MUSIC_BEAT, SCENE_LIST, chapterAt } from './timeline';
 
 // MORE: eight cards for what did not get a chapter, two beats each, each on
 // its own tile of the sheet (tiles.tsx). Each lands with a stab in the score; the title slams in through a pixelate
@@ -57,11 +57,11 @@ function Thumb({ at, width, height }: { at: number; width: number; height: numbe
 
 /**
  * The film's scenes on this very card (#419). The HUD reads them with
- * useScene() at the film's root; in here, inside the chapter's Sequence,
- * sceneAt() takes the film's frame: MORE's downbeat plus the card's own.
+ * useScene() at the film's root; the card reads them on the film's clock
+ * too (#447), wherever its tile is drawn: live, or resting on the sheet.
  */
-function Scenes({ f, c }: VisualProps) {
-  const now = sceneAt(SCENE_LIST, chapterAt(FEATURES) + Math.max(0, f));
+function Scenes({ c }: VisualProps) {
+  const now = useScene(SCENE_LIST, { clock: 'root' });
   const rows = SCENE_LIST.scenes;
   return (
     <Group y={-40}>
@@ -75,10 +75,11 @@ function Scenes({ f, c }: VisualProps) {
           </Group>
         );
       })}
-      <Text x={480} y={0} style={mono(18, c.ink, 700)}>sceneAt(SCENE_LIST, frame)</Text>
-      <Text x={480} y={34} style={mono(17, c.sub)}>{`name      ${now?.name ?? '-'}`}</Text>
-      <Text x={480} y={60} style={mono(17, c.sub)}>{`index     ${now?.index ?? '-'}`}</Text>
-      <Text x={480} y={86} style={mono(17, c.sub)}>{`progress  ${(now?.progress ?? 0).toFixed(2)}`}</Text>
+      <Text x={480} y={0} style={mono(18, c.ink, 700)}>useScene(SCENE_LIST,</Text>
+      <Text x={480} y={24} style={mono(18, c.ink, 700)}>{"  { clock: 'root' })"}</Text>
+      <Text x={480} y={58} style={mono(17, c.sub)}>{`name      ${now?.name ?? '-'}`}</Text>
+      <Text x={480} y={84} style={mono(17, c.sub)}>{`index     ${now?.index ?? '-'}`}</Text>
+      <Text x={480} y={110} style={mono(17, c.sub)}>{`progress  ${(now?.progress ?? 0).toFixed(2)}`}</Text>
     </Group>
   );
 }
