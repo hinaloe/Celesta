@@ -2,32 +2,18 @@ import { AudioBufferSource, BufferTarget, CanvasSource, Mp4OutputFormat, Output,
 import type { AudioClip, CompositionConfig } from './types';
 import { SceneCanvas } from './scene-canvas';
 import { Engine } from './engine';
-import { assertBrowserMixable, duckCurves, scheduleClip } from './audio-support';
+import { decodeSources, duckCurves, scheduleClip } from './audio-support';
 
 async function mixAudio(clips: AudioClip[], renderer: SceneCanvas, duration: number): Promise<AudioBuffer> {
   const sampleRate = 48_000;
   const context = new OfflineAudioContext(2, Math.ceil(duration * sampleRate), sampleRate);
-  const decoded = new Map<string, AudioBuffer>();
-  // Every source is decoded first: a silent voice still marks speech for
-  // ducking, and a ducked clip needs to know where its voices run out.
-  const buffers: (AudioBuffer | undefined)[] = [];
-  for (const clip of clips) {
-    if (clip.muted) {
-      buffers.push(undefined);
-      continue;
-    }
-    let buffer = decoded.get(clip.src);
-    if (!buffer) {
-      buffer = await context.decodeAudioData(await renderer.audioBytes(clip.src));
-      decoded.set(clip.src, buffer);
-    }
-    buffers.push(buffer);
-  }
+  // Every source is decoded first: a ducked clip needs to know where its
+  // voices run out.
+  const buffers = await decodeSources(clips, async (src) => context.decodeAudioData(await renderer.audioBytes(src)));
   const ducks = duckCurves(clips, buffers.map((buffer) => buffer?.duration ?? 0));
   clips.forEach((clip, index) => {
     const buffer = buffers[index];
     if (!buffer || clip.volume === 0) return;
-    assertBrowserMixable(clip);
     scheduleClip(context, clip, buffer, duration, ducks[index]);
   });
   return context.startRendering();

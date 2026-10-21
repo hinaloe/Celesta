@@ -12,6 +12,33 @@ export function assertBrowserMixable(clip: AudioClip): void {
   }
 }
 
+/**
+ * The decoded source of each clip (`undefined` for a muted one), each `src`
+ * decoded once. Every source is decoded, as a silent voice still marks
+ * speech for ducking, but every audible clip is checked with
+ * `assertBrowserMixable` before the first is fetched.
+ */
+export async function decodeSources<T>(clips: AudioClip[], decode: (src: string) => Promise<T>): Promise<(T | undefined)[]> {
+  for (const clip of clips) {
+    if (!clip.muted && clip.volume !== 0) assertBrowserMixable(clip);
+  }
+  const decoded = new Map<string, T>();
+  const sources: (T | undefined)[] = [];
+  for (const clip of clips) {
+    if (clip.muted) {
+      sources.push(undefined);
+      continue;
+    }
+    let source = decoded.get(clip.src);
+    if (source === undefined) {
+      source = await decode(clip.src);
+      decoded.set(clip.src, source);
+    }
+    sources.push(source);
+  }
+  return sources;
+}
+
 /** Schedules `events` from `automationEvents` on `param`. */
 export function applyEvents(param: Pick<AudioParam, 'setValueAtTime' | 'linearRampToValueAtTime'>, events: AutomationEvent[]): void {
   for (const event of events) {

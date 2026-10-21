@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { duckEnvelope } from '@celesta/media-utils/duck';
-import { assertBrowserMixable, audibleEnd, duckCurves, fadeGains, scheduleClip } from '../src/audio-support.js';
+import { assertBrowserMixable, audibleEnd, decodeSources, duckCurves, fadeGains, scheduleClip } from '../src/audio-support.js';
 import { automationEvents } from '../src/keyframes.js';
 import type { AutomationEvent } from '../src/keyframes.js';
 import type { AnimatedNumber, AudioClip, Keyframe, KeyframeEasing } from '../src/types.js';
@@ -25,6 +25,27 @@ test('pitch or preservePitch with a rate change is rejected', () => {
   assert.throws(() => assertBrowserMixable({ ...base, pitch: 2 }), message);
   assert.throws(() => assertBrowserMixable({ ...base, pitch: { type: 'keyframes', keyframes: [] } }), message);
   assert.throws(() => assertBrowserMixable({ ...base, playbackRate: 2, preservePitch: true }), message);
+});
+test('decodeSources decodes each src once and skips muted clips', async () => {
+  const fetched: string[] = [];
+  const decode = async (src: string) => {
+    fetched.push(src);
+    return `decoded ${src}`;
+  };
+  const clips = [base, { ...base, src: 'b.wav', muted: true }, { ...base, start: 2 }, { ...base, src: 'c.wav', volume: 0 }];
+  assert.deepEqual(await decodeSources(clips, decode), ['decoded a.wav', undefined, 'decoded a.wav', 'decoded c.wav']);
+  assert.deepEqual(fetched, ['a.wav', 'c.wav']);
+});
+test('decodeSources rejects an unmixable clip before fetching any source', async () => {
+  const fetched: string[] = [];
+  const decode = async (src: string) => {
+    fetched.push(src);
+    return src;
+  };
+  await assert.rejects(decodeSources([base, { ...base, src: 'b.wav', pitch: 2 }], decode), message);
+  assert.deepEqual(fetched, []);
+  // A silent or muted clip is never played, so it is not checked.
+  await decodeSources([{ ...base, pitch: 2, volume: 0 }, { ...base, pitch: 2, muted: true }], decode);
 });
 test('keyframed volume and rate are mixable', () => {
   assertBrowserMixable({ ...base, volume: keys([0, 0], [1, 1, 'linear']) });
