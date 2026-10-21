@@ -4,7 +4,7 @@ Open the [web editor](/en/#playground), change or open a TSX composition, and ch
 
 ## From the app
 
-Choose **Export…** and select a destination. Name it `.mp4` for H.264 video, or `.mov` or `.webm` for transparent video (see Transparent video below); any other extension becomes `.mp4`. For a section of the composition, press `I` and `O` to mark the start and end. The status bar shows progress; **Cancel export** stops the job.
+Choose **Export…** and select a destination. Name it `.mp4` for H.264 video, or `.mov` or `.webm` for transparent video (see Transparent video below); any other extension becomes `.mp4`. For a section of the composition, press `I` and `O` to mark the start and end. The status bar shows progress; **Cancel export** stops the job. When the export finishes, its notice shows the soundtrack's loudness (see Loudness for streaming and broadcast below).
 
 ## From the command line
 
@@ -132,6 +132,31 @@ Shorts and TikTok play a video on repeat. When its last frame runs into its firs
 :::
 ::::
 
+## Loudness for streaming and broadcast
+
+Streaming services play every video at about the same loudness, around -14 LUFS on YouTube: a louder video is turned down, and a quieter one stays quiet. Every video export measures the whole soundtrack's integrated loudness (ITU-R BS.1770, as FFmpeg's `ebur128` filter measures it) and its true peak. The command line prints them after `export complete`, the app shows them when the export finishes, and `--json` reports them.
+
+Add `--loudness` to bring the soundtrack to a target: a number of LUFS from -70 to -5, `streaming` (-14), or `broadcast` (-23, EBU R128). One gain turns the whole mix up or down, so its balance stays as you mixed it. Where that gain would take a true peak over `--true-peak` (default -1 dBTP; -9 to 0), a limiter holds the peak there. With `--peak-handling lower`, the gain stops where the loudest peak meets the ceiling instead, which leaves the soundtrack quieter than the target but otherwise untouched; the export then warns how loud it is. A soundtrack that is silent or shorter than 0.4 seconds has no integrated loudness and is left as it is. The same project always comes out the same.
+
+::::tabs[Exporter platform]{default="macOS"}
+:::tab[macOS]
+
+```sh title="Export at streaming loudness"
+"/Applications/Celesta.app/Contents/MacOS/Celesta-export" --react --loudness streaming first-scene.tsx output.mp4
+```
+
+:::
+:::tab[Windows]
+
+```sh title="Export at streaming loudness"
+& "C:\path\to\Celesta\Celesta-export.exe" --react --loudness streaming first-scene.tsx output.mp4
+```
+
+:::
+::::
+
+The loudness is measured and set on the soundtrack before it is encoded. A `.mov`'s PCM keeps it exactly. AAC (`.mp4`) and Opus (`.webm`) move the loudness by about a tenth of an LU and the true peak by up to about half a dB either way, so the -1 dBTP default can read about -0.5 dBTP in the file; give `--true-peak -2` for more headroom. The app's **Export…** does not set a target; use the command line, the MCP `export_video` tool, or `@celesta/exporter` for that.
+
 ## Transparent video
 
 The file extension picks the video format. A `.mp4` file is H.264 with AAC audio, as above. A `.mov` file is ProRes 4444 (`yuva444p10le`) with 24-bit PCM audio, and a `.webm` file is VP9 with alpha (`yuva420p`, CRF 20) with 48 kHz Opus audio. In the app, choose the extension in the save dialog; there is no separate format menu. On the command line, run the same command as above with an output such as `overlay.mov` or `overlay.webm`. `--output-format mp4|mov|webm` states the format explicitly; one that disagrees with the extension is a usage error.
@@ -219,7 +244,7 @@ Both the editor and exporter accept --driver auto (default), vulkan, dx12 (Windo
 :::
 ::::
 
-For scripts and AI agents, add `--json`. The exporter then prints no progress, only one line of JSON when it finishes: the status, every file it wrote, warnings, the composition's size, fps and frame count once the exporter has loaded it, and on failure an error code and message. Each video entry in the list of written files has `"format"` (`mp4`, `mov`, or `webm`) and `"alpha"` (`true` or `false`). When the arguments are rejected, the JSON has only the status and the error.
+For scripts and AI agents, add `--json`. The exporter then prints no progress, only one line of JSON when it finishes: the status, every file it wrote, warnings, the composition's size, fps and frame count once the exporter has loaded it, and on failure an error code and message. Each video entry in the list of written files has `"format"` (`mp4`, `mov`, or `webm`) and `"alpha"` (`true` or `false`), and a video with sound has `"loudness"`: `"integratedLufs"`, `"truePeakDbtp"`, and with `--loudness` the `"gainDb"` it applied. When the arguments are rejected, the JSON has only the status and the error.
 
 Using a source build? The [developer instructions](/en/docs/build-from-source/) include the equivalent Cargo command.
 

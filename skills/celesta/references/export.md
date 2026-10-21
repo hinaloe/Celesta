@@ -14,6 +14,7 @@ stands for its path.
 - [Options](#options)
 - [Transparent video](#transparent-video)
 - [Looping video](#looping-video)
+- [Loudness](#loudness)
 - [Still images](#still-images)
 - [JSON results](#json-results)
 - [Progress output](#progress-output)
@@ -65,6 +66,9 @@ Celesta-export --json --react scene.tsx out.mp4
 | `--color-conversion <w>` | `auto` (default), `gpu`, or `encoder`: where RGB becomes YUV. MP4 only. |
 | `--bit-depth <n>` | `8` (default) or `10`. `10` encodes H.264 High 10 (`yuv420p10le`): smoother dark gradients, but fewer players decode it; keep `8` for files meant for phones, browsers, or social media. MP4 only. |
 | `--loop` | The video plays in a loop (Shorts, TikTok): the AAC sound is encoded to run from its end into its start. MP4 only. See [Looping video](#looping-video). |
+| `--loudness <l>` | Bring the whole mix to an integrated loudness: LUFS from -70 to -5, `streaming` (-14), or `broadcast` (-23). Video only. See [Loudness](#loudness). |
+| `--true-peak <db>` | The highest true peak `--loudness` may leave, -9 to 0 dBTP (default -1). |
+| `--peak-handling <h>` | `limit` (default): a limiter holds peaks at `--true-peak`. `lower`: the gain stops short of the target instead. |
 | `--render-quality <q>` | `final` (default) or `draft`. `draft` draws scaled text from a scale-1 texture, so it is softer; use it only to check timing. |
 | `--json` | No progress output; one line of JSON on stdout when the export ends. See [JSON results](#json-results). |
 | `--json-progress` | With `--json`, also one JSON line per progress event before the result. See [Progress events and cancellation](#progress-events-and-cancellation). |
@@ -128,6 +132,42 @@ Celesta-export --json --loop --react film.tsx film.mp4
 - Without `--loop`, the export is unchanged: right for a video that plays
   once, where silence does come before the start.
 
+## Loudness
+
+Streaming services play videos at about -14 LUFS (YouTube, Spotify): a
+louder video is turned down, a quieter one stays quiet. Every video export
+measures its mix and reports it in the video output's `loudness`
+([JSON results](#json-results)); add `--loudness` when the user wants the
+video at a loudness:
+
+```sh
+Celesta-export --json --loudness streaming --react film.tsx film.mp4
+Celesta-export --json --loudness -16 --true-peak -2 --react film.tsx film.mp4
+```
+
+- Measured as ITU-R BS.1770 integrated loudness, as FFmpeg's `ebur128`
+  filter measures it (within about 0.05 LU; FFmpeg's `loudnorm` reads the
+  same file about 0.2 LU lower). The true peak is read 8x oversampled.
+- One gain moves the whole mix, so the balance between voice, music and
+  effects stays as mixed: set that with clip volumes and ducking first
+  ([dialogue.md](dialogue.md)).
+- Where the gain would take a true peak over `--true-peak`, a limiter holds
+  the peak there and the target is still reached (within 0.1 LU). With
+  `--peak-handling lower`, the gain stops where the loudest peak meets the
+  ceiling instead, and a warning says how loud the result is.
+- A mix that is silent or shorter than 0.4 s has no integrated loudness:
+  `integratedLufs` is `null`, it is written unchanged, and `--loudness`
+  warns. A React entry without any audio has no audio stream and no
+  `loudness`; `--loudness` warns there too.
+- The same input always gives the same audio.
+- The values describe the mix before encoding. A `.mov`'s PCM keeps them;
+  AAC and Opus move the loudness by about 0.1 LU and the true peak by up to
+  about 0.5 dB either way. Give `--true-peak -2` when the file itself must
+  read under -1 dBTP.
+- The MCP `export_video` tool takes `loudness` (a number or `"streaming"` /
+  `"broadcast"`), `truePeak`, and `peakHandling`; `@celesta/exporter` takes
+  the same names.
+
 ## Still images
 
 A frame selection (`--frame`, `--frames`, or `--every`) writes still images
@@ -186,7 +226,9 @@ props file, the result also has `propsFile` (its path) and `propsFileAuto`
   - `video`: `firstFrame`, `frames`, `start`, `duration`, and `audio`
     (whether the file has an audio stream), `format` (`"mp4"`, `"mov"`, or
     `"webm"`), and `alpha` (`true` when the format carries transparency:
-    `mov` and `webm`);
+    `mov` and `webm`). With audio, `loudness` has `integratedLufs` and
+    `truePeakDbtp` (`null` for silence), and with `--loudness` the `gainDb`
+    it applied ([Loudness](#loudness));
   - `frame`: one still image, with `frame` and `time`;
   - `subtitles`: one `--subtitles` file (a `{lang}` path lists one per
     language), with `format` (`"srt"` or `"vtt"`), the number of `cues`,
@@ -240,7 +282,7 @@ none:
 {"event":"warning","message":"…"}
 {"event":"mixingAudio"}
 {"event":"muxing"}
-{"event":"wrote","output":{"type":"video","path":"/work/out.mp4","firstFrame":0,"frames":150,"start":0.0,"duration":5.0,"audio":true,"format":"mp4","alpha":false}}
+{"event":"wrote","output":{"type":"video","path":"/work/out.mp4","firstFrame":0,"frames":150,"start":0.0,"duration":5.0,"audio":true,"loudness":{"integratedLufs":-16.1,"truePeakDbtp":-1.67},"format":"mp4","alpha":false}}
 ```
 
 `rendering` counts from 1 the frame that has started; `total` is the number

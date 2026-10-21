@@ -275,6 +275,10 @@ covered by the dated handoff notes.
 - Audio preview caches decoded PCM and source peaks. The versioned persistent
   cache is capped at 1 GiB; stale/corrupt entries and cache I/O errors are
   recoverable misses. Waveforms use the same source-time mapping as playback.
+- Video exports measure the mix's integrated loudness and true peak, and
+  `--loudness` brings the whole mix to a target with a true-peak limiter.
+  See
+  [`docs/handoff/2026-10-22-export-loudness.md`](docs/handoff/2026-10-22-export-loudness.md).
 
 ## Native preview and GPUI constraints
 

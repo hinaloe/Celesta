@@ -226,6 +226,6 @@ Load only the one you need; each is self-contained.
 | `.celesta.json` schema, time values, tracks, item types, transforms, keyframes, easing names, validation rules, full example | [project-json.md](references/project-json.md) |
 | Template inputs (`defineProjectProperties`, `useProjectProperty`, `getProjectProperty`, `props.json`, `--props`/`--props-file`), React reading a project, `<ProjectTimeline />`, `registerComponent` | [project-data.md](references/project-data.md) |
 | `inspect.mjs`, PNG frames, contact sheets, checking JSON and audio | [verify.md](references/verify.md) |
-| MP4 export options, `--json` results, progress output, exporting without a GPU | [export.md](references/export.md) |
+| MP4 export options, loudness for streaming (`--loudness`, LUFS, true peak), `--json` results, progress output, exporting without a GPU | [export.md](references/export.md) |
 | What is slow to render and how to find it | [performance.md](references/performance.md) |
 | An error message or warning | [errors.md](references/errors.md) |

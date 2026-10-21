@@ -106,12 +106,12 @@ const containers = (markdown: string) => Object.fromEntries(['tabs', 'tab', 'acc
 test('both locales have the same tabs and toggles in every chapter', () => {
   const [en, ja] = locales.map(locale => new Map(chapters(docsDir(locale)).map(chapter => [chapter.slug, containers(readFileSync(chapter.path, 'utf8'))])));
   for (const slug of slugs) assert.deepEqual(ja.get(slug), en.get(slug), `${slug}: ja matches en`);
-  // The old site's OS pickers and details blocks (Task 14), plus the debug-guides contact sheet, subtitle file, and looping video main added to Export.
+  // The old site's OS pickers and details blocks (Task 14), plus the debug-guides contact sheet, subtitle file, looping video, and loudness main added to Export.
   const expected: Record<string, ReturnType<typeof containers>> = {
     'installation': { tabs: 1, tab: 3, accordion: 0, toggle: 0 },
     'build-from-source': { tabs: 1, tab: 3, accordion: 0, toggle: 0 },
     'create-project': { tabs: 1, tab: 2, accordion: 0, toggle: 0 },
-    'export': { tabs: 8, tab: 16, accordion: 0, toggle: 0 },
+    'export': { tabs: 9, tab: 18, accordion: 0, toggle: 0 },
     'timelines': { tabs: 0, tab: 0, accordion: 0, toggle: 3 },
     'troubleshooting': { tabs: 0, tab: 0, accordion: 1, toggle: 9 },
   };
@@ -174,7 +174,7 @@ test('tab labels are the old picker buttons, the same in both locales, and each 
       }
     }
   }
-  assert.equal(groups, 22, 'eleven tab groups per locale');
+  assert.equal(groups, 24, 'twelve tab groups per locale');
 });
 
 test('every showcase work has a page and metadata', () => {
