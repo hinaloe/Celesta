@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 
 use celesta_exporter::{
     BitDepth, ContactSheet, EncoderPreset, ExportJob, ExportOptions, ExportRange, FrameSelection,
-    StillExport, StillFormat, VideoEncoding, VideoFormat, parse_timecode,
+    LoudnessTarget, PeakHandling, StillExport, StillFormat, VideoEncoding, VideoFormat,
+    parse_timecode,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -142,6 +143,17 @@ pub struct ExportVideoArgs {
     /// every pass. MP4 only; a .mov's PCM loops unchanged.
     #[serde(rename = "loop")]
     looping: Option<bool>,
+    /// Bring the whole mix to this integrated loudness before encoding:
+    /// LUFS from -70 to -5, `"streaming"` (-14, as YouTube and Spotify play)
+    /// or `"broadcast"` (-23, EBU R128). The result's video output reports
+    /// the mix's `loudness` (integrated LUFS, true peak, gain) either way.
+    loudness: Option<LoudnessArg>,
+    /// The highest true peak `loudness` may leave, dBTP, -9 to 0; default -1.
+    true_peak: Option<f64>,
+    /// Where `loudness`'s gain would take a true peak over `truePeak`:
+    /// `"limit"` (default) holds those peaks there with a limiter, `"lower"`
+    /// stops the gain short of the target instead.
+    peak_handling: Option<String>,
     /// Also write the subtitles (`<Subtitles>` cues, `<Dialogue>` lines, or
     /// a project's dialogue items) to this .srt or .vtt file, or to each of
     /// a list of them, timed like the video. `{lang}` in a path writes one
@@ -152,6 +164,14 @@ pub struct ExportVideoArgs {
     #[serde(flatten)]
     #[schemars(skip)]
     unknown: Map<String, Value>,
+}
+
+/// A loudness target: LUFS or a preset's name.
+#[derive(Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum LoudnessArg {
+    Lufs(f64),
+    Preset(String),
 }
 
 /// One subtitle path or several.
@@ -419,6 +439,7 @@ impl ExportVideoArgs {
                 ("crf", self.crf.is_some()),
                 ("bitDepth", self.bit_depth.is_some()),
                 ("loop", self.looping.is_some()),
+                ("loudness", self.loudness.is_some()),
             ];
             if let Some((field, _)) = given.into_iter().find(|(_, given)| *given) {
                 return Err(format!(
@@ -465,6 +486,7 @@ impl ExportVideoArgs {
             Some(10) => BitDepth::Ten,
             Some(other) => return Err(format!("bitDepth must be 8 or 10, not {other}")),
         };
+        let loudness = self.loudness()?;
         let options = ExportOptions {
             overwrite: self.overwrite.unwrap_or(false),
             range: source.range,
@@ -477,9 +499,57 @@ impl ExportVideoArgs {
             },
             subtitles,
             looping: self.looping.unwrap_or(false),
+            loudness,
             ..ExportOptions::default()
         };
         Ok(job(source, Some(absolute(output)), None, options))
+    }
+
+    fn loudness(&self) -> Result<Option<LoudnessTarget>, String> {
+        let in_range = |value: f64, (low, high): (f64, f64)| (low..=high).contains(&value);
+        let target = match &self.loudness {
+            None => {
+                let given = [
+                    ("truePeak", self.true_peak.is_some()),
+                    ("peakHandling", self.peak_handling.is_some()),
+                ];
+                if let Some((field, _)) = given.into_iter().find(|(_, given)| *given) {
+                    return Err(format!("{field} applies with loudness only"));
+                }
+                return Ok(None);
+            }
+            Some(LoudnessArg::Lufs(lufs)) if in_range(*lufs, LoudnessTarget::INTEGRATED_RANGE) => {
+                LoudnessTarget::new(*lufs)
+            }
+            Some(LoudnessArg::Preset(name)) if name == "streaming" => LoudnessTarget::STREAMING,
+            Some(LoudnessArg::Preset(name)) if name == "broadcast" => LoudnessTarget::BROADCAST,
+            Some(_) => {
+                return Err(
+                    "loudness must be -70 to -5 LUFS, \"streaming\" or \"broadcast\"".into(),
+                );
+            }
+        };
+        let true_peak_dbtp = match self.true_peak {
+            Some(dbtp) if !in_range(dbtp, LoudnessTarget::TRUE_PEAK_RANGE) => {
+                return Err(format!("truePeak must be -9 to 0 dBTP, not {dbtp}"));
+            }
+            Some(dbtp) => dbtp,
+            None => target.true_peak_dbtp,
+        };
+        let peak_handling = match &self.peak_handling {
+            Some(name) => PeakHandling::ALL
+                .into_iter()
+                .find(|handling| handling.as_str() == name)
+                .ok_or_else(|| {
+                    format!("peakHandling must be \"limit\" or \"lower\", not {name:?}")
+                })?,
+            None => target.peak_handling,
+        };
+        Ok(Some(LoudnessTarget {
+            true_peak_dbtp,
+            peak_handling,
+            ..target
+        }))
     }
 }
 
@@ -723,6 +793,65 @@ mod tests {
             video_job(json!({ "source": "a.tsx", "output": "a.webm", "loop": true })),
             "loop applies to MP4",
         );
+    }
+
+    #[test]
+    fn loudness_takes_lufs_or_a_preset() {
+        let loudness = |args: Value| video_job(args).map(|job| job.options.loudness);
+        assert_eq!(
+            loudness(json!({ "source": "a.tsx", "output": "a.mp4" })),
+            Ok(None)
+        );
+        assert_eq!(
+            loudness(json!({
+                "source": "a.tsx", "output": "a.webm", "loudness": -16, "truePeak": -2
+            })),
+            Ok(Some(LoudnessTarget {
+                true_peak_dbtp: -2.0,
+                ..LoudnessTarget::new(-16.0)
+            }))
+        );
+        assert_eq!(
+            loudness(json!({
+                "source": "a.tsx", "output": "a.mov", "loudness": "streaming",
+                "peakHandling": "lower"
+            })),
+            Ok(Some(LoudnessTarget {
+                peak_handling: PeakHandling::Lower,
+                ..LoudnessTarget::STREAMING
+            }))
+        );
+        for (args, names) in [
+            (
+                json!({ "source": "a.tsx", "output": "a.mp4", "loudness": -2 }),
+                "loudness",
+            ),
+            (
+                json!({ "source": "a.tsx", "output": "a.mp4", "loudness": "loud" }),
+                "loudness",
+            ),
+            (
+                json!({ "source": "a.tsx", "output": "a.mp4", "loudness": -14, "truePeak": 1 }),
+                "truePeak",
+            ),
+            (
+                json!({
+                    "source": "a.tsx", "output": "a.mp4", "loudness": -14,
+                    "peakHandling": "clip"
+                }),
+                "peakHandling",
+            ),
+            (
+                json!({ "source": "a.tsx", "output": "a.mp4", "truePeak": -1 }),
+                "truePeak",
+            ),
+            (
+                json!({ "source": "a.tsx", "subtitles": "a.srt", "loudness": -14 }),
+                "loudness needs an output video",
+            ),
+        ] {
+            rejects(video_job(args), names);
+        }
     }
 
     #[test]

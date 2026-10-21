@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExportProgress {
     /// The composition being exported, reported once as soon as it is known
     /// (before the export range or frame selection is checked against it).
@@ -39,7 +39,7 @@ pub struct CompositionInfo {
 }
 
 /// A file an export wrote. Frame numbers are zero-based composition frames.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExportedFile {
     /// A video of `frames` frames starting at composition frame `first_frame`.
     Video {
@@ -48,6 +48,8 @@ pub enum ExportedFile {
         frames: u64,
         /// Whether the file has an audio stream.
         audio: bool,
+        /// The loudness of the mix as it was encoded, when there is one.
+        loudness: Option<AudioLoudness>,
         format: VideoFormat,
     },
     /// A subtitle file, with its number of cues and their language when
@@ -66,6 +68,21 @@ pub enum ExportedFile {
         frames: Vec<u64>,
         columns: u32,
     },
+}
+
+/// The loudness of an exported video's mix, measured on the samples handed
+/// to the audio encoder (AAC and Opus then move the true peak by up to about
+/// half a dB).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AudioLoudness {
+    /// Integrated loudness, LUFS; `None` for a silent mix or one shorter
+    /// than 400 ms.
+    pub integrated_lufs: Option<f64>,
+    /// The highest true peak, dBTP; `None` for digital silence.
+    pub true_peak_dbtp: Option<f64>,
+    /// The gain a loudness target applied to the whole mix, dB (before any
+    /// limiting); `None` without a target.
+    pub gain_db: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default)]
