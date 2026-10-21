@@ -45,7 +45,7 @@ export default function Root() {
 | --- | --- |
 | `children` | The source string, including indentation and trailing newlines. |
 | `language` | `'tsx'`, `'ts'`, `'json'`, `'bash'`, or `'text'` (default, no highlighting). |
-| `style` | A `TextStyle`. Defaults: `JetBrains Mono`, 24 px, `lineHeight` 1.5 × `fontSize` (px), and `fontFeatures: { liga: false, calt: false }`, so `===` and `->` show as written; `style.fontFeatures` is merged over that tag by tag (`{ liga: true }` turns ligatures back on). The browser preview applies features only to fonts loaded with `<Font>`, so there the family must be loaded. `align` must be `'left'` (or omitted); text never wraps. The theme supplies each run's fill color. |
+| `style` | A `TextStyle`. Defaults: `JetBrains Mono`, 24 px, `lineHeight` 1.5 × `fontSize` (px). In a font with coding ligatures, `fontFeatures: { liga: false, calt: false }` shows `===` and `->` as written ([text.md](text.md#opentype-features)). `align` must be `'left'` (or omitted); text never wraps. The theme supplies each run's fill color. |
 | `theme` | `codeThemes.dark` (default), `codeThemes.light`, or your own (see [Themes](#themes)). |
 | `visibleCharacters` | How much of the source to show, in Unicode code points of the **original** source (a tab costs 1, LF 1, CRLF 2). Fractions round down; negative shows nothing; default `Infinity`. |
 | `highlightLines` | One-based line numbers to band. A band covers the whole line box and the full source width, even while only part of it is typed. |
@@ -157,16 +157,16 @@ Each line is `{ text, start, columns, runs }`:
 | `columns` | `columns[i]` is the expanded column after the line's first `i` original code points. `columns[0]` is 0; the last entry is `text`'s length in code points. Use it to turn a source count into `Text`'s `visibleCharacters`, which counts the expanded text. |
 | `runs` | `{ start, end, color, type }` over expanded code-point columns, in order and covering all of `text`. Pass them as `style.colorRuns` as they are. Adjacent tokens of the same color share one run, which keeps the first token's `type`. |
 
-One `Text` per line, with `Code`'s style (its features included) and its
-placement (each baseline at the ascent of `'M'` below the line's top,
-`anchorY="baseline"`), draws exactly what `Code` draws. `visible` here is a whole number of original code points,
+One `Text` per line, with `Code`'s style and its placement (each baseline at
+the ascent of `'M'` below the line's top, `anchorY="baseline"`), draws exactly
+what `Code` draws. `visible` here is a whole number of original code points,
 like `Code`'s `visibleCharacters`:
 
 ```tsx
 import { Group, Text, useTextMetrics } from '@celesta/react';
 import { codeThemes, highlightCode } from '@celesta/code';
 
-const style = { fontFamily: 'JetBrains Mono', fontSize: 32, lineHeight: 48, fontFeatures: { liga: false, calt: false } };
+const style = { fontFamily: 'JetBrains Mono', fontSize: 32, lineHeight: 48 };
 const theme = codeThemes.dark;
 const lines = highlightCode(source, { language: 'ts', theme });
 

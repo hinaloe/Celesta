@@ -44,7 +44,7 @@ Use a **monospaced** font. `Code` defaults to JetBrains Mono at 24 px with a lin
 | --- | --- |
 | `children` | The source, as a string. |
 | `language` | `tsx`, `ts`, `json`, `bash`, or `text` (the default, which applies no coloring). |
-| `style` | A Celesta `TextStyle`: `fontFamily`, `fontSize`, `lineHeight`, and so on. Text is left aligned and never wraps, and the theme supplies each run’s fill color. Other `align` values throw. |
+| `style` | A Celesta `TextStyle`: `fontFamily`, `fontSize`, `lineHeight`, and so on. Text is left aligned and never wraps, and the theme supplies each run’s fill color. Other `align` values throw. In a font with coding ligatures, `fontFeatures: { liga: false, calt: false }` shows `===` and `->` as written. |
 | `theme` | Token colors, a foreground fallback, and the line highlight color. `codeThemes.dark` by default. |
 | `tabSize` | Width of a tab stop, counted in characters. Defaults to `2`. |
 | `highlightLines` | One-based line numbers to mark with a highlight band. |
