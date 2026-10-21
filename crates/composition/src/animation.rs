@@ -111,16 +111,22 @@ pub fn integrate_f64(value: &Animatable<f64>, time: Time) -> Result<f64, Animati
 
     for pair in animation.keyframes.windows(2) {
         let [from, to] = pair else { unreachable!() };
-        let start = from.time.as_seconds()?.max(0.0);
-        let finish = to.time.as_seconds()?.max(start);
+        let start = from.time.as_seconds()?;
+        let finish = to.time.as_seconds()?;
         let duration = finish - start;
-        if duration == 0.0 {
+        if duration <= 0.0 {
             continue;
         }
-        let progress = ((end - start) / duration).clamp(0.0, 1.0);
         let easing = to.easing.unwrap_or(Easing::Linear);
-        integral += duration
-            * (from.value * progress + (to.value - from.value) * easing_integral(progress, easing));
+        let antiderivative = |progress: f64| {
+            from.value * progress + (to.value - from.value) * easing_integral(progress, easing)
+        };
+        // A segment that starts before 0 keeps its own span, so only its
+        // part from 0 on counts, starting at the value `evaluate_f64` gives
+        // at 0.
+        let from_zero = (-start / duration).clamp(0.0, 1.0);
+        let progress = ((end - start) / duration).clamp(0.0, 1.0);
+        integral += duration * (antiderivative(progress) - antiderivative(from_zero));
         if end <= finish {
             return Ok(integral);
         }
