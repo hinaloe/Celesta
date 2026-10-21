@@ -1,0 +1,15 @@
+{
+  // Type-checks the bench tests (`pnpm test`). The scene itself is checked by
+  // scripts/typecheck-examples.mjs only once the example has a tsconfig.json.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["./**/*.mts"]
+}

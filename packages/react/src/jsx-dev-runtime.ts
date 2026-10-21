@@ -5,7 +5,7 @@
 // `sourceOfProps` answers where a rendered element came from.
 
 import { Fragment, jsx, jsxs } from 'react/jsx-runtime';
-import type { ReactElement } from 'react';
+import type { Key, ReactElement } from 'react';
 
 export interface SourcePosition {
   fileName: string;
@@ -20,7 +20,7 @@ export { Fragment };
 export function jsxDEV(
   type: unknown,
   props: Record<string, unknown>,
-  key: string | undefined,
+  key: Key | undefined,
   isStaticChildren: boolean,
   source?: SourcePosition,
   _self?: unknown,

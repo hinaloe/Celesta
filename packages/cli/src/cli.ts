@@ -60,7 +60,9 @@ globalThis.console = Object.assign(
   new Console({ stdout: process.stderr, stderr: process.stderr }),
 );
 
-interface FrameRequest {
+// The protocol's messages are exported for the tests that drive the built CLI.
+
+export interface FrameRequest {
   time: Time;
   project?: ProjectFrame;
   /**
@@ -88,30 +90,66 @@ interface FrameRequest {
   preview?: boolean;
 }
 
-interface ResolveRequest {
+export interface ResolveRequest {
   components: ComponentResolutionRequest[];
   /** Absent from older bridges; resolved components then see frame 0. */
   runtime?: ResolutionRuntime;
 }
 
 /** Asks which JSX produced a layer; see `MountedComposition.layerSource`. */
-interface LayerSourceRequest {
+export interface LayerSourceRequest {
   layerSource: string;
   time: Time;
   preview?: boolean;
 }
 
 /** Asks for the subtitles of `frames` frames from `from`; see `MountedComposition.collectSubtitles`. */
-interface CollectSubtitlesRequest {
+export interface CollectSubtitlesRequest {
   collectSubtitles: { from: number; frames: number };
 }
 
-type Request =
+export type Request =
   | FrameRequest
   | ResolveRequest
   | LayerSourceRequest
   | CollectSubtitlesRequest
   | { collectAudio: true };
+
+/** The first message: what the entry declares. */
+export interface ReadyMessage {
+  config: CompositionConfig;
+  compositionId: string;
+  compositions: readonly CompositionInfo[];
+  componentSchemas: Record<string, ComponentPropertySchema>;
+  propertySchema: Record<string, ProjectPropertyField> | null;
+  dependencies: PrepareDependency[];
+}
+
+/** The answer to a `FrameRequest`. */
+export interface FrameMessage {
+  scene: Scene;
+  audio: AudioClipDescriptor[];
+  subtitles?: SubtitleDescriptor[];
+  seq?: number;
+  statics?: { key: number; layers: Layer[] }[];
+  droppedStatics?: number[];
+  /** Echoes `FrameRequest.openEnd`. */
+  openEnd?: true;
+}
+
+/** Every message written to stdout. */
+export type Message =
+  | ReadyMessage
+  | FrameMessage
+  | { collectedAudio: AudioClipDescriptor[] }
+  | { collectedSubtitles: SubtitleDescriptor[] }
+  | { layerSource: LayerSourceReport | { chain: null } }
+  | ComponentResolutions
+  | { probeMedia: { path: string } }
+  | { decodeAudio: { path: string } }
+  | { measureText: MeasureTextRequest }
+  | { invalidProperties: PropertyIssue[] }
+  | { error: string };
 
 interface ProbeMediaResponse {
   media?: ProbedMediaInfo;
@@ -464,34 +502,7 @@ function textMeasureResponse(next: IteratorResult<string>): TextMetrics {
 let lengthPrefixed = false;
 let messageBuffer = Buffer.allocUnsafe(64 * 1024);
 
-function writeLine(
-  value:
-    | {
-        config: CompositionConfig;
-        compositionId: string;
-        compositions: readonly CompositionInfo[];
-        componentSchemas: Record<string, ComponentPropertySchema>;
-        propertySchema: Record<string, ProjectPropertyField> | null;
-        dependencies: PrepareDependency[];
-      }
-    | {
-        scene: Scene;
-        audio: AudioClipDescriptor[];
-        subtitles?: SubtitleDescriptor[];
-        seq?: number;
-        statics?: { key: number; layers: Layer[] }[];
-        droppedStatics?: number[];
-      }
-    | { collectedAudio: AudioClipDescriptor[] }
-    | { collectedSubtitles: SubtitleDescriptor[] }
-    | { layerSource: LayerSourceReport | { chain: null } }
-    | ComponentResolutions
-    | { probeMedia: { path: string } }
-    | { decodeAudio: { path: string } }
-    | { measureText: MeasureTextRequest }
-    | { invalidProperties: PropertyIssue[] }
-    | { error: string },
-): void {
+function writeLine(value: Message): void {
   // Synchronous hooks may immediately wait for Rust's reply. Flush the whole
   // request without depending on Node's event loop to drain stdout.
   const json = JSON.stringify(value);

@@ -1,0 +1,13 @@
+{
+  // Type-checks the tests together with the site code they import, as the
+  // browser and Node code in ../tsconfig.json is checked. The Worker test is
+  // checked apart, against the workerd types (tsconfig.worker.json).
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    // scripts/postbuild.mjs is plain JavaScript run by Node; read its exports untyped.
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["./**/*.ts"],
+  "exclude": ["./locales.test.ts"]
+}

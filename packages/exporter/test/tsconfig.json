@@ -1,0 +1,15 @@
+{
+  // Type-checks the tests together with the src/ they import. The package
+  // has no references, so `tsc -p test` needs nothing built, this package
+  // included.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "noEmit": true,
+    "rootDir": "..",
+    "tsBuildInfoFile": "../node_modules/.cache/test.tsbuildinfo",
+    "types": ["node"]
+  },
+  "include": ["./**/*.mts"]
+}

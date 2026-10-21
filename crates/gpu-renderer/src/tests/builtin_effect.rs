@@ -127,7 +127,7 @@ fn render(renderer: &mut GpuRenderer, size: u32, layer: Layer) -> GpuFrame {
 }
 
 /// Records the pattern unfiltered and with each of `effects()` as raw
-/// premultiplied RGBA for `packages/web/test/filters.test.mjs`. Run it after
+/// premultiplied RGBA for `packages/web/test/filters.test.mts`. Run it after
 /// changing `builtin_effect.wgsl`:
 /// `cargo test -p celesta-gpu-renderer write_web_effect_fixtures -- --ignored`.
 #[test]

@@ -12,5 +12,5 @@
     "skipLibCheck": true
   },
   "include": ["*/film.tsx", "*/**/*.ts"],
-  "exclude": ["*/source", "node_modules"]
+  "exclude": ["*/source", "node_modules", "test"]
 }

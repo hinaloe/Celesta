@@ -23,11 +23,12 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test \"test/**/*.test.mjs\"",
+    "test": "tsc -p test && vitest run",
     "clean": "rm -rf dist"
   },
   "devDependencies": {
     "@types/node": "^24.13.6",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^5.0.3"
   }
 }

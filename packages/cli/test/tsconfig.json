@@ -1,0 +1,37 @@
+{
+  // Type-checks the tests together with the src/ they import. `tsc -b test`
+  // builds the packages this one depends on first, when their dist/ is
+  // missing or stale; this package itself needs no build. The tests that
+  // start bin/ or dist/cli.js, or read dist/project-types, still need
+  // `pnpm run build:runtime` at the repository root (each says so).
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "noEmit": true,
+    // migrate-packages.test.mts imports the skill's script, plain JavaScript
+    // outside this package: type it from its source, under the repository root.
+    "allowJs": true,
+    "rootDir": "../../..",
+    "tsBuildInfoFile": "../node_modules/.cache/test.tsbuildinfo",
+    // The tests run on current Node (findLast, ...), not the runtime's ES2021 floor.
+    // The src/ the tests import is checked under this lib too; only the build
+    // checks it against the package's own.
+    "lib": ["ES2023"],
+    "types": ["node"]
+  },
+  "include": ["./**/*.mts"],
+  // The packages the tests import, and those whose declarations
+  // migrate-packages.test.mts reads from dist/.
+  "references": [
+    { "path": "../../react" },
+    { "path": "../../character" },
+    { "path": "../../debug" },
+    { "path": "../../layout" },
+    { "path": "../../media-utils" },
+    { "path": "../../project" },
+    { "path": "../../shapes" },
+    { "path": "../../text" },
+    { "path": "../../transitions" }
+  ]
+}

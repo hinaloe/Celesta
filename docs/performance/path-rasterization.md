@@ -89,7 +89,7 @@ The shared benchmark transform is checked against prepared GPU path data
 with rotation, non-uniform scale, and a nonzero anchor. The edit-loop script
 passes five Node tests for missing, empty, malformed, and null previous
 results, as well as preserving unselected measurements and restoring source.
-Run them with `node --test examples/versus/bench/loop.test.mjs`.
+Run them with `pnpm --dir examples/versus test`.
 Rust tests use `--test-threads=1` to avoid concurrent GPU devices on this machine.
 Changed Rust files pass rustfmt; `git diff --check` passes. The CPU renderer
 passes strict Clippy on all targets/features. Strict GPU Clippy encounters

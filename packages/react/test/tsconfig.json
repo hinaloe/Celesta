@@ -1,11 +1,17 @@
 {
-  // Type-checks the tests together with the src/ they import.
+  // Type-checks the tests together with the src/ they import. This package
+  // references no other project, so `tsc -b test` builds nothing; the
+  // package itself needs no build.
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "composite": false,
     "declaration": false,
     "noEmit": true,
     "rootDir": "..",
+    // The Node versions the tests run on have ES2022, as `Array#at`.
+    // The src/ the tests import is checked under this lib too; only the build
+    // checks it against the package's own.
+    "lib": ["ES2022"],
     "tsBuildInfoFile": "../node_modules/.cache/test.tsbuildinfo",
     "types": ["node"]
   },

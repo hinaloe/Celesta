@@ -19,7 +19,7 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest run",
+    "test": "tsc -b test && vitest run",
     "clean": "rm -rf dist"
   },
   "peerDependencies": {

@@ -2,8 +2,8 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    // New tests are TypeScript; `pnpm test` type-checks them first (test/tsconfig.json).
-    include: ['test/**/*.test.{mjs,mts}'],
+    // `pnpm test` type-checks the tests first (test/tsconfig.json).
+    include: ['test/**/*.test.mts'],
     environment: 'node',
     // Tests here start CLI processes or run tsc, which take several times
     // longer on a busy runner and pass vitest's 5 s default with nothing wrong.

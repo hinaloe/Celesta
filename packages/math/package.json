@@ -16,10 +16,12 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test \"test/**/*.test.mjs\"",
+    "test": "tsc -b test && vitest run",
     "clean": "rm -rf dist"
   },
   "devDependencies": {
-    "typescript": "^5.7.3"
+    "@types/node": "^24.13.6",
+    "typescript": "^5.7.3",
+    "vitest": "^5.0.3"
   }
 }

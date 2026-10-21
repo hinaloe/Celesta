@@ -1,4 +1,5 @@
 import type { Definition, Link, Root } from 'mdast';
+import type { Transformer } from 'unified';
 import { visit } from 'unist-util-visit';
 import { downloadLinks, type DownloadLinks } from '../site/downloads.ts';
 
@@ -10,7 +11,7 @@ const targets: Record<string, keyof DownloadLinks> = { macos: 'macOS', windows: 
  * `site/downloads.ts`, so Markdown follows `CELESTA_DOWNLOAD_URL*` like the pages do. The
  * environment is read on every transform; an unknown target fails the build.
  */
-export function remarkDownloadLinks() {
+export function remarkDownloadLinks(): Transformer<Root, Root> {
   return (tree: Root) => {
     let links: DownloadLinks | undefined;
     visit(tree, ['link', 'definition'], node => {

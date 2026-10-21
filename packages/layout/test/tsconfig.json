@@ -1,0 +1,20 @@
+{
+  // Type-checks the tests. `tsc -b test` builds the packages this one depends
+  // on first, when their dist/ is missing or stale, but not this package: the
+  // tests render through the CLI, which loads this package's dist/, so they
+  // need `pnpm run build:runtime` at the repository root after a change to src/.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "noEmit": true,
+    "rootDir": "..",
+    "tsBuildInfoFile": "../node_modules/.cache/test.tsbuildinfo",
+    "types": ["node"]
+  },
+  "include": ["./**/*.mts"],
+  "references": [
+    { "path": "../../math" },
+    { "path": "../../react" }
+  ]
+}

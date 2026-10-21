@@ -7,9 +7,14 @@ export default defineConfig({
     { find: /^@celesta\/media-utils\/duck$/, replacement: fileURLToPath(new URL('../media-utils/src/duck.ts', import.meta.url)) },
   ] },
   test: {
-    // New tests are TypeScript; `pnpm test` type-checks them first
-    // (test/tsconfig.json). The .mjs tests run under node --test.
+    // `pnpm test` type-checks the tests first (test/tsconfig.json).
     include: ['test/**/*.test.mts'],
     environment: 'node',
+    // The plane tests draw in software, the longest for 20 s or more: far
+    // past vitest's 5 s default.
+    testTimeout: 120_000,
+    // Spies are put back before the next test, as node:test's `t.mock` put
+    // them back after theirs.
+    restoreMocks: true,
   },
 });

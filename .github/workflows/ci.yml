@@ -122,7 +122,6 @@ jobs:
           pnpm run test:runtime
           pnpm --dir templates test
           pnpm --dir packages/website test
-          pnpm --dir packages/exporter run build
           pnpm --dir packages/exporter test
 
       # Type checks have no timeouts, so they run beside the Rust build and
@@ -134,6 +133,9 @@ jobs:
           pnpm --dir templates typecheck
           pnpm --dir packages/code run check:examples
           pnpm run typecheck:examples
+          # build:runtime leaves the exporter out and its tests need no build;
+          # this keeps its declaration emit checked.
+          pnpm --dir packages/exporter run build
 
       - name: Build
         # Compile normal binaries and test targets together so Cargo can schedule

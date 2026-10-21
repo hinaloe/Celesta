@@ -1,4 +1,5 @@
 import type { Root, Text } from 'mdast';
+import type { Transformer } from 'unified';
 import { SKIP, visit } from 'unist-util-visit';
 
 /** Arrow glyphs and the lucide icon each becomes (`.nr-icon-<name>` in `theme/docs.css`). */
@@ -30,7 +31,7 @@ const icon = (glyph: string, at?: 'start' | 'end'): Text => ({
  * text node the adjacent space is dropped. Text nodes only: inline code and code blocks keep their
  * arrows. The Markdown sources, and the `.md` endpoints made from them, keep theirs.
  */
-export function remarkArrowIcons() {
+export function remarkArrowIcons(): Transformer<Root, Root> {
   return (tree: Root) => {
     visit(tree, 'text', (node, index, parent) => {
       const { value } = node;

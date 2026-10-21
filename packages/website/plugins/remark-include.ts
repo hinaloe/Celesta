@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 import type { Code, Root } from 'mdast';
+import type { Transformer } from 'unified';
 import { visit } from 'unist-util-visit';
 
 export interface RemarkIncludeOptions {
@@ -16,7 +17,7 @@ const filePattern = /(?:^|\s)file=(?:"([^"]*)"|(\S+))/;
  * Fills an empty code fence from the file named by its `file=` meta. Paths resolve against `options.root`:
  * Makit's VFile has no path, so the Markdown file's own location is not available.
  */
-export function remarkInclude(options: RemarkIncludeOptions) {
+export function remarkInclude(options: RemarkIncludeOptions): Transformer<Root, Root> {
   const repositoryRoot = resolve(options.repositoryRoot ?? resolve(options.root, '../..'));
   return (tree: Root) => {
     visit(tree, 'code', (node: Code) => {

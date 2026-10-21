@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Stays plain JavaScript: run.test.mts spawns it as the exporter binary
+// through its shebang, with no TypeScript loader in between.
 // Stands in for celesta-exporter: FAKE_MODE picks what it prints.
 const line = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 const composition = { width: 640, height: 360, fps: 30, frames: 30, duration: 1 };
