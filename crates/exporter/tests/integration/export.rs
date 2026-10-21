@@ -9,7 +9,8 @@ use celesta_exporter::{
 use celesta_gpu_renderer::GpuRenderError;
 use celesta_media::{FfmpegBackend, VideoFrameDecoder};
 use celesta_project::{
-    Animatable, Asset, AssetSource, Project, TimelineContent, TimelineItem, Track, TrackKind,
+    Animatable, Asset, AssetSource, DuckGroups, Project, ProjectDuck, TimelineContent,
+    TimelineItem, Track, TrackKind,
 };
 use ez_ffmpeg::stream_info::{StreamInfo, find_audio_stream_info, find_video_stream_info};
 use ez_ffmpeg::{FfmpegContext, Input, Output};
@@ -908,6 +909,67 @@ fn exports_an_audio_clip_with_fades() {
     near(rms(0.7, 0.8), full * 0.5);
     assert!(rms(0.0, 0.02) < full * 0.1);
     assert!(rms(0.98, 1.0) < full * 0.1);
+}
+
+#[test]
+fn exports_a_bed_ducked_under_a_voice() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut project = with_audio(
+        transparent_project(directory.path()),
+        directory.path(),
+        "sine=frequency=440:sample_rate=8000:duration=1",
+        "sound.wav",
+    );
+    let track = project.tracks.last_mut().unwrap();
+    // A silent voice from 0.4 to 0.6 s: only the bed is heard.
+    let mut voice = track.items[0].clone();
+    voice.id = "voice".to_owned();
+    voice.range = TimeRange {
+        start: Time::new(2, 5),
+        duration: Time::new(1, 5),
+    };
+    let TimelineContent::Audio {
+        volume, duck_group, ..
+    } = &mut voice.content
+    else {
+        unreachable!();
+    };
+    *volume = Some(Animatable::Static(0.0));
+    *duck_group = Some("voice".to_owned());
+    let TimelineContent::Audio { duck, .. } = &mut track.items[0].content else {
+        unreachable!();
+    };
+    *duck = Some(ProjectDuck {
+        under: DuckGroups::One("voice".to_owned()),
+        to: None,
+        attack: None,
+        release: None,
+        hold_gap: None,
+    });
+    track.items.push(voice);
+    let Some(output) = export_as(&project, directory.path(), VideoFormat::Mp4, "ducked.mp4") else {
+        return;
+    };
+
+    let (samples, sample_rate) = decoded_audio(&output);
+    let rms = |from: f64, to: f64| {
+        let rate = f64::from(sample_rate);
+        let window = &samples[(from * rate) as usize..(to * rate) as usize];
+        (window
+            .iter()
+            .map(|sample| f64::from(sample * sample))
+            .sum::<f64>()
+            / window.len() as f64)
+            .sqrt()
+    };
+    let full = rms(0.05, 0.15);
+    let ducked = rms(0.45, 0.55);
+    assert!(full > 0.05, "RMS {full} before the voice");
+    assert!(
+        (ducked - full * 0.3).abs() <= full * 0.3 * 0.1,
+        "RMS {ducked} under the voice, expected about {}",
+        full * 0.3
+    );
 }
 
 #[test]
