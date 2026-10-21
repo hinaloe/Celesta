@@ -3,7 +3,9 @@ use crate::duck::{audible_end, curves_with};
 use crate::error::{AudioMixError, MediaError};
 use crate::stretch::{mix_stretched_clip, needs_stretch};
 use crate::types::{AudioBuffer, VideoStream};
-use celesta_composition::{Animatable, AudioGraph, Time, TimeError, evaluate_f64, integrate_f64};
+use celesta_composition::{
+    Animatable, AudioGraph, KeyframeCursor, Time, TimeError, evaluate_f64, integrate_f64,
+};
 use celesta_remote::resolve_asset_path;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -115,6 +117,7 @@ pub fn mix_audio_graph_cancellable(
             )?;
             continue;
         }
+        let mut ducking = DuckGain::new(duck);
         for output_frame in start..end {
             if output_frame & 2_047 == 0 && is_cancelled() {
                 return Err(AudioMixError::Cancelled);
@@ -147,7 +150,7 @@ pub fn mix_audio_graph_cancellable(
             let fraction = (source_position - source_frame as f64) as f32;
             let volume = (evaluate_f64(&clip.volume, local_time)?.clamp(0.0, 16.0)
                 * fade.gain(local_time.as_seconds()?)
-                * duck_gain(duck, project_time)?) as f32;
+                * ducking.at(project_time)?) as f32;
             for channel in 0..usize::from(CHANNELS) {
                 let from = source.samples[source_frame * usize::from(CHANNELS) + channel];
                 let to = source.samples[next_frame * usize::from(CHANNELS) + channel];
@@ -166,11 +169,21 @@ pub fn mix_audio_graph_cancellable(
     })
 }
 
-/// A clip's ducking gain at timeline `time`: 1 without a curve.
-pub(crate) fn duck_gain(duck: Option<&Animatable<f64>>, time: Time) -> Result<f64, AudioMixError> {
-    match duck {
-        Some(curve) => Ok(evaluate_f64(curve, time)?),
-        None => Ok(1.0),
+/// A clip's ducking gain along the timeline, read at increasing times: 1
+/// without a curve. A curve has keys for every run of speech, so it is
+/// followed with a cursor instead of searched from its start each sample.
+pub(crate) struct DuckGain<'a>(Option<KeyframeCursor<'a>>);
+
+impl<'a> DuckGain<'a> {
+    pub(crate) fn new(duck: Option<&'a Animatable<f64>>) -> Self {
+        Self(duck.map(KeyframeCursor::new))
+    }
+
+    pub(crate) fn at(&mut self, time: Time) -> Result<f64, AudioMixError> {
+        match &mut self.0 {
+            Some(cursor) => Ok(cursor.evaluate(time)?),
+            None => Ok(1.0),
+        }
     }
 }
 

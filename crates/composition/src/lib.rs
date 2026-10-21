@@ -23,7 +23,7 @@ mod instances;
 mod model;
 mod projection;
 
-pub use animation::{AnimationError, evaluate_f64, integrate_f64};
+pub use animation::{AnimationError, KeyframeCursor, evaluate_f64, integrate_f64};
 pub use blend::BlendMode;
 pub use duck::{
     AudioDuck, DuckError, DuckGroups, DuckLevel, check_duck_group, duck_curve, duck_curves,
