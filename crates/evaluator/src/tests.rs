@@ -4,11 +4,13 @@ use celesta_composition::{
 };
 
 use celesta_composition::{
-    Keyframe, KeyframeAnimation, KeyframeAnimationType, LayerContent, LayerFilter, Time,
+    AudioDuck, DuckGroups, DuckLevel, Keyframe, KeyframeAnimation, KeyframeAnimationType,
+    LayerContent, LayerFilter, Time,
 };
 use celesta_project::{
-    Asset, AssetSource, LipSyncCue, LipSyncDefinition, MouthShape, Project, SourceRange,
-    TimelineContent, TimelineEffects, TimelineGlow, TimelineShadow, TimelineTint, TimelineVignette,
+    Asset, AssetSource, LipSyncCue, LipSyncDefinition, MouthShape, Project, ProjectDuck,
+    SourceRange, TimelineContent, TimelineEffects, TimelineGlow, TimelineShadow, TimelineTint,
+    TimelineVignette,
 };
 
 fn example() -> Project {
@@ -373,6 +375,8 @@ fn audio_graph_preserves_source_range_and_playback_mapping() {
         preserve_pitch: None,
         fade_in: None,
         fade_out: None,
+        duck_group: None,
+        duck: None,
     };
 
     let audio = Evaluator::new(&project).unwrap().audio_graph().unwrap();
@@ -394,6 +398,8 @@ fn audio_graph_carries_pitch_and_preserve_pitch() {
         preserve_pitch,
         fade_in: None,
         fade_out: None,
+        duck_group: None,
+        duck: None,
     };
     let mut project = example();
     project.tracks[0].items[0].content = audio_content(Some(Animatable::Static(-3.0)), Some(true));
@@ -421,6 +427,8 @@ fn audio_graph_carries_pitch_and_preserve_pitch() {
         playback_rate: None,
         volume: None,
         muted: None,
+        duck_group: None,
+        duck: None,
     };
     let audio = Evaluator::new(&project).unwrap().audio_graph().unwrap();
     assert_eq!(audio.clips[0].pitch, Animatable::Static(0.0));
@@ -440,6 +448,8 @@ fn audio_graph_carries_fades_of_audio_items_only() {
         preserve_pitch: None,
         fade_in: Some(Time::new(3, 2)),
         fade_out: Some(Time::new(3, 1)),
+        duck_group: None,
+        duck: None,
     };
     let audio = Evaluator::new(&project).unwrap().audio_graph().unwrap();
     assert_eq!(audio.clips[0].fade_in, Time::new(3, 2));
@@ -449,6 +459,61 @@ fn audio_graph_carries_fades_of_audio_items_only() {
     let audio = Evaluator::new(&example()).unwrap().audio_graph().unwrap();
     assert_eq!(audio.clips[0].fade_in, Time::ZERO);
     assert_eq!(audio.clips[0].fade_out, Time::ZERO);
+}
+
+#[test]
+fn audio_items_carry_resolved_ducking() {
+    let mut project = example();
+    project.tracks[0].items[0].content = TimelineContent::Audio {
+        asset: "voice-001".to_owned(),
+        source_range: None,
+        playback_rate: None,
+        volume: None,
+        muted: None,
+        pitch: None,
+        preserve_pitch: None,
+        fade_in: None,
+        fade_out: None,
+        duck_group: Some("music".to_owned()),
+        duck: Some(ProjectDuck {
+            under: DuckGroups::One("voice".to_owned()),
+            to: Some(DuckLevel::Db { db: -20.0 }),
+            attack: None,
+            release: Some(Time::new(1, 1)),
+            hold_gap: None,
+        }),
+    };
+    let audio = Evaluator::new(&project).unwrap().audio_graph().unwrap();
+    assert_eq!(audio.clips[0].duck_group.as_deref(), Some("music"));
+    let duck = audio.clips[0].duck.as_ref().unwrap();
+    assert_eq!(duck.under, ["voice"]);
+    assert!((duck.to - 0.1).abs() < 1e-12);
+    assert_eq!(duck.attack, AudioDuck::DEFAULT_ATTACK);
+    assert_eq!(duck.release, Time::new(1, 1));
+    assert_eq!(duck.hold_gap, AudioDuck::DEFAULT_HOLD_GAP);
+}
+
+#[test]
+fn dialogue_voices_belong_to_voice_unless_told_otherwise() {
+    let group = |duck_group: Option<Option<String>>| {
+        let mut project = example();
+        for item in project.tracks.iter_mut().flat_map(|track| &mut track.items) {
+            if let TimelineContent::Dialogue {
+                duck_group: group, ..
+            } = &mut item.content
+            {
+                *group = duck_group.clone();
+            }
+        }
+        let audio = Evaluator::new(&project).unwrap().audio_graph().unwrap();
+        audio.clips[0].duck_group.clone()
+    };
+    assert_eq!(group(None).as_deref(), Some("voice"));
+    assert_eq!(group(Some(None)), None);
+    assert_eq!(
+        group(Some(Some("narrator".to_owned()))).as_deref(),
+        Some("narrator")
+    );
 }
 
 #[test]

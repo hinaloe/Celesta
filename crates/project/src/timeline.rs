@@ -1,7 +1,7 @@
 use crate::character::LipSyncCue;
 use crate::{
-    Animatable, AssetId, BlendMode, CharacterId, ItemId, PropertyValue, TextStyle, Time, TimeRange,
-    TrackId, Transform,
+    Animatable, AssetId, BlendMode, CharacterId, DuckGroups, DuckLevel, ItemId, PropertyValue,
+    TextStyle, Time, TimeRange, TrackId, Transform,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -161,6 +161,12 @@ pub enum TimelineContent {
         volume: Option<Animatable<f64>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         muted: Option<bool>,
+        /// The group the soundtrack belongs to, for other items' `duck.under`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duck_group: Option<String>,
+        /// Turns the soundtrack down while items of other groups play.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duck: Option<ProjectDuck>,
     },
     Audio {
         asset: AssetId,
@@ -182,6 +188,12 @@ pub enum TimelineContent {
         /// How long the item takes to fall to silence at its end.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fade_out: Option<Time>,
+        /// The group the item's sound belongs to, for other items' `duck.under`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duck_group: Option<String>,
+        /// Turns the item down while items of other groups play.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duck: Option<ProjectDuck>,
     },
     Image {
         asset: AssetId,
@@ -209,6 +221,15 @@ pub enum TimelineContent {
         /// Frame-aligned mouth shapes generated from this clip's voice waveform.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         lip_sync: Vec<LipSyncCue>,
+        /// The group the voice belongs to: `"voice"` when absent, none when
+        /// `null`.
+        #[serde(
+            default,
+            deserialize_with = "deserialize_some",
+            skip_serializing_if = "Option::is_none"
+        )]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "string | null"))]
+        duck_group: Option<Option<String>>,
     },
     Component {
         component: String,
@@ -225,4 +246,37 @@ pub struct SourceRange {
     pub start: Time,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration: Option<Time>,
+}
+
+/// An item's ducking as authored; absent values take the defaults of
+/// [`celesta_composition::AudioDuck::resolve`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDuck {
+    /// The group, or groups, to duck under.
+    pub under: DuckGroups,
+    /// The gain under them: a multiplier from 0 to 1, or `{ db }` at or below 0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<DuckLevel>,
+    /// How long the gain takes to come down, ending as a voice starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attack: Option<Time>,
+    /// How long the gain takes to come back up, starting as a voice ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release: Option<Time>,
+    /// Silences shorter than this stay ducked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold_gap: Option<Time>,
+}
+
+/// Deserializes a present value, `null` included, as `Some`, so a field
+/// tells `null` from absent.
+fn deserialize_some<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }

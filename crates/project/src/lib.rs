@@ -17,8 +17,8 @@ pub use character::{
 pub use document::{Project, ProjectSettings, ProjectVersion};
 pub use error::LoadError;
 pub use timeline::{
-    SourceRange, TimelineContent, TimelineEffects, TimelineGlow, TimelineItem, TimelineShadow,
-    TimelineTint, TimelineVignette, Track, TrackKind,
+    ProjectDuck, SourceRange, TimelineContent, TimelineEffects, TimelineGlow, TimelineItem,
+    TimelineShadow, TimelineTint, TimelineVignette, Track, TrackKind,
 };
 
 mod validation;
@@ -26,8 +26,9 @@ mod validation;
 pub use validation::{ValidationError, ValidationErrors};
 
 pub use celesta_composition::{
-    Animatable, AnimatablePoint, BlendMode, Easing, GradientStop, Keyframe, KeyframeAnimation,
-    Paint, Rational, Stroke, TextAlign, TextStyle, Time, TimeError, TimeRange, Transform,
+    Animatable, AnimatablePoint, BlendMode, DuckGroups, DuckLevel, Easing, GradientStop, Keyframe,
+    KeyframeAnimation, Paint, Rational, Stroke, TextAlign, TextStyle, Time, TimeError, TimeRange,
+    Transform,
 };
 
 pub type AssetId = String;

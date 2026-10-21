@@ -3,11 +3,13 @@ use std::error::Error;
 use std::fmt;
 
 use celesta_composition::{
-    Animatable, GradientStop, LetterSpacing, Paint, TextStroke, TextStyle, Time, Transform,
+    Animatable, DuckError, DuckLevel, GradientStop, LetterSpacing, Paint, TextStroke, TextStyle,
+    Time, Transform, check_duck_group, duck_duration,
 };
 
 use crate::{
-    AssetKind, Character, Project, SourceRange, TimelineContent, TimelineEffects, TimelineItem,
+    AssetKind, Character, Project, ProjectDuck, SourceRange, TimelineContent, TimelineEffects,
+    TimelineItem,
 };
 
 fn valid_effect_color(color: &str) -> bool {
@@ -269,10 +271,13 @@ impl Validator<'_> {
                 source_range,
                 playback_rate,
                 volume,
+                duck_group,
+                duck,
                 ..
             } => {
                 self.asset_ref(&format!("{path}.content.asset"), asset, AssetKind::Video);
                 self.media_fields(path, source_range, playback_rate, volume);
+                self.ducking(path, duck_group.as_deref(), duck.as_ref());
             }
             TimelineContent::Audio {
                 asset,
@@ -282,10 +287,13 @@ impl Validator<'_> {
                 pitch,
                 fade_in,
                 fade_out,
+                duck_group,
+                duck,
                 ..
             } => {
                 self.asset_ref(&format!("{path}.content.asset"), asset, AssetKind::Audio);
                 self.media_fields(path, source_range, playback_rate, volume);
+                self.ducking(path, duck_group.as_deref(), duck.as_ref());
                 if let Some(pitch) = pitch {
                     self.animatable(
                         &format!("{path}.content.pitch"),
@@ -329,8 +337,12 @@ impl Validator<'_> {
                 volume,
                 expression,
                 lip_sync,
+                duck_group,
                 ..
             } => {
+                if let Some(Some(group)) = duck_group {
+                    self.ducking(path, Some(group), None);
+                }
                 let Some(definition) = self.project.characters.get(character) else {
                     self.error(
                         format!("{path}.content.character"),
@@ -450,6 +462,38 @@ impl Validator<'_> {
                 format!("asset `{id}` is {}, expected {expected}", asset.kind()),
             ),
             Some(_) => {}
+        }
+    }
+
+    /// Checks an item's `duckGroup` and `duck` against the rules
+    /// `AudioDuck::resolve` applies, one error per field.
+    fn ducking(&mut self, path: &str, duck_group: Option<&str>, duck: Option<&ProjectDuck>) {
+        if let Some(Err(error)) = duck_group.map(check_duck_group) {
+            self.error(format!("{path}.content.duckGroup"), error.to_string());
+        }
+        let Some(duck) = duck else {
+            return;
+        };
+        let checks = [
+            ("under", duck.under.names().err()),
+            ("to", duck.to.map(DuckLevel::gain).and_then(Result::err)),
+            (
+                "attack",
+                duck_duration(duck.attack, Time::ZERO, DuckError::Attack).err(),
+            ),
+            (
+                "release",
+                duck_duration(duck.release, Time::ZERO, DuckError::Release).err(),
+            ),
+            (
+                "holdGap",
+                duck_duration(duck.hold_gap, Time::ZERO, DuckError::HoldGap).err(),
+            ),
+        ];
+        for (field, error) in checks {
+            if let Some(error) = error {
+                self.error(format!("{path}.content.duck.{field}"), error.to_string());
+            }
         }
     }
 

@@ -90,31 +90,52 @@ impl AudioDuck {
         release: Option<Time>,
         hold_gap: Option<Time>,
     ) -> Result<Self, DuckError> {
-        let under = match under {
-            DuckGroups::One(group) => vec![group.clone()],
-            DuckGroups::Many(groups) => groups.clone(),
+        Ok(Self {
+            under: under.names()?,
+            to: to.map_or(Ok(Self::DEFAULT_TO), DuckLevel::gain)?,
+            attack: duck_duration(attack, Self::DEFAULT_ATTACK, DuckError::Attack)?,
+            release: duck_duration(release, Self::DEFAULT_RELEASE, DuckError::Release)?,
+            hold_gap: duck_duration(hold_gap, Self::DEFAULT_HOLD_GAP, DuckError::HoldGap)?,
+        })
+    }
+}
+
+impl DuckGroups {
+    /// The group names, each non-empty, at least one.
+    pub fn names(&self) -> Result<Vec<String>, DuckError> {
+        let names = match self {
+            Self::One(group) => vec![group.clone()],
+            Self::Many(groups) => groups.clone(),
         };
-        if under.is_empty() || under.iter().any(String::is_empty) {
+        if names.is_empty() || names.iter().any(String::is_empty) {
             return Err(DuckError::Under);
         }
-        let to = match to {
-            None => Self::DEFAULT_TO,
-            Some(DuckLevel::Gain(gain)) if gain.is_finite() && (0.0..=1.0).contains(&gain) => gain,
-            Some(DuckLevel::Db { db }) if db.is_finite() && db <= 0.0 => 10_f64.powf(db / 20.0),
-            Some(_) => return Err(DuckError::To),
-        };
-        let duration = |value: Option<Time>, default: Time, error: DuckError| match value {
-            None => Ok(default),
-            Some(time) if time.is_valid() && time.value >= 0 => Ok(time),
-            Some(_) => Err(error),
-        };
-        Ok(Self {
-            under,
-            to,
-            attack: duration(attack, Self::DEFAULT_ATTACK, DuckError::Attack)?,
-            release: duration(release, Self::DEFAULT_RELEASE, DuckError::Release)?,
-            hold_gap: duration(hold_gap, Self::DEFAULT_HOLD_GAP, DuckError::HoldGap)?,
-        })
+        Ok(names)
+    }
+}
+
+impl DuckLevel {
+    /// The gain multiplier, from 0 to 1.
+    pub fn gain(self) -> Result<f64, DuckError> {
+        match self {
+            Self::Gain(gain) if gain.is_finite() && (0.0..=1.0).contains(&gain) => Ok(gain),
+            Self::Db { db } if db.is_finite() && db <= 0.0 => Ok(10_f64.powf(db / 20.0)),
+            _ => Err(DuckError::To),
+        }
+    }
+}
+
+/// An authored attack, release, or hold gap: `default` when absent, `error`
+/// when it is not a valid, non-negative time.
+pub fn duck_duration(
+    value: Option<Time>,
+    default: Time,
+    error: DuckError,
+) -> Result<Time, DuckError> {
+    match value {
+        None => Ok(default),
+        Some(time) if time.is_valid() && time.value >= 0 => Ok(time),
+        Some(_) => Err(error),
     }
 }
 

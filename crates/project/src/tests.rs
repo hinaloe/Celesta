@@ -2,7 +2,7 @@ use crate::character::{LipSyncCue, LipSyncDefinition, MouthShape};
 use crate::document::{Project, ProjectVersion};
 use crate::error::LoadError;
 use crate::timeline::{TimelineContent, TimelineEffects, TimelineItem, TimelineShadow};
-use crate::{Animatable, BlendMode, Time};
+use crate::{Animatable, BlendMode, DuckGroups, DuckLevel, Time};
 use serde_json::Value;
 
 #[test]
@@ -384,6 +384,157 @@ fn audio_items_without_pitch_round_trip_unchanged() {
         .unwrap();
     assert!(saved.contains("\"pitch\": -3.0"));
     assert!(saved.contains("\"preservePitch\": true"));
+}
+
+#[test]
+fn audio_items_parse_and_validate_ducking() {
+    let project_with = |fields: Value| {
+        let mut json: Value = serde_json::from_str(&audio_project_json(None)).unwrap();
+        let content = &mut json["tracks"][0]["items"][0]["content"];
+        for (key, value) in fields.as_object().unwrap() {
+            content[key] = value.clone();
+        }
+        Project::from_json(&json.to_string())
+    };
+
+    let saved = project_with(serde_json::json!({
+        "duckGroup": "music",
+        "duck": {
+            "under": ["voice", "sfx"],
+            "to": {"db": -6},
+            "attack": {"value": 1, "timescale": 10},
+            "holdGap": {"value": 0, "timescale": 1},
+        },
+    }))
+    .unwrap()
+    .to_json()
+    .unwrap();
+    let TimelineContent::Audio {
+        duck_group, duck, ..
+    } = &Project::from_json(&saved).unwrap().tracks[0].items[0].content
+    else {
+        panic!("expected an audio item");
+    };
+    assert_eq!(duck_group.as_deref(), Some("music"));
+    let duck = duck.as_ref().unwrap();
+    assert_eq!(
+        duck.under,
+        DuckGroups::Many(vec!["voice".to_owned(), "sfx".to_owned()])
+    );
+    assert_eq!(duck.to, Some(DuckLevel::Db { db: -6.0 }));
+    assert_eq!(duck.attack, Some(Time::new(1, 10)));
+    assert_eq!(duck.release, None);
+    assert_eq!(duck.hold_gap, Some(Time::ZERO));
+    let plain = project_with(serde_json::json!({"duck": {"under": "voice", "to": 0.5}})).unwrap();
+    let TimelineContent::Audio { duck, .. } = &plain.tracks[0].items[0].content else {
+        panic!("expected an audio item");
+    };
+    assert_eq!(
+        duck.as_ref().unwrap().under,
+        DuckGroups::One("voice".to_owned())
+    );
+    assert!(
+        !Project::from_json(&audio_project_json(None))
+            .unwrap()
+            .to_json()
+            .unwrap()
+            .contains("duck")
+    );
+
+    let LoadError::Validation(errors) = project_with(serde_json::json!({
+        "duckGroup": "",
+        "duck": {
+            "under": [],
+            "to": 1.5,
+            "attack": {"value": -1, "timescale": 1},
+            "release": {"value": 1, "timescale": 0},
+            "holdGap": {"value": -1, "timescale": 2},
+        },
+    }))
+    .unwrap_err() else {
+        panic!("expected validation errors");
+    };
+    let found: Vec<_> = errors
+        .as_slice()
+        .iter()
+        .map(|error| (error.path.as_str(), error.message.as_str()))
+        .collect();
+    assert_eq!(
+        found,
+        [
+            (
+                "tracks[0].items[0].content.duckGroup",
+                "must be a non-empty name"
+            ),
+            (
+                "tracks[0].items[0].content.duck.under",
+                "must be a non-empty name"
+            ),
+            (
+                "tracks[0].items[0].content.duck.to",
+                "must be a multiplier from 0 to 1, or { db } at or below 0"
+            ),
+            (
+                "tracks[0].items[0].content.duck.attack",
+                "must be finite and not negative"
+            ),
+            (
+                "tracks[0].items[0].content.duck.release",
+                "must be finite and not negative"
+            ),
+            (
+                "tracks[0].items[0].content.duck.holdGap",
+                "must be finite and not negative"
+            ),
+        ]
+    );
+}
+
+#[test]
+fn dialogue_items_tell_an_absent_duck_group_from_null() {
+    let mut json: Value =
+        serde_json::from_str(include_str!("../../../examples/voiceroid.celesta.json")).unwrap();
+    let dialogue = json["tracks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|track| track["items"].as_array().unwrap())
+        .position(|item| item["content"]["type"] == "dialogue")
+        .unwrap();
+    let group_of = |json: &Value| {
+        let project = Project::from_json(&json.to_string()).unwrap();
+        let content = project
+            .tracks
+            .iter()
+            .flat_map(|track| &track.items)
+            .nth(dialogue)
+            .unwrap()
+            .content
+            .clone();
+        let TimelineContent::Dialogue { duck_group, .. } = content else {
+            panic!("expected a dialogue item");
+        };
+        (duck_group, project.to_json().unwrap())
+    };
+    let set = |json: &mut Value, value: Value| {
+        for track in json["tracks"].as_array_mut().unwrap() {
+            for item in track["items"].as_array_mut().unwrap() {
+                if item["content"]["type"] == "dialogue" {
+                    item["content"]["duckGroup"] = value.clone();
+                }
+            }
+        }
+    };
+
+    let (absent, saved) = group_of(&json);
+    assert_eq!(absent, None);
+    assert!(!saved.contains("duckGroup"));
+    set(&mut json, Value::Null);
+    let (none, saved) = group_of(&json);
+    assert_eq!(none, Some(None));
+    assert!(saved.contains("\"duckGroup\": null"));
+    set(&mut json, serde_json::json!("narrator"));
+    assert_eq!(group_of(&json).0, Some(Some("narrator".to_owned())));
 }
 
 #[test]
