@@ -87,6 +87,8 @@ export type {
   VoiceLevelSpeaker,
 } from './voice-level';
 
+export { duckingVolume, speechIntervals } from './ducking';
+
 export { lipSyncFromSpeechTiming, speechVowelShape } from './speech-timing';
 export type {
   SpeechAccentPhrase,
