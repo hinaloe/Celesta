@@ -28,6 +28,18 @@ test('<Audio> and <Video> report their duck group and duck unchanged', () => {
   assert.deepEqual(by('./game.mp4').duck, { under: 'voice' });
 });
 
+test('values JSON cannot carry are rejected with the field', () => {
+  // Deliberately outside what AudioDuck accepts, as untyped code can pass.
+  const bad = (duck: unknown) => () => collect(h(Audio, { src: './bed.wav', duck: duck as AudioDuck }));
+  assert.throws(bad({ under: 'voice', to: Number.NaN }), /<Audio> duck\.to must be a finite multiplier or \{ db \}/);
+  assert.throws(bad({ under: 'voice', to: { db: -Infinity } }), /<Audio> duck\.to must be a finite multiplier or \{ db \}/);
+  assert.throws(bad({ under: 'voice', attack: Infinity }), /<Audio> duck\.attack must be a finite number of seconds/);
+  assert.throws(bad({ under: 'voice', holdGap: '1' }), /<Audio> duck\.holdGap must be a finite number of seconds/);
+  assert.throws(bad({ under: 5 }), /<Audio> duck\.under must be a group name or a list of them/);
+  assert.throws(bad('voice'), /<Audio> duck must be an object/);
+  assert.throws(() => collect(h(Audio, { src: './v.wav', duckGroup: 5 as unknown as string })), /<Audio> duckGroup must be a string/);
+});
+
 test('clips without ducking report neither key', () => {
   const [clip] = collect(h(Audio, { src: './plain.wav' }));
   assert.ok(!('duckGroup' in clip) && !('duck' in clip));

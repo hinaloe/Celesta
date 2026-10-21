@@ -1221,11 +1221,43 @@ function collectAudioClip(
     ...(fadeIn !== 0 ? { fadeIn } : {}),
     ...(fadeOut !== 0 ? { fadeOut } : {}),
     ...(video ? { video: true } : {}),
-    // Passed through as authored; the native side and browser export apply
-    // the defaults and check the values.
-    ...(typeof props.duckGroup === 'string' ? { duckGroup: props.duckGroup } : {}),
-    ...(props.duck !== undefined && props.duck !== null ? { duck: props.duck as AudioDuck } : {}),
+    // Passed on as authored; the native side and browser export apply the
+    // defaults and the rules.
+    ...duckGroupProp(props.duckGroup),
+    ...duckProp(props.duck),
   });
+}
+
+/** `duckGroup`, when set; `null` (a dialogue voice in no group) is unset. */
+function duckGroupProp(value: unknown): { duckGroup?: string } {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== 'string') throw new Error('<Audio> duckGroup must be a string');
+  return { duckGroup: value };
+}
+
+/**
+ * `duck`, when set, checked only for what JSON can carry to the native side:
+ * a non-finite number would arrive as `null` and turn into a default.
+ */
+function duckProp(value: unknown): { duck?: AudioDuck } {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== 'object') throw new Error('<Audio> duck must be an object');
+  const duck = value as Record<string, unknown>;
+  const groups = Array.isArray(duck.under) ? duck.under : [duck.under];
+  if (!groups.every((group) => typeof group === 'string')) {
+    throw new Error('<Audio> duck.under must be a group name or a list of them');
+  }
+  const to = duck.to;
+  const finite = (number: unknown) => typeof number === 'number' && Number.isFinite(number);
+  if (to !== undefined && !finite(to) && !(typeof to === 'object' && to !== null && finite((to as { db?: unknown }).db))) {
+    throw new Error('<Audio> duck.to must be a finite multiplier or { db }');
+  }
+  for (const field of ['attack', 'release', 'holdGap']) {
+    if (duck[field] !== undefined && !finite(duck[field])) {
+      throw new Error(`<Audio> duck.${field} must be a finite number of seconds`);
+    }
+  }
+  return { duck: value as AudioDuck };
 }
 
 /** An `<Audio>` fade in seconds; absent is no fade. */
