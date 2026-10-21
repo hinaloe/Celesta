@@ -4,7 +4,7 @@ Open the [web editor](/en/#playground), change or open a TSX composition, and ch
 
 ## From the app
 
-Choose **Export…** and select a destination. Name it `.mp4` for H.264 video, or `.mov` or `.webm` for transparent video (see Transparent video below); any other extension becomes `.mp4`. For a section of the composition, press `I` and `O` to mark the start and end. The status bar shows progress; **Cancel export** stops the job. When the export finishes, its notice shows the soundtrack's loudness (see Loudness for streaming and broadcast below).
+Choose **Export…** and select a destination. Name it `.mp4` for H.264 video, or `.mov` or `.webm` for transparent video (see Transparent video below); any other extension becomes `.mp4`. For a section of the composition, press `I` and `O` to mark the start and end. The status bar shows progress; **Cancel export** stops the job. To bring the soundtrack to a loudness target, choose **Loudness** next to **Export…** first: **Off**, **Streaming (-14 LUFS)**, or **Broadcast (-23 LUFS)**. The choice stays until you quit the app. When the export finishes, its notice shows the soundtrack's loudness (see Loudness for streaming and broadcast below).
 
 ## From the command line
 
@@ -155,7 +155,7 @@ Add `--loudness` to bring the soundtrack to a target: a number of LUFS from -70 
 :::
 ::::
 
-The loudness is measured and set on the soundtrack before it is encoded. A `.mov`'s PCM keeps it exactly. AAC (`.mp4`) and Opus (`.webm`) move the loudness by about a tenth of an LU and the true peak by up to about half a dB either way, so the -1 dBTP default can read about -0.5 dBTP in the file; give `--true-peak -2` for more headroom. The app's **Export…** does not set a target; use the command line, the MCP `export_video` tool, or `@celesta/exporter` for that.
+The loudness is measured and set on the soundtrack before it is encoded. A `.mov`'s PCM keeps it exactly. AAC (`.mp4`) and Opus (`.webm`) move the loudness by about a tenth of an LU and the true peak by up to about half a dB either way, so the -1 dBTP default can read about -0.5 dBTP in the file; give `--true-peak -2` for more headroom. In the app, **Loudness** next to **Export…** sets the streaming or broadcast target with the -1 dBTP limiter. For another target, ceiling, or `--peak-handling lower`, use the command line, the MCP `export_video` tool, or `@celesta/exporter`.
 
 ## Transparent video
 

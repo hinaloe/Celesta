@@ -1,7 +1,7 @@
 use crate::problems::error_chain;
 use celesta_exporter::{
     AudioLoudness, ExportCancellation, ExportError, ExportOptions, ExportProgress, ExportRange,
-    ExportedFile, Exporter, GpuDriver, ReactRuntimeOptions, VideoFormat,
+    ExportedFile, Exporter, GpuDriver, LoudnessTarget, ReactRuntimeOptions, VideoFormat,
 };
 use celesta_project::Project;
 use celesta_react_bridge::PropertyInputs;
@@ -16,6 +16,8 @@ pub(crate) struct ExportRequest {
     pub(crate) output: PathBuf,
     pub(crate) format: VideoFormat,
     pub(crate) range: Option<ExportRange>,
+    /// The loudness to bring the mix to; `None` leaves it as it is.
+    pub(crate) loudness: Option<LoudnessTarget>,
     pub(crate) cancellation: ExportCancellation,
     pub(crate) driver: GpuDriver,
 }
@@ -59,13 +61,7 @@ impl ExportWorker {
             .name("celesta-export".to_owned())
             .spawn(move || {
                 while let Ok(request) = request_rx.recv() {
-                    let exporter = Exporter::new(ExportOptions {
-                        overwrite: true,
-                        range: request.range,
-                        video_format: request.format,
-                        driver: request.driver,
-                        ..ExportOptions::default()
-                    });
+                    let exporter = Exporter::new(export_options(&request));
                     let mut loudness = None;
                     let progress = |progress| {
                         if let ExportProgress::Wrote(ExportedFile::Video {
@@ -125,5 +121,18 @@ impl ExportWorker {
         self.requests
             .send(request)
             .map_err(|_| "export worker stopped unexpectedly".to_owned())
+    }
+}
+
+/// The exporter settings for one request: the editor always overwrites the
+/// file the save panel already confirmed.
+pub(crate) fn export_options(request: &ExportRequest) -> ExportOptions {
+    ExportOptions {
+        overwrite: true,
+        range: request.range,
+        video_format: request.format,
+        driver: request.driver,
+        loudness: request.loudness,
+        ..ExportOptions::default()
     }
 }

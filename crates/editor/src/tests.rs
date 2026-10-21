@@ -5,9 +5,11 @@ use crate::editor_launch::{
     Invocation, LaunchError, default_opener, editor_invocation, editor_value,
     parse_login_shell_output, read_until_closing_marker, split_command,
 };
-use crate::export_worker::{ExportEvent, ExportRequest, ExportSource, ExportWorker};
+use crate::export_worker::{
+    ExportEvent, ExportRequest, ExportSource, ExportWorker, export_options,
+};
 use crate::helpers::{
-    export_loudness_label, export_output, export_progress_label, export_range_for,
+    ExportLoudness, export_loudness_label, export_output, export_progress_label, export_range_for,
     export_suggested_name, loop_range_for,
 };
 use crate::layer_select::{
@@ -45,7 +47,9 @@ use celesta_composition::{
     LayerShader, MaskMode, Point, Rational, ResolvedAsset, Scene, ShaderSource, Time, TimeRange,
 };
 use celesta_editor_core::ClipSummary;
-use celesta_exporter::{AudioLoudness, ExportCancellation, ExportProgress, VideoFormat};
+use celesta_exporter::{
+    AudioLoudness, ExportCancellation, ExportProgress, LoudnessTarget, VideoFormat,
+};
 use celesta_media::{AudioBuffer, AudioDecoder};
 use celesta_project::{Project, TrackKind};
 use celesta_react_bridge::{
@@ -85,6 +89,7 @@ fn export_worker_reports_cancellation_without_creating_output() {
             output: output.clone(),
             format: VideoFormat::Mp4,
             range: None,
+            loudness: None,
             cancellation,
             driver: GpuDriver::default(),
         })
@@ -100,6 +105,46 @@ fn export_worker_reports_cancellation_without_creating_output() {
         ExportEvent::Progress(progress) => panic!("unexpected export progress: {progress:?}"),
     }
     assert!(!output.exists());
+}
+
+#[test]
+fn export_options_carry_the_chosen_loudness() {
+    let request = |loudness: ExportLoudness| ExportRequest {
+        source: ExportSource::Project(Box::new(Project::from_json(EDITOR_DEMO_PROJECT).unwrap())),
+        asset_root: PathBuf::from("examples"),
+        output: PathBuf::from("out.mov"),
+        format: VideoFormat::Mov,
+        range: None,
+        loudness: loudness.target(),
+        cancellation: ExportCancellation::default(),
+        driver: GpuDriver::default(),
+    };
+
+    let off = export_options(&request(ExportLoudness::Off));
+    assert_eq!(off.loudness, None);
+    assert!(off.overwrite);
+    assert_eq!(off.video_format, VideoFormat::Mov);
+    assert_eq!(
+        export_options(&request(ExportLoudness::Streaming)).loudness,
+        Some(LoudnessTarget::STREAMING)
+    );
+    assert_eq!(
+        export_options(&request(ExportLoudness::Broadcast)).loudness,
+        Some(LoudnessTarget::BROADCAST)
+    );
+}
+
+#[test]
+fn export_loudness_choices_name_their_targets() {
+    assert_eq!(ExportLoudness::default(), ExportLoudness::Off);
+    let labels: Vec<_> = ExportLoudness::ALL
+        .iter()
+        .map(|loudness| loudness.menu_label())
+        .collect();
+    assert_eq!(
+        labels,
+        ["Off", "Streaming (-14 LUFS)", "Broadcast (-23 LUFS)"]
+    );
 }
 
 #[test]
