@@ -2,7 +2,8 @@
 // a companion project) reach the CLI on the first stdin line when it runs
 // with --properties-stdin. They are checked against defineProjectProperties()
 // before prepare() and are readable from prepare() and from rendering.
-// Run after `pnpm run build`.
+// Integration tests of the build: they run the CLI, which loads
+// @celesta/project from its dist/. Run after `pnpm run build`.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -12,10 +13,39 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, test } from 'vitest';
 
+import type { CompositionConfig, JsonValue, LayerContent, Scene } from '@celesta/react';
+
 const cli = fileURLToPath(new URL('../../cli/bin/celesta-react-render.js', import.meta.url));
 const FRAME = '{"time":{"value":0,"timescale":1}}';
 
-let dir;
+/** One source of values on the first stdin line, as packages/cli reads it. */
+interface PropertyInputLayer {
+  source: 'project' | 'propsFile' | 'entryProps' | 'props';
+  file?: string;
+  baseDir: string;
+  values: Record<string, JsonValue>;
+}
+
+/** One rejected value, as packages/cli reports it. */
+interface PropertyIssue {
+  key: string;
+  source: string;
+  message: string;
+}
+
+/** A line the CLI prints; each holds one of these. */
+interface Message {
+  config?: CompositionConfig;
+  scene?: Scene;
+  invalidProperties?: PropertyIssue[];
+  error?: string;
+}
+
+type Messages = Message[] & { status: number | null; stderr: string };
+
+type TextContent = Extract<LayerContent, { type: 'text' }>;
+
+let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'celesta-props-'));
 });
@@ -52,29 +82,44 @@ const SCHEMA_ENTRY =
   `  );\n` +
   `}\n`;
 
-function run(entrySource, layers) {
+function run(entrySource: string, layers?: PropertyInputLayer[]): Messages {
   const entry = join(dir, 'entry.tsx');
   writeFileSync(entry, entrySource);
   const args = layers ? [cli, entry, '--properties-stdin'] : [cli, entry];
   const input = layers ? `${JSON.stringify({ propertyInputs: layers })}\n${FRAME}\n` : `${FRAME}\n`;
   const result = spawnSync(process.execPath, args, { input, encoding: 'utf8' });
-  const messages = result.stdout.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+  const messages = result.stdout.split(/\r?\n/).filter(Boolean).map((line): Message => JSON.parse(line));
   return Object.assign(messages, { status: result.status, stderr: result.stderr });
 }
 
-function textOf(messages) {
+function textOf(messages: Messages): TextContent {
   const scene = messages.find((message) => message.scene)?.scene;
   assert.ok(scene, JSON.stringify(messages));
-  return scene.layers[0].content;
+  const { content } = scene.layers[0];
+  assert.equal(content.type, 'text');
+  return content as TextContent;
+}
+
+/** The color of a text's solid fill. */
+function fillOf(content: TextContent): string {
+  const { fill } = content.style;
+  assert.ok(fill?.type === 'solid', 'a solid fill');
+  return fill.color;
+}
+
+/** The issues `message` reports, checked to be there. */
+function issuesOf(message: Message | undefined): PropertyIssue[] {
+  assert.ok(message?.invalidProperties, JSON.stringify(message));
+  return message.invalidProperties;
 }
 
 test('without inputs, the Provider beats the schema defaults and path defaults resolve against the entry', () => {
   writeFileSync(join(dir, 'default.txt'), 'from-default\n');
   const messages = run(SCHEMA_ENTRY);
-  assert.equal(messages[0].config.durationInFrames, 20);
+  assert.equal(messages[0].config?.durationInFrames, 20);
   const content = textOf(messages);
   assert.equal(content.text, 'Provider|b|from-default');
-  assert.equal(content.style.fill.color, '#ff8800');
+  assert.equal(fillOf(content), '#ff8800');
 });
 
 test('later layers win over earlier ones and over the Provider, in prepare() and rendering', () => {
@@ -90,10 +135,10 @@ test('later layers win over earlier ones and over the Provider, in prepare() and
     },
     { source: 'props', baseDir: dir, values: { title: 'Inline' } },
   ]);
-  assert.equal(messages[0].config.durationInFrames, 30);
+  assert.equal(messages[0].config?.durationInFrames, 30);
   const content = textOf(messages);
   assert.equal(content.text, 'Inline|b|row-1|row-2');
-  assert.equal(content.style.fill.color, '#112233');
+  assert.equal(fillOf(content), '#112233');
 });
 
 test('every invalid value is reported before prepare() runs', () => {
@@ -109,7 +154,7 @@ test('every invalid value is reported before prepare() runs', () => {
   ]);
   assert.equal(messages.status, 1);
   assert.equal(messages.length, 1, JSON.stringify(messages));
-  const issues = messages[0].invalidProperties;
+  const issues = issuesOf(messages[0]);
   assert.deepEqual(
     issues.map(({ key, source }) => `${source} ${key}`),
     [
@@ -141,8 +186,8 @@ test('outside values need a schema, but a companion project without one stays co
   const rejectedRun = run(entry, [{ source: 'props', baseDir: dir, values: { title: 'x' } }]);
   assert.equal(rejectedRun.status, 1);
   const [rejected] = rejectedRun;
-  assert.equal(rejected.invalidProperties[0].key, '');
-  assert.match(rejected.invalidProperties[0].message, /defineProjectProperties/);
+  assert.equal(issuesOf(rejected)[0].key, '');
+  assert.match(issuesOf(rejected)[0].message, /defineProjectProperties/);
 });
 
 test('reading a property at module scope is an error', () => {
@@ -155,7 +200,7 @@ test('reading a property at module scope is an error', () => {
     `}\n`;
   const result = run(entry, []);
   assert.equal(result.status, 1);
-  assert.match(result[0].error, /read at module scope/);
+  assert.match(result[0].error ?? '', /read at module scope/);
 });
 
 test('an empty path turns a file off, and __proto__ is an ordinary key', () => {
@@ -170,9 +215,10 @@ test('an empty path turns a file off, and __proto__ is an ordinary key', () => {
 });
 
 test('a malformed handshake is reported as an error line', () => {
-  const messages = run(SCHEMA_ENTRY, [{ source: 'props', baseDir: dir, values: null }]);
+  // Deliberately not a values object.
+  const messages = run(SCHEMA_ENTRY, [{ source: 'props', baseDir: dir, values: null as unknown as Record<string, JsonValue> }]);
   assert.equal(messages.status, 1);
-  assert.match(messages[0].error, /invalid project property inputs/);
+  assert.match(messages[0].error ?? '', /invalid project property inputs/);
 });
 
 test('entry props.json is strict when the entry declares properties', () => {
@@ -181,7 +227,7 @@ test('entry props.json is strict when the entry declares properties', () => {
     { source: 'entryProps', file, baseDir: dir, values: { titel: 'x', accent: 'red' } },
   ]);
   assert.equal(messages.status, 1);
-  const issues = messages[0].invalidProperties;
+  const issues = issuesOf(messages[0]);
   assert.equal(issues.length, 2, JSON.stringify(messages));
   assert.deepEqual(
     issues.map(({ key, source }) => [key, source]),
@@ -219,7 +265,7 @@ test('entry props.json naming a missing file is reported by key', () => {
   const file = join(dir, 'props.json');
   const messages = run(SCHEMA_ENTRY, [{ source: 'entryProps', file, baseDir: dir, values: { data: './gone.txt' } }]);
   assert.equal(messages.status, 1);
-  const issues = messages[0].invalidProperties;
+  const issues = issuesOf(messages[0]);
   assert.equal(issues.length, 1, JSON.stringify(messages));
   assert.equal(issues[0].key, 'data');
   assert.match(issues[0].message, /gone\.txt is not an existing file/);

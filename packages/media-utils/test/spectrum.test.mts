@@ -3,18 +3,21 @@ import { test } from 'vitest';
 import React from 'react';
 
 import { Composition, Rect, Sequence } from '@celesta/react';
+import type { Layer, LayerContent } from '@celesta/react';
 import { mount, setAudioDecoder } from '@celesta/react/internal';
-import { analyzeAudioSpectrum, loadAudioSpectrum, spectrumAt, useAudioSpectrum } from '../dist/index.js';
+import type { DecodedAudio } from '@celesta/react/internal';
+import { analyzeAudioSpectrum, loadAudioSpectrum, spectrumAt, useAudioSpectrum } from '../src/index.js';
+import type { AudioSpectrum, AudioSpectrumOptions, UseAudioSpectrumOptions } from '../src/index.js';
 
 const RATE = 48_000;
 
-function sine(hz, seconds, amplitude = 1, rate = RATE) {
+function sine(hz: number, seconds: number, amplitude = 1, rate = RATE): DecodedAudio {
   const samples = new Float32Array(Math.round(seconds * rate));
   for (let i = 0; i < samples.length; i += 1) samples[i] = amplitude * Math.sin((2 * Math.PI * hz * i) / rate);
   return { sampleRate: rate, samples };
 }
 
-function close(actual, expected, tolerance, message) {
+function close(actual: number, expected: number, tolerance: number, message?: string) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${message ?? ''} expected ${expected} ± ${tolerance}, got ${actual}`);
 }
 
@@ -50,7 +53,7 @@ test('by default the loudest band level in the file reads 1, however loud the fi
   samples.set(quiet.samples);
   samples.set(quiet.samples.map((sample) => sample * 10), quiet.samples.length);
   const audio = { sampleRate: RATE, samples };
-  const loudest = (spectrum, seconds) => Math.max(...spectrumAt(spectrum, seconds).bands);
+  const loudest = (spectrum: AudioSpectrum, seconds: number) => Math.max(...spectrumAt(spectrum, seconds).bands);
   // The louder tone's level in dB, read through a fixed range of 0 to -200 dB.
   const peak = -200 + 200 * loudest(analyzeAudioSpectrum(audio, { bands: 16, minDecibels: -200, maxDecibels: 0 }), 1.5);
 
@@ -78,7 +81,7 @@ test('silence and times outside the file read 0', () => {
 
 test('the same samples always give the same values, whatever order frames are read in', () => {
   const audio = sine(220, 2, 0.8);
-  const options = { bands: 12, smoothing: { attack: 0.02, release: 0.3 } };
+  const options: AudioSpectrumOptions = { bands: 12, smoothing: { attack: 0.02, release: 0.3 } };
   const a = analyzeAudioSpectrum(audio, options);
   const b = analyzeAudioSpectrum(audio, options);
   assert.deepEqual(a, b);
@@ -149,7 +152,8 @@ test('options are checked', () => {
   const audio = sine(440, 0.1);
   assert.throws(() => analyzeAudioSpectrum(audio, { fftSize: 1000 }), /fftSize must be a power of two/);
   assert.throws(() => analyzeAudioSpectrum(audio, { bands: 0 }), /bands must be a positive integer/);
-  assert.throws(() => analyzeAudioSpectrum(audio, { scale: 'bark' }), /scale must be/);
+  // Deliberately not a FrequencyScale.
+  assert.throws(() => analyzeAudioSpectrum(audio, { scale: 'bark' } as unknown as AudioSpectrumOptions), /scale must be/);
   assert.throws(() => analyzeAudioSpectrum(audio, { minFrequency: 0 }), /minFrequency must be positive on the log scale/);
   assert.throws(() => analyzeAudioSpectrum(audio, { minFrequency: 30000 }), /must be above minFrequency/);
   assert.throws(() => analyzeAudioSpectrum(audio, { minDecibels: -10, maxDecibels: -20 }), /minDecibels/);
@@ -160,7 +164,7 @@ test('options are checked', () => {
 });
 
 test('loadAudioSpectrum decodes once per file and keeps the src for <Audio>', async () => {
-  const requests = [];
+  const requests: string[] = [];
   setAudioDecoder(async (path) => {
     requests.push(path);
     return sine(440, 0.5);
@@ -176,7 +180,7 @@ test('loadAudioSpectrum decodes once per file and keeps the src for <Audio>', as
 test('useAudioSpectrum reads the enclosing Sequence clock, offset by startFrom', () => {
   const spectrum = analyzeAudioSpectrum(sine(440, 4), { bands: 2, hopSeconds: 0.25 });
   const h = React.createElement;
-  function Meter({ startFrom }) {
+  function Meter({ startFrom }: UseAudioSpectrumOptions) {
     const { rms, bands } = useAudioSpectrum(spectrum, { startFrom });
     return h(Rect, { width: rms * 1000, height: bands[1] * 1000, fill: '#ffffff' });
   }
@@ -188,7 +192,7 @@ test('useAudioSpectrum reads the enclosing Sequence clock, offset by startFrom',
     );
   }
   const mounted = mount(Root);
-  const rect = (layers) => {
+  const rect = (layers: Layer[]): Extract<LayerContent, { type: 'rect' }> | undefined => {
     for (const layer of layers) {
       if (layer.content.type === 'rect') return layer.content;
       const found = layer.content.type === 'group' ? rect(layer.content.layers) : undefined;
@@ -196,7 +200,9 @@ test('useAudioSpectrum reads the enclosing Sequence clock, offset by startFrom',
     }
   };
   // Frame 6 is the Sequence's frame 2: half a second in, 1.5 s into the file.
-  const { width, height } = rect(mounted.renderAt({ value: 6, timescale: 4 }, null).scene.layers);
+  const found = rect(mounted.renderAt({ value: 6, timescale: 4 }, null).scene.layers);
+  assert.ok(found, 'a rect layer');
+  const { width, height } = found;
   const expected = spectrumAt(spectrum, 1.5);
   assert.ok(expected.rms > 0.5);
   assert.equal(width, expected.rms * 1000);

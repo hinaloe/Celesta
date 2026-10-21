@@ -6,17 +6,52 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 
-import { defineShader } from '../dist/index.js';
+import type { Layer, LayerFilter, Scene, ShaderSource } from '@celesta/react';
+import { defineShader } from '../src/index.js';
+import type { ShaderParamSpec } from '../src/index.js';
 
+// The tests that render are integration tests of the build: they go through
+// the CLI, which loads @celesta/shader from its dist/, so `pnpm build` must
+// run first. The in-process test below imports the source.
 const cli = fileURLToPath(new URL('../../cli/bin/celesta-react-render.js', import.meta.url));
 
 const WGSL = 'fn effect(input: EffectInput) -> vec4f { return source_at(input.position); }';
+
+/** A frame the CLI rendered, or the error it failed with. */
+type RenderResult = { scene: Scene; error?: undefined } | { scene?: undefined; error: string };
+
+type ShaderFilter = Extract<LayerFilter, { type: 'shader' }>;
+
+/** The scene of a frame that rendered. */
+function sceneOf(frame: RenderResult): Scene {
+  assert.equal(frame.error, undefined, frame.error);
+  assert.ok(frame.scene);
+  return frame.scene;
+}
+
+/** `layer`'s filters, checked to be there. */
+function filtersOf(layer: Layer | undefined): LayerFilter[] {
+  assert.ok(layer?.effects?.filters, 'a layer with filters');
+  return layer.effects.filters;
+}
+
+/** `filter`, checked to be a custom shader. */
+function shaderOf(filter: LayerFilter | undefined): ShaderFilter {
+  assert.equal(filter?.type, 'shader');
+  return filter as ShaderFilter;
+}
+
+/** The custom shaders `scene` lists, checked to be there. */
+function shadersOf(scene: Scene): ShaderSource[] {
+  assert.ok(scene.shaders, 'a scene listing shaders');
+  return scene.shaders;
+}
 
 /**
  * Renders frame 0 of a composition: `setup` runs at module level, `body` is
  * the composition's children. The frame, or `{ error }` when it failed.
  */
-function render(setup, body) {
+function render(setup: string, body: string): RenderResult {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-shader-'));
   const entry = join(dir, 'entry.tsx');
   writeFileSync(
@@ -36,16 +71,16 @@ function render(setup, body) {
     });
     if (result.status !== 0) {
       // Errors arrive as `{"error": …}` lines on stdout, or on stderr.
-      const lines = result.stdout.split(/\r?\n/).filter(Boolean).map((line) => {
+      const lines = result.stdout.split(/\r?\n/).filter(Boolean).map((line): string => {
         try {
-          return JSON.parse(line).error ?? line;
+          return (JSON.parse(line) as { error?: string }).error ?? line;
         } catch {
           return line;
         }
       });
       return { error: [...lines, result.stderr].join('\n') };
     }
-    const [, frame] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    const [, frame] = result.stdout.split(/\r?\n/).filter(Boolean).map((line): RenderResult => JSON.parse(line));
     return frame;
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -66,9 +101,10 @@ test('values pack in declared order, with defaults, colors, and padding', () => 
     `<Rect width={8} height={8} shader={grade({ amount: 0.5, tint: '#ff8000', axis: [1, 0, 0], weights: [0.1, 0.2, 0.3, 0.4] })} />
      <Rect width={8} height={8} shader={grade({ amount: 1, offset: [3, 4], tint: '#00ff0080', axis: [0, 1, 0], weights: [1, 1, 1, 1] }, { padding: 0 })} />`,
   );
-  assert.equal(frame.error, undefined, frame.error);
-  const [first, second] = frame.scene.layers.map((layer) => layer.effects.filters[0]);
-  const close = (actual, expected) => {
+  const scene = sceneOf(frame);
+  const [first, second] = scene.layers.map((layer) => shaderOf(filtersOf(layer)[0]));
+  const close = (actual: readonly number[] | undefined, expected: readonly number[]) => {
+    assert.ok(actual);
     assert.equal(actual.length, expected.length);
     actual.forEach((value, index) => assert.ok(Math.abs(value - expected[index]) < 1e-9, `${actual} vs ${expected}`));
   };
@@ -77,7 +113,7 @@ test('values pack in declared order, with defaults, colors, and padding', () => 
   close(second.params, [1, 3, 4, 0, 1, 0, 128 / 255, 0, 0, 0, 128 / 255, 0, 1, 0, 1, 1, 1, 1]);
   assert.equal('padding' in second, false);
   assert.equal(first.id, second.id);
-  assert.deepEqual(frame.scene.shaders, [{
+  assert.deepEqual(scene.shaders, [{
     id: first.id,
     name: 'grade',
     wgsl: WGSL,
@@ -97,8 +133,8 @@ test('a shader without parameters takes no arguments', () => {
     `const plain = defineShader({ wgsl });`,
     `<Group shader={plain()}><Rect width={8} height={8} /></Group>`,
   );
-  assert.equal(frame.error, undefined, frame.error);
-  assert.deepEqual(frame.scene.layers[0].effects.filters, [{ type: 'shader', id: frame.scene.shaders[0].id }]);
+  const scene = sceneOf(frame);
+  assert.deepEqual(filtersOf(scene.layers[0]), [{ type: 'shader', id: shadersOf(scene)[0].id }]);
 });
 
 test('a layer takes several shaders, run in the order given', () => {
@@ -107,10 +143,10 @@ test('a layer takes several shaders, run in the order given', () => {
      const ripple = defineShader({ name: 'ripple', wgsl: wgsl + ' ', params: { time: 'f32' }, padding: 6 });`,
     `<Rect width={8} height={8} shader={[ripple({ time: 1 }), plain(), ripple({ time: 2 }, { padding: 0 })]} />`,
   );
-  assert.equal(frame.error, undefined, frame.error);
-  const [ripple, plain] = frame.scene.shaders;
-  assert.deepEqual(frame.scene.shaders.map((source) => source.name), ['ripple', 'plain']);
-  assert.deepEqual(frame.scene.layers[0].effects.filters, [
+  const scene = sceneOf(frame);
+  const [ripple, plain] = shadersOf(scene);
+  assert.deepEqual(shadersOf(scene).map((source) => source.name), ['ripple', 'plain']);
+  assert.deepEqual(filtersOf(scene.layers[0]), [
     { type: 'shader', id: ripple.id, params: [1], padding: 6 },
     { type: 'shader', id: plain.id },
     { type: 'shader', id: ripple.id, params: [2] },
@@ -126,12 +162,12 @@ test('the built-in color filters run where the array lists them', () => {
        tint({ color: '#ff8000' }), vignette(0.4), vignette({ amount: 1, radius: 0.2, softness: 0 }),
      ]} />`,
   );
-  assert.equal(frame.error, undefined, frame.error);
+  const scene = sceneOf(frame);
   // Only custom shaders are listed in the scene.
-  assert.deepEqual(frame.scene.shaders.map((source) => source.name), ['plain']);
-  assert.deepEqual(frame.scene.layers[0].effects.filters, [
+  assert.deepEqual(shadersOf(scene).map((source) => source.name), ['plain']);
+  assert.deepEqual(filtersOf(scene.layers[0]), [
     { type: 'brightness', amount: 1.2 },
-    { type: 'shader', id: frame.scene.shaders[0].id },
+    { type: 'shader', id: shadersOf(scene)[0].id },
     { type: 'contrast', amount: 0.5 },
     { type: 'saturation', amount: 0 },
     { type: 'hue', degrees: -30 },
@@ -152,9 +188,9 @@ test('the stylize effects and the chroma key run where the array lists them', ()
        zoomBlur({ amount: 0.2, centerY: 0 }), chromaKey({ color: '#0000ff', spill: 0 }),
      ]} />`,
   );
-  assert.equal(frame.error, undefined, frame.error);
-  assert.equal('shaders' in frame.scene, false);
-  assert.deepEqual(frame.scene.layers[0].effects.filters, [
+  const scene = sceneOf(frame);
+  assert.equal('shaders' in scene, false);
+  assert.deepEqual(filtersOf(scene.layers[0]), [
     { type: 'scanlines', amount: 0.4, spacing: 4, thickness: 0.5, offset: 0 },
     { type: 'pixelate', size: 6 },
     { type: 'halftone', size: 8, angle: 15 },
@@ -173,9 +209,9 @@ test('color filters without custom shaders list no shaders in the scene', () => 
     `import { invert } from '@celesta/shader';`,
     `<Rect width={8} height={8} shader={invert()} />`,
   );
-  assert.equal(frame.error, undefined, frame.error);
-  assert.equal('shaders' in frame.scene, false);
-  assert.deepEqual(frame.scene.layers[0].effects.filters, [{ type: 'invert', amount: 1 }]);
+  const scene = sceneOf(frame);
+  assert.equal('shaders' in scene, false);
+  assert.deepEqual(filtersOf(scene.layers[0]), [{ type: 'invert', amount: 1 }]);
 });
 
 test('shader.id is the id the scene carries', () => {
@@ -183,27 +219,29 @@ test('shader.id is the id the scene carries', () => {
     `const plain = defineShader({ name: 'plain', wgsl, params: { amount: 'f32' } });`,
     `<Rect id={plain.id} width={8} height={8} shader={plain({ amount: 1 })} />`,
   );
-  assert.equal(frame.error, undefined, frame.error);
-  assert.equal(frame.scene.layers[0].id, frame.scene.shaders[0].id);
+  const scene = sceneOf(frame);
+  assert.equal(scene.layers[0].id, shadersOf(scene)[0].id);
 });
 
 // In-process: each error would otherwise cost a CLI start, and the many
 // together outlast a slow runner's test timeout.
 test('definitions and values are checked with messages naming the shader', () => {
-  const cases = [
+  // Deliberately invalid parameters, typed as valid ones so they reach the checks.
+  const invalid = (params: Record<string, unknown>) => params as Record<string, ShaderParamSpec>;
+  const cases: [() => unknown, RegExp][] = [
     [() => defineShader({ wgsl: '' }), /shader: wgsl must be a non-empty string/],
     [() => defineShader({ name: 'x', wgsl: WGSL, padding: -1 }), /shader x: padding must be a finite number of at least 0/],
     [() => defineShader({ name: 'x', wgsl: WGSL, params: { 'bad-name': 'f32' } }), /shader x: parameter name "bad-name"/],
     [() => defineShader({ name: 'x', wgsl: WGSL, params: { celestaTime: 'f32' } }), /shader x: parameter name "celestaTime"/],
-    [() => defineShader({ name: 'x', wgsl: WGSL, params: { a: 'mat4' } }), /shader x: a must have a type of f32, vec2, vec3, vec4, or color/],
+    [() => defineShader({ name: 'x', wgsl: WGSL, params: invalid({ a: 'mat4' }) }), /shader x: a must have a type of f32, vec2, vec3, vec4, or color/],
     [() => defineShader({ name: 'x', wgsl: WGSL, params: { fn: 'f32' } }), /shader x: parameter name "fn" is a WGSL keyword or reserved word/],
     [() => defineShader({ name: 'x', wgsl: WGSL, params: { self: 'f32' } }), /shader x: parameter name "self" is a WGSL keyword or reserved word/],
     [() => defineShader({ name: 'x', wgsl: WGSL, params: { a: { type: 'f32', default: undefined } } }), /shader x: the default of a must be a finite number/],
     [() => defineShader({ name: 'x', wgsl: WGSL, params: { a: { type: 'color', default: 'red' } } }), /shader x: the default of a must be a #RRGGBB or #RRGGBBAA color/],
     // eslint-disable-next-line no-sparse-arrays -- the hole is the point.
-    [() => defineShader({ name: 'x', wgsl: WGSL, params: { axis: { type: 'vec2', default: [1, , ] } } }), /shader x: the default of axis must be an array of 2 finite numbers/],
+    [() => defineShader({ name: 'x', wgsl: WGSL, params: invalid({ axis: { type: 'vec2', default: [1, , ] } }) }), /shader x: the default of axis must be an array of 2 finite numbers/],
     [
-      () => defineShader({ name: 'x', wgsl: WGSL, params: Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`p${i}`, 'f32'])) }),
+      () => defineShader({ name: 'x', wgsl: WGSL, params: Object.fromEntries(Array.from({ length: 17 }, (_, i): [string, ShaderParamSpec] => [`p${i}`, 'f32'])) }),
       /shader x: declares 17 parameters; the most is 16/,
     ],
   ];
@@ -215,7 +253,9 @@ test('definitions and values are checked with messages naming the shader', () =>
     wgsl: WGSL,
     params: { amount: 'f32', axis: 'vec2', tint: { type: 'color', default: '#ffffff' } },
   });
-  const uses = [
+  // Deliberately invalid values, so they are not typed as ripple's; cast where
+  // they are passed.
+  const uses: [Record<string, unknown>, RegExp][] = [
     [{ amount: Number.NaN, axis: [0, 0] }, /shader ripple: amount must be a finite number/],
     [{ axis: [0, 0] }, /shader ripple: amount is required/],
     [{ amount: 1, axis: [0] }, /shader ripple: axis must be an array of 2 finite numbers/],
@@ -225,7 +265,7 @@ test('definitions and values are checked with messages naming the shader', () =>
     [{ amount: 1, axis: [0, , ] }, /shader ripple: axis must be an array of 2 finite numbers/],
   ];
   for (const [values, error] of uses) {
-    assert.throws(() => ripple(values), error, JSON.stringify(values));
+    assert.throws(() => ripple(values as Parameters<typeof ripple>[0]), error, JSON.stringify(values));
   }
 });
 
@@ -245,6 +285,6 @@ test('a parameter named like an Object method takes its default when omitted', (
     `const odd = defineShader({ name: 'odd', wgsl, params: { toString: { type: 'f32', default: 3 } } });`,
     `<Rect width={8} height={8} shader={odd()} />`,
   );
-  assert.equal(frame.error, undefined, frame.error);
-  assert.deepEqual(frame.scene.layers[0].effects.filters[0].params, [3]);
+  const scene = sceneOf(frame);
+  assert.deepEqual(shaderOf(filtersOf(scene.layers[0])[0]).params, [3]);
 });

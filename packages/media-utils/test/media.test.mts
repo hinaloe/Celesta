@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { mediaDurationInFrames } from '../dist/index.js';
+import { mediaDurationInFrames } from '../src/index.js';
 
 test('mediaDurationInFrames rounds a probed duration up to a whole frame', () => {
   assert.equal(mediaDurationInFrames({ src: 'clip.mp4', durationSeconds: 1.01, audio: [] }, 30), 31);

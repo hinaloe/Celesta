@@ -6,7 +6,34 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 
+import type { Layer, LayerContent, Scene } from '@celesta/react';
+
+// Integration tests of the build: each test renders through the CLI, which
+// loads @celesta/layout from its dist/, so `pnpm build` must run first.
 const cli = fileURLToPath(new URL('../../cli/bin/celesta-react-render.js', import.meta.url));
+
+type Content<T extends LayerContent['type']> = Extract<LayerContent, { type: T }>;
+
+/** The frame the CLI prints after its config line. */
+interface RenderedFrame {
+  scene: Scene;
+  error?: string;
+}
+
+function frameOf(stdout: string): RenderedFrame {
+  const [, frame] = stdout.split(/\r?\n/).filter(Boolean).map((line): RenderedFrame => JSON.parse(line));
+  return frame;
+}
+
+/** `layer`'s content, checked to be of `type`. */
+function contentOf<T extends LayerContent['type']>(layer: Layer | undefined, type: T): Content<T> {
+  assert.ok(layer, `a ${type} layer`);
+  assert.equal(layer.content.type, type);
+  return layer.content as Content<T>;
+}
+
+/** The children of a group layer. */
+const layersOf = (layer: Layer | undefined): Layer[] => contentOf(layer, 'group').layers;
 
 test('layout components position children inside inherited bounds', () => {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-layout-'));
@@ -34,14 +61,14 @@ test('layout components position children inside inherited bounds', () => {
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    const [, frame] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    const frame = frameOf(result.stdout);
     const safeArea = frame.scene.layers[0];
     assert.deepEqual(safeArea.transform.position, { x: 20, y: 20 });
 
-    const [center, stack, grid, fit] = safeArea.content.layers;
+    const [center, stack, grid, fit] = layersOf(safeArea);
     assert.deepEqual(center.transform.position, { x: 130, y: 80 });
-    assert.deepEqual(stack.content.layers.map((layer) => layer.transform.position.y), [0, 15, 30]);
-    assert.deepEqual(grid.content.layers.map((layer) => layer.transform.position), [
+    assert.deepEqual(layersOf(stack).map((layer) => layer.transform.position.y), [0, 15, 30]);
+    assert.deepEqual(layersOf(grid).map((layer) => layer.transform.position), [
       { x: 0, y: 0 },
       { x: 60, y: 0 },
       { x: 0, y: 45 },
@@ -76,14 +103,14 @@ test('safe areas take per-edge insets and scale presets to the canvas', () => {
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    const [, frame] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    const frame = frameOf(result.stdout);
     const [preset, edges, scaled] = frame.scene.layers;
     // top 192, right 200, bottom 384, left 72 px on 1080×1920.
     assert.deepEqual(preset.transform.position, { x: 72, y: 192 });
-    assert.deepEqual(preset.content.layers[0].transform.position, { x: 404, y: 672 });
+    assert.deepEqual(layersOf(preset)[0].transform.position, { x: 404, y: 672 });
     assert.deepEqual(edges.transform.position, { x: 0, y: 0 });
-    assert.deepEqual(edges.content.layers[0].transform.position, { x: 490, y: 810 });
-    assert.deepEqual(JSON.parse(scaled.content.text), { top: 128, right: 133, bottom: 256, left: 48 });
+    assert.deepEqual(layersOf(edges)[0].transform.position, { x: 490, y: 810 });
+    assert.deepEqual(JSON.parse(contentOf(scaled, 'text').text), { top: 128, right: 133, bottom: 256, left: 48 });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -133,13 +160,13 @@ test('LayoutBounds sets the area nested helpers see without moving them', () => 
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    const [, frame] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    const frame = frameOf(result.stdout);
     const [group] = frame.scene.layers;
     assert.deepEqual(group.transform.position, { x: 40, y: 30 });
-    const [center, safeArea] = group.content.layers;
+    const [center, safeArea] = layersOf(group);
     assert.deepEqual(center.transform.position, { x: 50, y: 30 });
     assert.deepEqual(safeArea.transform.position, { x: 10, y: 10 });
-    assert.deepEqual(safeArea.content.layers[0].transform.position, { x: 40, y: 20 });
+    assert.deepEqual(layersOf(safeArea)[0].transform.position, { x: 40, y: 20 });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -189,12 +216,12 @@ test('a camera blends its view as one layer', () => {
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    const [, frame] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    const frame = frameOf(result.stdout);
     assert.equal(frame.error, undefined);
     const [camera] = frame.scene.layers;
     assert.equal(camera.blendMode, 'softLight');
     assert.equal(camera.opacity, 0.5);
-    assert.equal(camera.content.layers[0].blendMode, undefined);
+    assert.equal(layersOf(camera)[0].blendMode, undefined);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -16,7 +16,7 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test \"test/**/*.test.mjs\"",
+    "test": "tsc -b test && vitest run",
     "clean": "rm -rf dist"
   },
   "devDependencies": {

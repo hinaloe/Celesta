@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import * as React from 'react';
 import { test } from 'vitest';
 import { Composition, Rect, registerComponent } from '@celesta/react';
+import type { Layer, LayerEffects } from '@celesta/react';
 import { mount } from '@celesta/react/internal';
 
-import { ProjectTimeline, ProjectTrack, useProjectTrack } from '../dist/index.js';
+import { ProjectTimeline, ProjectTrack, useProjectTrack } from '../src/index.js';
 
 test('a track id named after an Object.prototype member is an unknown track', () => {
-  let counted;
+  let counted: number | undefined;
   function Count() {
     counted = useProjectTrack('constructor').length;
     return null;
@@ -29,8 +30,8 @@ test('a track id named after an Object.prototype member is an unknown track', ()
 
 test('a resolved component item keeps the effects the evaluator computed', () => {
   registerComponent('TintedForEffects', () => React.createElement(Rect, { width: 4, height: 4, fill: '#ffffff' }));
-  const effects = { blur: 2, filters: [{ type: 'grayscale', amount: 1 }, { type: 'vignette', amount: 0.5, radius: 0.5, softness: 0.5 }] };
-  const layer = {
+  const effects: LayerEffects = { blur: 2, filters: [{ type: 'grayscale', amount: 1 }, { type: 'vignette', amount: 0.5, radius: 0.5, softness: 0.5 }] };
+  const layer: Layer = {
     id: 'item', transform: { position: { x: 3, y: 4 }, scale: { x: 1, y: 1 }, rotation: 0, anchor: { x: 0, y: 0 } },
     opacity: 1, effects, content: { type: 'missingComponent', component: 'TintedForEffects', props: {} },
   };

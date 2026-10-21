@@ -1,10 +1,12 @@
 // Property evaluation, transforms, shape geometry, trim ranges, and timing,
-// tested on the compiled modules directly.
+// tested on the source modules directly.
 
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { inspectLottie, lottieFrameAt } from '../dist/index.js';
+import type { PathCommand } from '@celesta/react';
+import { inspectLottie, lottieFrameAt } from '../src/index.js';
+import type { LottieBezier, LottieKeyframe } from '../src/index.js';
 import {
   bezierCommands,
   ellipseCommands,
@@ -13,14 +15,21 @@ import {
   rectCommands,
   starCommands,
   transformMatrix,
-} from '../dist/geometry.js';
-import { bezierAtFrame, cubicEase, positionAt, scalarAt, vectorAt } from '../dist/property.js';
-import { hexColor, trimRanges } from '../dist/shapes.js';
+} from '../src/geometry.js';
+import type { Matrix } from '../src/geometry.js';
+import { bezierAtFrame, cubicEase, positionAt, scalarAt, vectorAt } from '../src/property.js';
+import { hexColor, trimRanges } from '../src/shapes.js';
 
-const close = (actual, expected, epsilon = 1e-6) =>
+const close = (actual: number, expected: number, epsilon = 1e-6) =>
   assert.ok(Math.abs(actual - expected) < epsilon, `${actual} is not ${expected}`);
 
-const ease = { o: { x: [0.33], y: [0] }, i: { x: [0.67], y: [1] } };
+/** `command`, checked to end at a point. */
+function endOf(command: PathCommand | undefined): Exclude<PathCommand, { type: 'close' }> {
+  assert.ok(command && command.type !== 'close', 'a command with an end point');
+  return command;
+}
+
+const ease: Pick<LottieKeyframe<number[]>, 'i' | 'o'> = { o: { x: [0.33], y: [0] }, i: { x: [0.67], y: [1] } };
 
 test('a static value comes back as an array, scalars unwrapped', () => {
   assert.deepEqual(vectorAt({ a: 0, k: [1, 2] }, 5), [1, 2]);
@@ -76,7 +85,7 @@ test('a position with tangents moves along its curve, at an even speed', () => {
 });
 
 test('paths morph vertex by vertex', () => {
-  const square = (size) => ({ c: true, v: [[0, 0], [size, 0], [size, size]], i: [[0, 0], [0, 0], [0, 0]], o: [[0, 0], [0, 0], [0, 0]] });
+  const square = (size: number): LottieBezier => ({ c: true, v: [[0, 0], [size, 0], [size, size]], i: [[0, 0], [0, 0], [0, 0]], o: [[0, 0], [0, 0], [0, 0]] });
   const prop = { a: 1, k: [{ t: 0, s: [square(10)] }, { t: 10, s: [square(30)] }] };
   assert.deepEqual(bezierAtFrame(prop, 5).v, [[0, 0], [20, 0], [20, 20]]);
 });
@@ -94,6 +103,7 @@ test('a transform is position · rotation · scale · −anchor, and decomposes 
   // +x turns clockwise to +y (y points down).
   close(m[1], 2);
   const t = groupTransform(m);
+  assert.ok(t);
   close(t.rotation, 90);
   close(t.scaleX, 2);
   close(t.scaleY, 0.5);
@@ -109,9 +119,10 @@ test('a skewed and mirrored transform decomposes into props that rebuild it', ()
     sa: { a: 0, k: 45 },
   }, 0);
   const t = groupTransform(m);
+  assert.ok(t);
   const rad = Math.PI / 180;
-  const rotation = [Math.cos(t.rotation * rad), Math.sin(t.rotation * rad), -Math.sin(t.rotation * rad), Math.cos(t.rotation * rad), 0, 0];
-  const skew = [1, 0, Math.tan(t.skewX * rad), 1, 0, 0];
+  const rotation: Matrix = [Math.cos(t.rotation * rad), Math.sin(t.rotation * rad), -Math.sin(t.rotation * rad), Math.cos(t.rotation * rad), 0, 0];
+  const skew: Matrix = [1, 0, Math.tan(t.skewX * rad), 1, 0, 0];
   const scale = [t.scaleX, 0, 0, t.scaleY, t.x, t.y];
   const rebuilt = multiply(multiply(rotation, skew), [t.scaleX, 0, 0, t.scaleY, 0, 0]);
   for (let n = 0; n < 4; n += 1) {
@@ -138,9 +149,9 @@ test('a rect starts at its top-right corner and runs clockwise, or back with d: 
 test('an ellipse starts at its top and turns clockwise', () => {
   const commands = ellipseCommands({ ty: 'el', p: { a: 0, k: [0, 0] }, s: { a: 0, k: [20, 20] } }, 0);
   assert.deepEqual(commands[0], { type: 'moveTo', x: 0, y: -10 });
-  assert.equal(commands[1].x, 10);
-  assert.equal(commands[1].y, 0);
-  assert.equal(commands.at(-1).type, 'close');
+  assert.equal(endOf(commands[1]).x, 10);
+  assert.equal(endOf(commands[1]).y, 0);
+  assert.equal(commands.at(-1)?.type, 'close');
 });
 
 test('a star alternates its radii from straight up; a polygon keeps the outer one', () => {
@@ -149,9 +160,9 @@ test('a star alternates its radii from straight up; a polygon keeps the outer on
     or: { a: 0, k: 10 }, ir: { a: 0, k: 4 }, os: { a: 0, k: 0 }, is: { a: 0, k: 0 },
   }, 0);
   assert.equal(star.length, 11);
-  close(star[0].x, 0);
-  close(star[0].y, -10);
-  close(Math.hypot(star[1].x, star[1].y), 4);
+  close(endOf(star[0]).x, 0);
+  close(endOf(star[0]).y, -10);
+  close(Math.hypot(endOf(star[1]).x, endOf(star[1]).y), 4);
   const polygon = starCommands({ ty: 'sr', sy: 2, p: { a: 0, k: [0, 0] }, pt: { a: 0, k: 3 }, or: { a: 0, k: 10 } }, 0);
   assert.equal(polygon.length, 4);
 });

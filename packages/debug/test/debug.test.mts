@@ -6,10 +6,32 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 
+import type { Layer, Scene } from '@celesta/react';
+
+// Integration tests of the build: each test renders through the CLI, which
+// loads @celesta/debug from its dist/, so `pnpm build` must run first.
 const cli = fileURLToPath(new URL('../../cli/bin/celesta-react-render.js', import.meta.url));
 
+/** What a frame request may add to its time. */
+interface FrameRequest {
+  debugGuides?: boolean;
+}
+
+/** A line the CLI prints after its config line: a frame, or the error rendering it. */
+interface RenderedFrame {
+  scene?: Scene;
+  error?: string;
+}
+
+interface RectBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 /** Renders `body` inside a 1080×1920 composition once per request, returning each frame's layers. */
-function render(body, requests) {
+function render(body: string, requests: FrameRequest[]): Layer[][] {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-debug-'));
   const entry = join(dir, 'entry.tsx');
   writeFileSync(
@@ -25,7 +47,7 @@ function render(body, requests) {
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    const [, ...frames] = result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    const [, ...frames] = result.stdout.split(/\r?\n/).filter(Boolean).map((line): RenderedFrame => JSON.parse(line));
     return frames.map((frame) => {
       assert.ok(frame.scene, JSON.stringify(frame));
       return frame.scene.layers;
@@ -35,7 +57,7 @@ function render(body, requests) {
   }
 }
 
-const rects = (layers) =>
+const rects = (layers: Layer[]): RectBox[] =>
   layers.flatMap((layer) =>
     layer.content.type === 'group'
       ? rects(layer.content.layers)

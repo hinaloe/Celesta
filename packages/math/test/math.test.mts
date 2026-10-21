@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 
 import {
   TAU,
@@ -54,10 +54,11 @@ import {
   step,
   triangleWave,
   wrap,
-} from '../dist/index.js';
+} from '../src/index.js';
+import type { Vec2 } from '../src/index.js';
 
-const close = (actual, expected, message) => assert.ok(Math.abs(actual - expected) < 1e-9, message ?? `${actual} ≉ ${expected}`);
-const closePoint = (actual, expected) => {
+const close = (actual: number, expected: number, message?: string) => assert.ok(Math.abs(actual - expected) < 1e-9, message ?? `${actual} ≉ ${expected}`);
+const closePoint = (actual: Vec2, expected: Vec2) => {
   close(actual.x, expected.x, `x: ${actual.x} ≉ ${expected.x}`);
   close(actual.y, expected.y, `y: ${actual.y} ≉ ${expected.y}`);
 };
@@ -89,7 +90,7 @@ test('random and noise keep the values they had in @celesta/react', () => {
 });
 
 test('random helpers cover their ranges and stay deterministic', () => {
-  const ints = new Set();
+  const ints = new Set<number>();
   let heads = 0;
   for (let i = 0; i < 2000; i += 1) {
     const r = randomRange(i, -5, 5);
