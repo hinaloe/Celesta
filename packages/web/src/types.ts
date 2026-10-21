@@ -122,16 +122,32 @@ export type Scene = {
   fonts?: Asset[];
   layers: Layer[];
 };
+/** Kebab-case names of `crates/composition`'s `Easing`. */
+export type KeyframeEasing =
+  | 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'
+  | 'ease-in-sine' | 'ease-out-sine' | 'ease-in-out-sine'
+  | 'ease-in-quad' | 'ease-out-quad' | 'ease-in-out-quad'
+  | 'ease-in-cubic' | 'ease-out-cubic' | 'ease-in-out-cubic'
+  | 'ease-in-quart' | 'ease-out-quart' | 'ease-in-out-quart'
+  | 'ease-in-quint' | 'ease-out-quint' | 'ease-in-out-quint'
+  | 'ease-in-expo' | 'ease-out-expo' | 'ease-in-out-expo'
+  | 'ease-in-circ' | 'ease-out-circ' | 'ease-in-out-circ'
+  | 'ease-in-back' | 'ease-out-back' | 'ease-in-out-back'
+  | 'ease-in-elastic' | 'ease-out-elastic' | 'ease-in-out-elastic'
+  | 'ease-in-bounce' | 'ease-out-bounce' | 'ease-in-out-bounce';
+export type Keyframe = { time: { value: number; timescale: number }; value: number; easing?: KeyframeEasing };
+/** A static value or keyframes over clip-local time, as Rust's `Animatable<f64>`. */
+export type AnimatedNumber = number | { type: 'keyframes'; keyframes: Keyframe[] };
 export type AudioClip = {
   src: string;
   sourceStart: number;
-  playbackRate: number | { type: 'keyframes'; keyframes: unknown[] };
-  volume: number | { type: 'keyframes'; keyframes: unknown[] };
+  playbackRate: AnimatedNumber;
+  volume: AnimatedNumber;
   muted: boolean;
   start: number;
   duration: number;
   loop?: boolean;
-  pitch?: number | { type: 'keyframes'; keyframes: unknown[] };
+  pitch?: AnimatedNumber;
   preservePitch?: boolean;
   fadeIn?: number;
   fadeOut?: number;
