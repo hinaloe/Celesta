@@ -27,11 +27,11 @@
     "react": "^19.3.0"
   },
   "dependencies": {
-    "@twinkleplop/bash": "^0.1.5",
-    "@twinkleplop/core": "0.2.2",
-    "@twinkleplop/json": "^0.1.5",
-    "@twinkleplop/tsx": "^0.1.5",
-    "@twinkleplop/typescript": "^0.1.5"
+    "@twinkleplop/bash": "^0.1.7",
+    "@twinkleplop/core": "0.3.1",
+    "@twinkleplop/json": "^0.1.7",
+    "@twinkleplop/tsx": "^0.1.7",
+    "@twinkleplop/typescript": "^0.1.7"
   },
   "devDependencies": {
     "@celesta/react": "workspace:*",
