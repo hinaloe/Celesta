@@ -59,7 +59,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `importVoiceFolder` | `@celesta/character` | 音声ソフトが書き出した `.wav` と `.txt` の組のフォルダーを台詞の列として読み込みます。詳しくは[キャラクターの台詞](/ja/docs/dialogue/)を参照してください。 |
 | `matchVoiceLevels` / `analyzeVoiceLevel` / `scaleVolume` | `@celesta/character` | `prepare()` でローカルの WAV を測り、台詞の音量に掛けて声の大きさをそろえます。詳しくは[キャラクターの台詞](/ja/docs/dialogue/)を参照してください。 |
 | `duckingVolume` / `speechIntervals` | `@celesta/character` | duckingVolume(plan, duck, { levels?, origin? }) は、台詞の plan の声の下で下がる BGM などの音量を作ります。`matchVoiceLevels` の report を渡すと、実際に声が出ている区間に合わせます。speechIntervals(plan, { levels? }) はその区間を秒で返します。音量の変化は `<Audio duck>` と同じです。 |
-| `duckEnvelope` | `@celesta/media-utils` | duckEnvelope(intervals, duck, { origin? }) は、秒で表した区間から、ダッキングの音量の変化を `<Audio duck>` と同じ既定値でキーフレームとして返します。`duck.volume` で全体を拡大縮小できます。 |
+| `duckEnvelope` | `@celesta/media-utils` | duckEnvelope(intervals, duck, { origin? }) は、秒で表した区間から、ダッキングの音量の変化を `<Audio duck>` と同じ既定値でキーフレームとして返します。`origin` は秒で指定します（duckingVolume の `origin` はフレームです）。`duck.volume` で全体を拡大縮小できます。 |
 | `Dialogue` | `@celesta/character` | 字幕を表示し、`audio` を再生し、有効な間の表情を変更します。行の途中の時刻で表情を切り替えることもできます。 |
 | `expressionAt` | `@celesta/character` | 行の `expression`（名前、または `{ at, expression }` の切り替え）が、行の中のある時刻に選ぶ表情を返します。 |
 | `loadLipSync` / `useLipSync` | `@celesta/character` | WAV から口の形を生成し、現在の形を取得します。 |

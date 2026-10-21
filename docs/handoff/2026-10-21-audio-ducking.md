@@ -11,12 +11,14 @@ it plays (issue #87). Design: `docs/superpowers/specs/2026-10-21-audio-ducking-d
 - **One resolution, one curve.** `AudioDuck::resolve` in
   `crates/composition/src/duck.rs` applies the defaults (0.3, 0.15 s,
   0.4 s, 0.6 s), converts `{ db }`, and checks the rules for the evaluator,
-  project validation, the bridge, and the exporter. `duck_curve` builds the
+  the bridge, and the exporter; project validation calls the same per-field
+  checks (`check_duck_group`, `DuckGroups::names`, `DuckLevel::gain`,
+  `duck_duration`) to report one error per field. `duck_curve` builds the
   keyframes: runs joined across silences shorter than
   `max(holdGap, attack + release)`, an `ease-in-out` dip reaching `to` as
   each run starts. `@celesta/media-utils/duck` (`resolveDuck`,
-  `duckEnvelope`) is the TypeScript port; `tests/fixtures/duck-curves.json`
-  pins both.
+  `duckEnvelope`) is the TypeScript port;
+  `crates/composition/tests/fixtures/duck-curves.json` pins both.
 - **Where a voice is.** A marked clip counts from its range start to its
   range end, or earlier where its source runs out unless it loops
   (`audible_end` in `crates/media`, `audibleEnd` in `@celesta/web`). Muted

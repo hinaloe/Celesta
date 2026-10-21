@@ -1053,7 +1053,8 @@ plays. Dialogue voices are in `"voice"` already
   React already.
 - Preview, export, and `@celesta/web`'s `exportMp4` play the same curve. To
   build it yourself, `duckEnvelope(intervals, duck, { origin })` from
-  `@celesta/media-utils` returns it as keyframes; from a dialogue plan,
+  `@celesta/media-utils` returns it as keyframes (intervals and `origin`
+  in seconds); from a dialogue plan, where `origin` is in frames,
   use `duckingVolume()` ([dialogue.md](dialogue.md#ducking-bgm-and-game-audio-under-speech)).
 
 Bare, an `<Audio>` spans the whole composition. Inside a `<Sequence>` it

@@ -55,7 +55,7 @@ export async function prepare() { clip = await preloadMedia("./demo.mp4"); }
 - `to` is the gain under the voices, as a multiplier from 0 to 1 or as `{ db }` at or below 0. It defaults to 0.3 and multiplies `volume` and the fades.
 - `attack` is how many seconds the gain takes to come down, ending as the voice starts (0.15 by default). `release` is how many it takes to come back up after the voice ends (0.4 by default). With 0, the gain switches instantly, which can click on some material.
 - Silences shorter than `holdGap` seconds (0.6 by default) stay ducked, so the music does not bob up between lines.
-- A voice counts from its start until its file runs out, so a subtitle held after the voice does not keep the music down. Muted clips do not count.
+- A voice counts from its start until its file runs out or its `Sequence` ends, whichever comes first, so a subtitle held after the voice does not keep the music down. A looping voice counts for its whole sequence. Muted clips do not count.
 - Preview, export, and the browser exporter play the same curve. In a project JSON file, `audio` and `video` items take `duckGroup` and `duck`, and `dialogue` items take `duckGroup`.
 
 ## Change the pitch
