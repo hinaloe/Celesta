@@ -9,6 +9,8 @@ export type {
   MediaVideoInfo,
 } from '@celesta/react/internal';
 
+export { duckEnvelope, resolveDuck } from './duck';
+export type { DuckShape, ResolvedDuck } from './duck';
 export { analyzeAudioSpectrum, loadAudioSpectrum, spectrumAt, useAudioSpectrum } from './spectrum';
 export type {
   AudioSmoothing,
