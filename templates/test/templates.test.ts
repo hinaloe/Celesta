@@ -1,5 +1,7 @@
 // Every template under templates/ is staged with the runtime and evaluates
 // through the real CLI. Per-template cases are added below as templates land.
+// Build-integration tests: they read packages/cli/dist/templates/ and spawn the
+// built CLI (harness.ts), so they need `pnpm run build:runtime` first.
 import assert from 'node:assert/strict';
 import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -7,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
-import { entryPropsLayer, evaluate } from './harness.mjs';
+import { entryPropsLayer, evaluate } from './harness.js';
 
 const templatesDir = fileURLToPath(new URL('../', import.meta.url));
 
@@ -18,7 +20,7 @@ function templateNames() {
     .sort();
 }
 
-function pick(object, keys) {
+function pick<T extends object>(object: T | undefined, keys: (keyof T)[]) {
   return Object.fromEntries(keys.map((key) => [key, object?.[key]]));
 }
 
@@ -37,8 +39,8 @@ test('staging leaves out OS and editor files', () => {
   const staged = fileURLToPath(new URL('../../packages/cli/dist/templates/', import.meta.url));
   const junk = ['.DS_Store', 'assets/.DS_Store', 'assets/._photo-01.png', 'Thumbs.db', 'desktop.ini', 'film.tsx~', '.film.tsx.swp'];
   const planted = junk.map((name) => join(templatesDir, 'slideshow', name));
-  const isJunk = (name) => /^(\.DS_Store|Thumbs\.db|desktop\.ini|\._.*|.*~|\..*\.sw.)$/s.test(name);
-  const stagedFiles = (dir) =>
+  const isJunk = (name: string) => /^(\.DS_Store|Thumbs\.db|desktop\.ini|\._.*|.*~|\..*\.sw.)$/s.test(name);
+  const stagedFiles = (dir: string): string[] =>
     readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
       entry.isDirectory() ? stagedFiles(join(dir, entry.name)) : [join(dir, entry.name)]);
   try {
@@ -46,7 +48,7 @@ test('staging leaves out OS and editor files', () => {
     execFileSync(process.execPath, [stage]);
     for (const name of junk) assert.ok(!existsSync(join(staged, 'slideshow', name)), name);
     assert.ok(existsSync(join(staged, 'slideshow/assets/photo-01.png')));
-    assert.deepEqual(stagedFiles(staged).filter((file) => isJunk(file.split('/').pop())), []);
+    assert.deepEqual(stagedFiles(staged).filter((file) => isJunk(file.split('/').pop() ?? '')), []);
   } finally {
     for (const file of planted) rmSync(file, { force: true });
     execFileSync(process.execPath, [stage]);
@@ -63,7 +65,7 @@ test('blank evaluates without inputs', async () => {
 // the three sample rows in data.json.
 const RANKING_SAMPLE_FRAMES = 153;
 
-function rankingWithData(contents) {
+function rankingWithData(contents: string) {
   const dir = join(templatesDir, 'ranking');
   const data = join(mkdtempSync(join(tmpdir(), 'celesta-ranking-')), 'data.json');
   writeFileSync(data, contents);
@@ -125,12 +127,12 @@ test('ranking rejects a null row', async () => {
 // them, for the five sample slides in slides.json.
 const SLIDESHOW_SAMPLE_FRAMES = 590;
 
-function slideshow(values) {
+function slideshow(values: Record<string, unknown>) {
   const dir = join(templatesDir, 'slideshow');
   return evaluate(join(dir, 'film.tsx'), [entryPropsLayer(dir), { source: 'props', baseDir: dir, values }]);
 }
 
-function slideshowWithSlides(contents) {
+function slideshowWithSlides(contents: string) {
   const slides = join(mkdtempSync(join(tmpdir(), 'celesta-slideshow-')), 'slides.json');
   writeFileSync(slides, contents);
   return slideshow({ slides });
@@ -172,14 +174,14 @@ test('slideshow without music', async () => {
 // 30 + 528 + 5 * 9 + 30 + 45.
 const DIALOGUE_SAMPLE_FRAMES = 678;
 
-function dialogue(values) {
+function dialogue(values: Record<string, unknown>) {
   const dir = join(templatesDir, 'dialogue');
   return evaluate(join(dir, 'film.tsx'), [entryPropsLayer(dir), { source: 'props', baseDir: dir, values }]);
 }
 
 // A tiny valid WAV (a few silent samples) for lip sync to read; the harness
 // reports any existing file as 2 seconds long.
-function writeWav(file) {
+function writeWav(file: string) {
   const samples = 16;
   const wav = Buffer.alloc(44 + samples * 2);
   wav.write('RIFF', 0);
@@ -198,11 +200,19 @@ function writeWav(file) {
   return file;
 }
 
+/** A line of the dialogue template's script.json. */
+interface DialogueLine {
+  speaker: string;
+  text: string;
+  expression?: string;
+  voice?: string;
+}
+
 // A one-character script whose portraits are the template's own, given as
 // absolute paths so the script can live in a temporary folder. `lines` may
 // name `voice.wav`, a WAV written beside the script; `setup(dir)` may replace
 // it or add files there.
-async function dialogueWithLines(lines, setup = () => {}) {
+async function dialogueWithLines(lines: DialogueLine[], setup: (dir: string) => void = () => {}) {
   const assets = join(templatesDir, 'dialogue/assets');
   const mouths = Object.fromEntries(['closed', 'a', 'i', 'u', 'e', 'o'].map((shape) => [shape, join(assets, `mouth-${shape}.png`)]));
   const characters = {

@@ -1,0 +1,7 @@
+{
+  // Type-checks the tests; ../tsconfig.json (`pnpm typecheck`) checks the
+  // templates themselves and leaves test/ out.
+  "extends": "../tsconfig.json",
+  "include": ["./**/*.ts"],
+  "exclude": []
+}
