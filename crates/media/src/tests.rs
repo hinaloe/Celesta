@@ -929,6 +929,41 @@ fn animated_rate_with_preserved_pitch_does_not_drift() {
 }
 
 #[test]
+fn rate_keyed_before_zero_moves_the_source_from_its_value_at_zero() {
+    // A head clipped by an outer <Sequence> leaves the rate's first key
+    // before 0: the rate runs 2 → 3 over the first second, reaching source
+    // 2.5 s at 1 s, not starting at 1 and reaching only 2 s.
+    for preserve_pitch in [false, true] {
+        let mut clip = clip(0.0, 2.0);
+        clip.playback_rate = Animatable::Keyframes(KeyframeAnimation {
+            kind: KeyframeAnimationType::Keyframes,
+            keyframes: vec![
+                Keyframe {
+                    time: seconds(-1.0),
+                    value: 1.0,
+                    easing: None,
+                },
+                Keyframe {
+                    time: seconds(1.0),
+                    value: 3.0,
+                    easing: None,
+                },
+            ],
+        });
+        clip.preserve_pitch = preserve_pitch;
+
+        let left = mix_left(clip, tone(440.0, 2.5, 6.0, 6.0), 2.0);
+
+        // As above, the stretcher smears the attack by up to ~5 ms.
+        let onset = left.iter().position(|sample| sample.abs() > 0.25).unwrap();
+        assert!(
+            onset.abs_diff(RATE as usize) <= 240,
+            "onset {onset} is not near {RATE} (preserve_pitch {preserve_pitch})"
+        );
+    }
+}
+
+#[test]
 fn slow_rate_with_preserved_pitch_keeps_pitch_and_stays_continuous() {
     let mut clip = clip(0.0, 2.0);
     clip.playback_rate = Animatable::Static(0.5);

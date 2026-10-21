@@ -34,8 +34,9 @@ export function evaluateAnimated(value: AnimatedNumber, time: number): number {
 
 /**
  * The integral from clip-local 0 through `time` seconds, which turns an
- * animated playback rate into a source position. Like the native mixer, a
- * segment that starts before 0 is integrated as if it started at 0.
+ * animated playback rate into a source position. A segment that starts
+ * before 0 counts only from 0 on, from the value `evaluateAnimated` gives
+ * there.
  */
 export function integrateAnimated(value: AnimatedNumber, time: number): number {
   const end = Math.max(0, time);
@@ -46,12 +47,13 @@ export function integrateAnimated(value: AnimatedNumber, time: number): number {
   if (end <= firstTime) return integral;
   for (let index = 1; index < keys.length; index++) {
     const from = keys[index - 1], to = keys[index];
-    const start = Math.max(0, seconds(from));
-    const finish = Math.max(start, seconds(to));
+    const start = seconds(from), finish = seconds(to);
     const duration = finish - start;
-    if (duration === 0) continue;
+    if (duration <= 0) continue;
+    const antiderivative = (progress: number) => from.value * progress + (to.value - from.value) * easingIntegral(progress, to.easing ?? 'linear');
+    const fromZero = Math.min(1, Math.max(0, -start / duration));
     const progress = Math.min(1, Math.max(0, (end - start) / duration));
-    integral += duration * (from.value * progress + (to.value - from.value) * easingIntegral(progress, to.easing ?? 'linear'));
+    integral += duration * (antiderivative(progress) - antiderivative(fromZero));
     if (end <= finish) return integral;
   }
   const last = keys[keys.length - 1];
