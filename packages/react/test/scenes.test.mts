@@ -118,3 +118,57 @@ test('useScene without a list requires Scenes', () => {
     /inside <Scenes>/,
   );
 });
+
+test("useScene(list, { clock: 'root' }) reads the list on the composition's frame inside a Sequence", () => {
+  const seen: Record<string, string> = {};
+  function Probe({ where, clock }: { where: string; clock?: 'caller' | 'root' }) {
+    seen[where] = label(useScene(list, clock ? { clock } : undefined));
+    return null;
+  }
+  const list = defineScenes([
+    { id: 'intro', durationInFrames: 90 },
+    { id: 'body', durationInFrames: 240 },
+  ]);
+  const composition = mount(() => h(Composition, { width: 10, height: 10, fps: 30, durationInFrames: 330 },
+    h(Sequence, { from: 90, durationInFrames: 240 },
+      h(Sequence, { from: 5 },
+        h(Probe, { where: 'root', clock: 'root' }),
+        h(Probe, { where: 'caller', clock: 'caller' }),
+        h(Probe, { where: 'default' }),
+      ),
+    ),
+  ));
+  at(composition, 100);
+  assert.deepEqual(seen, { root: 'body:10:0.04', caller: 'intro:5:0.06', default: 'intro:5:0.06' });
+});
+
+test("useScene(list, { clock: 'root' }) still follows a <Scenes> that plays the list", () => {
+  const seen: string[] = [];
+  function Probe({ where }: { where: string }) {
+    seen.push(`${where}=${label(useScene(list, { clock: 'root' }))}`);
+    return null;
+  }
+  const list = defineScenes([
+    { id: 'a', durationInFrames: 30, Scene: () => h(Sequence, { from: 4 }, h(Probe, { where: 'in' })) },
+    { id: 'b', durationInFrames: 30 },
+  ]);
+  const composition = mount(() => h(Composition, { width: 10, height: 10, fps: 30, durationInFrames: 80 },
+    h(Sequence, { from: 20 }, h(Scenes, { scenes: list })),
+    h(Probe, { where: 'hud' }),
+  ));
+  seen.length = 0;
+  at(composition, 25);
+  assert.deepEqual(seen.sort(), ['hud=a:25:0.83', 'in=a:5:0.17']);
+});
+
+test('useScene rejects an unknown clock', () => {
+  const list = defineScenes([{ id: 'a', durationInFrames: 10 }]);
+  function Probe() {
+    useScene(list, { clock: 'scene' as 'root' });
+    return null;
+  }
+  assert.throws(
+    () => mount(() => h(Composition, { width: 10, height: 10, fps: 30, durationInFrames: 10 }, h(Probe))),
+    /clock/,
+  );
+});

@@ -181,13 +181,26 @@ export function Scenes<T extends SceneEntry>({ scenes }: ScenesProps<T>): Return
   );
 }
 
+export interface UseSceneOptions {
+  /**
+   * The clock a list that no `<Scenes>` above plays is read on: the
+   * caller's frame (`'caller'`, the default) or the composition's
+   * (`'root'`), which `<Sequence>`s do not shift. Inside a `<Scenes>` that
+   * plays the list, its clock is used either way.
+   */
+  clock?: 'caller' | 'root';
+}
+
 /**
  * The current scene of a `defineScenes` list, or `null` outside every scene
  * (see `sceneAt`). With no argument, the list of the nearest `<Scenes>`
  * above. Inside a `<Scenes>`, its own list is read on its clock, so nested
  * `<Sequence>`s do not shift it; elsewhere (a HUD beside the `<Scenes>`) the
  * list is read on the caller's clock, so place the caller on the same
- * timeline as the `<Scenes>`.
+ * timeline as the `<Scenes>`. With `{ clock: 'root' }`, it is read on the
+ * composition's frame there instead, for a caller inside a `<Sequence>`
+ * whose list is laid out on the whole video (a chapter of a
+ * `<TransitionSeries>`, say).
  *
  * Inside a `<MotionBlur>` sample or a `<Trail>` copy within a scene, the
  * result is the one of the frame being drawn, not of the sample.
@@ -197,9 +210,16 @@ export function Scenes<T extends SceneEntry>({ scenes }: ScenesProps<T>): Return
  * if (!scene) return null;
  * <Text>{scene.name}</Text>
  * <Rect width={1920 * scene.progress} height={4} />
+ *
+ * // Inside <Sequence from={90}>: the video's chapter, not the one at frame 0.
+ * const chapter = useScene(scenes, { clock: 'root' });
  * ```
  */
-export function useScene<T extends SceneEntry>(list?: SceneList<T>): SceneState<T> | null {
+export function useScene<T extends SceneEntry>(list?: SceneList<T>, options?: UseSceneOptions): SceneState<T> | null {
+  const clock = options?.clock ?? 'caller';
+  if (clock !== 'caller' && clock !== 'root') {
+    throw new Error("useScene() requires `clock` to be 'caller' or 'root'");
+  }
   let scope = React.useContext(ScenesContext);
   const rootFrame = useRootFrame('useScene()');
   const localFrame = useCurrentFrame();
@@ -212,5 +232,5 @@ export function useScene<T extends SceneEntry>(list?: SceneList<T>): SceneState<
   if (list === undefined) {
     throw new Error('useScene() without a list must be called inside <Scenes>');
   }
-  return sceneAt(list, localFrame);
+  return sceneAt(list, clock === 'root' ? rootFrame : localFrame);
 }

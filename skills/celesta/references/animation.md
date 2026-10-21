@@ -329,7 +329,10 @@ runs 0→1 and holds 1 in a gap. Where scenes overlap, the later one is
 current. Inside `<Scenes>`, `useScene()` (no argument) reads the list on the
 `<Scenes>`' own clock, so nested `<Sequence>`s do not shift it; elsewhere
 (a HUD) the caller must sit on the same timeline as `<Scenes>`. Both give
-the same result on the same frame.
+the same result on the same frame. Inside a `<Sequence>` that is not under
+the `<Scenes>` (the list only names chapters laid out with `<Sequence>` or
+`<TransitionSeries>`), `useScene(list, { clock: 'root' })` reads the list on
+the composition's frame instead of the caller's, which would restart at 0.
 
 ```tsx
 const SCENES = defineScenes([

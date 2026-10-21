@@ -53,6 +53,17 @@ export default function Root() {
 }
 ```
 
+`<Scenes>` の外では、`useScene(list)` は呼び出し側の時計で一覧を読みます。`<Sequence>` の中ではその時計が 0 から始まり直します。映像を `<Sequence>` や `<TransitionSeries>` で並べ、一覧を章の名前の表としてだけ使う場合は、`{ clock: 'root' }` を渡すとコンポジションのフレームで読みます。
+
+```tsx title="章の中から、映像全体の章を読む"
+function Body() {
+  const scene = useScene(SCENES, { clock: 'root' }); // フレーム 100 では 'intro' ではなく 'body'
+  return <Text>{scene?.name}</Text>;
+}
+
+<Sequence from={90} durationInFrames={240}><Body /></Sequence>
+```
+
 ## シーンをトランジションでつなぐ
 
 `<TransitionSeries>` は `Series` と同じくシーンを順に並べ、2 つのシーンの間に `<TransitionSeries.Transition>` を置けます。トランジションは前後のシーンを `durationInFrames` の分だけ重ねるので、`computeTransitionSeries()` で各シーンの開始位置と、重なりの分だけ短くなった全体の長さを求められます。
