@@ -1,6 +1,9 @@
 {
   "name": "@celesta/example-versus",
   "private": true,
+  "scripts": {
+    "test": "tsc -p bench && vitest run"
+  },
   "dependencies": {
     "@celesta/code": "workspace:*",
     "@celesta/components": "workspace:*",

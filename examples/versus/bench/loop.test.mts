@@ -3,12 +3,19 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
 import { pathToFileURL } from 'node:url';
+import { onTestFinished, test } from 'vitest';
 
-function measure(t, previous) {
+/** The shape loop.mjs writes to loop.json. */
+interface LoopResults {
+  date: string;
+  results: Record<string, number[]>;
+  measuredAt: Record<string, string>;
+}
+
+function measure(previous: string | undefined): { result: LoopResults; stderr: string } {
   const root = mkdtempSync(path.join(tmpdir(), 'celesta-loop-test-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  onTestFinished(() => rmSync(root, { recursive: true, force: true }));
   const bench = path.join(root, 'examples/versus/bench');
   mkdirSync(path.join(bench, 'celesta'), { recursive: true });
   const script = path.join(bench, 'loop.mjs');
@@ -30,7 +37,7 @@ syncBuiltinESMExports();
     ['--import', pathToFileURL(mock).href, script, '--only', 'celesta', '--runs', '1'], { encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
   assert.equal(readFileSync(source, 'utf8'), original);
-  const result = JSON.parse(readFileSync(file, 'utf8'));
+  const result: LoopResults = JSON.parse(readFileSync(file, 'utf8'));
   assert.equal(result.results.celesta.length, 1);
   assert.ok(Number.isFinite(result.results.celesta[0]));
   assert.equal(result.measuredAt.celesta, result.date);
@@ -40,9 +47,9 @@ syncBuiltinESMExports();
 
 for (const [name, previous] of [
   ['missing', undefined], ['empty', ''], ['malformed', '{'], ['null', 'null'],
-]) {
-  test(`saves fresh measurements when previous results are ${name}`, (t) => {
-    const { result, stderr } = measure(t, previous);
+] as const) {
+  test(`saves fresh measurements when previous results are ${name}`, () => {
+    const { result, stderr } = measure(previous);
     assert.deepEqual(Object.keys(result.results), ['celesta']);
     if (name === 'empty' || name === 'malformed') {
       assert.match(stderr, /Ignoring unreadable previous loop results/);
@@ -52,10 +59,10 @@ for (const [name, previous] of [
   });
 }
 
-test('retains unselected pipelines and their measurement dates', (t) => {
+test('retains unselected pipelines and their measurement dates', () => {
   const oldDate = '2026-09-25T12:00:00.000Z';
   const remotionDate = '2026-09-26T12:00:00.000Z';
-  const { result } = measure(t, JSON.stringify({
+  const { result } = measure(JSON.stringify({
     date: oldDate,
     results: { celesta: [9], remotion: [2, 3], fframes: [4, 5] },
     measuredAt: { remotion: remotionDate },
