@@ -288,9 +288,19 @@ that limit for both:
 - Pitch and `preservePitch` stay unsupported in the browser, with the
   existing error.
 
-How closely Web Audio's rate automation can follow the Rust integral is
-measured in that step, and the tolerance it reaches is written into this
-document then.
+Measured with `packages/web/test/manual/audio-automation.html` in
+Chromium 152 (`OfflineAudioContext`, 48 kHz):
+
+- Volume: the largest difference from `evaluate_f64` is 2.1 × 10⁻⁶, and the
+  largest step between neighboring samples (4.37 × 10⁻⁵) is no larger than
+  the exact curve's own. Away from a cut, the gain never jumps.
+- Playback rate: pulses land at most 1.32 ms from where the integral puts
+  them, over a rate going 1 → 2 (linear) → 0.5 (`ease-in-out`) in 8 s.
+  `playbackRate` takes one value per 128-frame quantum, so this is the
+  expected size.
+
+Comparisons of browser and native output in later steps allow 1 × 10⁻⁵
+in gain and 2 ms in timing.
 
 ## Delivery
 
