@@ -4,8 +4,12 @@
   // package itself needs no build.
   "extends": "../tsconfig.json",
   "compilerOptions": {
+    "declaration": false,
     "noEmit": true,
     "rootDir": "..",
+    "tsBuildInfoFile": "../node_modules/.cache/test.tsbuildinfo",
+    // The tests use Array.prototype.at.
+    "lib": ["ES2022"],
     "types": ["node"]
   },
   "include": ["./**/*.mts"],

@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import test from 'node:test';
+import { test } from 'vitest';
 
-import { CelestaExportError, exportStills, exportVideo, getComposition } from '../dist/index.js';
+import { CelestaExportError, exportStills, exportVideo, getComposition } from '../src/index.js';
 
 const exporter = fileURLToPath(new URL('./fixtures/fake-exporter.mjs', import.meta.url));
-const run = (mode) => ({ exporter, env: { ...process.env, FAKE_MODE: mode } });
+const run = (mode: string) => ({ exporter, env: { ...process.env, FAKE_MODE: mode } });
 // The fake exporter is a script with a shebang, which Windows cannot run directly.
 const skip = process.platform === 'win32';
 
 test('progress events reach the callback and the report resolves', { skip }, async () => {
-  const events = [];
+  const events: string[] = [];
   const result = await exportStills({
     source: 'film.tsx',
     output: 'f.png',
@@ -21,7 +21,8 @@ test('progress events reach the callback and the report resolves', { skip }, asy
   assert.deepEqual(events, ['composition', 'rendering', 'wrote']);
   assert.equal(result.composition.frames, 30);
   assert.deepEqual(result.outputs, [{ type: 'frame', path: '/work/f.png', frame: 0, time: 0 }]);
-  assert.equal(result.status, undefined);
+  // The report's status is not part of the result, nor its type.
+  assert.equal((result as { status?: unknown }).status, undefined);
   // The fake echoes its arguments as warnings.
   assert.ok(result.warnings.includes('--json-progress'));
 });
@@ -31,23 +32,23 @@ test('a failed export rejects with the report error', { skip }, async () => {
     assert.ok(error instanceof CelestaExportError);
     assert.equal(error.code, 'output_exists');
     assert.equal(error.hint, 'pass --overwrite to replace it, or write to another path');
-    assert.equal(error.report.status, 'error');
+    assert.equal(error.report!.status, 'error');
     return true;
   });
 });
 
 test('an exporter too old for the flags says so', { skip }, async () => {
-  await assert.rejects(getComposition({ source: 'film.tsx', ...run('old') }), (error) => {
+  await assert.rejects(getComposition({ source: 'film.tsx', ...run('old') }), (error: CelestaExportError) => {
     assert.equal(error.code, 'usage');
-    assert.match(error.hint, /older than @celesta\/exporter/);
+    assert.match(error.hint!, /older than @celesta\/exporter/);
     return true;
   });
 });
 
 test('an exporter that ends without a report keeps its stderr', { skip }, async () => {
-  await assert.rejects(getComposition({ source: 'film.tsx', ...run('crash') }), (error) => {
+  await assert.rejects(getComposition({ source: 'film.tsx', ...run('crash') }), (error: CelestaExportError) => {
     assert.equal(error.code, 'exporter_failed');
-    assert.match(error.stderr, /boom/);
+    assert.match(error.stderr!, /boom/);
     return true;
   });
 });

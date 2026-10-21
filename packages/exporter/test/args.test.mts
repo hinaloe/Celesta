@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 
-import { compositionArgs, stillsArgs, videoArgs } from '../dist/args.js';
+import { compositionArgs, stillsArgs, videoArgs } from '../src/args.js';
 
 test('a video export passes its options as --name=value flags', () => {
   assert.deepEqual(
@@ -45,7 +45,7 @@ test('a .json source is a project unless react says otherwise', () => {
 });
 
 test('seconds become millisecond timecodes', () => {
-  const from = (time) => videoArgs({ source: 'p.celesta.json', output: 'o.mp4', from: time }).find((arg) => arg.startsWith('--from='));
+  const from = (time: number) => videoArgs({ source: 'p.celesta.json', output: 'o.mp4', from: time }).find((arg) => arg.startsWith('--from='));
   assert.equal(from(0), '--from=0');
   assert.equal(from(10), '--from=10');
   assert.equal(from(2.0004), '--from=2');

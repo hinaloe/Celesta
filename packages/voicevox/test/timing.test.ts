@@ -1,25 +1,28 @@
-// Unit tests for timingFromVoicevox. Run after building @celesta/character
-// and @celesta/voicevox: pnpm --dir packages/voicevox test
+// Unit tests for timingFromVoicevox. Run after building @celesta/character:
+// pnpm --dir packages/voicevox test
 //
-// Fixtures are described in lipsync.test.mjs.
+// Fixtures are described in lipsync.test.ts.
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import test from 'node:test';
+import { test } from 'vitest';
 
-import { lipSyncFromVoicevox, timingFromVoicevox } from '../dist/index.js';
+import type { SpeechTiming } from '@celesta/character';
+import { lipSyncFromVoicevox, timingFromVoicevox } from '../src/index.js';
+import type { VoicevoxTimingOptions } from '../src/index.js';
+import type { EditableQuery, EngineMora, EngineQuery, Synthesized } from './fixtures/engine.js';
 
-const read = (name) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
-const fixture = read('voicevox-zundamon-konnichiwa.json');
-const synthesized = read('voicevox-engine-0.26-synthesis.json');
+const read = <T>(name: string): T => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
+const fixture = read<EngineQuery>('voicevox-zundamon-konnichiwa.json');
+const synthesized = read<Synthesized[]>('voicevox-engine-0.26-synthesis.json');
 const clone = () => structuredClone(fixture);
-const exact = { frameRate: null };
+const exact: VoicevoxTimingOptions = { frameRate: null };
 const FRAME = 1 / 93.75;
-const close = (actual, expected, what) =>
+const close = (actual: number, expected: number, what: string) =>
   assert.ok(Math.abs(actual - expected) < 1e-9, `${what}: ${actual} vs ${expected}`);
-const allQueries = [['zundamon', fixture], ...synthesized.map(({ name, query }) => [name, query])];
+const allQueries: [string, EngineQuery][] = [['zundamon', fixture], ...synthesized.map(({ name, query }): [string, EngineQuery] => [name, query])];
 
-function assertContiguous(timing, what) {
+function assertContiguous(timing: SpeechTiming, what: string) {
   const { phonemes } = timing;
   assert.equal(phonemes[0].start, 0, `${what}: starts at 0`);
   for (let i = 1; i < phonemes.length; i += 1) {
@@ -61,7 +64,7 @@ test('timingFromVoicevox: mirrors the query', () => {
       assert.equal(timed.text, phrase.moras.map((m) => m.text).join(''));
       assert.ok(timed.moras.every((m) => m.accentPhrase === i && !m.upspeak));
       assert.equal(timed.pause === null, !phrase.pause_mora);
-      if (phrase.pause_mora) assert.equal(timed.pause.text, phrase.pause_mora.text);
+      if (phrase.pause_mora) assert.equal(timed.pause!.text, phrase.pause_mora.text);
     });
     assert.deepEqual(timing.moras, timing.accentPhrases.flatMap((p) => p.moras));
     timing.moras.forEach((m, i) => assert.equal(m, timing.accentPhrases.flatMap((p) => p.moras)[i]));
@@ -73,17 +76,17 @@ test('timingFromVoicevox: mirrors the query', () => {
 test('timingFromVoicevox: hand-computed times (unrounded)', () => {
   const timing = timingFromVoicevox(fixture, exact);
   const moras = fixture.accent_phrases.flatMap((p) => p.moras);
-  const lengthOf = (m) => (m.consonant_length ?? 0) + m.vowel_length;
+  const lengthOf = (m: EngineMora) => (m.consonant_length ?? 0) + m.vowel_length;
   const firstPhrase = fixture.accent_phrases[0].moras.reduce((s, m) => s + lengthOf(m), 0);
-  const pause = fixture.accent_phrases[0].pause_mora.vowel_length;
+  const pause = fixture.accent_phrases[0].pause_mora!.vowel_length;
 
   assert.equal(timing.phonemes[0].phoneme, 'sil');
   close(timing.phonemes[0].end, 0.1, 'pre silence');
   const ko = timing.moras[0];
   assert.equal(ko.text, 'コ');
   close(ko.start, 0.1, 'コ start');
-  assert.equal(ko.consonant.phoneme, 'k');
-  close(ko.consonant.end, 0.1 + moras[0].consonant_length, 'コ consonant end');
+  assert.equal(ko.consonant!.phoneme, 'k');
+  close(ko.consonant!.end, 0.1 + moras[0].consonant_length!, 'コ consonant end');
   assert.equal(ko.vowel.phoneme, 'o');
   assert.equal(ko.end, ko.vowel.end);
   assert.equal(timing.moras[1].consonant, null); // ン
@@ -98,7 +101,7 @@ test('timingFromVoicevox: hand-computed times (unrounded)', () => {
   assert.equal(mo.text, 'モ');
   const moStart = 0.1 + pause + moras.slice(0, 8).reduce((s, m) => s + lengthOf(m), 0);
   close(mo.start, moStart, 'モ start');
-  close(mo.vowel.start, moStart + moras[8].consonant_length, 'モ vowel start');
+  close(mo.vowel.start, moStart + moras[8].consonant_length!, 'モ vowel start');
 
   assert.equal(timing.speech.start, timing.moras[0].start);
   assert.equal(timing.speech.end, timing.moras[timing.moras.length - 1].end);
@@ -114,7 +117,7 @@ test('timingFromVoicevox: half-to-even per phoneme; a mora is the sum of its rou
     postPhonemeLength: 0,
   };
   const timing = timingFromVoicevox(query);
-  assert.equal(timing.moras[0].consonant.end, 2 / 93.75);
+  assert.equal(timing.moras[0].consonant!.end, 2 / 93.75);
   assert.equal(timing.moras[0].end, 4 / 93.75);
   assert.equal(timing.durationInSeconds, 4 / 93.75);
 
@@ -124,7 +127,7 @@ test('timingFromVoicevox: half-to-even per phoneme; a mora is the sum of its rou
 });
 
 test('timingFromVoicevox: interrogative upspeak', () => {
-  const query = {
+  const query: EditableQuery = {
     accent_phrases: [{
       moras: [
         { text: 'ス', consonant: 's', consonant_length: 0.1, vowel: 'U', vowel_length: 0.1, pitch: 0 },
@@ -155,7 +158,7 @@ test('timingFromVoicevox: interrogative upspeak', () => {
   assert.equal(timingFromVoicevox(lowered, exact).moras.length, 3);
   const ending = structuredClone(query);
   ending.accent_phrases[0].moras.push({ text: 'ン', vowel: 'N', vowel_length: 0.1, pitch: 5 });
-  const endingUp = timingFromVoicevox(ending, exact).moras.at(-1);
+  const endingUp = timingFromVoicevox(ending, exact).moras.at(-1)!;
   assert.deepEqual({ text: endingUp.text, upspeak: endingUp.upspeak }, { text: 'ン', upspeak: true });
 });
 
@@ -191,8 +194,8 @@ test('timingFromVoicevox: zero-length phonemes stay in place', () => {
     }],
   };
   const timing = timingFromVoicevox(query);
-  assert.equal(timing.moras[0].consonant.phoneme, 'k');
-  assert.equal(timing.moras[0].consonant.start, timing.moras[0].consonant.end);
+  assert.equal(timing.moras[0].consonant!.phoneme, 'k');
+  assert.equal(timing.moras[0].consonant!.start, timing.moras[0].consonant!.end);
   assert.equal(timing.moras[1].start, timing.moras[1].end);
   assert.equal(timing.moras.length, 2);
   assertContiguous(timing, 'zero-length');

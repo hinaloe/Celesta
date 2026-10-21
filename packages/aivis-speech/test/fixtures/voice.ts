@@ -4,13 +4,31 @@
 // stops a silent closure then a burst; pauses, っ and the pre/post silence
 // are silent.
 
+import type { AivisSpeechAudioQuery } from '../../src/index.js';
+
+/** [text, consonant, consonant length, vowel, vowel length] of one mora, lengths in seconds at speedScale 1. */
+export type MoraSpec = readonly [text: string, consonant: string | null, consonantLength: number, vowel: string, vowelLength: number];
+
+/** A query with the speed and pre/post silence `synthesize` reads, all set. */
+export type VoiceQuery = AivisSpeechAudioQuery & Required<Pick<AivisSpeechAudioQuery, 'speedScale' | 'prePhonemeLength' | 'postPhonemeLength'>>;
+
+/** A synthesized voice and the true start and end of every mora. */
+export interface Voice {
+  wav: Uint8Array;
+  samples: Float32Array;
+  sampleRate: number;
+  moras: { text: string; start: number; end: number }[];
+}
+
+type SegmentKind = 'silence' | 'tone' | 'hum' | 'noise' | 'stop';
+
 const VOICED = new Set(['n', 'm', 'r', 'w', 'y', 'z', 'd', 'g', 'b', 'j', 'ny', 'my', 'ry', 'gy', 'by']);
 const STOPS = new Set(['k', 't', 'p', 'ch', 'ts', 'ky', 'py']);
 
 // The zundamon line 「こんにちは、ずんだもんなのだ。」 from VOICEVOX Engine,
 // as AivisSpeech phrases it: punctuation is a 'pau' mora with a length
 // here, and its mark as text.
-export const KONNICHIWA = [
+export const KONNICHIWA: MoraSpec[][] = [
   [
     ['コ', 'k', 0.091, 'o', 0.146], ['ン', null, 0, 'N', 0.071], ['ニ', 'n', 0.033, 'i', 0.1],
     ['チ', 'ch', 0.085, 'i', 0.068], ['ワ', 'w', 0.071, 'a', 0.167], [',', null, 0, 'pau', 0.322],
@@ -23,7 +41,10 @@ export const KONNICHIWA = [
 ];
 
 /** The AivisSpeech query for phrases of [text, consonant, length, vowel, length]: lengths are dummy zeros. */
-export function queryOf(phrases, extra = {}) {
+export function queryOf(
+  phrases: readonly (readonly MoraSpec[])[],
+  extra: Partial<Pick<AivisSpeechAudioQuery, 'speedScale' | 'prePhonemeLength' | 'postPhonemeLength'>> = {},
+): VoiceQuery {
   return {
     accent_phrases: phrases.map((moras) => ({
       moras: moras.map(([text, consonant, , vowel]) => ({
@@ -45,10 +66,10 @@ export function queryOf(phrases, extra = {}) {
  * The WAV for phrases at a query's speed and pre/post silence, and the
  * true start and end of every mora (in seconds).
  */
-export function synthesize(phrases, query, sampleRate = 16000) {
+export function synthesize(phrases: readonly (readonly MoraSpec[])[], query: AivisSpeechAudioQuery, sampleRate = 16000): Voice {
   const speed = query.speedScale ?? 1;
-  const segments = [{ kind: 'silence', seconds: (query.prePhonemeLength ?? 0) / speed }];
-  const moras = [];
+  const segments: { kind: SegmentKind; seconds: number }[] = [{ kind: 'silence', seconds: (query.prePhonemeLength ?? 0) / speed }];
+  const moras: Voice['moras'] = [];
   let clock = segments[0].seconds;
   for (const moras_ of phrases) {
     for (const [text, consonant, consonantLength, vowel, vowelLength] of moras_) {
@@ -57,7 +78,7 @@ export function synthesize(phrases, query, sampleRate = 16000) {
         segments.push({ kind: VOICED.has(consonant) ? 'hum' : STOPS.has(consonant) ? 'stop' : 'noise', seconds: consonantLength / speed });
         clock += consonantLength / speed;
       }
-      const kind = vowel === 'pau' || vowel === 'cl' ? 'silence' : vowel === 'N' ? 'hum' : 'AIUEO'.includes(vowel) ? 'noise' : 'tone';
+      const kind: SegmentKind = vowel === 'pau' || vowel === 'cl' ? 'silence' : vowel === 'N' ? 'hum' : 'AIUEO'.includes(vowel) ? 'noise' : 'tone';
       segments.push({ kind, seconds: vowelLength / speed });
       clock += vowelLength / speed;
       moras.push({ text, start, end: clock });
@@ -65,7 +86,7 @@ export function synthesize(phrases, query, sampleRate = 16000) {
   }
   segments.push({ kind: 'silence', seconds: (query.postPhonemeLength ?? 0) / speed });
 
-  const samples = [];
+  const samples: number[] = [];
   let seed = 1;
   const noise = () => {
     seed = (seed * 1103515245 + 12345) % 2147483648;
@@ -88,10 +109,10 @@ export function synthesize(phrases, query, sampleRate = 16000) {
 }
 
 /** 16-bit mono PCM. */
-export function encodeWav(samples, sampleRate) {
+export function encodeWav(samples: readonly number[], sampleRate: number): Uint8Array {
   const bytes = new Uint8Array(44 + samples.length * 2);
   const view = new DataView(bytes.buffer);
-  const tag = (at, text) => [...text].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+  const tag = (at: number, text: string) => [...text].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
   tag(0, 'RIFF');
   view.setUint32(4, 36 + samples.length * 2, true);
   tag(8, 'WAVE');

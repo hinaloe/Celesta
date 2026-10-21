@@ -19,7 +19,7 @@
   "engines": { "node": ">=18" },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "node --test \"test/**/*.test.mjs\" && tsc -b test && vitest run",
+    "test": "tsc -b test && vitest run",
     "check:examples": "tsc -p tsconfig.examples.json"
   },
   "peerDependencies": {

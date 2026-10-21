@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 
-import { EXPORTER_COMMAND, installedExporters, resolveExporter } from '../dist/index.js';
+import { EXPORTER_COMMAND, installedExporters, resolveExporter } from '../src/index.js';
 
 test('an explicit exporter wins over CELESTA_EXPORTER', () => {
   assert.equal(resolveExporter({ exporter: '/bin/a', env: { CELESTA_EXPORTER: '/bin/b' } }), '/bin/a');
@@ -11,7 +11,7 @@ test('an explicit exporter wins over CELESTA_EXPORTER', () => {
 test('an installed Celesta comes before PATH', () => {
   const [app] = installedExporters('darwin');
   assert.match(app, /Celesta\.app\/Contents\/MacOS\/Celesta-export$/);
-  assert.equal(resolveExporter({ env: {}, platform: 'darwin', exists: (candidate) => candidate === app }), app);
+  assert.equal(resolveExporter({ env: {}, platform: 'darwin', exists: (candidate: string) => candidate === app }), app);
   assert.equal(
     resolveExporter({ env: { LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local' }, platform: 'win32', exists: () => true }),
     'C:\\Users\\me\\AppData\\Local\\Programs\\Celesta\\Celesta-export.exe',

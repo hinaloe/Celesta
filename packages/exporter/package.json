@@ -23,7 +23,7 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test \"test/**/*.test.mjs\"",
+    "test": "tsc -p test && vitest run",
     "clean": "rm -rf dist"
   },
   "devDependencies": {

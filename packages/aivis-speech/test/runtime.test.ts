@@ -1,10 +1,22 @@
+// Integration test of the build: spawns packages/cli/dist/cli.js (and the
+// staged runtime), which load @celesta/aivis-speech's dist/, so it needs
+// `pnpm run build:runtime` first.
+
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { test } from 'vitest';
+
+// What the CLI prints: the composition's metadata, then one scene per time sent.
+interface Metadata {
+  config: { durationInFrames: number };
+}
+interface Frame {
+  scene: { layers: { id: string; content: { width: number } }[] };
+}
 
 for (const packaged of [false, true]) {
   test(`${packaged ? 'packaged' : 'source'} CLI resolves AivisSpeech outside the workspace and shares the lip-sync clock`, () => {
@@ -79,7 +91,7 @@ for (const packaged of [false, true]) {
         encoding: 'utf8', timeout: 30000,
       });
       assert.equal(result.status, 0, result.stdout + result.stderr);
-      const [metadata, first, second] = result.stdout.trim().split(/\r?\n/).map(JSON.parse);
+      const [metadata, first, second] = result.stdout.trim().split(/\r?\n/).map((line) => JSON.parse(line)) as [Metadata, Frame, Frame];
       assert.equal(metadata.config.durationInFrames, 4);
       assert.equal(first.scene.layers[0].id, 'a');
       assert.equal(first.scene.layers[0].content.width, 20);

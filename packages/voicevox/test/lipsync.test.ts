@@ -1,5 +1,5 @@
 // Unit tests for the VOICEVOX AudioQuery adapter. Run after building
-// @celesta/character and @celesta/voicevox: pnpm --dir packages/voicevox test
+// @celesta/character: pnpm --dir packages/voicevox test
 //
 // `voicevox-zundamon-konnichiwa.json` is a real VOICEVOX Engine `audio_query`
 // response (Zundamon, normal style) for 「こんにちは、ずんだもんなのだ。」.
@@ -10,32 +10,36 @@
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import test from 'node:test';
+import { test } from 'vitest';
 
-import { lipSyncFromVoicevox, timingFromVoicevox, voicevoxVowelShape } from '../dist/index.js';
+import type { LipSyncTrack, MouthShape } from '@celesta/character';
+import { lipSyncFromVoicevox, timingFromVoicevox, voicevoxVowelShape } from '../src/index.js';
+import type { VoicevoxAudioQuery, VoicevoxTimingOptions } from '../src/index.js';
+import type { EngineQuery, Synthesized } from './fixtures/engine.js';
 
-const fixture = JSON.parse(
+const fixture: EngineQuery = JSON.parse(
   readFileSync(new URL('./fixtures/voicevox-zundamon-konnichiwa.json', import.meta.url), 'utf8'),
 );
 const clone = () => structuredClone(fixture);
-const synthesized = JSON.parse(
+const synthesized: Synthesized[] = JSON.parse(
   readFileSync(new URL('./fixtures/voicevox-engine-0.26-synthesis.json', import.meta.url), 'utf8'),
 );
 // Unrounded lengths, so phoneme midpoints can be computed by hand.
-const exact = { frameRate: null };
+const exact: VoicevoxTimingOptions = { frameRate: null };
 
 const moras = fixture.accent_phrases.flatMap((phrase) => phrase.moras);
 const moraSum = moras.reduce((sum, m) => sum + (m.consonant_length ?? 0) + m.vowel_length, 0);
-const pause = fixture.accent_phrases[0].pause_mora.vowel_length;
+const pause = fixture.accent_phrases[0].pause_mora!.vowel_length;
 
 // Phoneme spans in order: [length, expected mouth]. The midpoint of each is
 // sampled, so the assertion does not depend on boundary rounding.
-function expectedSpans(query) {
-  const spans = [[query.prePhonemeLength, 'closed']];
+const VOWEL_SHAPES: Readonly<Record<string, MouthShape>> = { a: 'a', i: 'i', u: 'u', e: 'e', o: 'o' };
+function expectedSpans(query: EngineQuery): [number, MouthShape][] {
+  const spans: [number, MouthShape][] = [[query.prePhonemeLength, 'closed']];
   for (const phrase of query.accent_phrases) {
     for (const m of phrase.moras) {
-      const vowel = { a: 'a', i: 'i', u: 'u', e: 'e', o: 'o' }[m.vowel] ?? 'closed';
-      if (m.consonant) spans.push([m.consonant_length, m.consonant === 'm' ? 'closed' : vowel]);
+      const vowel = VOWEL_SHAPES[m.vowel] ?? 'closed';
+      if (m.consonant) spans.push([m.consonant_length!, m.consonant === 'm' ? 'closed' : vowel]);
       spans.push([m.vowel_length, vowel]);
     }
     if (phrase.pause_mora) spans.push([phrase.pause_mora.vowel_length, 'closed']);
@@ -44,7 +48,7 @@ function expectedSpans(query) {
   return spans;
 }
 
-function assertSpans(track, spans, speedScale) {
+function assertSpans(track: LipSyncTrack, spans: [number, MouthShape][], speedScale: number) {
   let start = 0;
   for (const [length, mouth] of spans) {
     const mid = (start + length / 2) / speedScale;
@@ -94,7 +98,7 @@ test('lipSyncFromVoicevox: mouth shape at each phoneme', () => {
   const moStart = 0.1 + pause + moras.slice(0, 8).reduce((s, m) => s + (m.consonant_length ?? 0) + m.vowel_length, 0);
   assert.equal(moras[8].text, 'モ');
   assert.equal(track.mouthAtSeconds(moStart + 0.01), 'closed');
-  assert.equal(track.mouthAtSeconds(moStart + moras[8].consonant_length + 0.01), 'o');
+  assert.equal(track.mouthAtSeconds(moStart + moras[8].consonant_length! + 0.01), 'o');
 });
 
 test('lipSyncFromVoicevox: speedScale divides every length', () => {
@@ -194,8 +198,8 @@ test('voicevoxVowelShape maps phonemes to mouth shapes', () => {
 });
 
 // Every 0.5 ms offset, so samples never sit exactly on a frame boundary.
-function shapesOf(track) {
-  const shapes = [];
+function shapesOf(track: LipSyncTrack): MouthShape[] {
+  const shapes: MouthShape[] = [];
   for (let i = 0; i < Math.ceil(track.durationInSeconds * 1000) + 5; i += 1) {
     shapes.push(track.mouthAtSeconds((i + 0.5) / 1000));
   }
@@ -203,7 +207,7 @@ function shapesOf(track) {
 }
 
 test('lipSyncFromVoicevox: a timing gives the same track as its query', () => {
-  const queries = [fixture, ...synthesized.map((s) => s.query)];
+  const queries: VoicevoxAudioQuery[] = [fixture, ...synthesized.map((s) => s.query)];
   for (const query of queries) {
     for (const options of [{}, exact, { interrogativeUpspeak: false }]) {
       const fromQuery = lipSyncFromVoicevox(query, options);
@@ -216,20 +220,22 @@ test('lipSyncFromVoicevox: a timing gives the same track as its query', () => {
 
 test('lipSyncFromVoicevox: a cloned timing gives the same track', () => {
   const timing = timingFromVoicevox(fixture);
-  const copied = JSON.parse(JSON.stringify(timing));
+  const copied: typeof timing = JSON.parse(JSON.stringify(timing));
   assert.deepEqual(shapesOf(lipSyncFromVoicevox(copied)), shapesOf(lipSyncFromVoicevox(timing)));
   assert.deepEqual(shapesOf(lipSyncFromVoicevox(structuredClone(timing))), shapesOf(lipSyncFromVoicevox(timing)));
   // The bilabial m of モ still closes the lips in the copy.
   const mo = timing.moras[8];
   const track = lipSyncFromVoicevox(copied);
-  assert.equal(track.mouthAtSeconds((mo.consonant.start + mo.consonant.end) / 2), 'closed');
+  assert.equal(track.mouthAtSeconds((mo.consonant!.start + mo.consonant!.end) / 2), 'closed');
   assert.equal(track.mouthAtSeconds((mo.vowel.start + mo.vowel.end) / 2), 'o');
 });
 
 test('lipSyncFromVoicevox: options with a timing throw', () => {
   const timing = timingFromVoicevox(fixture);
   assert.throws(
-    () => lipSyncFromVoicevox(timing, { frameRate: null }),
+    // Wrong on purpose: the overloads take no options with a timing; this is
+    // the check for untyped callers.
+    () => lipSyncFromVoicevox(timing as unknown as VoicevoxAudioQuery, { frameRate: null }),
     /lipSyncFromVoicevox: options apply when the timing is computed; pass them to timingFromVoicevox/,
   );
 });
