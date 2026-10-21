@@ -6,15 +6,24 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 
-import { pointOnPath } from '../dist/index.js';
+import { pointOnPath } from '../src/index.js';
+import type { PathCommand } from '../src/index.js';
+import { commandOf, contentOf, parseLine } from './helpers.mjs';
+import type { FrameResponse, OnCurveCommand } from './helpers.mjs';
 
+type Point = [number, number];
+
+// The tests that render() are integration tests of the build: they run
+// packages/cli/bin, which loads the built dist/ of this package and the others.
 const cli = fileURLToPath(new URL('../../cli/bin/celesta-react-render.js', import.meta.url));
 
 /**
  * Renders frames 0 to `frames - 1` of a composition whose body is `body`, as
  * the CLI's output lines: the config, then one line per frame.
  */
-function render(body, { allowFailure = false, frames = 1 } = {}) {
+function render(body: string, options: { allowFailure: true }): [unknown, { error?: string }];
+function render(body: string, options?: { frames?: number }): FrameResponse[];
+function render(body: string, { allowFailure = false, frames = 1 }: { allowFailure?: boolean; frames?: number } = {}): unknown[] {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-path-'));
   const entry = join(dir, 'entry.tsx');
   writeFileSync(
@@ -37,7 +46,7 @@ function render(body, { allowFailure = false, frames = 1 } = {}) {
       return [null, { error: result.stdout + result.stderr }];
     }
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    return result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    return result.stdout.split(/\r?\n/).filter(Boolean).map(parseLine);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -52,7 +61,7 @@ test('a path reaches the scene as one layer with its commands, paint, and stroke
   const [path] = frame.scene.layers;
   assert.deepEqual(path.transform.position, { x: 10, y: 20 });
   assert.equal(path.opacity, 0.5);
-  assert.deepEqual(path.content, {
+  assert.deepEqual(contentOf(path, 'path'), {
     type: 'path',
     commands: [
       { type: 'moveTo', x: 0, y: 0 },
@@ -70,7 +79,7 @@ test('a path reaches the scene as one layer with its commands, paint, and stroke
 
 test('a path built from points closes them and omits default stroke styles', () => {
   const [, frame] = render(`<Path points={[[0, 0], [10, 0], [10, 10]]} closed stroke="#FFFFFF" />`);
-  assert.deepEqual(frame.scene.layers[0].content, {
+  assert.deepEqual(contentOf(frame.scene.layers[0], 'path'), {
     type: 'path',
     commands: [
       { type: 'moveTo', x: 0, y: 0 },
@@ -89,16 +98,17 @@ test('a polyline is a single path layer, however many points it has', () => {
   assert.equal(layers.length, 1);
   assert.equal(layers[0].opacity, 0.4);
   assert.equal(layers[0].content.type, 'path');
-  assert.equal(layers[0].content.commands.length, 500);
-  assert.equal(layers[0].content.lineCap, 'round');
-  assert.equal(layers[0].content.lineJoin, 'round');
+  const content = contentOf(layers[0], 'path');
+  assert.equal(content.commands.length, 500);
+  assert.equal(content.lineCap, 'round');
+  assert.equal(content.lineJoin, 'round');
 });
 
 test('a polyline draws the first part of its length, including a closing side', () => {
   const [, frame] = render(
     `<Polyline points={[[0, 0], [10, 0], [10, 10], [0, 10]]} closed progress={0.875} cap="butt" />`,
   );
-  const { commands, lineJoin } = frame.scene.layers[0].content;
+  const { commands, lineJoin } = contentOf(frame.scene.layers[0], 'path');
   assert.equal(lineJoin, undefined);
   assert.deepEqual(commands, [
     { type: 'moveTo', x: 0, y: 0 },
@@ -110,7 +120,7 @@ test('a polyline draws the first part of its length, including a closing side', 
 });
 
 test('a path draws the part of its stroke between progressStart and progress, curves split exactly', () => {
-  const curve = [
+  const curve: PathCommand[] = [
     { type: 'moveTo', x: 0, y: 0 },
     { type: 'quadTo', x1: 50, y1: 0, x: 100, y: 100 },
   ];
@@ -120,16 +130,16 @@ test('a path draws the part of its stroke between progressStart and progress, cu
       `<Path commands={${commands}} stroke="#FFFFFF" progressStart={0.5} />` +
       `<Path commands={${commands}} stroke="#FFFFFF" progressStart={0.6} progress={0.4} />`,
   );
-  const [first, second, empty] = frame.scene.layers.map((layer) => layer.content.commands);
+  const [first, second, empty] = frame.scene.layers.map((layer) => contentOf(layer, 'path').commands);
   assert.deepEqual(first.map((c) => c.type), ['moveTo', 'quadTo']);
   assert.deepEqual(second.map((c) => c.type), ['moveTo', 'quadTo']);
   // The halves meet where pointOnPath puts the tip, half the length along.
   const tip = pointOnPath(curve, 0.5);
-  for (const point of [first[1], second[0]]) {
+  for (const point of [commandOf(first[1], 'quadTo'), commandOf(second[0], 'moveTo')]) {
     assert.ok(Math.abs(point.x - tip.x) < 1e-9 && Math.abs(point.y - tip.y) < 1e-9, JSON.stringify(point));
   }
   // Both halves stay on the parabola y = x² / 100.
-  for (const c of [first[1], second[1]]) {
+  for (const c of [commandOf(first[1], 'quadTo'), commandOf(second[1], 'quadTo')]) {
     assert.ok(Math.abs(c.y - (c.x * c.x) / 100) < 1e-9);
   }
   assert.deepEqual(empty, []);
@@ -144,7 +154,7 @@ test('a trimmed closed path ends open, and its fill stays whole under the stroke
   assert.equal(group.content.type, 'group');
   assert.deepEqual(group.transform.position, { x: 5, y: 0 });
   assert.equal(group.opacity, 0.5);
-  const [fill, stroke] = group.content.layers.map((layer) => layer.content);
+  const [fill, stroke] = contentOf(group, 'group').layers.map((layer) => contentOf(layer, 'path'));
   assert.deepEqual(fill.fill, { type: 'solid', color: '#112233' });
   assert.equal(fill.stroke, undefined);
   assert.equal(fill.commands.length, 5);
@@ -160,7 +170,7 @@ test('a trimmed closed path ends open, and its fill stays whole under the stroke
 
 test('a line is a two-point path with round caps', () => {
   const [, frame] = render(`<Line x1={1} y1={2} x2={30} y2={40} stroke="#00FF00" strokeWidth={4} />`);
-  assert.deepEqual(frame.scene.layers[0].content, {
+  assert.deepEqual(contentOf(frame.scene.layers[0], 'path'), {
     type: 'path',
     commands: [
       { type: 'moveTo', x: 1, y: 2 },
@@ -172,7 +182,7 @@ test('a line is a two-point path with round caps', () => {
 });
 
 test('path commands and styles are validated', () => {
-  const cases = [
+  const cases: [string, RegExp][] = [
     [`<Path stroke="#FFFFFF" />`, /requires `commands` or `points`/],
     [`<Path commands={[{ type: 'arcTo', x: 1, y: 1 }]} />`, /command type must be/],
     [`<Path commands={[{ type: 'lineTo', x: 1, y: NaN }]} />`, /lineTo command requires a finite `y`/],
@@ -188,11 +198,11 @@ test('path commands and styles are validated', () => {
 });
 
 /** The on-curve points of an ellipse path: its moveTo and each cubic's end. */
-function onCurve(commands) {
-  return commands.filter((c) => c.type !== 'close').map((c) => [c.x, c.y]);
+function onCurve(commands: PathCommand[]): Point[] {
+  return commands.filter((c): c is OnCurveCommand => c.type !== 'close').map((c): Point => [c.x, c.y]);
 }
 
-function assertClose(actual, expected, message) {
+function assertClose(actual: number, expected: number, message: string) {
   assert.ok(Math.abs(actual - expected) < 1e-9, `${message}: ${actual} != ${expected}`);
 }
 
@@ -208,7 +218,7 @@ test('a circle is a rect rounded to its radius, placed and rotated about its anc
   assert.equal(circle.opacity, 0.5);
   // A rect's stroke is inside it and its gradients start from its top-left,
   // as an ellipse's are.
-  assert.deepEqual(circle.content, {
+  assert.deepEqual(contentOf(circle, 'rect'), {
     type: 'rect',
     width: 80,
     height: 80,
@@ -225,7 +235,7 @@ test('a circle is a rect rounded to its radius, placed and rotated about its anc
 
 test('a circle stroke defaults to 2 px and is at most its radius', () => {
   const [, frame] = render(`<Circle radius={10} stroke="#FFFFFF" /><Circle radius={10} stroke="#FFFFFF" strokeWidth={50} />`);
-  assert.deepEqual(frame.scene.layers.map((layer) => layer.content.stroke.width), [2, 10]);
+  assert.deepEqual(frame.scene.layers.map((layer) => contentOf(layer, 'rect').stroke?.width), [2, 10]);
 });
 
 test('an ellipse fills its box from the top-left, strokes inside it, and moves gradients with it', () => {
@@ -235,7 +245,7 @@ test('an ellipse fills its box from the top-left, strokes inside it, and moves g
   );
   const [ellipse] = frame.scene.layers;
   assert.deepEqual(ellipse.transform.position, { x: 10, y: 20 });
-  const { commands, fill, stroke } = ellipse.content;
+  const { commands, fill, stroke } = contentOf(ellipse, 'path');
   assert.deepEqual(stroke, { paint: { type: 'solid', color: '#FF0000' }, width: 10 });
   // Box from (-50, -100) to (150, 0); the outline is inset by half the stroke.
   const points = onCurve(commands);
@@ -246,17 +256,18 @@ test('an ellipse fills its box from the top-left, strokes inside it, and moves g
   assertClose(points[6][1], -95, 'top y');
   // Eight cubic arcs, each bulging as far as the ellipse at its midpoint.
   assert.deepEqual(commands.map((c) => c.type), ['moveTo', ...Array(8).fill('cubicTo'), 'close']);
-  const [, first] = commands;
+  const first = commandOf(commands[1], 'cubicTo');
   const mid = [(145 + 3 * first.x1 + 3 * first.x2 + first.x) / 8, (-50 + 3 * first.y1 + 3 * first.y2 + first.y) / 8];
   assert.ok(Math.abs(Math.hypot((mid[0] - 50) / 95, (mid[1] + 50) / 45) - 1) < 1e-5, `midpoint ${mid}`);
+  assert.ok(fill?.type === 'linear');
   assert.deepEqual(fill.start, { x: -50, y: -100 });
   assert.deepEqual(fill.end, { x: 150, y: -100 });
 });
 
 test('an ellipse stroke is at most half its shorter side, and an empty ellipse draws nothing', () => {
   const [, frame] = render(`<Ellipse width={40} height={20} stroke="#FFFFFF" strokeWidth={50} />`);
-  const { commands, stroke } = frame.scene.layers[0].content;
-  assert.equal(stroke.width, 10);
+  const { commands, stroke } = contentOf(frame.scene.layers[0], 'path');
+  assert.equal(stroke?.width, 10);
   assert.deepEqual(onCurve(commands)[0], [35, 10]);
   for (const body of [`<Ellipse width={0} height={20} fill="#FFFFFF" />`, `<Circle radius={0} stroke="#FFFFFF" />`]) {
     const [, empty] = render(body);
@@ -269,7 +280,7 @@ test('an arrow is one filled outline whose head tip is its end point', () => {
   const [arrow] = frame.scene.layers;
   assert.equal(arrow.opacity, 0.5);
   assert.deepEqual(arrow.transform.position, { x: 5, y: 0 });
-  assert.deepEqual(arrow.content, {
+  assert.deepEqual(contentOf(arrow, 'path'), {
     type: 'path',
     commands: [
       { type: 'moveTo', x: 0, y: -2 },
@@ -287,11 +298,11 @@ test('an arrow is one filled outline whose head tip is its end point', () => {
 
 test('an arrow points along its direction, with heads at the start or both ends', () => {
   const [, down] = render(`<Arrow x1={10} y1={0} x2={10} y2={50} heads="start" headLength={10} headWidth={20} stroke="#00FF00" />`);
-  assert.deepEqual(onCurve(down.scene.layers[0].content.commands), [
+  assert.deepEqual(onCurve(contentOf(down.scene.layers[0], 'path').commands), [
     [10, 0], [20, 10], [11, 10], [11, 50], [9, 50], [9, 10], [0, 10],
   ]);
   const [, both] = render(`<Arrow x1={0} y1={0} x2={100} y2={0} heads="both" headLength={10} headWidth={20} />`);
-  assert.deepEqual(onCurve(both.scene.layers[0].content.commands), [
+  assert.deepEqual(onCurve(contentOf(both.scene.layers[0], 'path').commands), [
     [0, 0], [10, -10], [10, -1], [90, -1], [90, -10], [100, 0], [90, 10], [90, 1], [10, 1], [10, 10],
   ]);
 });
@@ -299,12 +310,12 @@ test('an arrow points along its direction, with heads at the start or both ends'
 test('an arrow shorter than its heads shrinks them to fit, and one with no length draws nothing', () => {
   // Two 16 px heads on a 20 px arrow scale to 10 px long and 10 px wide.
   const [, short] = render(`<Arrow x1={0} y1={0} x2={20} y2={0} heads="both" strokeWidth={4} />`);
-  assert.deepEqual(onCurve(short.scene.layers[0].content.commands), [
+  assert.deepEqual(onCurve(contentOf(short.scene.layers[0], 'path').commands), [
     [0, 0], [10, -5], [10, -2], [10, -2], [10, -5], [20, 0], [10, 5], [10, 2], [10, 2], [10, 5],
   ]);
   // A head never gets narrower than the shaft.
   const [, tiny] = render(`<Arrow x1={0} y1={0} x2={2} y2={0} strokeWidth={4} />`);
-  assert.deepEqual(onCurve(tiny.scene.layers[0].content.commands), [
+  assert.deepEqual(onCurve(contentOf(tiny.scene.layers[0], 'path').commands), [
     [0, -2], [0, -2], [0, -2], [2, 0], [0, 2], [0, 2], [0, 2],
   ]);
   const [, empty] = render(`<Arrow x1={30} y1={40} x2={30} y2={40} />`);
@@ -312,7 +323,7 @@ test('an arrow shorter than its heads shrinks them to fit, and one with no lengt
 });
 
 test('shape dimensions are validated', () => {
-  const cases = [
+  const cases: [string, RegExp][] = [
     [`<Circle radius={-1} fill="#FFFFFF" />`, /finite `radius` of at least 0/],
     [`<Circle radius={Number.MAX_VALUE} fill="#FFFFFF" />`, /diameter is finite/],
     [`<Ellipse width={NaN} height={10} fill="#FFFFFF" />`, /finite `width` of at least 0/],

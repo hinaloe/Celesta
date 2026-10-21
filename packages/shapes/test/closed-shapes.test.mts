@@ -6,15 +6,22 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 
-import { heartPath, piePath, polygonPath, starPath, trianglePath } from '../dist/index.js';
+import { heartPath, piePath, polygonPath, starPath, trianglePath } from '../src/index.js';
+import type { PathCommand } from '../src/index.js';
+import { commandOf, contentOf, parseLine } from './helpers.mjs';
+import type { Command, FrameResponse, OnCurveCommand } from './helpers.mjs';
 
+type Point = [number, number];
+
+// The tests that render() are integration tests of the build: they run
+// packages/cli/bin, which loads the built dist/ of this package and the others.
 const cli = fileURLToPath(new URL('../../cli/bin/celesta-react-render.js', import.meta.url));
 
 /**
  * Renders frames 0 to `frames - 1` of a composition whose body is `body`, as
  * the CLI's output lines: the config, then one line per frame.
  */
-function render(body, { frames = 1 } = {}) {
+function render(body: string, { frames = 1 } = {}): FrameResponse[] {
   const dir = mkdtempSync(join(tmpdir(), 'celesta-shapes-'));
   const entry = join(dir, 'entry.tsx');
   writeFileSync(
@@ -36,23 +43,23 @@ function render(body, { frames = 1 } = {}) {
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    return result.stdout.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    return result.stdout.split(/\r?\n/).filter(Boolean).map(parseLine);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
 /** The on-curve points of a path: each command's end point. */
-function onCurve(commands) {
-  return commands.filter((c) => c.type !== 'close').map((c) => [c.x, c.y]);
+function onCurve(commands: PathCommand[]): Point[] {
+  return commands.filter((c): c is OnCurveCommand => c.type !== 'close').map((c): Point => [c.x, c.y]);
 }
 
 /** The point halfway along a cubic that starts at `from`. */
-function cubicMidpoint(from, c) {
+function cubicMidpoint(from: Point, c: Command<'cubicTo'>): Point {
   return [(from[0] + 3 * c.x1 + 3 * c.x2 + c.x) / 8, (from[1] + 3 * c.y1 + 3 * c.y2 + c.y) / 8];
 }
 
-function assertNear(actual, expected, message, tolerance = 1e-9) {
+function assertNear(actual: readonly number[], expected: readonly number[], message: string, tolerance = 1e-9) {
   assert.equal(actual.length, expected.length, message);
   actual.forEach((value, i) => {
     assert.ok(Math.abs(value - expected[i]) < tolerance, `${message}: [${actual}] != [${expected}]`);
@@ -97,7 +104,8 @@ test('a rounded corner is an arc of cornerRadius tangent to both of its sides', 
   // A diamond: every corner is a right angle, so each arc is a quarter turn
   // touching its sides 10 px from the corner.
   const commands = polygonPath({ radius: 50, sides: 4, cornerRadius: 10 });
-  const [start, arc] = commands;
+  const start = commandOf(commands[0], 'moveTo');
+  const arc = commandOf(commands[1], 'cubicTo');
   const side = Math.SQRT1_2 * 10;
   assertNear([start.x, start.y], [50 - side, side], 'arc starts on the incoming side');
   assertNear([arc.x, arc.y], [50 + side, side], 'arc ends on the outgoing side');
@@ -112,7 +120,7 @@ test('a rounded corner is an arc of cornerRadius tangent to both of its sides', 
 });
 
 test('a corner radius too large for the sides shrinks to reach halfway along the shorter one', () => {
-  const [start] = trianglePath({ width: 100, height: 100, cornerRadius: 1e6 });
+  const start = commandOf(trianglePath({ width: 100, height: 100, cornerRadius: 1e6 })[0], 'moveTo');
   // The top corner's arc starts halfway along the left side.
   assertNear([start.x, start.y], [25, 50], 'start of the top arc');
   // A star's inner corners round as well, and nothing is NaN.
@@ -127,11 +135,12 @@ test('a pie runs clockwise from the centre out to startAngle and round to endAng
   assertNear(points[0], [50, 50], 'centre');
   assertNear(points[1], [50, 0], '12 o\'clock');
   assertNear(points[2], [100, 50], '3 o\'clock');
-  const [mx, my] = cubicMidpoint(points[1], commands[2]);
+  const [mx, my] = cubicMidpoint(points[1], commandOf(commands[2], 'cubicTo'));
   assertNear([Math.hypot(mx - 50, my - 50)], [50], 'arc midpoint on the circle', 1e-4);
   // Below startAngle it runs counter-clockwise.
   assertNear(onCurve(piePath({ radius: 50, startAngle: 90, endAngle: 0 }))[2], [50, 0], 'back to 12 o\'clock');
-  assertNear(onCurve(piePath({ radius: 50, endAngle: -90 })).at(-1), [0, 50], 'to 9 o\'clock');
+  const toNine = onCurve(piePath({ radius: 50, endAngle: -90 }));
+  assertNear(toNine[toNine.length - 1], [0, 50], 'to 9 o\'clock');
 });
 
 test('a pie draws nothing at a zero sweep and a whole circle at 360 degrees or more', () => {
@@ -148,7 +157,8 @@ test('a pie draws nothing at a zero sweep and a whole circle at 360 degrees or m
 
 test('a rounded pie has arcs tangent to its sides and rim', () => {
   const commands = piePath({ radius: 100, endAngle: 90, cornerRadius: 10 });
-  const [start, out] = commands;
+  const start = commandOf(commands[0], 'moveTo');
+  const out = commandOf(commands[1], 'lineTo');
   // The centre corner is a right angle, so its arc touches each side 10 px out.
   assertNear([start.x, start.y], [100, 90], 'after the centre corner');
   // The rim corner touches the side sqrt(R^2 - 2Rr) from the centre.
@@ -177,10 +187,11 @@ test('a rounded pie stays finite and inside its circle at every angle of a sweep
 test('a heart fills its box, symmetric about its middle, from the bottom tip', () => {
   const commands = heartPath({ width: 200, height: 180 });
   assert.deepEqual(commands[0], { type: 'moveTo', x: 100, y: 180 });
-  const xs = [];
-  const ys = [];
-  let from = [100, 180];
-  for (const c of commands.slice(1, -1)) {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  let from: Point = [100, 180];
+  for (const command of commands.slice(1, -1)) {
+    const c = commandOf(command, 'cubicTo');
     for (let t = 0; t <= 1; t += 1 / 64) {
       const u = 1 - t;
       xs.push(u ** 3 * from[0] + 3 * u * u * t * c.x1 + 3 * u * t * t * c.x2 + t ** 3 * c.x);
@@ -223,22 +234,22 @@ test('each shape is one path layer with its generator\'s commands, fill, and cen
   const [star, triangle, polygon, pie, heart] = frame.scene.layers;
   assert.deepEqual(star.transform.position, { x: 10, y: 20 });
   assert.equal(star.opacity, 0.5);
-  assert.deepEqual(star.content, {
+  assert.deepEqual(contentOf(star, 'path'), {
     type: 'path',
     commands: starPath({ radius: 60, points: 5, innerRatio: 0.4, cornerRadius: 4 }),
     fill: { type: 'solid', color: '#FFD84D' },
     stroke: { paint: { type: 'solid', color: '#FFFFFF' }, width: 2 },
     lineJoin: 'round',
   });
-  assert.deepEqual(triangle.content, {
+  assert.deepEqual(contentOf(triangle, 'path'), {
     type: 'path',
     commands: trianglePath({ width: 80, height: 60, apex: 0.25, cornerRadius: 6 }),
     stroke: { paint: { type: 'solid', color: '#FF0000' }, width: 5 },
     lineCap: 'round',
   });
-  assert.deepEqual(polygon.content.commands, polygonPath({ radius: 30, sides: 7 }));
-  assert.deepEqual(pie.content.commands, piePath({ radius: 40, startAngle: -45, endAngle: 200, cornerRadius: 5 }));
-  assert.deepEqual(heart.content.commands, heartPath({ width: 70, height: 60 }));
+  assert.deepEqual(contentOf(polygon, 'path').commands, polygonPath({ radius: 30, sides: 7 }));
+  assert.deepEqual(contentOf(pie, 'path').commands, piePath({ radius: 40, startAngle: -45, endAngle: 200, cornerRadius: 5 }));
+  assert.deepEqual(contentOf(heart, 'path').commands, heartPath({ width: 70, height: 60 }));
 });
 
 test('a generator\'s commands passed to a path draw the same shape as the component', () => {
@@ -260,20 +271,22 @@ test('a shape is placed and turned about its anchor, and its gradients move with
   assert.equal(polygon.transform.rotation, 30);
   // A path has no anchor, so the commands move so that the anchor is at the origin.
   const expected = [[0, -25], [50, 25], [0, 75], [-50, 25]];
-  onCurve(polygon.content.commands).forEach((point, i) => assertNear(point, expected[i], `corner ${i}`));
-  assert.deepEqual(polygon.content.fill.start, { x: -50, y: -25 });
-  assert.deepEqual(polygon.content.fill.end, { x: 50, y: -25 });
+  const { commands, fill } = contentOf(polygon, 'path');
+  onCurve(commands).forEach((point, i) => assertNear(point, expected[i], `corner ${i}`));
+  assert.ok(fill?.type === 'linear');
+  assert.deepEqual(fill.start, { x: -50, y: -25 });
+  assert.deepEqual(fill.end, { x: 50, y: -25 });
 });
 
 test('a pie\'s angles animate from nothing, through a slice, to a whole circle', () => {
   const frames = render(`<Pie radius={50} endAngle={frame * 180} fill="#FFFFFF" />`, { frames: 3 }).slice(1);
   assert.deepEqual(frames[0].scene.layers, []);
-  assert.deepEqual(frames[1].scene.layers[0].content.commands, piePath({ radius: 50, endAngle: 180 }));
-  assert.deepEqual(frames[2].scene.layers[0].content.commands, piePath({ radius: 50, endAngle: 360 }));
+  assert.deepEqual(contentOf(frames[1].scene.layers[0], 'path').commands, piePath({ radius: 50, endAngle: 180 }));
+  assert.deepEqual(contentOf(frames[2].scene.layers[0], 'path').commands, piePath({ radius: 50, endAngle: 360 }));
 });
 
 test('shape props are validated', () => {
-  const cases = [
+  const cases: [string, RegExp][] = [
     [`<Star radius={10} points={2} fill="#FFFFFF" />`, /<Star> requires a whole `points` of at least 3/],
     [`<Polygon radius={-1} sides={5} fill="#FFFFFF" />`, /<Polygon> requires a finite `radius` of at least 0/],
     [`<Triangle width={10} height={10} apex={2} fill="#FFFFFF" />`, /<Triangle> requires `apex` to be from 0 to 1/],

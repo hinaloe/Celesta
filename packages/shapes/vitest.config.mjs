@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['test/**/*.test.mjs'],
+    include: ['test/**/*.test.mts'],
     environment: 'node',
     // Every test spawns CLI processes; files racing each other for the CPU
     // push the slower ones past the timeout.

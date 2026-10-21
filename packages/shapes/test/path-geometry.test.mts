@@ -11,33 +11,35 @@ import {
   pointOnPath,
   tangentOnPath,
   toSvgPath,
-} from '../dist/index.js';
+} from '../src/index.js';
+import type { PathCommand, PathPoint } from '../src/index.js';
+import { commandOf } from './helpers.mjs';
 
-function near(actual, expected, tolerance, message) {
+function near(actual: number, expected: number, tolerance: number, message?: string) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${message ?? ''} expected ${expected}, got ${actual}`);
 }
 
-function nearPoint(actual, [x, y], tolerance, message) {
+function nearPoint(actual: PathPoint, [x, y]: [number, number], tolerance: number, message?: string) {
   near(actual.x, x, tolerance, `${message ?? ''} x:`);
   near(actual.y, y, tolerance, `${message ?? ''} y:`);
 }
 
 // y = x², x from 0 to 100 (scaled by 100): a quadratic whose arc length has a closed form.
-const parabola = [
+const parabola: PathCommand[] = [
   { type: 'moveTo', x: 0, y: 0 },
   { type: 'quadTo', x1: 50, y1: 0, x: 100, y: 100 },
 ];
 /** Arc length of y = x² from 0 to `x`, scaled by 100. */
-const parabolaLength = (x) => (100 * (2 * x * Math.sqrt(1 + 4 * x * x) + Math.asinh(2 * x))) / 4;
+const parabolaLength = (x: number) => (100 * (2 * x * Math.sqrt(1 + 4 * x * x) + Math.asinh(2 * x))) / 4;
 
 // y = x³, x from 0 to 100 (scaled by 100), as a cubic.
-const cubicCurve = [
+const cubicCurve: PathCommand[] = [
   { type: 'moveTo', x: 0, y: 0 },
   { type: 'cubicTo', x1: 100 / 3, y1: 0, x2: 200 / 3, y2: 0, x: 100, y: 100 },
 ];
 
 /** Simpson's rule with many steps, as an independent check of a curve's length. */
-function simpson(f, a, b, n = 20000) {
+function simpson(f: (x: number) => number, a: number, b: number, n = 20000) {
   const h = (b - a) / n;
   let sum = f(a) + f(b);
   for (let i = 1; i < n; i += 1) {
@@ -63,7 +65,7 @@ test('a point at a length on a curve is where that much of the curve ends', () =
 
 test('a cubic with uneven speed still maps length to distance travelled', () => {
   // A straight cubic whose control points sit on its ends: slow at both ends, fast in the middle.
-  const line = [
+  const line: PathCommand[] = [
     { type: 'moveTo', x: 0, y: 0 },
     { type: 'cubicTo', x1: 0, y1: 0, x2: 30, y2: 0, x: 30, y: 0 },
   ];
@@ -86,7 +88,7 @@ test('the tangent of a curve is its direction there, with the angle in degrees c
 });
 
 test('a closed path counts its closing side, and a corner takes the side that starts there', () => {
-  const square = [
+  const square: PathCommand[] = [
     { type: 'moveTo', x: 0, y: 0 },
     { type: 'lineTo', x: 10, y: 0 },
     { type: 'lineTo', x: 10, y: 10 },
@@ -102,7 +104,7 @@ test('a closed path counts its closing side, and a corner takes the side that st
 });
 
 test('lengths are clamped to the path, and moveTo jumps add no length', () => {
-  const twoParts = [
+  const twoParts: PathCommand[] = [
     { type: 'moveTo', x: 0, y: 0 },
     { type: 'lineTo', x: 10, y: 0 },
     { type: 'moveTo', x: 100, y: 100 },
@@ -117,20 +119,20 @@ test('lengths are clamped to the path, and moveTo jumps add no length', () => {
 });
 
 test('zero-length segments and control points on an end point keep a direction', () => {
-  const stub = [
+  const stub: PathCommand[] = [
     { type: 'moveTo', x: 0, y: 0 },
     { type: 'lineTo', x: 0, y: 0 },
     { type: 'lineTo', x: 10, y: 0 },
   ];
   assert.deepEqual(getTangentAtLength(stub, 0), { x: 1, y: 0, angle: 0 });
-  const hooked = [
+  const hooked: PathCommand[] = [
     { type: 'moveTo', x: 0, y: 0 },
     { type: 'cubicTo', x1: 0, y1: 0, x2: 0, y2: 0, x: 10, y: 10 },
   ];
   near(getTangentAtLength(hooked, 0).angle, 45, 1e-9);
   near(getTangentAtLength(hooked, getLength(hooked)).angle, 45, 1e-9);
   // A path that draws nothing has no length and points along +x.
-  const dot = [{ type: 'moveTo', x: 3, y: 4 }];
+  const dot: PathCommand[] = [{ type: 'moveTo', x: 3, y: 4 }];
   assert.equal(getLength(dot), 0);
   assert.deepEqual(getPointAtLength(dot, 1), { x: 3, y: 4 });
   assert.deepEqual(getTangentAtLength(dot, 1), { x: 1, y: 0, angle: 0 });
@@ -146,7 +148,7 @@ test('pointOnPath and tangentOnPath take a fraction of the length', () => {
   assert.equal(measurePath(cubicCurve), measure, 'the same commands are measured once');
 });
 
-const triangle = [
+const triangle: PathCommand[] = [
   { type: 'moveTo', x: 0, y: -100 },
   { type: 'lineTo', x: 87, y: 50 },
   { type: 'lineTo', x: -87, y: 50 },
@@ -197,8 +199,8 @@ test('a closed shape morphs from the start nearest the other, without twisting',
 });
 
 test('paths with the same commands blend point by point, and t may overshoot', () => {
-  const a = [{ type: 'moveTo', x: 0, y: 0 }, { type: 'lineTo', x: 10, y: 0 }];
-  const b = [{ type: 'moveTo', x: 0, y: 10 }, { type: 'lineTo', x: 20, y: 10 }];
+  const a: PathCommand[] = [{ type: 'moveTo', x: 0, y: 0 }, { type: 'lineTo', x: 10, y: 0 }];
+  const b: PathCommand[] = [{ type: 'moveTo', x: 0, y: 10 }, { type: 'lineTo', x: 20, y: 10 }];
   assert.deepEqual(interpolatePath(a, b, 0.5), [{ type: 'moveTo', x: 0, y: 5 }, { type: 'lineTo', x: 15, y: 5 }]);
   assert.deepEqual(interpolatePath(a, b, 1.5)[1], { type: 'lineTo', x: 25, y: 15 });
 });
@@ -245,7 +247,7 @@ test('an SVG arc becomes cubic curves along the same ellipse', () => {
   // Sweep 1 turns clockwise on screen, so this half circle bulges upward.
   const half = parseSvgPath('M0 0A50 50 0 0 1 100 0');
   assert.ok(half.slice(1).every((c) => c.type === 'cubicTo'));
-  assert.deepEqual(half[half.length - 1].x, 100);
+  assert.deepEqual(commandOf(half[half.length - 1], 'cubicTo').x, 100);
   assert.equal(half.length, 1 + 4);
   near(getLength(half), Math.PI * 50, 0.001);
   nearPoint(pointOnPath(half, 0.5), [50, -50], 0.001);
@@ -261,7 +263,7 @@ test('an SVG arc becomes cubic curves along the same ellipse', () => {
 });
 
 test('commands become SVG path data and back unchanged', () => {
-  const commands = [
+  const commands: PathCommand[] = [
     { type: 'moveTo', x: 0.1, y: -2 },
     { type: 'lineTo', x: 1e-7, y: 3 },
     { type: 'quadTo', x1: 1, y1: 2, x: 3, y: 4 },

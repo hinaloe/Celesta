@@ -1,34 +1,43 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import * as React from 'react';
+import type { ReactElement } from 'react';
 
 import { Audio, Composition, Text, useCurrentFrame, useVideoConfig } from '@celesta/react';
+import type { AnimatedNumber, Layer } from '@celesta/react';
 import {
   TransitionSeries,
   computeTransitionSeries,
   useTransitionSeriesScene,
   useTransitionVolume,
-} from '../dist/index.js';
+} from '../src/index.js';
+import type {
+  TransitionSeriesEdge,
+  TransitionSeriesItem,
+  TransitionSeriesTransitionProps,
+} from '../src/index.js';
 import { mount } from '@celesta/react/internal';
+import type { MountedComposition } from '@celesta/react/internal';
+import { childrenOf, contentOf } from './helpers.mjs';
 
 const h = React.createElement;
 const FPS = 10;
-const at = (composition, frame) => composition.renderAt({ value: frame, timescale: FPS }, null);
+const at = (composition: MountedComposition, frame: number) => composition.renderAt({ value: frame, timescale: FPS }, null);
 
 // Each scene renders as <Sequence> > transition <Group> > content.
-const scenes = (layers) => layers.map((sequence) => {
-  const group = sequence.content.layers[0];
-  return { group, text: group.content.layers[0].content.text };
+const scenes = (layers: Layer[]) => layers.map((sequence) => {
+  const group = childrenOf(sequence)[0];
+  return { group, text: contentOf(childrenOf(group)[0], 'text').text };
 });
 
-function Scene({ name }) {
+function Scene({ name }: { name: string }) {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
   assert.ok(frame >= 0 && frame < durationInFrames, `${name} rendered at local frame ${frame}`);
   return h(Text, null, `${name}:${frame}`);
 }
 
-function series(transition, total) {
+function series(transition: TransitionSeriesTransitionProps | null, total: number) {
   return mount(() => h(Composition, { width: 100, height: 50, fps: FPS, durationInFrames: total },
     h(TransitionSeries, null,
       h(TransitionSeries.Sequence, { durationInFrames: 10 }, h(Scene, { name: 'a' })),
@@ -80,7 +89,7 @@ test('computeTransitionSeries overlaps scenes by each transition and shortens th
 });
 
 test('computeTransitionSeries rejects layouts that would leave a gap or show three scenes', () => {
-  const cases = [
+  const cases: [unknown[], RegExp][] = [
     [[], /at least one scene/],
     [[{ type: 'crossfade', durationInFrames: 5 }, { durationInFrames: 10 }], /before any scene/],
     [[{ durationInFrames: 10 }, { type: 'crossfade', durationInFrames: 5 }], /cannot end with a transition/],
@@ -102,7 +111,8 @@ test('computeTransitionSeries rejects layouts that would leave a gap or show thr
     [[{ durationInFrames: 0 }], /item 0 requires a positive integer durationInFrames/],
   ];
   for (const [items, message] of cases) {
-    assert.throws(() => computeTransitionSeries(items), message);
+    // Wrong on purpose: the checks are for data that comes in untyped.
+    assert.throws(() => computeTransitionSeries(items as TransitionSeriesItem[]), message);
   }
 });
 
@@ -126,7 +136,7 @@ test('a crossfade shows both scenes only while they overlap, the next one above'
 });
 
 test('without a transition, or with a cut, scenes meet on one frame with no gap', () => {
-  for (const transition of [null, { type: 'cut' }]) {
+  for (const transition of [null, { type: 'cut' } as const]) {
     const composition = series(transition, 20);
     assert.deepEqual(scenes(at(composition, 9).scene.layers).map((s) => s.text), ['a:9']);
     assert.deepEqual(scenes(at(composition, 10).scene.layers).map((s) => s.text), ['b:0']);
@@ -134,7 +144,7 @@ test('without a transition, or with a cut, scenes meet on one frame with no gap'
 });
 
 test('a slide pushes the previous scene out by the frame size', () => {
-  const offsets = (from, frame) => scenes(at(series({ type: 'slide', durationInFrames: 3, from }, 17), frame).scene.layers)
+  const offsets = (from: TransitionSeriesEdge, frame: number) => scenes(at(series({ type: 'slide', durationInFrames: 3, from }, 17), frame).scene.layers)
     .map(({ group }) => [group.transform.position.x, group.transform.position.y]);
   // Frame 8 is the second of the three overlapped frames: progress 2/4.
   assert.deepEqual(offsets('left', 8), [[50, 0], [-50, 0]]);
@@ -146,12 +156,12 @@ test('a slide pushes the previous scene out by the frame size', () => {
 });
 
 test('a wipe clips the next scene to a growing strip from its edge', () => {
-  const clip = (from, frame, easing) => {
+  const clip = (from: TransitionSeriesEdge, frame: number, easing?: (progress: number) => number) => {
     const shown = scenes(at(series({ type: 'wipe', durationInFrames: 4, from, easing }, 16), frame).scene.layers);
-    assert.equal(shown[0].group.content.clip, undefined);
-    return shown[1].group.content.clip;
+    assert.equal(contentOf(shown[0].group, 'group').clip, undefined);
+    return contentOf(shown[1].group, 'group').clip;
   };
-  const rect = (x, y, width, height) => ({ x, y, width, height, cornerRadius: 0 });
+  const rect = (x: number, y: number, width: number, height: number) => ({ x, y, width, height, cornerRadius: 0 });
   assert.deepEqual(clip('left', 6), rect(0, 0, 20, 50));
   assert.deepEqual(clip('right', 7), rect(60, 0, 40, 50));
   assert.deepEqual(clip('top', 8), rect(0, 0, 100, 30));
@@ -160,8 +170,8 @@ test('a wipe clips the next scene to a growing strip from its edge', () => {
 });
 
 test('scenes read their transitions; audio overlaps and useTransitionVolume cross-fades it', () => {
-  const seen = [];
-  function Voiced({ name }) {
+  const seen: string[] = [];
+  function Voiced({ name }: { name: string }) {
     const scene = useTransitionSeriesScene();
     seen.push(`${name}:${JSON.stringify(scene)}`);
     return h(Audio, { src: `${name}.wav`, volume: useTransitionVolume(0.5) });
@@ -174,8 +184,8 @@ test('scenes read their transitions; audio overlaps and useTransitionVolume cros
       h(TransitionSeries.Sequence, { durationInFrames: 10 }, h(Voiced, { name: 'c' })),
     ),
   ));
-  const us = (seconds) => ({ value: Math.round(seconds * 1e6), timescale: 1e6 });
-  const clip = (src, start, volume) => ({ src, sourceStart: 0, playbackRate: 1, volume, muted: false, start, duration: 1 });
+  const us = (seconds: number) => ({ value: Math.round(seconds * 1e6), timescale: 1e6 });
+  const clip = (src: string, start: number, volume: AnimatedNumber) => ({ src, sourceStart: 0, playbackRate: 1, volume, muted: false, start, duration: 1 });
   seen.length = 0;
   assert.deepEqual(at(composition, 7).audio, [
     clip('a.wav', 0, { type: 'keyframes', keyframes: [{ time: us(0.6), value: 0.5 }, { time: us(1), value: 0 }] }),
@@ -189,7 +199,7 @@ test('scenes read their transitions; audio overlaps and useTransitionVolume cros
 });
 
 test('TransitionSeries parts and hooks throw outside a series', () => {
-  const render = (child) => () => mount(() => h(Composition, { width: 10, height: 10, fps: FPS, durationInFrames: 10 }, child));
+  const render = (child: ReactElement) => () => mount(() => h(Composition, { width: 10, height: 10, fps: FPS, durationInFrames: 10 }, child));
   assert.throws(render(h(TransitionSeries.Sequence, { durationInFrames: 5 })), /must be a direct child of <TransitionSeries>/);
   assert.throws(render(h(TransitionSeries.Transition, { type: 'cut' })), /must be a direct child of <TransitionSeries>/);
   assert.throws(render(h(TransitionSeries, null, h(Text, null, 'x'))), /children must be/);
@@ -201,7 +211,8 @@ test('TransitionSeries parts and hooks throw outside a series', () => {
   assert.throws(
     render(h(TransitionSeries, null,
       h(TransitionSeries.Sequence, { durationInFrames: 5 }),
-      h(TransitionSeries.Transition, { type: 'slide', durationInFrames: 2, from: 'center' }),
+      // Wrong on purpose: the check is for untyped JavaScript callers.
+      h(TransitionSeries.Transition, { type: 'slide', durationInFrames: 2, from: 'center' as TransitionSeriesEdge }),
       h(TransitionSeries.Sequence, { durationInFrames: 5 }),
     )),
     /unknown from "center"/,
