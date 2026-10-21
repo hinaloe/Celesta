@@ -39,7 +39,7 @@ Celesta の機能を、9 つのチャプターで紹介する 52 秒のモーシ
   Google Fonts の `<Font>` 読み込み（和文は `text=` で使う文字だけにサブセット）、
   文字の縁取り、`Character` / `CharacterView` / `Dialogue` による PSD 立ち絵と字幕、
   `prepare()` 内の `loadPsdPreset()` / `loadLipSync()`、`decodeWav()` / `buildEnvelope()` で
-  音声ファイルから読んだ波形、`<Audio volume>` のキーフレームによるセリフ中の BGM ダッキング。
+  音声ファイルから読んだ波形、`<Audio duck>` によるセリフ中の BGM ダッキング。
 - **モーショングラフィックとしての演出**: プレビュー画面、タイムライン、書き出しの進捗、
   エージェントのログは機能を説明するための描画で、アプリの画面収録や実際の処理時間ではありません。
   LAYOUT のタイル移動は Grid / Stack / Center の配置を再現した手計算の補間です。

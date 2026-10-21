@@ -13,19 +13,29 @@
 // Author-editable inputs: examples/assets/voice-level-demo/script.json, and
 // LEVELS, BGM_DUCK, and GAME_DUCK below.
 //
-// The ducking here is a TEMPORARY example-local recipe (speechIntervals +
-// duckVolume). Issue #87 owns the shared ducking helper; once it lands,
-// replace both functions with it and keep passing the same audible
-// intervals. It is a precomputed volume envelope, not a realtime sidechain
-// compressor: preview and export evaluate the same keyframes.
+// The ducking follows the speech the level analysis found, not the whole
+// planned lines: duckingVolume() builds each bed's volume from the plan and
+// the report. It is a precomputed curve, not a realtime sidechain
+// compressor, so preview and export play the same volumes. Without the
+// report, `<Audio duck={{ under: 'voice' }}>` would duck under the voices'
+// whole clips with no prepare() step at all.
 //
 // Assets: examples/assets/voice-level-demo (synthesized by the script above)
 // and the portraits from examples/assets/dialogue-demo.
 import * as React from 'react';
 
-import { Assets, Audio, Composition, Group, Rect, Text, frameKeyframes, useCurrentFrame } from '@celesta/react';
-import { Character, CharacterView, DialogueSeries, loadDialogueLipSync, matchVoiceLevels, planDialogue } from '@celesta/character';
-import type { AnimatedNumber, AssetReference, FrameKeyframe, TextStyle } from '@celesta/react';
+import { Assets, Audio, Composition, Group, Rect, Text, useCurrentFrame } from '@celesta/react';
+import {
+  Character,
+  CharacterView,
+  DialogueSeries,
+  duckingVolume,
+  loadDialogueLipSync,
+  matchVoiceLevels,
+  planDialogue,
+  speechIntervals,
+} from '@celesta/character';
+import type { AnimatedNumber, AssetReference, TextStyle } from '@celesta/react';
 import type {
   CharacterSubtitle,
   CharacterViewReference,
@@ -55,22 +65,13 @@ const LEVELS: VoiceLevelOptions = {
   speakers: { komugi: { offsetDb: -1 } },
 };
 
-/** How each background bed ducks under speech. Levels are linear volume. */
-interface Duck {
-  /** Volume with nobody speaking. */
-  full: number;
-  /** Volume under speech. */
-  ducked: number;
-  /** Frames to go down before speech starts. */
-  attackFrames: number;
-  /** Frames to come back up after speech ends. */
-  releaseFrames: number;
-  /** Silences shorter than this stay ducked instead of bobbing up. */
-  holdFrames: number;
-}
-
-const BGM_DUCK: Duck = { full: 0.8, ducked: 0.25, attackFrames: 6, releaseFrames: 18, holdFrames: 36 };
-const GAME_DUCK: Duck = { full: 1, ducked: 0.5, attackFrames: 3, releaseFrames: 9, holdFrames: 12 };
+/**
+ * How each background bed ducks under speech: `volume` with nobody speaking,
+ * `to` times that under speech, `attack` / `release` seconds to go down and
+ * back up, and silences shorter than `holdGap` seconds stay ducked.
+ */
+const BGM_DUCK = { volume: 0.8, to: 0.3125, attack: 0.2, release: 0.6, holdGap: 1.2 };
+const GAME_DUCK = { volume: 1, to: 0.5, attack: 0.1, release: 0.3, holdGap: 0.4 };
 
 const CAST: Record<Speaker, { name: string; color: string; x: number }> = {
   shizuku: { name: 'しずく', color: '#1f6feb', x: 200 },
@@ -101,68 +102,12 @@ export async function prepare(): Promise<void> {
   const matched = await matchVoiceLevels(lines, LEVELS);
   levels = matched.report;
   plan = await planDialogue(matched.lines, { fps: FPS, gap: 0.4 });
-  speech = speechIntervals(plan, levels);
+  // Where a voice is actually audible, in frames for the drawing: leading
+  // and trailing silence in a file and the gap after a line do not count.
+  speech = speechIntervals(plan, { levels }).map(([start, end]) => [start * FPS, end * FPS]);
   // Both beds play from frame 0 at the composition root, so origin is 0.
-  bgmVolume = duckVolume(speech, BGM_DUCK, 0);
-  gameVolume = duckVolume(speech, GAME_DUCK, 0);
-}
-
-// --- Temporary ducking recipe (replace with #87's helper when available) ---
-
-/**
- * Frames, on the composition clock, where a voice is actually audible:
- * from the first to the last block that passed the level analysis' gates,
- * so leading/trailing silence in a file and the gap after a line do not
- * count. Muted lines and lines without audio are skipped; a line that was
- * not analyzed (opted out) counts for its whole planned length.
- */
-function speechIntervals<L extends DialogueLine>(dialogue: DialoguePlan<L>, report: VoiceLevelReport): Array<[number, number]> {
-  const intervals: Array<[number, number]> = [];
-  for (const entry of dialogue.lines) {
-    if (entry.line.audio === undefined || entry.line.muted) continue;
-    const analysis = report.lines[entry.index].analysis;
-    if (analysis?.speechStartSeconds === null) continue; // silent file
-    const start = analysis ? entry.from + Math.floor(analysis.speechStartSeconds * dialogue.fps) : entry.from;
-    const end = analysis
-      ? entry.from + Math.min(entry.durationInFrames, Math.ceil(analysis.speechEndSeconds! * dialogue.fps))
-      : entry.from + entry.durationInFrames;
-    intervals.push([start, end]);
-  }
-  return intervals;
-}
-
-/**
- * A volume envelope that sits at `full`, eases down to `ducked` over
- * `attackFrames` before each run of speech and back up over `releaseFrames`
- * after it. Overlapping speech is merged (the union of intervals), and so is
- * any silence shorter than `holdFrames` or too short to fit a release and the
- * next attack. `origin` is the frame the `<Audio>`'s enclosing sequence
- * starts on, converting composition frames to its local clock.
- */
-function duckVolume(intervals: Array<[number, number]>, duck: Duck, origin: number): AnimatedNumber {
-  const merged: Array<[number, number]> = [];
-  for (const [start, end] of [...intervals].sort((a, b) => a[0] - b[0])) {
-    const last = merged[merged.length - 1];
-    const silence = last ? start - last[1] : Infinity;
-    if (last && (silence < duck.holdFrames || silence < duck.releaseFrames + duck.attackFrames)) {
-      last[1] = Math.max(last[1], end);
-    } else {
-      merged.push([start, end]);
-    }
-  }
-  if (merged.length === 0) {
-    return duck.full;
-  }
-  const keys: FrameKeyframe[] = [];
-  for (const [start, end] of merged) {
-    keys.push(
-      { frame: start - duck.attackFrames, value: duck.full },
-      { frame: start, value: duck.ducked, easing: 'ease-in-out' },
-      { frame: end, value: duck.ducked },
-      { frame: end + duck.releaseFrames, value: duck.full, easing: 'ease-in-out' },
-    );
-  }
-  return frameKeyframes(keys, { fps: FPS, origin });
+  bgmVolume = duckingVolume(plan, BGM_DUCK, { levels });
+  gameVolume = duckingVolume(plan, GAME_DUCK, { levels });
 }
 
 // --- Display ---
@@ -217,10 +162,10 @@ function Envelopes() {
   );
   return (
     <Group>
-      {lane('BGM の音量', bgmVolume, BGM_DUCK.full, LANES.y)}
-      {lane('ゲーム音の音量', gameVolume, GAME_DUCK.full, LANES.y + 100)}
+      {lane('BGM の音量', bgmVolume, BGM_DUCK.volume, LANES.y)}
+      {lane('ゲーム音の音量', gameVolume, GAME_DUCK.volume, LANES.y + 100)}
       <Text x={LANES.x} y={LANES.y + 186} style={text(13, MUTED)}>
-        青い帯: 声が実際に出ている区間。ダッキングは例ローカルの暫定レシピ（#87 で置き換え予定）
+        青い帯: 声が実際に出ている区間。音量は duckingVolume() で計画と解析から作る
       </Text>
     </Group>
   );
