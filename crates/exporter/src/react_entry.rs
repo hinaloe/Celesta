@@ -1,13 +1,14 @@
 use crate::control::{CompositionInfo, ExportCancellation, ExportProgress, ExportedFile};
 use crate::error::ExportError;
 use crate::exporter::Exporter;
+use crate::loudness::finish_mix;
 use crate::project::build_audio_graph;
 use crate::range::{resolve_window, shifted_audio_graph};
 use crate::react::{CompanionProject, ReactRuntimeOptions, ReactVideoRequest};
 use crate::render::{ensure_encoders, ensure_not_cancelled, validate_dimensions, validate_output};
 use crate::subtitles;
 use celesta_composition::Time;
-use celesta_media::{AudioMixError, FfmpegBackend, mix_audio_graph_cancellable};
+use celesta_media::{AudioMixError, FfmpegBackend, mix_audio_graph_unclipped_cancellable};
 use celesta_project::Project;
 use celesta_react_bridge::ReactCompositionMetadata;
 use std::path::{Path, PathBuf};
@@ -214,23 +215,40 @@ impl Exporter {
         .map_err(ExportError::Time)?;
         let graph = build_audio_graph(&react_audio, asset_root, project_refs)?;
         let audio = !graph.clips.is_empty();
+        let mut loudness = None;
         let output_file = if !audio {
+            if self.options.loudness.is_some() {
+                progress(ExportProgress::Warning(
+                    "the composition has no sound, so there is no loudness to bring to the target"
+                        .to_owned(),
+                ));
+            }
             final_file
         } else {
             progress(ExportProgress::MixingAudio);
             let graph = shifted_audio_graph(&graph, window_start).map_err(ExportError::Time)?;
             let mut audio_decoder = FfmpegBackend::new();
-            let audio = mix_audio_graph_cancellable(
+            let audio_error = |error| match error {
+                AudioMixError::Cancelled => ExportError::Cancelled,
+                error => ExportError::Audio(error),
+            };
+            let mut audio = mix_audio_graph_unclipped_cancellable(
                 &graph,
                 asset_root,
                 duration,
                 &mut audio_decoder,
                 || cancellation.is_cancelled(),
             )
-            .map_err(|error| match error {
-                AudioMixError::Cancelled => ExportError::Cancelled,
-                error => ExportError::Audio(error),
-            })?;
+            .map_err(audio_error)?;
+            let (measured, warnings) =
+                finish_mix(&mut audio, self.options.loudness.as_ref(), || {
+                    cancellation.is_cancelled()
+                })
+                .map_err(audio_error)?;
+            loudness = Some(measured);
+            for warning in warnings {
+                progress(ExportProgress::Warning(warning));
+            }
             ensure_not_cancelled(cancellation)?;
             progress(ExportProgress::Muxing);
             let muxed_file = tempfile::Builder::new()
@@ -266,6 +284,7 @@ impl Exporter {
             first_frame: start_frame,
             frames: frame_count,
             audio,
+            loudness,
             format: self.options.video_format,
         }));
         if !self.options.subtitles.is_empty() {

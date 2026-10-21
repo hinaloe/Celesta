@@ -13,10 +13,10 @@ mod progress;
 
 use celesta_composition::Time;
 use celesta_exporter::{
-    BitDepth, ColorConversion, ContactSheet, EncoderPreset, ExportCancellation, ExportJob,
-    ExportOptions, ExportProgress, ExportRange, ExportedFile, FrameSelection, GpuDriver,
-    ReactRuntimeOptions, RenderQuality, StillExport, StillFormat, VideoEncoding, VideoFormat,
-    parse_timecode,
+    AudioLoudness, BitDepth, ColorConversion, ContactSheet, EncoderPreset, ExportCancellation,
+    ExportJob, ExportOptions, ExportProgress, ExportRange, ExportedFile, FrameSelection, GpuDriver,
+    LoudnessTarget, PeakHandling, ReactRuntimeOptions, RenderQuality, StillExport, StillFormat,
+    VideoEncoding, VideoFormat, parse_timecode,
 };
 use celesta_react_bridge::{PropsFileChoice, resolve_props_file};
 
@@ -60,6 +60,15 @@ so the first hit is not smeared on every pass. The decoded sound is still
 exactly as long as the video. It applies to MP4 only; a .mov's PCM already
 runs from its end into its start unchanged.
 
+--loudness brings the whole mix to an integrated loudness (ITU-R BS.1770,
+as FFmpeg's ebur128 filter measures it): a number of LUFS from -70 to -5,
+streaming (-14, as YouTube and Spotify play) or broadcast (-23, EBU R128).
+One gain moves the whole mix; where it would take a true peak over
+--true-peak (default -1 dBTP), a limiter holds the peak there, or with
+--peak-handling lower the gain stops short of the target instead. Every
+video export measures its mix, and --json reports the loudness, the true
+peak and the gain. AAC and Opus move the peaks by up to about half a dB.
+
 --json prints one line of JSON on stdout when the export ends, and nothing
 else: status, the composition's size, fps and frame count, every written
 file with its frame numbers, warnings, and on failure an error code and
@@ -100,7 +109,8 @@ struct Cli {
             "output", "project", "overwrite", "from", "to", "frames", "every",
             "contact_sheet", "columns", "tile_width", "output_format", "quality", "preset",
             "crf", "color_conversion", "bit_depth", "render_quality", "driver", "no_ui",
-            "json", "debug_guides", "subtitles", "looping", "info", "stdin_cancel",
+            "json", "debug_guides", "subtitles", "looping", "loudness", "true_peak",
+            "peak_handling", "info", "stdin_cancel",
         ]
     )]
     inspect: bool,
@@ -112,7 +122,7 @@ struct Cli {
             "output", "overwrite", "from", "to", "frames", "every", "contact_sheet",
             "columns", "tile_width", "output_format", "quality", "preset", "crf",
             "color_conversion", "bit_depth", "render_quality", "driver", "debug_guides",
-            "subtitles", "looping",
+            "subtitles", "looping", "loudness", "true_peak", "peak_handling",
         ]
     )]
     info: bool,
@@ -232,6 +242,33 @@ struct Cli {
     /// its start.
     #[arg(long = "loop")]
     looping: bool,
+    /// Bring the mix to this integrated loudness: LUFS (-70 to -5),
+    /// streaming (-14) or broadcast (-23).
+    #[arg(
+        long,
+        value_name = "LUFS",
+        allow_negative_numbers = true,
+        value_parser = parse_loudness
+    )]
+    loudness: Option<f64>,
+    /// The highest true peak --loudness may leave, -9 to 0 [default: -1].
+    #[arg(
+        long,
+        value_name = "DBTP",
+        allow_negative_numbers = true,
+        requires = "loudness",
+        value_parser = parse_true_peak
+    )]
+    true_peak: Option<f64>,
+    /// What --loudness does where its gain would take a true peak over
+    /// --true-peak: limit the peak, or lower the gain [default: limit].
+    #[arg(
+        long,
+        value_name = "HOW",
+        requires = "loudness",
+        value_parser = names(&PeakHandling::ALL, PeakHandling::as_str)
+    )]
+    peak_handling: Option<PeakHandling>,
     /// How carefully scaled and rotated layers are drawn; draft skips
     /// re-rasterizing scaled text and is meant for quick timing checks.
     #[arg(
@@ -268,6 +305,15 @@ impl Cli {
     /// The video or PNG output; `None` writes only subtitles.
     fn output(&self) -> Option<&Path> {
         self.output.as_deref()
+    }
+
+    fn loudness(&self) -> Option<LoudnessTarget> {
+        let target = LoudnessTarget::new(self.loudness?);
+        Some(LoudnessTarget {
+            true_peak_dbtp: self.true_peak.unwrap_or(target.true_peak_dbtp),
+            peak_handling: self.peak_handling.unwrap_or(target.peak_handling),
+            ..target
+        })
     }
 
     fn video(&self) -> VideoEncoding {
@@ -323,6 +369,45 @@ fn names<T: Copy + Send + Sync + 'static>(
             .find(|&value| name(value) == text)
             .expect("PossibleValuesParser only accepts listed names")
     })
+}
+
+/// `--loudness`: a number of LUFS in [`LoudnessTarget::INTEGRATED_RANGE`],
+/// or a preset's name.
+fn parse_loudness(value: &str) -> Result<f64, String> {
+    match value {
+        "streaming" => Ok(LoudnessTarget::STREAMING.integrated_lufs),
+        "broadcast" => Ok(LoudnessTarget::BROADCAST.integrated_lufs),
+        _ => decibels(value, LoudnessTarget::INTEGRATED_RANGE, "LUFS")
+            .map_err(|error| format!("{error}, streaming or broadcast")),
+    }
+}
+
+/// `--true-peak`: dBTP in [`LoudnessTarget::TRUE_PEAK_RANGE`].
+fn parse_true_peak(value: &str) -> Result<f64, String> {
+    decibels(value, LoudnessTarget::TRUE_PEAK_RANGE, "dBTP")
+}
+
+fn decibels(value: &str, (low, high): (f64, f64), unit: &str) -> Result<f64, String> {
+    value
+        .parse::<f64>()
+        .ok()
+        .filter(|value| (low..=high).contains(value))
+        .ok_or_else(|| format!("expected {low} to {high} {unit}"))
+}
+
+/// How the human-readable output reports an exported mix's loudness.
+fn loudness_line(loudness: &AudioLoudness) -> String {
+    let mut line = match loudness.integrated_lufs {
+        Some(lufs) => format!("loudness: {lufs:.1} LUFS"),
+        None => "loudness: none (silent or under 0.4 s)".to_owned(),
+    };
+    if let Some(peak) = loudness.true_peak_dbtp {
+        line.push_str(&format!(", true peak {peak:.1} dBTP"));
+    }
+    if let Some(gain) = loudness.gain_db {
+        line.push_str(&format!(", gain {gain:+.1} dB"));
+    }
+    line
 }
 
 fn non_zero(value: u32) -> NonZeroU32 {
@@ -387,8 +472,25 @@ fn main() -> ExitCode {
                 render_quality: cli.render_quality,
                 props: props_file.as_ref().map(props_label),
             };
-            progress::run(settings, cli.no_ui, export)
-                .map(|()| eprintln!("export complete: {}", output.display()))
+            let mut loudness = None;
+            progress::run(settings, cli.no_ui, |on_progress| {
+                export(&mut |event| {
+                    if let ExportProgress::Wrote(ExportedFile::Video {
+                        loudness: Some(measured),
+                        ..
+                    }) = &event
+                    {
+                        loudness = Some(*measured);
+                    }
+                    on_progress(event);
+                })
+            })
+            .map(|()| {
+                eprintln!("export complete: {}", output.display());
+                if let Some(loudness) = &loudness {
+                    eprintln!("{}", loudness_line(loudness));
+                }
+            })
         }
         // There is no picture to show progress for, so no dashboard either.
         _ => progress::run_plain(|on_progress| {
@@ -587,6 +689,9 @@ fn output_choice(cli: &Cli, explicit: &dyn Fn(&str) -> bool) -> Result<OutputCho
         if cli.looping {
             return Err("--loop applies to MP4 output, not still frames".into());
         }
+        if cli.loudness.is_some() {
+            return Err("--loudness applies to video output, not still frames".into());
+        }
         // An output with no still extension is left to the exporter, which
         // reports it as `invalid_selection`.
         let format = StillFormat::from_extension(output);
@@ -664,6 +769,7 @@ fn subtitles_only_choice(explicit: &dyn Fn(&str) -> bool) -> Result<OutputChoice
         ("bit_depth", "--bit-depth"),
         ("color_conversion", "--color-conversion"),
         ("looping", "--loop"),
+        ("loudness", "--loudness"),
         ("render_quality", "--render-quality"),
         ("driver", "--driver"),
     ] {
@@ -707,6 +813,7 @@ fn job(cli: &Cli, format: OutputChoice, range: Option<ExportRange>) -> ExportJob
             driver: cli.driver,
             subtitles: cli.subtitles.clone(),
             looping: cli.looping,
+            loudness: cli.loudness(),
         },
     }
 }
@@ -912,6 +1019,62 @@ mod tests {
         ] {
             let message = error(args);
             assert!(message.contains("--loop"), "{message}");
+        }
+    }
+
+    fn loudness(args: &[&str]) -> Result<Option<LoudnessTarget>, clap::Error> {
+        let matches = Cli::command().try_get_matches_from(
+            ["celesta-exporter", "project.celesta.json", "out.mp4"]
+                .into_iter()
+                .chain(args.iter().copied()),
+        )?;
+        Ok(Cli::from_arg_matches(&matches)?.loudness())
+    }
+
+    #[test]
+    fn loudness_takes_lufs_or_a_preset() {
+        assert_eq!(loudness(&[]).unwrap(), None);
+        assert_eq!(
+            loudness(&["--loudness", "-14", "--true-peak", "-1.5"]).unwrap(),
+            Some(LoudnessTarget {
+                true_peak_dbtp: -1.5,
+                ..LoudnessTarget::new(-14.0)
+            })
+        );
+        assert_eq!(
+            loudness(&["--loudness=broadcast"]).unwrap(),
+            Some(LoudnessTarget::BROADCAST)
+        );
+        assert_eq!(
+            loudness(&["--loudness", "streaming", "--peak-handling", "lower"]).unwrap(),
+            Some(LoudnessTarget {
+                peak_handling: PeakHandling::Lower,
+                ..LoudnessTarget::STREAMING
+            })
+        );
+        for args in [
+            ["--loudness", "-3"].as_slice(),
+            &["--loudness", "loud"],
+            &["--loudness", "-14", "--true-peak", "1"],
+            &["--true-peak", "-1"],
+            &["--peak-handling", "lower"],
+        ] {
+            assert!(loudness(args).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn loudness_applies_to_video_only() {
+        assert_eq!(
+            choice(&["out.webm", "--loudness", "-14"]),
+            Ok(OutputChoice::Video(VideoFormat::Webm))
+        );
+        for args in [
+            ["--frame", "0", "--loudness", "-14", "out.png"].as_slice(),
+            &["--subtitles", "a.srt", "--loudness", "-14"],
+        ] {
+            let message = error(args);
+            assert!(message.contains("--loudness"), "{message}");
         }
     }
 

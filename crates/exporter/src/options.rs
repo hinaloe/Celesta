@@ -1,12 +1,13 @@
 use crate::range::ExportRange;
 use crate::{GpuDriver, RenderQuality};
+use celesta_media::LoudnessTarget;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ExportOptions {
     pub overwrite: bool,
     /// When set, only this composition-time span is rendered; the encoded
@@ -37,6 +38,11 @@ pub struct ExportOptions {
     /// pass; the decoded sound is still exactly the mix. MOV's PCM needs
     /// nothing, and WebM's Opus is written as without it.
     pub looping: bool,
+    /// Brings the whole mix to this integrated loudness before it is
+    /// encoded, keeping its true peaks under the target's ceiling. A video
+    /// export measures its mix either way and reports the result in
+    /// [`ExportedFile::Video`](crate::ExportedFile::Video).
+    pub loudness: Option<LoudnessTarget>,
 }
 
 /// The container (and, with it, the codecs) an exported video is written in.

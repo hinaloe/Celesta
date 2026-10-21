@@ -2,12 +2,12 @@ use std::path::{Path, PathBuf};
 
 use celesta_composition::{Rational, Time, TimeRange};
 use celesta_exporter::{
-    BitDepth, ColorConversion, EncoderPreset, ExportCancellation, ExportError, ExportJob,
-    ExportOptions, ExportProgress, ExportRange, ExportedFile, Exporter, ReactRuntimeOptions,
-    VideoEncoding, VideoFormat,
+    AudioLoudness, BitDepth, ColorConversion, EncoderPreset, ExportCancellation, ExportError,
+    ExportJob, ExportOptions, ExportProgress, ExportRange, ExportedFile, Exporter, LoudnessTarget,
+    ReactRuntimeOptions, VideoEncoding, VideoFormat,
 };
 use celesta_gpu_renderer::GpuRenderError;
-use celesta_media::{FfmpegBackend, VideoFrameDecoder};
+use celesta_media::{AudioDecoder, FfmpegBackend, VideoFrameDecoder, measure_loudness};
 use celesta_project::{
     Animatable, Asset, AssetSource, DuckGroups, Project, ProjectDuck, TimelineContent,
     TimelineItem, Track, TrackKind,
@@ -1077,6 +1077,145 @@ fn a_looping_mp4_starts_its_sound_from_its_end() {
     );
 }
 
+/// Exports `project` with `options` to `name` in `dir`, with the loudness
+/// and warnings it reported, or `None` without a GPU.
+fn export_reporting(
+    project: &Project,
+    dir: &Path,
+    options: ExportOptions,
+    name: &str,
+) -> Option<(PathBuf, Option<AudioLoudness>, Vec<String>)> {
+    let output = dir.join(name);
+    let (mut loudness, mut warnings) = (None, Vec::new());
+    let result =
+        Exporter::new(options).export_project_with_progress(project, dir, &output, |event| {
+            match event {
+                ExportProgress::Wrote(ExportedFile::Video {
+                    loudness: measured, ..
+                }) => {
+                    loudness = measured;
+                }
+                ExportProgress::Warning(warning) => warnings.push(warning),
+                _ => {}
+            }
+        });
+    match result {
+        Ok(()) => Some((output, loudness, warnings)),
+        Err(ExportError::Render(GpuRenderError::RequestAdapter(error))) => {
+            skip_without_gpu(&error);
+            None
+        }
+        Err(error) => panic!("export failed: {error}"),
+    }
+}
+
+#[test]
+fn brings_the_mix_to_a_loudness_target() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut project = transparent_project(directory.path());
+    project.settings.sample_rate = 48_000;
+    // A quiet tone under short, loud hits: at -14 LUFS the hits would go
+    // over the -1 dBTP ceiling, so the limiter holds them there.
+    let project = with_audio(
+        project,
+        directory.path(),
+        "aevalsrc=exprs='0.02*sin(2*PI*440*t)+0.5*sin(2*PI*2000*t)*lt(mod(t,0.25),0.005)':sample_rate=48000:duration=1",
+        "tone.wav",
+    );
+    let options = |format| ExportOptions {
+        video_format: format,
+        loudness: Some(LoudnessTarget::STREAMING),
+        ..ExportOptions::default()
+    };
+    let Some((first, reported, warnings)) = export_reporting(
+        &project,
+        directory.path(),
+        options(VideoFormat::Mov),
+        "first.mov",
+    ) else {
+        return;
+    };
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let reported = reported.expect("a video with sound reports its loudness");
+    let decode = |path: &Path| FfmpegBackend::new().decode_audio(path, 48_000, 2).unwrap();
+    let decoded = decode(&first);
+    let measured = measure_loudness(&decoded);
+
+    // MOV keeps the mix as 24-bit PCM, so the file measures as reported.
+    let integrated = measured.integrated_lufs.unwrap();
+    assert!((integrated + 14.0).abs() <= 0.1, "{integrated} LUFS");
+    assert!((integrated - reported.integrated_lufs.unwrap()).abs() <= 0.01);
+    let peak = measured.true_peak_dbtp.unwrap();
+    assert!(peak <= -1.0 + 1e-3, "{peak} dBTP");
+    // The gain alone would have taken the hits over the ceiling.
+    let source = measure_loudness(&decode(&directory.path().join("tone.wav")));
+    let gain = reported.gain_db.unwrap();
+    assert!(source.true_peak_dbtp.unwrap() + gain > 0.0, "{gain} dB");
+
+    // The same project comes out the same.
+    let (second, ..) = export_reporting(
+        &project,
+        directory.path(),
+        options(VideoFormat::Mov),
+        "second.mov",
+    )
+    .unwrap();
+    assert!(decode(&second).samples == decoded.samples);
+
+    // AAC moves the loudness by a few hundredths.
+    let (mp4, ..) = export_reporting(
+        &project,
+        directory.path(),
+        options(VideoFormat::Mp4),
+        "film.mp4",
+    )
+    .unwrap();
+    let integrated = measure_loudness(&decode(&mp4)).integrated_lufs.unwrap();
+    assert!(
+        (integrated + 14.0).abs() <= 0.3,
+        "{integrated} LUFS after AAC"
+    );
+}
+
+#[test]
+fn a_silent_mix_reports_no_loudness_and_is_left_alone() {
+    let directory = tempfile::tempdir().unwrap();
+    let project = transparent_project(directory.path());
+    let Some((_, measured, warnings)) = export_reporting(
+        &project,
+        directory.path(),
+        ExportOptions::default(),
+        "plain.mp4",
+    ) else {
+        return;
+    };
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(
+        measured,
+        Some(AudioLoudness {
+            integrated_lufs: None,
+            true_peak_dbtp: None,
+            gain_db: None,
+        })
+    );
+
+    let (_, measured, warnings) = export_reporting(
+        &project,
+        directory.path(),
+        ExportOptions {
+            loudness: Some(LoudnessTarget::STREAMING),
+            ..ExportOptions::default()
+        },
+        "target.mp4",
+    )
+    .unwrap();
+    assert_eq!(measured.unwrap().gain_db, Some(0.0));
+    assert!(
+        warnings.len() == 1 && warnings[0].contains("silent"),
+        "{warnings:?}"
+    );
+}
+
 #[test]
 fn exports_a_silent_react_entry_to_webm() {
     let runtime_path = workspace_root().join("packages/cli/dist/cli.js");
@@ -1099,19 +1238,21 @@ export default function Root() {
     )
     .unwrap();
     let output = directory.path().join("film.webm");
-    let mut written = Vec::new();
+    let (mut written, mut warnings) = (Vec::new(), Vec::new());
+    // Without sound, a loudness target has nothing to adjust.
     match Exporter::new(ExportOptions {
         video_format: VideoFormat::Webm,
+        loudness: Some(LoudnessTarget::STREAMING),
         ..ExportOptions::default()
     })
     .export_react_entry_with_progress(
         &entry,
         &ReactRuntimeOptions::new("node", runtime_path),
         &output,
-        |event| {
-            if let ExportProgress::Wrote(file) = event {
-                written.push(file);
-            }
+        |event| match event {
+            ExportProgress::Wrote(file) => written.push(file),
+            ExportProgress::Warning(warning) => warnings.push(warning),
+            _ => {}
         },
     ) {
         Ok(()) => {}
@@ -1130,11 +1271,16 @@ export default function Root() {
             written[..],
             [ExportedFile::Video {
                 audio: false,
+                loudness: None,
                 format: VideoFormat::Webm,
                 ..
             }]
         ),
         "{written:?}"
+    );
+    assert!(
+        warnings.len() == 1 && warnings[0].contains("no sound"),
+        "{warnings:?}"
     );
 }
 

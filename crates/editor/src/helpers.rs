@@ -1,7 +1,7 @@
 use crate::preview::{CpuPreviewFrame, PreviewPresentation};
 use celesta_composition::{Rational, Time};
 use celesta_editor_core::ClipKind;
-use celesta_exporter::{ExportProgress, ExportRange, VideoFormat};
+use celesta_exporter::{AudioLoudness, ExportProgress, ExportRange, VideoFormat};
 use celesta_gpu_renderer::PreviewFrame as GpuPreviewFrame;
 use gpui_kit::RenderImage;
 use image::{Frame, ImageBuffer, Rgba};
@@ -65,6 +65,15 @@ pub(crate) fn export_progress_label(progress: &ExportProgress) -> String {
         ExportProgress::MixingAudio => "Mixing export audio…".to_owned(),
         ExportProgress::Muxing | ExportProgress::Wrote(_) => "Muxing…".to_owned(),
         ExportProgress::Warning(warning) => warning.clone(),
+    }
+}
+
+/// The loudness an export reports for its mix, as `-16.2 LUFS, -1.0 dBTP`.
+pub(crate) fn export_loudness_label(loudness: &AudioLoudness) -> String {
+    match (loudness.integrated_lufs, loudness.true_peak_dbtp) {
+        (Some(lufs), Some(peak)) => format!("{lufs:.1} LUFS, {peak:.1} dBTP"),
+        (None, Some(peak)) => format!("too short to measure LUFS, {peak:.1} dBTP"),
+        (_, None) => "silent".to_owned(),
     }
 }
 

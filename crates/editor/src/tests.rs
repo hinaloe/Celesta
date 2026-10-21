@@ -7,7 +7,8 @@ use crate::editor_launch::{
 };
 use crate::export_worker::{ExportEvent, ExportRequest, ExportSource, ExportWorker};
 use crate::helpers::{
-    export_output, export_progress_label, export_range_for, export_suggested_name, loop_range_for,
+    export_loudness_label, export_output, export_progress_label, export_range_for,
+    export_suggested_name, loop_range_for,
 };
 use crate::layer_select::{
     SourceLookup, display_path, launch_outcome_applies, letterbox, outline_quads, parent_layer_id,
@@ -44,7 +45,7 @@ use celesta_composition::{
     LayerShader, MaskMode, Point, Rational, ResolvedAsset, Scene, ShaderSource, Time, TimeRange,
 };
 use celesta_editor_core::ClipSummary;
-use celesta_exporter::{ExportCancellation, ExportProgress, VideoFormat};
+use celesta_exporter::{AudioLoudness, ExportCancellation, ExportProgress, VideoFormat};
 use celesta_media::{AudioBuffer, AudioDecoder};
 use celesta_project::{Project, TrackKind};
 use celesta_react_bridge::{
@@ -149,6 +150,23 @@ fn export_name_replaces_project_extensions() {
 #[test]
 fn muxing_label_names_no_container() {
     assert_eq!(export_progress_label(&ExportProgress::Muxing), "Muxing…");
+}
+
+#[test]
+fn the_finished_export_names_its_loudness() {
+    let label = |integrated_lufs, true_peak_dbtp| {
+        export_loudness_label(&AudioLoudness {
+            integrated_lufs,
+            true_peak_dbtp,
+            gain_db: None,
+        })
+    };
+    assert_eq!(label(Some(-16.24), Some(-0.96)), "-16.2 LUFS, -1.0 dBTP");
+    assert_eq!(
+        label(None, Some(-3.0)),
+        "too short to measure LUFS, -3.0 dBTP"
+    );
+    assert_eq!(label(None, None), "silent");
 }
 
 #[test]

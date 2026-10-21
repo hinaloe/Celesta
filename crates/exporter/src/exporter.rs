@@ -1,5 +1,6 @@
 use crate::control::{CompositionInfo, ExportCancellation, ExportProgress, ExportedFile};
 use crate::error::ExportError;
+use crate::loudness::finish_mix;
 use crate::options::ExportOptions;
 use crate::range::{ExportWindow, resolve_window, shifted_audio_graph};
 use crate::render::{
@@ -8,7 +9,7 @@ use crate::render::{
 use crate::subtitles;
 use celesta_composition::Time;
 use celesta_evaluator::Evaluator;
-use celesta_media::{AudioMixError, FfmpegBackend, mix_audio_graph_cancellable};
+use celesta_media::{AudioMixError, FfmpegBackend, mix_audio_graph_unclipped_cancellable};
 use celesta_project::Project;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -141,14 +142,19 @@ impl Exporter {
         let abandon_audio = AtomicBool::new(false);
         let (video, audio) = thread::scope(|scope| {
             let audio = scope.spawn(|| {
+                let abandoned =
+                    || cancellation.is_cancelled() || abandon_audio.load(Ordering::Acquire);
                 let mut audio_decoder = FfmpegBackend::new();
-                mix_audio_graph_cancellable(
+                let mut mix = mix_audio_graph_unclipped_cancellable(
                     &graph,
                     asset_root,
                     audio_duration,
                     &mut audio_decoder,
-                    || cancellation.is_cancelled() || abandon_audio.load(Ordering::Acquire),
-                )
+                    abandoned,
+                )?;
+                let (loudness, warnings) =
+                    finish_mix(&mut mix, self.options.loudness.as_ref(), abandoned)?;
+                Ok((mix, loudness, warnings))
             });
             let video = self.render_video(
                 project,
@@ -166,12 +172,15 @@ impl Exporter {
         video?;
         ensure_not_cancelled(cancellation)?;
         progress(ExportProgress::MixingAudio);
-        let audio = audio
+        let (audio, loudness, warnings) = audio
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
             .map_err(|error| match error {
                 AudioMixError::Cancelled => ExportError::Cancelled,
                 error => ExportError::Audio(error),
             })?;
+        for warning in warnings {
+            progress(ExportProgress::Warning(warning));
+        }
 
         ensure_not_cancelled(cancellation)?;
         progress(ExportProgress::Muxing);
@@ -198,6 +207,7 @@ impl Exporter {
                 .map_err(|_| ExportError::TimelineTooLong)?,
             frames: window.frames,
             audio: true,
+            loudness: Some(loudness),
             format: self.options.video_format,
         }));
         if !self.options.subtitles.is_empty() {

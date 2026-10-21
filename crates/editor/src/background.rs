@@ -1,5 +1,6 @@
 use crate::audio::AudioMixRequest;
 use crate::export_worker::ExportEvent;
+use crate::helpers::export_loudness_label;
 use crate::layer_select::source_lookup;
 use crate::preview::AudioPreview;
 use crate::problems::{Source, error_chain};
@@ -237,6 +238,7 @@ impl EditorView {
                     output,
                     result,
                     cancelled,
+                    loudness,
                 }) => {
                     self.export_progress = None;
                     self.export_cancellation = None;
@@ -244,11 +246,13 @@ impl EditorView {
                     match result {
                         Ok(()) => {
                             self.problems.clear(Source::Export);
-                            self.problems.info(
-                                Source::Export,
-                                "Export finished",
-                                output.display().to_string(),
-                            );
+                            let mut detail = output.display().to_string();
+                            if let Some(loudness) = &loudness {
+                                detail.push_str(" · ");
+                                detail.push_str(&export_loudness_label(loudness));
+                            }
+                            self.problems
+                                .info(Source::Export, "Export finished", detail);
                             self.export_path = Some(output);
                         }
                         Err(_) if cancelled => {

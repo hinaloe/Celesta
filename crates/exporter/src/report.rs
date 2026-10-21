@@ -9,7 +9,7 @@ use celesta_project::LoadError;
 use celesta_react_bridge::{PropsFileChoice, ReactBridgeError};
 use serde::Serialize;
 
-use crate::{CompositionInfo, ExportError, ExportProgress, ExportedFile};
+use crate::{AudioLoudness, CompositionInfo, ExportError, ExportProgress, ExportedFile};
 
 /// Whose options an error's hint names: `Celesta-export`'s flags or the MCP
 /// server's tool arguments. Error codes are the same either way.
@@ -105,6 +105,9 @@ pub enum Output {
         start: f64,
         duration: f64,
         audio: bool,
+        /// The mix's loudness, when the video has sound.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        loudness: Option<Loudness>,
         format: &'static str,
         alpha: bool,
     },
@@ -127,6 +130,29 @@ pub enum Output {
         /// Tile frames in reading order, left to right and top to bottom.
         frames: Vec<u64>,
     },
+}
+
+/// An exported mix's loudness, rounded to 0.01. `null` loudness is a silent
+/// mix or one shorter than 400 ms, a `null` peak digital silence.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Loudness {
+    integrated_lufs: Option<f64>,
+    true_peak_dbtp: Option<f64>,
+    /// The gain a loudness target applied; absent without one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gain_db: Option<f64>,
+}
+
+impl From<AudioLoudness> for Loudness {
+    fn from(loudness: AudioLoudness) -> Self {
+        let hundredths = |value: Option<f64>| value.map(|value| round(value, 100.0));
+        Self {
+            integrated_lufs: hundredths(loudness.integrated_lufs),
+            true_peak_dbtp: hundredths(loudness.true_peak_dbtp),
+            gain_db: hundredths(loudness.gain_db),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -382,6 +408,7 @@ fn output(file: ExportedFile, frame_rate: Option<Rational>) -> Output {
             first_frame,
             frames,
             audio,
+            loudness,
             format,
         } => Output::Video {
             path: absolute(&path),
@@ -390,6 +417,7 @@ fn output(file: ExportedFile, frame_rate: Option<Rational>) -> Output {
             start: seconds(first_frame, rate),
             duration: seconds(frames, rate),
             audio,
+            loudness: loudness.map(Loudness::from),
             format: format.as_str(),
             alpha: format.has_alpha(),
         },
@@ -576,6 +604,7 @@ mod tests {
                 first_frame: 30,
                 frames: 60,
                 audio: false,
+                loudness: None,
                 format: VideoFormat::Mov,
             }));
             Ok(())
@@ -598,6 +627,41 @@ mod tests {
                     "format": "mov", "alpha": true
                 }
             ])
+        );
+    }
+
+    #[test]
+    fn a_video_reports_its_loudness() {
+        let video = |loudness| {
+            ExportProgress::Wrote(ExportedFile::Video {
+                path: PathBuf::from("/tmp/film.mp4"),
+                first_frame: 0,
+                frames: 30,
+                audio: true,
+                loudness: Some(loudness),
+                format: VideoFormat::Mp4,
+            })
+        };
+        let value = report(|progress| {
+            progress(video(AudioLoudness {
+                integrated_lufs: Some(-14.004),
+                true_peak_dbtp: Some(-1.2345),
+                gain_db: Some(3.4),
+            }));
+            progress(video(AudioLoudness {
+                integrated_lufs: None,
+                true_peak_dbtp: None,
+                gain_db: None,
+            }));
+            Ok(())
+        });
+        assert_eq!(
+            value["outputs"][0]["loudness"],
+            serde_json::json!({ "integratedLufs": -14.0, "truePeakDbtp": -1.23, "gainDb": 3.4 })
+        );
+        assert_eq!(
+            value["outputs"][1]["loudness"],
+            serde_json::json!({ "integratedLufs": null, "truePeakDbtp": null })
         );
     }
 

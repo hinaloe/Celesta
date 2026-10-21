@@ -40,6 +40,32 @@ pub fn mix_audio_graph_with_ducks_cancellable(
     asset_root: &Path,
     duration: Time,
     decoder: &mut impl AudioDecoder,
+    is_cancelled: impl FnMut() -> bool,
+) -> Result<(AudioBuffer, DuckCurves), AudioMixError> {
+    let (mut buffer, ducks) = mix_unclipped(graph, asset_root, duration, decoder, is_cancelled)?;
+    for sample in &mut buffer.samples {
+        *sample = sample.clamp(-1.0, 1.0);
+    }
+    Ok((buffer, ducks))
+}
+
+/// [`mix_audio_graph_cancellable`] without clipping the mix to ±1, for a
+/// caller that changes its level first (loudness normalization).
+pub fn mix_audio_graph_unclipped_cancellable(
+    graph: &AudioGraph,
+    asset_root: &Path,
+    duration: Time,
+    decoder: &mut impl AudioDecoder,
+    is_cancelled: impl FnMut() -> bool,
+) -> Result<AudioBuffer, AudioMixError> {
+    mix_unclipped(graph, asset_root, duration, decoder, is_cancelled).map(|(buffer, _)| buffer)
+}
+
+fn mix_unclipped(
+    graph: &AudioGraph,
+    asset_root: &Path,
+    duration: Time,
+    decoder: &mut impl AudioDecoder,
     mut is_cancelled: impl FnMut() -> bool,
 ) -> Result<(AudioBuffer, DuckCurves), AudioMixError> {
     const CHANNELS: u16 = 2;
@@ -173,7 +199,7 @@ pub fn mix_audio_graph_with_ducks_cancellable(
         }
     }
     for sample in &mut output {
-        *sample = (*sample * graph.master_volume as f32).clamp(-1.0, 1.0);
+        *sample *= graph.master_volume as f32;
     }
     let buffer = AudioBuffer {
         sample_rate: graph.sample_rate,

@@ -53,7 +53,8 @@ and the run options: `exporter` (see [Finding the exporter](#finding-the-exporte
 
 The rest mirror the exporter's flags, camelCased: `overwrite`,
 `renderQuality`, `driver`, `format`, `from`/`to`, `preset`, `crf`,
-`bitDepth`, `colorConversion` for video; `frames`, `every`, `quality`,
+`bitDepth`, `colorConversion`, `loudness` (LUFS, `'streaming'` or
+`'broadcast'`), `truePeak`, `peakHandling` for video; `frames`, `every`, `quality`,
 `contactSheet` (`true` or `{ columns, tileWidth }`), `debugGuides` for
 stills. `from` and `to` are seconds (rounded to milliseconds) or timecode
 strings such as `"01:30.5"`. The types in `dist/index.d.ts` document each
@@ -62,7 +63,9 @@ explains what they do.
 
 `ExportResult` is the exporter's `--json` result without `status`: the
 `composition`, every written file in `outputs` with its absolute path and
-frame numbers, `warnings`, and `stats`. Read the paths from `outputs` rather
+frame numbers (a video with sound also has its mix's `loudness`:
+`integratedLufs`, `truePeakDbtp`, and `gainDb` with a `loudness` target),
+`warnings`, and `stats`. Read the paths from `outputs` rather
 than working out file names.
 
 ## Progress

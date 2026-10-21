@@ -4,6 +4,7 @@ mod control;
 mod error;
 mod exporter;
 mod job;
+mod loudness;
 mod options;
 mod project;
 mod range;
@@ -16,7 +17,10 @@ mod subtitles;
 mod tests;
 mod timecode;
 
-pub use control::{CompositionInfo, ExportCancellation, ExportProgress, ExportedFile};
+pub use celesta_media::{LoudnessTarget, PeakHandling};
+pub use control::{
+    AudioLoudness, CompositionInfo, ExportCancellation, ExportProgress, ExportedFile,
+};
 pub use error::ExportError;
 pub use exporter::Exporter;
 pub use job::ExportJob;

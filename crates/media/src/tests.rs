@@ -25,6 +25,8 @@ use celesta_composition::{
 use ez_ffmpeg::{FfmpegContext, Output};
 use std::collections::HashMap;
 
+mod loudness;
+
 /// Renders a synthetic `lavfi` source to a lossless MKV fixture through
 /// the linked FFmpeg libraries, forcing the output frame rate so the
 /// container records a real frame-duration hint.

@@ -9,6 +9,7 @@ rust-version.workspace = true
 [dependencies]
 celesta-composition = { path = "../composition" }
 celesta-remote = { path = "../remote" }
+ebur128 = "0.1.10"
 ez-ffmpeg.workspace = true
 # The same FFmpeg bindings ez-ffmpeg links, for reading decoded frames.
 ffmpeg-sys-next = "8.1.0"
