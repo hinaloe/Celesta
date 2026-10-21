@@ -18,6 +18,7 @@ export {
   Font,
 } from './components';
 export type {
+  AudioDuck,
   AudioProps,
   AssetInput,
   AssetReference,

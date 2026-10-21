@@ -75,6 +75,21 @@ impl fmt::Display for DuckError {
 
 impl Error for DuckError {}
 
+impl DuckError {
+    /// The authored field the error is about: `duckGroup`, or a field of
+    /// `duck`.
+    pub fn field(self) -> &'static str {
+        match self {
+            Self::Group => "duckGroup",
+            Self::Under => "under",
+            Self::To => "to",
+            Self::Attack => "attack",
+            Self::Release => "release",
+            Self::HoldGap => "holdGap",
+        }
+    }
+}
+
 impl AudioDuck {
     pub const DEFAULT_TO: f64 = 0.3;
     pub const DEFAULT_ATTACK: Time = Time::new(3, 20);

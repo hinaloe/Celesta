@@ -1,4 +1,6 @@
-use celesta_composition::{Animatable, Layer, Rational, Scene, ShaderSource};
+use celesta_composition::{
+    Animatable, DuckGroups, DuckLevel, Layer, Rational, Scene, ShaderSource,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -219,6 +221,28 @@ pub struct ReactAudioClipDescriptor {
     /// set.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub video: bool,
+    /// The group the clip's sound belongs to. Reported only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duck_group: Option<String>,
+    /// How the clip ducks, as authored. Reported only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duck: Option<ReactDuck>,
+}
+
+/// `<Audio duck>` as authored, in seconds; `AudioDuck::resolve` applies the
+/// defaults.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReactDuck {
+    pub under: DuckGroups,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<DuckLevel>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attack: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold_gap: Option<f64>,
 }
 
 fn is_zero_seconds(seconds: &f64) -> bool {

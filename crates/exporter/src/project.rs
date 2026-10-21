@@ -6,7 +6,7 @@ use celesta_composition::{
 };
 use celesta_evaluator::Evaluator;
 use celesta_project::{Project, TimelineContent};
-use celesta_react_bridge::ReactAudioClipDescriptor;
+use celesta_react_bridge::{ReactAudioClipDescriptor, react_ducking};
 use std::path::Path;
 
 /// Drops `audio` timeline items before evaluating a companion project's
@@ -84,6 +84,7 @@ pub(crate) fn build_audio_graph(
             },
         };
         absolutize_asset(&mut asset, react_asset_root);
+        let (duck_group, duck) = react_ducking(clip).map_err(ExportError::React)?;
         graph.clips.push(AudioClip {
             id: format!("react-audio:{index}"),
             asset,
@@ -101,8 +102,8 @@ pub(crate) fn build_audio_graph(
             preserve_pitch: clip.preserve_pitch,
             fade_in: seconds_to_time(clip.fade_in),
             fade_out: seconds_to_time(clip.fade_out),
-            duck_group: None,
-            duck: None,
+            duck_group,
+            duck,
         });
     }
 

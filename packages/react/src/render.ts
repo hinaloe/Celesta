@@ -8,6 +8,7 @@
 
 import * as React from 'react';
 
+import type { AudioDuck } from './components';
 import { isRemoteUrl } from './entry-dir';
 import { CompositionRuntimeContext, CompositionSelectionContext, RerenderRequestContext, RootRuntimeContext, resolveFontFallback, resolveTextLanguage } from './hooks';
 import { type InheritedText, TextMetricsFontsContext, withInheritedText } from './text-measure';
@@ -134,6 +135,10 @@ export interface AudioClipDescriptor {
   fadeOut?: number;
   /** The soundtrack of a `<Video>`, not an `<Audio>`. Present only when set. */
   video?: true;
+  /** The group the clip's sound belongs to. Present only when set. */
+  duckGroup?: string;
+  /** How the clip ducks, as authored; Rust applies the defaults. Present only when set. */
+  duck?: AudioDuck;
 }
 
 /**
@@ -1216,6 +1221,10 @@ function collectAudioClip(
     ...(fadeIn !== 0 ? { fadeIn } : {}),
     ...(fadeOut !== 0 ? { fadeOut } : {}),
     ...(video ? { video: true } : {}),
+    // Passed through as authored; the native side and browser export apply
+    // the defaults and check the values.
+    ...(typeof props.duckGroup === 'string' ? { duckGroup: props.duckGroup } : {}),
+    ...(props.duck !== undefined && props.duck !== null ? { duck: props.duck as AudioDuck } : {}),
   });
 }
 

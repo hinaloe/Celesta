@@ -523,6 +523,32 @@ pub fn describe_frame(
         if truthy(clip.get("fadeOut")) {
             let _ = write!(line, ", fading out over {} s", fmt(num(&clip["fadeOut"])));
         }
+        if let Some(group) = clip.get("duckGroup").and_then(Value::as_str) {
+            let _ = write!(line, ", in duck group \"{group}\"");
+        }
+        if let Some(duck) = clip.get("duck").filter(|duck| duck.is_object()) {
+            let under = match &duck["under"] {
+                Value::String(group) => group.clone(),
+                Value::Array(groups) => groups
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                _ => String::new(),
+            };
+            let _ = write!(line, ", ducking under {under}");
+            match duck.get("to") {
+                Some(Value::Number(gain)) => {
+                    let _ = write!(line, " to {}", fmt(gain.as_f64().unwrap_or(0.0)));
+                }
+                Some(Value::Object(level)) => {
+                    if let Some(db) = level.get("db").and_then(Value::as_f64) {
+                        let _ = write!(line, " to {} dB", fmt(db));
+                    }
+                }
+                _ => {}
+            }
+        }
         if truthy(clip.get("loop")) {
             line.push_str(", looping");
         }
@@ -860,6 +886,27 @@ mod tests {
             ),
             "{output}"
         );
+    }
+
+    #[test]
+    fn names_audio_ducking() {
+        let voice = json!({ "src": "./v1.wav", "start": 1, "duration": 2, "duckGroup": "voice" });
+        let bed = json!({
+            "src": "./bgm.wav", "start": 0, "duration": 10,
+            "duck": { "under": ["voice", "sfx"], "to": { "db": -12 } },
+        });
+        let game = json!({ "src": "./game.wav", "start": 0, "duration": 10, "duck": { "under": "voice", "to": 0.5 } });
+        let plain =
+            json!({ "src": "./sfx.wav", "start": 0, "duration": 1, "duck": { "under": "voice" } });
+        let (output, _, _) = describe(vec![], vec![voice, bed, game, plain]);
+        for expected in [
+            "audio ./v1.wav from 1 s for 2 s, in duck group \"voice\"",
+            "audio ./bgm.wav from 0 s for 10 s, ducking under voice, sfx to -12 dB",
+            "audio ./game.wav from 0 s for 10 s, ducking under voice to 0.5",
+            "audio ./sfx.wav from 0 s for 1 s, ducking under voice  ←",
+        ] {
+            assert!(output.contains(expected), "{expected}\n{output}");
+        }
     }
 
     #[test]

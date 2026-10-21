@@ -1,5 +1,8 @@
+use crate::error::ReactBridgeError;
 use crate::types::ReactAudioClipDescriptor;
-use celesta_composition::{AssetLocation, AudioClip, ResolvedAsset, Time, TimeRange};
+use celesta_composition::{
+    AssetLocation, AudioClip, AudioDuck, ResolvedAsset, Time, TimeRange, check_duck_group,
+};
 use celesta_remote::is_remote_url;
 use std::path::Path;
 
@@ -43,8 +46,12 @@ pub fn react_video_clip_ids(clips: &[ReactAudioClipDescriptor]) -> Vec<String> {
 
 /// Turns merged `<Audio>` reports into `AudioClip`s, resolving relative `src`
 /// paths against `entry_dir` and keeping `http`/`https` URLs as URLs.
-/// Generated ids are `react-audio:{n}` in first-seen order.
-pub fn react_audio_clips(clips: &[ReactAudioClipDescriptor], entry_dir: &Path) -> Vec<AudioClip> {
+/// Generated ids are `react-audio:{n}` in first-seen order. Fails when a
+/// clip's ducking breaks a rule.
+pub fn react_audio_clips(
+    clips: &[ReactAudioClipDescriptor],
+    entry_dir: &Path,
+) -> Result<Vec<AudioClip>, ReactBridgeError> {
     merge_react_audio_clips(clips)
         .into_iter()
         .enumerate()
@@ -62,7 +69,8 @@ pub fn react_audio_clips(clips: &[ReactAudioClipDescriptor], entry_dir: &Path) -
                     path: clip.src.clone(),
                 }
             };
-            AudioClip {
+            let (duck_group, duck) = react_ducking(&clip)?;
+            Ok(AudioClip {
                 id: format!("react-audio:{index}"),
                 asset: ResolvedAsset {
                     id: clip.src.clone(),
@@ -82,9 +90,38 @@ pub fn react_audio_clips(clips: &[ReactAudioClipDescriptor], entry_dir: &Path) -
                 preserve_pitch: clip.preserve_pitch,
                 fade_in: react_seconds_to_time(clip.fade_in),
                 fade_out: react_seconds_to_time(clip.fade_out),
-                duck_group: None,
-                duck: None,
-            }
+                duck_group,
+                duck,
+            })
         })
         .collect()
+}
+
+/// A reported clip's `duckGroup` and `duck`, with the defaults applied and
+/// every rule checked, as for project items.
+pub fn react_ducking(
+    clip: &ReactAudioClipDescriptor,
+) -> Result<(Option<String>, Option<AudioDuck>), ReactBridgeError> {
+    let invalid = |error| ReactBridgeError::InvalidDuck {
+        src: clip.src.clone(),
+        error,
+    };
+    if let Some(group) = &clip.duck_group {
+        check_duck_group(group).map_err(invalid)?;
+    }
+    let duck = clip
+        .duck
+        .as_ref()
+        .map(|duck| {
+            AudioDuck::resolve(
+                &duck.under,
+                duck.to,
+                duck.attack.map(react_seconds_to_time),
+                duck.release.map(react_seconds_to_time),
+                duck.hold_gap.map(react_seconds_to_time),
+            )
+        })
+        .transpose()
+        .map_err(invalid)?;
+    Ok((clip.duck_group.clone(), duck))
 }
