@@ -1,11 +1,16 @@
-import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { MAX_POINTS_PER_SEGMENT, automationEvents, evaluateAnimated, integrateAnimated } from '../src/keyframes.ts';
+import { test } from 'vitest';
+import { MAX_POINTS_PER_SEGMENT, automationEvents, evaluateAnimated, integrateAnimated } from '../src/keyframes.js';
+import type { AutomationEvent } from '../src/keyframes.js';
+import type { AnimatedNumber, Keyframe, KeyframeEasing } from '../src/types.js';
+
+interface FixtureSample { time: Keyframe['time']; value: number; integral: number }
+interface Fixture { cases: { name: string; animation: AnimatedNumber; samples: FixtureSample[] }[] }
 
 // The same cases `crates/composition/tests/keyframe_fixture.rs` pins the
 // native evaluator to, so the two cannot drift apart.
-const fixture = JSON.parse(readFileSync(new URL('../../../crates/composition/tests/fixtures/keyframe-evaluation.json', import.meta.url), 'utf8'));
+const fixture: Fixture = JSON.parse(readFileSync(new URL('../../../crates/composition/tests/fixtures/keyframe-evaluation.json', import.meta.url), 'utf8'));
 
 test('every fixture sample matches the Rust evaluator', () => {
   for (const { name, animation, samples } of fixture.cases) {
@@ -22,14 +27,20 @@ test('empty keyframes throw', () => {
   assert.throws(() => integrateAnimated({ type: 'keyframes', keyframes: [] }, 0), /animation has no keyframes/);
 });
 test('an unknown easing throws', () => {
-  const animation = { type: 'keyframes', keyframes: [{ time: { value: 0, timescale: 1 }, value: 0 }, { time: { value: 1, timescale: 1 }, value: 1, easing: 'wobble' }] };
+  // Deliberately outside KeyframeEasing, as untyped JSON can be.
+  const wobble = 'wobble' as KeyframeEasing;
+  const animation: AnimatedNumber = { type: 'keyframes', keyframes: [key(0, 0), key(1, 1, wobble)] };
   assert.throws(() => evaluateAnimated(animation, 0.5), /unknown easing: wobble/);
 });
 
-const key = (time, value, easing) => ({ time: { value: Math.round(time * 1_000_000), timescale: 1_000_000 }, value, ...(easing ? { easing } : {}) });
-const keys = (...list) => ({ type: 'keyframes', keyframes: list.map((entry) => key(...entry)) });
-const set = (value, time) => ({ kind: 'set', value, time });
-const ramp = (value, time) => ({ kind: 'ramp', value, time });
+function key(time: number, value: number, easing?: KeyframeEasing): Keyframe {
+  return { time: { value: Math.round(time * 1_000_000), timescale: 1_000_000 }, value, ...(easing ? { easing } : {}) };
+}
+function keys(...list: [time: number, value: number, easing?: KeyframeEasing][]): AnimatedNumber {
+  return { type: 'keyframes', keyframes: list.map(([time, value, easing]) => key(time, value, easing)) };
+}
+const set = (value: number, time: number): AutomationEvent => ({ kind: 'set', value, time });
+const ramp = (value: number, time: number): AutomationEvent => ({ kind: 'ramp', value, time });
 
 test('a static value is one set at the clip start', () => {
   assert.deepEqual(automationEvents(0.5, 2, 4), [set(0.5, 2)]);
