@@ -101,6 +101,8 @@ pub(crate) fn build_audio_graph(
             preserve_pitch: clip.preserve_pitch,
             fade_in: seconds_to_time(clip.fade_in),
             fade_out: seconds_to_time(clip.fade_out),
+            duck_group: None,
+            duck: None,
         });
     }
 

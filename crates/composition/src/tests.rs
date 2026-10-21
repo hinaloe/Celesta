@@ -1,9 +1,11 @@
 use crate::time::{Rational, Time};
 use crate::{
-    Animatable, AssetLocation, AudioClip, BackfaceVisibility, Clip, EvaluatedTransform, F32Column,
-    GroupMask, IDENTITY3, ImageFit, InstanceShape, Layer, LayerContent, LetterSpacing, LineCap,
-    LineDash, LineJoin, MaskMode, Matrix3, MediaTiming, Paint, PathCommand, Point, ResolvedAsset,
-    Stroke, TextStyle, U8Column, faces_away, multiply3, multiply3_flat, project, stretch_at,
+    Animatable, AssetLocation, AudioClip, AudioDuck, BackfaceVisibility, Clip, DuckError,
+    DuckGroups, DuckLevel, EvaluatedTransform, F32Column, GroupMask, IDENTITY3, ImageFit,
+    InstanceShape, Layer, LayerContent, LetterSpacing, LineCap, LineDash, LineJoin, MaskMode,
+    Matrix3, MediaTiming, Paint, PathCommand, Point, ResolvedAsset, Stroke, TextStyle, U8Column,
+    check_duck_group, duck_curve, duck_curves, faces_away, multiply3, multiply3_flat, project,
+    stretch_at,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -1314,4 +1316,155 @@ fn audio_fade_ramps_linearly_at_both_edges_of_the_range() {
     .unwrap();
     assert_eq!(overlapping.gain(2.0), 0.25);
     assert_eq!(overlapping.gain(1.0), 0.25 * 0.75);
+}
+
+fn voice() -> DuckGroups {
+    DuckGroups::One("voice".to_owned())
+}
+
+#[test]
+fn resolve_applies_defaults_and_decibels() {
+    let duck = AudioDuck::resolve(&voice(), None, None, None, None).unwrap();
+    assert_eq!(duck.under, ["voice"]);
+    assert_eq!(duck.to, 0.3);
+    assert_eq!(duck.attack.as_seconds().unwrap(), 0.15);
+    assert_eq!(duck.release.as_seconds().unwrap(), 0.4);
+    assert_eq!(duck.hold_gap.as_seconds().unwrap(), 0.6);
+    let quieter = AudioDuck::resolve(
+        &DuckGroups::Many(vec!["voice".to_owned(), "sfx".to_owned()]),
+        Some(DuckLevel::Db { db: -6.0 }),
+        Some(Time::ZERO),
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(quieter.under, ["voice", "sfx"]);
+    assert!((quieter.to - 10_f64.powf(-6.0 / 20.0)).abs() < 1e-15);
+    assert_eq!(quieter.attack, Time::ZERO);
+}
+
+#[test]
+fn resolve_rejects_invalid_values() {
+    let to = |level| AudioDuck::resolve(&voice(), Some(level), None, None, None);
+    for level in [
+        DuckLevel::Gain(1.5),
+        DuckLevel::Gain(-0.1),
+        DuckLevel::Gain(f64::NAN),
+        DuckLevel::Db { db: 1.0 },
+        DuckLevel::Db {
+            db: f64::NEG_INFINITY,
+        },
+    ] {
+        assert_eq!(to(level), Err(DuckError::To));
+    }
+    let negative = Some(Time::new(-1, 10));
+    assert_eq!(
+        AudioDuck::resolve(&voice(), None, negative, None, None),
+        Err(DuckError::Attack)
+    );
+    assert_eq!(
+        AudioDuck::resolve(&voice(), None, None, negative, None),
+        Err(DuckError::Release)
+    );
+    assert_eq!(
+        AudioDuck::resolve(&voice(), None, None, None, negative),
+        Err(DuckError::HoldGap)
+    );
+    for under in [DuckGroups::Many(Vec::new()), DuckGroups::One(String::new())] {
+        assert_eq!(
+            AudioDuck::resolve(&under, None, None, None, None),
+            Err(DuckError::Under)
+        );
+    }
+    assert_eq!(check_duck_group(""), Err(DuckError::Group));
+    assert_eq!(check_duck_group("voice"), Ok(()));
+}
+
+fn duck_clip(start: f64, end: f64) -> AudioClip {
+    let seconds = |value: f64| Time::new((value * 1000.0).round() as i64, 1000);
+    let json = r#"{"id":"a","asset":{"id":"a","location":{"type":"file","path":"a.wav"}},"range":{"start":{"value":0,"timescale":1},"duration":{"value":1,"timescale":1}},"sourceStart":{"value":0,"timescale":1},"playbackRate":1.0,"volume":1.0,"muted":false}"#;
+    let mut clip: AudioClip = serde_json::from_str(json).unwrap();
+    clip.range.start = seconds(start);
+    clip.range.duration = seconds(end - start);
+    clip
+}
+
+fn marked(start: f64, end: f64) -> AudioClip {
+    AudioClip {
+        duck_group: Some("voice".to_owned()),
+        ..duck_clip(start, end)
+    }
+}
+
+fn ducked(start: f64, end: f64, under: &str) -> AudioClip {
+    let under = DuckGroups::One(under.to_owned());
+    AudioClip {
+        duck: Some(AudioDuck::resolve(&under, None, None, None, None).unwrap()),
+        ..duck_clip(start, end)
+    }
+}
+
+fn range_ends(clips: &[AudioClip]) -> Vec<f64> {
+    clips
+        .iter()
+        .map(|clip| clip.range.end().unwrap().as_seconds().unwrap())
+        .collect()
+}
+
+#[test]
+fn duck_curves_follow_marked_clips_only() {
+    let clips = [
+        marked(1.0, 2.0),
+        AudioClip {
+            muted: true,
+            ..marked(3.0, 4.0)
+        },
+        ducked(0.0, 6.0, "voice"),
+    ];
+    let curves = duck_curves(&clips, &range_ends(&clips)).unwrap();
+    let bed = clips[2].duck.as_ref().unwrap();
+    assert_eq!(curves[0], None);
+    assert_eq!(curves[1], None);
+    assert_eq!(curves[2], Some(duck_curve(&[(1.0, 2.0)], bed).unwrap()));
+}
+
+#[test]
+fn duck_curves_exclude_the_clip_itself() {
+    let clips = [AudioClip {
+        duck_group: Some("voice".to_owned()),
+        ..ducked(0.0, 6.0, "voice")
+    }];
+    let curves = duck_curves(&clips, &range_ends(&clips)).unwrap();
+    assert_eq!(curves[0], Some(Animatable::Static(1.0)));
+}
+
+#[test]
+fn duck_curves_use_the_audible_end() {
+    let clips = [marked(1.0, 5.0), ducked(0.0, 6.0, "voice")];
+    let curves = duck_curves(&clips, &[2.5, 6.0]).unwrap();
+    let bed = clips[1].duck.as_ref().unwrap();
+    assert_eq!(curves[1], Some(duck_curve(&[(1.0, 2.5)], bed).unwrap()));
+}
+
+#[test]
+fn duck_curves_ignore_unknown_groups() {
+    let clips = [marked(1.0, 2.0), ducked(0.0, 6.0, "sfx")];
+    let curves = duck_curves(&clips, &range_ends(&clips)).unwrap();
+    assert_eq!(curves[1], Some(Animatable::Static(1.0)));
+}
+
+#[test]
+fn clips_without_ducking_serialize_as_before() {
+    let json = r#"{"id":"a","asset":{"id":"a","location":{"type":"file","path":"a.wav"}},"range":{"start":{"value":0,"timescale":1},"duration":{"value":1,"timescale":1}},"sourceStart":{"value":0,"timescale":1},"playbackRate":1.0,"volume":1.0,"muted":false}"#;
+    let clip: AudioClip = serde_json::from_str(json).unwrap();
+    assert_eq!((&clip.duck_group, &clip.duck), (&None, &None));
+    assert_eq!(serde_json::to_string(&clip).unwrap(), json);
+
+    let both = AudioClip {
+        duck_group: Some("sfx".to_owned()),
+        ..ducked(0.0, 1.0, "voice")
+    };
+    let text = serde_json::to_string(&both).unwrap();
+    assert!(text.contains(r#""duckGroup":"sfx""#) && text.contains(r#""duck":{"under":["voice"]"#));
+    assert_eq!(serde_json::from_str::<AudioClip>(&text).unwrap(), both);
 }

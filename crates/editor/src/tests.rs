@@ -198,6 +198,8 @@ fn clip_waveforms_follow_source_ranges_and_playback_rate() {
         preserve_pitch: false,
         fade_in: Time::ZERO,
         fade_out: Time::ZERO,
+        duck_group: None,
+        duck: None,
     };
     let peaks = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
 
@@ -260,6 +262,8 @@ fn react_audio_clips_take_one_track_per_file_and_more_only_to_overlap() {
         preserve_pitch: false,
         fade_in: Time::ZERO,
         fade_out: Time::ZERO,
+        duck_group: None,
+        duck: None,
     };
     let tracks = react_tracks(
         &[
@@ -335,6 +339,8 @@ fn react_videos_take_video_tracks_and_keep_their_sound_on_audio_tracks() {
         preserve_pitch: false,
         fade_in: Time::ZERO,
         fade_out: Time::ZERO,
+        duck_group: None,
+        duck: None,
     };
     let videos = HashMap::from([
         ("react-audio:1".to_owned(), true),

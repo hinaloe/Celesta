@@ -182,6 +182,8 @@ impl<'project> Evaluator<'project> {
                         preserve_pitch: false,
                         fade_in: Time::ZERO,
                         fade_out: Time::ZERO,
+                        duck_group: None,
+                        duck: None,
                     }),
                     _ => {}
                 }
@@ -400,6 +402,8 @@ impl<'project> Evaluator<'project> {
             preserve_pitch: false,
             fade_in: Time::ZERO,
             fade_out: Time::ZERO,
+            duck_group: None,
+            duck: None,
         })
     }
 

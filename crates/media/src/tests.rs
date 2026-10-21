@@ -455,6 +455,8 @@ fn mixes_audio_at_exact_timeline_and_source_offsets() {
             preserve_pitch: false,
             fade_in: Time::ZERO,
             fade_out: Time::ZERO,
+            duck_group: None,
+            duck: None,
         }],
     };
 
@@ -537,6 +539,8 @@ fn loops_audio_from_the_start_of_the_source_past_its_end() {
             preserve_pitch: false,
             fade_in: Time::ZERO,
             fade_out: Time::ZERO,
+            duck_group: None,
+            duck: None,
         }],
     };
     let left = |graph: &AudioGraph| {
@@ -652,6 +656,8 @@ fn clip(range_start_s: f64, duration_s: f64) -> AudioClip {
         preserve_pitch: false,
         fade_in: Time::ZERO,
         fade_out: Time::ZERO,
+        duck_group: None,
+        duck: None,
     }
 }
 
