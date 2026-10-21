@@ -1305,15 +1305,19 @@ fn a_ducking_ramp_changes_the_gain_smoothly() {
     .collect();
 
     // The 0.15 s attack eases 0.5 down to 0.15; ease-in-out is at its
-    // steepest, 1.5 times the average, half way along.
+    // steepest, twice the average, half way along.
     let average = (0.5 - 0.15) / (0.15 * f64::from(RATE));
     let steepest = left
         .windows(2)
         .map(|pair| f64::from((pair[1] - pair[0]).abs()))
         .fold(0.0, f64::max);
-    assert!(steepest > average, "the gain never moved: {steepest}");
+    // Smoothstep would peak at 1.5 times the average instead.
     assert!(
-        steepest <= average * 1.5 * 1.01,
+        steepest > average * 1.9,
+        "a ramp averaging {average} peaked at only {steepest}"
+    );
+    assert!(
+        steepest <= average * 2.0 * 1.01,
         "a step of {steepest} along a ramp averaging {average}"
     );
     assert_near(left[3 * RATE as usize].into(), 0.15, 1e-4);

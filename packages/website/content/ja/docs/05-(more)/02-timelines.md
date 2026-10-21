@@ -40,7 +40,7 @@ JSON の変換では `position` が項目の中心を配置します。変換の
 }
 ```
 
-イージング名は React の `Easings` を kebab-case にしたもので、`ease-in-out-cubic` や `ease-out-back` などです。
+イージング名は React の `Easings` を kebab-case にしたもので、`ease-in-out-cubic` や `ease-out-back` などです。曲線も同じ名前の `Easings` と同じです。`ease-in`、`ease-out`、`ease-in-out` は 2 次の曲線で、`ease-in-quad`、`ease-out-quad`、`ease-in-out-quad` と同じです。
 
 ## JSON プロジェクトの台詞
 
