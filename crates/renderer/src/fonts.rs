@@ -4,7 +4,7 @@ use crate::font_stack::{FaceRun, falls_back_to_loaded};
 use crate::linebreak::{is_emoji_cluster, is_visible_character};
 use crate::shaping::{source_offsets, usable_font_runs};
 use crate::text::{FontFallback, MissingGlyphs};
-use celesta_composition::{FontFamily, ResolvedAsset, TextStyle};
+use celesta_composition::{FontFamily, FontFeatures, ResolvedAsset, TextStyle};
 use cosmic_text::{Family, FontSystem, SwashCache, Weight, fontdb};
 use std::collections::{HashMap, HashSet};
 #[cfg(target_os = "windows")]
@@ -18,7 +18,7 @@ pub struct TextRasterizer {
     /// The system's normalized locale, used by styles without `lang`.
     pub(crate) default_locale: String,
     /// Inactive systems, so alternating languages retain their shaping caches.
-    locale_systems: HashMap<String, FontSystem>,
+    pub(crate) locale_systems: HashMap<String, FontSystem>,
     /// The database `font_system` was constructed from, before any font was
     /// loaded into it: `FontSystem` derives fallback state from its initial
     /// database, so [`Self::fork`] rebuilds from this one.
@@ -45,6 +45,10 @@ pub struct TextRasterizer {
     /// `face_runs` results for text with a font stack, by text and the
     /// style fields they depend on, cleared whenever a font is loaded.
     pub(crate) stacked_runs: HashMap<String, Arc<[FaceRun]>>,
+    /// `feature_family`'s family for each family and feature set, cleared
+    /// with the faces it added (`feature_faces`) whenever a font is loaded.
+    pub(crate) feature_families: HashMap<(String, FontFeatures), Arc<str>>,
+    pub(crate) feature_faces: Vec<fontdb::ID>,
     /// `color_emoji_family`'s result once looked up, cleared whenever a
     /// font is loaded.
     pub(crate) color_emoji_family: Option<Option<String>>,
@@ -119,6 +123,8 @@ impl TextRasterizer {
             matched_faces: HashMap::new(),
             stylesheet_faces: HashMap::new(),
             stacked_runs: HashMap::new(),
+            feature_families: HashMap::new(),
+            feature_faces: Vec::new(),
             color_emoji_family: None,
             missing_characters: HashMap::new(),
             shaped_buffers: HashMap::new(),
@@ -146,6 +152,8 @@ impl TextRasterizer {
             matched_faces: HashMap::new(),
             stylesheet_faces: self.stylesheet_faces.clone(),
             stacked_runs: HashMap::new(),
+            feature_families: self.feature_families.clone(),
+            feature_faces: self.feature_faces.clone(),
             color_emoji_family: None,
             missing_characters: HashMap::new(),
             shaped_buffers: HashMap::new(),
@@ -293,11 +301,15 @@ impl TextRasterizer {
             }
             _ => data,
         };
-        let database = self.font_system.db_mut();
-        let ids = database.load_font_source(fontdb::Source::Binary(Arc::new(data)));
+        let ids = self
+            .font_system
+            .db_mut()
+            .load_font_source(fontdb::Source::Binary(Arc::new(data)));
         if ids.is_empty() {
             return Err(invalid("no font faces found"));
         }
+        self.drop_feature_families();
+        let database = self.font_system.db_mut();
         self.fonts_revision += 1;
         self.locale_systems.clear();
         self.matched_weights.clear();

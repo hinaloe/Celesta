@@ -19,7 +19,7 @@ import type { CompileOptions } from './engine';
 import { audioBytes, decodeAudioBytes } from './audio-decode';
 import { projectFiles, runtimeModules } from './project-files';
 import { loadFonts, loadedFamilies, requireLoadedFonts, resetFonts } from './fonts';
-import { textMeasurer, withLoadedFallback } from './text-layout';
+import { loadFeatureFonts, textMeasurer, withLoadedFallback } from './text-layout';
 
 // What compositions may import; `project-files.ts` keeps them external.
 const modules: Record<(typeof runtimeModules)[number], unknown> = {
@@ -92,7 +92,11 @@ async function handle(data: Request) {
       // `fontFallback: 'loaded'` text measures with the request's fonts after its stack, as it draws.
       const measure = (request: Parameters<typeof textMeasure>[0]) =>
         textMeasure({ ...request, style: withLoadedFallback(request.style, loadedFamilies(request.fonts, resolveFont)) });
-      setTextMeasurer(async request => { await loadFonts(request.fonts, resolveFont); return measure(request); }, request => { requireLoadedFonts(request.fonts, resolveFont); return measure(request); });
+      setTextMeasurer(async request => {
+        await loadFonts(request.fonts, resolveFont);
+        await loadFeatureFonts(withLoadedFallback(request.style, loadedFamilies(request.fonts, resolveFont)));
+        return measure(request);
+      }, request => { requireLoadedFonts(request.fonts, resolveFont); return measure(request); });
       setAudioDecoder(async src => decodeAudioBytes(await audioBytes(src, options.assets ?? new Map(), options.baseURL), src));
       const entryComponent = module.exports.default as EntryComponent;
       if (typeof module.exports.prepare === 'function') await module.exports.prepare();

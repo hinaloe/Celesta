@@ -88,7 +88,11 @@ export function highlightCode(
 export interface CodeProps extends CommonProps {
   children: string;
   language?: CodeLanguage;
-  /** Use a monospaced font. Alignment is always left; wrapping is disabled. */
+  /**
+   * Use a monospaced font. Alignment is always left; wrapping is disabled.
+   * `fontFeatures: { liga: false, calt: false }` shows `===` and `->` as
+   * written in a font with coding ligatures.
+   */
   style?: TextStyle;
   theme?: CodeTheme;
   /** Code points from the original source, including newlines and tabs. */

@@ -3,21 +3,23 @@
 use crate::fonts::{COLOR_EMOJI_FAMILIES, TextRasterizer};
 use crate::linebreak::{emoji_presentation_spans, is_visible_character};
 use crate::shaping::usable_font_runs;
-use celesta_composition::{FontFallbackMode, FontFamily, TextFontRun, TextStyle};
+use celesta_composition::{FontFallbackMode, FontFamily, FontFeatures, TextFontRun, TextStyle};
 use cosmic_text::{Family, Font, Weight, fontdb};
 use std::sync::Arc;
 use unicode_segmentation::UnicodeSegmentation;
 
-/// A half-open code-point range of the complete text shaped in a family and
-/// weight other than the text's own: a `<Span>` font run, or clusters a font
-/// stack draws with a family other than its primary one. Omitted fields use
-/// the text's own.
+/// A half-open code-point range of the complete text shaped in a family,
+/// weight, or features other than the text's own: a `<Span>` font run, or
+/// clusters a font stack draws with a family other than its primary one.
+/// Omitted fields use the text's own; features are the run's, to merge over
+/// the text's.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct FaceRun {
     pub start: usize,
     pub end: usize,
     pub font_weight: Option<u16>,
     pub font_family: Option<Arc<str>>,
+    pub font_features: Option<FontFeatures>,
 }
 
 /// The families of one stack at one weight that have a face, with the face
@@ -100,6 +102,7 @@ impl TextRasterizer {
                     end: run.end,
                     font_weight: run.font_weight,
                     font_family: run.font_family.as_ref().map(|family| family.first().into()),
+                    font_features: run.font_features.clone(),
                 })
                 .collect();
         }
@@ -160,6 +163,7 @@ impl TextRasterizer {
             }
             let span = spans.get(next_span).filter(|run| run.start <= start);
             let font_weight = span.and_then(|run| run.font_weight);
+            let font_features = span.and_then(|run| run.font_features.as_ref());
             let family = span
                 .and_then(|run| run.font_family.as_ref())
                 .or(style.font_family.as_ref());
@@ -205,7 +209,8 @@ impl TextRasterizer {
                 Some(last)
                     if last.end == start
                         && last.font_family.as_deref() == font_family
-                        && last.font_weight == font_weight =>
+                        && last.font_weight == font_weight
+                        && last.font_features.as_ref() == font_features =>
                 {
                     last.end = point;
                 }
@@ -214,6 +219,7 @@ impl TextRasterizer {
                     end: point,
                     font_weight,
                     font_family: font_family.map(Into::into),
+                    font_features: font_features.cloned(),
                 }),
             }
         }

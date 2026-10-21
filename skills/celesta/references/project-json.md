@@ -228,7 +228,8 @@ outline: each width is from the glyph outline.
 
 `style` has the same fields as React's `TextStyle` (see
 [text.md](text.md#textstyle)), including `letterSpacing` (px, or
-`{ "em": -0.02 }` for a multiple of `fontSize`) and `lineBreak`.
+`{ "em": -0.02 }` for a multiple of `fontSize`), `fontFeatures`
+(`{ "liga": false, "calt": false }`), and `lineBreak`.
 Paints are objects, and JSON colors are `#RRGGBB` or `#RRGGBBAA`. `\n` breaks
 lines. There is no `maxWidth` on text items (only on character subtitles),
 so text items never wrap on their own. Fonts come from `font` assets or

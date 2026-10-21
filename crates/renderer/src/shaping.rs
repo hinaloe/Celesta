@@ -1,5 +1,6 @@
 use crate::composite::blend;
 use crate::error::RenderError;
+use crate::font_features::cosmic_features;
 use crate::font_stack::FaceRun;
 use crate::fonts::{COLOR_EMOJI_FAMILIES, TextRasterizer};
 use crate::linebreak::{
@@ -9,7 +10,7 @@ use crate::paint::{ResolvedPaint, resolve_paint};
 use crate::rect::dilate_mask;
 use crate::text::{AnchorBox, GlyphMetrics, RasterizedText, TextMetrics, TextWindow};
 use crate::types::{Color, RgbaFrame};
-use celesta_composition::{LineBreak, TextAlign, TextFontRun, TextStyle};
+use celesta_composition::{FontFeatures, LineBreak, TextAlign, TextFontRun, TextStyle};
 use cosmic_text::Command;
 use cosmic_text::{
     Align, Attrs, AttrsList, Buffer, BufferLine, Color as CosmicColor, Family, FontSystem,
@@ -44,6 +45,7 @@ impl TextRasterizer {
                     style.line_break,
                     &style.font_runs,
                     style.font_fallback,
+                    &style.font_features,
                 )
             )
         });
@@ -73,9 +75,18 @@ impl TextRasterizer {
         buffer.set_size(&mut self.font_system, width, None);
         buffer.set_wrap(&mut self.font_system, Wrap::Word);
 
+        // Text with features shapes in a family of its own for them.
+        let text_features = style
+            .font_features
+            .as_ref()
+            .filter(|features| !features.is_empty());
+        let text_alias = text_features.map(|features| self.feature_family(family, features));
         let mut attrs = Attrs::new().weight(Weight(weight));
-        if let Some(family) = family {
+        if let Some(family) = text_alias.as_deref().or(family) {
             attrs = attrs.family(Family::Name(family));
+        }
+        if let Some(features) = text_features {
+            attrs = attrs.font_features(cosmic_features(features));
         }
         if let Some(letter_spacing) = style.letter_spacing
             && style.font_size.unwrap_or(32.0) > 0.0
@@ -90,19 +101,36 @@ impl TextRasterizer {
         });
         // Font runs, and the clusters a font stack draws with another of
         // its families, become per-range attributes: the run's family (or
-        // the text's) at the weight CSS matching picks within that family.
+        // the text's) at the weight CSS matching picks within that family,
+        // with the run's features merged over the text's, in a family of
+        // their own for them.
         let font_runs = self.face_runs(source, style);
-        let mut run_attrs: Vec<(Attrs, u16)> = Vec::with_capacity(font_runs.len());
+        let mut run_features: Vec<(Option<FontFeatures>, Option<Arc<str>>)> =
+            Vec::with_capacity(font_runs.len());
         for run in font_runs.iter() {
+            let features = match (text_features, &run.font_features) {
+                (Some(text), Some(run)) => Some(text.merged(run)),
+                (text, run) => run.as_ref().or(text).cloned(),
+            }
+            .filter(|features| !features.is_empty());
+            let alias = features.as_ref().map(|features| {
+                self.feature_family(run.font_family.as_deref().or(family), features)
+            });
+            run_features.push((features, alias));
+        }
+        let mut run_attrs: Vec<(Attrs, u16)> = Vec::with_capacity(font_runs.len());
+        for (run, (features, alias)) in font_runs.iter().zip(&run_features) {
             let family = run.font_family.as_deref().or(family);
             let requested = run.font_weight.or(style.font_weight).unwrap_or(400);
             let weight = family
                 .and_then(|family| self.matched_weight(family, requested))
                 .unwrap_or(requested);
             let mut run_attr = attrs.clone().weight(Weight(weight));
-            if let Some(family) = family {
+            if let Some(family) = alias.as_deref().or(family) {
                 run_attr = run_attr.family(Family::Name(family));
             }
+            run_attr =
+                run_attr.font_features(features.as_ref().map(cosmic_features).unwrap_or_default());
             run_attrs.push((run_attr, requested));
         }
         // Each buffer line's source text and the code point it starts at,

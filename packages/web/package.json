@@ -15,7 +15,7 @@
   "module": "./dist/index.js",
   "sideEffects": false,
   "scripts": {
-    "test": "node --experimental-strip-types --test test/*.test.mjs",
+    "test": "node --experimental-strip-types --test test/*.test.mjs && tsc -p test && vitest run",
     "build": "pnpm --filter \"@celesta/cli^...\" build && tsc -p tsconfig.worker.json && vite build && tsc -p tsconfig.json",
     "prepack": "npm run build"
   },
@@ -38,6 +38,7 @@
     "@celesta/transitions": "workspace:*",
     "@types/node": "^24.13.6",
     "typescript": "^5.9.3",
-    "vite": "^8.3.1"
+    "vite": "^8.3.1",
+    "vitest": "^5.0.3"
   }
 }

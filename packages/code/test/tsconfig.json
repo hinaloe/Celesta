@@ -1,0 +1,13 @@
+{
+  // Type-checks the tests together with the src/ they import. `tsc -b test`
+  // builds @celesta/react first, when its dist/ is missing or stale; this
+  // package itself needs no build.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "..",
+    "types": ["node"]
+  },
+  "include": ["./**/*.mts"],
+  "references": [{ "path": "../../react" }]
+}

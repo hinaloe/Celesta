@@ -894,7 +894,7 @@ fn measuring_rejects_invalid_font_runs() {
                 start: 0,
                 end: 3,
                 font_weight: Some(700),
-                font_family: None,
+                ..TextFontRun::default()
             }],
             ..TextStyle::default()
         },

@@ -5,7 +5,7 @@ import { applyFilters, filtersPadding } from './filters';
 import { canvasDrawsAlike, gradientPixels } from './gradients';
 import { SampleAverage } from './motion-blur';
 import { loadFonts, loadedFamilies, releaseFonts } from './fonts';
-import { checkFontRuns, cssFont, letterSpacingPx, measureLine, runPieces, textLineRanges, textStyle, withLoadedFallback } from './text-layout';
+import { checkFontRuns, cssFont, letterSpacingPx, loadFeatureFonts, measureLine, runPieces, textLineRanges, textStyle, withLoadedFallback } from './text-layout';
 import type { RunPiece } from './text-layout';
 import { animationFrame, decodeAnimatedImage } from './animated-image';
 import { audioBytes } from './audio-decode';
@@ -836,6 +836,7 @@ export class SceneCanvas {
       }
       checkFontRuns(style.fontRuns, count);
       const fontRuns = style.fontRuns ?? [];
+      await loadFeatureFonts(style);
       if (style.visibleCharacters != null && (!Number.isSafeInteger(style.visibleCharacters) || style.visibleCharacters < 0)) {
         throw new Error('Text visibleCharacters must be a non-negative integer');
       }
@@ -1142,6 +1143,7 @@ export class SceneCanvas {
       // The GPU draws the text's image: the layout box in whole pixels,
       // grown by the stroke on every side. A single line keeps only its
       // visible rows, stroke included, padded to an even count.
+      await loadFeatureFonts(withLoadedFallback(content.style, this.fallbackFamilies));
       ctx.save();
       const { width, height, y, multiline } = this.textLayout(ctx, content, t.anchor);
       ctx.restore();

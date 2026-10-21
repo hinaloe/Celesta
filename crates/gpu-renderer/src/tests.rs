@@ -5389,8 +5389,8 @@ fn font_run_text_matches_cpu() {
                 font_runs: vec![TextFontRun {
                     start: 8,
                     end: 12,
-                    font_weight: None,
                     font_family: Some("IBM Plex Mono".into()),
+                    ..TextFontRun::default()
                 }],
                 color_runs: vec![TextColorRun {
                     start: 18,

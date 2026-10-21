@@ -73,7 +73,9 @@ fallback. The example loads the repository's IBM Plex Mono font explicitly.
 - `children` is a source string, including indentation and trailing newlines.
 - `language` is `tsx`, `ts`, `json`, `bash`, or `text` (the default).
 - `style` is Celesta's `TextStyle`. Text is left aligned and does not wrap.
-  The theme supplies each run's fill color.
+  The theme supplies each run's fill color. In a font with coding ligatures,
+  `fontFeatures: { liga: false, calt: false }` shows `===` and `->` as
+  written.
 - `visibleCharacters` counts Unicode code points in the **original source**,
   matching `useTypewriter().length`. A tab costs one character, LF costs one,
   and CRLF costs two. Fractions are rounded down, negative counts show nothing,

@@ -17,6 +17,7 @@ Syntax-highlighted code is in [code.md](code.md).
 - [Emphasis ranges](#emphasis-ranges): emphasisContent, resolveEmphasis, graphemes
 - [Timed ranges](#timed-ranges): resolveTimedRanges, timedRangeAt
 - [TextStyle](#textstyle)
+- [OpenType features](#opentype-features): ligatures, alternates, `fontFeatures`
 - [Line breaking](#line-breaking)
 - [Fonts, fallback, and emoji](#fonts-fallback-and-emoji)
 - [Font stacks (和欧混植)](#font-stacks-和欧混植)
@@ -105,7 +106,7 @@ and [`examples/reel`](../../../examples/reel/film.tsx).
 
 ## Rich text with `<Span>`
 
-`<Span style={{ fill, fontWeight, fontFamily }}>` changes part of a text.
+`<Span style={{ fill, fontWeight, fontFamily, fontFeatures }}>` changes part of a text.
 The whole text is still shaped as one paragraph: it wraps, aligns, and
 measures as one, and its baseline stays where the text's own glyphs put it.
 
@@ -121,6 +122,8 @@ measures as one, and its baseline stays where the text's own glyphs put it.
 - `fontFamily` must be installed or loaded with `<Font>`, like the text's.
   It may be a [font stack](#font-stacks-和欧混植), which replaces the text's
   whole stack inside the span.
+- `fontFeatures` turns [OpenType features](#opentype-features) on or off
+  inside the span, merged tag by tag over the text's and outer spans'.
 - Spans nest; an inner span overrides only the properties it sets.
 - `fontFamily`, `fontWeight`, and `color` props are shorthand for the
   span's `style`, which wins where both set the same thing; inside a
@@ -133,8 +136,8 @@ measures as one, and its baseline stays where the text's own glyphs put it.
   not rendered.
 - A grapheme cluster (a letter with its accents, an emoji sequence) takes
   the style at its first character.
-- Kerning and ligatures do not cross a change of weight or family; they do
-  cross a change of color.
+- Kerning and ligatures do not cross a change of weight, family, or
+  features; they do cross a change of color.
 - Set `lang` on Japanese, Chinese, or Korean text with spans (or on the
   composition). A weight or family span splits shaping, and fallback fonts
   are chosen per shaped piece: without a language, the characters next to a
@@ -226,6 +229,7 @@ type TextStyle = {
   align?: 'left' | 'center' | 'right';  // each line within maxWidth, or within the widest line without it
   lineHeight?: number;     // px, > 0 (TextBox's lineHeight is a multiple instead)
   letterSpacing?: number | { em: number };  // px, or a multiple of fontSize, after each glyph; may be negative
+  fontFeatures?: { [tag: string]: boolean | number };  // OpenType features, e.g. { liga: false, calt: false }
   lineBreak?: 'normal' | 'phrase';  // where maxWidth may wrap; default 'normal'
   lang?: string;           // language for fallback fonts, e.g. 'ja-JP'; overrides inherited lang
   fontFallback?: 'system' | 'loaded';  // 'loaded': <Font> fonts before system fonts; overrides inherited
@@ -257,6 +261,40 @@ the size wherever it changes: in `<TextBox>`, `fitText()`, and
 size chosen is the largest that fits with that spacing. A plain number
 stays the same px at every size. `<Span>` has no size of its own, so its
 text takes the same spacing.
+
+## OpenType features
+
+`fontFeatures` turns a font's OpenType features on and off, as CSS
+`font-feature-settings` does. A coding font such as JetBrains Mono joins
+`===`, `->`, and `!=` into one symbol through its `liga` and `calt`
+features; turn them off to draw code as it is written:
+
+```tsx
+<Font google="JetBrains Mono" weights={[400]} />
+<Text style={{ fontFamily: 'JetBrains Mono', fontSize: 48, fontFeatures: { liga: false, calt: false } }}>
+  {'a === b'}
+</Text>
+```
+
+- Each key is a feature tag of four ASCII characters: `liga` (standard
+  ligatures), `calt` (contextual alternates), `dlig`, `kern`, `smcp`,
+  `zero`, `tnum`, `frac`, `ss01`–`ss20`, `cv01`–`cv99`, and any other tag a
+  font defines. Each value is `true`, `false`, or the number of an
+  alternate (`salt: 2`). A tag the font does not have changes nothing.
+- A malformed tag (`lig`, `ligatures`) or value (`-1`, `1.5`, `'off'`)
+  throws at the `<Text>`, `<Span>`, or measurement that sets it.
+- `<Span style={{ fontFeatures }}>` changes features for part of a text,
+  merged tag by tag over the text's: inside `{ liga: false }` text,
+  `<Span style={{ fontFeatures: { liga: true } }}>` turns ligatures back on
+  for that part only, even in the middle of a word.
+- Measuring (`useTextMetrics`, `measureText`, `fitText`, `<TextBox>`)
+  shapes with the same features, so measured and drawn widths agree.
+- `<Code>` draws with the font's ligatures; pass the same `fontFeatures`
+  in its `style` to show code as written ([code.md](code.md)).
+- The browser preview applies features only to fonts loaded with
+  `<Font>`: text with `fontFeatures` and no `fontFamily`, or with an
+  installed family, throws there (export applies them to installed fonts
+  too). Characters a fallback font draws do not get them in the preview.
 
 ## Line breaking
 

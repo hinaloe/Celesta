@@ -51,7 +51,8 @@ test('file font URLs are reused across frames and isolated opacity is applied on
   await renderer.draw(output, scene);
   assert.equal(renderer.textLayouts.size, 1, 'unchanged fonts retain the layout cache');
   assert.equal(createURL.mock.callCount(), 1);
-  assert.equal(fetchFont.mock.callCount(), 1);
+  // The stylesheet and the font file it points to, each once.
+  assert.equal(fetchFont.mock.callCount(), 2);
   assert.equal(faces.size, 1);
   assert.deepEqual(operations.filter(([kind, id]) => kind === 'fill' || id === output.id).map(([kind, , alpha]) => [kind, alpha]), [['fill', 1], ['composite', 0.5], ['fill', 1], ['composite', 0.5]]);
 

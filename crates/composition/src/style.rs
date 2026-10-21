@@ -3,6 +3,7 @@ use crate::tagged::TypeTagged;
 use serde::de::value::{MapAccessDeserializer, SeqAccessDeserializer};
 use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::BTreeMap;
 use std::fmt;
 
 // Deserialized through `PaintDef`, which keeps the same serde field attributes.
@@ -112,13 +113,18 @@ pub struct TextStyle {
     /// font size. Negative values tighten.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub letter_spacing: Option<LetterSpacing>,
+    /// OpenType features, as CSS `font-feature-settings`: `{ liga: false,
+    /// calt: false }` draws `===` as three `=` in a font with coding
+    /// ligatures. A font run's are merged over these tag by tag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_features: Option<FontFeatures>,
     /// Solid color overrides in Unicode code-point ranges of the complete text.
     /// Ranges must be ordered and non-overlapping. A shaped cluster uses the
     /// color at its first code point, so color changes never split shaping.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub color_runs: Vec<TextColorRun>,
-    /// Font weight and family overrides in Unicode code-point ranges of the
-    /// complete text. Ranges must be ordered and non-overlapping. Unlike
+    /// Font weight, family, and feature overrides in Unicode code-point
+    /// ranges of the complete text. Ranges must be ordered and non-overlapping. Unlike
     /// `color_runs`, these change shaping and layout. Written by `<Span>`;
     /// not meant to be set directly.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -296,9 +302,10 @@ pub struct TextColorRun {
     pub color: String,
 }
 
-/// A font weight and family over a half-open Unicode code-point range in the
-/// full text. Omitted fields use the text's own.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// A font weight, family, and features over a half-open Unicode code-point
+/// range in the full text. Omitted fields use the text's own; features are
+/// merged over the text's tag by tag.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
 #[cfg_attr(feature = "codegen", ts(export))]
 #[serde(rename_all = "camelCase")]
@@ -309,6 +316,122 @@ pub struct TextFontRun {
     pub font_weight: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_family: Option<FontFamily>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_features: Option<FontFeatures>,
+}
+
+/// OpenType feature settings, as CSS `font-feature-settings`: each tag
+/// (four ASCII characters, such as `liga`, `calt`, `ss01`, or `zero`) is
+/// turned on (`true`), off (`false`), or set to an alternate's number.
+/// Tags a font does not have change nothing. Deserializing rejects a
+/// malformed tag and a value that is not a boolean or a whole number from
+/// 0 up.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "codegen",
+    ts(export, type = "{ readonly [tag: string]: boolean | number }")
+)]
+#[serde(transparent)]
+pub struct FontFeatures(BTreeMap<String, u32>);
+
+impl FontFeatures {
+    /// Features set to the given values, or an error naming the first
+    /// malformed tag.
+    pub fn new<'a>(settings: impl IntoIterator<Item = (&'a str, u32)>) -> Result<Self, String> {
+        let mut features = BTreeMap::new();
+        for (tag, value) in settings {
+            check_feature_tag(tag)?;
+            features.insert(tag.to_owned(), value);
+        }
+        Ok(Self(features))
+    }
+
+    /// The tags and their values, in tag order.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, u32)> {
+        self.0.iter().map(|(tag, value)| (tag.as_str(), *value))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// These features with `over`'s set over them, tag by tag.
+    pub fn merged(&self, over: &Self) -> Self {
+        let mut features = self.0.clone();
+        features.extend(over.0.iter().map(|(tag, value)| (tag.clone(), *value)));
+        Self(features)
+    }
+}
+
+/// CSS `font-feature-settings` tags are four characters from U+20 to U+7E.
+fn check_feature_tag(tag: &str) -> Result<(), String> {
+    if tag.len() == 4 && tag.bytes().all(|byte| (0x20..=0x7e).contains(&byte)) {
+        Ok(())
+    } else {
+        Err(format!(
+            "font feature tag {tag:?} must be four ASCII characters, such as \"liga\""
+        ))
+    }
+}
+
+impl<'de> Deserialize<'de> for FontFeatures {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct FeatureValue(u32);
+
+        impl<'de> Deserialize<'de> for FeatureValue {
+            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                struct FeatureValueVisitor;
+
+                impl Visitor<'_> for FeatureValueVisitor {
+                    type Value = FeatureValue;
+
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        formatter.write_str("true, false, or a whole number from 0 up")
+                    }
+
+                    fn visit_bool<E: serde::de::Error>(self, on: bool) -> Result<Self::Value, E> {
+                        Ok(FeatureValue(u32::from(on)))
+                    }
+
+                    fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<Self::Value, E> {
+                        u32::try_from(value).map(FeatureValue).map_err(|_| {
+                            E::invalid_value(serde::de::Unexpected::Unsigned(value), &self)
+                        })
+                    }
+
+                    fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<Self::Value, E> {
+                        u64::try_from(value)
+                            .map_err(|_| {
+                                E::invalid_value(serde::de::Unexpected::Signed(value), &self)
+                            })
+                            .and_then(|value| self.visit_u64(value))
+                    }
+
+                    fn visit_f64<E: serde::de::Error>(self, value: f64) -> Result<Self::Value, E> {
+                        if value.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(&value) {
+                            Ok(FeatureValue(value as u32))
+                        } else {
+                            Err(E::invalid_value(serde::de::Unexpected::Float(value), &self))
+                        }
+                    }
+                }
+
+                deserializer.deserialize_any(FeatureValueVisitor)
+            }
+        }
+
+        let settings = BTreeMap::<String, FeatureValue>::deserialize(deserializer)?;
+        for tag in settings.keys() {
+            check_feature_tag(tag).map_err(serde::de::Error::custom)?;
+        }
+        Ok(Self(
+            settings
+                .into_iter()
+                .map(|(tag, FeatureValue(value))| (tag, value))
+                .collect(),
+        ))
+    }
 }
 
 /// A font family name, or a font stack: names tried in order for each
@@ -409,6 +532,64 @@ mod tests {
 
         let empty: TextStyle = serde_json::from_str(r#"{"stroke":[]}"#).unwrap();
         assert_eq!(empty.stroke.unwrap().width(), 0.0);
+    }
+
+    #[test]
+    fn font_features_read_booleans_and_alternate_numbers() {
+        let style: TextStyle = serde_json::from_str(
+            r#"{"fontFeatures":{"liga":false,"calt":false,"salt":2,"ss01":true}}"#,
+        )
+        .unwrap();
+        let features: Vec<_> = style.font_features.as_ref().unwrap().iter().collect();
+        assert_eq!(
+            features,
+            [("calt", 0), ("liga", 0), ("salt", 2), ("ss01", 1)]
+        );
+        assert_eq!(
+            serde_json::to_string(&style).unwrap(),
+            r#"{"fontFeatures":{"calt":0,"liga":0,"salt":2,"ss01":1}}"#
+        );
+    }
+
+    #[test]
+    fn malformed_font_features_are_rejected() {
+        for json in [
+            r#"{"fontFeatures":{"lig":false}}"#,
+            r#"{"fontFeatures":{"ligatures":false}}"#,
+            r#"{"fontFeatures":{"lïga":false}}"#,
+            r#"{"fontFeatures":{"li\nga":false}}"#,
+        ] {
+            let error = serde_json::from_str::<TextStyle>(json)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains("must be four ASCII characters"),
+                "{json}: {error}"
+            );
+        }
+        for json in [
+            r#"{"fontFeatures":{"liga":-1}}"#,
+            r#"{"fontFeatures":{"liga":1.5}}"#,
+            r#"{"fontFeatures":{"liga":"off"}}"#,
+            r#"{"fontFeatures":{"liga":null}}"#,
+            r#"{"fontFeatures":{"liga":4294967296}}"#,
+            r#"{"fontFeatures":["liga"]}"#,
+        ] {
+            assert!(serde_json::from_str::<TextStyle>(json).is_err(), "{json}");
+        }
+        assert!(FontFeatures::new([("liga", 0)]).is_ok());
+        assert!(FontFeatures::new([("ligature", 0)]).is_err());
+    }
+
+    #[test]
+    fn a_font_runs_features_merge_over_the_texts_tag_by_tag() {
+        let text = FontFeatures::new([("liga", 0), ("calt", 0)]).unwrap();
+        let run = FontFeatures::new([("liga", 1), ("ss01", 1)]).unwrap();
+        let merged = text.merged(&run);
+        assert_eq!(
+            merged.iter().collect::<Vec<_>>(),
+            [("calt", 0), ("liga", 1), ("ss01", 1)]
+        );
     }
 
     #[test]

@@ -45,7 +45,7 @@ export default function Root() {
 | --- | --- |
 | `children` | The source string, including indentation and trailing newlines. |
 | `language` | `'tsx'`, `'ts'`, `'json'`, `'bash'`, or `'text'` (default, no highlighting). |
-| `style` | A `TextStyle`. Defaults: `JetBrains Mono`, 24 px, `lineHeight` 1.5 × `fontSize` (px). `align` must be `'left'` (or omitted); text never wraps. The theme supplies each run's fill color. |
+| `style` | A `TextStyle`. Defaults: `JetBrains Mono`, 24 px, `lineHeight` 1.5 × `fontSize` (px). In a font with coding ligatures, `fontFeatures: { liga: false, calt: false }` shows `===` and `->` as written ([text.md](text.md#opentype-features)). `align` must be `'left'` (or omitted); text never wraps. The theme supplies each run's fill color. |
 | `theme` | `codeThemes.dark` (default), `codeThemes.light`, or your own (see [Themes](#themes)). |
 | `visibleCharacters` | How much of the source to show, in Unicode code points of the **original** source (a tab costs 1, LF 1, CRLF 2). Fractions round down; negative shows nothing; default `Infinity`. |
 | `highlightLines` | One-based line numbers to band. A band covers the whole line box and the full source width, even while only part of it is typed. |

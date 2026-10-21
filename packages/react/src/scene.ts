@@ -14,6 +14,7 @@ export type { Clip } from './generated/Clip';
 export type { Easing } from './generated/Easing';
 export type { EvaluatedTransform } from './generated/EvaluatedTransform';
 export type { FontFamily } from './generated/FontFamily';
+export type { FontFeatures } from './generated/FontFeatures';
 export type { GroupMask } from './generated/GroupMask';
 export type { InstanceShape } from './generated/InstanceShape';
 export type { Keyframe } from './generated/Keyframe';

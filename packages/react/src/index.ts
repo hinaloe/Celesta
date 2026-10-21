@@ -55,6 +55,7 @@ export type {
   EvaluatedTransform,
   FontFallbackMode,
   FontFamily,
+  FontFeatures,
   GradientStop,
   GroupMask,
   Layer,

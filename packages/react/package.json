@@ -27,7 +27,7 @@
   "scripts": {
     "codegen": "cd ../.. && cargo test -p celesta-project -p celesta-composition --features codegen",
     "build": "tsc -b tsconfig.json",
-    "test": "vitest run",
+    "test": "tsc -b test && vitest run",
     "clean": "rm -rf dist"
   },
   "dependencies": {
