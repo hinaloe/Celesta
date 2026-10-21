@@ -500,7 +500,7 @@ importers:
         version: 19.3.0
       ag-psd:
         specifier: ^31.0.2
-        version: 31.0.2
+        version: 31.0.3
 
   examples/shorts-loop:
     dependencies:
@@ -800,7 +800,7 @@ importers:
         version: 19.3.0
       ag-psd:
         specifier: ^31.0.2
-        version: 31.0.2
+        version: 31.0.3
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -2432,8 +2432,8 @@ packages:
   '@vitest/spy@5.0.3':
     resolution: {integrity: sha512-XhFysQTB8AZ+P4gMi+Lpo99vg2AZi0qKpaB9yXQl37+CaMEAPO3iH/wGVnSyL5MPERiLezpqTVtrR6UZH5GCXg==}
 
-  ag-psd@31.0.2:
-    resolution: {integrity: sha512-5s5PvqbomPIIJ9YjL6robz55rT4RYPiQkww4brisyZEb5jzlHB1EKh47IJg7gIFj0RUrD0cMgdntM907qaZjXA==}
+  ag-psd@31.0.3:
+    resolution: {integrity: sha512-THDYK+WK1F5GOH4G0l4wkQRc0Cyq5tnxIwBezACKwa6idKygphnGgMISr4lmW6n0Q89ceoqpdPZQF3Y7TL1pgg==}
 
   argparse@1.0.10:
     resolution: {integrity: sha512-o5Roy6tNG4SL/FOkCAN6RzjiakZS25RLYFrcMttJqbdd8BWrnA+fGz57iN5Pb06pvBGvl5gQ0B48dJlslXvoTg==}
@@ -4233,7 +4233,7 @@ snapshots:
 
   '@vitest/spy@5.0.3': {}
 
-  ag-psd@31.0.2:
+  ag-psd@31.0.3:
     dependencies:
       base64-js: 1.5.1
       pako: 2.1.0
