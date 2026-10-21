@@ -1,7 +1,7 @@
 use crate::problems::error_chain;
 use celesta_exporter::{
-    ExportCancellation, ExportError, ExportOptions, ExportProgress, ExportRange, Exporter,
-    GpuDriver, ReactRuntimeOptions, VideoFormat,
+    AudioLoudness, ExportCancellation, ExportError, ExportOptions, ExportProgress, ExportRange,
+    ExportedFile, Exporter, GpuDriver, ReactRuntimeOptions, VideoFormat,
 };
 use celesta_project::Project;
 use celesta_react_bridge::PropertyInputs;
@@ -41,6 +41,8 @@ pub(crate) enum ExportEvent {
         output: PathBuf,
         result: Result<(), String>,
         cancelled: bool,
+        /// The written video's mix loudness, when it has sound.
+        loudness: Option<AudioLoudness>,
     },
 }
 
@@ -64,7 +66,15 @@ impl ExportWorker {
                         driver: request.driver,
                         ..ExportOptions::default()
                     });
+                    let mut loudness = None;
                     let progress = |progress| {
+                        if let ExportProgress::Wrote(ExportedFile::Video {
+                            loudness: measured,
+                            ..
+                        }) = &progress
+                        {
+                            loudness = *measured;
+                        }
                         let _ = event_tx.send(ExportEvent::Progress(progress));
                     };
                     let result = match &request.source {
@@ -97,6 +107,7 @@ impl ExportWorker {
                             output: request.output,
                             result: result.map_err(|error| error_chain(&error)),
                             cancelled,
+                            loudness,
                         })
                         .is_err()
                     {
