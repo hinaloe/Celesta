@@ -19,9 +19,9 @@ function analysis(start: number | null, end: number | null): VoiceLevelAnalysis 
   };
 }
 
-/** A report with only what the helper reads: one entry per line, in order. */
-function report(analyses: (VoiceLevelAnalysis | undefined)[]): VoiceLevelReport {
-  const lines = analyses.map((entry, index) => ({ id: String(index), index, analysis: entry }) as VoiceLevelLineReport);
+/** A report with only what the helper reads: one entry per line, in order, for lines a, b, c, d. */
+function report(analyses: (VoiceLevelAnalysis | undefined)[], ids = ['a', 'b', 'c', 'd']): VoiceLevelReport {
+  const lines = analyses.map((entry, index) => ({ id: ids[index], index, analysis: entry }) as VoiceLevelLineReport);
   // Deliberately partial: the helper reads `lines` only.
   return { lines } as VoiceLevelReport;
 }
@@ -41,6 +41,13 @@ test('a level report trims lines to their speech', async () => {
 test('a report for other lines throws', async () => {
   const planned = await plan();
   assert.throws(() => speechIntervals(planned, { levels: report([analysis(0, 1)]) }), /report has 1 line, the plan 4/);
+  const others = report([undefined, undefined, undefined, undefined], ['a', 'b', 'x', 'd']);
+  assert.throws(() => speechIntervals(planned, { levels: others }), /line "c" of the plan is "x" in the report/);
+});
+
+test('speech found past the end of a shorter planned line is left out', async () => {
+  const levels = report([analysis(1.5, 2), undefined, undefined, undefined]);
+  assert.deepEqual(speechIntervals(await plan(), { levels }), [[3, 4]]);
 });
 
 test('duckingVolume is duckEnvelope over the intervals, with origin in frames', async () => {

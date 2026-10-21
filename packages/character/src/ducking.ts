@@ -27,14 +27,21 @@ export function speechIntervals<L extends DialogueLine>(
   }
   const intervals: Array<[number, number]> = [];
   for (const entry of plan.lines) {
+    const reported = levels?.lines[entry.index];
+    if (reported && reported.id !== entry.id) {
+      throw new Error(`speechIntervals(): line "${entry.id}" of the plan is "${reported.id}" in the report; pass the report of the lines the plan was made from`);
+    }
     if (entry.line.audio === undefined || entry.line.muted) continue;
     const start = entry.from / plan.fps;
     const length = entry.durationInFrames / plan.fps;
-    const analysis = levels?.lines[entry.index].analysis;
+    const analysis = reported?.analysis;
     if (!analysis) {
       intervals.push([start, start + length]);
     } else if (analysis.speechStartSeconds !== null && analysis.speechEndSeconds !== null) {
-      intervals.push([start + analysis.speechStartSeconds, start + Math.min(length, analysis.speechEndSeconds)]);
+      // A line planned shorter than its file keeps only the speech inside it.
+      const from = Math.min(length, analysis.speechStartSeconds);
+      const to = Math.min(length, analysis.speechEndSeconds);
+      if (to > from) intervals.push([start + from, start + to]);
     }
   }
   return intervals;
