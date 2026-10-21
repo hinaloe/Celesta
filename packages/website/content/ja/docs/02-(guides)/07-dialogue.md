@@ -77,7 +77,7 @@ plan = await planDialogue(lines, { fps: 30 });
 
 測るのは、ゲート付きの発話 RMS（dBFS。-60 dBFS 未満の無音と、発話より 20 dB 以上小さい部分は除き、チャンネルごとに測ります）と、全チャンネルのサンプルピークです。調整しやすい最初の一歩であり、LUFS でも聞こえ方の大きさの一致を保証するものでもありません。ゲインは `maxBoostDb` / `maxCutDb` で制限され、`peakCeilingDbfs` を超えないように下げられます。無音やごく短い録音は 0 dB です。話者ごとに `speakers: { name: { offsetDb, targetRmsDbfs } }`、台詞ごとに `voiceLevel` を指定できます（`false` でそのまま、`{ offsetDb }` か `{ targetRmsDbfs }` で調整、`{ gainDb }` で固定ゲイン）。`matched.report` に台詞ごとの測定値、ゲイン、どの上限で止まったかが入ります。結果はファイルの内容でキャッシュされるので、WAV を差し替えると測り直します。
 
-話している間だけ BGM やゲーム音を下げるには、plan から実際に声が出ている区間（各台詞の `from` に report の `speechStartSeconds`/`speechEndSeconds` を足したもの）を取り、重なりと短い無音をまとめて frameKeyframes() で `volume` を作ります。`packages/cli/examples/with-voice-level-matching.tsx` は、例ローカルの暫定ダッキングレシピを使った全体の流れを示します。
+話している間だけ BGM やゲーム音を下げるには、`duck={{ under: 'voice' }}` を指定します。台詞の声は、`duckGroup` で別のグループ（`null` ならどこにも入らない）を指定しない限り `"voice"` グループに入っています。report で見つかった発声区間だけに合わせたいときは、代わりに `prepare()` で duckingVolume(plan, { volume, to }, { levels: report }) から `volume` を作ります。区間そのものは speechIntervals(plan, { levels }) で得られます。`packages/cli/examples/with-voice-level-matching.tsx` が全体の流れを示します。
 
 ## 実際の素材で確認
 

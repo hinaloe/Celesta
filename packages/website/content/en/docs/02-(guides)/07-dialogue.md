@@ -77,7 +77,7 @@ Voices from different speakers or engines often differ in level. Call `matchVoic
 
 The measurement is gated speech RMS in dBFS (silence under -60 dBFS and quiet parts more than 20 dB below the speech are ignored, every channel is measured separately) and the sample peak over every channel. It is a controllable first step, not LUFS and not a guarantee of equal perceived loudness. The gain is clamped to `maxBoostDb` / `maxCutDb` and kept under `peakCeilingDbfs`; silent or very short recordings get 0 dB. Set `speakers: { name: { offsetDb, targetRmsDbfs } }` per speaker, and `voiceLevel` on a line: `false` to leave it alone, `{ offsetDb }` or `{ targetRmsDbfs }` to adjust it, or `{ gainDb }` for a fixed gain. `matched.report` lists each line’s measured level, gain, and which bound limited it. Results are cached by file content, so replacing a WAV is measured again.
 
-To turn BGM or game audio down while someone speaks, build its `volume` with frameKeyframes() from the plan’s audible speech (each line’s `from` plus the report’s `speechStartSeconds`/`speechEndSeconds`), merging overlaps and short silences. `packages/cli/examples/with-voice-level-matching.tsx` shows the whole workflow with a temporary example-local ducking recipe.
+To turn BGM or game audio down while someone speaks, give it `duck={{ under: 'voice' }}`: dialogue voices are in the group `"voice"` unless a line's `duckGroup` says otherwise (`null` for none). To follow only the speech the report found, build its `volume` in `prepare()` with duckingVolume(plan, { volume, to }, { levels: report }) instead; speechIntervals(plan, { levels }) gives the intervals themselves. `packages/cli/examples/with-voice-level-matching.tsx` shows the whole workflow.
 
 ## See it with real artwork
 

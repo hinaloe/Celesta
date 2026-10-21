@@ -195,6 +195,20 @@ overlap and multiply. `video` items and dialogue voices do not take them.
   "fadeIn": { "value": 3, "timescale": 2 }, "fadeOut": { "value": 3, "timescale": 1 } }
 ```
 
+`duckGroup` (a non-empty string) and `duck` duck an item under others, as
+`<Audio duck>` does (see react-core.md, Ducking). `audio` and `video` items
+take both; `dialogue` items take `duckGroup` only, and their voices belong to
+`"voice"` unless it says otherwise (`null` for no group). `duck` has `under`
+(a group or a list of them), `to` (a gain from 0 to 1, or `{ "db": n }` at or
+below 0; default 0.3), and `attack`, `release`, `holdGap` as times (defaults
+0.15 s, 0.4 s, 0.6 s). Each broken rule is reported at its own path, such as
+`tracks[0].items[0].content.duck.to`.
+
+```json
+{ "type": "audio", "asset": "bgm", "volume": 0.6,
+  "duck": { "under": "voice", "to": { "db": -10 }, "release": { "value": 1, "timescale": 2 } } }
+```
+
 ### image
 
 ```json

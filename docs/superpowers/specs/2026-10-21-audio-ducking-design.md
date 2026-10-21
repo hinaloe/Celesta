@@ -67,8 +67,9 @@ export interface AudioProps {
   string.
 - Dialogue lines take `duckGroup` only, not `duck`: a voice marks where
   speech is and is not itself ducked. The character package does not pass
-  a line's `duck` on to the clip, and project `dialogue` items reject it.
-  Allowing it later would be purely additive.
+  a line's `duck` on to the clip, and project `dialogue` items have no
+  `duck` field, so one is ignored as any unknown field is. Allowing it later
+  would be purely additive.
 
 ### Ducking a clip: `duck`
 

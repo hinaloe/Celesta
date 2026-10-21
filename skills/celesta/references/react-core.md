@@ -895,6 +895,7 @@ import { Static } from '@celesta/react';
 | `playbackRate` | Static number only. Default `1`. |
 | `volume` | Linear gain of the soundtrack, number or [keyframes](#keyframe-values). Default `1`. |
 | `muted` | Silences the soundtrack. Default `false`. |
+| `duckGroup` / `duck` | As on `<Audio>`: see [Ducking](#ducking). |
 | `loop` | Past the end of the file, starts the picture and soundtrack over from the file's beginning. Default `false`: the last frame holds, in silence. |
 
 A `<Video>` plays its soundtrack with its picture, on the same clock:
@@ -982,6 +983,8 @@ Runnable: [`packages/cli/examples/with-media-frame.tsx`](../../../packages/cli/e
 | `loop` | Past the end of the file, starts over from its beginning. Default `false`: silence. |
 | `fadeIn` | Seconds to rise from silence where the clip starts being heard. Default `0`. |
 | `fadeOut` | Seconds to fall to silence where the clip stops being heard. Default `0`. |
+| `duckGroup` | The [duck group](#ducking) the clip's sound belongs to. |
+| `duck` | Turns the clip down while clips of other groups play. See [Ducking](#ducking). |
 
 `pitch` and `preservePitch` apply to `<Audio>` only, not to a `<Video>`'s
 soundtrack or `<Dialogue>` voices. Preview and export sound the same;
@@ -1012,6 +1015,46 @@ preservePitch are not supported by browser export yet.").
 ```
 
 Runnable: [`packages/cli/examples/with-audio-fade.tsx`](../../../packages/cli/examples/with-audio-fade.tsx).
+
+### Ducking
+
+Mark the clips that should be heard over others with `duckGroup`, and give
+the others `duck`: their gain dips while a clip of a group in `under`
+plays. Dialogue voices are in `"voice"` already
+([dialogue.md](dialogue.md#ducking-bgm-and-game-audio-under-speech)).
+
+```tsx
+<Audio src="./narration.wav" duckGroup="voice" />
+<Audio src="./bgm.wav" volume={0.6} duck={{ under: 'voice' }} />
+<Video src="./game.mp4" duck={{ under: ['voice', 'sfx'], to: { db: -12 } }} />
+```
+
+| `duck` field | Notes |
+| --- | --- |
+| `under` | A group name or a list of them. A group no clip has ducks nothing. |
+| `to` | The gain under them: a multiplier from 0 to 1, or `{ db }` at or below 0. Default `0.3`. |
+| `attack` | Seconds the gain takes to come down, ending as the other clip starts. Default `0.15`. |
+| `release` | Seconds it takes to come back up after the other clip ends. Default `0.4`. |
+| `holdGap` | Silences shorter than this many seconds stay ducked. Default `0.6`. |
+
+- A marked clip counts from its start to where its file runs out, or to the
+  end of its sequence if that comes first; a looping clip counts for its
+  whole sequence. Muted clips do not count, and a clip never ducks under
+  itself.
+- Runs of speech closer together than `holdGap`, or than
+  `attack + release`, are joined, so the gain does not bob up between them.
+  The ramps ease in and out (`ease-in-out` on the gain).
+- The dip multiplies `volume` and the fades. It is timed on the timeline:
+  `playbackRate`, `loop`, and `pitch` of the ducked clip do not move it.
+- `attack: 0` or `release: 0` switches the gain instantly, which can click
+  on some material. Values are used as written.
+- Out-of-range values (`to: 1.5`, a negative `attack`) fail the export and
+  preview with the clip's `src` and the field; a non-finite number throws in
+  React already.
+- Preview, export, and `@celesta/web`'s `exportMp4` play the same curve. To
+  build it yourself, `duckEnvelope(intervals, duck, { origin })` from
+  `@celesta/media-utils` returns it as keyframes; from a dialogue plan,
+  use `duckingVolume()` ([dialogue.md](dialogue.md#ducking-bgm-and-game-audio-under-speech)).
 
 Bare, an `<Audio>` spans the whole composition. Inside a `<Sequence>` it
 starts when the sequence starts and stops when it ends. An `<Audio>` behind a
@@ -1227,8 +1270,9 @@ with `interpolate` ([animation.md](animation.md#interpolate)).
 Builds the same keyframes from frame numbers. Each key is
 `{ frame, value, easing? }`; `easing` shapes the segment that ends at that
 key and defaults to `'linear'`. For a plain fade in or out, use
-[`fadeIn` / `fadeOut`](#audio) instead. Dip the BGM under a voice from
-frame 30 to 60, on top of its fades:
+[`fadeIn` / `fadeOut`](#audio) instead, and to dip under voices that play,
+[`duck`](#ducking). Dip the BGM by hand from frame 30 to 60, on top of its
+fades:
 
 ```tsx
 const { fps } = useVideoConfig();
