@@ -43,7 +43,7 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | `trianglePath` / `polygonPath` / `starPath` / `piePath` / `heartPath` | `@celesta/shapes` | The same shapes as path commands, to pass to a `Path` or reshape. |
 | `interpolate` / `Easings` | `@celesta/react` | Map a frame to a value, with easing and extrapolation. |
 | `interpolateColor` | `@celesta/react` | Map a frame to a `#RRGGBBAA` color, blending with premultiplied alpha. |
-| `frameKeyframes` | `@celesta/react` | frameKeyframes(keys, { fps, origin? }) builds volume, playbackRate, or pitch keyframes from frame numbers. Times are (frame - origin) / fps on the enclosing sequence’s clock; origin defaults to 0. Use it for audio fades. The browser exporter supports only constant volume and playback rate, and does not support pitch. |
+| `frameKeyframes` | `@celesta/react` | frameKeyframes(keys, { fps, origin? }) builds volume, playbackRate, or pitch keyframes from frame numbers. Times are (frame - origin) / fps on the enclosing sequence’s clock; origin defaults to 0. Use it for audio fades. The browser exporter supports keyframed volume and playback rate, but not pitch. |
 | `spring` | `@celesta/react` | A physics-based value that settles from 0 to 1. |
 | `useCurrentFrame()` / `useCurrentTime()` | `@celesta/react` | The current frame, or the exact time, local to an enclosing sequence. |
 | `useVideoConfig()` | `@celesta/react` | The composition’s (or sequence’s) dimensions, frame rate, and duration. |

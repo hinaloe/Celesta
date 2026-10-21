@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { evaluateAnimated, integrateAnimated } from '../src/keyframes.ts';
+import { MAX_POINTS_PER_SEGMENT, automationEvents, evaluateAnimated, integrateAnimated } from '../src/keyframes.ts';
 
 // The same cases `crates/composition/tests/keyframe_fixture.rs` pins the
 // native evaluator to, so the two cannot drift apart.
@@ -24,4 +24,49 @@ test('empty keyframes throw', () => {
 test('an unknown easing throws', () => {
   const animation = { type: 'keyframes', keyframes: [{ time: { value: 0, timescale: 1 }, value: 0 }, { time: { value: 1, timescale: 1 }, value: 1, easing: 'wobble' }] };
   assert.throws(() => evaluateAnimated(animation, 0.5), /unknown easing: wobble/);
+});
+
+const key = (time, value, easing) => ({ time: { value: Math.round(time * 1_000_000), timescale: 1_000_000 }, value, ...(easing ? { easing } : {}) });
+const keys = (...list) => ({ type: 'keyframes', keyframes: list.map((entry) => key(...entry)) });
+const set = (value, time) => ({ kind: 'set', value, time });
+const ramp = (value, time) => ({ kind: 'ramp', value, time });
+
+test('a static value is one set at the clip start', () => {
+  assert.deepEqual(automationEvents(0.5, 2, 4), [set(0.5, 2)]);
+});
+test('linear keys become one ramp each', () => {
+  assert.deepEqual(automationEvents(keys([0, 0], [1, 2, 'linear']), 3, 10), [set(0, 3), ramp(2, 4)]);
+});
+test('an eased segment is sampled every millisecond', () => {
+  const volume = keys([0, 1], [0.3, 0.3, 'ease-in-out']);
+  const events = automationEvents(volume, 0, 1);
+  assert.equal(events.length, 301);
+  assert.deepEqual(events[0], set(1, 0));
+  for (const event of events.slice(1)) {
+    assert.equal(event.kind, 'ramp');
+    assert.ok(Math.abs(event.value - evaluateAnimated(volume, event.time)) <= 1e-12);
+  }
+  const last = events[events.length - 1];
+  assert.ok(Math.abs(last.time - 0.3) <= 1e-12);
+  assert.equal(last.value, 0.3);
+});
+test('a cut is a set at the same time', () => {
+  const events = automationEvents(keys([0, 0], [1, 1, 'linear'], [1, 3], [2, 3]), 0, 2);
+  assert.deepEqual(events.slice(0, 3), [set(0, 0), ramp(1, 1), set(3, 1)]);
+});
+test('a clip starting before 0 starts from where the curve has got to', () => {
+  assert.deepEqual(automationEvents(keys([0, 0], [2, 2, 'linear']), -1, 5), [set(1, 0), ramp(2, 1)]);
+});
+test('a long eased segment is capped', () => {
+  assert.equal(automationEvents(keys([0, 0], [600, 1, 'ease-in-out-sine']), 0, 600).length, 1 + MAX_POINTS_PER_SEGMENT);
+});
+test('windows past the end are not scheduled', () => {
+  const events = automationEvents(keys([0, 0], [1, 1, 'linear'], [5, 0, 'linear'], [6, 1, 'linear']), 0, 2);
+  assert.deepEqual(events, [set(0, 0), ramp(1, 1), ramp(0, 5)]);
+});
+test('values are clamped to the range', () => {
+  // ease-in-back dips to about -0.09 before rising.
+  const events = automationEvents(keys([0, 0], [1, 1, 'ease-in-back']), 0, 1, { min: 0, max: 16 });
+  assert.ok(events.some((event) => event.value === 0));
+  assert.ok(events.every((event) => event.value >= 0 && event.value <= 16));
 });

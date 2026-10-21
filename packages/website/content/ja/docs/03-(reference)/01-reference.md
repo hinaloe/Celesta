@@ -43,7 +43,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `trianglePath` / `polygonPath` / `starPath` / `piePath` / `heartPath` | `@celesta/shapes` | 同じ図形のパスコマンド。`Path` に渡したり変形したりできます。 |
 | `interpolate` / `Easings` | `@celesta/react` | フレームを、イージング・外挿付きの値に変換します。 |
 | `interpolateColor` | `@celesta/react` | フレームを `#RRGGBBAA` の色に変換し、乗算済みアルファで混ぜます。 |
-| `frameKeyframes` | `@celesta/react` | frameKeyframes(keys, { fps, origin? }) は、フレーム番号から音量・再生速度・ピッチのキーフレームを作ります。時刻は Audio を囲む Sequence の時計で (frame - origin) / fps 秒となり、origin の既定値は 0 です。音声のフェードなどに使えます。ブラウザでの書き出しは、固定の音量と再生速度に限られ、ピッチは使えません。 |
+| `frameKeyframes` | `@celesta/react` | frameKeyframes(keys, { fps, origin? }) は、フレーム番号から音量・再生速度・ピッチのキーフレームを作ります。時刻は Audio を囲む Sequence の時計で (frame - origin) / fps 秒となり、origin の既定値は 0 です。音声のフェードなどに使えます。ブラウザでの書き出しは、音量と再生速度のキーフレームにも対応しますが、ピッチは使えません。 |
 | `spring` | `@celesta/react` | 物理モデルで 0 から 1 に収束する値。 |
 | `useCurrentFrame()` / `useCurrentTime()` | `@celesta/react` | 親シーケンスを基準にした現在のフレームまたは正確な時刻。 |
 | `useVideoConfig()` | `@celesta/react` | コンポジション（またはシーケンス）のサイズ・フレームレート・長さ。 |

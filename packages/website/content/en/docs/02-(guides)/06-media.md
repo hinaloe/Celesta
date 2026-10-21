@@ -12,7 +12,7 @@
 - Media placed inside a `Sequence` starts when the sequence does and stops when it ends.
 - `volume` and an audio `playbackRate` can be a number or keyframes. Keyframe times are seconds from the start of the enclosing sequence, written as `{ value, timescale }`.
 
-frameKeyframes(keys, { fps, origin? }) builds volume, playbackRate, or pitch keyframes from frame numbers. Times are (frame - origin) / fps on the enclosing sequence’s clock; origin defaults to 0. Use it for volume changes that a fade does not cover, such as lowering music under a voice. The browser exporter supports only constant volume and playback rate, and does not support pitch.
+frameKeyframes(keys, { fps, origin? }) builds volume, playbackRate, or pitch keyframes from frame numbers. Times are (frame - origin) / fps on the enclosing sequence’s clock; origin defaults to 0. Use it for volume changes that a fade does not cover, such as lowering music under a voice. The browser exporter supports keyframed volume and playback rate, but not pitch.
 
 ## Show media in a frame
 
