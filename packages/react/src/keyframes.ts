@@ -4,7 +4,7 @@
 // builds one from frame numbers so fades line up with the frames scenes are
 // laid out in.
 
-import type { Animatable, Easing } from './scene';
+import type { Easing, KeyframeAnimation } from './scene';
 import { secondsToTime } from './time';
 
 export interface FrameKeyframe {
@@ -51,7 +51,7 @@ export interface FrameKeyframesOptions {
 export function frameKeyframes(
   keys: readonly FrameKeyframe[],
   options: FrameKeyframesOptions,
-): Animatable<number> {
+): KeyframeAnimation<number> {
   const { fps, origin = 0 } = options;
   if (!Number.isFinite(fps) || fps <= 0) {
     throw new Error('frameKeyframes() requires a positive fps');

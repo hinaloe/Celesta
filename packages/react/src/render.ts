@@ -881,7 +881,7 @@ function useShaderSource(source: ShaderSource, context: WalkContext): void {
   const sources = usedShaders(context);
   context.frameState.set(SHADER_SOURCES, sources);
   // A frame uses a few shaders. Keying a Map by the id would internalize
-  // it into a thin string, which `flat-strings.test.mjs` rejects.
+  // it into a thin string, which `flat-strings.test.mts` rejects.
   const used = sources.find((other) => other.id === source.id);
   if (!used) {
     sources.push(source);
