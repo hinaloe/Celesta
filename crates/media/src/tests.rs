@@ -1181,6 +1181,109 @@ fn a_muted_voice_does_not_duck() {
     assert_near(rms(&left, 2.1, 3.9).into(), 0.5 / 2.0_f64.sqrt(), 0.01);
 }
 
+#[test]
+fn clips_that_duck_under_each_other_both_dip() {
+    // A ducks under B's group and B under A's: each counts whole toward the
+    // other's curve, with no fixed point to look for.
+    let groups = |own: &str, under: &str| {
+        let under = DuckGroups::One(under.to_owned());
+        (
+            Some(own.to_owned()),
+            Some(AudioDuck::resolve(&under, None, None, None, None).unwrap()),
+        )
+    };
+    let (duck_group, duck) = groups("a", "b");
+    let a = AudioClip {
+        duck_group,
+        duck,
+        ..named(clip(0.0, 6.0), "bed.wav")
+    };
+    let (duck_group, duck) = groups("b", "a");
+    let b = AudioClip {
+        duck_group,
+        duck,
+        volume: Animatable::Static(0.0),
+        ..named(clip(2.0, 2.0), "voice.wav")
+    };
+    let graph = AudioGraph {
+        sample_rate: RATE,
+        master_volume: 1.0,
+        clips: vec![a, b],
+    };
+    let sources = HashMap::from([
+        ("bed.wav".to_owned(), tone(440.0, 0.0, 6.0, 6.0)),
+        ("voice.wav".to_owned(), tone(880.0, 0.0, 6.0, 6.0)),
+    ]);
+    let (mixed, ducks) = mix_audio_graph_with_ducks_cancellable(
+        &graph,
+        Path::new("assets"),
+        seconds(6.0),
+        &mut MapDecoder(sources),
+        || false,
+    )
+    .unwrap();
+
+    let curve = |index: usize, interval| {
+        Some(duck_curve(&[interval], graph.clips[index].duck.as_ref().unwrap()).unwrap())
+    };
+    assert_eq!(ducks, vec![curve(0, (2.0, 4.0)), curve(1, (0.0, 6.0))]);
+    let left: Vec<f32> = mixed
+        .samples
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|frame| frame[0])
+        .collect();
+    let full = 0.5 / 2.0_f64.sqrt();
+    assert_near(rms(&left, 2.1, 3.9).into(), full * 0.3, 0.01);
+}
+
+#[test]
+fn a_ducking_ramp_changes_the_gain_smoothly() {
+    // A constant source makes the output the gain itself, times 0.5.
+    let level = AudioBuffer {
+        sample_rate: RATE,
+        channels: 2,
+        samples: vec![0.5; 6 * RATE as usize * 2],
+    };
+    let graph = AudioGraph {
+        sample_rate: RATE,
+        master_volume: 1.0,
+        clips: vec![bed(), voice(2.0, 4.0)],
+    };
+    let sources = HashMap::from([
+        ("bed.wav".to_owned(), level),
+        ("voice.wav".to_owned(), tone(880.0, 0.0, 6.0, 6.0)),
+    ]);
+    let left: Vec<f32> = mix_audio_graph(
+        &graph,
+        Path::new("assets"),
+        seconds(6.0),
+        &mut MapDecoder(sources),
+    )
+    .unwrap()
+    .samples
+    .as_chunks::<2>()
+    .0
+    .iter()
+    .map(|frame| frame[0])
+    .collect();
+
+    // The 0.15 s attack eases 0.5 down to 0.15; ease-in-out is at its
+    // steepest, 1.5 times the average, half way along.
+    let average = (0.5 - 0.15) / (0.15 * f64::from(RATE));
+    let steepest = left
+        .windows(2)
+        .map(|pair| f64::from((pair[1] - pair[0]).abs()))
+        .fold(0.0, f64::max);
+    assert!(steepest > average, "the gain never moved: {steepest}");
+    assert!(
+        steepest <= average * 1.5 * 1.01,
+        "a step of {steepest} along a ramp averaging {average}"
+    );
+    assert_near(left[3 * RATE as usize].into(), 0.15, 1e-4);
+}
+
 /// A [`MapDecoder`] that counts its decodes.
 struct CountingDecoder {
     inner: MapDecoder,
