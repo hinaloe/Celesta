@@ -15,7 +15,7 @@
   "module": "./dist/index.js",
   "sideEffects": false,
   "scripts": {
-    "test": "node --experimental-strip-types --test test/*.test.mjs && tsc -p test && vitest run",
+    "test": "node --experimental-strip-types --test test/*.test.mjs && tsc -b test && vitest run",
     "build": "pnpm --filter \"@celesta/cli^...\" build && tsc -p tsconfig.worker.json && vite build && tsc -p tsconfig.json",
     "prepack": "npm run build"
   },
