@@ -71,9 +71,21 @@ test('a clip starting before 0 starts from where the curve has got to', () => {
 test('a long eased segment is capped', () => {
   assert.equal(automationEvents(keys([0, 0], [600, 1, 'ease-in-out-sine']), 0, 600).length, 1 + MAX_POINTS_PER_SEGMENT);
 });
+test('a cut at the clip start takes effect from the start', () => {
+  assert.deepEqual(automationEvents(keys([0, 0], [0, 1], [1, 2, 'linear']), 0, 2), [set(0, 0), set(1, 0), ramp(2, 1)]);
+  // An outer sequence clipping the head moves a cut onto local 0.
+  assert.deepEqual(automationEvents(keys([-1, 1], [0, 1], [0, 0.2], [1, 0.2]), 0, 2), [set(1, 0), set(0.2, 0), ramp(0.2, 1)]);
+});
 test('windows past the end are not scheduled', () => {
   const events = automationEvents(keys([0, 0], [1, 1, 'linear'], [5, 0, 'linear'], [6, 1, 'linear']), 0, 2);
-  assert.deepEqual(events, [set(0, 0), ramp(1, 1), ramp(0, 5)]);
+  assert.deepEqual(events, [set(0, 0), ramp(1, 1), ramp(0.75, 2)]);
+});
+test('an eased window across the end is followed only up to the end', () => {
+  const rate = keys([0, 0], [600, 1, 'ease-in-out-sine']);
+  const events = automationEvents(rate, 0, 0.5);
+  assert.equal(events.length, 1 + 500);
+  assert.equal(events[events.length - 1].time, 0.5);
+  assert.equal(events[events.length - 1].value, evaluateAnimated(rate, 0.5));
 });
 test('values are clamped to the range', () => {
   // ease-in-back dips to about -0.09 before rising.

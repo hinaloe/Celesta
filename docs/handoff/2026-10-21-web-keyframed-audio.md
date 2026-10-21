@@ -14,7 +14,9 @@ keyframed, instead of throwing. This is the first step of audio ducking
 - `automationEvents` turns an animated value into AudioParam calls: one
   ramp per linear segment, a set at a cut, and ramps through points 1 ms
   apart (at most 1024 per segment) along an eased segment. A clip starting
-  before context time 0 begins from where its curve has got to.
+  before context time 0 begins from where its curve has got to, and a cut
+  right at that point still applies. A segment across the clip's end is
+  followed only up to the end, so the rate check covers only what is heard.
 - `scheduleClip` in `audio-support.ts` builds one clip's graph: rate and
   volume automation (volume clamped to 0–16, as in `mix.rs`), then the
   fades. It starts the source with two arguments and stops it at the

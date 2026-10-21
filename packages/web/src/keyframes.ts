@@ -84,18 +84,25 @@ export function automationEvents(value: AnimatedNumber, start: number, end: numb
   for (let index = 1; index < keys.length; index++) {
     const from = keys[index - 1], to = keys[index];
     const begin = seconds(from), finish = seconds(to);
-    if (finish <= from0) continue;
+    // A segment that is over by the first event is skipped, but a cut right
+    // there still applies: the first event holds the value before it.
+    if (finish < from0 || (finish === from0 && begin < finish)) continue;
     if (begin >= until) break;
     if (finish - begin <= 0) {
       events.push({ kind: 'set', value: clamp(to.value), time: start + finish });
-    } else if ((to.easing ?? 'linear') === 'linear') {
-      events.push({ kind: 'ramp', value: clamp(to.value), time: start + finish });
+      continue;
+    }
+    // Only what is heard is scheduled, so a segment across the end stops there.
+    const stop = Math.min(finish, until);
+    const valueAt = (local: number) => (local === finish ? to.value : evaluateAnimated(value, local));
+    if ((to.easing ?? 'linear') === 'linear') {
+      events.push({ kind: 'ramp', value: clamp(valueAt(stop)), time: start + stop });
     } else {
       const a = Math.max(begin, from0);
-      const points = Math.max(1, Math.min(MAX_POINTS_PER_SEGMENT, Math.ceil((finish - a) / AUTOMATION_STEP_SECONDS - 1e-9)));
+      const points = Math.max(1, Math.min(MAX_POINTS_PER_SEGMENT, Math.ceil((stop - a) / AUTOMATION_STEP_SECONDS - 1e-9)));
       for (let point = 1; point <= points; point++) {
-        const local = point === points ? finish : a + ((finish - a) * point) / points;
-        events.push({ kind: 'ramp', value: clamp(point === points ? to.value : evaluateAnimated(value, local)), time: start + local });
+        const local = point === points ? stop : a + ((stop - a) * point) / points;
+        events.push({ kind: 'ramp', value: clamp(valueAt(local)), time: start + local });
       }
     }
   }

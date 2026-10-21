@@ -114,6 +114,12 @@ test('a rate that overshoots below 0 is rejected', () => {
   const clip: AudioClip = { ...base, duration: 2, playbackRate: keys([0, 1], [1, 0.05, 'ease-out-back']) };
   assert.throws(() => scheduleClip(recording(), clip, buffer, 10), /playback rate must be positive/);
 });
+test('a rate reaching 0 only after the clip ends is played', () => {
+  const clip: AudioClip = { ...base, duration: 5, playbackRate: keys([0, 1], [10, 0, 'linear']) };
+  const context = recording();
+  scheduleClip(context, clip, buffer, 10);
+  assert.deepEqual(context.sources[0].events, [['set', 1, 0], ['ramp', 0.5, 5]]);
+});
 test('a clip after the end of the mix is not scheduled', () => {
   const context = recording();
   scheduleClip(context, { ...base, start: 5 }, buffer, 5);
