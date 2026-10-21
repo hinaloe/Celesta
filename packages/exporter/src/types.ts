@@ -41,6 +41,8 @@ export type EncoderPreset =
   | 'slower'
   | 'veryslow';
 export type ColorConversion = 'auto' | 'gpu' | 'encoder';
+/** What gives where the loudness gain would take a true peak over `truePeak`. */
+export type PeakHandling = 'limit' | 'lower';
 
 /**
  * A composition time: seconds (rounded to milliseconds), or a timecode
@@ -76,6 +78,16 @@ export interface VideoOptions extends SourceOptions, RunOptions, RenderOptions {
   bitDepth?: 8 | 10;
   /** Where RGB frames become YUV (MP4 only). */
   colorConversion?: ColorConversion;
+  /**
+   * Bring the whole mix to this integrated loudness: LUFS from -70 to -5,
+   * `streaming` (-14) or `broadcast` (-23). Every video reports its mix's
+   * `loudness` either way.
+   */
+  loudness?: number | 'streaming' | 'broadcast';
+  /** The highest true peak `loudness` may leave, -9 to 0 dBTP; default -1. */
+  truePeak?: number;
+  /** `limit` (default) holds peaks at `truePeak`; `lower` stops the gain short of the target. */
+  peakHandling?: PeakHandling;
 }
 
 export interface StillsOptions extends SourceOptions, RunOptions, RenderOptions {
@@ -129,6 +141,16 @@ export interface ReactComposition {
   durationInFrames: number;
 }
 
+/** An exported mix's loudness, rounded to 0.01. */
+export interface Loudness {
+  /** Integrated loudness, LUFS; `null` for a silent mix or one shorter than 400 ms. */
+  integratedLufs: number | null;
+  /** The highest true peak, dBTP; `null` for digital silence. */
+  truePeakDbtp: number | null;
+  /** The gain a `loudness` target applied to the whole mix, dB. */
+  gainDb?: number;
+}
+
 /** A written file. Frame numbers are zero-based composition frames. */
 export type ExportOutput =
   | {
@@ -139,6 +161,8 @@ export type ExportOutput =
       start: number;
       duration: number;
       audio: boolean;
+      /** The mix's loudness, when the video has sound. */
+      loudness?: Loudness;
       format: 'mp4' | 'mov' | 'webm';
       alpha: boolean;
     }

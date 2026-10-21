@@ -38,6 +38,14 @@ test('a video export passes its options as --name=value flags', () => {
   );
 });
 
+test('a loudness target passes LUFS or a preset, with its peak options', () => {
+  const flags = (options: Partial<Parameters<typeof videoArgs>[0]>) =>
+    videoArgs({ source: 'film.tsx', output: 'film.mp4', ...options }).filter((arg) => /^--(loudness|true-peak|peak-handling)=/.test(arg));
+  assert.deepEqual(flags({}), []);
+  assert.deepEqual(flags({ loudness: -14, truePeak: -1.5, peakHandling: 'lower' }), ['--loudness=-14', '--true-peak=-1.5', '--peak-handling=lower']);
+  assert.deepEqual(flags({ loudness: 'broadcast' }), ['--loudness=broadcast']);
+});
+
 test('a .json source is a project unless react says otherwise', () => {
   assert.deepEqual(compositionArgs({ source: 'demo.celesta.json' }), ['--json', '--stdin-cancel', '--info', '--', 'demo.celesta.json']);
   assert.ok(compositionArgs({ source: 'entry.json', react: true }).includes('--react'));

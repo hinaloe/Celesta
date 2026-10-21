@@ -23,6 +23,9 @@ export function videoArgs(options: VideoOptions): string[] {
     ...value('crf', options.crf),
     ...value('bit-depth', options.bitDepth),
     ...value('color-conversion', options.colorConversion),
+    ...value('loudness', options.loudness),
+    ...value('true-peak', options.truePeak),
+    ...value('peak-handling', options.peakHandling),
   ];
   return command(flags, options, options.output);
 }
