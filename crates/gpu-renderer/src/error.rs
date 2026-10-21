@@ -89,6 +89,50 @@ pub enum GpuRenderError {
     PathsTooComplex(usize),
 }
 
+impl GpuRenderError {
+    /// Whether the error comes from the scene being drawn (an asset, text,
+    /// a shader or filter, too many layers or paths) rather than from the
+    /// GPU, its readback, or the surface. After a scene error, the next
+    /// scene can still be rendered; after any other, it would most likely
+    /// fail the same way.
+    pub fn is_scene_error(&self) -> bool {
+        match self {
+            Self::AssetIo { .. }
+            | Self::ImageDecode { .. }
+            | Self::Psd(_)
+            | Self::Media(_)
+            | Self::Text(_)
+            | Self::Effects(_)
+            | Self::Shader { .. }
+            | Self::BuiltinFilter { .. }
+            | Self::InvalidImageData { .. }
+            | Self::RemoteAsset { .. }
+            | Self::MissingVideoDecoder(_)
+            | Self::UnsupportedContent { .. }
+            | Self::TooManyLayers(_)
+            | Self::ClipsNestedTooDeep(_)
+            | Self::PathsTooComplex(_) => true,
+            Self::DriverUnavailable(_)
+            | Self::RequestAdapter(_)
+            | Self::RequestDevice(_)
+            | Self::Poll(_)
+            | Self::Map(_)
+            | Self::MapRange(_)
+            | Self::MapCallbackDropped
+            | Self::ReadbackThread(_)
+            | Self::InvalidSurfaceSize { .. }
+            | Self::InvalidTargetSize { .. }
+            | Self::IncompatibleSurface
+            | Self::SurfaceNotConfigured
+            | Self::SurfaceValidation
+            | Self::SurfaceTooLarge { .. }
+            | Self::NativePreview(_)
+            | Self::UnsupportedReadbackFormat(_)
+            | Self::OddYuv420pSize { .. } => false,
+        }
+    }
+}
+
 impl fmt::Display for GpuRenderError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -246,5 +290,20 @@ impl Error for GpuRenderError {
 impl From<MediaError> for GpuRenderError {
     fn from(error: MediaError) -> Self {
         Self::Media(error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scene_errors_are_told_apart_from_gpu_failures() {
+        let color = RenderError::InvalidColor("ink".to_owned());
+        assert!(GpuRenderError::Text(color).is_scene_error());
+        assert!(GpuRenderError::PathsTooComplex(1 << 24).is_scene_error());
+        assert!(!GpuRenderError::Poll(wgpu::PollError::Timeout).is_scene_error());
+        assert!(!GpuRenderError::MapCallbackDropped.is_scene_error());
+        assert!(!GpuRenderError::ReadbackThread(io::Error::other("no threads")).is_scene_error());
     }
 }

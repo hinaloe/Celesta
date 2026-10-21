@@ -246,6 +246,11 @@ failing frame it samples; frames between the samples are not checked, so for
 a final check of every frame use `inspect.mjs --every 1`, which evaluates
 without rendering.
 
+A failure that is not about the frame's content (the GPU or its readback
+failing, the React runtime exiting, an output that cannot be written) stops
+the sheet at once, as it would any export: the next frame would fail the
+same way.
+
 Separate still images and videos stop at the first failed frame. The error
 names it (`frame 120: …`), and stills written before it stay.
 

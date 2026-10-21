@@ -95,15 +95,17 @@ impl ExportError {
 
     /// Whether the error is about one frame's content, so the frames after
     /// it can still be evaluated and rendered: a scene that failed to
-    /// evaluate or render, not a React runtime that stopped answering or a
-    /// file that could not be written.
+    /// evaluate or render, not a React runtime that stopped answering, a GPU
+    /// or readback failure, or a file that could not be written.
     pub(crate) fn is_frame_scoped(&self) -> bool {
-        matches!(
-            self,
+        match self {
             Self::Evaluation(_)
-                | Self::Render(_)
-                | Self::React(ReactBridgeError::Render(_) | ReactBridgeError::InvalidDuck { .. })
-        )
+            | Self::React(ReactBridgeError::Render(_) | ReactBridgeError::InvalidDuck { .. }) => {
+                true
+            }
+            Self::Render(error) => error.is_scene_error(),
+            _ => false,
+        }
     }
 }
 
@@ -260,5 +262,22 @@ mod tests {
             .is_frame_scoped()
         );
         assert!(!ExportError::Cancelled.is_frame_scoped());
+    }
+
+    #[test]
+    fn a_gpu_failure_stops_a_contact_sheet_but_bad_content_does_not() {
+        let shader = GpuRenderError::Shader {
+            shader: "tint".to_owned(),
+            message: "does not compile".to_owned(),
+        };
+        assert!(ExportError::Render(shader).is_frame_scoped());
+        assert!(ExportError::Render(GpuRenderError::TooManyLayers(1 << 20)).is_frame_scoped());
+        for error in [
+            GpuRenderError::MapCallbackDropped,
+            GpuRenderError::ReadbackThread(io::Error::other("no threads")),
+            GpuRenderError::SurfaceValidation,
+        ] {
+            assert!(!ExportError::Render(error).is_frame_scoped());
+        }
     }
 }
