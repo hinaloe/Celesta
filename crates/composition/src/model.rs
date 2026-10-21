@@ -1204,6 +1204,13 @@ pub struct AudioClip {
     /// [`AudioFade`].
     #[serde(default = "zero_fade", skip_serializing_if = "is_zero_fade")]
     pub fade_out: Time,
+    /// The group this clip's sound belongs to, for other clips' `duck.under`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duck_group: Option<String>,
+    /// Turns this clip down while clips of other groups play. See
+    /// [`crate::duck_curve`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duck: Option<crate::AudioDuck>,
 }
 
 impl AudioClip {

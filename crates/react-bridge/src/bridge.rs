@@ -603,7 +603,7 @@ impl ReactBridge {
             audio: AudioGraph {
                 sample_rate,
                 master_volume,
-                clips: react_audio_clips(&reports, entry_dir),
+                clips: react_audio_clips(&reports, entry_dir)?,
             },
             video_clip_ids: react_video_clip_ids(&reports),
         })

@@ -43,7 +43,7 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | `trianglePath` / `polygonPath` / `starPath` / `piePath` / `heartPath` | `@celesta/shapes` | The same shapes as path commands, to pass to a `Path` or reshape. |
 | `interpolate` / `Easings` | `@celesta/react` | Map a frame to a value, with easing and extrapolation. |
 | `interpolateColor` | `@celesta/react` | Map a frame to a `#RRGGBBAA` color, blending with premultiplied alpha. |
-| `frameKeyframes` | `@celesta/react` | frameKeyframes(keys, { fps, origin? }) builds volume, playbackRate, or pitch keyframes from frame numbers. Times are (frame - origin) / fps on the enclosing sequence’s clock; origin defaults to 0. Use it for audio fades. The browser exporter supports only constant volume and playback rate, and does not support pitch. |
+| `frameKeyframes` | `@celesta/react` | frameKeyframes(keys, { fps, origin? }) builds volume, playbackRate, or pitch keyframes from frame numbers. Times are (frame - origin) / fps on the enclosing sequence’s clock; origin defaults to 0. Use it for audio fades. The browser exporter supports keyframed volume and playback rate, but not pitch. |
 | `spring` | `@celesta/react` | A physics-based value that settles from 0 to 1. |
 | `useCurrentFrame()` / `useCurrentTime()` | `@celesta/react` | The current frame, or the exact time, local to an enclosing sequence. |
 | `useVideoConfig()` | `@celesta/react` | The composition’s (or sequence’s) dimensions, frame rate, and duration. |
@@ -58,6 +58,8 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | `DialogueSeries` / `planDialogue` | `@celesta/character` | Plan voice-length timing and render a sequence of dialogue lines; see [Character dialogue](/en/docs/dialogue/). |
 | `importVoiceFolder` | `@celesta/character` | Read a folder of paired `.wav` + `.txt` voice-tool exports into dialogue lines; see [Character dialogue](/en/docs/dialogue/). |
 | `matchVoiceLevels` / `analyzeVoiceLevel` / `scaleVolume` | `@celesta/character` | Measure local WAV voices in `prepare()` and multiply each line's volume toward a common speech level; see [Character dialogue](/en/docs/dialogue/). |
+| `duckingVolume` / `speechIntervals` | `@celesta/character` | duckingVolume(plan, duck, { levels?, origin? }) builds a bed's volume that dips under a dialogue plan's voices, trimmed to the speech in a `matchVoiceLevels` report when given; speechIntervals(plan, { levels? }) returns the intervals in seconds. The curve is the one `<Audio duck>` plays. |
+| `duckEnvelope` | `@celesta/media-utils` | duckEnvelope(intervals, duck, { origin? }) returns the ducking curve over intervals in seconds as volume keyframes, with `<Audio duck>`'s defaults; `origin` is in seconds (duckingVolume's is in frames), and `duck.volume` scales the curve. |
 | `Dialogue` | `@celesta/character` | Shows a line as a subtitle, plays its `audio`, and changes the view’s expression while active, optionally at cue times within the line. |
 | `expressionAt` | `@celesta/character` | The expression a line’s `expression` (a name or `{ at, expression }` cues) picks at a time into the line. |
 | `loadLipSync` / `useLipSync` | `@celesta/character` | Generate mouth shapes from a WAV recording, and read the current shape. |

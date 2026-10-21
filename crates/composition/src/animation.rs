@@ -44,6 +44,50 @@ pub fn evaluate_f64(value: &Animatable<f64>, time: Time) -> Result<f64, Animatio
         .value)
 }
 
+/// [`evaluate_f64`] for times that never decrease, such as a mixer's sample
+/// clock: it remembers the segment it reached, so each evaluation costs
+/// constant time on average however many keyframes there are. An earlier
+/// time than the last one evaluated gives a wrong value.
+pub struct KeyframeCursor<'a> {
+    value: &'a Animatable<f64>,
+    next: usize,
+}
+
+impl<'a> KeyframeCursor<'a> {
+    pub fn new(value: &'a Animatable<f64>) -> Self {
+        Self { value, next: 1 }
+    }
+
+    /// The value at `time`, exactly as [`evaluate_f64`] gives it.
+    pub fn evaluate(&mut self, time: Time) -> Result<f64, AnimationError> {
+        let Animatable::Keyframes(animation) = self.value else {
+            return evaluate_f64(self.value, time);
+        };
+        let keys = &animation.keyframes;
+        let first = keys.first().ok_or(AnimationError::EmptyKeyframes)?;
+        if time.cmp_exact(first.time)?.is_le() {
+            return Ok(first.value);
+        }
+        // The first segment ending at or after `time`, as `evaluate_f64`'s
+        // scan finds it, starting from where the last call stopped.
+        while self.next < keys.len() && time.cmp_exact(keys[self.next].time)?.is_gt() {
+            self.next += 1;
+        }
+        let Some(to) = keys.get(self.next) else {
+            return Ok(keys[keys.len() - 1].value);
+        };
+        let from = &keys[self.next - 1];
+        let elapsed = time.checked_sub(from.time)?.as_seconds()?;
+        let duration = to.time.checked_sub(from.time)?.as_seconds()?;
+        if duration <= 0.0 {
+            return Ok(to.value);
+        }
+        let progress = (elapsed / duration).clamp(0.0, 1.0);
+        let eased = apply_easing(progress, to.easing.unwrap_or(Easing::Linear));
+        Ok(from.value + (to.value - from.value) * eased)
+    }
+}
+
 /// Integrates a numeric animation from item-local zero through `time`.
 ///
 /// This is used to turn animated playback rate into an absolute source time.
@@ -467,6 +511,38 @@ mod tests {
 
         assert_eq!(evaluate_f64(&animation, Time::ZERO).unwrap(), 42.0);
         assert_eq!(evaluate_f64(&animation, Time::new(2, 1)).unwrap(), 42.0);
+    }
+
+    #[test]
+    fn a_cursor_matches_evaluate_at_increasing_times() {
+        let key = |tenths: i64, value: f64, easing: Option<Easing>| Keyframe {
+            time: Time::new(tenths, 10),
+            value,
+            easing,
+        };
+        // Before the first key, eased and linear segments, a cut, and past
+        // the last key.
+        let animation = Animatable::Keyframes(KeyframeAnimation {
+            kind: KeyframeAnimationType::Keyframes,
+            keyframes: vec![
+                key(5, 1.0, None),
+                key(10, 0.3, Some(Easing::EaseInOut)),
+                key(20, 0.3, None),
+                key(20, 0.8, None),
+                key(30, 1.0, Some(Easing::EaseOutCubic)),
+            ],
+        });
+        let mut cursor = KeyframeCursor::new(&animation);
+        for step in 0..=400 {
+            let time = Time::new(step, 100);
+            assert_eq!(
+                cursor.evaluate(time).unwrap(),
+                evaluate_f64(&animation, time).unwrap(),
+                "at {step}/100 s"
+            );
+        }
+        let mut constant = KeyframeCursor::new(&Animatable::Static(0.5));
+        assert_eq!(constant.evaluate(Time::new(3, 1)).unwrap(), 0.5);
     }
 
     #[test]

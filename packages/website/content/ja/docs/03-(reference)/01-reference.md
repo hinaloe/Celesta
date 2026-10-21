@@ -43,7 +43,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `trianglePath` / `polygonPath` / `starPath` / `piePath` / `heartPath` | `@celesta/shapes` | 同じ図形のパスコマンド。`Path` に渡したり変形したりできます。 |
 | `interpolate` / `Easings` | `@celesta/react` | フレームを、イージング・外挿付きの値に変換します。 |
 | `interpolateColor` | `@celesta/react` | フレームを `#RRGGBBAA` の色に変換し、乗算済みアルファで混ぜます。 |
-| `frameKeyframes` | `@celesta/react` | frameKeyframes(keys, { fps, origin? }) は、フレーム番号から音量・再生速度・ピッチのキーフレームを作ります。時刻は Audio を囲む Sequence の時計で (frame - origin) / fps 秒となり、origin の既定値は 0 です。音声のフェードなどに使えます。ブラウザでの書き出しは、固定の音量と再生速度に限られ、ピッチは使えません。 |
+| `frameKeyframes` | `@celesta/react` | frameKeyframes(keys, { fps, origin? }) は、フレーム番号から音量・再生速度・ピッチのキーフレームを作ります。時刻は Audio を囲む Sequence の時計で (frame - origin) / fps 秒となり、origin の既定値は 0 です。音声のフェードなどに使えます。ブラウザでの書き出しは、音量と再生速度のキーフレームにも対応しますが、ピッチは使えません。 |
 | `spring` | `@celesta/react` | 物理モデルで 0 から 1 に収束する値。 |
 | `useCurrentFrame()` / `useCurrentTime()` | `@celesta/react` | 親シーケンスを基準にした現在のフレームまたは正確な時刻。 |
 | `useVideoConfig()` | `@celesta/react` | コンポジション（またはシーケンス）のサイズ・フレームレート・長さ。 |
@@ -58,6 +58,8 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `DialogueSeries` / `planDialogue` | `@celesta/character` | 音声の長さをもとにタイミングを計算し、会話を順に描画します。詳しくは[キャラクターの台詞](/ja/docs/dialogue/)を参照してください。 |
 | `importVoiceFolder` | `@celesta/character` | 音声ソフトが書き出した `.wav` と `.txt` の組のフォルダーを台詞の列として読み込みます。詳しくは[キャラクターの台詞](/ja/docs/dialogue/)を参照してください。 |
 | `matchVoiceLevels` / `analyzeVoiceLevel` / `scaleVolume` | `@celesta/character` | `prepare()` でローカルの WAV を測り、台詞の音量に掛けて声の大きさをそろえます。詳しくは[キャラクターの台詞](/ja/docs/dialogue/)を参照してください。 |
+| `duckingVolume` / `speechIntervals` | `@celesta/character` | duckingVolume(plan, duck, { levels?, origin? }) は、台詞の plan の声の下で下がる BGM などの音量を作ります。`matchVoiceLevels` の report を渡すと、実際に声が出ている区間に合わせます。speechIntervals(plan, { levels? }) はその区間を秒で返します。音量の変化は `<Audio duck>` と同じです。 |
+| `duckEnvelope` | `@celesta/media-utils` | duckEnvelope(intervals, duck, { origin? }) は、秒で表した区間から、ダッキングの音量の変化を `<Audio duck>` と同じ既定値でキーフレームとして返します。`origin` は秒で指定します（duckingVolume の `origin` はフレームです）。`duck.volume` で全体を拡大縮小できます。 |
 | `Dialogue` | `@celesta/character` | 字幕を表示し、`audio` を再生し、有効な間の表情を変更します。行の途中の時刻で表情を切り替えることもできます。 |
 | `expressionAt` | `@celesta/character` | 行の `expression`（名前、または `{ at, expression }` の切り替え）が、行の中のある時刻に選ぶ表情を返します。 |
 | `loadLipSync` / `useLipSync` | `@celesta/character` | WAV から口の形を生成し、現在の形を取得します。 |

@@ -446,6 +446,10 @@ export interface VideoProps extends CommonProps {
    * Defaults to false.
    */
   loop?: boolean;
+  /** The group the soundtrack belongs to, for other clips' `duck.under`. */
+  duckGroup?: string;
+  /** Turns the soundtrack down while clips of other groups play. */
+  duck?: AudioDuck;
 }
 
 export interface AssetReference {
@@ -994,6 +998,40 @@ export interface AudioProps extends CommonProps {
    * shorter. Defaults to 0. The fade multiplies `volume`.
    */
   fadeOut?: number;
+  /**
+   * The group this clip's sound belongs to, for other clips' `duck.under`.
+   * Dialogue voices belong to `"voice"` unless told otherwise.
+   */
+  duckGroup?: string;
+  /** Turns this clip down while clips of other groups play. */
+  duck?: AudioDuck;
+}
+
+/**
+ * How a clip ducks: while a clip of a group in `under` plays, the clip's
+ * gain dips to `to`, easing down over `attack` seconds so it gets there as
+ * the other clip starts, and back up over `release` seconds after it ends.
+ * The dip multiplies `volume` and the fades.
+ */
+export interface AudioDuck {
+  /** The group, or groups, to duck under. With several, their clips all count. */
+  under: string | string[];
+  /** The gain under them: a multiplier from 0 to 1, or `{ db }` at or below 0. Defaults to 0.3. */
+  to?: number | { db: number };
+  /**
+   * Seconds the gain takes to come down, ending as the other clip starts.
+   * Defaults to 0.15. 0 switches it instantly, which can click on some
+   * material.
+   */
+  attack?: number;
+  /**
+   * Seconds the gain takes to come back up after the other clip ends.
+   * Defaults to 0.4. 0 switches it instantly, which can click on some
+   * material.
+   */
+  release?: number;
+  /** Silences shorter than this many seconds stay ducked. Defaults to 0.6. */
+  holdGap?: number;
 }
 
 /**

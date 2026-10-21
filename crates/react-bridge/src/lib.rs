@@ -21,7 +21,7 @@ mod stderr;
 mod tests;
 mod types;
 
-pub use audio::{merge_react_audio_clips, react_audio_clips, react_video_clip_ids};
+pub use audio::{merge_react_audio_clips, react_audio_clips, react_ducking, react_video_clip_ids};
 pub use bridge::{PendingFrame, ReactBridge, ReactMedia};
 pub use error::ReactBridgeError;
 pub use properties::{
@@ -33,7 +33,7 @@ pub use types::{
     ComponentPropertyField, ComponentPropertySchema, ComponentResolutionRequest,
     ComponentResolutions, ElementKind, FrameEvaluation, LayerSource, LayerSourceReport,
     PrepareDependency, ProjectFrame, ReactAudioClipDescriptor, ReactCompositionInfo,
-    ReactCompositionMetadata, ReactSubtitleDescriptor, ReceivedProps, SpawnOptions,
+    ReactCompositionMetadata, ReactDuck, ReactSubtitleDescriptor, ReceivedProps, SpawnOptions,
 };
 
 mod project_templates;

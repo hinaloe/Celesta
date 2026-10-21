@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 AudioGraph {
                     sample_rate: 48_000,
                     master_volume: 1.0,
-                    clips: react_audio_clips(&reports, entry_dir),
+                    clips: react_audio_clips(&reports, entry_dir).unwrap(),
                 }
             } else {
                 bridge.collect_audio_graph(48_000, 1.0, entry_dir)?

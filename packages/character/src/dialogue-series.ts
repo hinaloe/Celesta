@@ -83,6 +83,8 @@ export interface DialogueLine {
   lipSync?: LipSyncTrack;
   volume?: AnimatedNumber;
   muted?: boolean;
+  /** The voice's ducking group, as `<Dialogue duckGroup>`: `"voice"` unless given. */
+  duckGroup?: string | null;
   /**
    * How `matchVoiceLevels()` treats this line: `false` to leave it as
    * authored, `{ offsetDb }` / `{ targetRmsDbfs }` to adjust its target, or
@@ -390,6 +392,7 @@ export function DialogueSeries<L extends DialogueLine>({
         lipSync: line.lipSync,
         volume: line.volume,
         muted: line.muted,
+        duckGroup: line.duckGroup,
         subtitlePages: line.subtitlePages,
         emphasis: line.emphasis,
         ...dialogueProps?.(entry),

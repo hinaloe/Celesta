@@ -16,10 +16,11 @@ use celesta_composition::{
     AssetLocation, EvaluatedTransform, F32Column, GroupMask, InstanceShape, Layer, LayerContent,
     MaskMode, Rational, ResolvedAsset, Time,
 };
+use celesta_composition::{AudioDuck, DuckGroups, DuckLevel};
 use celesta_evaluator::Evaluator;
 use celesta_gpu_renderer::ReadbackFormat;
 use celesta_project::Project;
-use celesta_react_bridge::ReactAudioClipDescriptor;
+use celesta_react_bridge::{ReactAudioClipDescriptor, ReactDuck};
 use std::fs;
 use std::path::Path;
 
@@ -40,6 +41,8 @@ fn static_clip(src: &str, start: f64, duration: f64, volume: f64) -> ReactAudioC
         preserve_pitch: false,
         fade_in: 0.0,
         fade_out: 0.0,
+        duck_group: None,
+        duck: None,
     }
 }
 
@@ -87,6 +90,14 @@ fn builds_a_react_audio_graph_with_ranges_and_keyframed_volume() {
         preserve_pitch: false,
         fade_in: 0.25,
         fade_out: 0.5,
+        duck_group: Some("music".to_owned()),
+        duck: Some(ReactDuck {
+            under: DuckGroups::One("voice".to_owned()),
+            to: Some(DuckLevel::Gain(0.5)),
+            attack: None,
+            release: None,
+            hold_gap: None,
+        }),
     }];
 
     let graph = build_audio_graph(&clips, Path::new("/entry/root"), None).unwrap();
@@ -116,6 +127,13 @@ fn builds_a_react_audio_graph_with_ranges_and_keyframed_volume() {
     );
     assert_eq!(clip.fade_in.as_seconds().unwrap(), 0.25);
     assert_eq!(clip.fade_out.as_seconds().unwrap(), 0.5);
+    assert_eq!(clip.duck_group.as_deref(), Some("music"));
+    let duck = clip.duck.as_ref().unwrap();
+    assert_eq!(
+        (duck.under.as_slice(), duck.to),
+        (["voice".to_owned()].as_slice(), 0.5)
+    );
+    assert_eq!(duck.attack, AudioDuck::DEFAULT_ATTACK);
 }
 
 #[test]

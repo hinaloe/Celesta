@@ -11,6 +11,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./duck": {
+      "types": "./dist/duck.d.ts",
+      "default": "./dist/duck.js"
+    },
     "./package.json": "./package.json"
   },
   "sideEffects": false,
@@ -19,7 +23,7 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest run",
+    "test": "tsc -b test && vitest run",
     "clean": "rm -rf dist"
   },
   "peerDependencies": {

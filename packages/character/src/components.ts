@@ -337,6 +337,12 @@ export interface DialogueProps extends CommonProps {
   volume?: AnimatedNumber;
   muted?: boolean;
   /**
+   * The group the voice belongs to, for other clips' `duck.under` (see
+   * `<Audio duck>`). Defaults to `"voice"`; `null` leaves the voice out of
+   * every group. A voice is never ducked itself.
+   */
+  duckGroup?: string | null;
+  /**
    * Keeps the subtitle up after its line has ended, until the next line: a
    * `subtitle.render` is called with `held: true`, and a plain subtitle
    * draws nothing. Give it no `audio`, `expression`, or `mouth`; it is not

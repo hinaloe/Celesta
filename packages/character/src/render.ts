@@ -295,7 +295,10 @@ registerHostElement('dialogue', {
   },
   audio(node, walk) {
     if (node.props.audio !== undefined) {
-      walk.collectAudio({ ...node.props, src: node.props.audio });
+      // A voice marks speech for ducking ("voice" unless the line says
+      // otherwise, `null` for no group) and is never ducked itself.
+      const duckGroup = node.props.duckGroup === undefined ? 'voice' : node.props.duckGroup;
+      walk.collectAudio({ ...node.props, src: node.props.audio, duckGroup, duck: undefined });
     }
   },
   // The line is the subtitle for as long as it is up, or a page of it for

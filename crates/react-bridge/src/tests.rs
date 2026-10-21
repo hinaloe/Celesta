@@ -13,7 +13,8 @@ use crate::types::{
     ReceivedProps,
 };
 use celesta_composition::{
-    Animatable, AssetLocation, LayerFilter, ShaderParam, ShaderParamType, ShaderSource, Time,
+    Animatable, AssetLocation, AudioDuck, LayerFilter, ShaderParam, ShaderParamType, ShaderSource,
+    Time,
 };
 use std::path::Path;
 
@@ -285,6 +286,8 @@ fn deserializes_audio_clips_from_a_frame_response() {
             preserve_pitch: false,
             fade_in: 0.0,
             fade_out: 0.0,
+            duck_group: None,
+            duck: None,
         }]
     );
 }
@@ -531,6 +534,8 @@ fn audio_descriptor(src: &str, start: f64) -> ReactAudioClipDescriptor {
         preserve_pitch: false,
         fade_in: 0.0,
         fade_out: 0.0,
+        duck_group: None,
+        duck: None,
     }
 }
 
@@ -561,9 +566,54 @@ fn react_audio_fades_default_to_zero_and_become_clip_times() {
         "fadeOut": 3.0,
     }))
     .unwrap();
-    let clips = react_audio_clips(&[descriptor], Path::new("/entry"));
+    let clips = react_audio_clips(&[descriptor], Path::new("/entry")).unwrap();
     assert_eq!(clips[0].fade_in.as_seconds().unwrap(), 1.5);
     assert_eq!(clips[0].fade_out.as_seconds().unwrap(), 3.0);
+}
+
+fn ducking_descriptor(duck: serde_json::Value) -> ReactAudioClipDescriptor {
+    serde_json::from_value(serde_json::json!({
+        "src": "./bgm.wav",
+        "sourceStart": 0.0,
+        "playbackRate": 1.0,
+        "volume": 0.6,
+        "muted": false,
+        "start": 0.0,
+        "duration": 10.0,
+        "duckGroup": "music",
+        "duck": duck,
+    }))
+    .unwrap()
+}
+
+#[test]
+fn react_audio_clips_resolve_ducking() {
+    let descriptor = ducking_descriptor(serde_json::json!({
+        "under": ["voice", "sfx"],
+        "to": {"db": -20},
+        "release": 1.0,
+    }));
+    let clips = react_audio_clips(&[descriptor], Path::new("/entry")).unwrap();
+    assert_eq!(clips[0].duck_group.as_deref(), Some("music"));
+    let duck = clips[0].duck.as_ref().unwrap();
+    assert_eq!(duck.under, ["voice", "sfx"]);
+    assert!((duck.to - 0.1).abs() < 1e-12);
+    assert_eq!(duck.attack, AudioDuck::DEFAULT_ATTACK);
+    assert_eq!(duck.release.as_seconds().unwrap(), 1.0);
+    assert_eq!(duck.hold_gap, AudioDuck::DEFAULT_HOLD_GAP);
+}
+
+#[test]
+fn react_audio_clips_reject_invalid_ducking() {
+    let descriptor = ducking_descriptor(serde_json::json!({"under": "voice", "to": 2}));
+    let error = react_audio_clips(&[descriptor], Path::new("/entry"))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("./bgm.wav")
+            && error.contains("duck.to must be a multiplier from 0 to 1, or { db } at or below 0"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -589,7 +639,7 @@ fn react_audio_clips_resolve_relative_paths_and_carry_ranges() {
         audio_descriptor("/abs/music.wav", 0.0),
         audio_descriptor("https://example.com/bgm.mp3", 0.0),
     ];
-    let built = react_audio_clips(&clips, Path::new("/entry/dir"));
+    let built = react_audio_clips(&clips, Path::new("/entry/dir")).unwrap();
     assert_eq!(built.len(), 3);
     assert_eq!(built[0].id, "react-audio:0");
     assert_eq!(built[0].range.start.as_seconds().unwrap(), 1.0);
@@ -628,7 +678,7 @@ fn a_video_s_sound_is_reported_with_the_id_of_its_audio_clip() {
         audio_descriptor("./clip.mp4", 0.0),
         video("./clip.mp4", 1.0),
     ];
-    let built = react_audio_clips(&clips, Path::new("/entry"));
+    let built = react_audio_clips(&clips, Path::new("/entry")).unwrap();
     assert_eq!(built.len(), 4);
     assert_eq!(
         react_video_clip_ids(&clips),
@@ -645,7 +695,7 @@ fn react_audio_clips_carry_pitch() {
         preserve_pitch: true,
         ..audio_descriptor("./voice.wav", 0.0)
     }];
-    let built = react_audio_clips(&clips, Path::new("/entry"));
+    let built = react_audio_clips(&clips, Path::new("/entry")).unwrap();
     assert_eq!(built[0].pitch, Animatable::Static(5.0));
     assert!(built[0].preserve_pitch);
 }

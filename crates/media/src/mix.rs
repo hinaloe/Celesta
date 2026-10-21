@@ -1,8 +1,11 @@
 use crate::decoder::AudioDecoder;
+use crate::duck::{DuckCurves, audible_end, curves_with};
 use crate::error::{AudioMixError, MediaError};
 use crate::stretch::{mix_stretched_clip, needs_stretch};
 use crate::types::{AudioBuffer, VideoStream};
-use celesta_composition::{AudioGraph, Time, TimeError, evaluate_f64, integrate_f64};
+use celesta_composition::{
+    Animatable, AudioGraph, KeyframeCursor, Time, TimeError, evaluate_f64, integrate_f64,
+};
 use celesta_remote::resolve_asset_path;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -24,8 +27,21 @@ pub fn mix_audio_graph_cancellable(
     asset_root: &Path,
     duration: Time,
     decoder: &mut impl AudioDecoder,
-    mut is_cancelled: impl FnMut() -> bool,
+    is_cancelled: impl FnMut() -> bool,
 ) -> Result<AudioBuffer, AudioMixError> {
+    mix_audio_graph_with_ducks_cancellable(graph, asset_root, duration, decoder, is_cancelled)
+        .map(|(buffer, _)| buffer)
+}
+
+/// [`mix_audio_graph_cancellable`], also returning the ducking curves the
+/// mix applied.
+pub fn mix_audio_graph_with_ducks_cancellable(
+    graph: &AudioGraph,
+    asset_root: &Path,
+    duration: Time,
+    decoder: &mut impl AudioDecoder,
+    mut is_cancelled: impl FnMut() -> bool,
+) -> Result<(AudioBuffer, DuckCurves), AudioMixError> {
     const CHANNELS: u16 = 2;
     if is_cancelled() {
         return Err(AudioMixError::Cancelled);
@@ -42,12 +58,16 @@ pub fn mix_audio_graph_cancellable(
         .ok_or(AudioMixError::TimelineTooLong)?;
     let mut output = vec![0.0_f32; sample_count];
     let mut decoded = HashMap::<PathBuf, AudioBuffer>::new();
+    let mut paths = Vec::with_capacity(graph.clips.len());
 
+    // Every source is decoded first: ducking needs to know where each marked
+    // clip's source runs out before any clip under it is mixed.
     for clip in &graph.clips {
         if is_cancelled() {
             return Err(AudioMixError::Cancelled);
         }
         if clip.muted {
+            paths.push(None);
             continue;
         }
         let path = resolve_asset_path(asset_root, &clip.asset.location).map_err(|source| {
@@ -69,10 +89,26 @@ pub fn mix_audio_graph_cancellable(
             }
             decoded.insert(path.clone(), audio);
         }
-        let source = decoded.get(&path).expect("decoded audio was cached");
+        paths.push(Some(path));
+    }
+    // `curves_with` only asks about clips that are not muted, whose sources
+    // were decoded above.
+    let ducks = curves_with(graph, |index, clip| {
+        audible_end(clip, &decoded[paths[index].as_ref().expect("not muted")])
+    })?;
+
+    for ((clip, path), duck) in graph.clips.iter().zip(&paths).zip(&ducks) {
+        if is_cancelled() {
+            return Err(AudioMixError::Cancelled);
+        }
+        let Some(path) = path else {
+            continue;
+        };
+        let source = &decoded[path];
         if source.frame_count() == 0 {
             continue;
         }
+        let duck = duck.as_ref();
         let source_start_seconds = clip.source_start.as_seconds()?;
         let source_end_seconds = clip
             .source_duration
@@ -88,11 +124,13 @@ pub fn mix_audio_graph_cancellable(
                 source,
                 graph.sample_rate,
                 start..end,
+                duck,
                 &mut output,
                 &mut is_cancelled,
             )?;
             continue;
         }
+        let mut ducking = DuckGain::new(duck);
         for output_frame in start..end {
             if output_frame & 2_047 == 0 && is_cancelled() {
                 return Err(AudioMixError::Cancelled);
@@ -124,7 +162,8 @@ pub fn mix_audio_graph_cancellable(
             };
             let fraction = (source_position - source_frame as f64) as f32;
             let volume = (evaluate_f64(&clip.volume, local_time)?.clamp(0.0, 16.0)
-                * fade.gain(local_time.as_seconds()?)) as f32;
+                * fade.gain(local_time.as_seconds()?)
+                * ducking.at(project_time)?) as f32;
             for channel in 0..usize::from(CHANNELS) {
                 let from = source.samples[source_frame * usize::from(CHANNELS) + channel];
                 let to = source.samples[next_frame * usize::from(CHANNELS) + channel];
@@ -136,11 +175,30 @@ pub fn mix_audio_graph_cancellable(
     for sample in &mut output {
         *sample = (*sample * graph.master_volume as f32).clamp(-1.0, 1.0);
     }
-    Ok(AudioBuffer {
+    let buffer = AudioBuffer {
         sample_rate: graph.sample_rate,
         channels: CHANNELS,
         samples: output,
-    })
+    };
+    Ok((buffer, ducks))
+}
+
+/// A clip's ducking gain along the timeline, read at increasing times: 1
+/// without a curve. A curve has keys for every run of speech, so it is
+/// followed with a cursor instead of searched from its start each sample.
+pub(crate) struct DuckGain<'a>(Option<KeyframeCursor<'a>>);
+
+impl<'a> DuckGain<'a> {
+    pub(crate) fn new(duck: Option<&'a Animatable<f64>>) -> Self {
+        Self(duck.map(KeyframeCursor::new))
+    }
+
+    pub(crate) fn at(&mut self, time: Time) -> Result<f64, AudioMixError> {
+        match &mut self.0 {
+            Some(cursor) => Ok(cursor.evaluate(time)?),
+            None => Ok(1.0),
+        }
+    }
 }
 
 pub(crate) fn sample_ceil(time: Time, sample_rate: u32) -> Result<i64, TimeError> {

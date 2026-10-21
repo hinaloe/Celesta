@@ -39,9 +39,9 @@ use crate::preview::{
     records_hit_regions, splice_component_resolutions, strip_missing_components,
 };
 use celesta_composition::{
-    Animatable, AssetLocation, AudioClip, EvaluatedTransform, GroupMask, Layer, LayerContent,
-    LayerEffects, LayerFilter, LayerShader, MaskMode, Point, Rational, ResolvedAsset, Scene,
-    ShaderSource, Time, TimeRange,
+    Animatable, AssetLocation, AudioClip, EvaluatedTransform, GroupMask, Keyframe,
+    KeyframeAnimation, KeyframeAnimationType, Layer, LayerContent, LayerEffects, LayerFilter,
+    LayerShader, MaskMode, Point, Rational, ResolvedAsset, Scene, ShaderSource, Time, TimeRange,
 };
 use celesta_editor_core::ClipSummary;
 use celesta_exporter::{ExportCancellation, ExportProgress, VideoFormat};
@@ -198,6 +198,8 @@ fn clip_waveforms_follow_source_ranges_and_playback_rate() {
         preserve_pitch: false,
         fade_in: Time::ZERO,
         fade_out: Time::ZERO,
+        duck_group: None,
+        duck: None,
     };
     let peaks = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
 
@@ -223,15 +225,45 @@ fn clip_waveforms_follow_source_ranges_and_playback_rate() {
 
     clip.volume = Animatable::Static(0.5);
     assert_eq!(
-        clip_level_envelope(&[0.4, 0.6, 0.8, 0.0], &clip),
+        clip_level_envelope(&[0.4, 0.6, 0.8, 0.0], &clip, None),
         vec![0.2, 0.3, 0.4, 0.0]
+    );
+
+    // A ducking curve is on the timeline: a clip starting at 10 s dips from
+    // 10.4 s on.
+    let starting_later = AudioClip {
+        range: TimeRange {
+            start: Time::new(10, 1),
+            duration: Time::new(1, 1),
+        },
+        ..clip.clone()
+    };
+    let at = |seconds: f64| Time::new((seconds * 10.0).round() as i64, 10);
+    let curve = Animatable::Keyframes(KeyframeAnimation {
+        kind: KeyframeAnimationType::Keyframes,
+        keyframes: vec![
+            Keyframe {
+                time: at(10.4),
+                value: 1.0,
+                easing: None,
+            },
+            Keyframe {
+                time: at(10.4),
+                value: 0.5,
+                easing: None,
+            },
+        ],
+    });
+    assert_eq!(
+        clip_level_envelope(&[0.4, 0.6, 0.8, 0.8], &starting_later, Some(&curve)),
+        vec![0.2, 0.3, 0.2, 0.2]
     );
 
     // Fades scale the level as the mixer does.
     clip.fade_in = Time::new(1, 2);
     clip.fade_out = Time::new(1, 2);
     assert_eq!(
-        clip_level_envelope(&[0.4, 0.6, 0.8, 0.8], &clip),
+        clip_level_envelope(&[0.4, 0.6, 0.8, 0.8], &clip, None),
         vec![0.0, 0.15, 0.4, 0.2]
     );
 }
@@ -260,6 +292,8 @@ fn react_audio_clips_take_one_track_per_file_and_more_only_to_overlap() {
         preserve_pitch: false,
         fade_in: Time::ZERO,
         fade_out: Time::ZERO,
+        duck_group: None,
+        duck: None,
     };
     let tracks = react_tracks(
         &[
@@ -335,6 +369,8 @@ fn react_videos_take_video_tracks_and_keep_their_sound_on_audio_tracks() {
         preserve_pitch: false,
         fade_in: Time::ZERO,
         fade_out: Time::ZERO,
+        duck_group: None,
+        duck: None,
     };
     let videos = HashMap::from([
         ("react-audio:1".to_owned(), true),

@@ -2,7 +2,8 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['test/**/*.test.mjs'],
+    // New tests are TypeScript (#458); `pnpm test` type-checks them first (test/tsconfig.json).
+    include: ['test/**/*.test.{mjs,mts}'],
     environment: 'node',
     server: {
       deps: {

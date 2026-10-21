@@ -2,7 +2,10 @@ use crate::color::{DynamicRange, VideoColor};
 use crate::decoder::{AudioDecoder, VideoFrameDecoder};
 use crate::error::{AudioMixError, MediaError};
 use crate::ffmpeg::FfmpegBackend;
-use crate::mix::{frame_byte_len, mix_audio_graph, mix_audio_graph_cancellable};
+use crate::mix::{
+    frame_byte_len, mix_audio_graph, mix_audio_graph_cancellable,
+    mix_audio_graph_with_ducks_cancellable,
+};
 use crate::probe::displayed_size;
 use crate::sequential::path_to_url;
 use crate::stretch::needs_stretch;
@@ -14,11 +17,13 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::duck::audible_end;
 use celesta_composition::{
-    Animatable, AssetLocation, AudioClip, Keyframe, KeyframeAnimation, KeyframeAnimationType,
-    ResolvedAsset, TimeRange, integrate_f64,
+    Animatable, AssetLocation, AudioClip, AudioDuck, DuckGroups, Keyframe, KeyframeAnimation,
+    KeyframeAnimationType, ResolvedAsset, TimeRange, duck_curve, integrate_f64,
 };
 use ez_ffmpeg::{FfmpegContext, Output};
+use std::collections::HashMap;
 
 /// Renders a synthetic `lavfi` source to a lossless MKV fixture through
 /// the linked FFmpeg libraries, forcing the output frame rate so the
@@ -455,6 +460,8 @@ fn mixes_audio_at_exact_timeline_and_source_offsets() {
             preserve_pitch: false,
             fade_in: Time::ZERO,
             fade_out: Time::ZERO,
+            duck_group: None,
+            duck: None,
         }],
     };
 
@@ -537,6 +544,8 @@ fn loops_audio_from_the_start_of_the_source_past_its_end() {
             preserve_pitch: false,
             fade_in: Time::ZERO,
             fade_out: Time::ZERO,
+            duck_group: None,
+            duck: None,
         }],
     };
     let left = |graph: &AudioGraph| {
@@ -652,6 +661,8 @@ fn clip(range_start_s: f64, duration_s: f64) -> AudioClip {
         preserve_pitch: false,
         fade_in: Time::ZERO,
         fade_out: Time::ZERO,
+        duck_group: None,
+        duck: None,
     }
 }
 
@@ -1046,4 +1057,305 @@ fn stretching_refuses_sample_rates_signalsmith_cannot_run_at() {
         AudioMixError::PitchNeedsSampleRate { sample_rate: 4000 }
     ));
     assert!(error.to_string().contains("at least 8000 Hz"));
+}
+
+/// Decodes each asset by its file name.
+struct MapDecoder(HashMap<String, AudioBuffer>);
+
+impl AudioDecoder for MapDecoder {
+    fn decode_audio(&mut self, path: &Path, _: u32, _: u16) -> Result<AudioBuffer, MediaError> {
+        let name = path.file_name().unwrap().to_string_lossy();
+        Ok(self.0[name.as_ref()].clone())
+    }
+}
+
+fn named(mut clip: AudioClip, name: &str) -> AudioClip {
+    clip.id = name.to_owned();
+    clip.asset.id = name.to_owned();
+    clip.asset.location = AssetLocation::File {
+        path: name.to_owned(),
+    };
+    clip
+}
+
+/// A 0–6 s bed of 440 Hz ducked under "voice" with the defaults.
+fn bed() -> AudioClip {
+    let under = DuckGroups::One("voice".to_owned());
+    AudioClip {
+        duck: Some(AudioDuck::resolve(&under, None, None, None, None).unwrap()),
+        ..named(clip(0.0, 6.0), "bed.wav")
+    }
+}
+
+/// A silent clip in the "voice" group over `[from_s, to_s)`, playing a
+/// `source_s` long source.
+fn voice(from_s: f64, to_s: f64) -> AudioClip {
+    AudioClip {
+        duck_group: Some("voice".to_owned()),
+        volume: Animatable::Static(0.0),
+        ..named(clip(from_s, to_s - from_s), "voice.wav")
+    }
+}
+
+fn mix_graph_left(clips: Vec<AudioClip>, voice_s: f64) -> Vec<f32> {
+    let graph = AudioGraph {
+        sample_rate: RATE,
+        master_volume: 1.0,
+        clips,
+    };
+    let sources = HashMap::from([
+        ("bed.wav".to_owned(), tone(440.0, 0.0, 6.0, 6.0)),
+        ("voice.wav".to_owned(), tone(880.0, 0.0, voice_s, voice_s)),
+    ]);
+    mix_audio_graph(
+        &graph,
+        Path::new("assets"),
+        seconds(6.0),
+        &mut MapDecoder(sources),
+    )
+    .unwrap()
+    .samples
+    .as_chunks::<2>()
+    .0
+    .iter()
+    .map(|frame| frame[0])
+    .collect()
+}
+
+#[test]
+fn ducking_dips_the_bed_under_the_voice() {
+    let left = mix_graph_left(vec![bed(), voice(2.0, 4.0)], 6.0);
+    let full = 0.5 / 2.0_f64.sqrt();
+    assert_near(rms(&left, 0.0, 1.5).into(), full, 0.01);
+    assert_near(rms(&left, 2.1, 3.9).into(), full * 0.3, 0.01);
+    assert_near(rms(&left, 5.0, 6.0).into(), full, 0.01);
+    // Half way along the attack (1.85 to 2 s), ease-in-out is at a half.
+    assert_near(rms(&left, 1.915, 1.935).into(), full * 0.65, 0.03);
+}
+
+#[test]
+fn clips_without_ducking_mix_bit_identically() {
+    let plain = named(clip(0.0, 6.0), "bed.wav");
+    assert_eq!(
+        mix_graph_left(vec![plain.clone(), voice(2.0, 4.0)], 6.0),
+        mix_graph_left(vec![plain], 6.0)
+    );
+}
+
+#[test]
+fn stretched_clips_duck_too() {
+    let mut pitched = bed();
+    pitched.pitch = Animatable::Static(2.0);
+    let left = mix_graph_left(vec![pitched, voice(2.0, 4.0)], 6.0);
+    let full = f64::from(rms(&left, 0.2, 1.5));
+    assert!(full > 0.3, "rms {full} before the voice");
+    assert_near(rms(&left, 2.1, 3.9).into(), full * 0.3, 0.05);
+}
+
+#[test]
+fn the_voice_counts_until_its_source_ends() {
+    let left = mix_graph_left(vec![bed(), voice(2.0, 5.0)], 1.0);
+    let full = 0.5 / 2.0_f64.sqrt();
+    assert_near(rms(&left, 2.2, 2.9).into(), full * 0.3, 0.01);
+    assert_near(rms(&left, 3.5, 4.5).into(), full, 0.01);
+}
+
+#[test]
+fn a_looping_voice_counts_for_its_whole_range() {
+    let looping = AudioClip {
+        r#loop: true,
+        ..voice(2.0, 5.0)
+    };
+    let left = mix_graph_left(vec![bed(), looping], 1.0);
+    let full = 0.5 / 2.0_f64.sqrt();
+    assert_near(rms(&left, 3.5, 4.5).into(), full * 0.3, 0.01);
+}
+
+#[test]
+fn a_muted_voice_does_not_duck() {
+    let muted = AudioClip {
+        muted: true,
+        ..voice(2.0, 4.0)
+    };
+    let left = mix_graph_left(vec![bed(), muted], 6.0);
+    assert_near(rms(&left, 2.1, 3.9).into(), 0.5 / 2.0_f64.sqrt(), 0.01);
+}
+
+#[test]
+fn clips_that_duck_under_each_other_both_dip() {
+    // A ducks under B's group and B under A's: each counts whole toward the
+    // other's curve, with no fixed point to look for.
+    let groups = |own: &str, under: &str| {
+        let under = DuckGroups::One(under.to_owned());
+        (
+            Some(own.to_owned()),
+            Some(AudioDuck::resolve(&under, None, None, None, None).unwrap()),
+        )
+    };
+    let (duck_group, duck) = groups("a", "b");
+    let a = AudioClip {
+        duck_group,
+        duck,
+        ..named(clip(0.0, 6.0), "bed.wav")
+    };
+    let (duck_group, duck) = groups("b", "a");
+    let b = AudioClip {
+        duck_group,
+        duck,
+        volume: Animatable::Static(0.0),
+        ..named(clip(2.0, 2.0), "voice.wav")
+    };
+    let graph = AudioGraph {
+        sample_rate: RATE,
+        master_volume: 1.0,
+        clips: vec![a, b],
+    };
+    let sources = HashMap::from([
+        ("bed.wav".to_owned(), tone(440.0, 0.0, 6.0, 6.0)),
+        ("voice.wav".to_owned(), tone(880.0, 0.0, 6.0, 6.0)),
+    ]);
+    let (mixed, ducks) = mix_audio_graph_with_ducks_cancellable(
+        &graph,
+        Path::new("assets"),
+        seconds(6.0),
+        &mut MapDecoder(sources),
+        || false,
+    )
+    .unwrap();
+
+    let curve = |index: usize, interval| {
+        Some(duck_curve(&[interval], graph.clips[index].duck.as_ref().unwrap()).unwrap())
+    };
+    assert_eq!(ducks, vec![curve(0, (2.0, 4.0)), curve(1, (0.0, 6.0))]);
+    let left: Vec<f32> = mixed
+        .samples
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|frame| frame[0])
+        .collect();
+    let full = 0.5 / 2.0_f64.sqrt();
+    assert_near(rms(&left, 2.1, 3.9).into(), full * 0.3, 0.01);
+}
+
+#[test]
+fn a_ducking_ramp_changes_the_gain_smoothly() {
+    // A constant source makes the output the gain itself, times 0.5.
+    let level = AudioBuffer {
+        sample_rate: RATE,
+        channels: 2,
+        samples: vec![0.5; 6 * RATE as usize * 2],
+    };
+    let graph = AudioGraph {
+        sample_rate: RATE,
+        master_volume: 1.0,
+        clips: vec![bed(), voice(2.0, 4.0)],
+    };
+    let sources = HashMap::from([
+        ("bed.wav".to_owned(), level),
+        ("voice.wav".to_owned(), tone(880.0, 0.0, 6.0, 6.0)),
+    ]);
+    let left: Vec<f32> = mix_audio_graph(
+        &graph,
+        Path::new("assets"),
+        seconds(6.0),
+        &mut MapDecoder(sources),
+    )
+    .unwrap()
+    .samples
+    .as_chunks::<2>()
+    .0
+    .iter()
+    .map(|frame| frame[0])
+    .collect();
+
+    // The 0.15 s attack eases 0.5 down to 0.15; ease-in-out is at its
+    // steepest, 1.5 times the average, half way along.
+    let average = (0.5 - 0.15) / (0.15 * f64::from(RATE));
+    let steepest = left
+        .windows(2)
+        .map(|pair| f64::from((pair[1] - pair[0]).abs()))
+        .fold(0.0, f64::max);
+    assert!(steepest > average, "the gain never moved: {steepest}");
+    assert!(
+        steepest <= average * 1.5 * 1.01,
+        "a step of {steepest} along a ramp averaging {average}"
+    );
+    assert_near(left[3 * RATE as usize].into(), 0.15, 1e-4);
+}
+
+/// A [`MapDecoder`] that counts its decodes.
+struct CountingDecoder {
+    inner: MapDecoder,
+    decodes: usize,
+}
+
+impl AudioDecoder for CountingDecoder {
+    fn decode_audio(
+        &mut self,
+        path: &Path,
+        sample_rate: u32,
+        channels: u16,
+    ) -> Result<AudioBuffer, MediaError> {
+        self.decodes += 1;
+        self.inner.decode_audio(path, sample_rate, channels)
+    }
+}
+
+#[test]
+fn the_mix_returns_the_curves_it_applied() {
+    // The voice's 1 s source runs out at 3 s, before its range ends.
+    let graph = AudioGraph {
+        sample_rate: RATE,
+        master_volume: 1.0,
+        clips: vec![bed(), voice(2.0, 5.0)],
+    };
+    let mut decoder = CountingDecoder {
+        inner: MapDecoder(HashMap::from([
+            ("bed.wav".to_owned(), tone(440.0, 0.0, 6.0, 6.0)),
+            ("voice.wav".to_owned(), tone(880.0, 0.0, 1.0, 1.0)),
+        ])),
+        decodes: 0,
+    };
+    let (_, ducks) = mix_audio_graph_with_ducks_cancellable(
+        &graph,
+        Path::new("assets"),
+        seconds(6.0),
+        &mut decoder,
+        || false,
+    )
+    .unwrap();
+
+    assert_eq!(decoder.decodes, 2);
+    let duck = graph.clips[0].duck.as_ref().unwrap();
+    assert_eq!(
+        ducks,
+        vec![Some(duck_curve(&[(2.0, 3.0)], duck).unwrap()), None]
+    );
+}
+
+#[test]
+fn audible_end_follows_a_keyframed_rate() {
+    let rate = Animatable::Keyframes(KeyframeAnimation {
+        kind: KeyframeAnimationType::Keyframes,
+        keyframes: vec![
+            Keyframe {
+                time: Time::ZERO,
+                value: 1.0,
+                easing: None,
+            },
+            Keyframe {
+                time: seconds(2.0),
+                value: 2.0,
+                easing: None,
+            },
+        ],
+    });
+    let clip = AudioClip {
+        playback_rate: rate,
+        ..clip(0.0, 4.0)
+    };
+    // The source runs out where t + t² / 4 = 2.
+    let end = audible_end(&clip, &tone(440.0, 0.0, 2.0, 2.0)).unwrap();
+    assert!((end - (12.0_f64.sqrt() - 2.0)).abs() < 1e-6, "{end}");
 }

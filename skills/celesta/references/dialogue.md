@@ -402,22 +402,45 @@ URL, a compressed WAV, or another format fails `prepare()` with
 
 ### Ducking BGM and game audio under speech
 
-Build each background bed's `volume` from the plan, using the intervals
-where a voice is actually audible: for each line with `audio` that is not
-muted, `from + analysis.speechStartSeconds * fps` to
-`from + analysis.speechEndSeconds * fps` (capped at the line's
-`durationInFrames`). A subtitle held through the gap does not count. Merge
-overlapping intervals (their union) and silences shorter than a hold time,
-then key each run: full at `start - attack`, ducked at `start`, ducked at
-`end`, full at `end + release`, with `frameKeyframes(keys, { fps, origin })`
-where `origin` is the frame the `<Audio>`'s sequence starts on. Give BGM and
-game audio their own levels and timings.
+Every dialogue voice (`<Dialogue audio>`, and `DialogueSeries` lines) belongs
+to the duck group `"voice"`, unless its `duckGroup` names another group, or
+is `null` for none. A voice is never ducked itself. So a bed needs one prop:
 
-Issue #87 owns the shared ducking helper; until it lands,
-`packages/cli/examples/with-voice-level-matching.tsx` carries a clearly
-marked example-local recipe (`speechIntervals` + `duckVolume`) to copy and
-later replace. It is a precomputed envelope, not a realtime sidechain
-compressor, so preview and export play the same volumes.
+```tsx
+<Audio src="./bgm.wav" volume={0.8} duck={{ under: 'voice' }} />
+<Audio src="./game.wav" duck={{ under: 'voice', to: 0.5, attack: 0.1, release: 0.3 }} />
+```
+
+The bed dips while a voice clip plays: from the clip's start to where its
+file runs out (or its sequence ends), so a subtitle held through the gap
+does not count. See [react-core.md](react-core.md#ducking) for `to`,
+`attack`, `release`, and `holdGap`.
+
+To follow only the speech `matchVoiceLevels()` found (leading and trailing
+silence in a file left out), build the volume in `prepare()` instead:
+
+```tsx
+const matched = await matchVoiceLevels(lines, LEVELS);
+plan = await planDialogue(matched.lines, { fps: 30 });
+bgmVolume = duckingVolume(plan, { volume: 0.8, to: 0.3 }, { levels: matched.report });
+// <Audio src="./bgm.wav" volume={bgmVolume} />
+```
+
+- `speechIntervals(plan, { levels? })`: seconds on the plan's clock where
+  a voice plays. Lines without `audio` and muted lines are skipped. With
+  `levels`, each line is trimmed to its analysed speech, and silent lines
+  are left out; a line the report did not analyse counts whole. A report
+  for other lines throws.
+- `duckingVolume(plan, duck, { levels?, origin? })`: the volume over those
+  intervals, with the same curve `duck` plays (`duckEnvelope` from
+  `@celesta/media-utils`). `duck` takes `volume` (the level with nobody
+  speaking, default 1; `to` is relative to it) plus `to`, `attack`,
+  `release`, `holdGap`. `origin` is the frame on the plan's clock that the
+  `<Audio>`'s sequence starts on, as for `frameKeyframes`.
+
+Runnable: `packages/cli/examples/with-voice-level-matching.tsx`. Both forms
+are precomputed curves, not a realtime sidechain compressor, so preview and
+export play the same volumes.
 
 Not covered: integrated LUFS / EBU R128 normalization, true peak, master
 limiting, realtime sidechain compression, denoising, remote or compressed

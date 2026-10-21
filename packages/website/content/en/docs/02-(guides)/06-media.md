@@ -12,7 +12,7 @@
 - Media placed inside a `Sequence` starts when the sequence does and stops when it ends.
 - `volume` and an audio `playbackRate` can be a number or keyframes. Keyframe times are seconds from the start of the enclosing sequence, written as `{ value, timescale }`.
 
-frameKeyframes(keys, { fps, origin? }) builds volume, playbackRate, or pitch keyframes from frame numbers. Times are (frame - origin) / fps on the enclosing sequence’s clock; origin defaults to 0. Use it for volume changes that a fade does not cover, such as lowering music under a voice. The browser exporter supports only constant volume and playback rate, and does not support pitch.
+frameKeyframes(keys, { fps, origin? }) builds volume, playbackRate, or pitch keyframes from frame numbers. Times are (frame - origin) / fps on the enclosing sequence’s clock; origin defaults to 0. Use it for volume changes that a fade does not cover, such as lowering music under a voice. The browser exporter supports keyframed volume and playback rate, but not pitch.
 
 ## Show media in a frame
 
@@ -42,6 +42,21 @@ export async function prepare() { clip = await preloadMedia("./demo.mp4"); }
 - When `fadeIn` and `fadeOut` add up to more than the clip, they overlap and multiply, so the clip never reaches full volume.
 - The fades are timed on the timeline, not on the file: `loop` does not repeat them, and `playbackRate` and `pitch` do not stretch them. When the file ends before the clip does, the fade-out falls after the sound has stopped.
 - Only `Audio` takes these props, and in a project JSON file an `audio` item takes them as times. The soundtrack of a `Video` and the voices of a `Dialogue` do not. A negative value is an error. The browser exporter applies them too.
+
+## Turn music down under voices
+
+`duckGroup` puts a clip in a group, and `duck` turns a clip down while a clip of the groups it names plays. Dialogue voices are in the group `"voice"` already, so BGM under a dialogue needs only `duck`.
+
+```tsx
+<Audio src="bgm.mp3" volume={0.6} duck={{ under: 'voice' }} />
+<Video src="game.mp4" duck={{ under: 'voice', to: { db: -12 }, release: 0.8 }} />
+```
+
+- `to` is the gain under the voices, as a multiplier from 0 to 1 or as `{ db }` at or below 0. It defaults to 0.3 and multiplies `volume` and the fades.
+- `attack` is how many seconds the gain takes to come down, ending as the voice starts (0.15 by default). `release` is how many it takes to come back up after the voice ends (0.4 by default). With 0, the gain switches instantly, which can click on some material.
+- Silences shorter than `holdGap` seconds (0.6 by default) stay ducked, so the music does not bob up between lines.
+- A voice counts from its start until its file runs out or its `Sequence` ends, whichever comes first, so a subtitle held after the voice does not keep the music down. A looping voice counts for its whole sequence. Muted clips do not count.
+- Preview, export, and the browser exporter play the same curve. In a project JSON file, `audio` and `video` items take `duckGroup` and `duck`, and `dialogue` items take `duckGroup`.
 
 ## Change the pitch
 

@@ -1,6 +1,5 @@
 import { Assets, Audio, Composition, Font, Scenes, Sequence } from '@celesta/react';
 import { Character } from '@celesta/character';
-import { scoreVolume } from './audio';
 import { CHAPTERS } from './chapters';
 import { Hud } from './components/Hud';
 import { Shutter } from './components/Shutter';
@@ -22,8 +21,7 @@ import { MOUTH, PSD, akane, poseLayers } from './voice';
 //   components/    Label (text), Swap, ChapterShell (shared chapter layout), Shutter, Hud
 //   voice.ts       the dialogue chapter's PSD / voice assets and prepare()
 //   fonts.ts       font URLs (Japanese faces are subset to the glyphs used)
-//   audio.ts       the score's volume ducking    constants.ts   palette, timing
-//   helpers.ts     pad(), zero-padded counters
+//   constants.ts   palette, timing               helpers.ts     pad(), zero-padded counters
 
 // Loads the PSD pose preset, the lip-sync track and the voice envelope before the first frame.
 export { prepare } from './voice';
@@ -63,7 +61,8 @@ export default function Root() {
       })}
       <Hud />
 
-      <Audio src="./score.wav" volume={scoreVolume()} />
+      {/* The score dips under the dialogue chapter's voice, a <Dialogue> line in "voice". */}
+      <Audio src="./score.wav" duck={{ under: 'voice', attack: 0.4, release: 0.8 }} />
     </Composition>
   );
 }

@@ -29,6 +29,11 @@ pub enum ReactBridgeError {
     /// A frame referred to a `<Static>` subtree this bridge was never sent
     /// or has dropped.
     MissingStatic(u32),
+    /// An audio clip's `duckGroup` or `duck` breaks a rule.
+    InvalidDuck {
+        src: String,
+        error: celesta_composition::DuckError,
+    },
 }
 
 impl fmt::Display for ReactBridgeError {
@@ -79,6 +84,13 @@ impl fmt::Display for ReactBridgeError {
             }
             Self::Render(error) => write!(formatter, "could not render the composition: {error}"),
             Self::Time(error) => write!(formatter, "invalid composition time: {error}"),
+            Self::InvalidDuck { src, error } => {
+                let field = match error {
+                    celesta_composition::DuckError::Group => error.field().to_owned(),
+                    _ => format!("duck.{}", error.field()),
+                };
+                write!(formatter, "audio `{src}`: {field} {error}")
+            }
             Self::OpenEndUnsupported => formatter.write_str(
                 "the Node.js React runtime cannot evaluate frames past the end; it is older than this exporter",
             ),
@@ -100,6 +112,7 @@ impl Error for ReactBridgeError {
             | Self::UnexpectedResponse
             | Self::EntryFailed(_)
             | Self::InvalidProperties(_)
+            | Self::InvalidDuck { .. }
             | Self::Render(_)
             | Self::OpenEndUnsupported
             | Self::MissingStatic(_) => None,

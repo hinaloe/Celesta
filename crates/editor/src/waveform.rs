@@ -1,6 +1,6 @@
 use crate::media_probe::MediaAssetInfo;
 use crate::viewer;
-use celesta_composition::{AudioClip, Time, evaluate_f64, integrate_f64};
+use celesta_composition::{Animatable, AudioClip, Time, evaluate_f64, integrate_f64};
 use celesta_media::{AudioBuffer, DynamicRange, MediaProbe};
 
 pub(crate) fn waveform_peaks(buffer: &AudioBuffer, requested_buckets: usize) -> Vec<f32> {
@@ -144,7 +144,13 @@ fn source_peak(peaks: &[f32], source_duration: f64, start: f64, end: f64) -> f32
         .unwrap_or(0.0)
 }
 
-pub(crate) fn clip_level_envelope(waveform: &[f32], clip: &AudioClip) -> Vec<f32> {
+/// `waveform` scaled by the clip's gain over time: its volume, its fades,
+/// and `duck`, its ducking curve on the timeline, as the mixer applies them.
+pub(crate) fn clip_level_envelope(
+    waveform: &[f32],
+    clip: &AudioClip,
+    duck: Option<&Animatable<f64>>,
+) -> Vec<f32> {
     let bucket_count = waveform.len();
     let Ok(fade) = clip.fade() else {
         return vec![0.0; bucket_count];
@@ -156,13 +162,23 @@ pub(crate) fn clip_level_envelope(waveform: &[f32], clip: &AudioClip) -> Vec<f32
             let Some(local_time) = time_fraction(clip.range.duration, bucket, bucket_count) else {
                 return 0.0;
             };
-            let (Ok(volume), Ok(seconds)) = (
+            let ducked = match duck {
+                Some(curve) => clip
+                    .range
+                    .start
+                    .checked_add(local_time)
+                    .ok()
+                    .and_then(|time| evaluate_f64(curve, time).ok()),
+                None => Some(1.0),
+            };
+            let (Ok(volume), Ok(seconds), Some(ducked)) = (
                 evaluate_f64(&clip.volume, local_time),
                 local_time.as_seconds(),
+                ducked,
             ) else {
                 return 0.0;
             };
-            let gain = volume.clamp(0.0, 16.0) * fade.gain(seconds);
+            let gain = volume.clamp(0.0, 16.0) * fade.gain(seconds) * ducked;
             (*peak * gain as f32).clamp(0.0, 1.0)
         })
         .collect()

@@ -2,7 +2,7 @@
 //! Stretch. Clips without pitch work stay on the mixer's per-sample loop.
 
 use crate::error::AudioMixError;
-use crate::mix::sample_ceil;
+use crate::mix::{DuckGain, sample_ceil};
 use crate::types::AudioBuffer;
 use celesta_composition::{Animatable, AudioClip, Time, evaluate_f64, integrate_f64};
 use signalsmith_stretch::Stretch;
@@ -37,6 +37,7 @@ pub(crate) fn mix_stretched_clip(
     source: &AudioBuffer,
     sample_rate: u32,
     frames: Range<i64>,
+    duck: Option<&Animatable<f64>>,
     output: &mut [f32],
     is_cancelled: &mut impl FnMut() -> bool,
 ) -> Result<(), AudioMixError> {
@@ -55,6 +56,8 @@ pub(crate) fn mix_stretched_clip(
     };
     let source_start_seconds = clip.source_start.as_seconds()?;
     let fade = clip.fade()?;
+    // Heard frames only move forward, so the curve is followed with a cursor.
+    let mut ducking = DuckGain::new(duck);
     // The source frame clip frame `frame` reads; rounding positions rather
     // than per-block counts keeps blocks from drifting.
     let source_frame = |frame: i64| -> Result<i64, AudioMixError> {
@@ -117,8 +120,10 @@ pub(crate) fn mix_stretched_clip(
                     continue;
                 }
                 let local_time = local_time(heard)?;
+                let project_time = Time::samples(range_start_frame + heard, sample_rate);
                 let volume = (evaluate_f64(&clip.volume, local_time)?.clamp(0.0, 16.0)
-                    * fade.gain(local_time.as_seconds()?)) as f32;
+                    * fade.gain(local_time.as_seconds()?)
+                    * ducking.at(project_time)?) as f32;
                 let at = (range_start_frame + heard) as usize * CHANNELS;
                 for (mixed, sample) in output[at..at + CHANNELS].iter_mut().zip(frame) {
                     *mixed += sample * volume;

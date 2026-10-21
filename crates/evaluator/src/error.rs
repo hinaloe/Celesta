@@ -1,4 +1,4 @@
-use celesta_composition::{AnimationError, Time, TimeError};
+use celesta_composition::{AnimationError, DuckError, Time, TimeError};
 use celesta_project::ValidationErrors;
 use std::error::Error;
 use std::fmt;
@@ -15,6 +15,10 @@ pub enum EvaluationError {
     MissingExpression {
         character: String,
         expression: String,
+    },
+    InvalidDuck {
+        item: String,
+        error: DuckError,
     },
 }
 
@@ -35,6 +39,9 @@ impl fmt::Display for EvaluationError {
                 formatter,
                 "character `{character}` has no expression `{expression}`"
             ),
+            Self::InvalidDuck { item, error } => {
+                write!(formatter, "item `{item}` has an invalid duck: {error}")
+            }
         }
     }
 }

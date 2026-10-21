@@ -18,8 +18,7 @@ function Card({ color }: { color: string }) {
   return (
     <>
       <Rect width={width} height={height} fill={color} />
-      {/* Fades with the picture. Animated volume exports from the desktop
-          app or the CLI; the browser playground mixes constant volumes only. */}
+      {/* Fades with the picture. */}
       <Audio src="./room-tone.wav" volume={useTransitionVolume(0.6)} />
     </>
   );

@@ -947,7 +947,7 @@ fn batched_audio_graph_matches_full_frame_evaluation_when_node_is_available() {
             let expected = celesta_composition::AudioGraph {
                 sample_rate: 44_100,
                 master_volume: 0.75,
-                clips: react_audio_clips(&reports, entry_dir),
+                clips: react_audio_clips(&reports, entry_dir).unwrap(),
             };
             let actual = batched
                 .collect_audio_graph(44_100, 0.75, entry_dir)

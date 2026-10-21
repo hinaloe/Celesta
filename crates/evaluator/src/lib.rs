@@ -1,12 +1,12 @@
 //! Evaluation of editor-owned project data into renderer-owned composition data.
 
 use celesta_composition::{
-    Animatable, AssetLocation, AudioClip, AudioGraph, BlendMode, EvaluatedTransform,
+    Animatable, AssetLocation, AudioClip, AudioDuck, AudioGraph, BlendMode, EvaluatedTransform,
     ImageAnimation, Layer, LayerContent, LayerEffects, MediaTiming, ResolvedAsset, Scene,
     TextStyle, Time,
 };
 use celesta_project::{
-    Asset, AssetSource, LipSyncCue, MouthShape, Project, SourceRange, TimelineContent,
+    Asset, AssetSource, LipSyncCue, MouthShape, Project, ProjectDuck, SourceRange, TimelineContent,
     TimelineItem, Track,
 };
 
@@ -131,14 +131,21 @@ impl<'project> Evaluator<'project> {
                         playback_rate,
                         volume,
                         muted,
-                    } => clips.push(self.media_clip(
-                        item,
-                        asset,
-                        *source_range,
-                        playback_rate,
-                        volume,
-                        *muted,
-                    )?),
+                        duck_group,
+                        duck,
+                    } => {
+                        let mut clip = self.media_clip(
+                            item,
+                            asset,
+                            *source_range,
+                            playback_rate,
+                            volume,
+                            *muted,
+                        )?;
+                        clip.duck_group = duck_group.clone();
+                        clip.duck = resolve_duck(item, duck.as_ref())?;
+                        clips.push(clip);
+                    }
                     TimelineContent::Audio {
                         asset,
                         source_range,
@@ -149,6 +156,8 @@ impl<'project> Evaluator<'project> {
                         preserve_pitch,
                         fade_in,
                         fade_out,
+                        duck_group,
+                        duck,
                     } => {
                         let mut clip = self.media_clip(
                             item,
@@ -162,11 +171,14 @@ impl<'project> Evaluator<'project> {
                         clip.preserve_pitch = preserve_pitch.unwrap_or(false);
                         clip.fade_in = fade_in.unwrap_or(Time::ZERO);
                         clip.fade_out = fade_out.unwrap_or(Time::ZERO);
+                        clip.duck_group = duck_group.clone();
+                        clip.duck = resolve_duck(item, duck.as_ref())?;
                         clips.push(clip);
                     }
                     TimelineContent::Dialogue {
                         audio: Some(asset),
                         volume,
+                        duck_group,
                         ..
                     } => clips.push(AudioClip {
                         id: format!("{}:voice", item.id),
@@ -182,6 +194,12 @@ impl<'project> Evaluator<'project> {
                         preserve_pitch: false,
                         fade_in: Time::ZERO,
                         fade_out: Time::ZERO,
+                        // Voices mark speech for ducking unless told otherwise.
+                        duck_group: match duck_group {
+                            None => Some("voice".to_owned()),
+                            Some(group) => group.clone(),
+                        },
+                        duck: None,
                     }),
                     _ => {}
                 }
@@ -400,6 +418,8 @@ impl<'project> Evaluator<'project> {
             preserve_pitch: false,
             fade_in: Time::ZERO,
             fade_out: Time::ZERO,
+            duck_group: None,
+            duck: None,
         })
     }
 
@@ -424,4 +444,25 @@ impl<'project> Evaluator<'project> {
             location,
         })
     }
+}
+
+/// An item's authored ducking with the defaults applied.
+fn resolve_duck(
+    item: &TimelineItem,
+    duck: Option<&ProjectDuck>,
+) -> Result<Option<AudioDuck>, EvaluationError> {
+    duck.map(|duck| {
+        AudioDuck::resolve(
+            &duck.under,
+            duck.to,
+            duck.attack,
+            duck.release,
+            duck.hold_gap,
+        )
+        .map_err(|error| EvaluationError::InvalidDuck {
+            item: item.id.clone(),
+            error,
+        })
+    })
+    .transpose()
 }
