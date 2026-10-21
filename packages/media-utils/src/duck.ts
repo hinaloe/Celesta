@@ -1,6 +1,7 @@
-// Ducking curves in TypeScript: a port of `duck_curve` and the defaults of
-// `AudioDuck::resolve` in `crates/composition/src/duck.rs`, which the
-// fixture `crates/composition/tests/fixtures/duck-curves.json` pins both to.
+// Ducking curves in TypeScript: a port of `duck_curve`, `check_duck_group`,
+// and the defaults and rules of `AudioDuck::resolve` in
+// `crates/composition/src/duck.rs`, which the fixture
+// `crates/composition/tests/fixtures/duck-curves.json` pins the curves to.
 // Only types are imported, so browser export can load this file alone.
 
 import type { AnimatedNumber, AudioDuck } from '@celesta/react';
@@ -16,8 +17,21 @@ export interface ResolvedDuck {
 /** `<Audio duck>` without `under`: what `duckEnvelope` and `resolveDuck` take. */
 export type DuckShape = Omit<AudioDuck, 'under'>;
 
+const GROUP_RULE = 'must be a non-empty name';
 const TO_RULE = 'must be a multiplier from 0 to 1, or { db } at or below 0';
 const TIME_RULE = 'must be finite and not negative';
+
+/** Checks a clip's `duckGroup`. */
+export function checkDuckGroup(group: string): void {
+  if (group === '') throw new Error(`duckGroup ${GROUP_RULE}`);
+}
+
+/** The groups `duck.under` names, as a list of at least one non-empty name. */
+export function duckGroups(under: AudioDuck['under']): string[] {
+  const groups = typeof under === 'string' ? [under] : under;
+  if (groups.length === 0 || groups.some((group) => group === '')) throw new Error(`duck.under ${GROUP_RULE}`);
+  return groups;
+}
 
 function seconds(value: number | undefined, fallback: number, field: string): number {
   if (value === undefined) return fallback;

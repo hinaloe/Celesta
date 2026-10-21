@@ -149,9 +149,11 @@ test('a voice counts until its source ends, or for its whole range when it loops
   const rate = keys([0, 1], [2, 2, 'linear']);
   assert.ok(Math.abs(audibleEnd(voice(0, 4, { playbackRate: rate }), 2) - (Math.sqrt(12) - 2)) < 1e-6);
 });
-test('invalid groups throw', () => {
-  assert.throws(() => duckCurves([voice(0, 1, { duckGroup: '' }), bed], [1, 1]), /duckGroup must be a non-empty name/);
-  assert.throws(() => duckCurves([{ ...bed, duck: { under: [] } }], [1]), /duck\.under must be a non-empty name/);
+test('invalid ducking throws, naming the clip as the native bridge does', () => {
+  assert.throws(() => duckCurves([voice(0, 1, { duckGroup: '' }), bed], [1, 1]), /^Error: audio `voice\.wav`: duckGroup must be a non-empty name$/);
+  assert.throws(() => duckCurves([{ ...bed, duck: { under: [] } }], [1]), /^Error: audio `bed\.wav`: duck\.under must be a non-empty name$/);
+  assert.throws(() => duckCurves([{ ...bed, duck: { under: 'voice', to: 2 } }], [1]), /^Error: audio `bed\.wav`: duck\.to must be a multiplier/);
+  assert.throws(() => duckCurves([{ ...bed, duck: { under: 'voice', attack: -1 } }], [1]), /^Error: audio `bed\.wav`: duck\.attack must be finite and not negative$/);
 });
 test('scheduleClip chains the ducking curve after the fades', () => {
   const curve = duckEnvelope([[2, 4]], {}, { origin: 0 });

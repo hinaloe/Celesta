@@ -1,3 +1,5 @@
+import type { AudioDuck } from '@celesta/react';
+
 /** Types returned by the Celesta React evaluator in the browser. */
 export interface CompositionConfig {
   width: number;
@@ -155,6 +157,6 @@ export type AudioClip = {
   /** The group the clip's sound belongs to, for other clips' `duck.under`. */
   duckGroup?: string;
   /** How the clip ducks, as authored on `<Audio duck>`. */
-  duck?: { under: string | string[]; to?: number | { db: number }; attack?: number; release?: number; holdGap?: number };
+  duck?: AudioDuck;
 };
 export type Frame = { scene: Scene; audio: AudioClip[] };

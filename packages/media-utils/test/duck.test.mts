@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'vitest';
 
 import type { AnimatedNumber, AudioDuck } from '@celesta/react';
-import { duckEnvelope } from '../src/duck.js';
+import { checkDuckGroup, duckEnvelope, duckGroups } from '../src/duck.js';
 
 interface Fixture {
   cases: { name: string; intervals: [number, number][]; duck: Omit<AudioDuck, 'under'>; curve: AnimatedNumber }[];
@@ -54,4 +54,13 @@ test('invalid values throw with the field', () => {
   assert.throws(() => duckEnvelope([], { attack: -1 }), /duck\.attack must be finite and not negative/);
   assert.throws(() => duckEnvelope([], { holdGap: Number.NaN }), /duck\.holdGap/);
   assert.throws(() => duckEnvelope([], { volume: -1 }), /volume must be finite and not negative/);
+});
+
+test('groups must be non-empty names', () => {
+  checkDuckGroup('voice');
+  assert.throws(() => checkDuckGroup(''), /^Error: duckGroup must be a non-empty name$/);
+  assert.deepEqual(duckGroups('voice'), ['voice']);
+  assert.deepEqual(duckGroups(['voice', 'sfx']), ['voice', 'sfx']);
+  assert.throws(() => duckGroups([]), /^Error: duck\.under must be a non-empty name$/);
+  assert.throws(() => duckGroups(['voice', '']), /^Error: duck\.under must be a non-empty name$/);
 });

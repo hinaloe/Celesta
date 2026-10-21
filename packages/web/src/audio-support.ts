@@ -1,4 +1,4 @@
-import { duckEnvelope } from '@celesta/media-utils/duck';
+import { checkDuckGroup, duckEnvelope, duckGroups } from '@celesta/media-utils/duck';
 import type { AnimatedNumber, AudioClip } from './types';
 import { type AutomationEvent, automationEvents, integrateAnimated } from './keyframes';
 
@@ -48,7 +48,14 @@ export function audibleEnd(clip: AudioClip, sourceSeconds: number): number {
   return Math.min(clip.start + local, end);
 }
 
-const GROUP_RULE = 'must be a non-empty name';
+/** Runs `check`, naming `clip`'s `src` in what it throws, as the native bridge does. */
+function namingSrc<T>(clip: AudioClip, check: () => T): T {
+  try {
+    return check();
+  } catch (error) {
+    throw new Error(`audio \`${clip.src}\`: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
+}
 
 /**
  * The ducking curve of each clip (`undefined` for one without `duck`), on
@@ -59,18 +66,19 @@ const GROUP_RULE = 'must be a non-empty name';
  */
 export function duckCurves(clips: AudioClip[], sourceSeconds: number[]): (AnimatedNumber | undefined)[] {
   for (const clip of clips) {
-    if (clip.duckGroup !== undefined && clip.duckGroup === '') throw new Error(`duckGroup ${GROUP_RULE}`);
+    const group = clip.duckGroup;
+    if (group !== undefined) namingSrc(clip, () => checkDuckGroup(group));
   }
   return clips.map((clip, index) => {
-    if (!clip.duck) return undefined;
-    const under = typeof clip.duck.under === 'string' ? [clip.duck.under] : clip.duck.under;
-    if (under.length === 0 || under.some((group) => group === '')) throw new Error(`duck.under ${GROUP_RULE}`);
+    const duck = clip.duck;
+    if (!duck) return undefined;
+    const under = namingSrc(clip, () => duckGroups(duck.under));
     const intervals: [number, number][] = [];
     clips.forEach((other, at) => {
       if (at === index || other.muted || other.duckGroup === undefined || !under.includes(other.duckGroup)) return;
       intervals.push([other.start, audibleEnd(other, sourceSeconds[at])]);
     });
-    return duckEnvelope(intervals, clip.duck, { origin: clip.start });
+    return namingSrc(clip, () => duckEnvelope(intervals, duck, { origin: clip.start }));
   });
 }
 
