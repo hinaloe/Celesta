@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.0.0',
-    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$NodeVersion = '26.10.0',
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$NodeVersion = '26.12.1',
     [string]$IsccPath,
     [string]$VcRedistDirectory,
     [switch]$ZipOnly,

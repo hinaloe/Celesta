@@ -33,7 +33,7 @@ pwsh -File scripts/package-windows.ps1 -Version 0.1.0 `
 
 The script installs the locked JavaScript dependencies, generates bindings,
 builds TypeScript and release executables, and downloads the pinned Node.js
-26.10.0 Windows x64 archive from nodejs.org. Its SHA256 is checked against the
+26.12.1 Windows x64 archive from nodejs.org. Its SHA256 is checked against the
 official release checksums before extraction. `-NodeVersion` selects another
 version; downloaded archives and checksums are cached in
 `target/package-downloads`.
