@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { canvasDrawsAlike, gradientPixels, sampleGradient } from '../src/gradients.ts';
+import { test } from 'vitest';
+import { canvasDrawsAlike, gradientPixels, sampleGradient } from '../src/gradients';
+import type { Paint, Point } from '../src/types';
 
-const linear = (stops, start = { x: 0, y: 0 }, end = { x: 10, y: 0 }) => ({ type: 'linear', start, end, stops });
+type Linear = Extract<Paint, { type: 'linear' }>;
+type Radial = Extract<Paint, { type: 'radial' }>;
+
+const linear = (stops: Linear['stops'], start: Point = { x: 0, y: 0 }, end: Point = { x: 10, y: 0 }): Linear => ({ type: 'linear', start, end, stops });
 
 test('stops interpolate premultiplied, so a fade to transparent keeps its color', () => {
   // t = 0.45 between opaque #ff8000 and #00000000: interpolating straight
@@ -30,7 +34,7 @@ test('positions past the ends take the end stops, and a degenerate gradient its 
 });
 
 test('a radial gradient runs from its centre to its radius', () => {
-  const paint = { type: 'radial', center: { x: 0, y: 0 }, radius: 10, stops: [{ offset: 0, color: '#000000' }, { offset: 1, color: '#ffffff' }] };
+  const paint: Radial = { type: 'radial', center: { x: 0, y: 0 }, radius: 10, stops: [{ offset: 0, color: '#000000' }, { offset: 1, color: '#ffffff' }] };
   assert.deepEqual(sampleGradient(paint, 2.5, 2.5), [90, 90, 90, 255]);
 });
 
@@ -67,7 +71,7 @@ test('the circle over the backdrop matches pixels the native renderer drew', () 
   // renderer, Apple M5) at pixels away from the circle's edge.
   const backdrop = linear([{ offset: 0, color: '#0b1d3a' }, { offset: 0.5, color: '#2a9d8f' }, { offset: 1, color: '#f4e3c1' }], { x: 0, y: 0 }, { x: 0, y: 100 });
   const circle = linear([{ offset: 0, color: '#e63946' }, { offset: 0.5, color: '#ffd166c0' }, { offset: 1, color: '#4cc9f0' }], { x: 0, y: 0 }, { x: 80, y: 0 });
-  const native = [
+  const native: [number, number, number[]][] = [
     [20, 50, [205, 100, 87]], [30, 50, [198, 131, 96]], [40, 50, [192, 162, 106]], [60, 50, [157, 193, 145]],
     [70, 50, [128, 194, 174]], [80, 50, [100, 195, 203]], [70, 20, [124, 178, 163]], [30, 80, [224, 140, 103]],
   ];

@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { test } from 'node:test';
-import { applyFilters } from '../src/filters.ts';
+import { test } from 'vitest';
+import { applyFilters } from '../src/filters';
+import type { Box } from '../src/filters';
+import type { BuiltinFilter, ColorFilter } from '../src/types';
 
-const applyColorFilters = (pixels, width, filters, content) =>
+type RGB = [number, number, number];
+
+const applyColorFilters = (pixels: Uint8ClampedArray, width: number, filters: ColorFilter[], content?: Box) =>
   applyFilters(pixels, width, filters, content ? { content } : {});
 
 // What the GPU renderer drew for a #c06030 rect at 8,8 to 56,56 of a
@@ -11,7 +15,7 @@ const applyColorFilters = (pixels, width, filters, content) =>
 // top-left corner, and near the right edge (`tests/color_filter.rs` in
 // `celesta-gpu-renderer`, Apple M4). Its quantizer dithers, so a pixel may
 // differ from the exact value by 1.
-const GPU = [
+const GPU: [ColorFilter, RGB, RGB, RGB][] = [
   [{ type: 'brightness', amount: 0.6 }, [115, 57, 28], [115, 58, 29], [115, 57, 28]],
   [{ type: 'brightness', amount: 1.8 }, [255, 172, 86], [255, 173, 87], [255, 172, 86]],
   [{ type: 'contrast', amount: 0.4 }, [153, 114, 95], [153, 115, 96], [153, 115, 95]],
@@ -30,7 +34,7 @@ const GPU = [
   [{ type: 'vignette', amount: 0.7, radius: 0.2, softness: 0.4 }, [192, 96, 48], [58, 29, 15], [57, 28, 14]],
 ];
 
-function rect(color = [0xc0, 0x60, 0x30, 255]) {
+function rect(color: number[] = [0xc0, 0x60, 0x30, 255]) {
   const pixels = new Uint8ClampedArray(64 * 64 * 4);
   for (let y = 8; y < 56; y++) {
     for (let x = 8; x < 56; x++) pixels.set(color, (y * 64 + x) * 4);
@@ -38,7 +42,7 @@ function rect(color = [0xc0, 0x60, 0x30, 255]) {
   return pixels;
 }
 
-const at = (pixels, x, y) => Array.from(pixels.slice((y * 64 + x) * 4, (y * 64 + x) * 4 + 4));
+const at = (pixels: Uint8ClampedArray, x: number, y: number) => Array.from(pixels.slice((y * 64 + x) * 4, (y * 64 + x) * 4 + 4));
 
 test('each filter matches what the GPU renderer draws', () => {
   for (const [filter, ...expected] of GPU) {
@@ -70,7 +74,7 @@ test('a transparent layer has no content box and is left alone', () => {
 });
 
 test('a vignette follows the content box it is given, not the pixels', () => {
-  const vignette = [{ type: 'vignette', amount: 1, radius: 0.5, softness: 0 }];
+  const vignette: ColorFilter[] = [{ type: 'vignette', amount: 1, radius: 0.5, softness: 0 }];
   // The rect's pixels are 8..56; its shapes' box reaches to 104, so the
   // rect lies in the box's left half and its left edge is darkened.
   const pixels = rect([255, 255, 255, 255]);
@@ -88,7 +92,7 @@ test('a vignette follows the content box it is given, not the pixels', () => {
 // premultiplied RGBA (`write_web_effect_fixtures` in `celesta-gpu-renderer`,
 // Apple M4).
 const FIXTURES = new URL('./fixtures/effects/', import.meta.url);
-const EFFECTS = [
+const EFFECTS: [string, BuiltinFilter][] = [
   ['pixelate', { type: 'pixelate', size: 6 }],
   ['halftone', { type: 'halftone', size: 6, angle: 30 }],
   ['chromatic-aberration', { type: 'chromaticAberration', offset: 3, angle: 20 }],
@@ -101,7 +105,7 @@ const EFFECTS = [
 ];
 
 /** Straight RGBA, as `getImageData` gives, of premultiplied bytes. */
-function straight(premultiplied) {
+function straight(premultiplied: Uint8Array) {
   const pixels = new Uint8ClampedArray(premultiplied.length);
   for (let at = 0; at < pixels.length; at += 4) {
     const alpha = premultiplied[at + 3];

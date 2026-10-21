@@ -1,21 +1,25 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { BLEND_MODES, blendColor, blendPixels, coveredBox } from '../src/blend-modes.ts';
+import { test } from 'vitest';
+import { BLEND_MODES, blendColor, blendPixels, coveredBox } from '../src/blend-modes';
+import type { BlendMode } from '../src/blend-modes';
 
-const close = (a, b) => Math.abs(a - b) < 1e-9;
-const mix = (mode, backdrop, source) => blendColor(mode, [backdrop, backdrop, backdrop], [source, source, source])[0];
+type RGB = [number, number, number];
+
+const close = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+const mix = (mode: BlendMode, backdrop: number, source: number) => blendColor(mode, [backdrop, backdrop, backdrop], [source, source, source])[0];
 
 test('every mode the native renderers know, in camelCase', () => {
   assert.deepEqual([...BLEND_MODES].sort(), [
     'add', 'color', 'colorBurn', 'colorDodge', 'darken', 'difference', 'exclusion', 'hardLight',
     'hue', 'lighten', 'luminosity', 'multiply', 'normal', 'overlay', 'saturation', 'screen', 'softLight',
   ]);
-  assert.throws(() => blendColor('color-dodge', [0, 0, 0], [0, 0, 0]), /Unsupported blend mode: color-dodge/);
+  // Not a mode: kebab-case, as CSS spells it.
+  assert.throws(() => blendColor('color-dodge' as BlendMode, [0, 0, 0], [0, 0, 0]), /Unsupported blend mode: color-dodge/);
 });
 
 test('separable modes follow the spec formulas', () => {
   // The values of `celesta_composition`'s `separable_modes_follow_the_spec_formulas`.
-  const cases = [
+  const cases: [BlendMode, number, number, number][] = [
     ['multiply', 0.5, 0.5, 0.25], ['screen', 0.5, 0.5, 0.75],
     ['overlay', 0.25, 0.5, 0.25], ['overlay', 0.75, 0.5, 0.75],
     ['add', 0.7, 0.6, 1], ['difference', 0.3, 0.8, 0.5],
@@ -35,15 +39,15 @@ test('separable modes follow the spec formulas', () => {
 });
 
 test('non-separable modes follow the spec formulas', () => {
-  const gray = [0.5, 0.5, 0.5], red = [1, 0, 0];
-  const lum = ([r, g, b]) => 0.3 * r + 0.59 * g + 0.11 * b;
-  const near = (a, b) => a.every((value, i) => close(value, b[i]));
+  const gray: RGB = [0.5, 0.5, 0.5], red: RGB = [1, 0, 0];
+  const lum = ([r, g, b]: RGB) => 0.3 * r + 0.59 * g + 0.11 * b;
+  const near = (a: readonly number[], b: readonly number[]) => a.every((value, i) => close(value, b[i]));
   const k = 0.5 - 0.3 * 0.5 / 0.7;
   assert.ok(near(blendColor('color', gray, red), [1, k, k]));
   assert.ok(near(blendColor('hue', gray, red), gray));
   assert.ok(near(blendColor('saturation', gray, red), gray));
   assert.ok(near(blendColor('luminosity', gray, red), [0.3, 0.3, 0.3]));
-  const orange = [0.8, 0.4, 0.2];
+  const orange: RGB = [0.8, 0.4, 0.2];
   const l = lum(orange);
   const lifted = [0, 0, 0.6].map(c => c + l - 0.066);
   assert.ok(near(blendColor('hue', orange, [0, 0, 1]), lifted.map(c => l + (c - l) * (1 - l) / (lifted[2] - l))));
@@ -52,12 +56,13 @@ test('non-separable modes follow the spec formulas', () => {
 test('blended pixels match the native renderers', () => {
   // `celesta_renderer`'s `blends_each_mode_with_the_backdrop`: an opaque
   // (100, 200, 250) over an opaque (200, 100, 50).
-  const expected = {
+  const expected: Partial<Record<BlendMode, RGB>> = {
     normal: [100, 200, 250], multiply: [78, 78, 49], screen: [222, 222, 251], overlay: [188, 157, 98],
     add: [255, 255, 255], difference: [100, 100, 200], darken: [100, 100, 50], lighten: [200, 200, 250],
     exclusion: [143, 143, 202], luminosity: [251, 151, 101],
   };
-  for (const [mode, color] of Object.entries(expected)) {
+  // `Object.entries` widens the keys to strings; they are the modes above.
+  for (const [mode, color] of Object.entries(expected) as [BlendMode, RGB][]) {
     const source = Uint8ClampedArray.from([100, 200, 250, 255]);
     blendPixels(mode, source, 1, Uint8ClampedArray.from([200, 100, 50, 255]), [0, 0, 1, 1]);
     assert.deepEqual([...source], [...color, 255], mode);

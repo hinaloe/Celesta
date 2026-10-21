@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { loadFonts, loadedFamilies, requireLoadedFonts, resetFonts } from '../src/fonts.ts';
+import { onTestFinished, test, vi } from 'vitest';
+import { loadFonts, loadedFamilies, requireLoadedFonts, resetFonts } from '../src/fonts';
+import type { Asset } from '../src/types';
+import { fetchStub, scope, standIn } from './stand-in.mjs';
 
 // A minimal OpenType name table with only a Unicode-platform family record.
 function unicodeFont() {
@@ -12,25 +14,31 @@ function unicodeFont() {
   return bytes;
 }
 
-test('Unicode font names, preload requirements, cached failures and partial CSS fallback', async t => {
-  const faces = new Set(), fetched = [], warnings = [];
-  t.mock.method(console, 'warn', (...args) => warnings.push(args));
-  const originals = { fetch: globalThis.fetch, FontFace: globalThis.FontFace, fonts: globalThis.fonts };
-  t.after(() => Object.assign(globalThis, originals));
-  globalThis.fonts = faces;
-  globalThis.FontFace = class {
-    constructor(family) { this.family = family; }
+/** The URL of an asset at one: what every font here is. */
+function urlOf(asset: Asset): string {
+  if (asset.location.type !== 'url') throw new Error(`${asset.id} is not at a URL`);
+  return asset.location.url;
+}
+
+test('Unicode font names, preload requirements, cached failures and partial CSS fallback', async () => {
+  const faces = new Set<{ family: string }>(), fetched: string[] = [], warnings: unknown[][] = [];
+  vi.spyOn(console, 'warn').mockImplementation((...args) => { warnings.push(args); });
+  const originals = { fetch: globalThis.fetch, FontFace: globalThis.FontFace, fonts: scope.fonts };
+  onTestFinished(() => { Object.assign(globalThis, originals); });
+  scope.fonts = faces;
+  globalThis.FontFace = standIn<typeof FontFace>(class {
+    constructor(readonly family: string) {}
     async load() { if (this.family === 'Broken') throw new Error('bad font'); return this; }
-  };
-  globalThis.fetch = async url => {
+  });
+  globalThis.fetch = fetchStub(async url => {
     fetched.push(url);
     if (url.endsWith('missing.ttf')) return new Response('', { status: 404 });
     if (url.endsWith('invalid.ttf')) return new Response(new Uint8Array(2));
     if (url.endsWith('.css')) return new Response('@font-face {font-family: Broken; src: url(bad.woff)} @font-face {font-family: Good; src: url(good.woff)}', { headers: { 'content-type': 'text/css' } });
     return new Response(unicodeFont());
-  };
-  const asset = path => ({ id: path, location: { type: 'url', url: `https://fonts.test/${path}` } });
-  const resolve = asset => asset.location.url;
+  });
+  const asset = (path: string): Asset => ({ id: path, location: { type: 'url', url: `https://fonts.test/${path}` } });
+  const resolve = urlOf;
   const unicode = asset('unicode.ttf');
   assert.throws(() => requireLoadedFonts([unicode], resolve), /prepare\(\)/);
   await Promise.all([loadFonts([unicode], resolve), loadFonts([unicode], resolve)]);
@@ -49,7 +57,7 @@ test('Unicode font names, preload requirements, cached failures and partial CSS 
   assert.deepEqual(fetched.slice(4), ['https://fonts.test/bad.woff', 'https://fonts.test/good.woff']);
   assert.deepEqual([...faces].map(face => face.family), ['UnicodeFamily', 'Good']);
   assert.equal(warnings.length, 3);
-  const unresolved = { id: 'local', location: { type: 'file', path: 'local.ttf' } };
+  const unresolved: Asset = { id: 'local', location: { type: 'file', path: 'local.ttf' } };
   const missingMedia = () => { throw new Error('No media directory'); };
   await loadFonts([unresolved], missingMedia);
   requireLoadedFonts([unresolved], missingMedia);
@@ -65,17 +73,17 @@ test('Unicode font names, preload requirements, cached failures and partial CSS 
   resetFonts();
 });
 
-test('Google Fonts loads every Japanese split face and reports unknown names without caching failures', async t => {
-  const faces = new Set();
-  const originals = { fetch: globalThis.fetch, FontFace: globalThis.FontFace, fonts: globalThis.fonts };
-  t.after(() => { resetFonts(); Object.assign(globalThis, originals); });
-  globalThis.fonts = faces;
-  globalThis.FontFace = class {
-    constructor(family, source, descriptors) { Object.assign(this, { family, source, descriptors }); }
+test('Google Fonts loads every Japanese split face and reports unknown names without caching failures', async () => {
+  const faces = new Set<{ family: string; descriptors: FontFaceDescriptors }>();
+  const originals = { fetch: globalThis.fetch, FontFace: globalThis.FontFace, fonts: scope.fonts };
+  onTestFinished(() => { resetFonts(); Object.assign(globalThis, originals); });
+  scope.fonts = faces;
+  globalThis.FontFace = standIn<typeof FontFace>(class {
+    constructor(readonly family: string, readonly source: string, readonly descriptors: FontFaceDescriptors) {}
     async load() { return this; }
-  };
+  });
   let hits = 0;
-  globalThis.fetch = async url => {
+  globalThis.fetch = fetchStub(async url => {
     hits++;
     if (url.includes('Missing')) return new Response('', { status: 400 });
     if (url.endsWith('.woff2')) return new Response(new Uint8Array(4));
@@ -83,10 +91,10 @@ test('Google Fonts loads every Japanese split face and reports unknown names wit
       @font-face {font-family: 'Noto Sans JP'; font-weight: 700; src: url(https://fonts.gstatic.com/japanese.woff2); unicode-range: U+3040-30FF}
       @font-face {font-family: 'Noto Sans JP'; font-weight: 700; src: url(https://fonts.gstatic.com/latin.woff2); unicode-range: U+0000-00FF}
     `, { headers: { 'content-type': 'text/css' } });
-  };
+  });
   const url = 'https://fonts.googleapis.com/css?family=Noto+Sans+JP:700&subset=japanese';
-  const font = { id: url, location: { type: 'url', url } };
-  const resolve = asset => asset.location.url;
+  const font: Asset = { id: url, location: { type: 'url', url } };
+  const resolve = urlOf;
   await loadFonts([font], resolve);
   await loadFonts([font], resolve);
   // The stylesheet, then each split face's file.
@@ -98,7 +106,7 @@ test('Google Fonts loads every Japanese split face and reports unknown names wit
     'https://fonts.googleapis.com/css?family=Missing+Family:400',
     'https://fonts.googleapis.com/css2?family=Missing+Family:wght@400',
   ]) {
-    const missing = { id: missingURL, location: { type: 'url', url: missingURL } };
+    const missing: Asset = { id: missingURL, location: { type: 'url', url: missingURL } };
     for (let attempt = 0; attempt < 2; attempt++) {
       await assert.rejects(loadFonts([missing], resolve), /could not find family "Missing Family" or the requested weights/);
       assert.throws(() => requireLoadedFonts([missing], resolve), /preloaded fonts/);
@@ -107,20 +115,20 @@ test('Google Fonts loads every Japanese split face and reports unknown names wit
   assert.equal(hits, 7);
 });
 
-test('loadedFamilies lists the families of each font in list order', async t => {
-  const originals = { fetch: globalThis.fetch, FontFace: globalThis.FontFace, fonts: globalThis.fonts };
-  t.after(() => { resetFonts(); Object.assign(globalThis, originals); });
-  globalThis.fonts = new Set();
-  globalThis.FontFace = class {
-    constructor(family) { this.family = family; }
+test('loadedFamilies lists the families of each font in list order', async () => {
+  const originals = { fetch: globalThis.fetch, FontFace: globalThis.FontFace, fonts: scope.fonts };
+  onTestFinished(() => { resetFonts(); Object.assign(globalThis, originals); });
+  scope.fonts = new Set();
+  globalThis.FontFace = standIn<typeof FontFace>(class {
+    constructor(readonly family: string) {}
     async load() { return this; }
-  };
-  globalThis.fetch = async url => url.endsWith('a.css')
+  });
+  globalThis.fetch = fetchStub(async url => url.endsWith('a.css')
     ? new Response('@font-face {font-family: Alpha; src: url(a1.woff)} @font-face {font-family: Alpha; src: url(a2.woff)} @font-face {font-family: Beta; src: url(b.woff)}', { headers: { 'content-type': 'text/css' } })
-    : new Response(unicodeFont());
-  const asset = path => ({ id: path, location: { type: 'url', url: `https://fonts.test/${path}` } });
-  const resolve = asset => asset.location.url;
-  const unresolved = { id: 'local', location: { type: 'file', path: 'local.ttf' } };
+    : new Response(unicodeFont()));
+  const asset = (path: string): Asset => ({ id: path, location: { type: 'url', url: `https://fonts.test/${path}` } });
+  const resolve = urlOf;
+  const unresolved: Asset = { id: 'local', location: { type: 'file', path: 'local.ttf' } };
   const fonts = [asset('a.css'), asset('unicode.ttf')];
   await loadFonts(fonts, resolve);
   assert.deepEqual(loadedFamilies(fonts, resolve), ['Alpha', 'Beta', 'UnicodeFamily']);

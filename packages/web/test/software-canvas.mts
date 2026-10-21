@@ -9,10 +9,23 @@
  * covers, in part where it covers a pixel in part), and `fillRect` with
  * `destination-out`, rounded to 8 bits after each draw.
  */
+import type { Surface } from '../src/plane-pieces';
+import { standIn } from './stand-in.mjs';
+
+type Point = [number, number];
+type Polygon = Point[];
+/** `[a, b, c]`: the half-plane where `a·x + b·y + c ≥ 0`. */
+type HalfPlane = [number, number, number];
+/** A 2D affine map in `DOMMatrix` order. */
+type Affine = [number, number, number, number, number, number];
+/** A clip: its polygons, and with several, which of them reach each pixel. */
+type Region = Polygon[] & { index?: Map<number, number[]> };
+/** Straight-alpha or premultiplied pixels, `width` × `height`. */
+type Pixels = { data: Uint8ClampedArray; width: number; height: number };
 
 /** The convex `polygon` (device pixels) clipped to where `a·x + b·y + c ≥ 0`. */
-function clipHalfPlane(polygon, [a, b, c]) {
-  const out = [];
+function clipHalfPlane(polygon: Polygon, [a, b, c]: HalfPlane): Polygon {
+  const out: Polygon = [];
   polygon.forEach((p, i) => {
     const q = polygon[(i + 1) % polygon.length];
     const here = a * p[0] + b * p[1] + c, there = a * q[0] + b * q[1] + c;
@@ -25,7 +38,7 @@ function clipHalfPlane(polygon, [a, b, c]) {
   return out;
 }
 
-const area = polygon => {
+const area = (polygon: Polygon) => {
   let doubled = 0;
   polygon.forEach(([x, y], i) => {
     const [u, v] = polygon[(i + 1) % polygon.length];
@@ -35,7 +48,7 @@ const area = polygon => {
 };
 
 /** The half-planes inside the convex `polygon`, as `[a, b, c]` with `a·x + b·y + c ≥ 0` inside. */
-function halfPlanes(polygon) {
+function halfPlanes(polygon: Polygon): HalfPlane[] {
   let doubled = 0;
   polygon.forEach(([x, y], i) => {
     const [u, v] = polygon[(i + 1) % polygon.length];
@@ -49,31 +62,37 @@ function halfPlanes(polygon) {
   });
 }
 
-const apply = ([a, b, c, d, e, f], x, y) => [a * x + c * y + e, b * x + d * y + f];
-const multiply = ([a1, b1, c1, d1, e1, f1], [a2, b2, c2, d2, e2, f2]) => [
+const apply = ([a, b, c, d, e, f]: Affine, x: number, y: number): Point => [a * x + c * y + e, b * x + d * y + f];
+const multiply = ([a1, b1, c1, d1, e1, f1]: Affine, [a2, b2, c2, d2, e2, f2]: Affine): Affine => [
   a1 * a2 + c1 * b2, b1 * a2 + d1 * b2, a1 * c2 + c1 * d2, b1 * c2 + d1 * d2, a1 * e2 + c1 * f2 + e1, b1 * e2 + d1 * f2 + f1,
 ];
-const invert = ([a, b, c, d, e, f]) => {
+const invert = ([a, b, c, d, e, f]: Affine): Affine => {
   const det = a * d - b * c;
   return [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det];
 };
 
 /** `Path2D`, for convex polygons of straight lines, filled as their union. */
 export class SoftwarePath {
-  polygons = [];
-  moveTo(x, y) { this.polygons.push([[x, y]]); }
-  lineTo(x, y) { this.polygons.at(-1).push([x, y]); }
+  polygons: Polygon[] = [];
+  moveTo(x: number, y: number) { this.polygons.push([[x, y]]); }
+  lineTo(x: number, y: number) { this.polygons.at(-1)!.push([x, y]); }
   closePath() {}
-  addPath(path) { this.polygons.push(...path.polygons); }
+  addPath(path: SoftwarePath) { this.polygons.push(...path.polygons); }
 }
 
 export class SoftwareCanvas {
-  constructor(width, height) {
+  context: SoftwareContext;
+  private _width = 0;
+  private _height = 0;
+  /** Premultiplied RGBA. */
+  data = new Uint8ClampedArray(0);
+
+  constructor(width: number, height: number) {
     this.context = new SoftwareContext(this);
     this.resize(width, height);
   }
 
-  resize(width, height) {
+  resize(width: number, height: number) {
     this._width = width;
     this._height = height;
     this.data = new Uint8ClampedArray(width * height * 4);
@@ -87,21 +106,23 @@ export class SoftwareCanvas {
   getContext() { return this.context; }
 }
 
-class SoftwareContext {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.globalAlpha = 1;
-    this.globalCompositeOperation = 'source-over';
-    this.imageSmoothingEnabled = true;
-    this.imageSmoothingQuality = 'low';
-    this.transform = [1, 0, 0, 1, 0, 0];
-    this.clips = [];
-    this.stack = [];
-    /** How many times each method was called. */
-    this.calls = {};
-  }
+/** What `save` keeps and `restore` puts back. */
+type State = Pick<SoftwareContext, 'globalAlpha' | 'globalCompositeOperation' | 'imageSmoothingEnabled' | 'imageSmoothingQuality' | 'transform' | 'clips'>;
 
-  count(name) { this.calls[name] = (this.calls[name] ?? 0) + 1; }
+class SoftwareContext implements Surface {
+  globalAlpha = 1;
+  globalCompositeOperation = 'source-over';
+  imageSmoothingEnabled = true;
+  imageSmoothingQuality = 'low';
+  transform: Affine = [1, 0, 0, 1, 0, 0];
+  clips: Region[] = [];
+  stack: State[] = [];
+  /** How many times each method was called. */
+  calls: Record<string, number> = {};
+
+  constructor(readonly canvas: SoftwareCanvas) {}
+
+  count(name: string) { this.calls[name] = (this.calls[name] ?? 0) + 1; }
 
   save() {
     this.count('save');
@@ -110,21 +131,21 @@ class SoftwareContext {
   }
 
   restore() { Object.assign(this, this.stack.pop()); }
-  setTransform(a, b, c, d, e, f) { this.transform = [a, b, c, d, e, f]; }
+  setTransform(a: number, b: number, c: number, d: number, e: number, f: number) { this.transform = [a, b, c, d, e, f]; }
 
-  /** Clips to `path`, a `SoftwarePath`, under the current transform. */
-  clip(path) {
+  /** Clips to `path`, a `SoftwarePath` (the tests' `Path2D`), under the current transform. */
+  clip(path: Path2D) {
     this.count('clip');
-    const polygons = path.polygons.map(polygon => polygon.map(([x, y]) => apply(this.transform, x, y)));
+    const polygons: Region = standIn<SoftwarePath>(path).polygons.map(polygon => polygon.map(([x, y]) => apply(this.transform, x, y)));
     // Which polygons reach each pixel, for a clip of several.
     if (polygons.length > 1) {
-      polygons.index = new Map();
+      const index = polygons.index = new Map<number, number[]>();
       polygons.forEach((polygon, i) => {
         const xs = polygon.map(p => p[0]), ys = polygon.map(p => p[1]);
         for (let y = Math.floor(Math.min(...ys)); y < Math.ceil(Math.max(...ys)); y++) {
           for (let x = Math.floor(Math.min(...xs)); x < Math.ceil(Math.max(...xs)); x++) {
             const key = y * 65536 + x;
-            polygons.index.set(key, [...(polygons.index.get(key) ?? []), i]);
+            index.set(key, [...(index.get(key) ?? []), i]);
           }
         }
       });
@@ -137,9 +158,9 @@ class SoftwareContext {
    * exact area while each clip is one convex polygon, otherwise the share
    * of 8 × 8 points.
    */
-  coverage(x, y, quad) {
-    const regions = quad ? [[quad], ...this.clips] : this.clips;
-    const corners = [[x, y], [x + 1, y], [x + 1, y + 1], [x, y + 1]];
+  coverage(x: number, y: number, quad?: Polygon) {
+    const regions: Region[] = quad ? [[quad], ...this.clips] : this.clips;
+    const corners: Polygon = [[x, y], [x + 1, y], [x + 1, y + 1], [x, y + 1]];
     if (regions.every(region => region.length === 1)) {
       const planes = regions.flatMap(([polygon]) => halfPlanes(polygon));
       if (planes.every(([a, b, c]) => corners.every(([px, py]) => a * px + b * py + c >= 0))) return 1;
@@ -165,7 +186,7 @@ class SoftwareContext {
   }
 
   /** The pixels the clips can reach within `x0, y0, x1, y1`. */
-  bounds(x0, y0, x1, y1) {
+  bounds(x0: number, y0: number, x1: number, y1: number) {
     for (const region of this.clips) {
       const points = region.flat();
       x0 = Math.max(x0, Math.floor(Math.min(...points.map(p => p[0])))), x1 = Math.min(x1, Math.ceil(Math.max(...points.map(p => p[0]))));
@@ -175,9 +196,9 @@ class SoftwareContext {
   }
 
   /** Only to clear, with `destination-out`. */
-  fillRect(x, y, width, height) {
+  fillRect(x: number, y: number, width: number, height: number) {
     if (this.globalCompositeOperation !== 'destination-out') throw new Error(`fillRect with ${this.globalCompositeOperation} is not emulated`);
-    const rect = [[x, y], [x + width, y], [x + width, y + height], [x, y + height]].map(([px, py]) => apply(this.transform, px, py));
+    const rect = ([[x, y], [x + width, y], [x + width, y + height], [x, y + height]] satisfies Polygon).map(([px, py]) => apply(this.transform, px, py));
     const [x0, y0, x1, y1] = this.bounds(
       Math.max(0, Math.floor(Math.min(...rect.map(p => p[0])))), Math.max(0, Math.floor(Math.min(...rect.map(p => p[1])))),
       Math.min(this.canvas.width, Math.ceil(Math.max(...rect.map(p => p[0])))), Math.min(this.canvas.height, Math.ceil(Math.max(...rect.map(p => p[1])))),
@@ -190,12 +211,12 @@ class SoftwareContext {
     }
   }
 
-  drawImage(image, dx, dy, dw = image.width, dh = image.height) {
+  drawImage(image: SoftwareCanvas, dx: number, dy: number, dw = image.width, dh = image.height) {
     this.count('drawImage');
     if (this.imageSmoothingQuality !== 'low' || !this.imageSmoothingEnabled) throw new Error('only bilinear taps are emulated');
     const toDevice = multiply(this.transform, [dw / image.width, 0, 0, dh / image.height, dx, dy]);
     const toImage = invert(toDevice);
-    const quad = [[0, 0], [image.width, 0], [image.width, image.height], [0, image.height]].map(([x, y]) => apply(toDevice, x, y));
+    const quad = ([[0, 0], [image.width, 0], [image.width, image.height], [0, image.height]] satisfies Polygon).map(([x, y]) => apply(toDevice, x, y));
     const mode = this.globalCompositeOperation;
     if (!['source-over', 'lighter', 'copy'].includes(mode)) throw new Error(`${mode} is not emulated`);
     const { width, height, data } = this.canvas;
@@ -205,7 +226,7 @@ class SoftwareContext {
       Math.min(width, Math.ceil(Math.max(...quad.map(p => p[0])))), Math.min(height, Math.ceil(Math.max(...quad.map(p => p[1])))),
     );
     const source = image.data, sw = image.width, sh = image.height;
-    const texel = (x, y, channel) => source[((Math.min(sh - 1, Math.max(0, y)) * sw) + Math.min(sw - 1, Math.max(0, x))) * 4 + channel];
+    const texel = (x: number, y: number, channel: number) => source[((Math.min(sh - 1, Math.max(0, y)) * sw) + Math.min(sw - 1, Math.max(0, x))) * 4 + channel];
     for (let y = y0; y < y1; y++) {
       for (let x = x0; x < x1; x++) {
         const clipped = this.coverage(x, y), both = clipped > 0 ? this.coverage(x, y, quad) : 0;
@@ -224,7 +245,7 @@ class SoftwareContext {
   }
 
   /** Straight alpha, as Canvas returns it. */
-  getImageData(x, y, width, height) {
+  getImageData(x: number, y: number, width: number, height: number): Pixels {
     this.count('getImageData');
     const out = new Uint8ClampedArray(width * height * 4);
     for (let row = 0; row < height; row++) {
@@ -238,9 +259,9 @@ class SoftwareContext {
     return { data: out, width, height };
   }
 
-  createImageData(width, height) { return { data: new Uint8ClampedArray(width * height * 4), width, height }; }
+  createImageData(width: number, height: number): Pixels { return { data: new Uint8ClampedArray(width * height * 4), width, height }; }
 
-  putImageData(image, x, y) {
+  putImageData(image: Pixels, x: number, y: number) {
     this.count('putImageData');
     for (let row = 0; row < image.height; row++) {
       for (let column = 0; column < image.width; column++) {
@@ -254,7 +275,7 @@ class SoftwareContext {
 }
 
 /** A software canvas's context, `width` × `height`, holding the straight-alpha `pixels` when given. */
-export function surface(width, height, pixels) {
+export function surface(width: number, height: number, pixels?: Uint8ClampedArray) {
   const context = new SoftwareCanvas(width, height).getContext();
   if (pixels) context.putImageData({ data: pixels, width, height }, 0, 0);
   return context;

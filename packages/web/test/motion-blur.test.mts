@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { SampleAverage } from '../src/motion-blur.ts';
+import { test } from 'vitest';
+import { SampleAverage } from '../src/motion-blur';
 
 /** The average of one-pixel samples, each straight-alpha RGBA. */
-function average(...samples) {
+function average(...samples: number[][]) {
   const sum = new SampleAverage(4);
   for (const sample of samples) sum.add(new Uint8ClampedArray(sample));
   const pixels = new Uint8ClampedArray(4);

@@ -1,4 +1,6 @@
 // Run with: node packages/web/test/text-runs.mjs [path-to-chromium]
+// A manual check in real Chrome, not a Vitest test: plain Node runs it, so it
+// stays JavaScript (it bundles ../src/scene-canvas.ts itself).
 import { createRequire } from 'node:module';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

@@ -1,12 +1,17 @@
 {
-  // Type-checks the tests together with the src/ they import. `tsc -b test`
-  // builds @celesta/media-utils first when its dist/ is missing or stale.
+  // Type-checks the tests together with the src/ they import, with the
+  // package's own settings (DOM and Node types, Bundler resolution). `tsc -b
+  // test` builds @celesta/media-utils first when its dist/ is missing or
+  // stale; this package itself needs no build.
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "composite": false,
     "declaration": false,
     "emitDeclarationOnly": false,
     "noEmit": true,
+    // The tests run on Node 22 and later, and use its newer built-ins
+    // (`toReversed`, `Promise.withResolvers`).
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "rootDir": "..",
     "tsBuildInfoFile": "../node_modules/.cache/test.tsbuildinfo"
   },

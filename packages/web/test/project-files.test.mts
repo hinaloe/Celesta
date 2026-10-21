@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { build } from 'esbuild-wasm';
-import { projectFiles } from '../src/project-files.ts';
+import type { BuildOptions } from 'esbuild-wasm';
+import { projectFiles } from '../src/project-files';
+
+/** What a bundle's `module.exports` holds, read back as the test expects it. */
+type Exports<T> = { exports: { default?: T } };
+type Element = { type: unknown; props: Record<string, unknown> };
+const React = { createElement: (type: unknown, props: Record<string, unknown>): Element => ({ type, props }) };
 
 test('bundle a nested TSX project, resolve JSON and keep runtime imports external', async () => {
   const files = {
@@ -9,16 +15,16 @@ test('bundle a nested TSX project, resolve JSON and keep runtime imports externa
     'scenes/index.tsx': "import { Composition } from '@celesta/react'; import data from '../data.json'; export function Scene() { return <Composition width={data.width} />; }",
     'data.json': '{"width":320}',
   };
-  const options = { entryPoints: ['film.tsx'], bundle: true, write: false, format: 'cjs', jsxFactory: 'React.createElement' };
+  const options = { entryPoints: ['film.tsx'], bundle: true, write: false, format: 'cjs', jsxFactory: 'React.createElement' } satisfies BuildOptions;
   const result = await build({ ...options, plugins: [projectFiles(files, 'film.tsx')] });
-  const module = { exports: {} };
+  const module: Exports<() => Element> = { exports: {} };
   const Component = Symbol('Composition');
   new Function('module', 'exports', 'require', 'React', result.outputFiles[0].text)(
     module, module.exports,
-    name => { assert.equal(name, '@celesta/react'); return { Composition: Component }; },
-    { createElement: (type, props) => ({ type, props }) },
+    (name: string) => { assert.equal(name, '@celesta/react'); return { Composition: Component }; },
+    React,
   );
-  assert.deepEqual(module.exports.default(), { type: Component, props: { width: 320 } });
+  assert.deepEqual(module.exports.default!(), { type: Component, props: { width: 320 } });
   await assert.rejects(build({ ...options, logLevel: 'silent', plugins: [projectFiles({ 'film.tsx': "import fs from 'node:fs'; export default fs;" }, 'film.tsx')] }), /unavailable in the web editor/);
   await assert.rejects(build({ ...options, logLevel: 'silent', plugins: [projectFiles({ 'film.tsx': "import Scene from './missing'; export default Scene;" }, 'film.tsx')] }), /Missing project source/);
 });
@@ -31,9 +37,9 @@ test('directory imports resolve JSX, JavaScript and JSON index files', async () 
     'data/index.json': '{"width":300}',
   };
   const result = await build({ entryPoints: ['film.tsx'], bundle: true, write: false, format: 'cjs', jsxFactory: 'React.createElement', plugins: [projectFiles(files, 'film.tsx')] });
-  const module = { exports: {} };
-  new Function('module', 'exports', 'React', result.outputFiles[0].text)(module, module.exports, { createElement: (type, props) => ({ type, props }) });
-  assert.deepEqual(module.exports.default(), { type: 'rect', props: { width: 320 } });
+  const module: Exports<() => Element> = { exports: {} };
+  new Function('module', 'exports', 'React', result.outputFiles[0].text)(module, module.exports, React);
+  assert.deepEqual(module.exports.default!(), { type: 'rect', props: { width: 320 } });
 });
 
 test('subtitle files import as their text', async () => {
@@ -43,7 +49,7 @@ test('subtitle files import as their text', async () => {
     'captions.vtt': 'WEBVTT\n',
   };
   const result = await build({ entryPoints: ['film.tsx'], bundle: true, write: false, format: 'cjs', plugins: [projectFiles(files, 'film.tsx')] });
-  const module = { exports: {} };
+  const module: Exports<string[]> = { exports: {} };
   new Function('module', 'exports', result.outputFiles[0].text)(module, module.exports);
   assert.deepEqual(module.exports.default, [files['captions.srt'], files['captions.vtt']]);
 });

@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { onTestFinished, test, vi } from 'vitest';
 import { build } from 'esbuild-wasm';
 import { createRequire } from 'node:module';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { CompileOptions } from '../src/engine';
+import type { Frame, Layer, LayerContent } from '../src/types';
+import { fetchStub, scope, standIn } from './stand-in.mjs';
+
+// The worker, bundled from source as Vite bundles it for the browser, and
+// loaded through Node's own `require`, as a worker loads its script.
 
 const require = createRequire(import.meta.url);
 const packages = fileURLToPath(new URL('../../', import.meta.url));
@@ -29,39 +35,60 @@ const directory = mkdtempSync(fileURLToPath(new URL('../node_modules/.worker-tes
 const modulePath = join(directory, 'worker.cjs');
 writeFileSync(modulePath, result.outputFiles[0].text);
 
-test('compiles serialize, fonts refresh the same mount, and recompile unmounts the old root', async t => {
-  const originals = { self: globalThis.self, fonts: globalThis.fonts, FontFace: globalThis.FontFace, OffscreenCanvas: globalThis.OffscreenCanvas, fetch: globalThis.fetch };
-  t.after(() => { Object.assign(globalThis, originals); delete globalThis.mountCount; delete globalThis.cleanupCount; rmSync(directory, { recursive: true }); });
-  globalThis.mountCount = 0; globalThis.cleanupCount = 0;
-  globalThis.fonts = new Set();
-  globalThis.FontFace = class { constructor(family, source) { this.family = family; this.source = source; } async load() { return this; } };
+/** A message to the worker, as `Engine` posts it. */
+type Request = { id: number; type: 'compile' | 'frame'; source?: string; frame?: number; options?: CompileOptions };
+/** The worker's answer: a frame's `value` (a compile's is its config, which these tests do not read), or the error. */
+type Reply = { id: number; value?: Frame; error?: string };
+/** A font face of the stand-in `FontFace`. */
+// The worker makes each face from the font file's bytes.
+type Face = { family: string; source: BufferSource };
+
+/** `layer`'s content, which the test expects to be a `type`. */
+function content<T extends LayerContent['type']>(layer: Layer, type: T) {
+  assert.equal(layer.content.type, type);
+  return layer.content as Extract<LayerContent, { type: T }>;
+}
+
+test('compiles serialize, fonts refresh the same mount, and recompile unmounts the old root', async () => {
+  // The counts the compiled scenes below keep on the global scope.
+  const counted = standIn<{ mountCount?: number; cleanupCount?: number }>(globalThis);
+  const originals = { self: globalThis.self, fonts: scope.fonts, FontFace: globalThis.FontFace, OffscreenCanvas: globalThis.OffscreenCanvas, fetch: globalThis.fetch };
+  onTestFinished(() => { Object.assign(globalThis, originals); delete counted.mountCount; delete counted.cleanupCount; rmSync(directory, { recursive: true }); });
+  counted.mountCount = 0; counted.cleanupCount = 0;
+  const fonts = new Set<Face>();
+  scope.fonts = fonts;
+  globalThis.FontFace = standIn(class { constructor(readonly family: string, readonly source: BufferSource) {} async load() { return this; } });
   // As in Chromium's workers, a font string keeps the font it first
   // resolved to, in every context, whatever the font set does later.
-  const resolved = new Map();
-  globalThis.OffscreenCanvas = class {
+  const resolved = new Map<string, number>();
+  globalThis.OffscreenCanvas = standIn(class {
     getContext() {
       return {
         font: '',
-        measureText(text) {
-          if (!resolved.has(this.font)) resolved.set(this.font, globalThis.fonts.size ? 20 : 10);
-          return { width: text.length * resolved.get(this.font), fontBoundingBoxAscent: 15, fontBoundingBoxDescent: 5 };
+        measureText(text: string) {
+          if (!resolved.has(this.font)) resolved.set(this.font, fonts.size ? 20 : 10);
+          return { width: text.length * resolved.get(this.font)!, fontBoundingBoxAscent: 15, fontBoundingBoxDescent: 5 };
         },
       };
     }
-  };
-  const requested = [];
-  const fetched = Promise.withResolvers(), unblock = Promise.withResolvers();
+  });
+  const requested: string[] = [];
+  const fetched = Promise.withResolvers<void>(), unblock = Promise.withResolvers<void>();
   const voice = readFileSync(fileURLToPath(new URL('../../../examples/assets/voices/001.wav', import.meta.url)));
-  t.mock.method(globalThis, 'fetch', async url => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(fetchStub(async url => {
     if (url.startsWith('https://audio.test/')) return new Response(voice);
     requested.push(url);
     if (url.startsWith('https://first.test/')) { fetched.resolve(); await unblock.promise; }
     return new Response(`@font-face { font-family: Demo; src: url(${new URL('demo.woff', url).href}); }`, { headers: { 'content-type': 'text/css' } });
-  });
-  const responses = [], completion = new Map();
-  globalThis.self = { postMessage(response) { responses.push(response); completion.get(response.id)?.resolve(response); } };
+  }));
+  const responses: Reply[] = [], completion = new Map<number, PromiseWithResolvers<Reply>>();
+  // The worker's `self`: it answers here, and sets `onmessage` when it loads.
+  const worker: { postMessage(response: Reply): void; onmessage?: (event: { data: Request }) => void } = {
+    postMessage(response) { responses.push(response); completion.get(response.id)?.resolve(response); },
+  };
+  globalThis.self = standIn(worker);
   require(modulePath);
-  const send = data => { const pending = Promise.withResolvers(); completion.set(data.id, pending); self.onmessage({ data }); return pending.promise; };
+  const send = (data: Request) => { const pending = Promise.withResolvers<Reply>(); completion.set(data.id, pending); worker.onmessage!({ data }); return pending.promise; };
   const source = `import { React, Composition, Font, Rect, Audio, useTextMetrics } from '@celesta/react';
     export default function Root() {
       React.useState(() => { globalThis.mountCount++; return 0; });
@@ -74,7 +101,7 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
   const firstFrame = send({ id: 2, type: 'frame', frame: 0 });
   const second = send({ id: 3, type: 'compile', source, options: { baseURL: 'https://second.test/', silent: false } });
   const secondFrame = send({ id: 4, type: 'frame', frame: 0 });
-  assert.equal(mountCount, 1);
+  assert.equal(counted.mountCount, 1);
   assert.deepEqual(requested, ['https://first.test/font.css']);
   unblock.resolve();
   const values = await Promise.all([first, firstFrame, second, secondFrame]);
@@ -82,11 +109,11 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
   for (const response of values) assert.equal(response.error, undefined);
   // Each stylesheet, then the font file it points to, whose bytes the face is made from.
   assert.deepEqual(requested, ['https://first.test/font.css', 'https://first.test/demo.woff', 'https://second.test/font.css', 'https://second.test/demo.woff']);
-  assert.equal(mountCount, 2);
-  assert.equal(cleanupCount, 1);
-  assert.equal(values[1].value.scene.layers[0].content.width, 60);
-  assert.equal(values[1].value.audio.length, 0);
-  assert.equal(values[3].value.audio.length, 1);
+  assert.equal(counted.mountCount, 2);
+  assert.equal(counted.cleanupCount, 1);
+  assert.equal(content(values[1].value!.scene.layers[0], 'rect').width, 60);
+  assert.equal(values[1].value!.audio.length, 0);
+  assert.equal(values[3].value!.audio.length, 1);
   assert.equal(fonts.size, 1);
   // The stand-in server answers the font file with the stylesheet's text.
   assert.match(new TextDecoder().decode([...fonts][0].source), /second\.test\/demo\.woff/);
@@ -98,24 +125,24 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
       return <Composition width={100} height={100} fps={30} durationInFrames={3}><Font src="font.css" /><Rect width={metrics.width} height={10}/></Composition>;
     }`;
   assert.equal((await send({ id: 20, type: 'compile', source: growing, options: { baseURL: 'https://third.test/' } })).error, undefined);
-  assert.equal((await send({ id: 21, type: 'frame', frame: 0 })).value.scene.layers[0].content.width, 20);
-  assert.equal((await send({ id: 22, type: 'frame', frame: 2 })).value.scene.layers[0].content.width, 60);
+  assert.equal(content((await send({ id: 21, type: 'frame', frame: 0 })).value!.scene.layers[0], 'rect').width, 20);
+  assert.equal(content((await send({ id: 22, type: 'frame', frame: 2 })).value!.scene.layers[0], 'rect').width, 60);
   // Without the <Font>, the recompile's measurements drop the removed face.
   assert.equal((await send({ id: 23, type: 'compile', source: growing.replace('<Font src="font.css" />', '') })).error, undefined);
   assert.equal(fonts.size, 0);
-  assert.equal((await send({ id: 24, type: 'frame', frame: 2 })).value.scene.layers[0].content.width, 30);
+  assert.equal(content((await send({ id: 24, type: 'frame', frame: 2 })).value!.scene.layers[0], 'rect').width, 30);
 
   const explicit = `import {Composition, Rect, useTextMetrics, measureText} from '@celesta/react';
     export default function Root() { const m=useTextMetrics('abc', {fontFamily:'Demo'}, {fonts:['https://extra.test/font.css']}); return <Composition width={100} height={100} fps={30} durationInFrames={1}><Rect width={m.width} height={1}/></Composition>; }`;
-  const expectedError = t.mock.method(console, 'error', () => {});
+  const expectedError = vi.spyOn(console, 'error').mockImplementation(() => {});
   const rejected = await send({ id: 5, type: 'compile', source: explicit });
-  expectedError.mock.restore();
-  assert.match(rejected.error, /preloaded fonts/);
+  expectedError.mockRestore();
+  assert.match(rejected.error!, /preloaded fonts/);
   assert.equal(fonts.size, 0);
   const prepared = await send({ id: 6, type: 'compile', source: explicit + `export async function prepare() { await measureText('abc', {fontFamily:'Demo'}, {fonts:['https://extra.test/font.css']}); }` });
   assert.equal(prepared.error, undefined);
   const preparedFrame = await send({ id: 7, type: 'frame', frame: 0 });
-  assert.equal(preparedFrame.value.scene.layers[0].content.width, 60);
+  assert.equal(content(preparedFrame.value!.scene.layers[0], 'rect').width, 60);
 
   const fallback = await send({ id: 8, type: 'compile', source: explicit + `export async function prepare() { try { const metrics = await measureText('fi'); metrics.glyphs; } catch (error) { if (!error.message.includes('Shaped glyph metrics')) throw error; } await measureText('abc', {fontFamily:'Demo'}, {fonts:['https://extra.test/font.css']}); }` });
   assert.equal(fallback.error, undefined);
@@ -147,32 +174,34 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
     }` });
   assert.equal(split.error, undefined);
   const splitFrame = await send({ id: 10, type: 'frame', frame: 0 });
-  const [center, view, panel, badge, counter, frame, caption, callout] = splitFrame.value.scene.layers;
+  const [center, view, panel, badge, counter, frame, caption, callout] = splitFrame.value!.scene.layers;
   // A caption's emphasis counts grapheme clusters, here too: the emoji and the "b".
-  const firstText = (layer) => layer.content.type === 'text'
+  type Text = Extract<LayerContent, { type: 'text' }>;
+  const firstText = (layer: Layer): Text | undefined => layer.content.type === 'text'
     ? layer.content
-    : (layer.content.layers ?? []).map(firstText).find(Boolean);
-  const captionText = firstText(caption);
+    : (layer.content.type === 'group' ? layer.content.layers : []).map(firstText).find(Boolean);
+  const captionText = firstText(caption)!;
   assert.deepEqual([captionText.text, captionText.style.colorRuns], ['a👍b', [{ start: 1, end: 3, color: '#ff0000' }]]);
   // A Callout's arrow, from @celesta/shapes, ends at its target, and its box
   // is the measured title (a 33.6 px line box at 28 px) plus the padding.
-  const [arrow, box] = callout.content.layers;
+  const [arrow, box] = content(callout, 'group').layers;
   assert.equal(arrow.content.type, 'path');
-  assert.ok(arrow.content.commands.some((command) => command.x === 90 && command.y === 70));
-  assert.equal(box.content.layers[0].content.height, 41.6);
+  assert.ok(content(arrow, 'path').commands.some((command) => command.type !== 'close' && command.x === 90 && command.y === 70));
+  assert.equal(content(content(box, 'group').layers[0], 'rect').height, 41.6);
   // A MediaFrame's image gets the area inside its padding and the fit.
-  const image = frame.content.layers[0].content.layers[0].content.layers[0].content;
+  const image = content(content(content(content(frame, 'group').layers[0], 'group').layers[0], 'group').layers[0], 'image');
   assert.deepEqual([image.type, image.width, image.height, image.fit, image.asset.location], ['image', 36, 26, 'cover', { type: 'file', path: 'shot.png' }]);
   // The worker formats with the same fixed locale as the native runtime.
-  assert.equal(counter.content.text, '1,234.5 件');
+  assert.equal(content(counter, 'text').text, '1,234.5 件');
   assert.deepEqual(center.transform.position, { x: 50, y: 50 });
-  assert.deepEqual(panel.content.layers[0].content.layers[0].transform.position, { x: 15, y: 5 });
+  assert.deepEqual(content(content(panel, 'group').layers[0], 'group').layers[0].transform.position, { x: 15, y: 5 });
   // The stub canvas's two 10 px characters and the default 38.4 px line
   // box (32 px text × 1.2), plus the padding.
-  assert.deepEqual([badge.content.layers[0].content.width, badge.content.layers[0].content.height], [28, 46.4]);
-  assert.deepEqual(view.content.layers[0].content.asset.location, { type: 'file', path: 'n.png' });
+  const badgeBox = content(content(badge, 'group').layers[0], 'rect');
+  assert.deepEqual([badgeBox.width, badgeBox.height], [28, 46.4]);
+  assert.deepEqual(content(content(view, 'group').layers[0], 'image').asset.location, { type: 'file', path: 'n.png' });
   const missing = await send({ id: 11, type: 'compile', source: `import { ProjectTimeline } from '@celesta/project'; export default ProjectTimeline;` });
-  assert.match(missing.error, /unavailable in the web editor/);
+  assert.match(missing.error!, /unavailable in the web editor/);
   // The color filters run in the browser; custom shaders fail when drawn.
   const shader = await send({ id: 12, type: 'compile', source: `import { Composition, Rect } from '@celesta/react';
     import { grayscale } from '@celesta/shader';
@@ -183,7 +212,7 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
     }` });
   assert.equal(shader.error, undefined);
   const shaded = await send({ id: 13, type: 'frame', frame: 0 });
-  assert.deepEqual(shaded.value.scene.layers[0].effects.filters, [
+  assert.deepEqual(shaded.value!.scene.layers[0].effects!.filters, [
     { type: 'grayscale', amount: 1 },
     { type: 'brightness', amount: 1.5 },
   ]);
@@ -198,7 +227,7 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
     }` });
   assert.equal(lottie.error, undefined);
   const lottieFrame = await send({ id: 31, type: 'frame', frame: 45 });
-  const paths = JSON.stringify(lottieFrame.value.scene).match(/"type":"path"/g) ?? [];
+  const paths = JSON.stringify(lottieFrame.value!.scene).match(/"type":"path"/g) ?? [];
   assert.ok(paths.length > 5, `${paths.length} paths`);
 
   // prepare() decodes an uploaded file with mediabunny, to the same samples
@@ -223,7 +252,7 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
     }` });
   assert.equal(spectrum.error, undefined);
   const metered = await send({ id: 15, type: 'frame', frame: 30 });
-  const [decoded, parsed] = metered.value.scene.layers.map(layer => layer.content);
+  const [decoded, parsed] = metered.value!.scene.layers.map(layer => content(layer, 'rect'));
   assert.ok(decoded.width > 0.01 && decoded.height > 0);
   assert.equal(decoded.width, parsed.width);
   assert.equal(decoded.height, parsed.height);
@@ -241,10 +270,10 @@ test('compiles serialize, fonts refresh the same mount, and recompile unmounts t
     export default function Scene() { return <Composition width={100} height={100} fps={30} durationInFrames={30}><Meter /></Composition>; }` });
   assert.equal(recompiled.error, undefined);
   const quiet = await send({ id: 18, type: 'frame', frame: 15 });
-  assert.equal(quiet.value.scene.layers[0].content.width, 0);
+  assert.equal(content(quiet.value!.scene.layers[0], 'rect').width, 0);
   const missingAudio = await send({ id: 19, type: 'compile', source: `import { Composition } from '@celesta/react';
     import { loadAudioSpectrum } from '@celesta/media-utils';
     export async function prepare() { await loadAudioSpectrum('nowhere.wav'); }
     export default function Scene() { return <Composition width={10} height={10} fps={30} durationInFrames={1} />; }` });
-  assert.match(missingAudio.error, /Missing audio file: nowhere\.wav/);
+  assert.match(missingAudio.error!, /Missing audio file: nowhere\.wav/);
 });
