@@ -21,7 +21,7 @@ pub use celesta_media::{LoudnessTarget, PeakHandling};
 pub use control::{
     AudioLoudness, CompositionInfo, ExportCancellation, ExportProgress, ExportedFile,
 };
-pub use error::ExportError;
+pub use error::{ExportError, FrameFailure};
 pub use exporter::Exporter;
 pub use job::ExportJob;
 pub use options::{

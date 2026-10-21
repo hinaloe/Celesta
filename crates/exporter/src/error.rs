@@ -64,6 +64,55 @@ pub enum ExportError {
     EmptyRange,
     Cancelled,
     TimelineTooLong,
+    /// One composition frame could not be evaluated, rendered or written.
+    Frame(Box<FrameFailure>),
+    /// A contact sheet was written with failure tiles in place of the frames
+    /// in `failures`, which could not be evaluated or rendered; the others
+    /// rendered.
+    FramesFailed {
+        path: PathBuf,
+        /// Tiles on the sheet, failed ones included.
+        frames: usize,
+        failures: Vec<FrameFailure>,
+    },
+}
+
+/// Why zero-based composition frame `frame` failed.
+#[derive(Debug)]
+pub struct FrameFailure {
+    pub frame: u64,
+    pub error: ExportError,
+}
+
+impl ExportError {
+    /// `self` as the failure of composition frame `frame`.
+    pub(crate) fn at_frame(self, frame: u64) -> Self {
+        match self {
+            Self::Cancelled | Self::Frame(_) => self,
+            error => Self::Frame(Box::new(FrameFailure { frame, error })),
+        }
+    }
+
+    /// Whether the error is about one frame's content, so the frames after
+    /// it can still be evaluated and rendered: a scene that failed to
+    /// evaluate or render, not a React runtime that stopped answering, a GPU
+    /// or readback failure, or a file that could not be written.
+    pub(crate) fn is_frame_scoped(&self) -> bool {
+        match self {
+            Self::Evaluation(_)
+            | Self::React(ReactBridgeError::Render(_) | ReactBridgeError::InvalidDuck { .. }) => {
+                true
+            }
+            Self::Render(error) => error.is_scene_error(),
+            _ => false,
+        }
+    }
+}
+
+impl fmt::Display for FrameFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "frame {}: {}", self.frame, self.error)
+    }
 }
 
 impl fmt::Display for ExportError {
@@ -126,6 +175,23 @@ impl fmt::Display for ExportError {
             }
             Self::Cancelled => formatter.write_str("export was cancelled"),
             Self::TimelineTooLong => formatter.write_str("export timeline is too long"),
+            Self::Frame(failure) => failure.fmt(formatter),
+            Self::FramesFailed {
+                path,
+                frames,
+                failures,
+            } => {
+                write!(
+                    formatter,
+                    "{} of {frames} contact sheet frames failed; {} shows them as failed tiles:",
+                    failures.len(),
+                    path.display()
+                )?;
+                for failure in failures {
+                    write!(formatter, "\n  {failure}")?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -142,6 +208,7 @@ impl Error for ExportError {
             Self::Time(error) => Some(error),
             Self::Io { source, .. } => Some(source),
             Self::Ffmpeg { source, .. } => Some(source),
+            Self::Frame(failure) => Some(&failure.error),
             Self::OutputExists(_)
             | Self::InvalidSelection(_)
             | Self::UnsupportedOutput { .. }
@@ -154,7 +221,63 @@ impl Error for ExportError {
             | Self::EmptyTimeline
             | Self::EmptyRange
             | Self::Cancelled
-            | Self::TimelineTooLong => None,
+            | Self::TimelineTooLong
+            | Self::FramesFailed { .. } => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_frame_failure_is_named_once() {
+        let error = ExportError::EmptyTimeline.at_frame(4).at_frame(9);
+        assert!(matches!(&error, ExportError::Frame(failure) if failure.frame == 4));
+        assert_eq!(
+            error.to_string(),
+            "frame 4: cannot export an empty timeline"
+        );
+        assert!(matches!(
+            ExportError::Cancelled.at_frame(4),
+            ExportError::Cancelled
+        ));
+    }
+
+    #[test]
+    fn only_a_frames_own_content_lets_the_next_frame_render() {
+        assert!(ExportError::React(ReactBridgeError::Render("bad fill".into())).is_frame_scoped());
+        assert!(
+            !ExportError::React(ReactBridgeError::UnexpectedExit {
+                stderr: String::new()
+            })
+            .is_frame_scoped()
+        );
+        assert!(
+            !ExportError::Io {
+                operation: "publish image",
+                source: io::Error::other("disk full"),
+            }
+            .is_frame_scoped()
+        );
+        assert!(!ExportError::Cancelled.is_frame_scoped());
+    }
+
+    #[test]
+    fn a_gpu_failure_stops_a_contact_sheet_but_bad_content_does_not() {
+        let shader = GpuRenderError::Shader {
+            shader: "tint".to_owned(),
+            message: "does not compile".to_owned(),
+        };
+        assert!(ExportError::Render(shader).is_frame_scoped());
+        assert!(ExportError::Render(GpuRenderError::TooManyLayers(1 << 20)).is_frame_scoped());
+        for error in [
+            GpuRenderError::MapCallbackDropped,
+            GpuRenderError::ReadbackThread(io::Error::other("no threads")),
+            GpuRenderError::SurfaceValidation,
+        ] {
+            assert!(!ExportError::Render(error).is_frame_scoped());
         }
     }
 }

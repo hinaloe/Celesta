@@ -176,6 +176,14 @@ export interface ExportIssue {
   message: string;
 }
 
+/** A contact sheet frame that could not be evaluated or rendered. */
+export interface FailedFrame {
+  frame: number;
+  /** The code the failure would have on its own, such as `react` or `render`. */
+  code: string;
+  message: string;
+}
+
 /** The exporter's `--json` error. */
 export interface ExportErrorReport {
   /** A stable identifier to branch on. */
@@ -183,6 +191,10 @@ export interface ExportErrorReport {
   message: string;
   hint?: string;
   issues?: ExportIssue[];
+  /** The zero-based composition frame that failed, when one did. */
+  frame?: number;
+  /** With `frames_failed`: the contact sheet's failed tiles, in sheet order. */
+  failedFrames?: FailedFrame[];
 }
 
 /** The exporter's `--json` result. */

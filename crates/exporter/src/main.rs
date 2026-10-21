@@ -42,7 +42,9 @@ channel loses nothing. Multiple frames use output-000090.png names with the
 output's extension; frame numbers are zero-based. --every <n> picks frames
 0, n, 2n, ... of the --from/--to span (or the whole composition) plus its
 last frame. --contact-sheet writes the selection as one labelled grid image
-instead. --debug-guides draws a React entry's <DebugOverlay> and
+instead; a frame that fails to evaluate or render becomes a FAILED tile, the
+sheet is still written, and the export then fails naming each such frame.
+--debug-guides draws a React entry's <DebugOverlay> and
 <DebugBounds> into the stills, as the editor preview does.
 
 --props and --props-file set the values an entry declares with

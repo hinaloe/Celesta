@@ -67,13 +67,24 @@ impl Exporter {
                     .ok()
                     .and_then(|offset: i64| offset.checked_add(start_frame))
                     .ok_or(ExportError::TimelineTooLong)?;
-                let time = Time::frames(frame_index, frame_rate).map_err(ExportError::Time)?;
-                let scene = evaluator.scene_at(time).map_err(ExportError::Evaluation)?;
+                let at_frame = |error: ExportError| error.at_frame(frame_index as u64);
+                let time = Time::frames(frame_index, frame_rate)
+                    .map_err(ExportError::Time)
+                    .map_err(at_frame)?;
+                let scene = evaluator
+                    .scene_at(time)
+                    .map_err(ExportError::Evaluation)
+                    .map_err(at_frame)?;
                 // `submit` keeps a few frames in flight on the GPU rather
                 // than blocking on this frame's readback immediately, so the
                 // wait (when there is one) overlaps with evaluating and
-                // encoding other frames instead of stalling every frame.
-                if let Some(frame) = renderer.submit(&scene).map_err(ExportError::Render)? {
+                // encoding other frames instead of stalling every frame. A
+                // failure is this frame's: preparing its scene is what fails.
+                if let Some(frame) = renderer
+                    .submit(&scene)
+                    .map_err(ExportError::Render)
+                    .map_err(at_frame)?
+                {
                     write_frame(&mut writer, frame)?;
                 }
                 report_font_fallbacks(&renderer, &mut reported_fallbacks, progress);
@@ -155,7 +166,10 @@ impl Exporter {
         let submit = |bridge: &mut ReactBridge, offset: u64| -> Result<(), ExportError> {
             let frame_index =
                 i64::try_from(start_frame + offset).map_err(|_| ExportError::TimelineTooLong)?;
-            let time = Time::frames(frame_index, metadata.frame_rate).map_err(ExportError::Time)?;
+            let at_frame = |error: ExportError| error.at_frame(start_frame + offset);
+            let time = Time::frames(frame_index, metadata.frame_rate)
+                .map_err(ExportError::Time)
+                .map_err(at_frame)?;
             let project_frame = project_evaluator
                 .as_ref()
                 .zip(filtered_project.as_ref())
@@ -177,7 +191,8 @@ impl Exporter {
                     },
                 )
                 .transpose()
-                .map_err(ExportError::Evaluation)?;
+                .map_err(ExportError::Evaluation)
+                .map_err(at_frame)?;
             bridge
                 .submit_frame(
                     time,
@@ -187,6 +202,7 @@ impl Exporter {
                     }),
                 )
                 .map_err(ExportError::React)
+                .map_err(at_frame)
         };
 
         let mut reported_fallbacks = ReportedFontWarnings::default();
@@ -210,12 +226,19 @@ impl Exporter {
                     // decoded, so Node evaluates it while this side parses;
                     // its text measurements are answered once the parse is
                     // done. A failed submission fails that next frame.
+                    let at_frame = |error: ExportError| error.at_frame(start_frame + offset);
                     let scene = std::mem::replace(&mut submitted, Ok(())).and_then(|()| {
-                        let frame = bridge.receive_frame().map_err(ExportError::React)?;
+                        let frame = bridge
+                            .receive_frame()
+                            .map_err(ExportError::React)
+                            .map_err(at_frame)?;
                         if offset + 1 < frame_count {
                             submitted = submit(bridge, offset + 1);
                         }
-                        let evaluation = bridge.decode_frame(frame).map_err(ExportError::React)?;
+                        let evaluation = bridge
+                            .decode_frame(frame)
+                            .map_err(ExportError::React)
+                            .map_err(at_frame)?;
                         react_audio.extend(evaluation.audio);
                         react_subtitles.extend(evaluation.subtitles);
                         let mut scene = evaluation.scene;
@@ -242,7 +265,11 @@ impl Exporter {
                 // See render_video's matching comment: submit overlaps this
                 // frame's GPU work with evaluating and encoding other frames
                 // instead of blocking here.
-                if let Some(frame) = renderer.submit(&scene?).map_err(ExportError::Render)? {
+                if let Some(frame) = renderer
+                    .submit(&scene?)
+                    .map_err(ExportError::Render)
+                    .map_err(|error| error.at_frame(start_frame + offset))?
+                {
                     write_frame(&mut writer, frame)?;
                 }
                 report_font_fallbacks(&renderer, &mut reported_fallbacks, progress);

@@ -229,6 +229,32 @@ Tiles are reduced by averaging, so thin lines and small text blur rather
 than vanish; read text and fine details in a full-size `--frame` export. A
 sheet holds at most 400 frames and is at most 16384 px on each side.
 
+A frame that fails to evaluate or render (a bad color name, an exception in
+a component) does not stop the sheet. Its tile is dark red and marked
+`FAILED`, the other frames are rendered, and the sheet is written. Then the
+export fails with exit status 1 and lists every failed frame with its error:
+
+```text
+Celesta export: 1 of 13 contact sheet frames failed; /tmp/celesta-sheet.png shows them as failed tiles:
+  frame 120: could not evaluate React export: could not render the composition: <Rect> fill "ink" is neither …
+```
+
+With `--json`, the error code is `frames_failed`, `error.failedFrames` lists
+each `{frame, code, message}`, and `outputs` still lists the sheet
+([export.md](export.md#json-results)). Fix each listed frame, then check it
+with `--frame <n>` before exporting the sheet again. One sheet finds every
+failing frame it samples; frames between the samples are not checked, so for
+a final check of every frame use `inspect.mjs --every 1`, which evaluates
+without rendering.
+
+A failure that is not about the frame's content (the GPU or its readback
+failing, the React runtime exiting, an output that cannot be written) stops
+the sheet at once, as it would any export: the next frame would fail the
+same way.
+
+Separate still images and videos stop at the first failed frame. The error
+names it (`frame 120: …`), and stills written before it stay.
+
 ## Check a vertical video's safe area
 
 For Shorts, TikTok, or Reels, check that everything meant to be read sits

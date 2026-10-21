@@ -42,8 +42,11 @@ impl CelestaServer {
 }
 
 /// A rendering tool's result: the stills it wrote as images, then its report.
+/// A contact sheet with failed frames is written all the same, so that error
+/// comes with the sheet too.
 fn rendered(run: Run) -> CallToolResult {
-    if !run.ok {
+    let sheet_written = run.report["error"]["code"] == "frames_failed";
+    if !run.ok && !sheet_written {
         return CallToolResult::structured_error(run.report);
     }
     let mut content = match image_blocks(&run.files) {
@@ -53,7 +56,11 @@ fn rendered(run: Run) -> CallToolResult {
         }
     };
     content.push(ContentBlock::text(run.report.to_string()));
-    let mut result = CallToolResult::success(content);
+    let mut result = if run.ok {
+        CallToolResult::success(content)
+    } else {
+        CallToolResult::error(content)
+    };
     result.structured_content = Some(run.report);
     result
 }
@@ -193,7 +200,7 @@ impl CelestaServer {
     }
 
     #[tool(
-        description = "Render the selected frames as one labelled grid image (PNG, or JPEG/WebP by the output extension or `format`), to see a whole video at once (for example every 150 frames). Returns the image and the tile frames."
+        description = "Render the selected frames as one labelled grid image (PNG, or JPEG/WebP by the output extension or `format`), to see a whole video at once (for example every 150 frames). Returns the image and the tile frames. A frame that fails to evaluate or render becomes a FAILED tile; the result is then an error with code frames_failed listing each in error.failedFrames, and still carries the image."
     )]
     async fn contact_sheet(
         &self,

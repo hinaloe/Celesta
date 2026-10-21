@@ -901,3 +901,154 @@ export default function Root() {
     );
     assert!(!video.exists());
 }
+
+/// A 64x36, 4 fps, 8-frame React entry in `dir`: red, except frame 6, whose
+/// fill is a color name no `<Theme>` defines. Either the entry or the
+/// renderer rejects it, so its failure's code is `react` or `render`.
+fn entry_with_a_bad_frame(dir: &Path) -> PathBuf {
+    let entry = dir.join("film.tsx");
+    std::fs::write(
+        &entry,
+        r##"
+import { Composition, Rect, useCurrentFrame } from '@celesta/react';
+function Frame() {
+  const frame = useCurrentFrame();
+  return <Rect width={64} height={36} fill={frame === 6 ? 'ink' : '#ff0000'} />;
+}
+export default function Root() {
+  return <Composition width={64} height={36} fps={4} durationInFrames={8}>
+    <Frame />
+  </Composition>;
+}
+"##,
+    )
+    .unwrap();
+    entry
+}
+
+fn react_export(entry: &Path, args: &[&str], output: &Path) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_celesta-exporter"))
+        .arg("--react")
+        .args(args)
+        .arg(entry)
+        .arg(output)
+        .output()
+        .unwrap()
+}
+
+fn json(output: &std::process::Output) -> serde_json::Value {
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+#[test]
+fn a_contact_sheet_marks_failed_frames_and_names_each_one() {
+    if !root().join("packages/cli/dist/cli.js").exists() {
+        eprintln!("skipping React contact sheet failure test: build packages/cli first");
+        return;
+    }
+    let dir = tempfile::tempdir_in(root().join("packages/cli")).unwrap();
+    let entry = entry_with_a_bad_frame(dir.path());
+    let output = dir.path().join("sheet.png");
+    let args = [
+        "--every",
+        "2",
+        "--contact-sheet",
+        "--columns",
+        "3",
+        "--tile-width",
+        "64",
+    ];
+
+    let result = react_export(&entry, &args, &output);
+    assert!(!result.status.success());
+    let text = stderr(&result);
+    assert!(
+        text.contains("1 of 5 contact sheet frames failed")
+            && text.contains("\n  frame 6: could not ")
+            && text.contains("ink"),
+        "{text}"
+    );
+    // Frames 0, 2, 4, 6 and 7: the failed frame keeps its place, and the
+    // frame after it still renders.
+    let (width, _, pixels) = decode(&output);
+    let at = |x: u32, y: u32| &pixels[((y * width + x) * 4) as usize..][..4];
+    // 64x36 tiles with 8 px gaps and an 11 px label band.
+    let tile = |index: u32| (8 + index % 3 * 72, 8 + index / 3 * 55);
+    for index in [0, 1, 2, 4] {
+        let (left, top) = tile(index);
+        assert_eq!(at(left + 1, top + 1), &[255, 0, 0, 255], "tile {index}");
+    }
+    let (left, top) = tile(3);
+    assert_eq!(at(left + 1, top + 1), &[0x6e, 0x1f, 0x1f, 255]);
+    let marked = (top..top + 36)
+        .flat_map(|y| (left..left + 64).map(move |x| (x, y)))
+        .filter(|&(x, y)| at(x, y) == [0xf0, 0xf0, 0xf0, 255])
+        .count();
+    assert!(marked > 0, "the failed tile is not marked");
+
+    let result = react_export(
+        &entry,
+        &[&args[..], &["--json", "--overwrite"]].concat(),
+        &output,
+    );
+    assert!(!result.status.success());
+    let report = json(&result);
+    assert_eq!(report["status"], "error");
+    assert_eq!(report["error"]["code"], "frames_failed");
+    let failed = report["error"]["failedFrames"].as_array().unwrap();
+    assert_eq!(failed.len(), 1, "{report}");
+    assert_eq!(failed[0]["frame"], 6);
+    assert!(
+        ["react", "render"].contains(&failed[0]["code"].as_str().unwrap()),
+        "{report}"
+    );
+    assert!(
+        failed[0]["message"].as_str().unwrap().contains("ink"),
+        "{report}"
+    );
+    assert_eq!(report["outputs"][0]["type"], "contactSheet");
+    assert_eq!(
+        report["outputs"][0]["frames"],
+        serde_json::json!([0, 2, 4, 6, 7])
+    );
+}
+
+#[test]
+fn separate_stills_and_videos_name_the_frame_that_failed() {
+    if !root().join("packages/cli/dist/cli.js").exists() {
+        eprintln!("skipping React frame failure test: build packages/cli first");
+        return;
+    }
+    let dir = tempfile::tempdir_in(root().join("packages/cli")).unwrap();
+    let entry = entry_with_a_bad_frame(dir.path());
+
+    let result = react_export(
+        &entry,
+        &["--frames", "0,6,7", "--json"],
+        &dir.path().join("check.png"),
+    );
+    assert!(!result.status.success());
+    let report = json(&result);
+    assert!(
+        ["react", "render"].contains(&report["error"]["code"].as_str().unwrap()),
+        "{report}"
+    );
+    assert_eq!(report["error"]["frame"], 6);
+    let message = report["error"]["message"].as_str().unwrap();
+    assert!(message.starts_with("frame 6: "), "{message}");
+    // Separate files stop at the failed frame, keeping those before it.
+    assert_eq!(report["outputs"][0]["frame"], 0);
+    assert_eq!(report["outputs"].as_array().unwrap().len(), 1);
+
+    let result = react_export(&entry, &[], &dir.path().join("film.mp4"));
+    assert!(!result.status.success());
+    let text = stderr(&result);
+    if text.contains("RequestAdapter") || text.contains("adapter") {
+        eprintln!("skipping React video failure check: no GPU adapter: {text}");
+        return;
+    }
+    assert!(
+        text.contains("frame 6: could not ") && text.contains("ink"),
+        "{text}"
+    );
+}
