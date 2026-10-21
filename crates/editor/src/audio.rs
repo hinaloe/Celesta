@@ -5,8 +5,7 @@ use crate::problems::error_chain;
 use crate::waveform::{clip_level_envelope, map_clip_waveform, waveform_peaks};
 use celesta_composition::{AudioClip, AudioGraph, Time};
 use celesta_media::{
-    AudioBuffer, AudioDecoder, FfmpegBackend, MediaError, duck_curves_for,
-    mix_audio_graph_cancellable,
+    AudioBuffer, AudioDecoder, FfmpegBackend, MediaError, mix_audio_graph_with_ducks_cancellable,
 };
 use celesta_remote::resolve_asset_path;
 use gpui_kit::Pixels;
@@ -144,21 +143,16 @@ impl AudioMixWorker {
                 let mut decoder = CachedAudioDecoder::new();
                 while let Ok(first) = request_rx.recv() {
                     let request = take_latest(first, &request_rx);
-                    let output = mix_audio_graph_cancellable(
+                    let output = mix_audio_graph_with_ducks_cancellable(
                         &request.graph,
                         &request.asset_root,
                         request.duration,
                         &mut decoder,
                         || worker_generation.load(Ordering::Acquire) != request.generation,
                     )
-                    .map(|buffer| {
+                    .map(|(buffer, ducks)| {
                         let mut clip_waveforms = HashMap::new();
                         let mut clip_levels = HashMap::new();
-                        // The mix above succeeded, so its sources decode
-                        // (from the cache) here too.
-                        let ducks =
-                            duck_curves_for(&request.graph, &request.asset_root, &mut decoder)
-                                .unwrap_or_default();
                         for (index, clip) in request.graph.clips.iter().enumerate() {
                             let Some((clip_id, waveform)) = (|| {
                                 // The mix above already downloaded any URL.
@@ -181,7 +175,7 @@ impl AudioMixWorker {
                                 continue;
                             };
                             if !clip.muted {
-                                let duck = ducks.get(index).and_then(Option::as_ref);
+                                let duck = ducks[index].as_ref();
                                 clip_levels.insert(
                                     clip_id.clone(),
                                     clip_level_envelope(&waveform, clip, duck),

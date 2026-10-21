@@ -1,11 +1,8 @@
 //! Where marked clips sound, for [`celesta_composition::duck_curves`].
 
-use crate::decoder::AudioDecoder;
 use crate::error::AudioMixError;
 use crate::types::AudioBuffer;
 use celesta_composition::{Animatable, AudioClip, AudioGraph, Time, duck_curves, integrate_f64};
-use celesta_remote::resolve_asset_path;
-use std::path::Path;
 
 /// Timeline seconds at which `clip` stops sounding: the end of its range, or
 /// earlier, unless it loops, where its source position reaches the end of
@@ -52,13 +49,17 @@ pub fn audible_end(clip: &AudioClip, source: &AudioBuffer) -> Result<f64, AudioM
     Ok((start + local).min(end))
 }
 
+/// The ducking curve of each clip of a graph, in order (`None` for a clip
+/// without `duck`).
+pub type DuckCurves = Vec<Option<Animatable<f64>>>;
+
 /// The ducking curve of every clip in `graph`, asking `audible` for the
 /// audible end of each marked, unmuted clip some clip ducks under (by its
 /// index in `graph.clips`). Graphs without ducking cost nothing.
 pub(crate) fn curves_with(
     graph: &AudioGraph,
     mut audible: impl FnMut(usize, &AudioClip) -> Result<f64, AudioMixError>,
-) -> Result<Vec<Option<Animatable<f64>>>, AudioMixError> {
+) -> Result<DuckCurves, AudioMixError> {
     if graph.clips.iter().all(|clip| clip.duck.is_none()) {
         return Ok(vec![None; graph.clips.len()]);
     }
@@ -82,24 +83,4 @@ pub(crate) fn curves_with(
         });
     }
     Ok(duck_curves(&graph.clips, &ends)?)
-}
-
-/// The ducking curve of every clip in `graph` (`None` for a clip without
-/// `duck`), decoding marked clips through `decoder`. The mixer applies the
-/// same curves.
-pub fn duck_curves_for(
-    graph: &AudioGraph,
-    asset_root: &Path,
-    decoder: &mut impl AudioDecoder,
-) -> Result<Vec<Option<Animatable<f64>>>, AudioMixError> {
-    curves_with(graph, |_, clip| {
-        let path = resolve_asset_path(asset_root, &clip.asset.location).map_err(|source| {
-            AudioMixError::RemoteAsset {
-                asset: clip.asset.id.clone(),
-                source,
-            }
-        })?;
-        let source = decoder.decode_audio(&path, graph.sample_rate, 2)?;
-        audible_end(clip, &source)
-    })
 }

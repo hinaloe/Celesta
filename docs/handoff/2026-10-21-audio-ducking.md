@@ -27,8 +27,9 @@ it plays (issue #87). Design: `docs/superpowers/specs/2026-10-21-audio-ducking-d
 - **Mixing.** The native mixer decodes every source first, then multiplies
   each ducked clip by its curve, per sample, on both paths, following the
   curve with `KeyframeCursor` so long curves stay cheap. Clips without
-  `duck` mix bit-identically. The editor's level envelope uses
-  `duck_curves_for`. Browser export builds the same curves and plays each
+  `duck` mix bit-identically. The editor's level envelope uses the curves
+  the mix returns (`mix_audio_graph_with_ducks_cancellable`). Browser
+  export builds the same curves and plays each
   on a gain after the fades.
 - **React** passes `duckGroup` / `duck` through after checking they are
   finite and well-shaped: JSON would turn `NaN` into `null` and a default.

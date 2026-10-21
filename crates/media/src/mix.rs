@@ -1,5 +1,5 @@
 use crate::decoder::AudioDecoder;
-use crate::duck::{audible_end, curves_with};
+use crate::duck::{DuckCurves, audible_end, curves_with};
 use crate::error::{AudioMixError, MediaError};
 use crate::stretch::{mix_stretched_clip, needs_stretch};
 use crate::types::{AudioBuffer, VideoStream};
@@ -27,8 +27,21 @@ pub fn mix_audio_graph_cancellable(
     asset_root: &Path,
     duration: Time,
     decoder: &mut impl AudioDecoder,
-    mut is_cancelled: impl FnMut() -> bool,
+    is_cancelled: impl FnMut() -> bool,
 ) -> Result<AudioBuffer, AudioMixError> {
+    mix_audio_graph_with_ducks_cancellable(graph, asset_root, duration, decoder, is_cancelled)
+        .map(|(buffer, _)| buffer)
+}
+
+/// [`mix_audio_graph_cancellable`], also returning the ducking curves the
+/// mix applied.
+pub fn mix_audio_graph_with_ducks_cancellable(
+    graph: &AudioGraph,
+    asset_root: &Path,
+    duration: Time,
+    decoder: &mut impl AudioDecoder,
+    mut is_cancelled: impl FnMut() -> bool,
+) -> Result<(AudioBuffer, DuckCurves), AudioMixError> {
     const CHANNELS: u16 = 2;
     if is_cancelled() {
         return Err(AudioMixError::Cancelled);
@@ -162,11 +175,12 @@ pub fn mix_audio_graph_cancellable(
     for sample in &mut output {
         *sample = (*sample * graph.master_volume as f32).clamp(-1.0, 1.0);
     }
-    Ok(AudioBuffer {
+    let buffer = AudioBuffer {
         sample_rate: graph.sample_rate,
         channels: CHANNELS,
         samples: output,
-    })
+    };
+    Ok((buffer, ducks))
 }
 
 /// A clip's ducking gain along the timeline, read at increasing times: 1

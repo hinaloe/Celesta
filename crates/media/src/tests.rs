@@ -2,7 +2,10 @@ use crate::color::{DynamicRange, VideoColor};
 use crate::decoder::{AudioDecoder, VideoFrameDecoder};
 use crate::error::{AudioMixError, MediaError};
 use crate::ffmpeg::FfmpegBackend;
-use crate::mix::{frame_byte_len, mix_audio_graph, mix_audio_graph_cancellable};
+use crate::mix::{
+    frame_byte_len, mix_audio_graph, mix_audio_graph_cancellable,
+    mix_audio_graph_with_ducks_cancellable,
+};
 use crate::probe::displayed_size;
 use crate::sequential::path_to_url;
 use crate::stretch::needs_stretch;
@@ -17,7 +20,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::duck::audible_end;
 use celesta_composition::{
     Animatable, AssetLocation, AudioClip, AudioDuck, DuckGroups, Keyframe, KeyframeAnimation,
-    KeyframeAnimationType, ResolvedAsset, TimeRange, integrate_f64,
+    KeyframeAnimationType, ResolvedAsset, TimeRange, duck_curve, integrate_f64,
 };
 use ez_ffmpeg::{FfmpegContext, Output};
 use std::collections::HashMap;
@@ -1176,6 +1179,56 @@ fn a_muted_voice_does_not_duck() {
     };
     let left = mix_graph_left(vec![bed(), muted], 6.0);
     assert_near(rms(&left, 2.1, 3.9).into(), 0.5 / 2.0_f64.sqrt(), 0.01);
+}
+
+/// A [`MapDecoder`] that counts its decodes.
+struct CountingDecoder {
+    inner: MapDecoder,
+    decodes: usize,
+}
+
+impl AudioDecoder for CountingDecoder {
+    fn decode_audio(
+        &mut self,
+        path: &Path,
+        sample_rate: u32,
+        channels: u16,
+    ) -> Result<AudioBuffer, MediaError> {
+        self.decodes += 1;
+        self.inner.decode_audio(path, sample_rate, channels)
+    }
+}
+
+#[test]
+fn the_mix_returns_the_curves_it_applied() {
+    // The voice's 1 s source runs out at 3 s, before its range ends.
+    let graph = AudioGraph {
+        sample_rate: RATE,
+        master_volume: 1.0,
+        clips: vec![bed(), voice(2.0, 5.0)],
+    };
+    let mut decoder = CountingDecoder {
+        inner: MapDecoder(HashMap::from([
+            ("bed.wav".to_owned(), tone(440.0, 0.0, 6.0, 6.0)),
+            ("voice.wav".to_owned(), tone(880.0, 0.0, 1.0, 1.0)),
+        ])),
+        decodes: 0,
+    };
+    let (_, ducks) = mix_audio_graph_with_ducks_cancellable(
+        &graph,
+        Path::new("assets"),
+        seconds(6.0),
+        &mut decoder,
+        || false,
+    )
+    .unwrap();
+
+    assert_eq!(decoder.decodes, 2);
+    let duck = graph.clips[0].duck.as_ref().unwrap();
+    assert_eq!(
+        ducks,
+        vec![Some(duck_curve(&[(2.0, 3.0)], duck).unwrap()), None]
+    );
 }
 
 #[test]
