@@ -195,7 +195,7 @@ importers:
         version: link:../../packages/transitions
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -208,7 +208,7 @@ importers:
         version: link:../../packages/react
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -236,7 +236,7 @@ importers:
         version: link:../../packages/text
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -252,7 +252,7 @@ importers:
         version: link:../../packages/shapes
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -271,7 +271,7 @@ importers:
         version: link:../../packages/react
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -320,7 +320,7 @@ importers:
         version: link:../../packages/transitions
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -345,7 +345,7 @@ importers:
         version: link:../../packages/react
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -364,7 +364,7 @@ importers:
         version: link:../../packages/text
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -377,7 +377,7 @@ importers:
         version: link:../../packages/react
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -399,7 +399,7 @@ importers:
         version: link:../../packages/shapes
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -427,7 +427,7 @@ importers:
         version: link:../../packages/transitions
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -443,7 +443,7 @@ importers:
         version: link:../../packages/react
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -468,7 +468,7 @@ importers:
         version: link:../../packages/text
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -493,7 +493,7 @@ importers:
         version: link:../../packages/voicevox
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -515,7 +515,7 @@ importers:
         version: link:../../packages/shapes
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -540,7 +540,7 @@ importers:
         version: link:../../packages/transitions
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -574,7 +574,7 @@ importers:
         version: link:../../packages/transitions
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -608,7 +608,7 @@ importers:
         version: link:../../packages/transitions
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -621,7 +621,7 @@ importers:
         version: link:../../packages/react
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -652,7 +652,7 @@ importers:
         version: link:../../packages/text
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -674,7 +674,7 @@ importers:
         version: link:../../packages/shapes
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/node':
         specifier: ^24.13.6
@@ -727,7 +727,7 @@ importers:
         version: 19.3.0
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -790,7 +790,7 @@ importers:
         version: 0.24.2
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/node':
         specifier: ^24.13.6
@@ -840,7 +840,7 @@ importers:
         version: 19.3.0
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -877,7 +877,7 @@ importers:
         version: 19.3.0
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -902,7 +902,7 @@ importers:
         version: 19.3.0
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -939,7 +939,7 @@ importers:
         version: 19.3.0
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -951,10 +951,10 @@ importers:
     dependencies:
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
       react-dom:
         specifier: ^19.3.0
-        version: 19.3.0(react@19.3.0)
+        version: 19.3.1(react@19.3.1)
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.3.3
@@ -995,7 +995,7 @@ importers:
         version: 19.3.0
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -1028,7 +1028,7 @@ importers:
         version: 19.3.0
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -1049,7 +1049,7 @@ importers:
         version: 19.3.0
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -1061,7 +1061,7 @@ importers:
     dependencies:
       react-reconciler:
         specifier: ^0.34.0
-        version: 0.34.0(react@19.3.0)
+        version: 0.34.0(react@19.3.1)
     devDependencies:
       '@types/node':
         specifier: ^24.13.6
@@ -1074,7 +1074,7 @@ importers:
         version: 0.34.1(@types/react@19.3.0)
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -1110,7 +1110,7 @@ importers:
         version: 19.3.0
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -1131,7 +1131,7 @@ importers:
         version: 19.3.0
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -1165,7 +1165,7 @@ importers:
         version: 19.3.0
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -1253,26 +1253,26 @@ importers:
         version: link:../web
       '@monaco-editor/react':
         specifier: ^4.7.0
-        version: 4.7.0(monaco-editor@0.57.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 4.7.0(monaco-editor@0.57.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       lucide-react:
         specifier: 0.468.0
-        version: 0.468.0(react@19.3.0)
+        version: 0.468.0(react@19.3.1)
       monaco-editor:
         specifier: ^0.57.0
         version: 0.57.0
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
       react-dom:
         specifier: ^19.3.0
-        version: 19.3.0(react@19.3.0)
+        version: 19.3.1(react@19.3.1)
     devDependencies:
       '@natsuneko-laboratory/makit':
         specifier: 0.9.0
         version: 0.9.0(@types/node@24.19.0)(supports-color@10.2.2)
       '@natsuneko-laboratory/makit-runtime':
         specifier: 0.9.0
-        version: 0.9.0(next@16.4.2(@types/node@24.19.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 0.9.0(next@16.4.2(@types/node@24.19.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@types/mdast':
         specifier: ^4.0.4
         version: 4.0.4
@@ -1290,7 +1290,7 @@ importers:
         version: 6.1.2(vite@8.3.1(@types/node@24.19.0)(esbuild@0.28.1)(jiti@2.7.0))
       next:
         specifier: 16.4.2
-        version: 16.4.2(@types/node@24.19.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 16.4.2(@types/node@24.19.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       pagefind:
         specifier: 1.5.2
         version: 1.5.2
@@ -1353,7 +1353,7 @@ importers:
         version: link:../packages/transitions
       react:
         specifier: ^19.3.0
-        version: 19.3.0
+        version: 19.3.1
     devDependencies:
       '@types/node':
         specifier: ^24.13.6
@@ -3274,10 +3274,10 @@ packages:
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
 
-  react-dom@19.3.0:
-    resolution: {integrity: sha512-JDk8dgif51OjFoDE70+OT9ICyYr+69HlmihNwp1+Nsfbna3t5sIiCa9ZJktDmQ4/1b/rn26hIAR2uYXDMr5r0Q==}
+  react-dom@19.3.1:
+    resolution: {integrity: sha512-Y0bARz53lhEC1NMCASs0/j+faB/zqt3R8hpvg1e8+61ZVJ4UL0UdC4cBbXfZMcIuhrfgeILTLe+ZeBCavQPtKQ==}
     peerDependencies:
-      react: ^19.3.0
+      react: ^19.3.1
 
   react-reconciler@0.34.0:
     resolution: {integrity: sha512-eVibvB1fc9j5Qf1KRkiM3GzRPBdjg2P6G6QV2f3P6Eb3OGMxRBhdg2rrUwjbV5JrQaJj8nOa8uajmmJA5tJWjQ==}
@@ -3285,8 +3285,8 @@ packages:
     peerDependencies:
       react: ^19.3.0
 
-  react@19.3.0:
-    resolution: {integrity: sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog==}
+  react@19.3.1:
+    resolution: {integrity: sha512-QNhWdt7nrgVWWQG58QuGsAR3jv3Hbe4mb4vz7w2csnHavciZJgda1CPNaldF6eVxv90ud3jUXpKlHL69gO38yw==}
     engines: {node: '>=0.10.0'}
 
   readdirp@5.1.1:
@@ -4062,23 +4062,23 @@ snapshots:
     dependencies:
       state-local: 1.0.7
 
-  '@monaco-editor/react@4.7.0(monaco-editor@0.57.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@monaco-editor/react@4.7.0(monaco-editor@0.57.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
       '@monaco-editor/loader': 1.7.0
       monaco-editor: 0.57.0
-      react: 19.3.0
-      react-dom: 19.3.0(react@19.3.0)
+      react: 19.3.1
+      react-dom: 19.3.1(react@19.3.1)
 
-  '@natsuneko-laboratory/makit-runtime@0.9.0(next@16.4.2(@types/node@24.19.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@natsuneko-laboratory/makit-runtime@0.9.0(next@16.4.2(@types/node@24.19.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
-      lucide-react: 0.468.0(react@19.3.0)
-      next: 16.4.2(@types/node@24.19.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      react: 19.3.0
-      react-dom: 19.3.0(react@19.3.0)
+      lucide-react: 0.468.0(react@19.3.1)
+      next: 16.4.2(@types/node@24.19.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      react: 19.3.1
+      react-dom: 19.3.1(react@19.3.1)
 
   '@natsuneko-laboratory/makit@0.9.0(@types/node@24.19.0)(supports-color@10.2.2)':
     dependencies:
-      '@natsuneko-laboratory/makit-runtime': 0.9.0(next@16.4.2(@types/node@24.19.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@natsuneko-laboratory/makit-runtime': 0.9.0(next@16.4.2(@types/node@24.19.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@tailwindcss/postcss': 4.3.3
       '@tailwindcss/typography': 0.5.20(tailwindcss@4.3.3)
       chokidar: 5.0.0
@@ -4088,12 +4088,12 @@ snapshots:
       gray-matter: 4.0.3
       hast-util-to-string: 3.0.1
       jiti: 2.7.0
-      lucide-react: 0.468.0(react@19.3.0)
-      next: 16.4.2(@types/node@24.19.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 0.468.0(react@19.3.1)
+      next: 16.4.2(@types/node@24.19.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       pagefind: 1.5.2
       picocolors: 1.1.1
-      react: 19.3.0
-      react-dom: 19.3.0(react@19.3.0)
+      react: 19.3.1
+      react-dom: 19.3.1(react@19.3.1)
       rehype-parse: 9.0.1
       rehype-raw: 7.0.0
       rehype-slug: 6.0.0
@@ -4925,9 +4925,9 @@ snapshots:
 
   longest-streak@3.1.0: {}
 
-  lucide-react@0.468.0(react@19.3.0):
+  lucide-react@0.468.0(react@19.3.1):
     dependencies:
-      react: 19.3.0
+      react: 19.3.1
 
   magic-string@0.30.21:
     dependencies:
@@ -5315,16 +5315,16 @@ snapshots:
 
   nanoid@3.3.19: {}
 
-  next@16.4.2(@types/node@24.19.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
+  next@16.4.2(@types/node@24.19.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
     dependencies:
       '@next/env': 16.4.2
       '@swc/helpers': 0.5.23
       baseline-browser-mapping: 2.11.28
       caniuse-lite: 1.0.30001815
       postcss: 8.5.23
-      react: 19.3.0
-      react-dom: 19.3.0(react@19.3.0)
-      styled-jsx: 5.1.6(react@19.3.0)
+      react: 19.3.1
+      react-dom: 19.3.1(react@19.3.1)
+      styled-jsx: 5.1.6(react@19.3.1)
     optionalDependencies:
       '@next/swc-darwin-arm64': 16.4.2
       '@next/swc-darwin-x64': 16.4.2
@@ -5407,17 +5407,17 @@ snapshots:
 
   queue-microtask@1.2.3: {}
 
-  react-dom@19.3.0(react@19.3.0):
+  react-dom@19.3.1(react@19.3.1):
     dependencies:
-      react: 19.3.0
+      react: 19.3.1
       scheduler: 0.28.0
 
-  react-reconciler@0.34.0(react@19.3.0):
+  react-reconciler@0.34.0(react@19.3.1):
     dependencies:
-      react: 19.3.0
+      react: 19.3.1
       scheduler: 0.28.0
 
-  react@19.3.0: {}
+  react@19.3.1: {}
 
   readdirp@5.1.1: {}
 
@@ -5637,10 +5637,10 @@ snapshots:
 
   strip-bom-string@1.0.0: {}
 
-  styled-jsx@5.1.6(react@19.3.0):
+  styled-jsx@5.1.6(react@19.3.1):
     dependencies:
       client-only: 0.0.1
-      react: 19.3.0
+      react: 19.3.1
 
   supports-color@10.2.2: {}
 
