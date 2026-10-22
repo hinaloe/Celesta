@@ -45,7 +45,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           # The compiler CI tests with; a moving stable would also invalidate the cache.
-          toolchain: 1.99.0
+          toolchain: 1.99.1
 
       # Only main's cache is visible to the next release tag.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -114,7 +114,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
-          toolchain: 1.99.0
+          toolchain: 1.99.1
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
