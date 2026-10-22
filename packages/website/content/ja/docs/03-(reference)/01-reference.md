@@ -74,6 +74,8 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | --- | --- | --- |
 | `TextBox` / `fitText` / `useFitText` / `measureText` / `useTextMetrics` | `@celesta/text` `@celesta/react` | 組版後の文字を測ったり、枠に収まる文字サイズを選んだりします。詳しくは[テキストとフォント](/ja/docs/text-fonts/)を参照してください。 |
 | `emphasisContent` / `resolveEmphasis` / `sliceEmphasis` / `graphemes` | `@celesta/text` | データで渡す文字の一部を、書記素クラスタ単位の範囲と色・太さで強調し、`<Span>` として描きます。 |
+| `phrases` / `phraseBoundaries` | `@celesta/text` | 日本語を、`lineBreak: 'phrase'` が一行に保つのと同じ BudouX のモデルで文節に分けます。 |
+| `useTextMeasurer` | `@celesta/text` | `useTextMetrics()` が一つの文字を測るように、描画中にいくつもの文字を測ります。 |
 | `resolveTimedRanges` / `timedRangeAt` | `@celesta/text` | 半開区間のフレーム範囲で表示するもの（字幕、字幕のページ）の空白・重なり・範囲外を検証し、あるフレームのものを探します。 |
 | `FrameChrome` | `@celesta/components` | 四隅のブラケット・タイトル・タイムコード・現在の章・プログレスバーを、キャンバスの大きさに合わせて画面の周りに描きます。 |
 | `PatternBackground` | `@celesta/components` | ドット・格子・ストライプ、または自前のマークを、キャンバスや指定した領域いっぱいに繰り返して描き、クリップします。フレームに合わせて動かせます。 |
@@ -82,7 +84,7 @@ Celesta は Remotion のようにパッケージに分かれています。コ�
 | `Counter` / `StatCard` / `formatNumber` | `@celesta/components` | 数えた数値を、固定の locale（既定 `'en-US'`）・小数桁・prefix / suffix・formatter で整形して描きます。単独でも、ラベルと補足を載せたカードでも使えます。 |
 | `BarChart` / `Ranking` | `@celesta/components` | 時間差で伸びる横棒と、同じ進捗で数える数値です。`Ranking` は順位を加え、ソートするかどうかを明示します。 |
 | `Callout` | `@celesta/components` | 計測したタイトルと本文で高さを決める注釈の枠と、同じ座標系の対象点へ向かう直線または折れ線の矢印です。 |
-| `CaptionTrack` | `@celesta/components` | データだけで出す時間指定の字幕（`parseSubtitles()` の cue や自前の配列）。各フレームの字幕を帯に載せ、行数の上限まで折り返し、強調し、フェードで出し入れします。`render` で描き方を差し替えても cue の時計は変わりません。 |
+| `CaptionTrack` | `@celesta/components` | データだけで出す時間指定の字幕（`parseSubtitles()` の cue や自前の配列）。各フレームの字幕を帯に載せ、行数の上限まで折り返し、強調し、フェードで出し入れします。`render` で描き方を差し替えても cue の時計は変わりません。`highlight` は単語ごとのタイミングから話している語を色・背景帯・拡大で強調し、`paging` は語数・行数・文末・間で区切ったページを順に出します。日本語は文節単位でも区切れます。 |
 | `MediaFrame` | `@celesta/components` | 画像または動画（`kind` で指定）を `Panel` の枠に contain / cover で収め、角丸・枠線・キャプションを付けます。動画の再生設定と音声はそのまま保たれます。 |
 | `Motion` | `@celesta/components` | 一つの要素をフェード・移動・拡大で登場させ、書いたままの状態で保持し、退場させます。表示区間は外側の Sequence の区間か、自前で指定した区間です。シーン同士のつなぎには `TransitionSeries` を使います。 |
 | `TitleCard` | `@celesta/components` | 章番号・キッカー・タイトル・副題を一つのブロックにまとめたタイトル画面です。キャンバスやセーフエリアの中で、左・中央・右と上・中央・下に置きます。タイトルは明示改行を保ち、収まるまで文字を小さくします。各要素は時間差で、またはまとめて登場します。 |

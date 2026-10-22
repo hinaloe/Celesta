@@ -211,6 +211,24 @@ const styles = { danger: { color: '#ff6060', fontWeight: 700 } };
 - Emphasis needs the text as a string. Text that already holds `<Span>`
   uses spans throughout instead.
 
+## Japanese phrases
+
+`phrases(text)` from `@celesta/text` splits Japanese into the phrases
+(文節) `lineBreak: 'phrase'` keeps on one line, with the same BudouX model
+the renderer wraps by; `phraseBoundaries(text)` gives where they start, as
+code-point offsets. Joined, the phrases are the text again. Text without
+Japanese stays whole: split it at spaces yourself.
+
+```ts
+phrases('世界中の情報を整理し、') // ['世界中の', '情報を', '整理し、']
+```
+
+`useTextMeasurer()` returns a function that measures text during render,
+`(content, style, maxWidth?) => TextMetrics`, as `useTextMetrics()` does,
+for a component that has to measure a number of texts it only knows while
+rendering (candidate pages of a caption, say). Each call measures again, so
+keep the results in `React.useMemo()`.
+
 ## Timed ranges
 
 `resolveTimedRanges(items, options)` checks things shown for a while
