@@ -1,0 +1,12 @@
+{
+  "name": "@celesta/example-word-captions",
+  "private": true,
+  "scripts": {
+    "preview": "celesta-editor film.tsx",
+    "export": "celesta-exporter --json --react --overwrite film.tsx word-captions.mp4",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

@@ -10,7 +10,7 @@ needed, or without the video. `parseSubtitles`,
 ## Contents
 
 - [Read a file](#read-a-file)
-- [Draw the cues](#draw-the-cues): CaptionTrack
+- [Draw the cues](#draw-the-cues): CaptionTrack, and [word by word](#light-each-word-as-it-is-spoken)
 - [Write the subtitle file on export](#write-the-subtitle-file-on-export)
 - [Several languages](#several-languages)
 - [Subtitles without the video](#subtitles-without-the-video)
@@ -118,6 +118,68 @@ import { CaptionTrack } from '@celesta/components';
   second track drawing the same cues.
 - SRT/ASS styling is not read; cues from `parseSubtitles()` have plain
   text, so add `emphasis` in code.
+
+### Light each word as it is spoken
+
+`highlight` lights the word being spoken, the caption style of vertical
+short videos; `paging` shows a long cue a page at a time. Either one splits
+each cue into words:
+
+```tsx
+<CaptionTrack
+  cues={[{
+    from: 0, durationInFrames: 90, text: 'Every frame is a function',
+    words: [
+      { text: 'Every', from: 0 }, { text: 'frame', from: 12 }, { text: 'is', from: 30 },
+      { text: 'a', from: 38 }, { text: 'function', from: 44 },
+    ],
+  }]}
+  highlight={{ color: '#111111', background: '#ffd166', scale: 1.12, upcomingColor: '#ffffff99' }}
+  paging={{ maxWords: 3 }}
+/>
+<CaptionTrack cues={cues} wordUnit="phrase" highlight={{ color: '#ffd166' }} />
+```
+
+- **Words.** A cue's `words` (`{ text, from, durationInFrames? }`, frames
+  counted like the cue's `from`, in order, inside the cue) are found in
+  `text` in order: text between two words, such as punctuation, goes with
+  the word before, and space around a word is ignored. A word is lit from
+  its `from` until the next word starts, or for `durationInFrames`.
+  Without `words`, the cue's frames are shared out among its words by
+  length (grapheme clusters).
+- **Units.** `wordUnit="word"` (the default) splits text at spaces.
+  `wordUnit="phrase"` also splits Japanese into phrases (文節) with the
+  same BudouX model `lineBreak: 'phrase'` wraps by, and joins given `words`
+  that do not start a phrase to the word before, so per-morpheme timings
+  (`今日` `は`) light a phrase (`今日は`) at a time.
+- **Highlight.** `color` (`#ffd166`) for the word being spoken, over its
+  emphasis; `spokenColor` and `upcomingColor` for the rest of the page
+  (default: the track's `color`; emphasis wins over them). `background`
+  draws a band behind the word, `scale` grows it about its centre, with
+  `padding` (0.08 em / 0.12 em) and `cornerRadius` (0.15 em). Over
+  `transitionInFrames` (a tenth of a second; 0 cuts) the band slides from
+  the word before on the same line and the word grows. The band and scale
+  spill a little into the next words' room (Japanese has no spaces to
+  absorb them), so give the band a color the other words read on. They
+  are placed from per-glyph metrics; the browser renderer has none, so
+  there only colors change. The weight cannot change per word, as that
+  would reflow the page.
+- **Pages.** A page takes words while it still fits `maxLines` at
+  `fontSize`, and ends before `paging.maxWords` is passed, after a word
+  that ends a sentence (`。！？.!?…`, unless `paging.sentences` is false),
+  and where no word is spoken for `paging.pause` frames. Each page shows
+  from its first word's `from` (the first from the cue's start) until the
+  next page; pages cut, while the cue still fades in and out.
+  `highlight` alone pages by these defaults.
+- **Custom drawing.** In this mode `render` gets the page: `text`,
+  `content` (with the highlight colors), and `emphasis` are the page's,
+  `words` lists its words with their clusters in `text`, frames on the
+  cue's clock, and `state` (`'spoken'`, `'current'`, `'upcoming'`), and
+  `page` / `pages` count the pages.
+- The subtitle file keeps whole cues.
+
+`examples/word-captions/` lights English and Japanese captions word by
+word on a vertical short.
 
 See [`packages/cli/examples/with-caption-track.tsx`](../../../packages/cli/examples/with-caption-track.tsx)
 and `examples/captions/`.
