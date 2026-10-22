@@ -32,8 +32,9 @@ pub use properties::{
 pub use types::{
     ComponentPropertyField, ComponentPropertySchema, ComponentResolutionRequest,
     ComponentResolutions, ElementKind, FrameEvaluation, LayerSource, LayerSourceReport,
-    PrepareDependency, ProjectFrame, ReactAudioClipDescriptor, ReactCompositionInfo,
+    PrepareDependency, ProjectFrame, ReactAudioClipDescriptor, ReactChapter, ReactCompositionInfo,
     ReactCompositionMetadata, ReactDuck, ReactSubtitleDescriptor, ReceivedProps, SpawnOptions,
+    chapter_at,
 };
 
 mod project_templates;

@@ -459,6 +459,7 @@ impl EditorView {
                 if let Some(react) = self.react_preview.as_mut() {
                     react.composition_id = metadata.composition_id.clone();
                     react.compositions = metadata.compositions.clone();
+                    react.chapters = metadata.chapters.clone();
                 }
                 if let Ok(document) = EditorDocument::react_preview(
                     &entry,
@@ -668,6 +669,7 @@ mod property_outcome {
         ReactPreview {
             composition_id: "default".to_owned(),
             compositions: Vec::new(),
+            chapters: Vec::new(),
             entry: PathBuf::from("film.tsx"),
             watched_mtime: None,
             dependencies: Vec::new(),
@@ -701,6 +703,7 @@ mod property_outcome {
             project_property_schema: (!keys.is_empty()).then_some(declared.fields),
             project_property_order: keys.iter().map(|key| (*key).to_owned()).collect(),
             prepare_dependencies: Vec::new(),
+            chapters: Vec::new(),
         }
     }
 

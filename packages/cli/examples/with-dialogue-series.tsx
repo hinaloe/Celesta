@@ -203,7 +203,10 @@ const SUBTITLE: CharacterSubtitle = {
 
 export default function Root() {
   return (
-    <Composition width={WIDTH} height={HEIGHT} fps={FPS} durationInFrames={plan.durationInFrames}>
+    <Composition
+      width={WIDTH} height={HEIGHT} fps={FPS} durationInFrames={plan.durationInFrames}
+      // The plan's scenes, titled, as the preview's chapters.
+      chapters={plan.scenes.map((scene) => ({ ...scene, name: SCENES[scene.id].title }))}>
       <Assets>
         <Character
           ref={characters.shizuku}

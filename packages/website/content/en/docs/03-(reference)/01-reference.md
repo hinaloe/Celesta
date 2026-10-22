@@ -27,6 +27,7 @@ Celesta is split into packages, like Remotion. The core APIs come from `@celesta
 | `Transition` | `@celesta/transitions` | A fade, slide, or scale (or several at once) at the start or end of the enclosing sequence. |
 | `Series` / `computeSeries` | `@celesta/react` | Scenes back to back, by length. See [Scenes, cues & beats](/en/docs/motion-toolkit/). |
 | `defineScenes` / `Scenes` / `useScene()` / `sceneAt` | `@celesta/react` | Named chapters back to back, and the current one with its progress. |
+| `<Composition chapters>` / `listChapters` | `@celesta/react` | Named spans the editor preview lists and seeks to, from a scene list, a dialogue plan, or plain spans. See [Scenes, cues & beats](/en/docs/motion-toolkit/). |
 | `TransitionSeries` / `computeTransitionSeries` | `@celesta/transitions` | Scenes joined by cuts, cross-fades, slides, wipes, irises, clock wipes, zooms, dissolves, blurs, flips, or cubes, with the overlaps and total length computed. See [Scenes, cues & beats](/en/docs/motion-toolkit/). |
 | `defineTransition` / `iris`, `clockWipe`, `zoom`, `dissolve`, `blur`, `flip`, `cube`, `crossfade`, `slide`, `wipe` | `@celesta/transitions` | Define a transition for `TransitionSeries` from a function, or set a built-in one’s options. |
 | `Stagger` | `@celesta/react` | Starts each child a fixed number of frames after the previous one. |

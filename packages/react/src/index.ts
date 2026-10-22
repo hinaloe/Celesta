@@ -111,6 +111,9 @@ export type { SeriesItem, SeriesProps, SeriesSequenceProps, SeriesTiming, Stagge
 export { Scenes, defineScenes, sceneAt, useScene } from './scenes';
 export type { PlacedScene, SceneEntry, SceneList, SceneState, ScenesProps, UseSceneOptions } from './scenes';
 
+export { listChapters } from './chapters';
+export type { Chapter, ChapterInput, ChapterSource, ListChaptersOptions } from './chapters';
+
 export { Easings, interpolate, interpolateColor, progress, spring } from './animation';
 export type {
   ColorExtrapolate,

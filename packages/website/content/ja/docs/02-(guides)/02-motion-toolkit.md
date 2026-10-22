@@ -64,6 +64,27 @@ function Body() {
 <Sequence from={90} durationInFrames={240}><Body /></Sequence>
 ```
 
+## プレビューの章
+
+`<Composition>` の `chapters` に渡した区間は、エディタで章として表示されます。タイムラインではトラックの上に Chapters 行が、React Preview タブには開始位置と長さを並べた Chapters 一覧が出ます。現在の章は強調表示され、どちらもクリックするとその章の先頭へシークします。渡せるのは `defineScenes` の一覧、会話の計画（その `scenes`）、またはコンポジションのフレームで書いた `{ id, name?, from, durationInFrames }` の配列です。ツリーからの推論はしないため、`chapters` のない作品はこれまでどおりプレビューできます。
+
+```tsx title="シーンをプレビューの章にする"
+<Composition width={1920} height={1080} fps={30} durationInFrames={SCENES.durationInFrames} chapters={SCENES}>
+  <Scenes scenes={SCENES} />
+</Composition>
+```
+
+章はコンポジションのタイムライン上の 1 つの平らな一覧です。デモの各段階のように、あるシーンの中で再生する一覧は `listChapters(source, { from })` でそのシーンの開始位置へずらして加えます。重なる章は、エディタで別の段に積んで表示されます。
+
+```tsx title="シーンの中の段階を、その下に並べる"
+const chapters = [
+  ...listChapters(SCENES),
+  ...listChapters(PARTS, { from: SCENES.scenes[1].from }),
+];
+```
+
+`chapters` はサイズや時計と同じく、作品を読み込むとき（リロードのたびにも）一度だけ読まれます。章は開始位置の順に並べ替えられ、コンポジションの終わりで切られます。長さ 0 の章はシークできる目印になります。`id` の欠落や重複、負または小数のフレーム、終わり以降に始まる章は、読み込みをエラーで止めます。
+
 ## シーンをトランジションでつなぐ
 
 `<TransitionSeries>` は `Series` と同じくシーンを順に並べ、2 つのシーンの間に `<TransitionSeries.Transition>` を置けます。トランジションは前後のシーンを `durationInFrames` の分だけ重ねるので、`computeTransitionSeries()` で各シーンの開始位置と、重なりの分だけ短くなった全体の長さを求められます。

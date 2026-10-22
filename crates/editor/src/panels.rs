@@ -14,7 +14,7 @@ use celesta_editor_core::{
 };
 use celesta_editor_theme as theme;
 use celesta_project::AssetKind;
-use celesta_react_bridge::{ENTRY_PROPS_FILE, resolve_props_file};
+use celesta_react_bridge::{ENTRY_PROPS_FILE, chapter_at, resolve_props_file};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::{ActiveTheme as _, Disableable as _, IconName, Sizable as _, TitleBar};
@@ -722,8 +722,79 @@ impl EditorView {
                     .overflow_x_hidden()
                     .overflow_y_scroll()
                     .child(self.react_preview_facts(entry, properties, cx))
+                    .children(self.react_chapter_list(cx))
                     .map(|panel| self.react_audio_selection(panel, cx)),
             )
+    }
+
+    /// The composition's chapters with where each starts and how long it
+    /// lasts; the current one is highlighted and a click seeks to its start.
+    /// `None` when the composition declares none.
+    fn react_chapter_list(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let chapters = self.react_chapters()?;
+        let frame = u64::try_from(self.clock.frame()).unwrap_or(0);
+        let current = chapter_at(chapters, frame).map(|chapter| chapter.id.clone());
+        let frame_rate = self.frame_rate_value;
+        let muted = cx.theme().muted_foreground;
+        let rows = chapters
+            .iter()
+            .map(|chapter| {
+                let target = chapter.clone();
+                let is_current = current.as_deref() == Some(chapter.id.as_str());
+                let start = format_timecode(i64::try_from(chapter.from).unwrap_or(0), frame_rate);
+                let length = format_timecode(
+                    i64::try_from(chapter.duration_in_frames).unwrap_or(0),
+                    frame_rate,
+                );
+                div()
+                    .id(SharedString::from(format!("react-chapter-{}", chapter.id)))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .px_3()
+                    .py_1()
+                    .text_xs()
+                    .cursor_pointer()
+                    .when(is_current, |row| row.bg(cx.theme().list_active))
+                    .hover(|row| row.bg(cx.theme().list_hover))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .text_color(cx.theme().foreground)
+                            .child(chapter.name.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .text_color(muted)
+                            .child(format!("{start}  {length}")),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.seek_chapter(&target, cx)))
+            })
+            .collect::<Vec<_>>();
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .child(inspector_section("Chapters", cx))
+                .child(
+                    div()
+                        .flex()
+                        .justify_between()
+                        .px_3()
+                        .py_1()
+                        .text_xs()
+                        .text_color(muted)
+                        .child("Name")
+                        .child("Start  Length"),
+                )
+                .children(rows),
+        )
     }
 
     /// The Properties tab in React-preview mode: what can be edited first

@@ -64,6 +64,27 @@ function Body() {
 <Sequence from={90} durationInFrames={240}><Body /></Sequence>
 ```
 
+## Chapters in the preview
+
+`chapters` on `<Composition>` lists named spans of the video in the editor: the timeline gets a Chapters row above the tracks, and the React Preview tab a Chapters list with each start and length. The current chapter is highlighted, and a click on either seeks to its start. Pass a `defineScenes` list, a dialogue plan (its `scenes`), or spans of `{ id, name?, from, durationInFrames }` in the composition's frames. Nothing is inferred from the tree: a composition without `chapters` previews as before.
+
+```tsx title="The scenes as the preview's chapters"
+<Composition width={1920} height={1080} fps={30} durationInFrames={SCENES.durationInFrames} chapters={SCENES}>
+  <Scenes scenes={SCENES} />
+</Composition>
+```
+
+Chapters are one flat list on the composition's timeline. A list played inside one scene, such as the parts of a demo, joins it with `listChapters(source, { from })`, which moves its spans to where that scene starts; the editor stacks chapters that overlap on lanes of their own.
+
+```tsx title="A scene's parts, listed below it"
+const chapters = [
+  ...listChapters(SCENES),
+  ...listChapters(PARTS, { from: SCENES.scenes[1].from }),
+];
+```
+
+Like the size and clock, `chapters` is read once when the entry loads, and again on every reload. Chapters are ordered by their start and cut at the composition's end; a chapter of length 0 is a seekable mark. A missing or duplicate `id`, a negative or fractional frame, or a chapter starting at or after the end fails the load with an error.
+
 ## Transitions between scenes
 
 `<TransitionSeries>` lays scenes out like `Series`, with a `<TransitionSeries.Transition>` between two of them. A transition overlaps the scenes on either side by its `durationInFrames`, so `computeTransitionSeries()` returns each scene’s start and the total length, shortened by every overlap:

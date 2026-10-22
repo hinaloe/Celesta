@@ -15,7 +15,8 @@ import { MOUTH, PSD, akane, poseLayers } from './voice';
 // Open this file in Celesta, or export it with:
 //   Celesta-export --react examples/feature-tour/film.tsx feature-tour.mp4
 //
-//   timeline.tsx   every scene in order (defineScenes), played by <Scenes> and read by the HUD
+//   timeline.tsx   every scene in order (defineScenes), played by <Scenes>, read by the HUD,
+//                  and listed as the preview's chapters
 //   scenes/        Open, Index (table of contents) and Outro
 //   chapters/      the nine feature chapters: index.ts lists them, one demo per file
 //   components/    Label (text), Swap, ChapterShell (shared chapter layout), Shutter, Hud
@@ -28,7 +29,7 @@ export { prepare } from './voice';
 
 export default function Root() {
   return (
-    <Composition width={W} height={H} fps={FPS} durationInFrames={SCENES.durationInFrames}>
+    <Composition width={W} height={H} fps={FPS} durationInFrames={SCENES.durationInFrames} chapters={SCENES}>
       <Assets>
         <Font src={LATIN_FONTS} />
         <Font src={JA_FONTS} />

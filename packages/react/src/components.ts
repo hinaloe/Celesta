@@ -1,5 +1,6 @@
 import * as React from 'react';
 import type { ReactNode } from 'react';
+import type { ChapterSource } from './chapters';
 import { googleFont, type GoogleFontOptions } from './google-font';
 
 import {
@@ -207,6 +208,15 @@ export interface CompositionProps {
    * order. Defaults to `'system'`, installed fonts only; `style.fontFallback` takes priority.
    */
   fontFallback?: FontFallbackMode;
+  /**
+   * Named spans of this composition's timeline, which the editor preview
+   * lists and seeks to: a `defineScenes` list, a dialogue plan, or spans of
+   * `{ id, name?, from, durationInFrames }` in this composition's frames
+   * (see `listChapters`). Static like the size and clock. Chapters are
+   * ordered by their start and cut at the end; one starting at or after the
+   * end, a duplicate `id`, or a bad frame fails the mount.
+   */
+  chapters?: ChapterSource;
   children?: ReactNode;
 }
 

@@ -7,7 +7,8 @@ use celesta_composition::{EvaluatedTransform, Layer, LayerContent, Scene, Shader
 use celesta_gpu_renderer::{GpuRenderer, HitRegion, LayerFrame, RenderQuality, layer_frame};
 use celesta_react_bridge::{
     ComponentPropertyField, ComponentResolutionRequest, ComponentResolutions, PrepareDependency,
-    PropertyInputs, PropertyIssue, ReactBridge, ReactCompositionMetadata, SpawnOptions,
+    PropertyInputs, PropertyIssue, ReactBridge, ReactChapter, ReactCompositionMetadata,
+    SpawnOptions,
 };
 use gpui_kit::RenderImage;
 use rodio::Player;
@@ -127,6 +128,9 @@ pub(crate) enum ReactPreviewMode {
 pub(crate) struct ReactPreview {
     pub(crate) composition_id: String,
     pub(crate) compositions: Vec<celesta_react_bridge::ReactCompositionInfo>,
+    /// The selected composition's `<Composition chapters>` as last loaded;
+    /// kept across failed reloads.
+    pub(crate) chapters: Vec<ReactChapter>,
     pub(crate) entry: PathBuf,
     /// Newest source-file modification time seen under the entry's directory
     /// (or of the `--props-file`). The reload watcher compares against this

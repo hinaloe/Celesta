@@ -21,6 +21,7 @@ import { resolveComponent } from './registry';
 import { type HostNode, type RootContainer, createRoot } from './reconciler';
 import { type LayerSourceReport, layerSourceReport } from './source-chain';
 import { checkCue } from './subtitles';
+import { type ChapterSource, compositionChapters } from './chapters';
 import type {
   BackfaceVisibility,
   BlendMode,
@@ -308,12 +309,16 @@ function readCompositionConfig(instance: HostNode): CompositionConfig {
   if (lang !== undefined && typeof lang !== 'string') {
     throw new Error('<Composition> requires a string `lang` prop');
   }
+  const { chapters } = instance.props;
   return {
     width: width as number,
     height: height as number,
     frameRate: { numerator: fps as number, denominator: 1 },
     durationInFrames: durationInFrames as number,
     ...(lang !== undefined ? { lang: lang as string } : {}),
+    ...(chapters !== undefined && chapters !== null
+      ? { chapters: compositionChapters(chapters as ChapterSource, durationInFrames as number) }
+      : {}),
   };
 }
 
