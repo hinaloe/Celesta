@@ -9,3 +9,8 @@ export type { EmphasisOptions, EmphasisStyle, ResolvedEmphasis, TextEmphasis } f
 
 export { resolveTimedRanges, timedRangeAt } from './timed-ranges';
 export type { ResolveTimedRangesOptions, TimedItem, TimedRange } from './timed-ranges';
+
+export { phraseBoundaries, phrases } from './phrases';
+
+export { useTextMeasurer } from './text-measurer';
+export type { TextMeasurer } from './text-measurer';
