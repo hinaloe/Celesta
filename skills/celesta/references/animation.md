@@ -28,6 +28,7 @@ For randomness and noise, use [`@celesta/math`](math.md).
 - [MotionBlur and Trail](#motionblur-and-trail)
 - [Series and computeSeries](#series-and-computeseries)
 - [Scenes and useScene](#scenes-and-usescene)
+- [Chapters in the preview](#chapters-in-the-preview)
 - [FrameChrome](#framechrome)
 - [TransitionSeries](#transitionseries)
 - [Stagger](#stagger)
@@ -47,6 +48,7 @@ For randomness and noise, use [`@celesta/math`](math.md).
 | A bouncy pop-in | `spring` |
 | Scenes back to back | `Series` + `computeSeries` |
 | Named chapters, with a HUD that shows the current one and its progress | `defineScenes` + `Scenes` + `useScene` |
+| Chapters the editor preview lists and seeks to | `<Composition chapters>` + `listChapters` |
 | Corner brackets, a title, the timecode, the chapter, and a progress bar around the picture | `FrameChrome` |
 | Scenes joined by a cut, cross-fade, slide, or wipe | `TransitionSeries` + `computeTransitionSeries` |
 | A background animation or a short BGM repeated | `Loop` |
@@ -355,6 +357,39 @@ function Hud() {
   <Scenes scenes={SCENES} />
   <Hud />
 </Composition>
+```
+
+## Chapters in the preview
+
+`<Composition chapters={source}>` lists named spans in the editor preview: a
+Chapters row above the timeline's tracks and a Chapters list in the React
+Preview tab, the current one highlighted, a click seeking to its start.
+`source` is a `defineScenes` list, a `planDialogue` plan (its `scenes`), or
+`{ id, name?, from, durationInFrames }[]` in the composition's frames. Read
+once at load (and on every reload) like `width`/`fps`; nothing is inferred
+from the tree, and a composition without it previews as before. Chapters are
+sorted by `from` and cut at the end; length 0 is a seekable mark; a missing
+or duplicate `id`, a negative or fractional frame, or a chapter starting at
+or after the end fails the load.
+
+The list is flat, on the composition's frames. `listChapters(source,
+{ from })` checks a source and moves it, so a list played inside one scene
+joins with that scene's start; overlapping chapters stack on lanes in the
+timeline, and the later-starting one is current.
+
+```tsx
+const PARTS = defineScenes([
+  { id: 'setup', durationInFrames: 45 },
+  { id: 'result', durationInFrames: 45 },
+]);
+const chapters = [...listChapters(SCENES), ...listChapters(PARTS, { from: SCENES.scenes[1].from })];
+
+<Composition width={1920} height={1080} fps={30} durationInFrames={SCENES.durationInFrames} chapters={chapters}>
+  <Scenes scenes={SCENES} />
+</Composition>
+
+// A dialogue plan, titled:
+<Composition ... chapters={plan.scenes.map((scene) => ({ ...scene, name: TITLES[scene.id] }))}>
 ```
 
 ## FrameChrome

@@ -108,6 +108,7 @@ pub(crate) fn load_source(
                 Some(ReactPreview {
                     composition_id: metadata.composition_id,
                     compositions: metadata.compositions,
+                    chapters: metadata.chapters,
                     entry,
                     watched_mtime,
                     dependencies: metadata.prepare_dependencies,

@@ -203,6 +203,7 @@ impl ReactBridge {
                             project_property_schema,
                             project_property_order,
                             prepare_dependencies: dependencies,
+                            chapters: config.chapters,
                         });
                     }
                     ReadyMessage::ProbeMedia { probe_media } => {

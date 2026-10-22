@@ -8,6 +8,7 @@
 
 use celesta_editor_core::{ClipSummary, TrackSummary};
 use celesta_project::TrackKind;
+use celesta_react_bridge::{ReactChapter, chapter_at};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Icon, IconName, Selectable as _, Sizable as _,
@@ -33,6 +34,8 @@ pub(crate) const TRACK_HEADER_WIDTH: f32 = 220.0;
 pub(crate) const LANE_GUTTER: f32 = 10.0;
 pub(crate) const RULER_HEIGHT: f32 = 30.0;
 const VIDEO_TRACK_HEIGHT: f32 = 40.0;
+/// Height of one lane of the Chapters row.
+const CHAPTER_LANE_HEIGHT: f32 = 22.0;
 const AUDIO_TRACK_HEIGHT: f32 = 52.0;
 const FOOTER_HEIGHT: f32 = 26.0;
 /// The most zoomed-in view shows this many pixels per frame.
@@ -135,6 +138,34 @@ impl LaneView {
         }
         (time.as_seconds().unwrap_or(0.0) / total_seconds).clamp(0.0, 1.0)
     }
+}
+
+/// The lane each chapter goes on in the Chapters row: the first lane whose
+/// chapters all end by the time it starts. `chapters` is ordered by `from`,
+/// as the runtime reports it, so a part listed after the scene holding it
+/// lands below that scene. A mark of length 0 takes a frame, so two marks or
+/// a mark and a chapter on the same frame do not share a lane.
+fn chapter_lanes(chapters: &[ReactChapter]) -> Vec<usize> {
+    let mut lane_ends: Vec<u64> = Vec::new();
+    chapters
+        .iter()
+        .map(|chapter| {
+            let end = chapter.end().max(chapter.from + 1);
+            match lane_ends
+                .iter()
+                .position(|lane_end| *lane_end <= chapter.from)
+            {
+                Some(lane) => {
+                    lane_ends[lane] = end;
+                    lane
+                }
+                None => {
+                    lane_ends.push(end);
+                    lane_ends.len() - 1
+                }
+            }
+        })
+        .collect()
 }
 
 impl EditorView {
@@ -456,6 +487,9 @@ impl EditorView {
         let border = cx.theme().border;
         let tracks_empty = visual.is_empty() && audio.is_empty();
         let mut rows: Vec<gpui_kit::AnyElement> = Vec::new();
+        if let Some(chapters) = self.react_chapters() {
+            rows.push(self.chapter_row(chapters, view, cx).into_any_element());
+        }
         rows.extend(visual.iter().map(|row| {
             self.track_row(row, VIDEO_TRACK_HEIGHT, view, cx)
                 .into_any_element()
@@ -1046,6 +1080,134 @@ impl EditorView {
             )
     }
 
+    /// The chapters a standalone React composition declares, or `None` when
+    /// it declares none (or this is a project).
+    pub(crate) fn react_chapters(&self) -> Option<&[ReactChapter]> {
+        self.react_preview
+            .as_ref()
+            .map(|react| react.chapters.as_slice())
+            .filter(|chapters| !chapters.is_empty())
+    }
+
+    /// Pauses and moves the playhead to the start of `chapter`.
+    pub(crate) fn seek_chapter(&mut self, chapter: &ReactChapter, cx: &mut Context<Self>) {
+        self.pause();
+        self.seek_frame(i64::try_from(chapter.from).unwrap_or(i64::MAX));
+        cx.notify();
+    }
+
+    /// The row above the tracks that shows `<Composition chapters>`: one
+    /// block per chapter, the current one highlighted; a click seeks to its
+    /// start. A chapter of length 0 is a thin mark. Overlapping chapters (a
+    /// scene and the parts listed inside it) stack on lanes of their own, so
+    /// none hides another.
+    fn chapter_row(
+        &self,
+        chapters: &[ReactChapter],
+        view: LaneView,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let frame = u64::try_from(self.clock.frame()).unwrap_or(0);
+        let current = chapter_at(chapters, frame).map(|chapter| chapter.id.clone());
+        let lanes = chapter_lanes(chapters);
+        let lane_count = lanes.iter().max().map_or(1, |lane| lane + 1);
+        let blocks = chapters
+            .iter()
+            .zip(lanes)
+            .map(|(chapter, lane)| {
+                let start = chapter.from as f64 / view.end_frame;
+                let duration = chapter.duration_in_frames as f64 / view.end_frame;
+                let is_current = current.as_deref() == Some(chapter.id.as_str());
+                // Keep the name readable when the chapter starts left of the view.
+                let label_offset = if duration > 0.0 {
+                    ((view.view_start - start) / duration).clamp(0.0, 1.0) as f32
+                } else {
+                    0.0
+                };
+                let target = chapter.clone();
+                div()
+                    .id(SharedString::from(format!(
+                        "timeline-chapter-{}",
+                        chapter.id
+                    )))
+                    .absolute()
+                    .left(relative(view.x(start)))
+                    .top(px(3.0 + lane as f32 * CHAPTER_LANE_HEIGHT))
+                    .h(px(CHAPTER_LANE_HEIGHT - 2.0))
+                    .w(relative(view.width(duration)))
+                    .min_w(px(2.0))
+                    .overflow_hidden()
+                    .rounded_sm()
+                    .border_l_2()
+                    .border_color(theme::accent())
+                    .bg(theme::accent().opacity(if is_current { 0.42 } else { 0.16 }))
+                    .cursor_pointer()
+                    .child(
+                        div()
+                            .absolute()
+                            .top(px(1.0))
+                            .left(relative(label_offset))
+                            .px_1()
+                            .text_xs()
+                            .text_color(cx.theme().foreground)
+                            .whitespace_nowrap()
+                            .child(chapter.name.clone()),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.seek_chapter(&target, cx);
+                    }))
+                    .into_any_element()
+            })
+            .collect::<Vec<_>>();
+        div()
+            .flex()
+            .flex_none()
+            .h(px(6.0 + lane_count as f32 * CHAPTER_LANE_HEIGHT))
+            .w_full()
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap_2()
+                    .w(px(TRACK_HEADER_WIDTH))
+                    .h_full()
+                    .pl_3()
+                    .border_r_1()
+                    .border_color(cx.theme().border)
+                    .child(div().w(px(22.0)))
+                    .child(div().size(px(8.0)).rounded_sm().bg(theme::accent()))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().foreground)
+                            .child("Chapters"),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(chapters.len().to_string()),
+                    ),
+            )
+            .child(
+                div()
+                    .id("chapter-lane")
+                    .relative()
+                    .flex_1()
+                    .h_full()
+                    .mr(px(LANE_GUTTER))
+                    .overflow_hidden()
+                    .on_scroll_wheel(cx.listener(Self::lane_wheel))
+                    .on_pinch(cx.listener(Self::lane_pinch))
+                    .on_mouse_down(MouseButton::Middle, cx.listener(Self::begin_timeline_pan))
+                    .children(blocks),
+            )
+    }
+
     /// Zoom controls under the track headers and an overview bar under the
     /// lanes that shows (and drags) the visible window.
     fn timeline_footer(&self, view: LaneView, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1421,12 +1583,36 @@ fn wheel_zoom_factor(delta_y: f32) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        LaneGesture, LaneWheel, edit_points, follow_playhead, scrub_frames, timeline_rows,
+        LaneGesture, LaneWheel, chapter_lanes, edit_points, follow_playhead, scrub_frames,
+        timeline_rows,
     };
     use celesta_composition::Time;
     use celesta_editor_core::{ClipKind, ClipSummary, TrackSummary};
     use celesta_project::TrackKind;
+    use celesta_react_bridge::ReactChapter;
     use gpui_kit::{Modifiers, TouchPhase, point};
+
+    #[test]
+    fn overlapping_chapters_stack_on_lanes_of_their_own() {
+        let chapters: Vec<ReactChapter> = [
+            ("intro", 0, 60),
+            ("demo", 60, 90),
+            ("demo-setup", 60, 45),
+            ("demo-result", 105, 45),
+            ("mark", 150, 0),
+            ("outro", 150, 60),
+        ]
+        .into_iter()
+        .map(|(id, from, duration_in_frames)| ReactChapter {
+            id: id.to_owned(),
+            name: id.to_owned(),
+            from,
+            duration_in_frames,
+        })
+        .collect();
+        assert_eq!(chapter_lanes(&chapters), [0, 0, 1, 1, 0, 1]);
+        assert!(chapter_lanes(&[]).is_empty());
+    }
 
     fn track(id: &str, kind: TrackKind, clips: &[(i64, i64)]) -> TrackSummary {
         TrackSummary {

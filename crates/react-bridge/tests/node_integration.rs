@@ -8,7 +8,8 @@ use celesta_composition::{
 };
 use celesta_react_bridge::{
     ComponentPropertyField, ComponentResolutionRequest, PrepareDependency, ProjectFrame,
-    PropertyInputs, ReactBridge, ReactBridgeError, SpawnOptions, react_audio_clips,
+    PropertyInputs, ReactBridge, ReactBridgeError, ReactChapter, SpawnOptions, chapter_at,
+    react_audio_clips,
 };
 
 fn no_tracks() -> BTreeMap<String, Vec<Layer>> {
@@ -638,6 +639,45 @@ fn reports_the_voice_folder_prepare_read_as_dependencies_when_node_is_available(
     assert!(bridge.metadata().duration_in_frames > 3 * 30);
     let scene = bridge.scene_at(Time::ZERO).unwrap();
     assert!(!scene.layers.is_empty());
+}
+
+#[test]
+fn reports_composition_chapters_in_order_when_node_is_available() {
+    let Some((node, cli_script, package_root)) = live_react_runtime() else {
+        return;
+    };
+
+    let entry = package_root.join("examples/with-chapters.tsx");
+    let bridge = ReactBridge::spawn(&node, &cli_script, &entry).unwrap();
+    let chapter = |id: &str, name: &str, from, duration_in_frames| ReactChapter {
+        id: id.to_owned(),
+        name: name.to_owned(),
+        from,
+        duration_in_frames,
+    };
+    let chapters = &bridge.metadata().chapters;
+    assert_eq!(
+        chapters,
+        &[
+            chapter("intro", "Intro", 0, 60),
+            chapter("demo", "Demo", 60, 90),
+            chapter("demo-setup", "Demo: setup", 60, 45),
+            chapter("demo-result", "Demo: result", 105, 45),
+            chapter("outro", "Outro", 150, 60),
+        ]
+    );
+    // Where a part overlaps its scene, the later-starting part is current.
+    let current = |frame| chapter_at(chapters, frame).map(|chapter| chapter.id.as_str());
+    assert_eq!(current(59), Some("intro"));
+    assert_eq!(current(60), Some("demo-setup"));
+    assert_eq!(current(149), Some("demo-result"));
+    assert_eq!(current(150), Some("outro"));
+    assert_eq!(current(210), None);
+
+    // An entry that declares none still previews, with no chapters.
+    let title =
+        ReactBridge::spawn(&node, &cli_script, package_root.join("examples/title.tsx")).unwrap();
+    assert!(title.metadata().chapters.is_empty());
 }
 
 #[test]

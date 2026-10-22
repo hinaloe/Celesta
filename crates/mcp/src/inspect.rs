@@ -146,6 +146,14 @@ impl Inspection {
                 metadata.project_property_order.join(", ")
             );
         }
+        if !metadata.chapters.is_empty() {
+            let chapters: Vec<String> = metadata
+                .chapters
+                .iter()
+                .map(|chapter| format!("{} [{}, {})", chapter.name, chapter.from, chapter.end()))
+                .collect();
+            let _ = writeln!(text, "chapters: {}", chapters.join(", "));
+        }
         let mut warnings = Vec::new();
         if !metadata.width.is_multiple_of(2) || !metadata.height.is_multiple_of(2) {
             warnings.push(format!(

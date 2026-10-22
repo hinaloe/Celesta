@@ -4,6 +4,8 @@
 // counterpart: it is this package's own `{"config": ...}` CLI handshake
 // message, not part of the Scene contract itself.
 
+import type { Chapter } from './chapters';
+
 export type { AssetLocation } from './generated/AssetLocation';
 export type { AudioClip } from './generated/AudioClip';
 export type { Animatable } from './generated/Animatable';
@@ -60,6 +62,8 @@ export interface CompositionConfig {
   frameRate: Rational;
   durationInFrames: number;
   lang?: string;
+  /** `<Composition chapters>`, checked; absent when none are declared. */
+  chapters?: Chapter[];
 }
 
 /** One registered root; an unnamed single root uses "default". */

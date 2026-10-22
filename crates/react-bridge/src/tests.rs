@@ -10,7 +10,7 @@ use crate::protocol::{
 };
 use crate::types::{
     ComponentPropertyField, ElementKind, LayerSource, LayerSourceReport, ReactAudioClipDescriptor,
-    ReceivedProps,
+    ReactChapter, ReceivedProps, chapter_at,
 };
 use celesta_composition::{
     Animatable, AssetLocation, AudioDuck, LayerFilter, ShaderParam, ShaderParamType, ShaderSource,
@@ -120,6 +120,61 @@ fn ready_message_without_component_schemas_defaults_to_empty() {
         panic!("expected a Ready message");
     };
     assert!(component_schemas.is_empty());
+}
+
+#[test]
+fn reads_chapters_from_the_ready_config() {
+    let json = serde_json::json!({
+        "config": {
+            "width": 640,
+            "height": 360,
+            "frameRate": {"numerator": 30, "denominator": 1},
+            "durationInFrames": 90,
+            "chapters": [
+                {"id": "intro", "name": "Intro", "from": 0, "durationInFrames": 30},
+                {"id": "mark", "name": "mark", "from": 30, "durationInFrames": 0}
+            ]
+        }
+    })
+    .to_string();
+    let ReadyMessage::Ready { config, .. } = serde_json::from_str(&json).unwrap() else {
+        panic!("expected a Ready message");
+    };
+    assert_eq!(config.chapters.len(), 2);
+    assert_eq!(config.chapters[0].name, "Intro");
+    assert_eq!(config.chapters[1].end(), 30);
+
+    // Older runtimes and compositions without chapters send none.
+    let json = r#"{"config":{"width":1,"height":1,"frameRate":{"numerator":30,"denominator":1},"durationInFrames":1}}"#;
+    let ReadyMessage::Ready { config, .. } = serde_json::from_str(json).unwrap() else {
+        panic!("expected a Ready message");
+    };
+    assert!(config.chapters.is_empty());
+}
+
+#[test]
+fn chapter_at_prefers_the_later_overlapping_chapter_and_skips_gaps_and_marks() {
+    let chapter = |id: &str, from, duration_in_frames| ReactChapter {
+        id: id.to_owned(),
+        name: id.to_owned(),
+        from,
+        duration_in_frames,
+    };
+    let chapters = [
+        chapter("a", 0, 30),
+        chapter("mark", 20, 0),
+        chapter("b", 20, 20),
+        chapter("c", 50, 10),
+    ];
+    let current = |frame| chapter_at(&chapters, frame).map(|chapter| chapter.id.as_str());
+    assert_eq!(current(0), Some("a"));
+    assert_eq!(current(19), Some("a"));
+    assert_eq!(current(20), Some("b"));
+    assert_eq!(current(39), Some("b"));
+    assert_eq!(current(40), None);
+    assert_eq!(current(50), Some("c"));
+    assert_eq!(current(60), None);
+    assert_eq!(chapter_at(&[], 0), None);
 }
 
 #[test]

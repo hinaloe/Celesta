@@ -171,6 +171,9 @@ pub struct ReactCompositionMetadata {
     /// Files and directories `prepare()` read, beyond the entry's own
     /// sources. Empty for an entry that reads none.
     pub prepare_dependencies: Vec<PrepareDependency>,
+    /// The selected composition's `<Composition chapters>`; empty when it
+    /// declares none.
+    pub chapters: Vec<ReactChapter>,
 }
 
 /// One audible `<Audio>` element as reported for a single rendered frame
@@ -374,6 +377,43 @@ pub(crate) struct ReactCompositionConfig {
     pub(crate) height: u32,
     pub(crate) frame_rate: Rational,
     pub(crate) duration_in_frames: u64,
+    /// Absent when the composition declares none, and from older runtimes.
+    #[serde(default)]
+    pub(crate) chapters: Vec<ReactChapter>,
+}
+
+/// One chapter of `<Composition chapters>`: a named span of the composition
+/// the editor lists and seeks to. The runtime has checked it: ids are unique
+/// and non-empty, the list is ordered by `from`, every chapter starts before
+/// the composition's end and is cut there. Chapters may overlap or leave
+/// gaps; one of length 0 marks a point.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReactChapter {
+    pub id: String,
+    /// The label to show; the runtime fills in `id` when none was given.
+    pub name: String,
+    /// First frame, in the composition's frames.
+    pub from: u64,
+    pub duration_in_frames: u64,
+}
+
+impl ReactChapter {
+    /// The frame after the chapter's last.
+    pub fn end(&self) -> u64 {
+        self.from + self.duration_in_frames
+    }
+}
+
+/// The chapter showing at `frame`: the latest-starting one whose span holds
+/// it, so where chapters overlap the later one is current. `None` in a gap,
+/// past the last chapter, and for chapters of length 0, which are never
+/// current.
+pub fn chapter_at(chapters: &[ReactChapter], frame: u64) -> Option<&ReactChapter> {
+    chapters
+        .iter()
+        .filter(|chapter| chapter.from <= frame && frame < chapter.end())
+        .max_by_key(|chapter| chapter.from)
 }
 
 /// A selectable root composition declared by an entry.
