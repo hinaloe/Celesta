@@ -178,6 +178,7 @@ function easingIntegral(progress: number, name: KeyframeEasing): number {
     case 'ease-in': return (progress * progress * progress) / 3;
     case 'ease-out': return progress * progress - (progress * progress * progress) / 3;
     case 'ease-in-out':
+    case 'ease-in-out-quad':
       return progress < 0.5
         ? (2 * progress * progress * progress) / 3
         : 2 * progress * progress - progress - (2 * progress * progress * progress) / 3 + 1 / 6;

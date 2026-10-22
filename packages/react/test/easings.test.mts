@@ -41,9 +41,10 @@ test('every keyframe easing is the Easings curve of the same name', () => {
 test('easeIn, easeOut, and easeInOut are the quadratic curves', () => {
   for (let step = 0; step <= 20; step += 1) {
     const t = step / 20;
-    assert.equal(Easings.easeIn(t), Easings.easeInQuad(t));
-    assert.equal(Easings.easeOut(t), Easings.easeOutQuad(t));
-    assert.equal(Easings.easeInOut(t), Easings.easeInOutQuad(t));
+    // Written out twice in animation.ts, so equal up to rounding.
+    assert.ok(Math.abs(Easings.easeIn(t) - Easings.easeInQuad(t)) <= 1e-12);
+    assert.ok(Math.abs(Easings.easeOut(t) - Easings.easeOutQuad(t)) <= 1e-12);
+    assert.ok(Math.abs(Easings.easeInOut(t) - Easings.easeInOutQuad(t)) <= 1e-12);
   }
   assert.equal(Easings.easeInOut(0.25), 0.125);
   assert.equal(Easings.easeInOut(0.75), 0.875);

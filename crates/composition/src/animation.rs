@@ -308,7 +308,7 @@ fn easing_integral(progress: f64, easing: Easing) -> f64 {
         Easing::Linear => progress * progress / 2.0,
         Easing::EaseIn => progress * progress * progress / 3.0,
         Easing::EaseOut => progress * progress - progress * progress * progress / 3.0,
-        Easing::EaseInOut => {
+        Easing::EaseInOut | Easing::EaseInOutQuad => {
             let p = progress;
             if p < 0.5 {
                 2.0 * p * p * p / 3.0
@@ -320,7 +320,10 @@ fn easing_integral(progress: f64, easing: Easing) -> f64 {
         // The rest of the catalogue (trig, exponential, and multi-branch
         // piecewise curves like elastic/back/bounce) doesn't have an
         // antiderivative worth hand-deriving and hand-verifying by eye the
-        // way the four polynomial curves above do — `integrate_f64`'s own
+        // way the polynomial curves above do (`EaseInOutQuad` among them:
+        // Simpson's rule isn't exact across its kink at 0.5, so the same
+        // curve as `EaseInOut` would integrate slightly differently
+        // otherwise) — `integrate_f64`'s own
         // caller only needs this to convert an animated playback rate into
         // an absolute source-time offset, so a numerically integrated
         // approximation (indistinguishable from the closed form at
@@ -452,6 +455,7 @@ mod tests {
             Easing::EaseIn,
             Easing::EaseOut,
             Easing::EaseInOut,
+            Easing::EaseInOutQuad,
         ] {
             // Both halves of the piecewise `EaseInOut`.
             for progress in [0.3, 0.7, 1.0] {
