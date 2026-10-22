@@ -5,7 +5,8 @@ export type { BarChartItem, BarChartOrder, BarChartProps, RankingProps } from '.
 export { Callout } from './callout';
 export type { CalloutProps, CalloutRoute, CalloutSide } from './callout';
 export { CaptionTrack } from './caption-track';
-export type { CaptionCue, CaptionRenderProps, CaptionTrackProps } from './caption-track';
+export type { CaptionCue, CaptionHighlight, CaptionRenderProps, CaptionTrackProps, CaptionWordState } from './caption-track';
+export type { CaptionPaging, CaptionWord, CaptionWordUnit } from './caption-words';
 export { formatNumber } from './count';
 export type { CountTiming, NumberFormat } from './count';
 export { Counter } from './counter';
