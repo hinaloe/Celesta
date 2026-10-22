@@ -30,8 +30,8 @@ ENV PKG_CONFIG_PATH=/opt/ffmpeg8/lib/pkgconfig
 # Rust and Node.js come from their official images. Keep Rust in step with the
 # toolchain CI uses (.github/workflows/ci.yml). The exporter bundles this same
 # Node.js binary.
-COPY --from=rust:1.99.0-slim-bookworm /usr/local/rustup /usr/local/rustup
-COPY --from=rust:1.99.0-slim-bookworm /usr/local/cargo /usr/local/cargo
+COPY --from=rust:1.99.1-slim-bookworm /usr/local/rustup /usr/local/rustup
+COPY --from=rust:1.99.1-slim-bookworm /usr/local/cargo /usr/local/cargo
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:$PATH
 COPY --from=node:24-bookworm-slim /usr/local/bin/node /usr/local/bin/node
 COPY --from=node:24-bookworm-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
