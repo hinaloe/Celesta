@@ -148,6 +148,43 @@ struct HistoryEntry { files: Vec<FileEdit> }
   commit does today; if any target moved, the commit aborts with "The source
   changed while editing".
 
+### Drag preview through the runtime
+
+With pass-through, a dragged value often feeds more than the dragged layer:
+the other layers of the same component call, the lines a `.map()` call
+makes, layout computed from it. Patching the dragged layer's transform after
+evaluation moves that layer alone until the write reloads the code. Instead,
+the preview hands the drag's values to the React runtime as prop overrides
+for the frame it asks for anyway (no extra evaluations), so the frame shows
+what the write will produce:
+
+```text
+PropOverride { file (absolute), line, column, prop, value }
+```
+
+- Each value overrides the prop its write changes: the element's own prop
+  (`report.chain[0]`) for a `Literal`, `Keyframe`, or `Missing` target, and
+  the parameter's prop at the call site (`Target.call_site`, `param`) for a
+  `PassThrough`. Locked props are never dragged. The positions are taken
+  when the drag starts and kept while a released drag writes, until the
+  reload's frame is shown.
+- The frame request carries `propOverrides` (left out when empty; exports
+  never send it). `jsxDEV` creates an element written at an override's
+  position with the value, comparing the recorded file name resolved as
+  `layerSource` resolves it. Without overrides it checks one variable.
+- A component renders only when something it reads changed, so while
+  overrides are set `jsxDEV` subscribes the rendering component to a context
+  whose value changes with them; a `memo` component that reads no frame
+  renders again too. Components that rendered before the overrides were set
+  never subscribed, and an element cached with `useMemo` while they were set
+  would keep the value after: the entry remounts when overrides start and
+  when they stop, never on the frames between. `<Static>` renders its
+  children on every frame that has overrides; its cached layers are walked
+  again only when a host node below changed. Elements created outside any
+  render (at module scope) keep their written values.
+- Field edits (typing in a Transform row) write without a preview, and need
+  no overrides.
+
 ## Property tables (`packages/react`, `packages/shapes`)
 
 The editor needs, per primitive, the props it can edit and their types. They
@@ -269,10 +306,10 @@ text in place, in its own font, size, wrapping, and transform:
 
 - **Live, without writing.** The editor replaces the layer's `text` in the
   held scene (the scene's `LayerContent::Text` carries the string, and the
-  Rust renderer lays it out) and re-renders on every keystroke, as a drag
-  overrides the transform. Nothing is written while typing, and the React
-  code is not run: what the code computes from the text (a frame sized to
-  it) keeps its old size until the commit's reload. (Decided with the user:
+  Rust renderer lays it out) and re-renders on every keystroke. Nothing is
+  written while typing, and, unlike a drag (see "Drag preview through the
+  runtime"), the React code is not run: what the code computes from the
+  text (a frame sized to it) keeps its old size until the commit's reload. (Decided with the user:
   a frame changing size while typing gets in the way.)
 - **Caret and selection** come from the layout's `TextMetrics`
   (`line_starts`, and each glyph cluster's code-point range, left edge, and
@@ -325,12 +362,24 @@ Rust (`crates/editor`):
   multi-line, rotated, and combining-character text; the held scene's text is
   replaced and restored on Escape; seeking or selecting another layer
   commits; a locked `text` row does not enter editing.
+- Drag overrides: a `Literal` or `Missing` target overrides the element's
+  prop, a `PassThrough` the call site's `param`, a locked one nothing.
+
+Rust (`crates/react-bridge`): a frame request carries `propOverrides` only
+when there are some.
 
 TypeScript (Vitest):
 
 - Property tables type test for every primitive.
 - Tables reach the ready message.
 - Received props carry strings, booleans, and string `children`.
+- Prop overrides: a written prop replaced on the element at the position
+  only, an absent prop added, a call-site override reaching every layer that
+  reads the parameter, an element in a `memo` component that reads no frame
+  following two override frames, the written values back after a frame
+  without overrides (an element cached with `useMemo` too), and an element
+  inside `<Static>` following the drag; a CLI frame request with
+  `propOverrides`.
 
 Manual, with before/after screenshots of the same scene: edit a `Text`'s
 content inline (including Japanese input through the IME) and its font size, a `Rect`'s fill and corner radius, resize a `Rect` from

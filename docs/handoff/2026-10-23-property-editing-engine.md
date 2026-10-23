@@ -74,6 +74,21 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   and returns the new text of each file it writes. A drag that moves a
   call-site `x` and rotates an element-side `rotation` writes both files as
   one history entry.
+- Drags preview through the runtime (`packages/react/src/jsx-dev-runtime.ts`,
+  `render.ts`, `packages/cli/src/cli.ts`, `crates/react-bridge/src/bridge.rs`,
+  `crates/editor/src/transform_drag.rs`, `preview.rs`): while a layer is
+  dragged, the preview asks for its frame with the drag's values as
+  `PropOverride`s (`ReactBridge::scene_at_with_overrides`, `propOverrides`
+  in the frame request) instead of patching the layer's transform after
+  evaluation (`apply_override` and `override_transform` are gone, and so is
+  the motion-blur sample the patch missed). A value overrides the prop its
+  write changes: the element's own, or the parameter's prop at the call
+  site for a pass-through, so the other layers made from the same value
+  move with it. `override_sites` takes the positions when the drag starts,
+  since the targets are gone while a released drag writes. `jsxDEV` creates
+  matching elements with the value and, while overrides are set, subscribes
+  the rendering component to `PropOverridesContext`, so a `memo` component
+  renders again; the entry remounts when overrides start and when they stop.
 - Rows and impact (`transform_rows.rs`, `impact.rs`, `layer_panel.rs`,
   `icons.rs`): a row whose value is set at a call site shows the state of
   the value there (field, keyframe or lock icon, reason) and, under the
@@ -125,6 +140,18 @@ These differ from, or settle what the plan left open:
 - **The outside-project lock applies per target file.** A call site in
   `node_modules` or outside the entry's folder locks the props set there,
   not the element's own.
+- **A drag remounts the entry twice, never per frame.** Components that
+  rendered before a drag never subscribed to the overrides, and an element
+  cached with `useMemo` while they were set would keep the dragged value
+  after, so the entry remounts on the first frame with overrides and on the
+  first without (an Escape; a written drag ends with the reload instead).
+  Hook state starts over at those two frames, and `<Static>` layers are
+  sent to Rust again. Without overrides `jsxDEV` only checks one variable.
+- **`<Static>` follows the drag.** Its `memo` comparison fails on frames
+  with overrides, so a child written directly in it renders with the
+  value; its cached layers are walked again only when a host node changed.
+- **Module-scope JSX keeps its written values** while dragging: it is
+  created once, outside any render.
 
 ## What 2b–2d build on
 
@@ -154,3 +181,6 @@ In the editor:
   scene.
 - Dragging the layer writes the call site, and undo after a drag that also
   rotated restores both files in one step.
+- While dragging a layer whose `x` is set at the call site, the other
+  layers the component draws from the same `x` move with it before the
+  mouse is released, and nothing jumps back on release.
