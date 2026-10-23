@@ -256,6 +256,8 @@ pub(crate) struct EditorView {
     pub(crate) viewer_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// Why the last attempt to open a source position failed.
     pub(crate) launch_error: Option<String>,
+    /// The Properties tab's "Source chain" disclosure is expanded.
+    pub(crate) source_chain_open: bool,
     /// Which reloads keep `selected_layer` (those after the editor's own writes).
     pub(crate) selection_keep: SelectionKeep,
     /// The selected layer's transform targets in its source.
@@ -417,6 +419,7 @@ impl EditorView {
             source_lookup_frame: 0,
             viewer_bounds: Rc::default(),
             launch_error: None,
+            source_chain_open: false,
             selection_keep: SelectionKeep::default(),
             transform: TransformEdit::default(),
             transform_inputs: TransformInputs::default(),

@@ -1,9 +1,6 @@
 //! Which scenes an edit of the selected layer changes, from the occurrence
 //! sweep (see [`crate::occurrences`]) and the layer's own report.
 
-// Drawn by the Properties tab and the timeline in the next commits.
-#![cfg_attr(not(test), allow(dead_code))]
-
 use crate::occurrences::OccurrenceState;
 use celesta_react_bridge::{
     InstanceOccurrences, LayerSourceReport, ReactChapter, SourcePos, outermost_chapter_at,
