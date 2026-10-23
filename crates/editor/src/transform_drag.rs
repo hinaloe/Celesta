@@ -86,13 +86,13 @@ impl EditorView {
         let Some((targets, _)) = self.transform_targets() else {
             return DragState::Unknown;
         };
-        let editable: Vec<TransformProp> = targets
+        let props: Vec<TransformProp> = targets
             .targets
             .iter()
             .filter(|(_, target)| editable(&target.target))
             .map(|(prop, _)| *prop)
             .collect();
-        if editable.is_empty() {
+        if props.is_empty() {
             let reason = targets
                 .targets
                 .iter()
@@ -103,7 +103,7 @@ impl EditorView {
                 .unwrap_or_default();
             return DragState::Locked(frame, reason);
         }
-        DragState::Editable(frame, editable)
+        DragState::Editable(frame, props)
     }
 
     /// The transform the preview draws for the dragged layer in place of its

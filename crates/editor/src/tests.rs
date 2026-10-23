@@ -2646,6 +2646,39 @@ fn a_drag_writes_two_files() {
 }
 
 #[test]
+fn a_value_missing_at_the_call_site_is_inserted_there() {
+    let component = PRICE_TAG.replace("({ x })", "({ x = 0 })");
+    let scene = PRICE_TAG_SCENE.replace(" x={40}", "");
+    let texts = Texts::from([
+        (PathBuf::from("/project/component.tsx"), component),
+        (PathBuf::from("/project/scene.tsx"), scene.clone()),
+    ]);
+    let report = LayerSourceReport {
+        props: ReceivedProps {
+            x: Some(0.0),
+            rotation: Some(10.0),
+            ..ReceivedProps::default()
+        },
+        ..price_tag_report()
+    };
+    let targets = resolve_targets(read_from(&texts), &report).unwrap();
+    let Some(EditTarget::PassThrough { target, .. }) = targets.target(TransformProp::X) else {
+        panic!("x passes through: {:?}", targets.target(TransformProp::X));
+    };
+    assert!(matches!(**target, EditTarget::Missing { .. }));
+
+    let written = commit_files(&texts, &targets, &report, &[(TransformProp::X, 60.0)]).unwrap();
+
+    assert_eq!(
+        written,
+        vec![(
+            PathBuf::from("/project/scene.tsx"),
+            scene.replace("<PriceTag />", "<PriceTag x={60} />")
+        )]
+    );
+}
+
+#[test]
 fn a_component_called_in_its_own_file_is_written_once() {
     let text = format!("{PRICE_TAG}{PRICE_TAG_SCENE}");
     let texts = Texts::from([(PathBuf::from("/project/scene.tsx"), text.clone())]);
@@ -2765,6 +2798,105 @@ fn a_value_passed_on_again_still_commits_the_element_s_own_props() {
         .collect();
     assert_eq!(
         commit_files(&read, &targets, &report, &[(TransformProp::Rotation, 45.0)]),
+        Ok(vec![(
+            PathBuf::from("/project/component.tsx"),
+            PRICE_TAG.replace("rotation={10}", "rotation={45}")
+        )])
+    );
+}
+
+/// `PriceTag` and the `Frame` it passes `<Rect>` to as children are both
+/// `memo` of an arrow, which the runtime reports as "Anonymous".
+const MEMO_PRICE_TAG: &str = "export const Frame = memo(({ children }) => <Group>{children}</Group>);\nexport const PriceTag = memo(({ x = 0 }) => (\n  <Frame>\n    <Rect x={x} />\n  </Frame>\n));\n";
+
+fn memo_report(chain: Vec<LayerSource>) -> LayerSourceReport {
+    LayerSourceReport {
+        props: ReceivedProps {
+            x: Some(40.0),
+            ..ReceivedProps::default()
+        },
+        ..report_of(chain)
+    }
+}
+
+#[test]
+fn an_anonymous_call_site_must_call_the_enclosing_component() {
+    let texts = Texts::from([
+        (
+            PathBuf::from("/project/component.tsx"),
+            MEMO_PRICE_TAG.to_owned(),
+        ),
+        (
+            PathBuf::from("/project/scene.tsx"),
+            PRICE_TAG_SCENE.to_owned(),
+        ),
+    ]);
+    let rect = LayerSource {
+        column: 5,
+        ..entry_at("Rect", ElementKind::Primitive, "/project/component.tsx", 4)
+    };
+    let price_tag_call = entry_at("Anonymous", ElementKind::Component, "/project/scene.tsx", 2);
+
+    // The nearest anonymous entry is `<Frame>`, not a call of `PriceTag`.
+    let report = memo_report(vec![
+        rect.clone(),
+        entry_at(
+            "Anonymous",
+            ElementKind::Component,
+            "/project/component.tsx",
+            3,
+        ),
+        price_tag_call.clone(),
+    ]);
+    let targets = resolve_targets(read_from(&texts), &report).unwrap();
+    assert_eq!(
+        targets.target(TransformProp::X),
+        Some(&EditTarget::Locked(LockReason::CallSiteNotFound {
+            component: "PriceTag".to_owned()
+        }))
+    );
+    assert_eq!(
+        commit_files(&texts, &targets, &report, &[(TransformProp::X, 60.0)]),
+        Err(CommitError::NotEditable(TransformProp::X))
+    );
+
+    // An anonymous entry whose tag is `<PriceTag>` is its call.
+    let report = memo_report(vec![rect, price_tag_call]);
+    let targets = resolve_targets(read_from(&texts), &report).unwrap();
+    assert_eq!(
+        targets.file_of(TransformProp::X),
+        Path::new("/project/scene.tsx")
+    );
+    assert!(matches!(
+        targets.target(TransformProp::X),
+        Some(EditTarget::PassThrough { .. })
+    ));
+}
+
+#[test]
+fn an_unreadable_call_site_locks_only_the_props_passed_through() {
+    let texts = Texts::from([(
+        PathBuf::from("/project/component.tsx"),
+        PRICE_TAG.to_owned(),
+    )]);
+    let report = price_tag_report();
+
+    let targets = resolve_targets(read_from(&texts), &report).expect("the element resolves");
+
+    assert_eq!(
+        targets.target(TransformProp::X),
+        Some(&EditTarget::Locked(LockReason::CallSiteNotFound {
+            component: "PriceTag".to_owned()
+        }))
+    );
+    assert_eq!(targets.files, [PathBuf::from("/project/component.tsx")]);
+    assert_eq!(
+        commit_files(
+            &texts,
+            &targets,
+            &report,
+            &[(TransformProp::Rotation, 45.0)]
+        ),
         Ok(vec![(
             PathBuf::from("/project/component.tsx"),
             PRICE_TAG.replace("rotation={10}", "rotation={45}")

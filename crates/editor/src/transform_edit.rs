@@ -170,17 +170,23 @@ pub(crate) fn resolve_targets(
     let passes = props
         .iter()
         .any(|prop| parameter_of(&text, &element, prop.name()).is_some());
-    let call_site = match passes.then(|| caller(&text, &element, report)).flatten() {
-        Some(entry) => {
-            let call_site_text = read(&entry.file)?;
-            if !files.contains(&entry.file) {
-                files.push(entry.file.clone());
-            }
-            element_at(&call_site_text, entry.line, entry.column)
-                .map(|call| (entry, call_site_text, call))
-        }
-        None => None,
-    };
+    // A call site that can't be read or found locks only the props passed
+    // through (`CallSiteNotFound`); the element's own stay editable.
+    let call_site =
+        passes
+            .then(|| caller(&text, &element, report))
+            .flatten()
+            .and_then(|(component, entry)| {
+                let call_site_text = read(&entry.file).ok()?;
+                if !files.contains(&entry.file) {
+                    files.push(entry.file.clone());
+                }
+                let call = element_at(&call_site_text, entry.line, entry.column)?;
+                // An anonymous entry may be any `memo` component above the
+                // element, one it is only passed to as children among them.
+                (entry.name == component || tag_name(&call_site_text, &call) == component)
+                    .then_some((entry, call_site_text, call))
+            });
     let target = |prop: TransformProp| {
         let ctx = ResolveContext {
             primitive: source.kind == ElementKind::Primitive,
@@ -215,14 +221,29 @@ pub(crate) fn resolve_targets(
     })
 }
 
-/// The chain entry calling the component that encloses `element` in `text`.
+/// The component that encloses `element` in `text`, and the chain entry
+/// calling it.
 fn caller<'r>(
     text: &str,
     element: &ElementRef,
     report: &'r LayerSourceReport,
-) -> Option<&'r LayerSource> {
+) -> Option<(String, &'r LayerSource)> {
     let component = enclosing_component(text, element)?;
-    owner_call_site(report, &component)
+    let entry = owner_call_site(report, &component)?;
+    Some((component, entry))
+}
+
+/// The last `.` segment of the tag name of `element` in `text`: `PriceTag`
+/// for `<PriceTag …>` and `<ui.PriceTag …>`.
+fn tag_name<'t>(text: &'t str, element: &ElementRef) -> &'t str {
+    let name = text
+        .get(element.start as usize + 1..)
+        .unwrap_or_default()
+        .trim_start();
+    let end = name
+        .find(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '$' | '.' | '-' | ':')))
+        .unwrap_or(name.len());
+    name[..end].rsplit('.').next().unwrap_or_default()
 }
 
 fn edit_value(value: ReceivedValue) -> EditValue {
