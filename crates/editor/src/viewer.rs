@@ -746,7 +746,7 @@ impl EditorView {
             self.hit_regions.clear();
         }
         self.refresh_preview();
-        self.refresh_occurrences();
+        self.refresh_occurrences(false);
         cx.notify();
     }
 

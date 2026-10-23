@@ -562,7 +562,7 @@ impl EditorView {
             self.watch_react_entry(cx);
         }
         // The constructor's sweep ran before Select layers carried over.
-        self.refresh_occurrences();
+        self.refresh_occurrences(false);
     }
 }
 

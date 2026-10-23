@@ -68,7 +68,7 @@ pub(crate) fn impact_view(
         Some(OccurrenceState::Failed(message)) => {
             return span_only(format!("Couldn't scan scenes: {message}"));
         }
-        Some(OccurrenceState::Ready(index)) => index,
+        Some(OccurrenceState::Ready(index) | OccurrenceState::Refreshing(index)) => index,
     };
     let Some((element, own)) = index.instance_for(report) else {
         return span_only("Not found in the scene scan".to_owned());
@@ -442,6 +442,27 @@ mod tests {
             impact_line(&view),
             ("Not found in the scene scan".to_owned(), false)
         );
+    }
+
+    #[test]
+    fn the_last_scan_is_read_while_refreshing() {
+        let chapters = [chapter("a", "A", 0, 30), chapter("b", "B", 30, 30)];
+        let last = OccurrenceIndex {
+            elements: vec![ElementOccurrences {
+                element: pos(3),
+                instances: vec![instance(vec![pos(3)], vec![(0, 20), (40, 60)])],
+            }],
+        };
+        let report = report(&[pos(3)], Some((0.0, 60.0)));
+        let refreshing = impact_view(
+            &report,
+            Some(&OccurrenceState::Refreshing(last.clone())),
+            &chapters,
+            10,
+        );
+        let ready = impact_view(&report, Some(&OccurrenceState::Ready(last)), &chapters, 10);
+        assert_eq!(refreshing, ready);
+        assert_eq!(known(refreshing).other_scenes, vec!["B"]);
     }
 
     #[test]

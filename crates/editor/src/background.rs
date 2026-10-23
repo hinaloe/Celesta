@@ -193,7 +193,11 @@ impl EditorView {
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    if let Some((_, state @ OccurrenceState::Scanning)) = &mut self.occurrences {
+                    if let Some((_, state)) = self
+                        .occurrences
+                        .as_mut()
+                        .filter(|(_, state)| state.is_sweeping())
+                    {
                         *state = OccurrenceState::Failed(
                             "occurrence worker stopped unexpectedly".to_owned(),
                         );

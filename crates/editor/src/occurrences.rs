@@ -33,7 +33,29 @@ pub(crate) struct OccurrenceResult {
 pub(crate) enum OccurrenceState {
     Scanning,
     Ready(OccurrenceIndex),
+    /// A new sweep runs after the editor's own write; the last index stays
+    /// in use, read like `Ready`, until its result replaces it.
+    Refreshing(OccurrenceIndex),
     Failed(String),
+}
+
+impl OccurrenceState {
+    /// Whether a sweep is running, whose result is still to land.
+    pub(crate) const fn is_sweeping(&self) -> bool {
+        matches!(self, Self::Scanning | Self::Refreshing(_))
+    }
+}
+
+/// The state a new sweep starts in: after the editor's own write (`keep`)
+/// the last index stays in use until the sweep lands; anything else scans
+/// afresh.
+pub(crate) fn rescan_state(previous: Option<OccurrenceState>, keep: bool) -> OccurrenceState {
+    match previous {
+        Some(OccurrenceState::Ready(index) | OccurrenceState::Refreshing(index)) if keep => {
+            OccurrenceState::Refreshing(index)
+        }
+        _ => OccurrenceState::Scanning,
+    }
 }
 
 /// Spawns a transient `@celesta/cli` process with source locations and
@@ -156,8 +178,9 @@ impl EditorView {
     /// Starts sweeping the React entry for where each element renders,
     /// tagged with the current reload. Only a preview that picks layers
     /// (Select layers on) can select anything to show the impact of; any
-    /// other state has nothing to sweep.
-    pub(crate) fn refresh_occurrences(&mut self) {
+    /// other state has nothing to sweep. `keep` (the editor's own write)
+    /// keeps the last index in use while the sweep runs.
+    pub(crate) fn refresh_occurrences(&mut self, keep: bool) {
         let react = match &self.react_preview {
             Some(react) if self.picks_layers() => react,
             _ => {
@@ -176,7 +199,7 @@ impl EditorView {
             composition_id: react.composition_id.clone(),
             duration_in_frames: u64::try_from(self.clock.end_frame()).unwrap_or(0),
         }) {
-            Ok(()) => OccurrenceState::Scanning,
+            Ok(()) => rescan_state(self.occurrences.take().map(|(_, state)| state), keep),
             Err(error) => OccurrenceState::Failed(error),
         };
         self.occurrences = Some((generation, state));
@@ -262,5 +285,52 @@ mod tests {
     #[test]
     fn a_result_after_select_layers_turned_off_is_dropped() {
         assert!(!accepts(3, 3, false));
+    }
+
+    #[test]
+    fn an_own_write_keeps_the_last_scan_until_the_new_one_lands() {
+        let last = rendered(0, 30);
+        assert_eq!(
+            rescan_state(Some(OccurrenceState::Ready(last.clone())), true),
+            OccurrenceState::Refreshing(last.clone())
+        );
+        // A second write during the re-sweep still keeps it.
+        assert_eq!(
+            rescan_state(Some(OccurrenceState::Refreshing(last.clone())), true),
+            OccurrenceState::Refreshing(last)
+        );
+    }
+
+    #[test]
+    fn an_own_write_without_a_ready_scan_scans_afresh() {
+        assert_eq!(rescan_state(None, true), OccurrenceState::Scanning);
+        assert_eq!(
+            rescan_state(Some(OccurrenceState::Scanning), true),
+            OccurrenceState::Scanning
+        );
+        assert_eq!(
+            rescan_state(Some(OccurrenceState::Failed("boom".to_owned())), true),
+            OccurrenceState::Scanning
+        );
+    }
+
+    #[test]
+    fn a_kept_scan_is_still_sweeping() {
+        assert!(OccurrenceState::Scanning.is_sweeping());
+        assert!(OccurrenceState::Refreshing(rendered(0, 30)).is_sweeping());
+        assert!(!OccurrenceState::Ready(rendered(0, 30)).is_sweeping());
+        assert!(!OccurrenceState::Failed("boom".to_owned()).is_sweeping());
+    }
+
+    #[test]
+    fn an_outside_reload_scans_afresh() {
+        assert_eq!(
+            rescan_state(Some(OccurrenceState::Ready(rendered(0, 30))), false),
+            OccurrenceState::Scanning
+        );
+        assert_eq!(
+            rescan_state(Some(OccurrenceState::Refreshing(rendered(0, 30))), false),
+            OccurrenceState::Scanning
+        );
     }
 }
