@@ -103,8 +103,8 @@ listed.
 
 ### Occurrence sweep
 
-A new request, `{ "collectOccurrences": true }`, walks every frame as
-`collectAudio` does (settle the tree, walk it with a layer-node map, no scene
+A new request, `{ "collectOccurrences": { "from": 0, "frames": 240 } }`,
+walks the frames `[from, from + frames)` as `collectAudio` walks every frame (settle the tree, walk it with a layer-node map, no scene
 JSON, no audio decoding) and records, for every layer node:
 
 - the element key: the innermost chain entry's `file:line:column`;
@@ -135,10 +135,13 @@ interface OccurrenceIndex {
 Only elements with a source position are recorded. Layers without one (inside
 `node_modules`, or an entry built without positions) are skipped.
 
+Ranges are clipped to the requested frames; the bridge joins chunks.
+
 Cost: one tree walk per frame, like `collectAudio`, plus a chain walk per
-layer. Chains are cached per fiber for the sweep, since most fibers survive
-from one frame to the next. The sweep must not slow the preview, so it runs in
-a separate bridge process (see below).
+layer from a committed-fiber set computed once per frame. Chains are not
+cached across frames: fibers alternate between renders, and a cached chain
+could be stale. The sweep must not slow the preview, so it runs in a separate
+bridge process (see below).
 
 ## Bridge (`crates/react-bridge`)
 
@@ -157,8 +160,10 @@ a separate bridge process (see below).
 ### Occurrence worker
 
 An `OccurrenceWorker`, shaped like `ComponentSchemaWorker`: its own thread and
-its own `ReactBridge` spawned with source locations. On every React reload it
-cancels the running sweep (kills its process) and starts another. The view
+its own `ReactBridge` spawned with source locations. The sweep is requested in
+chunks of 240 frames (`collectOccurrences { from, frames }`); on every React
+reload the worker abandons the running sweep at its next chunk and starts
+another. The view
 keeps `occurrences: OccurrenceState` = `Scanning` | `Ready(index)` |
 `Failed(message)`, tagged with the reload generation it belongs to. A result
 for an older generation is dropped.
@@ -196,7 +201,8 @@ one block:
 Above the Transform rows (and every editable group design 2 adds), one line
 states what a commit changes:
 
-- not shared: "Changes this scene only";
+- not shared: "Changes this scene only", or "Changes 3 places in this scene"
+  when the element renders more than once in it;
 - shared: "Also changes Intro, Outro", in the warning color.
 
 For a pass-through target (design 2) the scenes are those of the instances
