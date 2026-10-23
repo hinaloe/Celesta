@@ -344,6 +344,364 @@ fn a_keyframe_takes_only_numbers() {
     assert!(target.to_edit("x", &EditValue::Bool(true)).is_none());
 }
 
+fn text_children(children: &str) -> String {
+    component(&format!("  return <Text>{children}</Text>;"))
+}
+
+#[test]
+fn jsx_text_child() {
+    let text = text_children("Sale now");
+    let target = run(&text, "Text", "children", Some(string("Sale now")));
+    let EditTarget::Literal { span, value, form } = &target else {
+        panic!("expected Literal, got {target:?}");
+    };
+    assert_eq!(
+        (span_text(&text, *span), value, *form),
+        ("Sale now", &string("Sale now"), LiteralForm::JsxText)
+    );
+    assert_eq!(
+        write(&text, &target, "children", string("Big sale")),
+        text_children("Big sale")
+    );
+}
+
+#[test]
+fn multiline_jsx_text_collapses() {
+    let text = text_children("\n  Sale\n  now\n");
+    let target = run(&text, "Text", "children", Some(string("Sale now")));
+    let EditTarget::Literal { span, value, form } = &target else {
+        panic!("expected Literal, got {target:?}");
+    };
+    // The whole children span is replaced.
+    assert_eq!(
+        (span_text(&text, *span), value, *form),
+        (
+            "\n  Sale\n  now\n",
+            &string("Sale now"),
+            LiteralForm::JsxText
+        )
+    );
+    assert_eq!(
+        write(&text, &target, "children", string("Big sale")),
+        text_children("Big sale")
+    );
+    // Blank lines are dropped; a line's inner spaces stay.
+    let text = text_children("\n  Sale  now\n\n  today\n");
+    assert!(matches!(
+        run(&text, "Text", "children", Some(string("Sale  now today"))),
+        EditTarget::Literal { .. }
+    ));
+}
+
+#[test]
+fn jsx_text_needing_braces() {
+    let text = text_children("Sale");
+    let target = run(&text, "Text", "children", Some(string("Sale")));
+    assert_eq!(
+        write(&text, &target, "children", string("a {b}")),
+        text_children("{\"a {b}\"}")
+    );
+    for (value, written) in [
+        ("a < b", "{\"a < b\"}"),
+        (" a", "{\" a\"}"),
+        ("a ", "{\"a \"}"),
+        ("a\nb", "{\"a\\nb\"}"),
+        // A tab reads as a space, `&` starts an entity.
+        ("a\tb", "{\"a\\tb\"}"),
+        ("a & b", "{\"a & b\"}"),
+    ] {
+        assert_eq!(
+            write(&text, &target, "children", string(value)),
+            text_children(written),
+            "{value:?}"
+        );
+    }
+}
+
+#[test]
+fn string_child_container() {
+    let text = text_children("{'Sale'}");
+    let target = run(&text, "Text", "children", Some(string("Sale")));
+    let EditTarget::Literal { span, value, form } = &target else {
+        panic!("expected Literal, got {target:?}");
+    };
+    assert_eq!(
+        (span_text(&text, *span), value, *form),
+        (
+            "{'Sale'}",
+            &string("Sale"),
+            LiteralForm::ChildContainer('\'')
+        )
+    );
+    assert_eq!(
+        write(&text, &target, "children", string("x")),
+        text_children("{'x'}")
+    );
+    assert_eq!(
+        write(&text, &target, "children", string("It's")),
+        text_children("{'It\\'s'}")
+    );
+    // Lines of only whitespace around it render nothing.
+    let text = text_children("\n    {\"Sale\"}\n  ");
+    let target = run(&text, "Text", "children", Some(string("Sale")));
+    assert!(
+        matches!(
+            target,
+            EditTarget::Literal {
+                form: LiteralForm::ChildContainer('"'),
+                ..
+            }
+        ),
+        "{target:?}"
+    );
+    assert_eq!(
+        write(&text, &target, "children", string("x")),
+        text_children("{\"x\"}")
+    );
+}
+
+#[test]
+fn span_children_are_locked() {
+    for children in ["a<Span>b</Span>", "{label}", "a{'b'}", "a &amp; b"] {
+        let text = text_children(children);
+        assert_eq!(
+            run(&text, "Text", "children", Some(string("ab"))),
+            EditTarget::Locked(LockReason::Expression {
+                source: children.into()
+            }),
+            "{children}"
+        );
+    }
+}
+
+#[test]
+fn empty_children_insert_text() {
+    let text = text_children("");
+    let target = run(&text, "Text", "children", None);
+    assert_eq!(
+        target,
+        EditTarget::Missing {
+            insert_at: (text.find("<Text>").unwrap() + "<Text>".len()) as u32,
+            default: Some(string(""))
+        }
+    );
+    assert_eq!(
+        write(&text, &target, "children", string("Sale")),
+        text_children("Sale")
+    );
+    assert_eq!(
+        write(&text, &target, "children", string("a {b}")),
+        text_children("{\"a {b}\"}")
+    );
+
+    // 2b opens the tag first.
+    let text = component("  return <Text color=\"#fff\" />;");
+    assert_eq!(
+        run(&text, "Text", "children", None),
+        EditTarget::Locked(LockReason::Expression {
+            source: "/>".into()
+        })
+    );
+}
+
+#[test]
+fn a_children_attribute_without_jsx_children() {
+    let text = component("  return <Text children=\"Sale\" />;");
+    let target = run(&text, "Text", "children", Some(string("Sale")));
+    assert!(
+        matches!(
+            target,
+            EditTarget::Literal {
+                form: LiteralForm::Quoted('"'),
+                ..
+            }
+        ),
+        "{target:?}"
+    );
+}
+
+#[test]
+fn element_ref_has_the_children_span() {
+    let text = text_children("Sale");
+    let offset = text.find("<Text").unwrap() as u32;
+    let element = element_at(&text, 2, 10).unwrap();
+    assert_eq!(element.start, offset);
+    assert_eq!(span_text(&text, element.children.unwrap()), "Sale");
+
+    let text = component("  return <Text />;");
+    assert_eq!(element_at(&text, 2, 10).unwrap().children, None);
+}
+
+fn styled(style: &str) -> String {
+    text_label(&format!("style={style}"))
+}
+
+#[test]
+fn style_number_property() {
+    let text = styled("{{ fontSize: 48 }}");
+    let target = run(
+        &text,
+        "Text",
+        "style.fontSize",
+        Some(EditValue::Number(48.0)),
+    );
+    let EditTarget::Literal { span, value, form } = &target else {
+        panic!("expected Literal, got {target:?}");
+    };
+    assert_eq!(
+        (span_text(&text, *span), value, *form),
+        ("48", &EditValue::Number(48.0), LiteralForm::Number)
+    );
+    assert_eq!(
+        write(&text, &target, "style.fontSize", EditValue::Number(64.0)),
+        styled("{{ fontSize: 64 }}")
+    );
+}
+
+#[test]
+fn style_string_property_and_keys() {
+    let text = styled("{{ 'color': '#fff', fontSize: 48 }}");
+    let target = run(&text, "Text", "style.color", Some(string("#fff")));
+    assert_eq!(
+        write(&text, &target, "style.color", string("#000")),
+        styled("{{ 'color': '#000', fontSize: 48 }}")
+    );
+    // A later key wins, as at runtime; a spread before it does not matter.
+    let text = styled("{{ ...base, fontSize: 1, fontSize: 48 }}");
+    let target = run(
+        &text,
+        "Text",
+        "style.fontSize",
+        Some(EditValue::Number(48.0)),
+    );
+    let EditTarget::Literal { span, .. } = target else {
+        panic!("expected Literal, got {target:?}");
+    };
+    assert_eq!(span_text(&text, span), "48");
+}
+
+#[test]
+fn style_const_property() {
+    let text = component("  const SIZE = 48;\n  return <Text style={{ fontSize: SIZE }} />;");
+    let target = run(
+        &text,
+        "Text",
+        "style.fontSize",
+        Some(EditValue::Number(48.0)),
+    );
+    let EditTarget::Literal { span, .. } = target else {
+        panic!("expected Literal, got {target:?}");
+    };
+    assert_eq!(span_text(&text, span), "48");
+}
+
+#[test]
+fn style_missing_property_inserts() {
+    let text = styled("{{ fontSize: 48 }}");
+    let target = run(&text, "Text", "style.color", None);
+    assert_eq!(
+        target,
+        EditTarget::Missing {
+            insert_at: (text.find("48").unwrap() + 2) as u32,
+            default: None
+        }
+    );
+    assert_eq!(
+        write(&text, &target, "style.color", string("#fff")),
+        styled("{{ fontSize: 48, color: \"#fff\" }}")
+    );
+
+    for (before, after) in [
+        // After a trailing comma, even past a comment.
+        ("{{ fontSize: 48, }}", "{{ fontSize: 48, color: \"#fff\" }}"),
+        (
+            "{{\n  fontSize: 48 /* big, */ ,\n}}",
+            "{{\n  fontSize: 48 /* big, */ , color: \"#fff\"\n}}",
+        ),
+        // Before a comment that follows the last property.
+        (
+            "{{ fontSize: 48 // big\n}}",
+            "{{ fontSize: 48, color: \"#fff\" // big\n}}",
+        ),
+        ("{{}}", "{{color: \"#fff\"}}"),
+    ] {
+        let text = styled(before);
+        let target = run(&text, "Text", "style.color", None);
+        assert_eq!(
+            write(&text, &target, "style.color", string("#fff")),
+            styled(after),
+            "{before}"
+        );
+    }
+
+    let text = styled("{{}}");
+    let target = run(&text, "Text", "style.fontSize", None);
+    assert_eq!(
+        write(&text, &target, "style.fontSize", EditValue::Number(48.0)),
+        styled("{{fontSize: 48}}")
+    );
+    assert_eq!(
+        write(&text, &target, "style.font-size", EditValue::Bool(true)),
+        styled("{{\"font-size\": true}}")
+    );
+}
+
+#[test]
+fn style_call_is_locked() {
+    let text = styled("{mono(20)}");
+    assert_eq!(
+        run(
+            &text,
+            "Text",
+            "style.fontSize",
+            Some(EditValue::Number(20.0))
+        ),
+        EditTarget::Locked(LockReason::Expression {
+            source: "mono(20)".into()
+        })
+    );
+}
+
+#[test]
+fn style_spreads_lock() {
+    for style in [
+        "{{ ...base }}",
+        "{{ fontSize: 48, ...base }}",
+        "{{ [key]: 48 }}",
+    ] {
+        let text = styled(style);
+        assert_eq!(
+            run(
+                &text,
+                "Text",
+                "style.fontSize",
+                Some(EditValue::Number(48.0))
+            ),
+            EditTarget::Locked(LockReason::Spread),
+            "{style}"
+        );
+    }
+    let text = text_label("style={{ fontSize: 48 }} {...rest}");
+    assert_eq!(
+        run(
+            &text,
+            "Text",
+            "style.fontSize",
+            Some(EditValue::Number(48.0))
+        ),
+        EditTarget::Locked(LockReason::Spread)
+    );
+}
+
+#[test]
+fn style_without_a_style_attribute() {
+    let text = text_label("fontSize={48}");
+    assert_eq!(
+        run(&text, "Text", "style.fontSize", None),
+        EditTarget::Locked(LockReason::NoStyleObject)
+    );
+}
+
 #[test]
 fn a_value_of_another_kind_still_parses() {
     let number = EditValue::Number(12.0);
@@ -356,4 +714,9 @@ fn a_value_of_another_kind_still_parses() {
         "{false}"
     );
     assert_eq!(write_value(&string("a"), LiteralForm::BareTrue), "=\"a\"");
+    assert_eq!(write_value(&number, LiteralForm::JsxText), "{12}");
+    assert_eq!(
+        write_value(&number, LiteralForm::ChildContainer('\'')),
+        "{12}"
+    );
 }

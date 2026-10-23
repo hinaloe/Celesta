@@ -1,11 +1,166 @@
 //! Expressions reduced to the shapes the resolve rules tell apart.
 
 use oxc_ast::ast::{
-    BinaryOperator, CallExpression, Expression, ObjectPropertyKind, StringLiteral, UnaryOperator,
+    BinaryOperator, CallExpression, Expression, JSXAttribute, JSXAttributeValue, JSXChild,
+    JSXElement, ObjectPropertyKind, PropertyKind, StringLiteral, UnaryOperator,
 };
 use oxc_span::GetSpan;
 
 use crate::resolve::{LiteralForm, Span};
+
+/// An element's children, reduced to what the rules need. Every `span`
+/// covers everything between the tags.
+#[derive(Debug)]
+pub(crate) enum Children {
+    /// `<Text />`.
+    SelfClosing,
+    /// Nothing React renders; text goes at `insert_at`, the end of the
+    /// opening tag.
+    Empty { insert_at: u32 },
+    /// One JSXText child; `value` is the text as React renders it.
+    Text { span: Span, value: String },
+    /// One `{'…'}` / `{"…"}` child.
+    Container {
+        span: Span,
+        value: String,
+        quote: char,
+    },
+    /// Several children, an element, an expression.
+    Other(Span),
+}
+
+pub(crate) fn children_of(element: &JSXElement<'_>) -> Children {
+    let Some(closing) = &element.closing_element else {
+        return Children::SelfClosing;
+    };
+    let span = Span {
+        start: element.opening_element.span.end,
+        end: closing.span.start,
+    };
+    // Text that collapses to nothing (indentation between tags) renders
+    // nothing.
+    let rendered: Vec<&JSXChild<'_>> = element
+        .children
+        .iter()
+        .filter(
+            |child| !matches!(child, JSXChild::Text(t) if collapse_jsx_text(&t.value).is_empty()),
+        )
+        .collect();
+    match rendered.as_slice() {
+        [] => Children::Empty {
+            insert_at: span.start,
+        },
+        // oxc keeps entities (`&amp;`) undecoded, so text with `&` may not be
+        // what React renders.
+        [JSXChild::Text(t)] if !t.value.contains('&') => Children::Text {
+            span,
+            value: collapse_jsx_text(&t.value),
+        },
+        [JSXChild::ExpressionContainer(c)] => {
+            let string = match c
+                .expression
+                .as_expression()
+                .map(Expression::without_parentheses)
+            {
+                Some(Expression::StringLiteral(s)) => string_of(s),
+                _ => None,
+            };
+            match string {
+                Some((value, quote)) => Children::Container { span, value, quote },
+                None => Children::Other(span),
+            }
+        }
+        _ => Children::Other(span),
+    }
+}
+
+/// JSXText as React renders it (Babel's `cleanJSXElementLiteralChild`):
+/// tabs read as spaces, every line but the first loses its leading spaces
+/// and every line but the last its trailing ones, lines left empty are
+/// dropped, and the rest are joined with single spaces.
+pub(crate) fn collapse_jsx_text(raw: &str) -> String {
+    let normalized = raw
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .replace('\t', " ");
+    let lines: Vec<&str> = normalized.split('\n').collect();
+    let last = lines.len() - 1;
+    let kept: Vec<&str> = lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            let line = if i > 0 {
+                line.trim_start_matches(' ')
+            } else {
+                line
+            };
+            if i < last {
+                line.trim_end_matches(' ')
+            } else {
+                line
+            }
+        })
+        .filter(|line| !line.is_empty())
+        .collect();
+    kept.join(" ")
+}
+
+/// Property `key` of a `style` attribute's value.
+#[derive(Debug)]
+pub(crate) enum StyleProperty {
+    /// The last property named `key`, with no spread or computed key after
+    /// it.
+    Value(Shape),
+    /// No property is, or may be, named `key`. `last` is the end of the
+    /// last property, if any.
+    Absent { object: Span, last: Option<u32> },
+    /// A spread or a computed key may set it.
+    Unknown,
+    /// The value is not an object literal; `span` is its source.
+    NotObject(Span),
+}
+
+pub(crate) fn style_property(attr: &JSXAttribute<'_>, key: &str) -> StyleProperty {
+    let value = match &attr.value {
+        Some(JSXAttributeValue::ExpressionContainer(c)) => c.expression.as_expression(),
+        _ => None,
+    };
+    let Some(value) = value else {
+        // `style="…"`, or `style` alone.
+        let span = attr.value.as_ref().map_or(attr.span, GetSpan::span);
+        return StyleProperty::NotObject(span_of(span));
+    };
+    let Expression::ObjectExpression(object) = value.without_parentheses() else {
+        return StyleProperty::NotObject(span_of(value.span()));
+    };
+    let mut result = None;
+    for property in &object.properties {
+        let named = match property {
+            ObjectPropertyKind::ObjectProperty(p) if !p.computed => {
+                p.key.static_name().map(|name| (name == key, p))
+            }
+            _ => None,
+        };
+        match named {
+            Some((false, _)) => {}
+            // A later key wins, as at runtime.
+            Some((true, p)) => {
+                result = Some(StyleProperty::Value(
+                    if p.kind == PropertyKind::Init && !p.method {
+                        shape_of(&p.value)
+                    } else {
+                        Shape::Other(span_of(p.span))
+                    },
+                ));
+            }
+            None => result = Some(StyleProperty::Unknown),
+        }
+    }
+    result.unwrap_or_else(|| StyleProperty::Absent {
+        object: span_of(object.span),
+        last: object.properties.last().map(|p| p.span().end),
+    })
+}
 
 /// An attribute value or initializer, reduced to what the rules need.
 #[derive(Debug)]

@@ -19,6 +19,14 @@ pub enum Edit {
         name: String,
         value: EditValue,
     },
+    /// Inserts `key: value` into an object literal at byte offset `at`:
+    /// nothing goes before it right after the `{`, ` ` after a comma, and
+    /// `, ` after a property.
+    InsertProperty {
+        at: u32,
+        key: String,
+        value: EditValue,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,7 +52,7 @@ impl Edit {
     fn span(&self) -> (u32, u32) {
         match self {
             Self::Replace { start, end, .. } => (*start, *end),
-            Self::Insert { at, .. } => (*at, *at),
+            Self::Insert { at, .. } | Self::InsertProperty { at, .. } => (*at, *at),
         }
     }
 }
@@ -75,6 +83,18 @@ pub fn apply(text: &str, edits: &[Edit]) -> Result<String, ApplyError> {
             Edit::Insert { name, value, .. } => {
                 out.push_str(&format!(" {name}{}", after_name(value)));
             }
+            Edit::InsertProperty { key, value, .. } => {
+                let separator = match text[..start].chars().next_back() {
+                    Some('{') => "",
+                    Some(',') => " ",
+                    _ => ", ",
+                };
+                out.push_str(&format!(
+                    "{separator}{}: {}",
+                    property_key(key),
+                    expression(value)
+                ));
+            }
         }
         cursor = end;
     }
@@ -91,7 +111,36 @@ pub fn write_value(value: &EditValue, form: LiteralForm) -> String {
         (LiteralForm::BareTrue, _) => after_name(value),
         (LiteralForm::ContainerQuoted(quote), EditValue::String(s)) => quote_string(s, quote),
         (LiteralForm::Template, EditValue::String(s)) => template(s),
+        (LiteralForm::JsxText, EditValue::String(s)) if fits_jsx_text(s) => s.clone(),
+        (LiteralForm::ChildContainer(quote), EditValue::String(s)) => {
+            format!("{{{}}}", quote_string(s, quote))
+        }
+        (LiteralForm::JsxText | LiteralForm::ChildContainer(_), _) => {
+            format!("{{{}}}", expression(value))
+        }
         _ => expression(value),
+    }
+}
+
+/// Whether JSXText renders as exactly `s`: no character that ends the text
+/// or starts an entity (`{ } < > &`), and nothing whitespace collapsing
+/// would change (a newline, a tab, leading or trailing whitespace).
+fn fits_jsx_text(s: &str) -> bool {
+    !s.contains(['{', '}', '<', '>', '&', '\n', '\r', '\t']) && s.trim() == s
+}
+
+/// An object literal key: `key` alone when it is an identifier, otherwise
+/// a string.
+fn property_key(key: &str) -> String {
+    let mut chars = key.chars();
+    let identifier = chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+    if identifier {
+        key.to_string()
+    } else {
+        quote_string(key, '"')
     }
 }
 

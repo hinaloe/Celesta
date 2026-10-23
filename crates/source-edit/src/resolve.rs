@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     ArrowFunctionBody, ArrowFunctionExpression, BindingIdentifier, Function, FunctionBody,
-    IdentifierReference, JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXOpeningElement,
-    Statement, VariableDeclarationKind,
+    IdentifierReference, JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXElement,
+    JSXOpeningElement, Statement, VariableDeclarationKind,
 };
 use oxc_ast_visit::Visit;
 use oxc_syntax::scope::ScopeFlags;
@@ -12,7 +12,10 @@ use oxc_syntax::scope::ScopeFlags;
 use crate::apply::Edit;
 use crate::locate::ElementRef;
 use crate::parse_checked;
-use crate::shape::{Input, Interpolate, Shape, shape_of, span_of, string_of};
+use crate::shape::{
+    Children, Input, Interpolate, Shape, StyleProperty, children_of, shape_of, span_of, string_of,
+    style_property,
+};
 
 /// A byte range of the source text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +56,10 @@ pub enum LiteralForm {
     BareTrue,
     /// `name={true}` / `name={false}`.
     Bool,
+    /// The element's one child is JSXText: `<Text>Sale</Text>`.
+    JsxText,
+    /// The element's one child is `{'…'}` / `{"…"}`.
+    ChildContainer(char),
 }
 
 /// Where a prop's value lives in the source, or why it cannot be edited.
@@ -60,7 +67,8 @@ pub enum LiteralForm {
 pub enum EditTarget {
     /// A literal written as `form`; replace `span`. For `Quoted` the span
     /// covers the quotes; for `BareTrue` it is the empty point right after
-    /// the attribute name.
+    /// the attribute name; for `JsxText` and `ChildContainer` it covers
+    /// everything between the tags.
     Literal {
         span: Span,
         value: EditValue,
@@ -122,6 +130,9 @@ pub enum LockReason {
     FrameUncertain,
     /// The element's file is outside the project (or in `node_modules`).
     OutsideProject,
+    /// `style.<key>` on an element without a `style` attribute: there is no
+    /// object to edit, and the shorthand prop is what sets the value.
+    NoStyleObject,
 }
 
 /// What the runtime reported about the element in the current frame.
@@ -171,12 +182,58 @@ impl EditTarget {
                 value: EditValue::Number(value.as_number()?),
                 form: LiteralForm::Number,
             }),
-            Self::Missing { insert_at, .. } => Some(Edit::Insert {
-                at: *insert_at,
-                name: prop.to_string(),
-                value: value.clone(),
+            Self::Missing { insert_at, .. } => Some(match PropPath::parse(prop) {
+                PropPath::Attribute(name) => Edit::Insert {
+                    at: *insert_at,
+                    name: name.to_string(),
+                    value: value.clone(),
+                },
+                PropPath::Children => Edit::Replace {
+                    start: *insert_at,
+                    end: *insert_at,
+                    value: value.clone(),
+                    form: LiteralForm::JsxText,
+                },
+                PropPath::Style(key) => Edit::InsertProperty {
+                    at: *insert_at,
+                    key: key.to_string(),
+                    value: value.clone(),
+                },
             }),
             Self::Locked(_) => None,
+        }
+    }
+}
+
+/// What a prop path names on an element.
+#[derive(Debug, Clone, Copy)]
+enum PropPath<'p> {
+    /// An attribute.
+    Attribute(&'p str),
+    /// `children`: the element's children, or its `children` attribute
+    /// when it has none.
+    Children,
+    /// `style.<key>`: property `<key>` of a `style={{ … }}` object literal.
+    Style(&'p str),
+}
+
+impl<'p> PropPath<'p> {
+    fn parse(prop: &'p str) -> Self {
+        if prop == "children" {
+            Self::Children
+        } else if let Some(key) = prop.strip_prefix("style.") {
+            Self::Style(key)
+        } else {
+            Self::Attribute(prop)
+        }
+    }
+
+    /// The attribute that holds the prop.
+    fn attribute(self) -> &'p str {
+        match self {
+            Self::Attribute(name) => name,
+            Self::Children => "children",
+            Self::Style(_) => "style",
         }
     }
 }
@@ -185,6 +242,9 @@ const TOLERANCE: f64 = 1e-6;
 
 /// Finds the source location of `prop` on `element`. Rules run in the order
 /// the spec lists them; the first that applies decides.
+///
+/// `prop` is an attribute name, `children` for the element's children, or
+/// `style.<key>` for a property of a `style={{ … }}` object literal.
 pub fn resolve(text: &str, element: &ElementRef, prop: &str, ctx: &ResolveContext) -> EditTarget {
     let alloc = Allocator::default();
     let (program, failed) = parse_checked(text, &alloc);
@@ -200,21 +260,44 @@ pub fn resolve(text: &str, element: &ElementRef, prop: &str, ctx: &ResolveContex
         });
     }
 
-    let mut gather = Gather {
-        element_start: element.start,
-        prop,
-        found: false,
-        has_spread: false,
-        spread_after: false,
-        attr: None,
-        scopes: Vec::new(),
-        outer: None,
-        declarations: Vec::new(),
-        refs: HashMap::new(),
-    };
+    let path = PropPath::parse(prop);
+    let mut gather = Gather::new(element.start, path);
     gather.visit_program(&program);
     if !gather.found {
         return EditTarget::Locked(LockReason::ElementNotFound);
+    }
+
+    // JSX children win over a `children` attribute and a spread. Without
+    // any, a `children` attribute follows the attribute rules below.
+    if let (PropPath::Children, Some(children)) = (path, &gather.children) {
+        let child = |span: Span, value: &str, form| {
+            let target = EditTarget::Literal {
+                span,
+                value: EditValue::String(value.to_string()),
+                form,
+            };
+            check_received(target, ctx.received.as_ref(), text, prop)
+        };
+        match children {
+            Children::Text { span, value } => return child(*span, value, LiteralForm::JsxText),
+            Children::Container { span, value, quote } => {
+                return child(*span, value, LiteralForm::ChildContainer(*quote));
+            }
+            Children::Other(span) => {
+                return EditTarget::Locked(LockReason::Expression {
+                    source: text[span.start as usize..span.end as usize]
+                        .trim()
+                        .to_string(),
+                });
+            }
+            // 2b opens the tag before writing children into it.
+            Children::SelfClosing if gather.attr.is_none() => {
+                return EditTarget::Locked(LockReason::Expression {
+                    source: "/>".to_string(),
+                });
+            }
+            Children::SelfClosing | Children::Empty { .. } => {}
+        }
     }
 
     if gather.attr.is_some() && gather.spread_after {
@@ -228,13 +311,36 @@ pub fn resolve(text: &str, element: &ElementRef, prop: &str, ctx: &ResolveContex
         if ctx.received.is_some() {
             return EditTarget::Locked(LockReason::OverriddenByParent);
         }
-        return EditTarget::Missing {
-            insert_at: element.end_of_attributes,
-            default: default_for(prop),
+        return match (path, &gather.children) {
+            (PropPath::Children, Some(Children::Empty { insert_at })) => EditTarget::Missing {
+                insert_at: *insert_at,
+                default: Some(EditValue::String(String::new())),
+            },
+            (PropPath::Style(_), _) => EditTarget::Locked(LockReason::NoStyleObject),
+            _ => EditTarget::Missing {
+                insert_at: element.end_of_attributes,
+                default: default_for(prop),
+            },
         };
     };
 
-    let target = resolve_shape(shape, &gather, text, ctx);
+    let target = match (path, &gather.property) {
+        (PropPath::Style(_), Some(property)) => match property {
+            StyleProperty::Value(shape) => resolve_shape(shape, &gather, text, ctx),
+            StyleProperty::Absent { object, last } => {
+                if ctx.received.is_some() {
+                    return EditTarget::Locked(LockReason::OverriddenByParent);
+                }
+                return EditTarget::Missing {
+                    insert_at: property_insert_at(text, *object, *last),
+                    default: None,
+                };
+            }
+            StyleProperty::Unknown => return EditTarget::Locked(LockReason::Spread),
+            StyleProperty::NotObject(span) => return expression(text, *span),
+        },
+        _ => resolve_shape(shape, &gather, text, ctx),
+    };
     check_received(target, ctx.received.as_ref(), text, prop)
 }
 
@@ -246,20 +352,45 @@ pub fn has_attribute(text: &str, element: &ElementRef, prop: &str) -> bool {
     if failed {
         return false;
     }
-    let mut gather = Gather {
-        element_start: element.start,
-        prop,
-        found: false,
-        has_spread: false,
-        spread_after: false,
-        attr: None,
-        scopes: Vec::new(),
-        outer: None,
-        declarations: Vec::new(),
-        refs: HashMap::new(),
-    };
+    let mut gather = Gather::new(element.start, PropPath::Attribute(prop));
     gather.visit_program(&program);
     gather.attr.is_some()
+}
+
+/// Where a property is added to an object literal: right after its `{`
+/// when it is empty, otherwise after the last property, or after the
+/// trailing comma that follows it.
+fn property_insert_at(text: &str, object: Span, last: Option<u32>) -> u32 {
+    let Some(last) = last else {
+        return object.start + 1;
+    };
+    let next = skip_trivia(text, last as usize);
+    if text[next..].starts_with(',') {
+        next as u32 + 1
+    } else {
+        last
+    }
+}
+
+/// The first offset at or after `at` that is neither whitespace nor inside
+/// a comment.
+fn skip_trivia(text: &str, mut at: usize) -> usize {
+    loop {
+        let rest = &text[at..];
+        let trimmed = rest.trim_start();
+        at += rest.len() - trimmed.len();
+        let comment = if trimmed.starts_with("//") {
+            trimmed.find('\n')
+        } else if let Some(body) = trimmed.strip_prefix("/*") {
+            body.find("*/").map(|end| end + 4)
+        } else {
+            None
+        };
+        match comment {
+            Some(len) => at += len,
+            None => return at,
+        }
+    }
 }
 
 fn resolve_shape(shape: &Shape, gather: &Gather, text: &str, ctx: &ResolveContext) -> EditTarget {
@@ -537,12 +668,16 @@ struct Scope {
 
 struct Gather<'t> {
     element_start: u32,
-    prop: &'t str,
+    path: PropPath<'t>,
     found: bool,
     has_spread: bool,
-    /// A spread follows the last `prop` attribute.
+    /// A spread follows the last attribute that holds the prop.
     spread_after: bool,
+    /// The last attribute that holds the prop.
     attr: Option<Shape>,
+    /// For `style.<key>`: the key in the last `style` attribute.
+    property: Option<StyleProperty>,
+    children: Option<Children>,
     /// Functions enclosing the element, outermost first.
     scopes: Vec<Scope>,
     /// The outermost function enclosing the element.
@@ -553,7 +688,24 @@ struct Gather<'t> {
     refs: HashMap<String, usize>,
 }
 
-impl Gather<'_> {
+impl<'t> Gather<'t> {
+    fn new(element_start: u32, path: PropPath<'t>) -> Self {
+        Self {
+            element_start,
+            path,
+            found: false,
+            has_spread: false,
+            spread_after: false,
+            attr: None,
+            property: None,
+            children: None,
+            scopes: Vec::new(),
+            outer: None,
+            declarations: Vec::new(),
+            refs: HashMap::new(),
+        }
+    }
+
     /// Innermost binding of `name` among the enclosing functions.
     fn lookup(&self, name: &str) -> Option<&Binding> {
         self.scopes
@@ -659,6 +811,13 @@ impl<'a> Visit<'a> for Gather<'_> {
         *self.refs.entry(it.name.to_string()).or_insert(0) += 1;
     }
 
+    fn visit_jsx_element(&mut self, it: &JSXElement<'a>) {
+        if it.opening_element.span.start == self.element_start && self.children.is_none() {
+            self.children = Some(children_of(it));
+        }
+        oxc_ast_visit::walk::walk_jsx_element(self, it);
+    }
+
     fn visit_jsx_opening_element(&mut self, it: &JSXOpeningElement<'a>) {
         if it.span.start == self.element_start && !self.found {
             self.found = true;
@@ -672,8 +831,11 @@ impl<'a> Visit<'a> for Gather<'_> {
                         let JSXAttributeName::Identifier(name) = &attr.name else {
                             continue;
                         };
-                        if name.name != self.prop {
+                        if name.name != self.path.attribute() {
                             continue;
+                        }
+                        if let PropPath::Style(key) = self.path {
+                            self.property = Some(style_property(attr, key));
                         }
                         // A later duplicate wins, as at runtime.
                         let whole = Shape::Other(span_of(attr.span));

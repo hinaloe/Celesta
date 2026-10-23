@@ -232,6 +232,7 @@ pub(crate) fn reason_text(reason: &LockReason) -> String {
         LockReason::Repeated { count } => format!("Rendered {count} times from this element"),
         LockReason::FrameUncertain => "Can't tell which frame this animation reads".to_owned(),
         LockReason::OutsideProject => "This file is outside the project".to_owned(),
+        LockReason::NoStyleObject => "No style object to set this in".to_owned(),
     }
 }
 

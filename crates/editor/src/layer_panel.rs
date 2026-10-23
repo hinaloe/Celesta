@@ -637,6 +637,7 @@ mod tests {
             element: ElementRef {
                 start: 0,
                 end_of_attributes: 5,
+                children: None,
             },
             targets: vec![
                 (TransformProp::X, expression()),

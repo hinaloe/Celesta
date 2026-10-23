@@ -85,6 +85,7 @@ fn syntax_error_locks() {
     let element = ElementRef {
         start,
         end_of_attributes: text.find(" />").unwrap() as u32,
+        children: None,
     };
     assert_eq!(
         resolve(text, &element, "x", &with_received(1.0)),
@@ -433,6 +434,7 @@ fn has_attribute_ignores_spreads_and_absent_props() {
     let element = ElementRef {
         start: offset as u32,
         end_of_attributes: 0,
+        children: None,
     };
 
     assert!(has_attribute(&text, &element, "scaleX"));
