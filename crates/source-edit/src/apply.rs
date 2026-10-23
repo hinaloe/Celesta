@@ -12,7 +12,8 @@ pub enum Edit {
         value: EditValue,
         form: LiteralForm,
     },
-    /// Inserts ` name=…` at byte offset `at`.
+    /// Inserts ` name=…` at byte offset `at`, or ` name` alone for
+    /// `Bool(true)`.
     Insert {
         at: u32,
         name: String,

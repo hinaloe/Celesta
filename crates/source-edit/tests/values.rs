@@ -258,6 +258,11 @@ fn insert_string_and_bool() {
         write(&text, &target, "label", string("Say \"hi\"\n")),
         component("  return <Video src=\"a.mp4\" label={\"Say \\\"hi\\\"\\n\"} />;")
     );
+    // `&` would start an entity in an attribute string.
+    assert_eq!(
+        write(&text, &target, "label", string("a & b")),
+        component("  return <Video src=\"a.mp4\" label={\"a & b\"} />;")
+    );
     assert_eq!(
         write(&text, &target, "loop", EditValue::Bool(false)),
         component("  return <Video src=\"a.mp4\" loop={false} />;")
@@ -279,12 +284,64 @@ fn received_string_mismatch_is_overridden() {
         run(&text, "Text", "label", Some(string("b"))),
         EditTarget::Locked(LockReason::OverriddenByParent)
     );
-    // A value of another kind does not match either.
+    let text = component("  return <Video loop={false} />;");
+    assert_eq!(
+        run(&text, "Video", "loop", Some(EditValue::Bool(true))),
+        EditTarget::Locked(LockReason::OverriddenByParent)
+    );
+}
+
+#[test]
+fn a_literal_of_another_kind_than_received_is_an_expression() {
     let text = text_label("label={1}");
     assert_eq!(
         run(&text, "Text", "label", Some(string("1"))),
-        EditTarget::Locked(LockReason::OverriddenByParent)
+        EditTarget::Locked(LockReason::Expression { source: "1".into() })
     );
+    let number = Some(EditValue::Number(12.0));
+    for (attr, source) in [("x=\"12\"", "\"12\""), ("x={true}", "true"), ("x", "x")] {
+        let text = component(&format!("  return <Rect {attr} />;"));
+        assert_eq!(
+            run(&text, "Rect", "x", number.clone()),
+            EditTarget::Locked(LockReason::Expression {
+                source: source.into()
+            }),
+            "{attr}"
+        );
+    }
+}
+
+#[test]
+fn attribute_string_with_an_entity_is_an_expression() {
+    // oxc does not decode `&amp;`, so the value read is not the one received.
+    let text = text_label("label=\"a &amp; b\"");
+    assert_eq!(
+        run(&text, "Text", "label", Some(string("a & b"))),
+        EditTarget::Locked(LockReason::Expression {
+            source: "\"a &amp; b\"".into()
+        })
+    );
+}
+
+#[test]
+fn a_number_written_into_an_attribute_string_gets_a_container() {
+    let text = text_label("label=\"a\"");
+    let target = run(&text, "Text", "label", Some(string("a")));
+    assert_eq!(
+        write(&text, &target, "label", EditValue::Number(12.0)),
+        text_label("label={12}")
+    );
+}
+
+#[test]
+fn a_keyframe_takes_only_numbers() {
+    let text = component(
+        "  const frame = useCurrentFrame();\n  return <Rect x={interpolate(frame, [0, 30], [100, 400])} />;",
+    );
+    let target = run(&text, "Rect", "x", Some(EditValue::Number(100.0)));
+    assert!(matches!(target, EditTarget::Keyframe { .. }), "{target:?}");
+    assert!(target.to_edit("x", &string("a")).is_none());
+    assert!(target.to_edit("x", &EditValue::Bool(true)).is_none());
 }
 
 #[test]

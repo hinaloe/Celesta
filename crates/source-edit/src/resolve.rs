@@ -236,7 +236,7 @@ pub fn resolve(text: &str, element: &ElementRef, prop: &str, ctx: &ResolveContex
     };
 
     let target = resolve_shape(shape, &gather, text, ctx);
-    check_received(target, ctx.received.as_ref())
+    check_received(target, ctx.received.as_ref(), text, prop)
 }
 
 /// Whether `prop` is written as an attribute on `element` (a spread does not
@@ -485,9 +485,15 @@ fn same_value(a: f64, b: f64) -> bool {
 
 /// The resolved value must equal what the runtime saw; otherwise a parent or
 /// another binding decided the prop.
-/// Numbers match within the tolerance, strings and booleans exactly, and
-/// values of different kinds never.
-fn check_received(target: EditTarget, received: Option<&EditValue>) -> EditTarget {
+/// Numbers match within the tolerance, strings and booleans exactly. A
+/// literal of another kind than the received value (`x="12"` for a number)
+/// is not written as the prop's value, so it locks as an expression.
+fn check_received(
+    target: EditTarget,
+    received: Option<&EditValue>,
+    text: &str,
+    prop: &str,
+) -> EditTarget {
     let same = match (&target, received) {
         (
             EditTarget::Literal {
@@ -497,7 +503,18 @@ fn check_received(target: EditTarget, received: Option<&EditValue>) -> EditTarge
             | EditTarget::Keyframe { value: a, .. },
             Some(EditValue::Number(b)),
         ) => (a - b).abs() <= TOLERANCE,
-        (EditTarget::Literal { value, .. }, Some(received)) => value == received,
+        (EditTarget::Literal { span, value, form }, Some(received)) => {
+            if std::mem::discriminant(value) != std::mem::discriminant(received) {
+                return match form {
+                    // The attribute alone: its source is its name.
+                    LiteralForm::BareTrue => EditTarget::Locked(LockReason::Expression {
+                        source: prop.to_string(),
+                    }),
+                    _ => expression(text, *span),
+                };
+            }
+            value == received
+        }
         (EditTarget::Literal { .. } | EditTarget::Keyframe { .. }, _) => false,
         _ => return target,
     };
@@ -863,6 +880,12 @@ impl<'a> Visit<'a> for Gather<'_> {
                                 c.expression.as_expression().map_or(whole, shape_of)
                             }
                             Some(JSXAttributeValue::StringLiteral(s)) => match string_of(s) {
+                                // oxc keeps entities (`&amp;`) undecoded, so
+                                // a value with `&` may not be what the
+                                // runtime receives.
+                                Some((value, _)) if value.contains('&') => {
+                                    Shape::Other(span_of(s.span))
+                                }
                                 Some((value, quote)) => Shape::String(
                                     span_of(s.span),
                                     value,
