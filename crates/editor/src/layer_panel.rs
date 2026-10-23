@@ -13,7 +13,7 @@ use crate::timecode::format_timecode;
 use crate::transform_edit::{TransformTargets, inner_target, reason_text};
 use crate::view::EditorView;
 use crate::widgets::{inspector_row, inspector_section};
-use celesta_react_bridge::{ElementKind, LayerSource, LayerSourceReport};
+use celesta_react_bridge::{ElementKind, LayerSource, LayerSourceReport, SourcePos};
 use celesta_source_edit::EditTarget;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::spinner::Spinner;
@@ -108,14 +108,30 @@ impl EditorView {
     }
 
     /// Which scenes an edit of the selected layer changes, with the playhead
-    /// where it is now, or `None` until its source is found.
+    /// where it is now, or `None` until its source is found. An edit that
+    /// writes only a call site in the layer's chain changes only the
+    /// instances that call makes.
     pub(crate) fn selection_impact(&self) -> Option<ImpactView> {
         let report = self.found_report()?;
+        let written_at = self
+            .transform
+            .resolved(self.selected_layer.as_deref())
+            .and_then(|(resolved, _)| resolved.outcome.as_ref().ok())
+            .and_then(TransformTargets::written_at)
+            // Targets resolved for an older answer may name a call this
+            // chain no longer has.
+            .filter(|site| {
+                report
+                    .chain
+                    .iter()
+                    .any(|entry| SourcePos::from(entry) == **site)
+            });
         Some(impact_view(
             report,
             self.occurrences.as_ref().map(|(_, state)| state),
             self.react_chapters().unwrap_or_default(),
             u64::try_from(self.clock.frame()).unwrap_or(0),
+            written_at,
         ))
     }
 

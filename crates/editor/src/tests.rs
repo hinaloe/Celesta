@@ -22,15 +22,15 @@ use crate::refresh::{LookupFate, SelectionKeep};
 use crate::source::is_react_entry;
 use crate::transform_drag::presses_body;
 use crate::transform_edit::{
-    CommitError, TransformEdit, TransformProp, TransformTargets, commit_files, inside_project,
-    keyframe_jump_frames, keyframe_timeline_frame, lock_outside_project, reason_text,
-    resolve_targets,
+    CommitError, Target, TransformEdit, TransformProp, TransformTargets, commit_files,
+    inside_project, keyframe_jump_frames, keyframe_timeline_frame, lock_outside_project,
+    reason_text, resolve_targets,
 };
 use crate::transform_handles::{
     Handle, drag_label, drag_values, handle_at, handles, override_transform, prop_values,
     shown_handles, turn,
 };
-use crate::transform_rows::field_text;
+use crate::transform_rows::{field_text, set_at_text};
 use crate::waveform::{
     clip_level_envelope, level_at_time, map_clip_waveform, master_volume_from_drag, waveform_peaks,
     waveform_segment,
@@ -1454,6 +1454,22 @@ fn transform_reason_texts_match_spec() {
     for (reason, text) in cases {
         assert_eq!(reason_text(&reason), text);
     }
+}
+
+#[test]
+fn pass_through_reason_texts() {
+    assert_eq!(
+        reason_text(&LockReason::ParameterOfCaller {
+            component: "Card".to_owned()
+        }),
+        "Comes from `<Card>`'s caller"
+    );
+    assert_eq!(
+        reason_text(&LockReason::CallSiteNotFound {
+            component: "PriceTag".to_owned()
+        }),
+        "Can't find where `<PriceTag>` is called"
+    );
 }
 
 #[test]
@@ -2901,5 +2917,67 @@ fn an_unreadable_call_site_locks_only_the_props_passed_through() {
             PathBuf::from("/project/component.tsx"),
             PRICE_TAG.replace("rotation={10}", "rotation={45}")
         )])
+    );
+}
+
+#[test]
+fn an_edit_is_written_at_the_call_site_only_when_every_editable_prop_passes_through() {
+    let price_tag_call = SourcePos {
+        file: PathBuf::from("/project/scene.tsx"),
+        line: 2,
+        column: 3,
+    };
+    let component = "export const PriceTag = ({ x, y = 0, rotation = 0, scale = 1 }) => (\n  <Rect x={x} y={y} rotation={rotation} scale={scale} />\n);\n";
+    let texts = Texts::from([
+        (
+            PathBuf::from("/project/component.tsx"),
+            component.to_owned(),
+        ),
+        (
+            PathBuf::from("/project/scene.tsx"),
+            PRICE_TAG_SCENE.to_owned(),
+        ),
+    ]);
+    let report = LayerSourceReport {
+        props: ReceivedProps {
+            x: Some(40.0),
+            y: Some(0.0),
+            rotation: Some(0.0),
+            scale: Some(1.0),
+            ..ReceivedProps::default()
+        },
+        ..price_tag_report()
+    };
+    let mut targets = resolve_targets(read_from(&texts), &report).unwrap();
+    assert_eq!(targets.written_at(), Some(&price_tag_call));
+
+    // A locked prop on the element is not written, so it does not count.
+    targets.targets[2].1 = Target {
+        file: PathBuf::from("/project/component.tsx"),
+        target: EditTarget::Locked(LockReason::Spread),
+        call_site: None,
+    };
+    assert_eq!(targets.written_at(), Some(&price_tag_call));
+
+    // `rotation` written on the element changes every instance.
+    let targets = resolve_targets(read_from(&price_tag_files()), &price_tag_report()).unwrap();
+    assert_eq!(targets.written_at(), None);
+
+    // Nothing editable writes nowhere.
+    let mut locked = targets;
+    lock_outside_project(&mut locked, |_| true);
+    assert_eq!(locked.written_at(), None);
+}
+
+#[test]
+fn a_pass_through_row_names_its_call_site() {
+    let call_site = SourcePos {
+        file: PathBuf::from("/project/scenes/price.tsx"),
+        line: 18,
+        column: 5,
+    };
+    assert_eq!(
+        set_at_text(&call_site, Path::new("/project")),
+        "Set at scenes/price.tsx:18"
     );
 }

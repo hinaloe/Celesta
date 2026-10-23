@@ -105,6 +105,20 @@ impl TransformTargets {
         self.entry(prop).map_or(&self.file, |target| &target.file)
     }
 
+    /// The call site an edit of this element writes, when every editable
+    /// target passes through to that one call site: the edit then changes
+    /// only the instances it makes. `None` when nothing is editable, or when
+    /// an editable target is written on the element (in every instance).
+    pub(crate) fn written_at(&self) -> Option<&SourcePos> {
+        let mut sites = self
+            .targets
+            .iter()
+            .filter(|(_, target)| editable(&target.target))
+            .map(|(_, target)| target.call_site.as_ref());
+        let first = sites.next()??;
+        sites.all(|site| site == Some(first)).then_some(first)
+    }
+
     fn entry(&self, prop: TransformProp) -> Option<&Target> {
         self.targets
             .iter()

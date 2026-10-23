@@ -3,12 +3,13 @@
 //! or blur, and the target's state (keyframe, between keyframes, locked).
 
 use crate::icons::CelestaIcon;
+use crate::layer_select::display_path;
 use crate::transform_edit::{
-    Resolved, TransformProp, editable, inner_target, keyframe_jump_frames, reason_text,
+    Resolved, Target, TransformProp, editable, inner_target, keyframe_jump_frames, reason_text,
 };
 use crate::view::EditorView;
 use crate::widgets::inspector_section;
-use celesta_react_bridge::LayerSourceReport;
+use celesta_react_bridge::{LayerSourceReport, SourcePos};
 use celesta_source_edit::{EditTarget, EditValue, LockReason, format_number};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Escape, Input, InputEvent, InputState};
@@ -16,6 +17,7 @@ use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, Entity, SharedString, Subscription, Window, div, px};
 use std::collections::HashMap;
+use std::path::Path;
 
 const PROPS: [TransformProp; 6] = [
     TransformProp::X,
@@ -74,6 +76,16 @@ pub(crate) fn field_text(
             ),
         },
     }
+}
+
+/// A pass-through row's line naming the call site its value is written at,
+/// the file relative to the entry's directory as [`display_path`] shows it.
+pub(crate) fn set_at_text(call_site: &SourcePos, entry_dir: &Path) -> String {
+    format!(
+        "Set at {}:{}",
+        display_path(&call_site.file, entry_dir),
+        call_site.line
+    )
 }
 
 /// The value an absent prop is drawn with: a missing scale axis takes the
@@ -223,11 +235,14 @@ impl EditorView {
         let resolved = self.transform.resolved(self.selected_layer.as_deref());
         match resolved {
             Some((resolved, current)) => match &resolved.outcome {
-                Ok(targets) => group
-                    .children(targets.targets.iter().map(|(prop, target)| {
-                        self.transform_row(*prop, &target.target, resolved, current, cx)
-                    }))
-                    .into_any_element(),
+                Ok(targets) => {
+                    let entry_dir = self.entry_dir();
+                    group
+                        .children(targets.targets.iter().map(|(prop, target)| {
+                            self.transform_row(*prop, target, resolved, current, &entry_dir, cx)
+                        }))
+                        .into_any_element()
+                }
                 Err(error) => group
                     .child(
                         div()
@@ -245,17 +260,20 @@ impl EditorView {
         }
     }
 
-    /// `label  [field]  icon`, plus the reason or the keyframe jumps below
-    /// when the target cannot be edited.
+    /// `label  [field]  icon`, plus, below, where a pass-through value is set
+    /// and the reason or the keyframe jumps when the target cannot be
+    /// edited.
     fn transform_row(
         &self,
         prop: TransformProp,
-        target: &EditTarget,
+        target: &Target,
         resolved: &Resolved,
         current: bool,
+        entry_dir: &Path,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
+        let (call_site, target) = (target.call_site.as_ref(), &target.target);
         // A pass-through row shows the state of the value at the call site.
         let shown = inner_target(target);
         let icon = match shown {
@@ -290,6 +308,24 @@ impl EditorView {
             ),
             _ => None,
         };
+        let set_at = call_site.map(|call_site| {
+            div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .text_xs()
+                .text_color(muted)
+                .child(Icon::new(CelestaIcon::CornerDownRight).xsmall())
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(set_at_text(call_site, entry_dir)),
+                )
+        });
         div()
             .flex()
             .flex_col()
@@ -323,6 +359,7 @@ impl EditorView {
                             .children(icon.map(|icon| Icon::new(icon).xsmall())),
                     ),
             )
+            .children(set_at)
             .children(detail)
             .into_any_element()
     }
