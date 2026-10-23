@@ -95,8 +95,8 @@ Writing rules (exact):
 | String | `Quoted(q)` | `q…q` when the value contains neither `q`, `&`, nor a newline (JSX attribute strings have no escapes); otherwise the whole attribute value becomes `{"…"}` (JSON-escaped). For `Quoted` the `Replace` span covers the quotes. |
 | String | `ContainerQuoted(q)` | `q…q` with `\` and `q` escaped; newline as `\n` |
 | String | `Template` | `` `…` `` with `` ` ``, `\`, `${` escaped |
-| Bool true | `BareTrue` | `name` (unchanged) |
-| Bool false | `BareTrue` | the span becomes `name={false}` (`Replace` span = the bare attribute name) |
+| Bool true | `BareTrue` | nothing (the attribute stays bare) |
+| Bool false | `BareTrue` | `={false}` (the literal's `span` is the empty point right after the attribute name, so the result is `name={false}`) |
 | Bool | `Bool` | `true` / `false` |
 | Insert Number | — | ` name={12}` |
 | Insert String | — | ` name="…"` when it has no `"` and no newline, else ` name={"…"}` |
@@ -128,7 +128,7 @@ Update the existing numeric tests in `tests/resolve.rs` and `tests/locate_apply.
 Run: `cargo test -p celesta-source-edit`
 Expected: FAIL to compile (`EditValue` not found).
 
-- [ ] **Step 3: Implement** in `resolve.rs` and `apply.rs`; adapt the editor call sites (`EditTarget::Literal { value, .. }` now holds `EditValue`; transform code reads `as_number()`; `to_edit` takes `&EditValue::Number(v)`; `ResolveContext.received` is `prop.received(..).map(EditValue::Number)`). JSX attribute strings (`JSXAttributeValue::StringLiteral`) become `Shape::String(span_with_quotes, value, Quoted(q))`; `Expression::StringLiteral` → `ContainerQuoted(q)`; `TemplateLiteral` with no expressions → `Template`; a bare attribute (`value: None`) → `BareTrue` with the name's span; `BooleanLiteral` → `Bool`.
+- [ ] **Step 3: Implement** in `resolve.rs` and `apply.rs`; adapt the editor call sites (`EditTarget::Literal { value, .. }` now holds `EditValue`; transform code reads `as_number()`; `to_edit` takes `&EditValue::Number(v)`; `ResolveContext.received` is `prop.received(..).map(EditValue::Number)`). JSX attribute strings (`JSXAttributeValue::StringLiteral`) become `Shape::String(span_with_quotes, value, Quoted(q))`; `Expression::StringLiteral` → `ContainerQuoted(q)`; `TemplateLiteral` with no expressions → `Template`; a bare attribute (`value: None`) → `BareTrue` with an empty span at the end of the attribute name; `BooleanLiteral` → `Bool`.
 
 - [ ] **Step 4: Run the tests**
 
@@ -300,7 +300,7 @@ git commit -m "feat(source-edit): follow a prop to the component's call site"
 pub fn resolve_inputs(text: &str, element: &ElementRef, prop: &str, ctx: &ResolveContext) -> Vec<(String, EditTarget)>;
 ```
 
-Identifiers that resolve to a parameter come back as `PassThrough` targets with `call_site` unset (`Locked(CallSiteNotFound)`); the editor re-resolves them with the call site (Task 7). `ctx.received` is ignored for inputs (the runtime reports the result, not the inputs).
+An identifier that is a parameter of the enclosing component comes back as `Locked(CallSiteNotFound { component })` (no call site is given here); the editor re-resolves such inputs with `resolve_through` and the call site when 2b shows them. In 2a nothing displays inputs yet. `ctx.received` is ignored for inputs (the runtime reports the result, not the inputs).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -345,9 +345,10 @@ git commit -m "feat(source-edit): list an expression's editable inputs"
   - Rust:
 
 ```rust
-#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum ReceivedValue { Number(f64), String(String), Bool(bool) }
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)] // no longer `Copy`
 pub struct ReceivedProps {
     pub x: Option<f64>, pub y: Option<f64>, pub rotation: Option<f64>,
     pub scale: Option<f64>, pub scale_x: Option<f64>, pub scale_y: Option<f64>,
@@ -374,7 +375,7 @@ test('props carry every scalar prop the primitive received', () => {
 Run: `pnpm --filter @celesta/react exec vitest run test/layer-source.test.mts` and `cargo test -p celesta-react-bridge received_props`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement** both sides.
+- [ ] **Step 3: Implement** both sides. `ReceivedProps` loses `Copy` (it now holds a map): `crates/editor/src/transform_drag.rs:153` takes `report.props.clone()`, and other by-value uses follow the compiler.
 
 - [ ] **Step 4: Run the tests**
 
@@ -394,7 +395,7 @@ git commit -m "feat(react): report every scalar prop a primitive received"
 
 **Files:**
 - Modify: `crates/editor/src/edit_history.rs` (`HistoryEntry`, `EditHistory`, `Pending`, `write_recorded`, `record_own_write`)
-- Modify: callers of `record_own_write` / `FileEdit` (`transform_edit.rs`, `property_panel.rs`)
+- Modify: `transform_edit.rs` (the one `record_own_write` caller, still one file in this task) and `property_panel.rs:768-798` (`write_recorded` + `edit_history.push(edit)`: push a one-file `HistoryEntry`)
 - Test: `crates/editor/src/edit_history.rs` (`#[cfg(test)]`)
 
 **Interfaces:**
@@ -403,32 +404,43 @@ git commit -m "feat(react): report every scalar prop a primitive received"
 ```rust
 /// One undo step: every file one edit wrote.
 pub(crate) struct HistoryEntry { pub(crate) files: Vec<FileEdit> }
+impl From<FileEdit> for HistoryEntry { /* one file */ }
+// EditHistory::push takes `HistoryEntry`; `Pending` holds a `HistoryEntry`.
 
-/// Reads each path, lets its closure compute the new text, writes every
-/// changed file to a temp file first and renames them only when all temp
-/// writes succeeded. Files whose text is unchanged are not written.
-pub(crate) fn write_all_recorded(edits: Vec<(PathBuf, Box<dyn FnOnce(&str) -> Result<String, String> + Send>)>) -> Result<Vec<FileEdit>, String>;
+/// The texts of a set of files, keyed by path (a missing file reads `""`).
+pub(crate) type Texts = BTreeMap<PathBuf, String>;
+
+/// Reads every path in `paths`, lets `edit` compute the new texts from all
+/// of them at once (so it can check the set together), writes every changed
+/// file to a temp file first and renames them only when all temp writes
+/// succeeded. Paths `edit` leaves out, or returns unchanged, are not written.
+pub(crate) fn write_all_recorded(
+    paths: Vec<PathBuf>,
+    edit: impl FnOnce(&Texts) -> Result<Vec<(PathBuf, String)>, String>,
+) -> Result<Vec<FileEdit>, String>;
 
 impl EditorView {
     /// `record_own_write` for several files; one history entry.
     pub(crate) fn record_own_writes(
         &mut self,
-        edits: Vec<(PathBuf, Box<dyn FnOnce(&str) -> Result<String, String> + Send>)>,
+        paths: Vec<PathBuf>,
+        edit: impl FnOnce(&Texts) -> Result<Vec<(PathBuf, String)>, String> + Send + 'static,
         done: impl FnOnce(&mut Self, Result<(), String>, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     );
 }
 ```
 
-`record_own_write` becomes a one-file call of `record_own_writes`. `Pending::apply` checks every file against `after`/`before` first and refuses the whole entry (`ChangedOutside` naming the first changed file) if any differs; then writes all files through the same temp-then-rename routine. `settle` on a refusal drops the entry and every older entry that touches any of its files. Watched mtimes are sampled once after all files are written.
+`record_own_write(path, edit, …)` becomes `record_own_writes(vec![path], |texts| Ok(vec![(path, edit(&texts[&path])?)]), …)`. `Pending::apply` checks every file against `after`/`before` first and refuses the whole entry (`ChangedOutside` naming the first changed file) if any differs; then writes all files through the same temp-then-rename routine. `settle` on a refusal drops the entry and every older entry that touches any of its files. Watched mtimes are sampled once after all files are written.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```rust
 #[test] fn a_two_file_entry_undoes_both()           // push entry {a: x→y, b: p→q}; undo → a == "x", b == "p"; redo → y, q
 #[test] fn an_outside_change_refuses_the_whole_entry() // b changed to "r" outside; undo → Err(ChangedOutside); a still "y", b "r"; entry dropped
-#[test] fn a_failed_temp_write_renames_nothing()    // write_all_recorded to [a (writable), b in a read-only dir] → Err; a unchanged
-#[test] fn unchanged_files_are_not_written()        // closure returns the same text for b → FileEdit list has only a
+#[test] fn a_failed_temp_write_renames_nothing()    // write_all_recorded([a (writable), b in a read-only dir], edit both) → Err; a unchanged
+#[test] fn unchanged_files_are_not_written()        // edit returns the same text for b → FileEdit list has only a
+#[test] fn edit_sees_every_text()                   // edit gets {a: "x", b: "p"} and may refuse with Err("…") → nothing written
 #[test] fn the_cap_counts_entries_not_files()       // push 101 two-file entries → 100 kept
 ```
 
@@ -480,10 +492,14 @@ pub(crate) struct TransformTargets {
 pub(crate) fn resolve_targets(read: impl Fn(&Path) -> Result<String, String>, report: &LayerSourceReport) -> Result<TransformTargets, String>;
 /// The new text of every file the values touch, after re-resolving against
 /// `texts`; `SourceChanged` if any target moved.
-pub(crate) fn commit_files(texts: &BTreeMap<PathBuf, String>, expected: &TransformTargets, report: &LayerSourceReport, values: &[(TransformProp, f64)]) -> Result<Vec<(PathBuf, String)>, CommitError>;
+pub(crate) fn commit_files(texts: &Texts, expected: &TransformTargets, report: &LayerSourceReport, values: &[(TransformProp, f64)]) -> Result<Vec<(PathBuf, String)>, CommitError>;
 ```
 
-A target resolves at the call site only when the element's own resolution is a parameter (Task 3); the call site file is read lazily. `commit_transform` builds one `record_own_writes` call with one closure per file; each closure re-reads its file and the caller checks the set with `commit_files`. `CommitError::SourceChanged`'s text becomes "The source changed while editing".
+- A target resolves at the call site only when `parameter_of` (Task 3) says the element's value is a parameter of the enclosing component; only then is the call site's file read.
+- The call site's `ElementRef` comes from `element_at(call_site_text, entry.line, entry.column)` for the `owner_call_site` entry.
+- `ResolveContext.received` comes from `report.props.get(prop)` converted to `EditValue` (`ReceivedValue::Number(n)` → `EditValue::Number(n)`, and so on).
+- `commit_transform` calls `record_own_writes(paths, move |texts| commit_files(texts, &targets, &report, &values).map_err(|e| e.to_string()), …)` with the element's file and, when any target passes through, the call site's file.
+- `CommitError::SourceChanged`'s text becomes "The source changed while editing".
 
 - [ ] **Step 1: Write the failing tests** (two fixture files in a temp dir)
 
