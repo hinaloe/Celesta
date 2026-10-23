@@ -10,7 +10,7 @@ use crate::protocol::{
     PropertyInputsMessage, ReadyMessage, Request, Response, ready_property_order,
 };
 use crate::types::{
-    ComponentPropertyField, ElementKind, FrameSpan, LayerSource, LayerSourceReport,
+    ComponentPropertyField, ElementKind, FrameSpan, LayerSource, LayerSourceReport, PropOverride,
     ReactAudioClipDescriptor, ReactChapter, ReceivedProps, ReceivedValue, SourcePos, TimingWindow,
     chapter_at,
 };
@@ -1285,6 +1285,7 @@ fn open_end_frame_requests_ask_for_and_read_back_the_echo() {
         debug_guides: false,
         preview: false,
         statics: None,
+        prop_overrides: &[],
     };
     let past = serde_json::to_value(request(true)).unwrap();
     assert_eq!(past["openEnd"], true);
@@ -1323,6 +1324,7 @@ fn frame_requests_ask_for_debug_guides_only_when_set() {
         debug_guides,
         preview: false,
         statics: None,
+        prop_overrides: &[],
     };
     let guides = serde_json::to_value(request(true)).unwrap();
     assert_eq!(guides["debugGuides"], true);
@@ -1342,12 +1344,49 @@ fn frame_requests_ask_for_the_preview_only_when_set() {
         debug_guides: false,
         preview,
         statics: None,
+        prop_overrides: &[],
     };
     let preview = serde_json::to_value(request(true)).unwrap();
     assert_eq!(preview["preview"], true);
     // Exports and inspection leave it out, so older runtimes see the same request.
     let plain = serde_json::to_value(request(false)).unwrap();
     assert!(plain.get("preview").is_none(), "{plain}");
+}
+
+#[test]
+fn frame_requests_carry_prop_overrides_only_when_there_are_some() {
+    let request = |prop_overrides| Request {
+        time: Some(Time::ZERO),
+        project: None,
+        runtime: None,
+        components: None,
+        compact_transforms: true,
+        open_end: false,
+        debug_guides: false,
+        preview: true,
+        statics: None,
+        prop_overrides,
+    };
+    let overrides = [PropOverride {
+        file: "/project/label.tsx".into(),
+        line: 3,
+        column: 9,
+        prop: "x".to_owned(),
+        value: 184.5,
+    }];
+    let dragged = serde_json::to_value(request(&overrides)).unwrap();
+    assert_eq!(
+        dragged["propOverrides"],
+        serde_json::json!([{
+            "file": "/project/label.tsx",
+            "line": 3,
+            "column": 9,
+            "prop": "x",
+            "value": 184.5,
+        }])
+    );
+    let plain = serde_json::to_value(request(&[])).unwrap();
+    assert!(plain.get("propOverrides").is_none(), "{plain}");
 }
 
 mod statics {
@@ -1537,6 +1576,7 @@ mod statics {
             debug_guides: false,
             preview: false,
             statics,
+            prop_overrides: &[],
         };
         let json = serde_json::to_string(&request(Some(StaticsRequest { decoded: 3 }))).unwrap();
         assert!(json.contains(r#""statics":{"decoded":3}"#), "{json}");

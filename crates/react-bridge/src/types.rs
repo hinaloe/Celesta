@@ -163,6 +163,21 @@ pub struct SourcePos {
     pub column: u32,
 }
 
+/// A value the elements written at one position take for one frame, in
+/// place of the written one: the editor's preview of a drag (see
+/// [`ReactBridge::scene_at_with_overrides`](crate::ReactBridge::scene_at_with_overrides)).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PropOverride {
+    /// The module holding the element, as an absolute path.
+    pub file: PathBuf,
+    /// 1-based line of the element's opening `<`, as in [`SourcePos`].
+    pub line: u32,
+    /// 1-based column of the element's opening `<`.
+    pub column: u32,
+    pub prop: String,
+    pub value: f64,
+}
+
 impl From<&LayerSource> for SourcePos {
     fn from(source: &LayerSource) -> Self {
         Self {
