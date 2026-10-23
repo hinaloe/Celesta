@@ -23,8 +23,9 @@ pub(crate) struct Impact {
     pub places_in_scene: u32,
     /// Where each instance is called from, for the hover list: its chain
     /// entry at the first index where the element's instance chains differ,
-    /// or its last entry when they never do (or it ends before that index).
-    /// One per instance, in instance order.
+    /// or its last entry when they never do (or it ends before that index),
+    /// or the element when its chain is empty. One per instance, in instance
+    /// order.
     pub call_sites: Vec<SourcePos>,
     /// Filled bands: this instance's ranges inside the current scene, each
     /// with its instance's index into `call_sites`.
@@ -124,7 +125,7 @@ pub(crate) fn impact_view(
             .filter(|instance| in_scene(instance))
             .map(|instance| instance.max_per_frame)
             .sum(),
-        call_sites: call_sites(&element.instances),
+        call_sites: call_sites(&element.element, &element.instances),
         own_bands,
         other_bands,
     })
@@ -132,8 +133,10 @@ pub(crate) fn impact_view(
 
 /// See [`Impact::call_sites`]. The entries the chains share are the element
 /// and whatever its component wraps it in (a `<Group>` inside `Card`), the
-/// same for every instance; the first entry that differs is the call.
-fn call_sites(instances: &[InstanceOccurrences]) -> Vec<SourcePos> {
+/// same for every instance; the first entry that differs is the call. An
+/// instance with an empty chain is called from `element`, so the bands'
+/// indices still line up with the instances.
+fn call_sites(element: &SourcePos, instances: &[InstanceOccurrences]) -> Vec<SourcePos> {
     let Some(first) = instances.first() else {
         return Vec::new();
     };
@@ -151,12 +154,13 @@ fn call_sites(instances: &[InstanceOccurrences]) -> Vec<SourcePos> {
         .unwrap_or(0);
     instances
         .iter()
-        .filter_map(|instance| {
+        .map(|instance| {
             instance
                 .chain
                 .get(shared)
                 .or(instance.chain.last())
-                .cloned()
+                .unwrap_or(element)
+                .clone()
         })
         .collect()
 }
@@ -354,6 +358,30 @@ mod tests {
             10,
         ));
         assert_eq!(impact.call_sites, vec![pos(8)]);
+    }
+
+    #[test]
+    fn an_instance_without_a_chain_keeps_its_call_site_slot() {
+        let occurrences = OccurrenceState::Ready(OccurrenceIndex {
+            elements: vec![ElementOccurrences {
+                element: pos(3),
+                instances: vec![
+                    instance(vec![pos(3), pos(8)], vec![(0, 30)]),
+                    instance(vec![], vec![(40, 60)]),
+                    instance(vec![pos(3), pos(20)], vec![(70, 90)]),
+                ],
+            }],
+        });
+        let impact = known(impact_view(
+            &report(&[pos(3), pos(20)], Some((70.0, 90.0))),
+            Some(&occurrences),
+            &[],
+            80,
+        ));
+        // The empty chain shares nothing, so every call site is the element.
+        assert_eq!(impact.call_sites, vec![pos(3), pos(3), pos(3)]);
+        assert_eq!(impact.own_bands, vec![((70, 90), 2)]);
+        assert_eq!(impact.other_bands, vec![((0, 30), 0), ((40, 60), 1)]);
     }
 
     #[test]
