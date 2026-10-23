@@ -71,6 +71,24 @@ pub(crate) fn locked_summary(targets: &TransformTargets) -> Vec<String> {
         .collect()
 }
 
+/// More ranges than this are counted after the first ones in "Appears in".
+const LISTED_RANGES: usize = 3;
+
+/// "Appears in" without chapters: the first [`LISTED_RANGES`] ranges as
+/// `from–to` timecodes, then "and N more" for the rest.
+fn ranges_label(ranges: &[(u64, u64)], timecode: impl Fn(u64) -> String) -> String {
+    let listed = ranges
+        .iter()
+        .take(LISTED_RANGES)
+        .map(|&(from, to)| format!("{}–{}", timecode(from), timecode(to)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    match ranges.len().saturating_sub(LISTED_RANGES) {
+        0 => listed,
+        more => format!("{listed} and {more} more"),
+    }
+}
+
 /// "1 instance", "3 instances".
 fn instances(count: usize) -> String {
     match count {
@@ -206,12 +224,7 @@ impl EditorView {
                         self.frame_rate_value,
                     )
                 };
-                let ranges = impact
-                    .own_ranges
-                    .iter()
-                    .map(|&(from, to)| format!("{}–{}", timecode(from), timecode(to)))
-                    .collect::<Vec<_>>();
-                text(ranges.join(", "), foreground)
+                text(ranges_label(&impact.own_ranges, timecode), foreground)
             }
         };
         let shared = match impact {
@@ -594,6 +607,22 @@ mod tests {
             entry("Composition", ElementKind::Wrapper),
         ]);
         assert_eq!(owner_label(&in_scenes), None);
+    }
+
+    #[test]
+    fn ranges_past_three_are_counted() {
+        let timecode = |frame: u64| frame.to_string();
+        assert_eq!(
+            ranges_label(&[(0, 1), (2, 3), (4, 5)], timecode),
+            "0–1, 2–3, 4–5"
+        );
+        let every_other: Vec<(u64, u64)> =
+            (0..2400).map(|frame| (frame * 2, frame * 2 + 1)).collect();
+        assert_eq!(
+            ranges_label(&every_other, timecode),
+            "0–1, 2–3, 4–5 and 2397 more"
+        );
+        assert_eq!(ranges_label(&[], timecode), "");
     }
 
     #[test]

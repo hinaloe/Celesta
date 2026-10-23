@@ -249,7 +249,11 @@ On the React composition row (V1):
 
 Bands draw beneath the playhead and above the row background, are hit-tested
 for a tooltip (scene, frames, the instance's call site), and a click seeks to
-the band's first frame.
+the band's first frame. Bands of one instance and kind less than a pixel apart
+at the current zoom merge into one, whose tooltip counts the ranges it covers,
+so an element shown every other frame draws at most a band per pixel.
+Without chapters, "Appears in" lists the first three ranges and counts the
+rest ("and 2397 more").
 
 On the chapter row, the chapters this instance appears in are underlined with
 a 2 px accent bottom border; the current chapter keeps its own highlight.
