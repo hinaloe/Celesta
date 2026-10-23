@@ -508,7 +508,7 @@ impl EditorView {
 
     /// The React entry's directory, which source paths are shown relative to
     /// and the editor runs in.
-    fn entry_dir(&self) -> PathBuf {
+    pub(crate) fn entry_dir(&self) -> PathBuf {
         self.react_preview
             .as_ref()
             .and_then(|react| react.entry.parent())
