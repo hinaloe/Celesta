@@ -97,7 +97,7 @@ export function markPrimitive(component: unknown): void {
 
 /**
  * Marks a Celesta component that draws JSX written by its caller
- * (`<Sequence>`, `<FreezeFrame>`, `<MotionBlur>`'s moments, ...): it never
+ * (`<Sequence>`, `<FreezeFrame>`, `<MotionBlur>`'s moments, `<Scenes>`, ...): it never
  * owns that JSX, so the frame an `interpolate(frame, …)` reads is looked up
  * above it. A source chain also reports it as a `'wrapper'` entry.
  */

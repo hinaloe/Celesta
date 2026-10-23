@@ -587,6 +587,13 @@ mod tests {
             entry("Composition", ElementKind::Wrapper),
         ]);
         assert_eq!(owner_label(&in_scene), None);
+        // A Rect written in a `defineScenes` scene function.
+        let in_scenes = report(vec![
+            entry("Rect", ElementKind::Primitive),
+            entry("Scenes", ElementKind::Wrapper),
+            entry("Composition", ElementKind::Wrapper),
+        ]);
+        assert_eq!(owner_label(&in_scenes), None);
     }
 
     #[test]

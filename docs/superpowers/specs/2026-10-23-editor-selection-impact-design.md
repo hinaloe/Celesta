@@ -47,7 +47,10 @@ that wrote it. Later designs need to tell these apart:
 
 - `LayerSourceEntry.kind` gains `'wrapper'` for components marked transparent
   (`Composition`, `Sequence`, `FreezeFrame`, the motion-blur wrappers).
-  `Loop` is marked transparent too; it is not today.
+  `Loop` is marked transparent too; it is not today. So are `Scenes`,
+  `Series`, and `Stagger`, which build a `<Sequence>` per scene or child
+  with `createElement`: a `<Rect>` written in a `defineScenes` scene
+  function has no owner, not "in `<Scenes>`".
 - The header's "in `<Component>`" (below) and the instance key skip
   `'wrapper'` entries.
 - Finding the call site of the component that *wrote* an element (not its
@@ -276,8 +279,9 @@ today, and the scan starts over from `Scanning`.
 
 TypeScript (Vitest, `packages/react`, `packages/cli`):
 
-- `kind: 'wrapper'` for a written `<Sequence>`, `<FreezeFrame>`, and
-  `<Loop>`; a `component` for a user component.
+- `kind: 'wrapper'` for a written `<Sequence>`, `<FreezeFrame>`, `<Loop>`,
+  `<Scenes>`, `<Series>`, and `<Stagger>`; a `component` for a user
+  component.
 - `windows` and `span` for nested `Sequence`s, a `Series` item (source at the
   `<Series.Sequence>`), a `Scenes` scene (no source), a `Loop` and a
   `Sequence` inside a `FreezeFrame` (`remapped`), and an element with no

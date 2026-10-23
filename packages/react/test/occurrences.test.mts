@@ -6,9 +6,11 @@ import type { ReactNode } from 'react';
 import { test } from 'vitest';
 
 import { Composition, Rect, Scenes, Sequence, defineScenes, useCurrentFrame } from '../src/index.js';
+import type { Layer } from '../src/index.js';
 import { jsxDEV } from '../src/jsx-dev-runtime.js';
 import type { SourcePosition } from '../src/jsx-dev-runtime.js';
 import { mount } from '../src/render.js';
+import type { MountedComposition } from '../src/render.js';
 
 const at = (fileName: string, lineNumber: number, columnNumber: number): SourcePosition => ({ fileName, lineNumber, columnNumber });
 const resolve = (file: string) => `/abs/${file}`;
@@ -16,6 +18,16 @@ const pos = (file: string, line: number, column: number) => ({ file: `/abs/${fil
 const comp = (...children: ReactNode[]) =>
   jsxDEV(Composition, { width: 100, height: 100, fps: 30, durationInFrames: 100, children }, undefined, true, at('entry.tsx', 1, 1));
 const rectAt = (line: number, props = {}) => jsxDEV(Rect, { width: 1, height: 1, ...props }, undefined, false, at('scene.tsx', line, 7));
+
+const layerIds = (layers: Layer[]): string[] =>
+  layers.flatMap((layer) => [layer.id, ...(layer.content.type === 'group' ? layerIds(layer.content.layers) : [])]);
+
+/** The id of the innermost layer drawn at `frame`, depth first. */
+function innermostLayerId(composition: MountedComposition, frame: number): string {
+  const id = layerIds(composition.renderAt({ value: frame, timescale: 30 }, null).scene.layers).at(-1);
+  assert.ok(id, `a layer at frame ${frame}`);
+  return id;
+}
 
 function Card() {
   return rectAt(3);
@@ -50,7 +62,15 @@ test('one Scene component in two defineScenes entries is one instance with range
   const shared = elements.find(({ element }) => element.line === 5);
   assert.ok(shared, JSON.stringify(elements));
   assert.equal(shared.instances.length, 1);
+  // `<Scenes>` is a wrapper, as the layer report says, so its position is
+  // not part of the instance key.
+  assert.deepEqual(shared.instances[0].chain, [pos('scene.tsx', 5, 7)]);
   assert.deepEqual(shared.instances[0].ranges, [[0, 30], [60, 90]]);
+  const report = composition.layerSource({ value: 0, timescale: 30 }, innermostLayerId(composition, 0), resolve);
+  assert.deepEqual(
+    report?.chain.filter(({ kind }) => kind !== 'wrapper').map(({ file, line, column }) => ({ file, line, column })),
+    shared.instances[0].chain,
+  );
 });
 
 test('.map() copies in one frame raise maxPerFrame', () => {
