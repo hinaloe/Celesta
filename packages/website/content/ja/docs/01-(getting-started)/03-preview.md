@@ -62,7 +62,7 @@
 | 表示 | 意味 |
 | --- | --- |
 | Changes this scene only | 要素が描かれるのは 1 か所だけで、ほかのシーンにはない |
-| Changes `<count>` places in this scene | 要素が現在のシーンの複数の場所に描かれていて（2 つの `<Title>` や `.map()` など）、ほかのシーンにはない |
+| Changes `<count>` places in this scene | 要素が現在のシーンの複数の場所に描かれていて（2 つの `<Title>` や `.map()` など）、ほかのシーンにはない。`<MotionBlur>` や `<Trail>` が描く各時点のコピーは 1 か所と数える |
 | Also changes `<scenes>` | 要素が、名前を挙げたシーンにも描かれている。警告色で表示される。再生ヘッドがチャプターのあいだにあるときは、要素が現れるすべてのシーンが挙がる。シーンが 4 つ以上あるときは **Also changes 11 other scenes** のように数を示し、この行にポインタを合わせるとシーンの名前が並ぶ |
 | Scanning scenes… | 走査がまだ終わっていない |
 | Couldn't scan scenes: `<error>` | 走査中に、あるフレームでコンポジションが失敗した。プレビューのほかの部分はそのまま使える |

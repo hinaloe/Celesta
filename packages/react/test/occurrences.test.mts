@@ -5,7 +5,7 @@ import { createElement as h } from 'react';
 import type { ReactNode } from 'react';
 import { test } from 'vitest';
 
-import { Composition, Rect, Scenes, Sequence, defineScenes, useCurrentFrame } from '../src/index.js';
+import { Composition, MotionBlur, Rect, Scenes, Sequence, Trail, defineScenes, useCurrentFrame } from '../src/index.js';
 import type { Layer } from '../src/index.js';
 import { jsxDEV } from '../src/jsx-dev-runtime.js';
 import type { SourcePosition } from '../src/jsx-dev-runtime.js';
@@ -83,6 +83,43 @@ test('.map() copies in one frame raise maxPerFrame', () => {
   assert.equal(elements[0].instances.length, 1);
   assert.equal(elements[0].instances[0].maxPerFrame, 3);
   assert.deepEqual(elements[0].instances[0].ranges, [[0, 10]]);
+});
+
+test('MotionBlur samples and Trail copies are one place', () => {
+  // Each moment is a group layer of its own, whose chain is the component
+  // around the blur; the Rect inside has one id in every moment.
+  function Blurred() {
+    return jsxDEV(MotionBlur, { samples: 4, children: rectAt(4) }, undefined, false, at('scene.tsx', 3, 5));
+  }
+  function Trailed() {
+    return jsxDEV(Trail, { copies: 3, children: rectAt(4) }, undefined, false, at('scene.tsx', 3, 5));
+  }
+  for (const Scene of [Blurred, Trailed]) {
+    const composition = mount(() => comp(jsxDEV(Scene, {}, undefined, false, at('entry.tsx', 2, 5))));
+    const { elements } = composition.collectOccurrences(5, 10, resolve);
+    assert.deepEqual(
+      elements.map(({ element, instances }) => [element, instances.map(({ maxPerFrame, ranges }) => [maxPerFrame, ranges])]),
+      [
+        // The blur's group and its moments' groups.
+        [pos('entry.tsx', 2, 5), [[1, [[5, 15]]]]],
+        [pos('scene.tsx', 4, 7), [[1, [[5, 15]]]]],
+      ],
+      Scene.name,
+    );
+  }
+});
+
+test('.map() copies inside a MotionBlur still count once each', () => {
+  function Row() {
+    return [1, 2, 3].map((i) => jsxDEV(Rect, { width: 1, height: 1, x: i }, i, false, at('scene.tsx', 4, 9)));
+  }
+  const composition = mount(() =>
+    comp(
+      jsxDEV(MotionBlur, { samples: 4, children: jsxDEV(Row, {}, undefined, false, at('entry.tsx', 3, 7)) }, undefined, false, at('entry.tsx', 2, 5)),
+    ),
+  );
+  const { elements } = composition.collectOccurrences(0, 10, resolve);
+  assert.equal(elements[0].instances[0].maxPerFrame, 3);
 });
 
 function Early() {

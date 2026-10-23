@@ -144,6 +144,11 @@ as `layerSource` reports it.
 
 Ranges are clipped to the requested frames; the bridge joins chunks.
 
+Copies are told apart by where they sit in the host tree. The moments of a
+`<MotionBlur>` or `<Trail>` (each a group layer of its own around the
+children drawn at that moment) sit at the blur's place, so a blurred element
+counts once, as an edit moves its moments together.
+
 Cost: one tree walk per frame, like `collectAudio`, plus a chain walk per
 layer from a committed-fiber set computed once per frame. Chains are not
 cached across frames: fibers alternate between renders, and a cached chain

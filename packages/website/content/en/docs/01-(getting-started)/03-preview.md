@@ -62,7 +62,7 @@ Above the **Transform** rows, one line says what committing a change would do:
 | Line | Meaning |
 | --- | --- |
 | Changes this scene only | The element is drawn in one place, and in no other scene |
-| Changes `<count>` places in this scene | The element is drawn in more than one place in the current scene, such as by two `<Title>`s or in `.map()`, and in no other scene |
+| Changes `<count>` places in this scene | The element is drawn in more than one place in the current scene, such as by two `<Title>`s or in `.map()`, and in no other scene. The moments `<MotionBlur>` and `<Trail>` draw count as one place |
 | Also changes `<scenes>` | The element is also drawn in the scenes named, shown in the warning color. With the playhead between chapters, every scene the element is in is named. More than three scenes are counted instead, such as **Also changes 11 other scenes**; hover over the line to list them |
 | Scanning scenes… | The scan has not finished yet |
 | Couldn't scan scenes: `<error>` | The composition failed on some frame during the scan; the rest of the preview works as before |
