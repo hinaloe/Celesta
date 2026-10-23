@@ -16,6 +16,7 @@ import { flattenTextContent, withTextRuns } from './rich-text';
 import { ProjectLayersContext, ProjectTrackLayersContext } from './hooks';
 import { type HostWalk, hasHostElementPreparation, hostElement } from './host-elements';
 import { instancesContent } from './instances';
+import { type PropOverride, PropOverridesContext, clearPropOverrides, setPropOverrides } from './jsx-dev-runtime';
 import { type StaticsFrame, StaticSubtrees } from './static';
 import { resolveComponent } from './registry';
 import { type HostNode, type RootContainer, createRoot } from './reconciler';
@@ -259,6 +260,13 @@ export interface MountedComposition {
       debugGuides?: boolean;
       /** Evaluate as the editor preview, where `useIsPreview()` is true. Exports never set it. */
       preview?: boolean;
+      /**
+       * Sent by the editor while a layer is dragged: elements written at an
+       * override's position are created with its value for this frame only
+       * (see `PropOverride`). Elements created outside any render (at module
+       * scope) keep their written values.
+       */
+      propOverrides?: FramePropOverrides;
     },
   ): { scene: Scene; audio: AudioClipDescriptor[]; subtitles: SubtitleDescriptor[]; statics?: StaticsFrame };
   /** Sweeps every frame without constructing visual layers; hooks and font measurements still run. */
@@ -295,6 +303,13 @@ export interface MountedComposition {
     resolveFile: (fileName: string) => string,
     options?: { preview?: boolean },
   ): OccurrenceIndex;
+}
+
+/** The prop overrides a frame is evaluated with; see `MountedComposition.renderAt`. */
+export interface FramePropOverrides {
+  overrides: readonly PropOverride[];
+  /** Turns a recorded file name into the absolute path overrides name. */
+  resolveFile: (fileName: string) => string;
 }
 
 /** The frames each element renders in, by instance; the answer to `collectOccurrences`. */
@@ -1562,6 +1577,12 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
   const requestRerender = () => {
     rerenderRequested = true;
   };
+  // The prop overrides the committed tree was rendered with, as JSON ('' for
+  // none); `PropOverridesContext`'s value, new whenever they change; and the
+  // entry's key, bumped to remount it when overrides start or stop.
+  let committedOverrides = '';
+  let overridesValue: object | null = null;
+  let entryKey = 0;
 
   const renderTree = (
     time: Time,
@@ -1601,7 +1622,8 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
                 RerenderRequestContext.Provider,
                 { value: requestRerender },
                 React.createElement(CompositionSelectionContext.Provider, { value: selection },
-                  React.createElement(defaultExport, {})),
+                  React.createElement(PropOverridesContext.Provider, { value: overridesValue },
+                    React.createElement(defaultExport, { key: entryKey }))),
               ),
             ),
           ),
@@ -1641,6 +1663,27 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
   fonts = initialFonts;
   const staticSubtrees = new StaticSubtrees();
 
+  /**
+   * Makes the next render create elements with `propOverrides`. A component
+   * renders only when something it reads changed, so `jsxDEV` subscribes
+   * every component that creates an element while overrides are set to
+   * `PropOverridesContext`, which changes with them. The components that
+   * rendered before overrides were set never subscribed, and a cached
+   * element (`useMemo`) created while they were set would keep its value
+   * after: the entry remounts when overrides start and when they stop, and
+   * only then.
+   */
+  const updateOverrides = (propOverrides: FramePropOverrides | undefined) => {
+    const overrides = propOverrides && propOverrides.overrides.length > 0 ? propOverrides : undefined;
+    const next = overrides ? JSON.stringify(overrides.overrides) : '';
+    if (next !== committedOverrides) {
+      if ((next === '') !== (committedOverrides === '')) entryKey += 1;
+      overridesValue = next === '' ? null : {};
+      committedOverrides = next;
+    }
+    if (overrides) setPropOverrides(overrides.overrides, overrides.resolveFile);
+  };
+
   /** Renders the tree for `time`, again if fonts or refs changed, and returns the `<Composition>`. */
   const settleTree = (
     time: Time,
@@ -1648,24 +1691,30 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
     openEnd: boolean,
     debugGuides: boolean,
     preview: boolean,
+    propOverrides?: FramePropOverrides,
   ) => {
-    rerenderRequested = false;
-    renderTree(time, project, config, openEnd, debugGuides, preview);
-    let instance = findCompositionInstance(container);
-    const nextFonts: ResolvedAsset[] = [];
-    collectFonts(instance, nextFonts);
-    const fontsChanged = JSON.stringify(nextFonts) !== JSON.stringify(fonts);
-    if (fontsChanged || rerenderRequested) {
-      fonts = nextFonts;
-      // A declaration can appear after its consumer, or change this frame,
-      // and a ref read during render is attached only by the commit.
-      // Reconcile again with the complete font list and refs before
-      // emitting layers.
+    updateOverrides(propOverrides);
+    try {
       rerenderRequested = false;
       renderTree(time, project, config, openEnd, debugGuides, preview);
-      instance = findCompositionInstance(container);
+      let instance = findCompositionInstance(container);
+      const nextFonts: ResolvedAsset[] = [];
+      collectFonts(instance, nextFonts);
+      const fontsChanged = JSON.stringify(nextFonts) !== JSON.stringify(fonts);
+      if (fontsChanged || rerenderRequested) {
+        fonts = nextFonts;
+        // A declaration can appear after its consumer, or change this frame,
+        // and a ref read during render is attached only by the commit.
+        // Reconcile again with the complete font list and refs before
+        // emitting layers.
+        rerenderRequested = false;
+        renderTree(time, project, config, openEnd, debugGuides, preview);
+        instance = findCompositionInstance(container);
+      }
+      return instance;
+    } finally {
+      clearPropOverrides();
     }
-    return instance;
   };
 
   const renderFrame = (
@@ -1677,8 +1726,9 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
     statics?: { decoded: number },
     debugGuides = false,
     preview = false,
+    propOverrides?: FramePropOverrides,
   ) => {
-    const instance = settleTree(time, project, openEnd, debugGuides, preview);
+    const instance = settleTree(time, project, openEnd, debugGuides, preview, propOverrides);
     const audio: AudioClipDescriptor[] = [];
     const subtitles: SubtitleDescriptor[] = [];
     const context = rootWalkContext(
@@ -1767,6 +1817,7 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
         options?.statics,
         options?.debugGuides === true,
         options?.preview === true,
+        options?.propOverrides,
       ),
     collectAudio() {
       const audio: AudioClipDescriptor[] = [];
