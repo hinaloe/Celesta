@@ -8,7 +8,7 @@ design 1 (header, impact line, kept selection).
 A selected element's props can be edited in the Properties tab, the way
 Unity's Inspector edits a component: text content, font, colors, size,
 corner radius, opacity, image source, not only the transform. On the canvas,
-a box can be resized edge by edge, and rotation turns about the point the
+text is edited in place, a box can be resized edge by edge, and rotation turns about the point the
 handles suggest. Values computed from others are edited at their inputs.
 Props written at a component's call site (`<PriceTag label="…" x={40}>`) are
 editable when the element inside reads them.
@@ -18,8 +18,9 @@ editable when the element inside reads them.
 - Inserting keyframes, or editing values between keyframes (as today).
 - `interpolateColor()`, `spring()`, easing, gradients (`Paint` objects), and
   `dash` arrays: shown read-only.
-- Rich text (`<Span>` children) and editing text on the canvas. Text is
-  edited in the Properties tab.
+- Rich text (`<Span>` children), on the canvas or in the Properties tab.
+- Updating what the code computes from a text (a label's frame sized to it)
+  while typing on the canvas; it follows when the edit is committed.
 - Path geometry (`Path`, `Polyline`, `Line` points, `Arrow` ends).
 - Expressions deeper than one level of inputs (see [Inputs](#inputs)).
 - Changing a prop's form (turning `x={W / 2}` into a literal). A locked value
@@ -179,7 +180,7 @@ Locked with its reason) and a control by type:
 | --- | --- |
 | number | numeric field; drag on the label scrubs it |
 | string | single-line field |
-| text | multi-line field; commits on Cmd+Enter or blur |
+| text | multi-line field; Enter commits, Shift+Enter breaks the line, blur commits |
 | boolean | switch |
 | color | swatch with picker, or a theme-name field |
 | select | dropdown |
@@ -247,6 +248,43 @@ Handles depend on a viewer toolbar tool, "Rect" (default) or "Scale":
 
 Rotation keeps its stem handle in both tools.
 
+### Inline text editing
+
+Double-clicking a `Text` layer whose children resolve to an editable string
+(the `text` row's target is a literal, a const, or a pass-through) edits the
+text in place, in its own font, size, wrapping, and transform:
+
+- **Live, without writing.** The editor replaces the layer's `text` in the
+  held scene (the scene's `LayerContent::Text` carries the string, and the
+  Rust renderer lays it out) and re-renders on every keystroke, as a drag
+  overrides the transform. Nothing is written while typing, and the React
+  code is not run: what the code computes from the text (a frame sized to
+  it) keeps its old size until the commit's reload. (Decided with the user:
+  a frame changing size while typing gets in the way.)
+- **Caret and selection** come from the layout's `TextMetrics`
+  (`line_starts`, and each glyph cluster's code-point range, left edge, and
+  advance), mapped through the layer's world transform as the handles are, so
+  they follow rotated and scaled text. Arrow keys, Home/End, Shift to select,
+  Cmd+A, copy, cut, and paste (as plain text) work as in a text field;
+  clicking and dragging inside the text places the caret and selects.
+- **IME.** The view implements GPUI's input handler for the editing layer;
+  marked (composing) text is shown in the live render, underlined by the
+  editor using the same caret geometry, and the candidate window is placed at
+  the caret.
+- **Commit and cancel.** Enter commits, Shift+Enter breaks the line, Escape
+  restores the scene and leaves without writing. Clicking outside the text,
+  selecting another layer, seeking, or starting playback commits first. A
+  commit goes through the same resolve, apply, write, and history path as the
+  Properties tab (one history entry), with design 3's scope when the element
+  is shared. An outside change to the file while editing cancels with "The
+  source changed while editing".
+- **Not editable.** On a `Text` whose `text` row is locked (an expression,
+  `<Span>` children, a value that can't be traced), double-click shows the
+  row's lock reason beside the layer and does not enter editing.
+
+While editing, the transform handles are hidden and the layer keeps its
+outline.
+
 ## Testing
 
 Rust (`crates/source-edit`):
@@ -270,6 +308,10 @@ Rust (`crates/editor`):
   `x` as a keyframe falls back to the anchor.
 - Anchor drag keeps the screen position.
 - Edge resize with anchor 0 and 0.5, rotated.
+- Inline text: caret and selection geometry from `TextMetrics` for wrapped,
+  multi-line, rotated, and combining-character text; the held scene's text is
+  replaced and restored on Escape; seeking or selecting another layer
+  commits; a locked `text` row does not enter editing.
 
 TypeScript (Vitest):
 
@@ -278,12 +320,12 @@ TypeScript (Vitest):
 - Received props carry strings, booleans, and string `children`.
 
 Manual, with before/after screenshots of the same scene: edit a `Text`'s
-content and font size, a `Rect`'s fill and corner radius, resize a `Rect` from
+content inline (including Japanese input through the IME) and its font size, a `Rect`'s fill and corner radius, resize a `Rect` from
 its left edge, rotate a `Rect` in Center mode, and edit a prop passed at a
 component's call site.
 
 ## Documentation
 
-- The React preview user docs: the Properties sections, pass-through rows,
+- The React preview user docs: inline text editing, the Properties sections, pass-through rows,
   inputs, the Center/Pivot toggle, the Rect/Scale tools.
 - A handoff note.
