@@ -320,6 +320,32 @@ test('a FreezeFrame window and windows inside it take the enclosing window', () 
   assert.deepEqual(report.span, { from: 10, to: 60 });
 });
 
+test('a Sequence inside a MotionBlur is placed at its own from, not at the shifted moment', () => {
+  const composition = mount(() =>
+    comp(
+      jsxDEV(MotionBlur, {
+        samples: 4,
+        children: jsxDEV(Sequence, { from: 10, durationInFrames: 50, children: rectAt(6) }, undefined, false, at('scene.tsx', 5, 7)),
+      }, undefined, false, at('scene.tsx', 4, 5)),
+    ),
+  );
+  const { scene } = composition.renderAt(time(30), null);
+  const rects = layerIds(scene.layers).filter((id) => composition.layerSource(time(30), id, resolve)?.chain[0]?.name === 'Rect');
+  assert.ok(rects.length > 1, 'one Rect layer per sample');
+  for (const id of rects) {
+    const report = composition.layerSource(time(30), id, resolve);
+    assert.deepEqual(report?.windows, [{ kind: 'Sequence', from: 10, to: 60, source: pos(5, 7) }], id);
+    assert.deepEqual(report?.span, { from: 10, to: 60 }, id);
+  }
+});
+
+test('a fractional Sequence from is kept', () => {
+  const composition = mount(() => comp(jsxDEV(Sequence, { from: 10.5, durationInFrames: 20, children: rectAt(5) }, undefined, false, at('scene.tsx', 4, 5))));
+  const report = reportFor(composition, 20);
+  assert.deepEqual(report.windows, [{ kind: 'Sequence', from: 10.5, to: 30.5, source: pos(4, 5) }]);
+  assert.deepEqual(report.span, { from: 10.5, to: 30.5 });
+});
+
 test('an element without wrappers spans the composition', () => {
   const composition = mount(() => comp(rectAt(5)));
   const report = reportFor(composition, 0);

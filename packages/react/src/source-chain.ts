@@ -324,8 +324,8 @@ function providedFrame(fiber: Fiber): number | undefined {
 
 /**
  * The timing wrappers above `element`, nearest first, and the composition
- * frames all of them show it in. Each window is placed by the clock its
- * wrapper hands down; inside a `<Loop>` or `<FreezeFrame>` the clock no
+ * frames all of them show it in. Each window is placed where its wrapper
+ * gates its children; inside a `<Loop>` or `<FreezeFrame>` the clock no
  * longer follows the composition's, so a window there takes the one around it.
  */
 function timingWindows(
@@ -338,7 +338,6 @@ function timingWindows(
   for (let fiber = element ? up(element) : null; fiber; fiber = up(fiber)) path.push(fiber);
   let root: RuntimeValue | undefined;
   for (const fiber of path) root = providedValue(fiber) ?? root;
-  const rootFrame = root ? runtimeFrame(root.time, root.fps, root.frameOffset) : 0;
   const total = root?.durationInFrames ?? 0;
 
   const windows: TimingWindow[] = [];
@@ -353,18 +352,23 @@ function timingWindows(
     const parentKind = parent ? windowKind(parent) : undefined;
     if (kind === 'Sequence' && (parentKind === 'Loop' || parentKind === 'LoopCycle')) continue;
 
+    const props = (fiber.memoizedProps ?? fiber.pendingProps) as { from?: unknown } | null;
     let { from, to } = enclosing;
     if (!remapped && kind !== 'FreezeFrame') {
-      // The clock directly below it: a `<Loop>`'s is its outer `<Sequence>`'s.
+      // The window `<Sequence>` gates its children by: its own `from`, read
+      // as it does, against the window above, and the length it hands down
+      // (a `<Loop>`'s is its outer `<Sequence>`'s). Not the frame it hands
+      // down, which a `<MotionBlur>` moment shifts by a fraction.
       let value: RuntimeValue | undefined;
       for (let below = index - 1; below >= 0 && !value; below--) value = providedValue(path[below]);
       if (value) {
-        from = rootFrame - runtimeFrame(value.time, value.fps, value.frameOffset);
+        const own = props?.from;
+        from = enclosing.from + (typeof own === 'number' && Number.isFinite(own) ? own : 0);
         to = from + value.durationInFrames;
       }
     }
     const window: TimingWindow = { kind, from, to };
-    const source = sourceOfProps(fiber.memoizedProps ?? fiber.pendingProps);
+    const source = sourceOfProps(props);
     if (source) window.source = { file: resolveFile(source.fileName), line: source.lineNumber, column: source.columnNumber };
     if (remapped || kind !== 'Sequence') window.remapped = true;
     windows.push(window);
