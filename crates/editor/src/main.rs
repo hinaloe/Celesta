@@ -31,6 +31,7 @@ mod layer_panel;
 mod layer_select;
 mod lifecycle;
 mod media_probe;
+mod occurrences;
 mod panels;
 mod playback;
 mod preview;

@@ -502,6 +502,7 @@ impl EditorView {
                     self.selection_keep.confirm_from(self.preview_generation);
                 }
                 self.refresh_audio_preview();
+                self.refresh_occurrences();
             }
             Err(error) => {
                 self.problems.report(
