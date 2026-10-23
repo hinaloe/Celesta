@@ -6,6 +6,7 @@
 mod apply;
 mod locate;
 mod resolve;
+mod shape;
 
 pub use apply::{ApplyError, Edit, apply, format_number, write_value};
 pub use locate::{ElementRef, element_at};
