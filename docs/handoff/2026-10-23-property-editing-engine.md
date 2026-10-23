@@ -6,8 +6,9 @@ the call of the component the element is written in, lists an expression's
 editable inputs, and writes one edit across several files as one undo step.
 The transform write-back uses all of it: `x`, `y`, `rotation`, and `scale`
 set at a component's call site (`<PriceTag x={40} />`) can be dragged and
-typed, the Transform row says where the value is set, and the impact line
-counts only what that call changes.
+typed, the Transform row says where the value is set, and, when every
+editable transform prop is set at that one call, the impact line counts only
+what that call changes.
 Design: `docs/superpowers/specs/2026-10-23-editor-property-editing-design.md`
 (part 2 of `docs/superpowers/specs/2026-10-23-editor-element-editing-overview-design.md`).
 This is part 2a; 2b–2d build the Properties tab, the canvas tools, and inline
@@ -105,6 +106,11 @@ These differ from, or settle what the plan left open:
   through**, since each edit targets one call. A call site inside `.map()`
   is not locked yet; its copies show in the impact line as places in the
   scene.
+- **The impact is scoped to a call only when every editable transform prop
+  passes through to it.** A mixed selection, such as a call-site `x` with a
+  `rotation` written on the element or a `y` missing from it, keeps the
+  unscoped impact: a drag can write the element, which every instance
+  draws. Locked props do not count either way.
 - **A second hop locks as `ParameterOfCaller`** ("Comes from `<Card>`'s
   caller").
 - **The runtime also reports `style.<key>` scalars**, so `style` properties
@@ -139,7 +145,11 @@ These differ from, or settle what the plan left open:
 The app check is pending:
 
 - In a scene that calls a component with `x={40}`, select a layer inside it:
-  X shows "Set at scene.tsx:…" with the arrow icon; the impact line counts
-  only that call's instances.
+  X shows "Set at scene.tsx:…" with the arrow icon. When the component
+  takes `x`, `y`, `rotation`, and `scale` all as props
+  (`({ x = 0, y = 0, rotation = 0, scale = 1 }) => <Rect x={x} y={y} rotation={rotation} scale={scale} />`)
+  and is used in two scenes, the impact line counts only that call's
+  instances; with `({ x }) => <Rect x={x} />` it still names the other
+  scene.
 - Dragging the layer writes the call site, and undo after a drag that also
   rotated restores both files in one step.

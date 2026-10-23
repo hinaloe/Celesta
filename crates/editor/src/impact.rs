@@ -404,6 +404,37 @@ mod tests {
     }
 
     #[test]
+    fn a_call_site_inside_a_reused_component_counts_every_instance_through_it() {
+        // `<Card>` is called at 20 inside a component that Intro calls at 30
+        // and Outro at 40; Price calls `<Card>` at 8. The edit writes 20.
+        let chapters = [
+            chapter("intro", "Intro", 0, 30),
+            chapter("outro", "Outro", 30, 30),
+            chapter("price", "Price", 60, 30),
+        ];
+        let occurrences = index(vec![
+            instance(vec![pos(3), pos(20), pos(30)], vec![(0, 30)]),
+            instance(vec![pos(3), pos(20), pos(40)], vec![(30, 60)]),
+            instance(vec![pos(3), pos(8)], vec![(60, 90)]),
+        ]);
+        let view = impact_view(
+            &report(&[pos(3), pos(20), pos(30)], Some((0.0, 30.0))),
+            Some(&occurrences),
+            &chapters,
+            10,
+            Some(&pos(20)),
+        );
+        let line = impact_line(&view);
+        let impact = known(view);
+        assert_eq!(impact.other_scenes, vec!["Outro"]);
+        assert_eq!(impact.instance_count, 2);
+        assert_eq!(impact.call_sites, vec![pos(30), pos(40)]);
+        assert_eq!(impact.own_bands, vec![((0, 30), 0)]);
+        assert_eq!(impact.other_bands, vec![((30, 60), 1)]);
+        assert_eq!(line, ("Also changes Outro".to_owned(), true));
+    }
+
+    #[test]
     fn one_scene_component_reused_by_scenes_is_shared() {
         let chapters = [chapter("a", "A", 0, 30), chapter("b", "B", 30, 30)];
         let occurrences = index(vec![instance(vec![pos(3)], vec![(0, 20), (40, 60)])]);
