@@ -6,7 +6,7 @@ use crate::layer_select::SourceLookup;
 use crate::view::EditorView;
 use celesta_react_bridge::{ElementKind, LayerSourceReport, ReceivedProps};
 use celesta_source_edit::{
-    ApplyError, EditTarget, ElementRef, LockReason, ResolveContext, apply, element_at,
+    ApplyError, EditTarget, EditValue, ElementRef, LockReason, ResolveContext, apply, element_at,
     format_number, has_attribute, resolve,
 };
 use gpui_kit::Context;
@@ -99,7 +99,7 @@ pub(crate) fn resolve_targets(
         let ctx = ResolveContext {
             primitive: source.kind == ElementKind::Primitive,
             candidate_frames: candidate_frames(report),
-            received: prop.received(&report.props),
+            received: prop.received(&report.props).map(EditValue::Number),
             render_count: report.render_count,
         };
         (prop, resolve(text, &element, prop.name(), &ctx))
@@ -187,7 +187,7 @@ pub(crate) fn commit_text(
             }
             fresh
                 .target(prop)
-                .and_then(|target| target.to_edit(prop.name(), value))
+                .and_then(|target| target.to_edit(prop.name(), &EditValue::Number(value)))
                 .ok_or(CommitError::NotEditable(prop))
         })
         .collect::<Result<Vec<_>, _>>()?;

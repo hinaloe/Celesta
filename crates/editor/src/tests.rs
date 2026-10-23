@@ -35,7 +35,7 @@ use crate::waveform::{
 };
 use celesta_editor_core::ClipKind;
 use celesta_gpu_renderer::{GpuDriver, LayerFrame};
-use celesta_source_edit::{EditTarget, LockReason};
+use celesta_source_edit::{EditTarget, EditValue, LockReason};
 
 use crate::preview::{
     ReactPreviewContext, ReactPreviewMode, apply_override, collect_component_requests,
@@ -1266,11 +1266,11 @@ fn transform_resolve_targets_prefers_scale_xy() {
     );
     assert!(matches!(
         targets.targets[3].1,
-        EditTarget::Literal { value, .. } if value == 2.0
+        EditTarget::Literal { value: EditValue::Number(value), .. } if value == 2.0
     ));
     assert!(matches!(
         targets.targets[4].1,
-        EditTarget::Missing { default, .. } if default == 1.0
+        EditTarget::Missing { default: Some(EditValue::Number(default)), .. } if default == 1.0
     ));
     assert_eq!(targets.file, PathBuf::from("/project/scene.tsx"));
 }
@@ -1293,7 +1293,7 @@ fn transform_resolve_targets_uniform_scale() {
     assert_eq!(TransformProp::ScaleX.name(), "scaleX");
     assert!(matches!(
         targets.targets[0].1,
-        EditTarget::Literal { value, .. } if value == 100.0
+        EditTarget::Literal { value: EditValue::Number(value), .. } if value == 100.0
     ));
 }
 
@@ -2365,7 +2365,7 @@ fn transform_missing_scale_axis_shows_the_written_scale() {
     );
     let missing = EditTarget::Missing {
         insert_at: 0,
-        default: 1.0,
+        default: Some(EditValue::Number(1.0)),
     };
     assert_eq!(
         field_text(TransformProp::ScaleY, &missing, &report),
@@ -2390,7 +2390,7 @@ fn transform_missing_scale_axis_shows_the_written_scale() {
             TransformProp::X,
             &EditTarget::Missing {
                 insert_at: 0,
-                default: 0.0
+                default: Some(EditValue::Number(0.0))
             },
             &report
         ),

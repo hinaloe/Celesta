@@ -7,7 +7,7 @@ use crate::transform_edit::{Resolved, TransformProp, keyframe_jump_frames, reaso
 use crate::view::EditorView;
 use crate::widgets::inspector_section;
 use celesta_react_bridge::LayerSourceReport;
-use celesta_source_edit::{EditTarget, LockReason, format_number};
+use celesta_source_edit::{EditTarget, EditValue, LockReason, format_number};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Escape, Input, InputEvent, InputState};
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _};
@@ -50,12 +50,14 @@ pub(crate) fn field_text(
     report: &LayerSourceReport,
 ) -> (String, String) {
     match target {
-        EditTarget::Literal { value, .. } | EditTarget::Keyframe { value, .. } => {
-            (format_number(*value), String::new())
-        }
+        EditTarget::Literal { value, .. } => (
+            value.as_number().map(format_number).unwrap_or_default(),
+            String::new(),
+        ),
+        EditTarget::Keyframe { value, .. } => (format_number(*value), String::new()),
         EditTarget::Missing { default, .. } => (
             String::new(),
-            format_number(absent_value(prop, *default, report)),
+            format_number(absent_value(prop, default.as_ref(), report)),
         ),
         EditTarget::Locked(_) => match prop.received(&report.props) {
             Some(value) => (format_number(value), String::new()),
@@ -63,7 +65,7 @@ pub(crate) fn field_text(
                 String::new(),
                 format_number(absent_value(
                     prop,
-                    celesta_source_edit::default_for(prop.name()),
+                    celesta_source_edit::default_for(prop.name()).as_ref(),
                     report,
                 )),
             ),
@@ -73,8 +75,13 @@ pub(crate) fn field_text(
 
 /// The value an absent prop is drawn with: a missing scale axis takes the
 /// `scale` the element received (`<Rect scale={2} scaleX={3} />` draws Y at
-/// 2), anything else its default.
-fn absent_value(prop: TransformProp, default: f64, report: &LayerSourceReport) -> f64 {
+/// 2), anything else its default (every transform prop has a numeric one).
+fn absent_value(
+    prop: TransformProp,
+    default: Option<&EditValue>,
+    report: &LayerSourceReport,
+) -> f64 {
+    let default = default.and_then(EditValue::as_number).unwrap_or(0.0);
     match prop {
         TransformProp::ScaleX | TransformProp::ScaleY => report.props.scale.unwrap_or(default),
         _ => default,

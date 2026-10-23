@@ -549,7 +549,7 @@ mod tests {
     use super::*;
     use crate::transform_edit::TransformProp;
     use celesta_react_bridge::{ElementKind, ReceivedProps};
-    use celesta_source_edit::{EditTarget, ElementRef, LockReason, Span};
+    use celesta_source_edit::{EditTarget, EditValue, ElementRef, LiteralForm, LockReason, Span};
 
     fn entry(name: &str, kind: ElementKind) -> LayerSource {
         LayerSource {
@@ -645,7 +645,8 @@ mod tests {
                     TransformProp::Rotation,
                     EditTarget::Literal {
                         span: Span { start: 1, end: 2 },
-                        value: 0.0,
+                        value: EditValue::Number(0.0),
+                        form: LiteralForm::Number,
                     },
                 ),
                 (

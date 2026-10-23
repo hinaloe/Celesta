@@ -1,0 +1,302 @@
+use celesta_source_edit::{
+    EditTarget, EditValue, LiteralForm, LockReason, ResolveContext, Span, apply, element_at,
+    resolve, write_value,
+};
+
+fn ctx(received: Option<EditValue>) -> ResolveContext {
+    ResolveContext {
+        primitive: true,
+        candidate_frames: vec![0.0],
+        received,
+        render_count: 1,
+    }
+}
+
+fn string(value: &str) -> EditValue {
+    EditValue::String(value.to_string())
+}
+
+/// Resolves `prop` on the first `<{tag}` in `text` (ASCII only).
+fn run(text: &str, tag: &str, prop: &str, received: Option<EditValue>) -> EditTarget {
+    let offset = text.find(&format!("<{tag}")).unwrap();
+    let before = &text[..offset];
+    let line = before.matches('\n').count() as u32 + 1;
+    let column = (offset - before.rfind('\n').map_or(0, |i| i + 1)) as u32 + 1;
+    let element = element_at(text, line, column).unwrap();
+    resolve(text, &element, prop, &ctx(received))
+}
+
+fn component(body: &str) -> String {
+    format!("export const A = () => {{\n{body}\n}};\n")
+}
+
+fn span_text(text: &str, span: Span) -> &str {
+    &text[span.start as usize..span.end as usize]
+}
+
+/// `text` with `value` written to `target`.
+fn write(text: &str, target: &EditTarget, prop: &str, value: EditValue) -> String {
+    let edit = target
+        .to_edit(prop, &value)
+        .expect("the target is editable");
+    apply(text, &[edit]).unwrap()
+}
+
+fn text_label(attr: &str) -> String {
+    component(&format!("  return <Text {attr} />;"))
+}
+
+#[test]
+fn string_attribute_keeps_its_quotes() {
+    let text = text_label("label=\"Sale\"");
+    let target = run(&text, "Text", "label", Some(string("Sale")));
+    let EditTarget::Literal { span, value, form } = &target else {
+        panic!("expected Literal, got {target:?}");
+    };
+    assert_eq!(
+        (span_text(&text, *span), value, *form),
+        ("\"Sale\"", &string("Sale"), LiteralForm::Quoted('"'))
+    );
+    assert_eq!(
+        write(&text, &target, "label", string("New")),
+        text_label("label=\"New\"")
+    );
+}
+
+#[test]
+fn single_quoted_attribute() {
+    let text = text_label("label='Sale'");
+    let target = run(&text, "Text", "label", Some(string("Sale")));
+    assert!(
+        matches!(
+            target,
+            EditTarget::Literal {
+                form: LiteralForm::Quoted('\''),
+                ..
+            }
+        ),
+        "{target:?}"
+    );
+    assert_eq!(
+        write(&text, &target, "label", string("New")),
+        text_label("label='New'")
+    );
+}
+
+#[test]
+fn container_string_escapes_its_quote() {
+    let text = text_label("label={'Sale'}");
+    let target = run(&text, "Text", "label", Some(string("Sale")));
+    let EditTarget::Literal { span, form, .. } = &target else {
+        panic!("expected Literal, got {target:?}");
+    };
+    assert_eq!(
+        (span_text(&text, *span), *form),
+        ("'Sale'", LiteralForm::ContainerQuoted('\''))
+    );
+    assert_eq!(
+        write(&text, &target, "label", string("It's")),
+        text_label("label={'It\\'s'}")
+    );
+    // A backslash is escaped too, and a newline written as `\n`.
+    assert_eq!(
+        write(&text, &target, "label", string("a\\b\nc")),
+        text_label("label={'a\\\\b\\nc'}")
+    );
+}
+
+#[test]
+fn quoted_attribute_with_its_quote_becomes_a_container() {
+    let text = text_label("label=\"Sale\"");
+    let target = run(&text, "Text", "label", Some(string("Sale")));
+    assert_eq!(
+        write(&text, &target, "label", string("Say \"hi\"")),
+        text_label("label={\"Say \\\"hi\\\"\"}")
+    );
+    // The other quote needs no container.
+    assert_eq!(
+        write(&text, &target, "label", string("It's")),
+        text_label("label=\"It's\"")
+    );
+    // `&` would start an entity in an attribute string.
+    assert_eq!(
+        write(&text, &target, "label", string("a &amp; b")),
+        text_label("label={\"a &amp; b\"}")
+    );
+}
+
+#[test]
+fn newline_becomes_a_container() {
+    let text = text_label("label=\"a\"");
+    let target = run(&text, "Text", "label", Some(string("a")));
+    assert_eq!(
+        write(&text, &target, "label", string("a\nb")),
+        text_label("label={\"a\\nb\"}")
+    );
+}
+
+#[test]
+fn template_without_substitutions() {
+    let text = text_label("label={`Sale`}");
+    let target = run(&text, "Text", "label", Some(string("Sale")));
+    let EditTarget::Literal { span, form, .. } = &target else {
+        panic!("expected Literal, got {target:?}");
+    };
+    assert_eq!(
+        (span_text(&text, *span), *form),
+        ("`Sale`", LiteralForm::Template)
+    );
+    assert_eq!(
+        write(&text, &target, "label", string("x`y")),
+        text_label("label={`x\\`y`}")
+    );
+    assert_eq!(
+        write(&text, &target, "label", string("${n} \\")),
+        text_label("label={`\\${n} \\\\`}")
+    );
+}
+
+#[test]
+fn template_with_substitutions_is_an_expression() {
+    let text = text_label("label={`${n} off`}");
+    assert_eq!(
+        run(&text, "Text", "label", Some(string("3 off"))),
+        EditTarget::Locked(LockReason::Expression {
+            source: "`${n} off`".into()
+        })
+    );
+}
+
+#[test]
+fn bare_boolean_written_false() {
+    let text = component("  return <Video loop />;");
+    let target = run(&text, "Video", "loop", Some(EditValue::Bool(true)));
+    let EditTarget::Literal { span, value, form } = &target else {
+        panic!("expected Literal, got {target:?}");
+    };
+    let after_name = (text.find("loop").unwrap() + "loop".len()) as u32;
+    assert_eq!(
+        (*span, value, *form),
+        (
+            Span {
+                start: after_name,
+                end: after_name
+            },
+            &EditValue::Bool(true),
+            LiteralForm::BareTrue
+        )
+    );
+    assert_eq!(
+        write(&text, &target, "loop", EditValue::Bool(false)),
+        component("  return <Video loop={false} />;")
+    );
+    assert_eq!(write(&text, &target, "loop", EditValue::Bool(true)), text);
+}
+
+#[test]
+fn bool_container() {
+    let text = component("  return <Video loop={false} />;");
+    let target = run(&text, "Video", "loop", Some(EditValue::Bool(false)));
+    let EditTarget::Literal { span, value, form } = &target else {
+        panic!("expected Literal, got {target:?}");
+    };
+    assert_eq!(
+        (span_text(&text, *span), value, *form),
+        ("false", &EditValue::Bool(false), LiteralForm::Bool)
+    );
+    assert_eq!(
+        write(&text, &target, "loop", EditValue::Bool(true)),
+        component("  return <Video loop={true} />;")
+    );
+}
+
+#[test]
+fn const_string_resolves_and_shares() {
+    let text = component("  const L = 'a';\n  return <Text label={L} />;");
+    let target = run(&text, "Text", "label", Some(string("a")));
+    let EditTarget::Literal { span, value, form } = &target else {
+        panic!("expected Literal, got {target:?}");
+    };
+    assert_eq!(
+        (span_text(&text, *span), value, *form),
+        ("'a'", &string("a"), LiteralForm::ContainerQuoted('\''))
+    );
+    assert_eq!(
+        write(&text, &target, "label", string("b")),
+        component("  const L = 'b';\n  return <Text label={L} />;")
+    );
+
+    let text = component(
+        "  const L = 'a';\n  return <Group><Text label={L} /><Text label={L} /></Group>;",
+    );
+    assert_eq!(
+        run(&text, "Text", "label", Some(string("a"))),
+        EditTarget::Locked(LockReason::SharedBinding {
+            name: "L".into(),
+            uses: 2
+        })
+    );
+}
+
+#[test]
+fn insert_string_and_bool() {
+    let text = component("  return <Video src=\"a.mp4\" />;");
+    let at = text.find(" />").unwrap() as u32;
+    let target = run(&text, "Video", "label", None);
+    assert_eq!(
+        target,
+        EditTarget::Missing {
+            insert_at: at,
+            default: None
+        }
+    );
+    assert_eq!(
+        write(&text, &target, "label", string("a")),
+        component("  return <Video src=\"a.mp4\" label=\"a\" />;")
+    );
+    assert_eq!(
+        write(&text, &target, "label", string("Say \"hi\"\n")),
+        component("  return <Video src=\"a.mp4\" label={\"Say \\\"hi\\\"\\n\"} />;")
+    );
+    assert_eq!(
+        write(&text, &target, "loop", EditValue::Bool(false)),
+        component("  return <Video src=\"a.mp4\" loop={false} />;")
+    );
+    assert_eq!(
+        write(&text, &target, "loop", EditValue::Bool(true)),
+        component("  return <Video src=\"a.mp4\" loop />;")
+    );
+    assert_eq!(
+        write(&text, &target, "volume", EditValue::Number(0.5)),
+        component("  return <Video src=\"a.mp4\" volume={0.5} />;")
+    );
+}
+
+#[test]
+fn received_string_mismatch_is_overridden() {
+    let text = text_label("label=\"a\"");
+    assert_eq!(
+        run(&text, "Text", "label", Some(string("b"))),
+        EditTarget::Locked(LockReason::OverriddenByParent)
+    );
+    // A value of another kind does not match either.
+    let text = text_label("label={1}");
+    assert_eq!(
+        run(&text, "Text", "label", Some(string("1"))),
+        EditTarget::Locked(LockReason::OverriddenByParent)
+    );
+}
+
+#[test]
+fn a_value_of_another_kind_still_parses() {
+    let number = EditValue::Number(12.0);
+    assert_eq!(write_value(&number, LiteralForm::Quoted('\'')), "{12}");
+    assert_eq!(write_value(&number, LiteralForm::BareTrue), "={12}");
+    assert_eq!(write_value(&number, LiteralForm::Template), "12");
+    assert_eq!(write_value(&string("a"), LiteralForm::Number), "\"a\"");
+    assert_eq!(
+        write_value(&EditValue::Bool(false), LiteralForm::Quoted('"')),
+        "{false}"
+    );
+    assert_eq!(write_value(&string("a"), LiteralForm::BareTrue), "=\"a\"");
+}

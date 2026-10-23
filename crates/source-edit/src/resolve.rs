@@ -4,8 +4,8 @@ use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     ArrowFunctionBody, ArrowFunctionExpression, BinaryOperator, BindingIdentifier, CallExpression,
     Expression, Function, FunctionBody, IdentifierReference, JSXAttributeItem, JSXAttributeName,
-    JSXAttributeValue, JSXOpeningElement, ObjectPropertyKind, Statement, UnaryOperator,
-    VariableDeclarationKind,
+    JSXAttributeValue, JSXOpeningElement, ObjectPropertyKind, Statement, StringLiteral,
+    UnaryOperator, VariableDeclarationKind,
 };
 use oxc_ast_visit::Visit;
 use oxc_span::GetSpan;
@@ -22,13 +22,50 @@ pub struct Span {
     pub end: u32,
 }
 
+/// A prop value read from or written to the source.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EditValue {
+    Number(f64),
+    String(String),
+    Bool(bool),
+}
+
+impl EditValue {
+    pub fn as_number(&self) -> Option<f64> {
+        match self {
+            Self::Number(value) => Some(*value),
+            _ => None,
+        }
+    }
+}
+
+/// How a literal is written, so a write keeps its style.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiteralForm {
+    /// `12`, `-12`.
+    Number,
+    /// `name="…"` / `name='…'`: an attribute string, no container.
+    Quoted(char),
+    /// `name={'…'}` / `name={"…"}`, or a `const` initializer.
+    ContainerQuoted(char),
+    /// `` name={`…`} `` without `${}`.
+    Template,
+    /// `name` alone, which is `true`.
+    BareTrue,
+    /// `name={true}` / `name={false}`.
+    Bool,
+}
+
 /// Where a prop's value lives in the source, or why it cannot be edited.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EditTarget {
-    /// A numeric literal; replace `span`.
+    /// A literal written as `form`; replace `span`. For `Quoted` the span
+    /// covers the quotes; for `BareTrue` it is the empty point right after
+    /// the attribute name.
     Literal {
         span: Span,
-        value: f64,
+        value: EditValue,
+        form: LiteralForm,
     },
     /// An `interpolate()` output entry at the current frame; replace `span`.
     Keyframe {
@@ -36,10 +73,11 @@ pub enum EditTarget {
         value: f64,
         frame: f64,
     },
-    /// The prop is absent; insert it at `insert_at`.
+    /// The prop is absent; insert it at `insert_at`. `default` is the value
+    /// it takes meanwhile, when known.
     Missing {
         insert_at: u32,
-        default: f64,
+        default: Option<EditValue>,
     },
     Locked(LockReason),
 }
@@ -99,36 +137,45 @@ pub struct ResolveContext {
     /// locks keyframe targets as `FrameUncertain`.
     pub candidate_frames: Vec<f64>,
     /// The prop value the runtime saw, if any.
-    pub received: Option<f64>,
+    pub received: Option<EditValue>,
     /// How many times the element rendered in the frame.
     pub render_count: u32,
 }
 
-/// Value of a prop that is absent from the source.
-pub fn default_for(prop: &str) -> f64 {
+/// Value of a prop that is absent from the source, when known.
+pub fn default_for(prop: &str) -> Option<EditValue> {
     match prop {
-        "scale" | "scaleX" | "scaleY" => 1.0,
-        _ => 0.0,
+        "scale" | "scaleX" | "scaleY" => Some(EditValue::Number(1.0)),
+        "x" | "y" | "rotation" => Some(EditValue::Number(0.0)),
+        _ => None,
     }
 }
 
 impl EditTarget {
-    /// The edit that writes `value`, or `None` when the target is locked or
-    /// `value` is not finite.
-    pub fn to_edit(&self, prop: &str, value: f64) -> Option<Edit> {
-        if !value.is_finite() {
+    /// The edit that writes `value`, or `None` when the target is locked,
+    /// `value` is a number that is not finite, or a keyframe is given
+    /// anything but a number.
+    pub fn to_edit(&self, prop: &str, value: &EditValue) -> Option<Edit> {
+        if value.as_number().is_some_and(|n| !n.is_finite()) {
             return None;
         }
         match self {
-            Self::Literal { span, .. } | Self::Keyframe { span, .. } => Some(Edit::Replace {
+            Self::Literal { span, form, .. } => Some(Edit::Replace {
                 start: span.start,
                 end: span.end,
-                value,
+                value: value.clone(),
+                form: *form,
+            }),
+            Self::Keyframe { span, .. } => Some(Edit::Replace {
+                start: span.start,
+                end: span.end,
+                value: EditValue::Number(value.as_number()?),
+                form: LiteralForm::Number,
             }),
             Self::Missing { insert_at, .. } => Some(Edit::Insert {
                 at: *insert_at,
                 name: prop.to_string(),
-                value,
+                value: value.clone(),
             }),
             Self::Locked(_) => None,
         }
@@ -189,7 +236,7 @@ pub fn resolve(text: &str, element: &ElementRef, prop: &str, ctx: &ResolveContex
     };
 
     let target = resolve_shape(shape, &gather, text, ctx);
-    check_received(target, ctx.received)
+    check_received(target, ctx.received.as_ref())
 }
 
 /// Whether `prop` is written as an attribute on `element` (a spread does not
@@ -220,7 +267,18 @@ fn resolve_shape(shape: &Shape, gather: &Gather, text: &str, ctx: &ResolveContex
     match shape {
         Shape::Number(span, value) => EditTarget::Literal {
             span: *span,
-            value: *value,
+            value: EditValue::Number(*value),
+            form: LiteralForm::Number,
+        },
+        Shape::String(span, value, form) => EditTarget::Literal {
+            span: *span,
+            value: EditValue::String(value.clone()),
+            form: *form,
+        },
+        Shape::Bool(span, value, form) => EditTarget::Literal {
+            span: *span,
+            value: EditValue::Bool(*value),
+            form: *form,
         },
         Shape::Interpolate(call) => resolve_keyframe(call, gather, text, ctx),
         Shape::Call(callee) => EditTarget::Locked(LockReason::UnsupportedCall {
@@ -250,7 +308,7 @@ fn resolve_identifier(name: &str, gather: &Gather, text: &str, ctx: &ResolveCont
         return unresolved();
     };
     match shape {
-        Shape::Number(..) | Shape::Interpolate(_) => {
+        Shape::Number(..) | Shape::String(..) | Shape::Bool(..) | Shape::Interpolate(_) => {
             let uses = gather.refs.get(name).copied().unwrap_or(0);
             if uses > 1 {
                 return EditTarget::Locked(LockReason::SharedBinding {
@@ -303,7 +361,7 @@ fn resolve_keyframe(
     }
     // `interpolate()` always returns a number, so an element that received
     // none had the prop set by something else.
-    let Some(received) = ctx.received else {
+    let Some(received) = ctx.received.as_ref().and_then(EditValue::as_number) else {
         return EditTarget::Locked(LockReason::OverriddenByParent);
     };
     if ctx.candidate_frames.is_empty() {
@@ -427,14 +485,26 @@ fn same_value(a: f64, b: f64) -> bool {
 
 /// The resolved value must equal what the runtime saw; otherwise a parent or
 /// another binding decided the prop.
-fn check_received(target: EditTarget, received: Option<f64>) -> EditTarget {
-    let value = match &target {
-        EditTarget::Literal { value, .. } | EditTarget::Keyframe { value, .. } => *value,
+/// Numbers match within the tolerance, strings and booleans exactly, and
+/// values of different kinds never.
+fn check_received(target: EditTarget, received: Option<&EditValue>) -> EditTarget {
+    let same = match (&target, received) {
+        (
+            EditTarget::Literal {
+                value: EditValue::Number(a),
+                ..
+            }
+            | EditTarget::Keyframe { value: a, .. },
+            Some(EditValue::Number(b)),
+        ) => (a - b).abs() <= TOLERANCE,
+        (EditTarget::Literal { value, .. }, Some(received)) => value == received,
+        (EditTarget::Literal { .. } | EditTarget::Keyframe { .. }, _) => false,
         _ => return target,
     };
-    match received {
-        Some(r) if (r - value).abs() <= TOLERANCE => target,
-        _ => EditTarget::Locked(LockReason::OverriddenByParent),
+    if same {
+        target
+    } else {
+        EditTarget::Locked(LockReason::OverriddenByParent)
     }
 }
 
@@ -442,6 +512,8 @@ fn check_received(target: EditTarget, received: Option<f64>) -> EditTarget {
 #[derive(Debug)]
 enum Shape {
     Number(Span, f64),
+    String(Span, String, LiteralForm),
+    Bool(Span, bool, LiteralForm),
     Interpolate(Interpolate),
     Call(String),
     Ident(String),
@@ -597,6 +669,22 @@ fn shape_of(expr: &Expression<'_>) -> Shape {
                 _ => other(expr),
             }
         }
+        Expression::StringLiteral(s) => match string_of(s) {
+            Some((value, quote)) => {
+                Shape::String(span_of(s.span), value, LiteralForm::ContainerQuoted(quote))
+            }
+            None => other(expr),
+        },
+        Expression::TemplateLiteral(t) => match (t.expressions.is_empty(), t.quasis.first()) {
+            (true, Some(quasi)) if !quasi.lone_surrogates => match &quasi.value.cooked {
+                Some(cooked) => {
+                    Shape::String(span_of(t.span), cooked.to_string(), LiteralForm::Template)
+                }
+                None => other(expr),
+            },
+            _ => other(expr),
+        },
+        Expression::BooleanLiteral(b) => Shape::Bool(span_of(b.span), b.value, LiteralForm::Bool),
         Expression::CallExpression(call) => {
             let callee = callee_name(&call.callee);
             if callee == "interpolate" {
@@ -684,12 +772,25 @@ fn known_easing(options: &Expression<'_>) -> bool {
     })
 }
 
-fn other(expr: &Expression<'_>) -> Shape {
-    let span = expr.span();
-    Shape::Other(Span {
+/// A string literal's value and opening quote, or `None` when the value is
+/// not exactly the written text (lone surrogates).
+fn string_of(s: &StringLiteral<'_>) -> Option<(String, char)> {
+    if s.lone_surrogates {
+        return None;
+    }
+    let quote = s.raw.as_ref()?.chars().next()?;
+    Some((s.value.to_string(), quote))
+}
+
+fn span_of(span: oxc_span::Span) -> Span {
+    Span {
         start: span.start,
         end: span.end,
-    })
+    }
+}
+
+fn other(expr: &Expression<'_>) -> Shape {
+    Shape::Other(span_of(expr.span()))
 }
 
 fn callee_name(callee: &Expression<'_>) -> String {
@@ -756,20 +857,28 @@ impl<'a> Visit<'a> for Gather<'_> {
                             continue;
                         }
                         // A later duplicate wins, as at runtime.
+                        let whole = Shape::Other(span_of(attr.span));
                         let shape = match &attr.value {
                             Some(JSXAttributeValue::ExpressionContainer(c)) => {
-                                match c.expression.as_expression() {
-                                    Some(e) => shape_of(e),
-                                    None => Shape::Other(Span {
-                                        start: attr.span.start,
-                                        end: attr.span.end,
-                                    }),
-                                }
+                                c.expression.as_expression().map_or(whole, shape_of)
                             }
-                            _ => Shape::Other(Span {
-                                start: attr.span.start,
-                                end: attr.span.end,
-                            }),
+                            Some(JSXAttributeValue::StringLiteral(s)) => match string_of(s) {
+                                Some((value, quote)) => Shape::String(
+                                    span_of(s.span),
+                                    value,
+                                    LiteralForm::Quoted(quote),
+                                ),
+                                None => whole,
+                            },
+                            // `name` alone: the empty point after the name,
+                            // where `={false}` would go.
+                            None => {
+                                let end = name.span.end;
+                                Shape::Bool(Span { start: end, end }, true, LiteralForm::BareTrue)
+                            }
+                            Some(
+                                JSXAttributeValue::Element(_) | JSXAttributeValue::Fragment(_),
+                            ) => whole,
                         };
                         self.attr = Some(shape);
                         self.spread_after = false;
