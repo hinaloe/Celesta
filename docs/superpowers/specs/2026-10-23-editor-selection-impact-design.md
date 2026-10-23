@@ -183,6 +183,11 @@ keeps `occurrences: OccurrenceState` = `Scanning` | `Ready(index)` |
 belongs to. A result for an older generation is dropped, and so is one that
 lands after Select layers was turned off.
 
+The editor does not redraw every frame while a sweep runs: a task looks for
+its result every 200 ms and redraws only when it lands. A sweep held back for
+the reloaded frame still keeps the editor drawing until that frame is in, since
+the poll that takes it in starts the sweep.
+
 Until the index is ready, the impact is shown from the report's `span` only,
 with "Scanning scenes…" in place of the scene list.
 
