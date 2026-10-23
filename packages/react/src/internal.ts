@@ -16,7 +16,7 @@ export type {
 } from './render';
 export type { HostNode } from './reconciler';
 export { markPrimitive, sourceChain } from './source-chain';
-export type { LayerSourceEntry, LayerSourceReport, ReceivedProps } from './source-chain';
+export type { LayerSourceEntry, LayerSourceReport, ReceivedProps, SourcePos, TimingWindow } from './source-chain';
 export { registerHostElement } from './host-elements';
 export type { HostElement, HostVisit, HostWalk } from './host-elements';
 

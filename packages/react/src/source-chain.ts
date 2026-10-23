@@ -51,10 +51,40 @@ export interface LayerSourceReport {
   props?: ReceivedProps;
   /** How many layers this element's JSX produced in the frame. */
   renderCount?: number;
+  /** The timing wrappers around the innermost primitive, nearest first. */
+  windows?: TimingWindow[];
+  /** The composition frames the element is on screen in: every window and the composition, intersected. */
+  span?: { from: number; to: number };
 }
+
+export interface SourcePos {
+  file: string;
+  line: number;
+  column: number;
+}
+
+/** The frames a timing wrapper around the element shows its children in. */
+export interface TimingWindow {
+  kind: 'Sequence' | 'FreezeFrame' | 'Loop';
+  /** In composition frames. */
+  from: number;
+  /** Exclusive. */
+  to: number;
+  /** Where the wrapper was written; a `<Scenes>` scene, say, has none. */
+  source?: SourcePos;
+  /**
+   * Inside a `<Loop>` or `<FreezeFrame>` (or that wrapper itself), whose
+   * children see other frames than the composition's: `from`/`to` are then
+   * the window around the remapping, not one of their own.
+   */
+  remapped?: true;
+}
+
+type WindowKind = TimingWindow['kind'] | 'LoopCycle';
 
 const primitives = new WeakSet<object>();
 const transparent = new WeakSet<object>();
+const windowKinds = new WeakMap<object, WindowKind>();
 
 /**
  * Marks a component as a Celesta layer primitive, so a source chain can tell
@@ -74,6 +104,21 @@ export function markPrimitive(component: unknown): void {
 export function markTransparent(component: unknown): void {
   const target = unwrap(component);
   if (target !== null) transparent.add(target);
+}
+
+/**
+ * Marks a Celesta component that limits the frames its children are shown
+ * in, so a layer source report lists it in `windows`. `LoopCycle` is
+ * `<Loop>`'s inner cycle, which the report folds into the `<Loop>`.
+ */
+export function markWindow(component: unknown, kind: WindowKind): void {
+  const target = unwrap(component);
+  if (target !== null) windowKinds.set(target, kind);
+}
+
+function windowKind(fiber: Fiber): WindowKind | undefined {
+  const target = unwrap(fiber.elementType ?? fiber.type);
+  return target === null ? undefined : windowKinds.get(target);
 }
 
 function unwrap(component: unknown): object | null {
@@ -206,8 +251,9 @@ const TRANSFORM_PROPS = ['x', 'y', 'rotation', 'scale', 'scaleX', 'scaleY'] as c
 /**
  * `sourceChain` plus what the editor needs to write a transform back into
  * the source: the frame local to the layer's element, the transform props
- * its innermost primitive received, and how many layers that element
- * produced. `layerNodes` is the frame's layer id -> node map.
+ * its innermost primitive received, how many layers that element produced,
+ * and the timing windows it is shown in. `layerNodes` is the frame's layer
+ * id -> node map.
  */
 export function layerSourceReport(
   node: HostNode,
@@ -250,19 +296,88 @@ export function layerSourceReport(
     candidateFrames: framesAbove(element, up),
     props,
     renderCount,
+    ...timingWindows(element, up, resolveFile),
   };
 }
 
-type RuntimeValue = { time: { value: number; timescale: number }; fps: number; frameOffset?: number };
+type RuntimeValue = {
+  time: { value: number; timescale: number };
+  fps: number;
+  frameOffset?: number;
+  durationInFrames: number;
+};
 
-/** The frame a `CompositionRuntimeContext` provider fiber hands down, if it is one. */
-function providedFrame(fiber: Fiber): number | undefined {
+/** The value a `CompositionRuntimeContext` provider fiber hands down, if it is one. */
+function providedValue(fiber: Fiber): RuntimeValue | undefined {
   // React 19 makes the context its own provider; 18 wraps it.
   const type = fiber.type as { _context?: unknown } | null;
   if (!type || typeof type !== 'object') return undefined;
   if (type !== (CompositionRuntimeContext as unknown) && type._context !== CompositionRuntimeContext) return undefined;
-  const value = (fiber.memoizedProps as { value?: RuntimeValue | null } | null)?.value;
+  return (fiber.memoizedProps as { value?: RuntimeValue | null } | null)?.value ?? undefined;
+}
+
+/** The frame a `CompositionRuntimeContext` provider fiber hands down, if it is one. */
+function providedFrame(fiber: Fiber): number | undefined {
+  const value = providedValue(fiber);
   return value ? runtimeFrame(value.time, value.fps, value.frameOffset) : undefined;
+}
+
+/**
+ * The timing wrappers above `element`, nearest first, and the composition
+ * frames all of them show it in. Each window is placed by the clock its
+ * wrapper hands down; inside a `<Loop>` or `<FreezeFrame>` the clock no
+ * longer follows the composition's, so a window there takes the one around it.
+ */
+function timingWindows(
+  element: Fiber | null,
+  up: Up,
+  resolveFile: (fileName: string) => string,
+): { windows: TimingWindow[]; span: { from: number; to: number } } {
+  // The way from the element to the root, nearest first.
+  const path: Fiber[] = [];
+  for (let fiber = element ? up(element) : null; fiber; fiber = up(fiber)) path.push(fiber);
+  let root: RuntimeValue | undefined;
+  for (const fiber of path) root = providedValue(fiber) ?? root;
+  const rootFrame = root ? runtimeFrame(root.time, root.fps, root.frameOffset) : 0;
+  const total = root?.durationInFrames ?? 0;
+
+  const windows: TimingWindow[] = [];
+  let enclosing = { from: 0, to: total };
+  let remapped = false;
+  for (let index = path.length - 1; index >= 0; index--) {
+    const fiber = path[index];
+    const kind = windowKind(fiber);
+    if (kind === undefined || kind === 'LoopCycle') continue;
+    // `<Loop>` draws its window and each cycle with `<Sequence>`s of its own.
+    const parent = path[index + 1];
+    const parentKind = parent ? windowKind(parent) : undefined;
+    if (kind === 'Sequence' && (parentKind === 'Loop' || parentKind === 'LoopCycle')) continue;
+
+    let { from, to } = enclosing;
+    if (!remapped && kind !== 'FreezeFrame') {
+      // The clock directly below it: a `<Loop>`'s is its outer `<Sequence>`'s.
+      let value: RuntimeValue | undefined;
+      for (let below = index - 1; below >= 0 && !value; below--) value = providedValue(path[below]);
+      if (value) {
+        from = rootFrame - runtimeFrame(value.time, value.fps, value.frameOffset);
+        to = from + value.durationInFrames;
+      }
+    }
+    const window: TimingWindow = { kind, from, to };
+    const source = sourceOfProps(fiber.memoizedProps ?? fiber.pendingProps);
+    if (source) window.source = { file: resolveFile(source.fileName), line: source.lineNumber, column: source.columnNumber };
+    if (remapped || kind !== 'Sequence') window.remapped = true;
+    windows.push(window);
+    if (!remapped) enclosing = { from, to };
+    if (kind !== 'Sequence') remapped = true;
+  }
+
+  const span = { from: 0, to: total };
+  for (const window of windows) {
+    span.from = Math.max(span.from, window.from);
+    span.to = Math.min(span.to, window.to);
+  }
+  return { windows: windows.reverse(), span };
 }
 
 /** The frame `useCurrentFrame()` reports in a component at `fiber`. */
