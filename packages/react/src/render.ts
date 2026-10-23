@@ -1677,7 +1677,9 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
    * whenever the positions change, never for new values alone. The editor
    * overrides every prop a drag can change from its first frame on, so for
    * a drag that is once when it starts and once when it is cancelled (a
-   * written drag ends with the reload).
+   * written drag ends with the reload). An element cached with `useMemo` at
+   * an override's position follows only the first drag frame: later frames
+   * reuse the element created then, and `jsxDEV` never sees their values.
    */
   const updateOverrides = (propOverrides: FramePropOverrides | undefined) => {
     const overrides = propOverrides && propOverrides.overrides.length > 0 ? propOverrides : undefined;

@@ -164,6 +164,12 @@ These differ from, or settle what the plan left open:
   walked again only when a host node changed.
 - **Module-scope JSX keeps its written values** while dragging: it is
   created once, outside any render.
+- **An element cached with `useMemo` at an override position follows only
+  the first drag frame.** The first frame remounts the entry, so the
+  factory runs with that frame's value; later frames reuse the cached
+  element and `jsxDEV` never sees their values. Left as a known limitation;
+  `prop-overrides.test.mts` pins it (50 → 50 → 50), so a fix flips that test
+  on purpose. A frame without overrides remounts and draws the written value.
 
 ## What 2b–2d build on
 

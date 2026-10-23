@@ -20,7 +20,9 @@ use crate::layer_select::{
 use crate::react_audio::{react_audio_clip_id, react_tracks};
 use crate::refresh::{LookupFate, SelectionKeep};
 use crate::source::is_react_entry;
-use crate::transform_drag::{OverrideSite, override_sites, presses_body, prop_overrides};
+use crate::transform_drag::{
+    OverrideSite, TransformDrag, override_sites, presses_body, prop_overrides,
+};
 use crate::transform_edit::{
     CommitError, Target, TransformEdit, TransformProp, TransformTargets, commit_files,
     inside_project, keyframe_jump_frames, keyframe_timeline_frame, lock_outside_project,
@@ -2657,6 +2659,85 @@ fn a_drag_overrides_the_prop_its_write_changes() {
         ]
     );
     assert_eq!(prop_overrides(&sites, &[(TransformProp::Scale, 3.0)]), []);
+}
+
+#[test]
+fn a_drag_overrides_nothing_before_the_pointer_moves_or_while_playing() {
+    let frame = drag_frame(IDENTITY, pt(10.0, 20.0));
+    let editable = vec![TransformProp::X, TransformProp::Y, TransformProp::Rotation];
+    let mut drag = TransformDrag::new(
+        frame.clone(),
+        Handle::Move,
+        pt(0.0, 0.0),
+        editable.clone(),
+        price_tag_report().props,
+        mixed_override_sites(),
+    );
+    assert_eq!(drag.overrides(false), []);
+
+    let values = drag_values(
+        &frame,
+        Handle::Move,
+        (pt(0.0, 0.0), pt(4.0, 0.0)),
+        false,
+        0.0,
+        &editable,
+    );
+    assert!(drag.follow(values.clone()));
+    assert!(!drag.follow(values));
+    assert_eq!(drag.overrides(false).len(), 2);
+    assert_eq!(drag.overrides(true), []);
+}
+
+#[test]
+fn each_handle_previews_every_prop_it_changes() {
+    let frame = drag_frame(IDENTITY, pt(10.0, 20.0));
+    let received = ReceivedProps {
+        rotation: Some(5.0),
+        ..ReceivedProps::default()
+    };
+    let preview = |handle, editable: &[TransformProp], values: &[(TransformProp, f64)]| {
+        preview_values(&frame, handle, editable, values, &received)
+    };
+    // Unchanged props keep the value the runtime saw, or the frame's.
+    assert_values(
+        &preview(Handle::Rotate, &UNIFORM, &[]),
+        &[(TransformProp::Rotation, 5.0)],
+    );
+    assert_values(
+        &preview(Handle::Rotate, &UNIFORM, &[(TransformProp::Rotation, 30.0)]),
+        &[(TransformProp::Rotation, 35.0)],
+    );
+    assert_values(
+        &preview(Handle::Corner(0), &UNIFORM, &[]),
+        &[(TransformProp::Scale, 1.0)],
+    );
+    assert_values(
+        &preview(
+            Handle::Corner(2),
+            &PER_AXIS,
+            &[(TransformProp::ScaleX, 2.0)],
+        ),
+        &[(TransformProp::ScaleX, 2.0), (TransformProp::ScaleY, 1.0)],
+    );
+    // Edges 1 and 3 scale x, edges 0 and 2 y; a uniform scale either way.
+    assert_values(
+        &preview(Handle::Edge(1), &PER_AXIS, &[]),
+        &[(TransformProp::ScaleX, 1.0)],
+    );
+    assert_values(
+        &preview(Handle::Edge(0), &PER_AXIS, &[]),
+        &[(TransformProp::ScaleY, 1.0)],
+    );
+    assert_values(
+        &preview(Handle::Edge(0), &UNIFORM, &[]),
+        &[(TransformProp::Scale, 1.0)],
+    );
+    // A locked prop is left out.
+    assert_values(
+        &preview(Handle::Corner(0), &[TransformProp::ScaleX], &[]),
+        &[(TransformProp::ScaleX, 1.0)],
+    );
 }
 
 #[test]

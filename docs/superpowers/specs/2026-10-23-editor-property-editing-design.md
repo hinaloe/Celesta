@@ -187,7 +187,10 @@ PropOverride { file (absolute), line, column, prop, value }
   `<Static>` renders a child written in it at an override's position on
   every drag frame and keeps the others; its cached layers are walked again
   only when a host node below changed. Elements created outside any render
-  (at module scope) keep their written values.
+  (at module scope) keep their written values, and an element cached with
+  `useMemo` at an override's position follows only the first drag frame:
+  later frames reuse the element created then, so `jsxDEV` never sees their
+  values (a known limitation; a test pins it).
 - Field edits (typing in a Transform row) write without a preview, and need
   no overrides.
 
@@ -371,7 +374,9 @@ Rust (`crates/editor`):
 - Drag overrides: a `Literal` or `Missing` target overrides the element's
   prop, a `PassThrough` the call site's `param`, a locked one nothing; a
   move overrides `x` and `y` from its first frame, an unmoved axis with its
-  start value, at the same positions on every frame.
+  start value, at the same positions on every frame; each handle's props
+  (rotate, uniform and per-axis corners, an edge); no overrides before the
+  pointer moves or while playing.
 
 Rust (`crates/react-bridge`): a frame request carries `propOverrides` only
 when there are some.
@@ -388,8 +393,10 @@ TypeScript (Vitest):
   reaching one, a drag frame rendering only the creator of the overridden
   element (not another `memo` component, nor a `<Static>` without one), the
   written values back after a frame without overrides (an element cached
-  with `useMemo` too), and an element inside `<Static>` following the drag;
-  a CLI frame request with `propOverrides`.
+  with `useMemo` too), an element cached with `useMemo` at an override's
+  position keeping the first drag frame's value (the limitation, pinned),
+  and an element inside `<Static>` following the drag; a CLI frame request
+  with `propOverrides`.
 
 Manual, with before/after screenshots of the same scene: edit a `Text`'s
 content inline (including Japanese input through the IME) and its font size, a `Rect`'s fill and corner radius, resize a `Rect` from

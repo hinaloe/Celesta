@@ -133,6 +133,20 @@ test('a frame without overrides draws the written values again', () => {
   assert.equal(report?.props?.x, 10);
 });
 
+test('an element cached with useMemo at an override position follows only the first drag frame', () => {
+  // Known limitation: later frames reuse the cached element, so `jsxDEV`
+  // never sees their values. A fix would flip the middle assertions.
+  function Cached() {
+    return useMemo(() => rect('a', 3, { x: 10 }), []);
+  }
+  const composition = mount(() => comp(jsxDEV(Cached, {}, undefined, false, at('entry.tsx', 2, 7))));
+  assert.deepEqual(positions(composition, [], 'a'), [[10, 0]]);
+  assert.deepEqual(positions(composition, [override(3, 'x', 50)], 'a'), [[50, 0]]);
+  assert.deepEqual(positions(composition, [override(3, 'x', 60)], 'a'), [[50, 0]]);
+  assert.deepEqual(positions(composition, [override(3, 'x', 70)], 'a'), [[50, 0]]);
+  assert.deepEqual(positions(composition, [], 'a'), [[10, 0]]);
+});
+
 test('an override inside <Static> follows the drag and leaves the cache valid', () => {
   // The cached layers are reused for as long as nothing below changes.
   const composition = mount(() => comp(jsxDEV(Static, { children: rect('a', 3, { x: 10 }) }, undefined, false, at('entry.tsx', 2, 7))));

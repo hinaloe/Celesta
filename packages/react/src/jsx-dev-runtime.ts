@@ -54,9 +54,10 @@ export function jsxDEV(
   source?: SourcePosition,
   _self?: unknown,
 ): ReactElement {
-  const elementProps = overrides !== null && source ? overridden(props, source) : props;
-  const element = (isStaticChildren ? jsxs : jsx)(type as never, elementProps, key);
+  const atPosition = overrides !== null && source ? overridden(props, source) : undefined;
+  const element = (isStaticChildren ? jsxs : jsx)(type as never, atPosition ?? props, key);
   if (source) positions.set(element.props as object, source);
+  if (atPosition) atOverride.add(element.props as object);
   return element;
 }
 
@@ -65,6 +66,7 @@ export function jsxDEV(
  * `children`) hold one created at an override's position this frame.
  */
 export function createdAtOverride(children: unknown): boolean {
+  if (overrides === null) return false;
   if (Array.isArray(children)) return children.some(createdAtOverride);
   if (typeof children !== 'object' || children === null || !('props' in children)) return false;
   const { props } = children as { props: unknown };
@@ -73,14 +75,15 @@ export function createdAtOverride(children: unknown): boolean {
 }
 
 /**
- * `props` with the overrides for `source`. Only a component creating an
- * element at an override's position subscribes to later ones (`use` reads a
- * context without a hook slot, so it may be called conditionally); every
- * other component keeps React's bailouts on drag frames.
+ * `props` with the overrides for `source`, or `undefined` when `source` is
+ * no override's position. Only a component creating an element at an
+ * override's position subscribes to later ones (`use` reads a context
+ * without a hook slot, so it may be called conditionally); every other
+ * component keeps React's bailouts on drag frames.
  */
-function overridden(props: Record<string, unknown>, source: SourcePosition): Record<string, unknown> {
+function overridden(props: Record<string, unknown>, source: SourcePosition): Record<string, unknown> | undefined {
   const matches = overrides?.get(`${source.lineNumber}:${source.columnNumber}`);
-  if (!matches) return props;
+  if (!matches) return undefined;
   let file = resolvedFiles.get(source.fileName);
   if (file === undefined) {
     file = resolveFile(source.fileName);
@@ -103,8 +106,7 @@ function overridden(props: Record<string, unknown>, source: SourcePosition): Rec
       result[prop] = value;
     }
   }
-  if (subscribed) atOverride.add(result);
-  return result;
+  return subscribed ? result : undefined;
 }
 
 /**

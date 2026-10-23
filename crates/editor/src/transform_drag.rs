@@ -47,6 +47,61 @@ pub(crate) struct TransformDrag {
     released: bool,
 }
 
+impl TransformDrag {
+    /// A drag of `handle` pressed at `start` (scene pixels), before the
+    /// pointer moves.
+    pub(crate) fn new(
+        frame: LayerFrame,
+        handle: Handle,
+        start: Point,
+        editable: Vec<TransformProp>,
+        received: ReceivedProps,
+        sites: Vec<(TransformProp, OverrideSite)>,
+    ) -> Self {
+        Self {
+            frame,
+            handle,
+            start,
+            editable,
+            received,
+            sites,
+            turned: 0.0,
+            values: Vec::new(),
+            released: false,
+        }
+    }
+
+    /// Takes the transform values the pointer made; true when they changed.
+    pub(crate) fn follow(&mut self, values: Vec<(TransformProp, f64)>) -> bool {
+        let changed = values != self.values;
+        self.values = values;
+        changed
+    }
+
+    /// The prop overrides the preview evaluates the scene with: the values
+    /// the write puts into the source, so the frame shows what the write will
+    /// produce. None before the pointer moves, nor while `playing`. From the
+    /// first move on, every prop the handle can change is overridden, changed
+    /// or not, so the positions stay the same for the whole drag: the runtime
+    /// remounts the entry when they change, which is then only when the drag
+    /// starts and when it is cancelled.
+    pub(crate) fn overrides(&self, playing: bool) -> Vec<PropOverride> {
+        if playing || self.values.is_empty() {
+            return Vec::new();
+        }
+        prop_overrides(
+            &self.sites,
+            &preview_values(
+                &self.frame,
+                self.handle,
+                &self.editable,
+                &self.values,
+                &self.received,
+            ),
+        )
+    }
+}
+
 /// The prop `prop` of the elements written at `position`: where the runtime
 /// takes a dragged value while the drag runs.
 #[derive(Clone, Debug, PartialEq)]
@@ -169,26 +224,11 @@ impl EditorView {
     }
 
     /// The prop overrides the preview evaluates the scene with while a drag
-    /// runs: the values its write puts into the source, so the frame shows
-    /// what the write will produce. From the pointer's first move on, every
-    /// prop the handle can change is overridden, changed or not, so the
-    /// positions stay the same for the whole drag: the runtime remounts the
-    /// entry when they change, which is then only when the drag starts and
-    /// when it is cancelled.
+    /// runs (see `TransformDrag::overrides`).
     pub(crate) fn prop_overrides(&self) -> Vec<PropOverride> {
-        match &self.transform_drag {
-            Some(drag) if !self.playing && !drag.values.is_empty() => prop_overrides(
-                &drag.sites,
-                &preview_values(
-                    &drag.frame,
-                    drag.handle,
-                    &drag.editable,
-                    &drag.values,
-                    &drag.received,
-                ),
-            ),
-            _ => Vec::new(),
-        }
+        self.transform_drag
+            .as_ref()
+            .map_or_else(Vec::new, |drag| drag.overrides(self.playing))
     }
 
     /// The drag's `x 120 → 184` label, once the pointer changed something.
@@ -250,17 +290,9 @@ impl EditorView {
             Some(Handle::Move) | None => return false,
             Some(handle) => handle,
         };
-        self.transform_drag = Some(TransformDrag {
-            frame,
-            handle,
-            start,
-            editable,
-            received,
-            sites,
-            turned: 0.0,
-            values: Vec::new(),
-            released: false,
-        });
+        self.transform_drag = Some(TransformDrag::new(
+            frame, handle, start, editable, received, sites,
+        ));
         true
     }
 
@@ -301,8 +333,7 @@ impl EditorView {
         {
             drag.turned = turned;
         }
-        if values != drag.values {
-            drag.values = values;
+        if drag.follow(values) {
             self.refresh_preview();
             cx.notify();
         }
