@@ -296,6 +296,56 @@ pub(crate) fn prop_values(
         .collect()
 }
 
+/// The value of every prop `handle` changes in a drag (of those in
+/// `editable`), for the preview: the drag's for the props it changed (see
+/// `prop_values`), and the one the runtime saw when the drag started for the
+/// others. The props are the same on every frame of the drag, so the
+/// preview's overrides keep their positions and the runtime never remounts
+/// for a new one.
+pub(crate) fn preview_values(
+    frame: &LayerFrame,
+    handle: Handle,
+    editable: &[TransformProp],
+    values: &[(TransformProp, f64)],
+    received: &ReceivedProps,
+) -> Vec<(TransformProp, f64)> {
+    let changed = prop_values(frame, values, received);
+    handle_props(handle, editable)
+        .into_iter()
+        .map(|prop| {
+            let value = changed
+                .iter()
+                .find(|(candidate, _)| *candidate == prop)
+                .map_or_else(
+                    || {
+                        prop.received(received)
+                            .unwrap_or_else(|| start_value(frame, prop))
+                    },
+                    |&(_, value)| value,
+                );
+            (prop, value)
+        })
+        .collect()
+}
+
+/// The props of `editable` a drag of `handle` may change (see `drag_values`).
+fn handle_props(handle: Handle, editable: &[TransformProp]) -> Vec<TransformProp> {
+    let uniform = editable.contains(&TransformProp::Scale);
+    let props: &[TransformProp] = match handle {
+        Handle::Move => &[TransformProp::X, TransformProp::Y],
+        Handle::Rotate => &[TransformProp::Rotation],
+        _ if uniform => &[TransformProp::Scale],
+        Handle::Edge(i) if i % 2 == 1 => &[TransformProp::ScaleX],
+        Handle::Edge(_) => &[TransformProp::ScaleY],
+        Handle::Corner(_) => &[TransformProp::ScaleX, TransformProp::ScaleY],
+    };
+    props
+        .iter()
+        .copied()
+        .filter(|prop| editable.contains(prop))
+        .collect()
+}
+
 /// `x 120 → 184` for each prop the drag writes, with the values as written
 /// to the source.
 pub(crate) fn drag_label(

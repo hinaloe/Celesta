@@ -1674,10 +1674,10 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
    * override's position was set never subscribed (a `memo` one may not
    * render again), and an element cached with `useMemo` while overrides
    * were set would keep its value after they stop: the entry remounts
-   * whenever the positions change. For a drag that is once when it starts
-   * and once when it is cancelled (a written drag ends with the reload),
-   * plus when a dragged prop set in another place than the others first
-   * changes or goes back to its start; never for new values alone.
+   * whenever the positions change, never for new values alone. The editor
+   * overrides every prop a drag can change from its first frame on, so for
+   * a drag that is once when it starts and once when it is cancelled (a
+   * written drag ends with the reload).
    */
   const updateOverrides = (propOverrides: FramePropOverrides | undefined) => {
     const overrides = propOverrides && propOverrides.overrides.length > 0 ? propOverrides : undefined;

@@ -20,14 +20,15 @@ use crate::layer_select::{
 use crate::react_audio::{react_audio_clip_id, react_tracks};
 use crate::refresh::{LookupFate, SelectionKeep};
 use crate::source::is_react_entry;
-use crate::transform_drag::{override_sites, presses_body, prop_overrides};
+use crate::transform_drag::{OverrideSite, override_sites, presses_body, prop_overrides};
 use crate::transform_edit::{
     CommitError, Target, TransformEdit, TransformProp, TransformTargets, commit_files,
     inside_project, keyframe_jump_frames, keyframe_timeline_frame, lock_outside_project,
     reason_text, resolve_targets,
 };
 use crate::transform_handles::{
-    Handle, drag_label, drag_values, handle_at, handles, prop_values, shown_handles, turn,
+    Handle, drag_label, drag_values, handle_at, handles, preview_values, prop_values,
+    shown_handles, turn,
 };
 use crate::transform_rows::{field_text, set_at_text};
 use crate::waveform::{
@@ -2604,10 +2605,11 @@ fn x_passed_at_the_call_site_is_a_pass_through_target() {
     assert_eq!(targets.targets[2].1.call_site, None);
 }
 
-#[test]
-fn a_drag_overrides_the_prop_its_write_changes() {
-    // `left` is set at the call site; `rotation` on the element; `y` nowhere;
-    // `scale` is computed.
+/// The override sites of `<Rect x={left} rotation={10} scale={size * 2} />`
+/// in `PriceTag`, called as `<PriceTag left={40} size={1} />`: `left` is set
+/// at the call site, `rotation` on the element, `y` nowhere, and `scale` is
+/// computed.
+fn mixed_override_sites() -> Vec<(TransformProp, OverrideSite)> {
     let files = Texts::from([
         (
             PathBuf::from("/project/component.tsx"),
@@ -2621,15 +2623,24 @@ fn a_drag_overrides_the_prop_its_write_changes() {
     ]);
     let report = price_tag_report();
     let targets = resolve_targets(read_from(&files), &report).expect("the element resolves");
-    let sites = override_sites(&targets, &report);
+    override_sites(&targets, &report)
+}
 
-    let at = |file: &str, prop: &str, value: f64| PropOverride {
+/// An override of the element or call site at line 2, column 3 of `file`.
+fn override_at(file: &str, prop: &str, value: f64) -> PropOverride {
+    PropOverride {
         file: PathBuf::from(file),
         line: 2,
         column: 3,
         prop: prop.to_owned(),
         value,
-    };
+    }
+}
+
+#[test]
+fn a_drag_overrides_the_prop_its_write_changes() {
+    let sites = mixed_override_sites();
+    let at = override_at;
     assert_eq!(
         prop_overrides(
             &sites,
@@ -2646,6 +2657,54 @@ fn a_drag_overrides_the_prop_its_write_changes() {
         ]
     );
     assert_eq!(prop_overrides(&sites, &[(TransformProp::Scale, 3.0)]), []);
+}
+
+#[test]
+fn a_move_drag_overrides_both_axes_from_its_first_frame() {
+    // The runtime saw `x` 40 (`left`) and no `y`; the layer is drawn at
+    // (10, 20).
+    let sites = mixed_override_sites();
+    let frame = drag_frame(IDENTITY, pt(10.0, 20.0));
+    let received = price_tag_report().props;
+    let editable = [TransformProp::X, TransformProp::Y, TransformProp::Rotation];
+    let overrides = |now: Point| {
+        let values = drag_values(
+            &frame,
+            Handle::Move,
+            (pt(0.0, 0.0), now),
+            false,
+            0.0,
+            &editable,
+        );
+        prop_overrides(
+            &sites,
+            &preview_values(&frame, Handle::Move, &editable, &values, &received),
+        )
+    };
+    // Only `x` moved; `y` keeps its start value, at the element.
+    assert_eq!(
+        overrides(pt(4.0, 0.0)),
+        vec![
+            override_at("/project/scene.tsx", "left", 44.0),
+            override_at("/project/component.tsx", "y", 20.0),
+        ]
+    );
+    // The positions stay the same for the whole drag, so the runtime does
+    // not remount: only the values change.
+    assert_eq!(
+        overrides(pt(4.0, 6.0)),
+        vec![
+            override_at("/project/scene.tsx", "left", 44.0),
+            override_at("/project/component.tsx", "y", 26.0),
+        ]
+    );
+    assert_eq!(
+        overrides(pt(0.0, 0.0)),
+        vec![
+            override_at("/project/scene.tsx", "left", 40.0),
+            override_at("/project/component.tsx", "y", 20.0),
+        ]
+    );
 }
 
 #[test]

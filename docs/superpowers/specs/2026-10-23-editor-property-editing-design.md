@@ -167,7 +167,10 @@ PropOverride { file (absolute), line, column, prop, value }
   the parameter's prop at the call site (`Target.call_site`, `param`) for a
   `PassThrough`. Locked props are never dragged. The positions are taken
   when the drag starts and kept while a released drag writes, until the
-  reload's frame is shown.
+  reload's frame is shown. From the pointer's first move on, every prop the
+  handle can change is overridden (`x` and `y` for a move), with the value
+  the runtime saw until the drag changes it, so the set of positions stays
+  the same for the whole drag.
 - The frame request carries `propOverrides` (left out when empty; exports
   never send it). `jsxDEV` creates an element written at an override's
   position with the value, comparing the recorded file name resolved as
@@ -179,13 +182,12 @@ PropOverride { file (absolute), line, column, prop, value }
   bailouts as without a drag. Components that rendered before a position was
   overridden never subscribed, and an element cached with `useMemo` while
   overrides were set would keep the value after: the entry remounts when the
-  overridden positions change (when a drag starts, when it is cancelled, and
-  when a prop set in another place first changes or goes back), never for
-  new values alone. `<Static>` renders a child written in it at an
-  override's position on every drag frame and keeps the others; its cached
-  layers are walked again only when a host node below changed. Elements
-  created outside any
-  render (at module scope) keep their written values.
+  overridden positions change, never for new values alone: with a fixed set
+  of positions, once when a drag starts and once when it is cancelled.
+  `<Static>` renders a child written in it at an override's position on
+  every drag frame and keeps the others; its cached layers are walked again
+  only when a host node below changed. Elements created outside any render
+  (at module scope) keep their written values.
 - Field edits (typing in a Transform row) write without a preview, and need
   no overrides.
 
@@ -367,7 +369,9 @@ Rust (`crates/editor`):
   replaced and restored on Escape; seeking or selecting another layer
   commits; a locked `text` row does not enter editing.
 - Drag overrides: a `Literal` or `Missing` target overrides the element's
-  prop, a `PassThrough` the call site's `param`, a locked one nothing.
+  prop, a `PassThrough` the call site's `param`, a locked one nothing; a
+  move overrides `x` and `y` from its first frame, an unmoved axis with its
+  start value, at the same positions on every frame.
 
 Rust (`crates/react-bridge`): a frame request carries `propOverrides` only
 when there are some.

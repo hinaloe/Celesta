@@ -146,15 +146,18 @@ These differ from, or settle what the plan left open:
   element at an override's position; every other component keeps React's
   bailouts, as without a drag. Without overrides `jsxDEV` only checks one
   variable.
-- **A drag remounts the entry when the overridden positions change, never
-  for new values alone.** A component that rendered before a position was
-  overridden never subscribed, and an element cached with `useMemo` while
-  overrides were set would keep the dragged value after. So the entry
-  remounts on the first frame of a drag, on the first frame without
-  overrides (an Escape; a written drag ends with the reload instead), and
-  when a prop set in another place than the others first changes or goes
-  back to its start. Hook state starts over at those frames, and `<Static>`
-  layers are sent to Rust again.
+- **A drag remounts the entry when it starts and when it is cancelled.** A
+  component that rendered before a position was overridden never
+  subscribed, and an element cached with `useMemo` while overrides were set
+  would keep the dragged value after, so the runtime remounts the entry
+  whenever the overridden positions change, never for new values alone.
+  The editor keeps the positions fixed for the whole drag: from the
+  pointer's first move it overrides every prop the handle can change
+  (`preview_values`; `x` and `y` for a move), with the value the runtime saw
+  until the drag changes it. So the entry remounts on the first frame of a
+  drag and on the first frame without overrides (an Escape; a written drag
+  ends with the reload instead). Hook state starts over at those frames,
+  and `<Static>` layers are sent to Rust again.
 - **`<Static>` follows the drag.** Its `memo` comparison fails when a child
   written in it was created at an override's position, so that child
   renders with the value; other `<Static>`s are kept. Its cached layers are

@@ -5,7 +5,7 @@
 use crate::layer_select::{letterbox, to_scene};
 use crate::transform_edit::{TransformProp, TransformTargets, editable, inner_target, reason_text};
 use crate::transform_handles::{
-    Handle, drag_label, drag_values, handle_at, prop_values, shown_handles, turn,
+    Handle, drag_label, drag_values, handle_at, preview_values, prop_values, shown_handles, turn,
 };
 use crate::view::EditorView;
 use celesta_composition::Point;
@@ -170,12 +170,22 @@ impl EditorView {
 
     /// The prop overrides the preview evaluates the scene with while a drag
     /// runs: the values its write puts into the source, so the frame shows
-    /// what the write will produce.
+    /// what the write will produce. From the pointer's first move on, every
+    /// prop the handle can change is overridden, changed or not, so the
+    /// positions stay the same for the whole drag: the runtime remounts the
+    /// entry when they change, which is then only when the drag starts and
+    /// when it is cancelled.
     pub(crate) fn prop_overrides(&self) -> Vec<PropOverride> {
         match &self.transform_drag {
-            Some(drag) if !self.playing => prop_overrides(
+            Some(drag) if !self.playing && !drag.values.is_empty() => prop_overrides(
                 &drag.sites,
-                &prop_values(&drag.frame, &drag.values, &drag.received),
+                &preview_values(
+                    &drag.frame,
+                    drag.handle,
+                    &drag.editable,
+                    &drag.values,
+                    &drag.received,
+                ),
             ),
             _ => Vec::new(),
         }
