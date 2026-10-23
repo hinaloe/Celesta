@@ -28,6 +28,8 @@ export interface PropOverride {
 }
 
 const positions = new WeakMap<object, SourcePosition>();
+/** The props of the elements created at an override's position this frame. */
+let atOverride = new WeakSet<object>();
 
 /** The overrides of the frame being rendered, by `line:column`; `null` between frames and without any. */
 let overrides: Map<string, PropOverride[]> | null = null;
@@ -37,7 +39,7 @@ const resolvedFiles = new Map<string, string>();
 
 /**
  * Provided above the entry with a new value whenever the overrides change: a
- * component that created an element while overrides were set renders again
+ * component that created an element at an override's position renders again
  * then, even a `memo` one whose props did not change.
  */
 export const PropOverridesContext = createContext<object | null>(null);
@@ -58,13 +60,25 @@ export function jsxDEV(
   return element;
 }
 
-/** `props` with the overrides for `source`, subscribing the rendering component to later ones. */
+/**
+ * Whether `children` (elements, nested in arrays and in their own
+ * `children`) hold one created at an override's position this frame.
+ */
+export function createdAtOverride(children: unknown): boolean {
+  if (Array.isArray(children)) return children.some(createdAtOverride);
+  if (typeof children !== 'object' || children === null || !('props' in children)) return false;
+  const { props } = children as { props: unknown };
+  return typeof props === 'object' && props !== null &&
+    (atOverride.has(props) || createdAtOverride((props as { children?: unknown }).children));
+}
+
+/**
+ * `props` with the overrides for `source`. Only a component creating an
+ * element at an override's position subscribes to later ones (`use` reads a
+ * context without a hook slot, so it may be called conditionally); every
+ * other component keeps React's bailouts on drag frames.
+ */
 function overridden(props: Record<string, unknown>, source: SourcePosition): Record<string, unknown> {
-  try {
-    use(PropOverridesContext);
-  } catch {
-    // Not called while a component renders (an effect, say): nothing to subscribe.
-  }
   const matches = overrides?.get(`${source.lineNumber}:${source.columnNumber}`);
   if (!matches) return props;
   let file = resolvedFiles.get(source.fileName);
@@ -73,12 +87,23 @@ function overridden(props: Record<string, unknown>, source: SourcePosition): Rec
     resolvedFiles.set(source.fileName, file);
   }
   let result = props;
+  let subscribed = false;
   for (const { file: target, prop, value } of matches) {
-    if (target === file && !Object.is(result[prop], value)) {
+    if (target !== file) continue;
+    if (!subscribed) {
+      subscribed = true;
+      try {
+        use(PropOverridesContext);
+      } catch {
+        // Not called while a component renders (an effect, say): nothing to subscribe.
+      }
+    }
+    if (!Object.is(result[prop], value)) {
       if (result === props) result = { ...props };
       result[prop] = value;
     }
   }
+  if (subscribed) atOverride.add(result);
   return result;
 }
 
@@ -100,11 +125,7 @@ export function setPropOverrides(list: readonly PropOverride[], resolve: (fileNa
 
 export function clearPropOverrides(): void {
   overrides = null;
-}
-
-/** Whether the frame being rendered has prop overrides. */
-export function propOverridesSet(): boolean {
-  return overrides !== null;
+  atOverride = new WeakSet();
 }
 
 export function sourceOfProps(props: unknown): SourcePosition | undefined {

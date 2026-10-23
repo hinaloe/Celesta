@@ -172,15 +172,19 @@ PropOverride { file (absolute), line, column, prop, value }
   never send it). `jsxDEV` creates an element written at an override's
   position with the value, comparing the recorded file name resolved as
   `layerSource` resolves it. Without overrides it checks one variable.
-- A component renders only when something it reads changed, so while
-  overrides are set `jsxDEV` subscribes the rendering component to a context
-  whose value changes with them; a `memo` component that reads no frame
-  renders again too. Components that rendered before the overrides were set
-  never subscribed, and an element cached with `useMemo` while they were set
-  would keep the value after: the entry remounts when overrides start and
-  when they stop, never on the frames between. `<Static>` renders its
-  children on every frame that has overrides; its cached layers are walked
-  again only when a host node below changed. Elements created outside any
+- A component renders only when something it reads changed, so `jsxDEV`
+  subscribes a component that creates an element at an override's position
+  to a context whose value changes with the values; a `memo` component that
+  reads no frame renders again too, and every other component keeps React's
+  bailouts as without a drag. Components that rendered before a position was
+  overridden never subscribed, and an element cached with `useMemo` while
+  overrides were set would keep the value after: the entry remounts when the
+  overridden positions change (when a drag starts, when it is cancelled, and
+  when a prop set in another place first changes or goes back), never for
+  new values alone. `<Static>` renders a child written in it at an
+  override's position on every drag frame and keeps the others; its cached
+  layers are walked again only when a host node below changed. Elements
+  created outside any
   render (at module scope) keep their written values.
 - Field edits (typing in a Transform row) write without a preview, and need
   no overrides.
@@ -376,10 +380,12 @@ TypeScript (Vitest):
 - Prop overrides: a written prop replaced on the element at the position
   only, an absent prop added, a call-site override reaching every layer that
   reads the parameter, an element in a `memo` component that reads no frame
-  following two override frames, the written values back after a frame
-  without overrides (an element cached with `useMemo` too), and an element
-  inside `<Static>` following the drag; a CLI frame request with
-  `propOverrides`.
+  following two override frames, an override at a new position mid-drag
+  reaching one, a drag frame rendering only the creator of the overridden
+  element (not another `memo` component, nor a `<Static>` without one), the
+  written values back after a frame without overrides (an element cached
+  with `useMemo` too), and an element inside `<Static>` following the drag;
+  a CLI frame request with `propOverrides`.
 
 Manual, with before/after screenshots of the same scene: edit a `Text`'s
 content inline (including Japanese input through the IME) and its font size, a `Rect`'s fill and corner radius, resize a `Rect` from

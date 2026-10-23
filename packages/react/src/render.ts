@@ -1578,9 +1578,11 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
     rerenderRequested = true;
   };
   // The prop overrides the committed tree was rendered with, as JSON ('' for
-  // none); `PropOverridesContext`'s value, new whenever they change; and the
-  // entry's key, bumped to remount it when overrides start or stop.
+  // none), and their positions; `PropOverridesContext`'s value, new whenever
+  // they change; and the entry's key, bumped to remount it when the
+  // positions change (see `updateOverrides`).
   let committedOverrides = '';
+  let committedPositions = '';
   let overridesValue: object | null = null;
   let entryKey = 0;
 
@@ -1665,21 +1667,29 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
 
   /**
    * Makes the next render create elements with `propOverrides`. A component
-   * renders only when something it reads changed, so `jsxDEV` subscribes
-   * every component that creates an element while overrides are set to
-   * `PropOverridesContext`, which changes with them. The components that
-   * rendered before overrides were set never subscribed, and a cached
-   * element (`useMemo`) created while they were set would keep its value
-   * after: the entry remounts when overrides start and when they stop, and
-   * only then.
+   * renders only when something it reads changed, so `jsxDEV` subscribes the
+   * components that create an element at an override's position to
+   * `PropOverridesContext`, which changes with the values; the rest keep
+   * their bailouts on drag frames. A component that rendered before an
+   * override's position was set never subscribed (a `memo` one may not
+   * render again), and an element cached with `useMemo` while overrides
+   * were set would keep its value after they stop: the entry remounts
+   * whenever the positions change. For a drag that is once when it starts
+   * and once when it is cancelled (a written drag ends with the reload),
+   * plus when a dragged prop set in another place than the others first
+   * changes or goes back to its start; never for new values alone.
    */
   const updateOverrides = (propOverrides: FramePropOverrides | undefined) => {
     const overrides = propOverrides && propOverrides.overrides.length > 0 ? propOverrides : undefined;
     const next = overrides ? JSON.stringify(overrides.overrides) : '';
     if (next !== committedOverrides) {
-      if ((next === '') !== (committedOverrides === '')) entryKey += 1;
+      const positions = overrides
+        ? [...new Set(overrides.overrides.map(({ file, line, column }) => `${file}:${line}:${column}`))].sort().join('\n')
+        : '';
+      if (positions !== committedPositions) entryKey += 1;
       overridesValue = next === '' ? null : {};
       committedOverrides = next;
+      committedPositions = positions;
     }
     if (overrides) setPropOverrides(overrides.overrides, overrides.resolveFile);
   };

@@ -86,9 +86,10 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   site for a pass-through, so the other layers made from the same value
   move with it. `override_sites` takes the positions when the drag starts,
   since the targets are gone while a released drag writes. `jsxDEV` creates
-  matching elements with the value and, while overrides are set, subscribes
-  the rendering component to `PropOverridesContext`, so a `memo` component
-  renders again; the entry remounts when overrides start and when they stop.
+  matching elements with the value and subscribes their creator to
+  `PropOverridesContext`, so it renders again on the next drag frame even
+  as a `memo` component; nothing else does. The entry remounts when the
+  overridden positions change.
 - Rows and impact (`transform_rows.rs`, `impact.rs`, `layer_panel.rs`,
   `icons.rs`): a row whose value is set at a call site shows the state of
   the value there (field, keyframe or lock icon, reason) and, under the
@@ -140,16 +141,24 @@ These differ from, or settle what the plan left open:
 - **The outside-project lock applies per target file.** A call site in
   `node_modules` or outside the entry's folder locks the props set there,
   not the element's own.
-- **A drag remounts the entry twice, never per frame.** Components that
-  rendered before a drag never subscribed to the overrides, and an element
-  cached with `useMemo` while they were set would keep the dragged value
-  after, so the entry remounts on the first frame with overrides and on the
-  first without (an Escape; a written drag ends with the reload instead).
-  Hook state starts over at those two frames, and `<Static>` layers are
-  sent to Rust again. Without overrides `jsxDEV` only checks one variable.
-- **`<Static>` follows the drag.** Its `memo` comparison fails on frames
-  with overrides, so a child written directly in it renders with the
-  value; its cached layers are walked again only when a host node changed.
+- **Only the creators of overridden elements render on a drag frame.**
+  `jsxDEV` subscribes a component to the overrides only when it creates an
+  element at an override's position; every other component keeps React's
+  bailouts, as without a drag. Without overrides `jsxDEV` only checks one
+  variable.
+- **A drag remounts the entry when the overridden positions change, never
+  for new values alone.** A component that rendered before a position was
+  overridden never subscribed, and an element cached with `useMemo` while
+  overrides were set would keep the dragged value after. So the entry
+  remounts on the first frame of a drag, on the first frame without
+  overrides (an Escape; a written drag ends with the reload instead), and
+  when a prop set in another place than the others first changes or goes
+  back to its start. Hook state starts over at those frames, and `<Static>`
+  layers are sent to Rust again.
+- **`<Static>` follows the drag.** Its `memo` comparison fails when a child
+  written in it was created at an override's position, so that child
+  renders with the value; other `<Static>`s are kept. Its cached layers are
+  walked again only when a host node changed.
 - **Module-scope JSX keeps its written values** while dragging: it is
   created once, outside any render.
 
