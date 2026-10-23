@@ -8,6 +8,7 @@ mod inputs;
 mod locate;
 mod pass_through;
 mod resolve;
+mod scope;
 mod shape;
 
 pub use apply::{ApplyError, Edit, apply, format_number, write_value};

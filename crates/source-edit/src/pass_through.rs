@@ -8,9 +8,11 @@ use oxc_ast_visit::Visit;
 use crate::locate::ElementRef;
 use crate::parse_checked;
 use crate::resolve::{
-    EditTarget, EditValue, Gather, LockReason, ParamDefault, PropPath, ResolveContext,
-    parameter_in, resolve, resolve_with,
+    Absent, EditTarget, EditValue, Gather, LockReason, PropPath, Read, ResolveContext, TOLERANCE,
+    resolve, resolve_written,
 };
+use crate::scope::{ParamDefault, ParamInfo};
+use crate::shape::{Children, StyleProperty};
 
 /// What `resolve` found when the value is a parameter of the enclosing
 /// component: the parameter's name at the call site and its literal default.
@@ -37,7 +39,7 @@ pub fn enclosing_component(text: &str, element: &ElementRef) -> Option<String> {
     if !gather.found {
         return None;
     }
-    gather.component().map(str::to_string)
+    gather.scopes.component().map(str::to_string)
 }
 
 /// The parameter of an enclosing component that `prop` on `element` reads:
@@ -102,17 +104,73 @@ pub fn resolve_through(
         render_count: 1,
         ..ctx.clone()
     };
-    let target = resolve_with(
-        call_site_text,
-        call_site,
-        &parameter.param,
-        &call_site_ctx,
-        Some(&parameter.default),
-    );
+    let target = match resolve_written(call_site_text, call_site, &parameter.param, &call_site_ctx)
+    {
+        Ok(target) => target,
+        Err(absent) => missing_parameter(
+            call_site,
+            &absent,
+            &parameter.default,
+            call_site_ctx.received.as_ref(),
+        ),
+    };
     EditTarget::PassThrough {
         call_site: *call_site,
         param: parameter.param,
         target: Box::new(target),
+    }
+}
+
+/// The parameter `prop` on `element` reads, when the value the rules would
+/// read (the last attribute with no spread after it, the `style` property,
+/// or a `{name}` child) is a parameter of an enclosing component. `None`
+/// when the text does not parse.
+fn parameter_in(text: &str, element: &ElementRef, prop: &str) -> Option<ParamInfo> {
+    let alloc = Allocator::default();
+    let (program, failed) = parse_checked(text, &alloc);
+    if failed {
+        return None;
+    }
+    let mut gather = Gather::new(element.start, PropPath::parse(prop));
+    gather.visit_program(&program);
+    if !gather.found {
+        return None;
+    }
+    let shape = match gather.read()? {
+        Read::Children(Children::Reference { shape })
+        | Read::Property(StyleProperty::Value(shape))
+        | Read::Attribute(shape) => shape,
+        Read::Children(_) | Read::Property(_) => return None,
+    };
+    gather.scopes.parameter(shape)
+}
+
+/// A prop absent at a call site takes the parameter's default. The
+/// primitive must have received that default when it is a literal, and
+/// nothing when there is none.
+fn missing_parameter(
+    element: &ElementRef,
+    absent: &Absent,
+    default: &ParamDefault,
+    received: Option<&EditValue>,
+) -> EditTarget {
+    let same = match (default, received) {
+        (ParamDefault::Other, _) | (ParamDefault::None, None) => true,
+        (ParamDefault::Literal(EditValue::Number(a)), Some(EditValue::Number(b))) => {
+            (a - b).abs() <= TOLERANCE
+        }
+        (ParamDefault::Literal(value), Some(received)) => value == received,
+        _ => false,
+    };
+    if !same {
+        return EditTarget::Locked(LockReason::OverriddenByParent);
+    }
+    EditTarget::Missing {
+        insert_at: absent.empty_children.unwrap_or(element.end_of_attributes),
+        default: match default {
+            ParamDefault::Literal(value) => Some(value.clone()),
+            ParamDefault::None | ParamDefault::Other => None,
+        },
     }
 }
 

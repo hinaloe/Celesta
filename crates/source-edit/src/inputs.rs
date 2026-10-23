@@ -10,9 +10,10 @@ use oxc_ast_visit::Visit;
 use crate::locate::ElementRef;
 use crate::parse_checked;
 use crate::resolve::{
-    Binding, EditTarget, Gather, LockReason, PropPath, Read, ResolveContext, Span, resolve,
+    EditTarget, Gather, LockReason, PropPath, Read, ResolveContext, Span, resolve,
     resolve_identifier,
 };
+use crate::scope::Binding;
 use crate::shape::{Children, Shape, StyleProperty};
 
 /// For a prop locked as `Expression`, each identifier the expression reads
@@ -61,7 +62,7 @@ pub fn resolve_inputs(
         .into_iter()
         .filter(|name| !names.bound.contains(name))
         .map(|name| {
-            let target = match gather.parameter(&Shape::Ident(name.clone())) {
+            let target = match gather.scopes.parameter(&Shape::Ident(name.clone())) {
                 Some(parameter) => EditTarget::Locked(LockReason::CallSiteNotFound {
                     component: parameter.component,
                 }),
@@ -87,7 +88,7 @@ fn locked_span(gather: &Gather) -> Option<Span> {
     match shape {
         Shape::Member { span, .. } | Shape::Other(span) => Some(*span),
         Shape::Interpolate(call) => Some(call.call),
-        Shape::Ident(name) => match gather.lookup(name)? {
+        Shape::Ident(name) => match gather.scopes.lookup(name)? {
             Binding::Const(Shape::Interpolate(call)) => Some(call.call),
             _ => None,
         },

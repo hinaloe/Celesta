@@ -1,11 +1,7 @@
-use std::collections::HashMap;
-
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    ArrowFunctionBody, ArrowFunctionExpression, BindingIdentifier, BindingPattern, Expression,
-    Function, FunctionBody, IdentifierReference, JSXAttributeItem, JSXAttributeName,
-    JSXAttributeValue, JSXElement, JSXOpeningElement, Statement, VariableDeclarationKind,
-    VariableDeclarator,
+    ArrowFunctionExpression, BindingIdentifier, Function, IdentifierReference, JSXAttributeItem,
+    JSXAttributeName, JSXAttributeValue, JSXElement, JSXOpeningElement, VariableDeclarator,
 };
 use oxc_ast_visit::Visit;
 use oxc_syntax::scope::ScopeFlags;
@@ -13,7 +9,7 @@ use oxc_syntax::scope::ScopeFlags;
 use crate::apply::Edit;
 use crate::locate::ElementRef;
 use crate::parse_checked;
-use crate::pass_through::{component_function, is_component_name};
+use crate::scope::{Binding, Scopes};
 use crate::shape::{
     Children, Input, Interpolate, Shape, StyleProperty, children_of, shape_of, span_of, string_of,
     style_property,
@@ -262,7 +258,7 @@ impl<'p> PropPath<'p> {
     }
 }
 
-const TOLERANCE: f64 = 1e-6;
+pub(crate) const TOLERANCE: f64 = 1e-6;
 
 /// Finds the source location of `prop` on `element`. Rules run in the order
 /// the spec lists them; the first that applies decides.
@@ -270,38 +266,61 @@ const TOLERANCE: f64 = 1e-6;
 /// `prop` is an attribute name, `children` for the element's children, or
 /// `style.<key>` for a property of a `style={{ … }}` object literal.
 pub fn resolve(text: &str, element: &ElementRef, prop: &str, ctx: &ResolveContext) -> EditTarget {
-    resolve_with(text, element, prop, ctx, None)
+    let absent = match resolve_written(text, element, prop, ctx) {
+        Ok(target) => return target,
+        Err(absent) => absent,
+    };
+    if ctx.received.is_some() {
+        return EditTarget::Locked(LockReason::OverriddenByParent);
+    }
+    match (PropPath::parse(prop), absent.empty_children) {
+        (PropPath::Children, Some(insert_at)) => EditTarget::Missing {
+            insert_at,
+            default: Some(EditValue::String(String::new())),
+        },
+        (PropPath::Style(_), _) => EditTarget::Locked(LockReason::NoStyleObject),
+        _ => EditTarget::Missing {
+            insert_at: element.end_of_attributes,
+            default: default_for(prop),
+        },
+    }
 }
 
-/// [`resolve`], at a call site when `parameter` is the default of the
-/// parameter the prop is passed to: an absent prop then takes that default,
-/// and the received value is checked against it.
-pub(crate) fn resolve_with(
+/// A prop nothing written on the element sets: no attribute, no children,
+/// and no spread.
+pub(crate) struct Absent {
+    /// For `children` on an element with an opening and a closing tag but
+    /// nothing between them: where the children go.
+    pub(crate) empty_children: Option<u32>,
+}
+
+/// [`resolve`] up to an absent prop, which is `Err` for the caller to decide:
+/// [`resolve`] takes the prop's default, a call site the parameter's.
+pub(crate) fn resolve_written(
     text: &str,
     element: &ElementRef,
     prop: &str,
     ctx: &ResolveContext,
-    parameter: Option<&ParamDefault>,
-) -> EditTarget {
+) -> Result<EditTarget, Absent> {
     let alloc = Allocator::default();
     let (program, failed) = parse_checked(text, &alloc);
     if failed {
-        return EditTarget::Locked(LockReason::SyntaxError);
+        return Ok(EditTarget::Locked(LockReason::SyntaxError));
     }
     if !ctx.primitive && !ctx.component_props {
-        return EditTarget::Locked(LockReason::NotPrimitive);
+        return Ok(EditTarget::Locked(LockReason::NotPrimitive));
     }
     if ctx.render_count > 1 {
-        return EditTarget::Locked(LockReason::Repeated {
+        return Ok(EditTarget::Locked(LockReason::Repeated {
             count: ctx.render_count,
-        });
+        }));
     }
 
     let path = PropPath::parse(prop);
     let mut gather = Gather::new(element.start, path);
     gather.visit_program(&program);
     if !gather.found {
-        return EditTarget::Locked(LockReason::ElementNotFound);
+        return Ok(EditTarget::Locked(LockReason::ElementNotFound));
     }
 
     // JSX children win over a `children` attribute and a spread. Without
@@ -316,20 +335,20 @@ pub(crate) fn resolve_with(
             check_received(target, ctx.received.as_ref(), text, prop)
         };
         match children {
-            Children::Text { span, value } => return child(*span, value, LiteralForm::JsxText),
+            Children::Text { span, value } => return Ok(child(*span, value, LiteralForm::JsxText)),
             Children::Container { span, value, quote } => {
-                return child(*span, value, LiteralForm::ChildContainer(*quote));
+                return Ok(child(*span, value, LiteralForm::ChildContainer(*quote)));
             }
             Children::Reference { shape } => {
                 let target = resolve_shape(shape, &gather, text, ctx);
-                return check_received(target, ctx.received.as_ref(), text, prop);
+                return Ok(check_received(target, ctx.received.as_ref(), text, prop));
             }
-            Children::Other(span) => return expression(text, *span),
+            Children::Other(span) => return Ok(expression(text, *span)),
             // 2b opens the tag before writing children into it.
             Children::SelfClosing if gather.attr.is_none() => {
-                return EditTarget::Locked(LockReason::Expression {
+                return Ok(EditTarget::Locked(LockReason::Expression {
                     source: "/>".to_string(),
-                });
+                }));
             }
             Children::SelfClosing | Children::Empty { .. } => {}
         }
@@ -337,29 +356,18 @@ pub(crate) fn resolve_with(
 
     if gather.attr.is_some() && gather.spread_after {
         // `<Rect x={5} {...p} />`: the spread may set `x` after the attribute.
-        return EditTarget::Locked(LockReason::Spread);
+        return Ok(EditTarget::Locked(LockReason::Spread));
     }
     let Some(shape) = &gather.attr else {
         if gather.has_spread {
-            return EditTarget::Locked(LockReason::Spread);
+            return Ok(EditTarget::Locked(LockReason::Spread));
         }
-        if let Some(default) = parameter {
-            return missing_parameter(element, &gather, default, ctx.received.as_ref());
-        }
-        if ctx.received.is_some() {
-            return EditTarget::Locked(LockReason::OverriddenByParent);
-        }
-        return match (path, &gather.children) {
-            (PropPath::Children, Some(Children::Empty { insert_at })) => EditTarget::Missing {
-                insert_at: *insert_at,
-                default: Some(EditValue::String(String::new())),
+        return Err(Absent {
+            empty_children: match (path, &gather.children) {
+                (PropPath::Children, Some(Children::Empty { insert_at })) => Some(*insert_at),
+                _ => None,
             },
-            (PropPath::Style(_), _) => EditTarget::Locked(LockReason::NoStyleObject),
-            _ => EditTarget::Missing {
-                insert_at: element.end_of_attributes,
-                default: default_for(prop),
-            },
-        };
+        });
     };
 
     let target = match (path, &gather.property) {
@@ -367,19 +375,19 @@ pub(crate) fn resolve_with(
             StyleProperty::Value(shape) => resolve_shape(shape, &gather, text, ctx),
             StyleProperty::Absent { object, last } => {
                 if ctx.received.is_some() {
-                    return EditTarget::Locked(LockReason::OverriddenByParent);
+                    return Ok(EditTarget::Locked(LockReason::OverriddenByParent));
                 }
-                return EditTarget::Missing {
+                return Ok(EditTarget::Missing {
                     insert_at: property_insert_at(text, *object, *last),
                     default: None,
-                };
+                });
             }
-            StyleProperty::Unknown => return EditTarget::Locked(LockReason::Spread),
-            StyleProperty::NotObject(span) => return expression(text, *span),
+            StyleProperty::Unknown => return Ok(EditTarget::Locked(LockReason::Spread)),
+            StyleProperty::NotObject(span) => return Ok(expression(text, *span)),
         },
         _ => resolve_shape(shape, &gather, text, ctx),
     };
-    check_received(target, ctx.received.as_ref(), text, prop)
+    Ok(check_received(target, ctx.received.as_ref(), text, prop))
 }
 
 /// Whether `prop` is written as an attribute on `element` (a spread does not
@@ -395,50 +403,6 @@ pub fn has_attribute(text: &str, element: &ElementRef, prop: &str) -> bool {
     gather.attr.is_some()
 }
 
-/// A parameter's default value.
-#[derive(Debug, Clone)]
-pub(crate) enum ParamDefault {
-    /// None is written: an absent prop leaves the parameter `undefined`.
-    None,
-    Literal(EditValue),
-    /// An expression, whose value is not known here.
-    Other,
-}
-
-/// A prop value that is a parameter of a component enclosing the element.
-#[derive(Debug)]
-pub(crate) struct ParamInfo {
-    /// The component, as a call site names it.
-    pub(crate) component: String,
-    /// The prop the call site passes.
-    pub(crate) param: String,
-    pub(crate) default: ParamDefault,
-}
-
-/// The parameter `prop` on `element` reads, when the value the rules would
-/// read (the last attribute with no spread after it, the `style` property,
-/// or a `{name}` child) is a parameter of an enclosing component. `None`
-/// when the text does not parse.
-pub(crate) fn parameter_in(text: &str, element: &ElementRef, prop: &str) -> Option<ParamInfo> {
-    let alloc = Allocator::default();
-    let (program, failed) = parse_checked(text, &alloc);
-    if failed {
-        return None;
-    }
-    let mut gather = Gather::new(element.start, PropPath::parse(prop));
-    gather.visit_program(&program);
-    if !gather.found {
-        return None;
-    }
-    let shape = match gather.read()? {
-        Read::Children(Children::Reference { shape })
-        | Read::Property(StyleProperty::Value(shape))
-        | Read::Attribute(shape) => shape,
-        Read::Children(_) | Read::Property(_) => return None,
-    };
-    gather.parameter(shape)
-}
-
 /// The value the rules read for the prop, when one is written.
 pub(crate) enum Read<'g> {
     /// The element's children, other than none.
@@ -447,39 +411,6 @@ pub(crate) enum Read<'g> {
     Property(&'g StyleProperty),
     /// The last attribute that holds the prop.
     Attribute(&'g Shape),
-}
-
-/// A prop absent at a call site takes the parameter's default. The
-/// primitive must have received that default when it is a literal, and
-/// nothing when there is none.
-fn missing_parameter(
-    element: &ElementRef,
-    gather: &Gather,
-    default: &ParamDefault,
-    received: Option<&EditValue>,
-) -> EditTarget {
-    let same = match (default, received) {
-        (ParamDefault::Other, _) | (ParamDefault::None, None) => true,
-        (ParamDefault::Literal(EditValue::Number(a)), Some(EditValue::Number(b))) => {
-            (a - b).abs() <= TOLERANCE
-        }
-        (ParamDefault::Literal(value), Some(received)) => value == received,
-        _ => false,
-    };
-    if !same {
-        return EditTarget::Locked(LockReason::OverriddenByParent);
-    }
-    let insert_at = match (gather.path, &gather.children) {
-        (PropPath::Children, Some(Children::Empty { insert_at })) => *insert_at,
-        _ => element.end_of_attributes,
-    };
-    EditTarget::Missing {
-        insert_at,
-        default: match default {
-            ParamDefault::Literal(value) => Some(value.clone()),
-            ParamDefault::None | ParamDefault::Other => None,
-        },
-    }
 }
 
 /// Where a property is added to an object literal: right after its `{`
@@ -565,15 +496,15 @@ pub(crate) fn resolve_identifier(
             name: name.to_string(),
         })
     };
-    if gather.declared_more_than_once(name) {
+    if gather.scopes.declared_more_than_once(name) {
         return unresolved();
     }
-    let Some(Binding::Const(shape)) = gather.lookup(name) else {
+    let Some(Binding::Const(shape)) = gather.scopes.lookup(name) else {
         return unresolved();
     };
     match shape {
         Shape::Number(..) | Shape::String(..) | Shape::Bool(..) | Shape::Interpolate(_) => {
-            let uses = gather.refs.get(name).copied().unwrap_or(0);
+            let uses = gather.scopes.uses(name);
             if uses > 1 {
                 return EditTarget::Locked(LockReason::SharedBinding {
                     name: name.to_string(),
@@ -610,11 +541,11 @@ fn resolve_keyframe(
     let Input::Frame { name, offset } = &call.input else {
         return not_literal();
     };
-    if gather.declared_more_than_once(name) {
+    if gather.scopes.declared_more_than_once(name) {
         return EditTarget::Locked(LockReason::UnresolvedIdentifier { name: name.clone() });
     }
     let frame_bound = matches!(
-        gather.lookup(name),
+        gather.scopes.lookup(name),
         Some(Binding::Const(Shape::Call(callee))) if callee == "useCurrentFrame"
     );
     let (Some(inputs), Some(outputs)) = (&call.input_range, &call.output_range) else {
@@ -789,32 +720,6 @@ fn check_received(
     }
 }
 
-#[derive(Debug)]
-pub(crate) enum Binding {
-    Const(Shape),
-    /// A property of a component's first parameter (`{ label }`,
-    /// `{ label = 'Sale' }`, `{ label: text }`): the call site's prop
-    /// `param`.
-    Parameter {
-        component: String,
-        param: String,
-        default: ParamDefault,
-    },
-    /// A component's first parameter named `props`: `props.<key>` is the
-    /// call site's prop `<key>`.
-    Props {
-        component: String,
-    },
-    /// `let`, `var`, other parameters, destructuring: never editable.
-    Other,
-}
-
-struct Scope {
-    /// The function's name when a call site can name it.
-    component: Option<String>,
-    bindings: Vec<(String, Binding)>,
-}
-
 pub(crate) struct Gather<'t> {
     element_start: u32,
     path: PropPath<'t>,
@@ -827,16 +732,7 @@ pub(crate) struct Gather<'t> {
     /// For `style.<key>`: the key in the last `style` attribute.
     property: Option<StyleProperty>,
     children: Option<Children>,
-    /// Functions enclosing the element, outermost first.
-    scopes: Vec<Scope>,
-    /// The outermost function enclosing the element.
-    outer: Option<oxc_span::Span>,
-    /// Every binding the file declares (variables, parameters, catch
-    /// parameters, destructured names, functions, imports), with its offset.
-    declarations: Vec<(String, u32)>,
-    refs: HashMap<String, usize>,
-    /// Functions a `const` names (`const PriceTag = …`), by their offset.
-    names: Vec<(u32, String)>,
+    pub(crate) scopes: Scopes,
 }
 
 impl<'t> Gather<'t> {
@@ -850,21 +746,8 @@ impl<'t> Gather<'t> {
             attr: None,
             property: None,
             children: None,
-            scopes: Vec::new(),
-            outer: None,
-            declarations: Vec::new(),
-            refs: HashMap::new(),
-            names: Vec::new(),
+            scopes: Scopes::new(element_start),
         }
-    }
-
-    /// The innermost function enclosing the element that a call site can
-    /// name.
-    pub(crate) fn component(&self) -> Option<&str> {
-        self.scopes
-            .iter()
-            .rev()
-            .find_map(|s| s.component.as_deref())
     }
 
     /// What the rules read for the prop: JSX children before a `children`
@@ -886,246 +769,30 @@ impl<'t> Gather<'t> {
             _ => self.attr.as_ref().map(Read::Attribute),
         }
     }
-
-    /// The parameter `shape` reads: an identifier bound by the first
-    /// parameter of [`Self::component`], or `props.<key>`. A parameter of an
-    /// outer component is not followed: the call site found is the inner
-    /// component's, which never passes it.
-    pub(crate) fn parameter(&self, shape: &Shape) -> Option<ParamInfo> {
-        let (name, member) = match shape {
-            Shape::Ident(name) => (name, None),
-            Shape::Member {
-                object, property, ..
-            } => (object, Some(property)),
-            _ => return None,
-        };
-        if self.declared_more_than_once(name) {
-            return None;
-        }
-        let found = match (self.lookup(name)?, member) {
-            (
-                Binding::Parameter {
-                    component,
-                    param,
-                    default,
-                },
-                None,
-            ) => Some(ParamInfo {
-                component: component.clone(),
-                param: param.clone(),
-                default: default.clone(),
-            }),
-            (Binding::Props { component }, Some(property)) => Some(ParamInfo {
-                component: component.clone(),
-                param: property.clone(),
-                default: ParamDefault::None,
-            }),
-            _ => None,
-        }?;
-        (Some(found.component.as_str()) == self.component()).then_some(found)
-    }
-
-    /// The name a `const` gives the function starting at `start`.
-    fn named(&self, start: u32) -> Option<&str> {
-        self.names
-            .iter()
-            .find(|(at, _)| *at == start)
-            .map(|(_, name)| name.as_str())
-    }
-
-    /// Innermost binding of `name` among the enclosing functions.
-    pub(crate) fn lookup(&self, name: &str) -> Option<&Binding> {
-        self.scopes
-            .iter()
-            .rev()
-            .find_map(|s| s.bindings.iter().find(|(n, _)| n == name).map(|(_, b)| b))
-    }
-
-    /// Whether `name` is declared more than once in the outermost function
-    /// enclosing the element (anywhere in the file when there is none). Only
-    /// function-level `const`s are modelled, so a second declaration in a
-    /// block, loop, `catch` or nested function could be the one in effect.
-    /// A module-level declaration is never resolved, and one inside the
-    /// function shadows it, so those are not counted.
-    fn declared_more_than_once(&self, name: &str) -> bool {
-        self.declarations
-            .iter()
-            .filter(|(declared, at)| {
-                declared == name
-                    && self
-                        .outer
-                        .is_none_or(|outer| outer.start <= *at && *at < outer.end)
-            })
-            .count()
-            > 1
-    }
-
-    fn encloses_element(&self, span: oxc_span::Span) -> bool {
-        span.start <= self.element_start && self.element_start < span.end
-    }
-
-    /// Pushes the scope of a function enclosing the element, named
-    /// `name` (by its declaration or the `const` that holds it).
-    fn push_scope(
-        &mut self,
-        name: Option<String>,
-        params: &oxc_ast::ast::FormalParameters<'_>,
-        body: Option<&FunctionBody<'_>>,
-    ) {
-        let component = name.filter(|name| is_component_name(name));
-        let mut bindings = Vec::new();
-        for (index, param) in params.items.iter().enumerate() {
-            match &component {
-                Some(component) if index == 0 => {
-                    parameter_bindings(&param.pattern, component, &mut bindings);
-                }
-                _ => other_bindings(&param.pattern, &mut bindings),
-            }
-        }
-        if let Some(rest) = &params.rest {
-            other_bindings(&rest.rest.argument, &mut bindings);
-        }
-        for stmt in body.iter().flat_map(|b| &b.statements) {
-            let Statement::VariableDeclaration(decl) = stmt else {
-                continue;
-            };
-            for d in &decl.declarations {
-                let simple = d.id.get_binding_identifier();
-                match (decl.kind, simple, &d.init) {
-                    (VariableDeclarationKind::Const, Some(id), Some(init)) => {
-                        bindings.push((id.name.to_string(), Binding::Const(shape_of(init))));
-                    }
-                    _ => other_bindings(&d.id, &mut bindings),
-                }
-            }
-        }
-        self.scopes.push(Scope {
-            component,
-            bindings,
-        });
-    }
-}
-
-/// The bindings of a component's first parameter. A property of an object
-/// pattern bound to a plain name (with or without a default) reads the
-/// call site's prop of that key, and so does `props.<key>` for a parameter
-/// named `props`; nested patterns and rest elements are never editable.
-fn parameter_bindings(
-    pattern: &BindingPattern<'_>,
-    component: &str,
-    bindings: &mut Vec<(String, Binding)>,
-) {
-    match pattern {
-        BindingPattern::BindingIdentifier(id) if id.name == "props" => {
-            bindings.push((
-                id.name.to_string(),
-                Binding::Props {
-                    component: component.to_string(),
-                },
-            ));
-        }
-        BindingPattern::ObjectPattern(object) => {
-            for property in &object.properties {
-                let key = if property.computed {
-                    None
-                } else {
-                    property.key.static_name()
-                };
-                let (id, default) = match &property.value {
-                    BindingPattern::BindingIdentifier(id) => (Some(id), ParamDefault::None),
-                    BindingPattern::AssignmentPattern(assign) => match &assign.left {
-                        BindingPattern::BindingIdentifier(id) => {
-                            (Some(id), default_of(&assign.right))
-                        }
-                        _ => (None, ParamDefault::None),
-                    },
-                    _ => (None, ParamDefault::None),
-                };
-                match (key, id) {
-                    (Some(key), Some(id)) => bindings.push((
-                        id.name.to_string(),
-                        Binding::Parameter {
-                            component: component.to_string(),
-                            param: key.to_string(),
-                            default,
-                        },
-                    )),
-                    _ => other_bindings(&property.value, bindings),
-                }
-            }
-            if let Some(rest) = &object.rest {
-                other_bindings(&rest.argument, bindings);
-            }
-        }
-        _ => other_bindings(pattern, bindings),
-    }
-}
-
-fn other_bindings(pattern: &BindingPattern<'_>, bindings: &mut Vec<(String, Binding)>) {
-    for id in pattern.get_binding_identifiers() {
-        bindings.push((id.name.to_string(), Binding::Other));
-    }
-}
-
-fn default_of(expr: &Expression<'_>) -> ParamDefault {
-    match shape_of(expr) {
-        Shape::Number(_, value) => ParamDefault::Literal(EditValue::Number(value)),
-        Shape::String(_, value, _) => ParamDefault::Literal(EditValue::String(value)),
-        Shape::Bool(_, value, _) => ParamDefault::Literal(EditValue::Bool(value)),
-        _ => ParamDefault::Other,
-    }
 }
 
 impl<'a> Visit<'a> for Gather<'_> {
     fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
-        let pushed = self.encloses_element(it.span);
-        if pushed && self.outer.is_none() {
-            self.outer = Some(it.span);
-        }
-        if pushed {
-            let name = it
-                .id
-                .as_ref()
-                .map(|id| id.name.to_string())
-                .or_else(|| self.named(it.span.start).map(str::to_string));
-            self.push_scope(name, &it.params, it.body.as_deref());
-        }
+        self.scopes.enter_function(it);
         oxc_ast_visit::walk::walk_function(self, it, flags);
-        // Scopes stay pushed: only functions enclosing the element get one,
-        // and those are visited outermost first.
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
-        if self.encloses_element(it.span) {
-            if self.outer.is_none() {
-                self.outer = Some(it.span);
-            }
-            let body = match &it.body {
-                ArrowFunctionBody::FunctionBody(b) => Some(&**b),
-                _ => None,
-            };
-            let name = self.named(it.span.start).map(str::to_string);
-            self.push_scope(name, &it.params, body);
-        }
+        self.scopes.enter_arrow_function(it);
         oxc_ast_visit::walk::walk_arrow_function_expression(self, it);
     }
 
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
-        // Named before the function is visited.
-        if let (Some(id), Some(init)) = (it.id.get_binding_identifier(), &it.init)
-            && let Some(start) = component_function(init)
-        {
-            self.names.push((start, id.name.to_string()));
-        }
+        self.scopes.declarator(it);
         oxc_ast_visit::walk::walk_variable_declarator(self, it);
     }
 
     fn visit_binding_identifier(&mut self, it: &BindingIdentifier<'a>) {
-        self.declarations.push((it.name.to_string(), it.span.start));
+        self.scopes.declare(it);
     }
 
     fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
-        *self.refs.entry(it.name.to_string()).or_insert(0) += 1;
+        self.scopes.reference(it);
     }
 
     fn visit_jsx_element(&mut self, it: &JSXElement<'a>) {
