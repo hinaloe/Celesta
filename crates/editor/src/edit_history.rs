@@ -272,7 +272,9 @@ fn read(path: &Path) -> Result<Option<String>, HistoryError> {
 /// `celesta_react_bridge::replace_file` names them), and only once all of
 /// them are written are they renamed over their files and the `None` files
 /// removed. A failed temp write removes the temps already written and leaves
-/// every file alone.
+/// every file alone. A failed rename removes the temps not yet renamed, but
+/// the files renamed before it stay changed, and no history entry records
+/// that change.
 fn write_files(writes: &[(&Path, Option<&str>)]) -> Result<(), HistoryError> {
     let failed = |path: &Path, source| HistoryError::Io {
         path: path.to_owned(),
