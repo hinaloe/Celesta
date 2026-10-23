@@ -178,7 +178,11 @@ impl EditorView {
         loop {
             match self.occurrence_worker.results.try_recv() {
                 Ok(result) => {
-                    if !accepts(self.react_reload_generation, result.generation) {
+                    if !accepts(
+                        self.react_reload_generation,
+                        result.generation,
+                        self.occurrences.is_some(),
+                    ) {
                         continue;
                     }
                     let state = match result.index {

@@ -145,19 +145,25 @@ pub(crate) fn sweep(
     Some(Ok(index))
 }
 
-/// Whether a sweep for reload `result` belongs to the `current` reload.
-pub(crate) const fn accepts(current: u64, result: u64) -> bool {
-    current == result
+/// Whether a sweep for reload `result` lands: it belongs to the `current`
+/// reload and an index is still `wanted` (Select layers was not turned off
+/// while it ran).
+pub(crate) const fn accepts(current: u64, result: u64, wanted: bool) -> bool {
+    wanted && current == result
 }
 
 impl EditorView {
     /// Starts sweeping the React entry for where each element renders,
-    /// tagged with the current reload; any other document has nothing to
-    /// sweep.
+    /// tagged with the current reload. Only a preview that picks layers
+    /// (Select layers on) can select anything to show the impact of; any
+    /// other state has nothing to sweep.
     pub(crate) fn refresh_occurrences(&mut self) {
-        let Some(react) = &self.react_preview else {
-            self.occurrences = None;
-            return;
+        let react = match &self.react_preview {
+            Some(react) if self.picks_layers() => react,
+            _ => {
+                self.occurrences = None;
+                return;
+            }
         };
         let generation = self.react_reload_generation;
         let (node, cli_script) = react_runtime_paths();
@@ -249,7 +255,12 @@ mod tests {
 
     #[test]
     fn a_result_for_an_older_reload_is_dropped() {
-        assert!(!accepts(3, 2));
-        assert!(accepts(3, 3));
+        assert!(!accepts(3, 2, true));
+        assert!(accepts(3, 3, true));
+    }
+
+    #[test]
+    fn a_result_after_select_layers_turned_off_is_dropped() {
+        assert!(!accepts(3, 3, false));
     }
 }
