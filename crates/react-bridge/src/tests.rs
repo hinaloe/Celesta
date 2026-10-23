@@ -574,6 +574,28 @@ fn deserializes_layer_source_replies() {
     assert_eq!(report.render_count, 3);
 }
 
+#[test]
+fn layer_source_reads_wrapper_entries() {
+    let json = r#"{"layerSource":{"chain":[
+        {"name":"Rect","file":"/a/title.tsx","line":3,"column":10,"kind":"primitive","layerId":"root.2"},
+        {"name":"Sequence","file":"/a/title.tsx","line":2,"column":8,"kind":"wrapper"},
+        {"name":"Title","file":"/a/main.tsx","line":8,"column":4,"kind":"component"}]}}"#;
+    let Response::LayerSource { report } = serde_json::from_str(json).unwrap() else {
+        panic!("expected a LayerSource response");
+    };
+    let report = report.expect("found");
+    let kinds: Vec<_> = report.chain.iter().map(|entry| entry.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            ElementKind::Primitive,
+            ElementKind::Wrapper,
+            ElementKind::Component
+        ]
+    );
+    assert_eq!(report.chain[1].layer_id, None);
+}
+
 fn audio_descriptor(src: &str, start: f64) -> ReactAudioClipDescriptor {
     ReactAudioClipDescriptor {
         src: src.to_owned(),

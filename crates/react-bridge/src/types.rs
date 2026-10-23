@@ -41,8 +41,9 @@ pub struct LayerSource {
     pub line: u32,
     /// 1-based column of the element's opening `<`.
     pub column: u32,
-    /// Whether the element is a built-in primitive (`<Rect>`) or a
-    /// user-written component. Older runtimes do not say; they read as
+    /// Whether the element is a built-in primitive (`<Rect>`), a timing
+    /// wrapper (`<Sequence>`), or a user-written component. Older runtimes do
+    /// not say; they read as
     /// [`ElementKind::Component`].
     #[serde(default)]
     pub kind: ElementKind,
@@ -58,6 +59,9 @@ pub struct LayerSource {
 pub enum ElementKind {
     /// A built-in element such as `<Rect>` that emits a layer itself.
     Primitive,
+    /// A Celesta timing wrapper such as `<Sequence>` that draws its caller's
+    /// JSX.
+    Wrapper,
     /// A user-written component that renders other elements.
     #[default]
     Component,
