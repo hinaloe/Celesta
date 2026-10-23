@@ -46,7 +46,7 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   "Couldn't scan scenes: …", "Not found in the scene scan") and the
   report's `span`. `impact_line` gives the line above Transform.
 - Properties tab (`layer_panel.rs`, `panels.rs`): a header (primitive icon,
-  tag, "in <Component>", the element's position that opens the file,
+  tag, "in `<Component>`", the element's position that opens the file,
   "Appears in" with scene names or timecode ranges without chapters,
   "Shared  also in …(N instances)" in the warning color with a hover list of
   call sites, "Can't move" rows listing locked props and reasons), then the

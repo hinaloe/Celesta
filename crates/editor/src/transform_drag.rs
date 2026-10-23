@@ -264,7 +264,10 @@ impl EditorView {
         self.commit_transform(
             values,
             |this, result, cx| {
-                if result.is_err() {
+                // Targets still current after a success mean nothing was
+                // written (the text came out the same), so no reload comes
+                // to drop the drag.
+                if result.is_err() || this.transform_targets().is_some() {
                     this.cancel_transform_drag();
                 }
                 cx.notify();
