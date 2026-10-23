@@ -150,7 +150,10 @@ impl EditorView {
         let DragState::Editable(frame, editable) = self.drag_state() else {
             return false;
         };
-        let Some(received) = self.transform_targets().map(|(_, report)| report.props) else {
+        let Some(received) = self
+            .transform_targets()
+            .map(|(_, report)| report.props.clone())
+        else {
             return false;
         };
         let (Some(layer), Some(bounds)) = (self.selected_layer.clone(), self.viewer_bounds.get())

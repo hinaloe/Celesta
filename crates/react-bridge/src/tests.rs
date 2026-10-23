@@ -11,12 +11,14 @@ use crate::protocol::{
 };
 use crate::types::{
     ComponentPropertyField, ElementKind, FrameSpan, LayerSource, LayerSourceReport,
-    ReactAudioClipDescriptor, ReactChapter, ReceivedProps, SourcePos, TimingWindow, chapter_at,
+    ReactAudioClipDescriptor, ReactChapter, ReceivedProps, ReceivedValue, SourcePos, TimingWindow,
+    chapter_at,
 };
 use celesta_composition::{
     Animatable, AssetLocation, AudioDuck, LayerFilter, ShaderParam, ShaderParamType, ShaderSource,
     Time,
 };
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use celesta_composition::{Keyframe, KeyframeAnimation, KeyframeAnimationType};
@@ -574,9 +576,35 @@ fn deserializes_layer_source_replies() {
             scale: Some(2.0),
             scale_x: Some(1.5),
             scale_y: Some(0.5),
+            others: BTreeMap::new(),
         }
     );
     assert_eq!(report.render_count, 3);
+}
+
+#[test]
+fn received_props_read_scalars() {
+    let props: ReceivedProps = serde_json::from_str(
+        r##"{"x":1,"color":"#fff","wrap":true,"children":"Sale","style.fontSize":48}"##,
+    )
+    .unwrap();
+    assert_eq!(props.x, Some(1.0));
+    assert_eq!(props.get("x"), Some(ReceivedValue::Number(1.0)));
+    assert_eq!(
+        props.get("color"),
+        Some(ReceivedValue::String("#fff".to_owned()))
+    );
+    assert_eq!(props.get("wrap"), Some(ReceivedValue::Bool(true)));
+    assert_eq!(
+        props.get("children"),
+        Some(ReceivedValue::String("Sale".to_owned()))
+    );
+    assert_eq!(
+        props.get("style.fontSize"),
+        Some(ReceivedValue::Number(48.0))
+    );
+    assert_eq!(props.get("y"), None);
+    assert_eq!(props.get("fontSize"), None);
 }
 
 #[test]

@@ -37,8 +37,8 @@ pub use types::{
     ComponentPropertyField, ComponentPropertySchema, ComponentResolutionRequest,
     ComponentResolutions, ElementKind, FrameEvaluation, FrameSpan, LayerSource, LayerSourceReport,
     PrepareDependency, ProjectFrame, ReactAudioClipDescriptor, ReactChapter, ReactCompositionInfo,
-    ReactCompositionMetadata, ReactDuck, ReactSubtitleDescriptor, ReceivedProps, SourcePos,
-    SpawnOptions, TimingWindow, chapter_at,
+    ReactCompositionMetadata, ReactDuck, ReactSubtitleDescriptor, ReceivedProps, ReceivedValue,
+    SourcePos, SpawnOptions, TimingWindow, chapter_at,
 };
 
 mod project_templates;
