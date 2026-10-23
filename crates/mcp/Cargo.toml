@@ -7,7 +7,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-base64 = "0.22"
+base64 = "0.23"
 celesta-composition = { path = "../composition" }
 celesta-exporter = { path = "../exporter" }
 celesta-react-bridge = { path = "../react-bridge" }
