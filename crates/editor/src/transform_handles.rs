@@ -240,30 +240,6 @@ fn unturn(transform: &EvaluatedTransform) -> Option<[f64; 4]> {
     invert_affine([l[0][0], l[1][0], l[0][1], l[1][1], 0.0, 0.0]).map(|m| [m[0], m[1], m[2], m[3]])
 }
 
-/// `frame`'s transform with the drag's `values` in place, to draw while
-/// dragging.
-pub(crate) fn override_transform(
-    frame: &LayerFrame,
-    values: &[(TransformProp, f64)],
-) -> EvaluatedTransform {
-    let mut transform = frame.transform;
-    for &(prop, value) in values {
-        match prop {
-            TransformProp::X => transform.position.x = value,
-            TransformProp::Y => transform.position.y = value,
-            TransformProp::Rotation => transform.rotation = value,
-            TransformProp::Scale => {
-                let ratio = ratio(frame.transform.scale.x, value);
-                transform.scale.x *= ratio;
-                transform.scale.y *= ratio;
-            }
-            TransformProp::ScaleX => transform.scale.x = value,
-            TransformProp::ScaleY => transform.scale.y = value,
-        }
-    }
-    transform
-}
-
 fn ratio(was: f64, now: f64) -> f64 {
     if was.abs() > 1e-12 { now / was } else { 1.0 }
 }

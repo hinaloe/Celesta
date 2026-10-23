@@ -20,15 +20,14 @@ use crate::layer_select::{
 use crate::react_audio::{react_audio_clip_id, react_tracks};
 use crate::refresh::{LookupFate, SelectionKeep};
 use crate::source::is_react_entry;
-use crate::transform_drag::presses_body;
+use crate::transform_drag::{override_sites, presses_body, prop_overrides};
 use crate::transform_edit::{
     CommitError, Target, TransformEdit, TransformProp, TransformTargets, commit_files,
     inside_project, keyframe_jump_frames, keyframe_timeline_frame, lock_outside_project,
     reason_text, resolve_targets,
 };
 use crate::transform_handles::{
-    Handle, drag_label, drag_values, handle_at, handles, override_transform, prop_values,
-    shown_handles, turn,
+    Handle, drag_label, drag_values, handle_at, handles, prop_values, shown_handles, turn,
 };
 use crate::transform_rows::{field_text, set_at_text};
 use crate::waveform::{
@@ -40,8 +39,8 @@ use celesta_gpu_renderer::{GpuDriver, LayerFrame};
 use celesta_source_edit::{EditTarget, EditValue, LockReason};
 
 use crate::preview::{
-    ReactPreviewContext, ReactPreviewMode, apply_override, collect_component_requests,
-    records_hit_regions, splice_component_resolutions, strip_missing_components,
+    ReactPreviewContext, ReactPreviewMode, collect_component_requests, records_hit_regions,
+    splice_component_resolutions, strip_missing_components,
 };
 use celesta_composition::{
     Animatable, AssetLocation, AudioClip, EvaluatedTransform, GroupMask, Keyframe,
@@ -55,7 +54,8 @@ use celesta_exporter::{
 use celesta_media::{AudioBuffer, AudioDecoder};
 use celesta_project::{Project, TrackKind};
 use celesta_react_bridge::{
-    ComponentResolutions, ElementKind, LayerSource, LayerSourceReport, ReceivedProps, SourcePos,
+    ComponentResolutions, ElementKind, LayerSource, LayerSourceReport, PropOverride, ReceivedProps,
+    SourcePos,
 };
 use std::collections::HashMap;
 use std::fs;
@@ -612,57 +612,6 @@ fn masked_group(children: Vec<Layer>, mask: Vec<Layer>) -> Layer {
         },
         ..missing("group")
     }
-}
-
-fn scene_of(layers: Vec<Layer>) -> Scene {
-    Scene {
-        width: 64,
-        height: 64,
-        frame_rate: Rational::new(30, 1),
-        time: Time::default(),
-        fonts: Vec::new(),
-        shaders: Vec::new(),
-        layers,
-    }
-}
-
-#[test]
-fn an_override_replaces_the_transform_of_a_nested_layer() {
-    let inner = Layer {
-        content: LayerContent::Group {
-            layers: vec![missing("target"), missing("other")],
-            clip: None,
-            mask: None,
-            motion_blur: false,
-        },
-        ..missing("group")
-    };
-    let mut scene = scene_of(vec![missing("first"), inner]);
-    let moved = EvaluatedTransform {
-        rotation: 30.0,
-        ..EvaluatedTransform::default()
-    };
-
-    assert!(apply_override(&mut scene, "target", &moved));
-
-    let LayerContent::Group { layers, .. } = &scene.layers[1].content else {
-        unreachable!()
-    };
-    assert_eq!(layers[0].transform, moved);
-    assert_eq!(layers[1].transform, EvaluatedTransform::default());
-    assert_eq!(scene.layers[0].transform, EvaluatedTransform::default());
-}
-
-#[test]
-fn an_override_of_an_absent_layer_changes_nothing() {
-    let mut scene = scene_of(vec![missing("a")]);
-    let moved = EvaluatedTransform {
-        rotation: 30.0,
-        ..EvaluatedTransform::default()
-    };
-
-    assert!(!apply_override(&mut scene, "b", &moved));
-    assert_eq!(scene, scene_of(vec![missing("a")]));
 }
 
 #[test]
@@ -1923,7 +1872,7 @@ fn transform_handle_at_prefers_handles_then_the_body() {
 }
 
 #[test]
-fn transform_drag_override_and_props() {
+fn transform_drag_props() {
     let mut frame = drag_frame(IDENTITY, pt(10.0, 20.0));
     frame.transform.scale = pt(2.0, 2.0);
     let values = [
@@ -1931,10 +1880,6 @@ fn transform_drag_override_and_props() {
         (TransformProp::Rotation, 15.0),
         (TransformProp::Scale, 3.0),
     ];
-    let transform = override_transform(&frame, &values);
-    assert_eq!(transform.position, pt(30.0, 20.0));
-    assert_eq!(transform.rotation, 15.0);
-    assert_eq!(transform.scale, pt(3.0, 3.0));
 
     // A prop the runtime saw as another value than the transform's keeps its
     // offset; a scale its ratio.
@@ -2657,6 +2602,50 @@ fn x_passed_at_the_call_site_is_a_pass_through_target() {
         Some(EditTarget::Literal { value: EditValue::Number(value), .. }) if *value == 10.0
     ));
     assert_eq!(targets.targets[2].1.call_site, None);
+}
+
+#[test]
+fn a_drag_overrides_the_prop_its_write_changes() {
+    // `left` is set at the call site; `rotation` on the element; `y` nowhere;
+    // `scale` is computed.
+    let files = Texts::from([
+        (
+            PathBuf::from("/project/component.tsx"),
+            "export const PriceTag = ({ left, size }) => (\n  <Rect x={left} rotation={10} scale={size * 2} />\n);\n"
+                .to_owned(),
+        ),
+        (
+            PathBuf::from("/project/scene.tsx"),
+            "export const Scene = () => (\n  <PriceTag left={40} size={1} />\n);\n".to_owned(),
+        ),
+    ]);
+    let report = price_tag_report();
+    let targets = resolve_targets(read_from(&files), &report).expect("the element resolves");
+    let sites = override_sites(&targets, &report);
+
+    let at = |file: &str, prop: &str, value: f64| PropOverride {
+        file: PathBuf::from(file),
+        line: 2,
+        column: 3,
+        prop: prop.to_owned(),
+        value,
+    };
+    assert_eq!(
+        prop_overrides(
+            &sites,
+            &[
+                (TransformProp::X, 64.0),
+                (TransformProp::Y, 8.0),
+                (TransformProp::Rotation, 25.0),
+            ]
+        ),
+        vec![
+            at("/project/scene.tsx", "left", 64.0),
+            at("/project/component.tsx", "y", 8.0),
+            at("/project/component.tsx", "rotation", 25.0),
+        ]
+    );
+    assert_eq!(prop_overrides(&sites, &[(TransformProp::Scale, 3.0)]), []);
 }
 
 #[test]

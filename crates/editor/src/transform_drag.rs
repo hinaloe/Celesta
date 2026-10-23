@@ -1,17 +1,16 @@
 //! Dragging the selected React layer on the canvas: which props the drag may
-//! change, the transform the preview draws while it runs, and the one write
-//! on release.
+//! change, the prop overrides the preview evaluates the scene with while it
+//! runs, and the one write on release.
 
 use crate::layer_select::{letterbox, to_scene};
-use crate::transform_edit::{TransformProp, editable, inner_target, reason_text};
+use crate::transform_edit::{TransformProp, TransformTargets, editable, inner_target, reason_text};
 use crate::transform_handles::{
-    Handle, drag_label, drag_values, handle_at, override_transform, prop_values, shown_handles,
-    turn,
+    Handle, drag_label, drag_values, handle_at, prop_values, shown_handles, turn,
 };
 use crate::view::EditorView;
-use celesta_composition::{EvaluatedTransform, Point};
+use celesta_composition::Point;
 use celesta_gpu_renderer::LayerFrame;
-use celesta_react_bridge::ReceivedProps;
+use celesta_react_bridge::{LayerSourceReport, PropOverride, ReceivedProps, SourcePos};
 use celesta_source_edit::EditTarget;
 use gpui_kit::{Context, MouseMoveEvent};
 
@@ -27,23 +26,86 @@ pub(crate) const NO_AFFINE_FRAME: &str = "Can't drag inside a 3D-transformed or 
 /// A running (or released and being written) drag of the selected layer.
 #[derive(Clone, Debug)]
 pub(crate) struct TransformDrag {
-    layer: String,
     /// The layer's frame when the drag started; every move is measured
-    /// against it, not against the frames drawn with the override.
+    /// against it, not against the frames drawn with the overrides.
     frame: LayerFrame,
     handle: Handle,
     start: Point,
     editable: Vec<TransformProp>,
     /// The props the runtime saw when the drag started.
     received: ReceivedProps,
+    /// Where the runtime takes each editable prop's dragged value, kept from
+    /// the start: the targets are gone while the write runs.
+    sites: Vec<(TransformProp, OverrideSite)>,
     /// How far a rotation drag has turned so far, unsnapped, in degrees.
     turned: f64,
     /// The transform values the pointer has made so far.
     values: Vec<(TransformProp, f64)>,
-    /// Released; the override stays while the write runs and, after a
+    /// Released; the overrides stay while the write runs and, after a
     /// successful one, until its reload, so the old position does not flash
     /// before the reloaded code draws the new one.
     released: bool,
+}
+
+/// The prop `prop` of the elements written at `position`: where the runtime
+/// takes a dragged value while the drag runs.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct OverrideSite {
+    position: SourcePos,
+    prop: String,
+}
+
+/// Where each editable prop of `targets` takes its dragged value: the prop
+/// itself on the element (`report`'s innermost entry) for a value written
+/// there or absent, and the parameter's prop at the call site for a value
+/// passed through, which also moves everything else computed from it. The
+/// same prop the write changes.
+pub(crate) fn override_sites(
+    targets: &TransformTargets,
+    report: &LayerSourceReport,
+) -> Vec<(TransformProp, OverrideSite)> {
+    let Some(element) = report.chain.first() else {
+        return Vec::new();
+    };
+    targets
+        .targets
+        .iter()
+        .filter(|(_, target)| editable(&target.target))
+        .filter_map(|(prop, target)| {
+            let site = match (&target.target, &target.call_site) {
+                (EditTarget::PassThrough { param, .. }, Some(call_site)) => OverrideSite {
+                    position: call_site.clone(),
+                    prop: param.clone(),
+                },
+                (EditTarget::PassThrough { .. }, None) => return None,
+                _ => OverrideSite {
+                    position: SourcePos::from(element),
+                    prop: prop.name().to_owned(),
+                },
+            };
+            Some((*prop, site))
+        })
+        .collect()
+}
+
+/// The overrides that draw the prop values `values` (see `prop_values`).
+pub(crate) fn prop_overrides(
+    sites: &[(TransformProp, OverrideSite)],
+    values: &[(TransformProp, f64)],
+) -> Vec<PropOverride> {
+    values
+        .iter()
+        .filter_map(|&(prop, value)| {
+            let (_, site) = sites.iter().find(|(candidate, _)| *candidate == prop)?;
+            Some(PropOverride {
+                file: site.position.file.clone(),
+                line: site.position.line,
+                column: site.position.column,
+                prop: site.prop.clone(),
+                value,
+            })
+        })
+        .collect()
 }
 
 /// What the canvas can do with the selected layer.
@@ -79,7 +141,7 @@ impl EditorView {
             Some(Some(frame)) => frame.clone(),
         };
         // While dragging, the props stay those the drag began with; the
-        // frame is the one drawn with the override, so the handles follow.
+        // frame is the one drawn with the overrides, so the handles follow.
         if let Some(drag) = &self.transform_drag {
             return DragState::Editable(frame, drag.editable.clone());
         }
@@ -106,17 +168,17 @@ impl EditorView {
         DragState::Editable(frame, props)
     }
 
-    /// The transform the preview draws for the dragged layer in place of its
-    /// own.
-    pub(crate) fn transform_override(&self) -> Option<(String, EvaluatedTransform)> {
-        if self.playing {
-            return None;
+    /// The prop overrides the preview evaluates the scene with while a drag
+    /// runs: the values its write puts into the source, so the frame shows
+    /// what the write will produce.
+    pub(crate) fn prop_overrides(&self) -> Vec<PropOverride> {
+        match &self.transform_drag {
+            Some(drag) if !self.playing => prop_overrides(
+                &drag.sites,
+                &prop_values(&drag.frame, &drag.values, &drag.received),
+            ),
+            _ => Vec::new(),
         }
-        let drag = self.transform_drag.as_ref()?;
-        Some((
-            drag.layer.clone(),
-            override_transform(&drag.frame, &drag.values),
-        ))
     }
 
     /// The drag's `x 120 → 184` label, once the pointer changed something.
@@ -150,14 +212,13 @@ impl EditorView {
         let DragState::Editable(frame, editable) = self.drag_state() else {
             return false;
         };
-        let Some(received) = self
+        let Some((received, sites)) = self
             .transform_targets()
-            .map(|(_, report)| report.props.clone())
+            .map(|(targets, report)| (report.props.clone(), override_sites(targets, report)))
         else {
             return false;
         };
-        let (Some(layer), Some(bounds)) = (self.selected_layer.clone(), self.viewer_bounds.get())
-        else {
+        let Some(bounds) = self.viewer_bounds.get() else {
             return false;
         };
         let size = self.frame_size();
@@ -180,12 +241,12 @@ impl EditorView {
             Some(handle) => handle,
         };
         self.transform_drag = Some(TransformDrag {
-            layer,
             frame,
             handle,
             start,
             editable,
             received,
+            sites,
             turned: 0.0,
             values: Vec::new(),
             released: false,
@@ -280,7 +341,7 @@ impl EditorView {
         true
     }
 
-    /// Escape during a drag: drops it and its override, writing nothing.
+    /// Escape during a drag: drops it and its overrides, writing nothing.
     /// True when a pressed drag was cancelled.
     pub(crate) fn escape_transform_drag(&mut self) -> bool {
         if !self.transform_drag_active() {
@@ -290,7 +351,7 @@ impl EditorView {
         true
     }
 
-    /// Drops the drag and redraws the frame without the override.
+    /// Drops the drag and redraws the frame without the overrides.
     pub(crate) fn cancel_transform_drag(&mut self) {
         if self.transform_drag.take().is_some() {
             self.refresh_preview();
