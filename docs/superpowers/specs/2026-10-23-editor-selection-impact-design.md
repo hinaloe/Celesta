@@ -199,7 +199,9 @@ one block:
 - "Appears in": the scenes this instance's occurrences overlap.
 - "Shared": shown when the element's occurrences (all instances) overlap
   more than one scene; it names the other scenes and the instance count.
-  Hovering lists the call sites.
+  Past three other scenes it counts them instead ("also in 11 other scenes
+  (71 instances)"). Hovering lists the call sites, after the scene names when
+  the row only counts them.
 - The existing "Source" and "Called from" rows move under a collapsed "Source
   chain" disclosure.
 
@@ -210,7 +212,8 @@ states what a commit changes:
 
 - not shared: "Changes this scene only", or "Changes 3 places in this scene"
   when the element renders more than once in it;
-- shared: "Also changes Intro, Outro", in the warning color.
+- shared: "Also changes Intro, Outro", in the warning color; past three other
+  scenes, "Also changes 11 other scenes", with the names on hover.
 
 For a pass-through target (design 2) the scenes are those of the instances
 that the written call site produces.
