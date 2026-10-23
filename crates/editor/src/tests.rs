@@ -786,6 +786,8 @@ fn report_of(chain: Vec<LayerSource>) -> LayerSourceReport {
         candidate_frames: vec![],
         props: ReceivedProps::default(),
         render_count: 1,
+        windows: vec![],
+        span: None,
     }
 }
 
@@ -1224,6 +1226,8 @@ fn primitive_report(line: u32, column: u32, props: ReceivedProps) -> LayerSource
         candidate_frames: vec![],
         props,
         render_count: 1,
+        windows: vec![],
+        span: None,
     }
 }
 
