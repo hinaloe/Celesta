@@ -24,7 +24,10 @@ pub(crate) struct Impact {
     pub instance_count: usize,
     /// Copies in the current scene: Σ max_per_frame of instances overlapping it.
     pub places_in_scene: u32,
-    /// The innermost component position of each instance's chain, for the hover list.
+    /// Where each instance is called from, for the hover list: its chain
+    /// entry at the first index where the element's instance chains differ,
+    /// or its last entry when they never do (or it ends before that index).
+    /// One per instance, in instance order.
     pub call_sites: Vec<SourcePos>,
     /// Filled bands: this instance's ranges inside the current scene.
     pub own_bands: Vec<(u64, u64)>,
@@ -122,16 +125,41 @@ pub(crate) fn impact_view(
             .filter(|instance| in_scene(instance))
             .map(|instance| instance.max_per_frame)
             .sum(),
-        // `chain[0]` is the element itself; an element written straight in
-        // the composition has no component above it and lists itself.
-        call_sites: element
-            .instances
-            .iter()
-            .filter_map(|instance| instance.chain.get(1).or(instance.chain.first()).cloned())
-            .collect(),
+        call_sites: call_sites(&element.instances),
         own_bands,
         other_bands,
     })
+}
+
+/// See [`Impact::call_sites`]. The entries the chains share are the element
+/// and whatever its component wraps it in (a `<Group>` inside `Card`), the
+/// same for every instance; the first entry that differs is the call.
+fn call_sites(instances: &[InstanceOccurrences]) -> Vec<SourcePos> {
+    let Some(first) = instances.first() else {
+        return Vec::new();
+    };
+    let shared = instances
+        .iter()
+        .map(|instance| {
+            first
+                .chain
+                .iter()
+                .zip(&instance.chain)
+                .take_while(|(a, b)| a == b)
+                .count()
+        })
+        .min()
+        .unwrap_or(0);
+    instances
+        .iter()
+        .filter_map(|instance| {
+            instance
+                .chain
+                .get(shared)
+                .or(instance.chain.last())
+                .cloned()
+        })
+        .collect()
 }
 
 /// Whether `[from, to)` frame ranges `a` and `b` share a frame.
@@ -298,6 +326,34 @@ mod tests {
         assert_eq!(impact.appears_in, vec!["A", "B"]);
         assert_eq!(impact.other_scenes, vec!["B"]);
         assert_eq!(impact.call_sites, vec![pos(3)]);
+    }
+
+    #[test]
+    fn call_sites_name_where_instances_differ() {
+        // `pos(5)` is a `<Group>` inside Card; 8 and 20 are the two `<Card/>` calls.
+        let occurrences = index(vec![
+            instance(vec![pos(3), pos(5), pos(8)], vec![(0, 30)]),
+            instance(vec![pos(3), pos(5), pos(20)], vec![(30, 90)]),
+        ]);
+        let impact = known(impact_view(
+            &report(&[pos(3), pos(5), pos(20)], Some((30.0, 90.0))),
+            Some(&occurrences),
+            &[],
+            40,
+        ));
+        assert_eq!(impact.call_sites, vec![pos(8), pos(20)]);
+    }
+
+    #[test]
+    fn call_sites_for_one_instance_use_the_outermost_entry() {
+        let occurrences = index(vec![instance(vec![pos(3), pos(5), pos(8)], vec![(0, 30)])]);
+        let impact = known(impact_view(
+            &report(&[pos(3), pos(5), pos(8)], Some((0.0, 30.0))),
+            Some(&occurrences),
+            &[],
+            10,
+        ));
+        assert_eq!(impact.call_sites, vec![pos(8)]);
     }
 
     #[test]
