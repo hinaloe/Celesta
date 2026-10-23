@@ -21,7 +21,7 @@ pub enum Edit {
     },
     /// Inserts `key: value` into an object literal at byte offset `at`:
     /// nothing goes before it right after the `{`, ` ` after a comma, and
-    /// `, ` after a property.
+    /// `, ` after a property (including one inserted at the same offset).
     InsertProperty {
         at: u32,
         key: String,
@@ -84,7 +84,9 @@ pub fn apply(text: &str, edits: &[Edit]) -> Result<String, ApplyError> {
                 out.push_str(&format!(" {name}{}", after_name(value)));
             }
             Edit::InsertProperty { key, value, .. } => {
-                let separator = match text[..start].chars().next_back() {
+                // What is written so far, so a property inserted at the same
+                // offset just before this one counts.
+                let separator = match out.chars().next_back() {
                     Some('{') => "",
                     Some(',') => " ",
                     _ => ", ",

@@ -475,6 +475,20 @@ fn span_children_are_locked() {
 }
 
 #[test]
+fn a_children_kind_mismatch_reports_the_trimmed_source() {
+    for children in ["\n    12\n  ", "\n    {'12'}\n  "] {
+        let text = text_children(children);
+        assert_eq!(
+            run(&text, "Text", "children", Some(EditValue::Number(12.0))),
+            EditTarget::Locked(LockReason::Expression {
+                source: children.trim().into()
+            }),
+            "{children:?}"
+        );
+    }
+}
+
+#[test]
 fn empty_children_insert_text() {
     let text = text_children("");
     let target = run(&text, "Text", "children", None);
@@ -691,6 +705,34 @@ fn style_spreads_lock() {
         ),
         EditTarget::Locked(LockReason::Spread)
     );
+}
+
+#[test]
+fn two_style_properties_inserted_at_one_offset() {
+    for (before, after) in [
+        ("{{}}", "{{fontSize: 48, color: \"#fff\"}}"),
+        (
+            "{{ fontWeight: 700, }}",
+            "{{ fontWeight: 700, fontSize: 48, color: \"#fff\" }}",
+        ),
+        (
+            "{{ fontWeight: 700 }}",
+            "{{ fontWeight: 700, fontSize: 48, color: \"#fff\" }}",
+        ),
+    ] {
+        let text = styled(before);
+        let size = run(&text, "Text", "style.fontSize", None)
+            .to_edit("style.fontSize", &EditValue::Number(48.0))
+            .unwrap();
+        let color = run(&text, "Text", "style.color", None)
+            .to_edit("style.color", &string("#fff"))
+            .unwrap();
+        assert_eq!(
+            apply(&text, &[size, color]).unwrap(),
+            styled(after),
+            "{before}"
+        );
+    }
 }
 
 #[test]

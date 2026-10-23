@@ -283,13 +283,7 @@ pub fn resolve(text: &str, element: &ElementRef, prop: &str, ctx: &ResolveContex
             Children::Container { span, value, quote } => {
                 return child(*span, value, LiteralForm::ChildContainer(*quote));
             }
-            Children::Other(span) => {
-                return EditTarget::Locked(LockReason::Expression {
-                    source: text[span.start as usize..span.end as usize]
-                        .trim()
-                        .to_string(),
-                });
-            }
+            Children::Other(span) => return expression(text, *span),
             // 2b opens the tag before writing children into it.
             Children::SelfClosing if gather.attr.is_none() => {
                 return EditTarget::Locked(LockReason::Expression {
@@ -419,9 +413,13 @@ fn resolve_shape(shape: &Shape, gather: &Gather, text: &str, ctx: &ResolveContex
     }
 }
 
+/// Locks `span` as an expression. The source is trimmed: a children span
+/// includes the whitespace between the tags.
 fn expression(text: &str, span: Span) -> EditTarget {
     EditTarget::Locked(LockReason::Expression {
-        source: text[span.start as usize..span.end as usize].to_string(),
+        source: text[span.start as usize..span.end as usize]
+            .trim()
+            .to_string(),
     })
 }
 

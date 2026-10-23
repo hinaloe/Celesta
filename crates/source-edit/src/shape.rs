@@ -74,7 +74,7 @@ pub(crate) fn children_of(element: &JSXElement<'_>) -> Children {
     }
 }
 
-/// JSXText as React renders it (Babel's `cleanJSXElementLiteralChild`):
+/// JSXText as React renders it, collapsed as esbuild compiles it:
 /// tabs read as spaces, every line but the first loses its leading spaces
 /// and every line but the last its trailing ones, lines left empty are
 /// dropped, and the rest are joined with single spaces.
