@@ -40,7 +40,7 @@ In a JSON transform, `position` places the item’s center. Any transform value,
 }
 ```
 
-Easing names match the React `Easings` in kebab case, such as `ease-in-out-cubic` or `ease-out-back`.
+Easing names match the React `Easings` in kebab case, such as `ease-in-out-cubic` or `ease-out-back`, and each is the same curve. `ease-in`, `ease-out`, and `ease-in-out` are the quadratic curves, the same as `ease-in-quad`, `ease-out-quad`, and `ease-in-out-quad`.
 
 ## Dialogue in a JSON project
 

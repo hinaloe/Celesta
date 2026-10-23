@@ -148,13 +148,12 @@ fn apply_easing(progress: f64, easing: Easing) -> f64 {
         Easing::Linear => t,
         Easing::EaseIn => t * t,
         Easing::EaseOut => 1.0 - (1.0 - t) * (1.0 - t),
-        Easing::EaseInOut => t * t * (3.0 - 2.0 * t),
         Easing::EaseInSine => 1.0 - (t * std::f64::consts::FRAC_PI_2).cos(),
         Easing::EaseOutSine => (t * std::f64::consts::FRAC_PI_2).sin(),
         Easing::EaseInOutSine => -((std::f64::consts::PI * t).cos() - 1.0) / 2.0,
         Easing::EaseInQuad => t * t,
         Easing::EaseOutQuad => t * (2.0 - t),
-        Easing::EaseInOutQuad => {
+        Easing::EaseInOut | Easing::EaseInOutQuad => {
             if t < 0.5 {
                 2.0 * t * t
             } else {
@@ -309,11 +308,22 @@ fn easing_integral(progress: f64, easing: Easing) -> f64 {
         Easing::Linear => progress * progress / 2.0,
         Easing::EaseIn => progress * progress * progress / 3.0,
         Easing::EaseOut => progress * progress - progress * progress * progress / 3.0,
-        Easing::EaseInOut => progress * progress * progress - progress.powi(4) / 2.0,
+        Easing::EaseInOut | Easing::EaseInOutQuad => {
+            let p = progress;
+            if p < 0.5 {
+                2.0 * p * p * p / 3.0
+            } else {
+                // Continues the first half's 1/12 at p = 0.5.
+                2.0 * p * p - p - 2.0 * p * p * p / 3.0 + 1.0 / 6.0
+            }
+        }
         // The rest of the catalogue (trig, exponential, and multi-branch
         // piecewise curves like elastic/back/bounce) doesn't have an
         // antiderivative worth hand-deriving and hand-verifying by eye the
-        // way the four polynomial curves above do — `integrate_f64`'s own
+        // way the polynomial curves above do (`EaseInOutQuad` among them:
+        // Simpson's rule isn't exact across its kink at 0.5, so the same
+        // curve as `EaseInOut` would integrate slightly differently
+        // otherwise) — `integrate_f64`'s own
         // caller only needs this to convert an animated playback rate into
         // an absolute source-time offset, so a numerically integrated
         // approximation (indistinguishable from the closed form at
@@ -393,6 +403,28 @@ mod tests {
     }
 
     #[test]
+    fn the_shorthand_curves_are_the_quadratic_ones() {
+        // `EaseIn`/`EaseOut`/`EaseInOut` are `Easings.easeIn`/`easeOut`/
+        // `easeInOut` in `packages/react/src/animation.ts`: the quadratic
+        // curves, not smoothstep for `EaseInOut` (#460).
+        for (shorthand, quad) in [
+            (Easing::EaseIn, Easing::EaseInQuad),
+            (Easing::EaseOut, Easing::EaseOutQuad),
+            (Easing::EaseInOut, Easing::EaseInOutQuad),
+        ] {
+            for step in 0..=20 {
+                let t = f64::from(step) / 20.0;
+                assert!(
+                    (apply_easing(t, shorthand) - apply_easing(t, quad)).abs() < 1e-12,
+                    "{shorthand:?} at t={t}"
+                );
+            }
+        }
+        assert_eq!(apply_easing(0.25, Easing::EaseInOut), 0.125);
+        assert_eq!(apply_easing(0.75, Easing::EaseInOut), 0.875);
+    }
+
+    #[test]
     fn ease_in_out_variants_pass_through_the_midpoint() {
         // Every "InOut" curve is point-symmetric about (0.5, 0.5).
         for easing in [
@@ -423,13 +455,17 @@ mod tests {
             Easing::EaseIn,
             Easing::EaseOut,
             Easing::EaseInOut,
+            Easing::EaseInOutQuad,
         ] {
-            let closed_form = easing_integral(0.7, easing);
-            let numeric = integrate_numerically(0.7, |p| apply_easing(p, easing));
-            assert!(
-                (closed_form - numeric).abs() < 1e-6,
-                "{easing:?}: closed form {closed_form} vs numeric {numeric}"
-            );
+            // Both halves of the piecewise `EaseInOut`.
+            for progress in [0.3, 0.7, 1.0] {
+                let closed_form = easing_integral(progress, easing);
+                let numeric = integrate_numerically(progress, |p| apply_easing(p, easing));
+                assert!(
+                    (closed_form - numeric).abs() < 1e-6,
+                    "{easing:?} to {progress}: closed form {closed_form} vs numeric {numeric}"
+                );
+            }
         }
     }
 

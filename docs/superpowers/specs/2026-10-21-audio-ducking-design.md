@@ -132,10 +132,12 @@ helper.
 3. With no runs, the curve is the constant 1.
 4. For each run `[s, e]`, the curve is 1 until `s - a`, eases down to `g`
    at `s`, holds `g` until `e`, and eases back up to 1 at `e + r`. Both
-   ramps use the keyframe easing `ease-in-out` as `crates/composition`
-   evaluates it today (smoothstep, `t²(3 − 2t)`), the curve the #404
-   recipe already plays. They move the multiplier itself, not decibels, so
-   `to: 0` works.
+   ramps use the keyframe easing `ease-in-out`, the piecewise quadratic
+   curve of `Easings.easeInOut` (`2t²` up to the middle, then
+   `1 − 2(1 − t)²`), the curve the #404 recipe plays. Until #460 the
+   keyframe `ease-in-out` was smoothstep (`t²(3 − 2t)`); it now matches
+   `Easings`. They move the multiplier itself, not decibels, so `to: 0`
+   works.
 
 The curve is written as `Animatable<f64>` keyframes, so `evaluate_f64` on
 the Rust side and the same evaluation on the TypeScript side give the
@@ -277,20 +279,19 @@ that limit for both:
 
 - A TypeScript evaluation and integration of `Animatable` keyframes that
   matches `evaluate_f64` / `integrate_f64` in `crates/composition` formula
-  for formula, with the integrals. The Rust code is the reference. The
-  `Easings` in `packages/react/src/animation.ts` can be reused only where
-  they agree with it: `easeInOut` there is piecewise quadratic, while the
-  keyframe `ease-in-out` in Rust is smoothstep, so the port follows Rust
-  and leaves `interpolate()` as it is. The mismatch itself is #460; if it
-  is resolved by changing the keyframe curve, the ducking curve here
-  changes with it.
+  for formula, with the integrals. The Rust code is the reference. Every
+  keyframe easing is the curve of the same name in `Easings`
+  (`packages/react/src/animation.ts`); #460 changed the keyframe
+  `ease-in-out` from smoothstep to its piecewise quadratic `easeInOut`,
+  and the ducking curve with it.
 - `volume` drives the clip's gain node; `playbackRate` drives the source's
   rate, so the source position follows the integral.
 - Pitch and `preservePitch` stay unsupported in the browser, with the
   existing error.
 
 Measured with `packages/web/test/manual/audio-automation.html` in
-Chromium 152 (`OfflineAudioContext`, 48 kHz):
+Chromium 152 (`OfflineAudioContext`, 48 kHz), before #460, while the
+keyframe `ease-in-out` was still smoothstep:
 
 - Volume: the largest difference from `evaluate_f64` is 2.1 × 10⁻⁶, and the
   largest step between neighboring samples (4.37 × 10⁻⁵) is no larger than

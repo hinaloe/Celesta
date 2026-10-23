@@ -6,9 +6,11 @@ keyframed, instead of throwing. This is the first step of audio ducking
 
 - `packages/web/src/keyframes.ts` ports `evaluate_f64` / `integrate_f64` from
   `crates/composition/src/animation.rs`, all 34 easings and the Simpson
-  integration included. The Rust code is the reference, not `Easings` in
-  `@celesta/react`: the keyframe `ease-in-out` is smoothstep, the React one
-  quadratic (#460). `crates/composition/tests/fixtures/keyframe-evaluation.json`
+  integration included. The Rust code is the reference. When this was
+  written the keyframe `ease-in-out` was smoothstep and the React one
+  quadratic; #460 made the keyframe curve quadratic too, so every keyframe
+  easing is now the `Easings` curve of the same name.
+  `crates/composition/tests/fixtures/keyframe-evaluation.json`
   pins both: `keyframe_fixture.rs` checks Rust against it, and
   `keyframes.test.mts` checks the port.
 - `automationEvents` turns an animated value into AudioParam calls: one
@@ -29,11 +31,11 @@ keyframed, instead of throwing. This is the first step of audio ducking
   (run `pnpm --dir packages/web exec vite` and open it): volume within
   2.1 × 10⁻⁶ of `evaluate_f64` with no step larger than the curve's own;
   playback-rate timing within 1.32 ms, from `playbackRate` being k-rate.
-- Known divergence: `integrate_f64` integrates a segment that starts before
-  the clip's local 0 as if it started at 0 with the earlier key's value
-  (keys `-1 s → 1`, `1 s → 3` give 2 at 1 s, not 2.5). React emits such
-  keys when an outer `<Sequence>` clips a clip's head. The port reproduces
-  it and the fixture pins it, but Web Audio follows the true curve, so such
-  clips play slightly differently in the browser.
+- Known divergence, since fixed (#462): `integrate_f64` integrated a
+  segment that starts before the clip's local 0 as if it started at 0 with
+  the earlier key's value (keys `-1 s → 1`, `1 s → 3` gave 2 at 1 s, not
+  2.5). React emits such keys when an outer `<Sequence>` clips a clip's
+  head. Rust and the port now integrate the true curve from 0, as Web
+  Audio plays it, and the fixture pins 2.5.
 - The two new test files are TypeScript under Vitest (#458); the other web
   tests still run under `node --test`, and `pnpm test` runs both.

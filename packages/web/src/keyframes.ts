@@ -125,7 +125,7 @@ const EASINGS: Record<KeyframeEasing, (t: number) => number> = {
   'linear': (t) => t,
   'ease-in': (t) => t * t,
   'ease-out': (t) => 1 - (1 - t) * (1 - t),
-  'ease-in-out': (t) => t * t * (3 - 2 * t),
+  'ease-in-out': (t) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t),
   'ease-in-sine': (t) => 1 - Math.cos(t * (Math.PI / 2)),
   'ease-out-sine': (t) => Math.sin(t * (Math.PI / 2)),
   'ease-in-out-sine': (t) => -(Math.cos(Math.PI * t) - 1) / 2,
@@ -177,7 +177,11 @@ function easingIntegral(progress: number, name: KeyframeEasing): number {
     case 'linear': return (progress * progress) / 2;
     case 'ease-in': return (progress * progress * progress) / 3;
     case 'ease-out': return progress * progress - (progress * progress * progress) / 3;
-    case 'ease-in-out': return progress * progress * progress - progress ** 4 / 2;
+    case 'ease-in-out':
+    case 'ease-in-out-quad':
+      return progress < 0.5
+        ? (2 * progress * progress * progress) / 3
+        : 2 * progress * progress - progress - (2 * progress * progress * progress) / 3 + 1 / 6;
     default: return integrateNumerically(progress, easing(name));
   }
 }
