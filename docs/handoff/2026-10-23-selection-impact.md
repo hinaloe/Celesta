@@ -34,11 +34,18 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   joins chunks; `instance_for(report)` finds the selection's element and
   instance; `scenes_of` and `outermost_chapter_at`
   (`crates/react-bridge/src/occurrences.rs`) map ranges to scenes.
-- Editor worker (`crates/editor/src/occurrences.rs`): after every successful
-  reload of a React entry, `refresh_occurrences` asks a worker thread to spawn
-  its own `@celesta/cli` process with source locations and sweep the
-  composition in `CHUNK_FRAMES` (240) frame chunks. A result for an older
-  reload is dropped (`accepts`).
+- Editor worker (`crates/editor/src/occurrences.rs`): while Select layers
+  (interactive mode) is on, `refresh_occurrences` asks a worker thread to
+  spawn its own `@celesta/cli` process with source locations and sweep the
+  composition in `CHUNK_FRAMES` (240) frame chunks: after every successful
+  reload of a React entry, when Select layers is turned on, and when another
+  file opens with it on. Turning it off drops the index (`occurrences =
+  None`). A result for an older reload, or one that lands after Select layers
+  was turned off, is dropped (`accepts`). After the editor's own write the
+  last ready index stays in use as `OccurrenceState::Refreshing` until the
+  new sweep's result (ready or failed) replaces it (`rescan_state`), so the
+  Shared row, the impact line, the bands, and the chapter underlines do not
+  blank after each nudge; outside reloads start from `Scanning`.
 - Impact (`crates/editor/src/impact.rs`): `impact_view` turns the report and
   the index into `ImpactView::Known(Impact)` (scenes it appears in, other
   scenes, instance count, places in the current scene, call sites, filled and
@@ -77,9 +84,9 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
 
 ## Cost of the sweep
 
-One tree walk per frame of the composition per reload: each frame is mounted
-and its layers walked as a `layerSource` lookup does, and the scene is
-discarded. It runs on its own thread and its own Node process, so the preview
+One tree walk per frame of the composition per reload while Select layers is
+on (none while it is off): each frame is mounted and its layers walked as a
+`layerSource` lookup does, and the scene is discarded. It runs on its own thread and its own Node process, so the preview
 and its runtime are not blocked, but a long composition keeps one core busy
 for a while after each save. A reload during a sweep abandons it at the next
 chunk boundary, so at most 240 frames of stale work run after a save.
@@ -135,5 +142,10 @@ Manual checks are pending the app check:
   underlines in the Chapters row.
 - A composition without chapters: "Appears in" shows timecode ranges and
   "Changes N places in this scene" counts copies.
-- Save during a long sweep: "Scanning scenes…" until the new sweep finishes,
-  never the old result.
+- Save from outside Celesta during a long sweep: "Scanning scenes…" until
+  the new sweep finishes, never the old result.
+- Nudge a layer with the Transform rows: the Shared row, "Also changes …",
+  the outlined bands, and the chapter underlines stay shown through the
+  reload and the re-sweep.
+- With Select layers off, saving starts no sweep (no extra Node process);
+  turning it on shows "Scanning scenes…" and then the scan.

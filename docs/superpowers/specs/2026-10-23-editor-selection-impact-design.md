@@ -167,10 +167,13 @@ An `OccurrenceWorker`, shaped like `ComponentSchemaWorker`: its own thread and
 its own `ReactBridge` spawned with source locations. The sweep is requested in
 chunks of 240 frames (`collectOccurrences { from, frames }`); on every React
 reload the worker abandons the running sweep at its next chunk and starts
-another. The view
+another. The sweep runs only while Select layers (the interactive mode) is
+on, since nothing can be selected outside it: turning it on starts a sweep,
+and turning it off drops the index. The view
 keeps `occurrences: OccurrenceState` = `Scanning` | `Ready(index)` |
-`Failed(message)`, tagged with the reload generation it belongs to. A result
-for an older generation is dropped.
+`Refreshing(index)` | `Failed(message)`, tagged with the reload generation it
+belongs to. A result for an older generation is dropped, and so is one that
+lands after Select layers was turned off.
 
 Until the index is ready, the impact is shown from the report's `span` only,
 with "Scanning scenes…" in place of the scene list.
@@ -219,14 +222,14 @@ This design does not stop shared edits (the user sometimes wants them); design
 ### Why it can't move
 
 Today a locked layer shows a dashed outline and its lock reason only as a
-tooltip. The header gains a "Locked" line listing the locked props with their
-reasons, one per line ("x, y — Written as an expression: `W / 2`"), so the
-reason is visible without hovering. Props whose targets are editable are not
-listed.
+tooltip. The header gains "Can't move" rows listing the locked props with
+their reasons, one reason per row ("X, Y — Written as an expression: `W / 2`"),
+so the reason is visible without hovering. Props whose targets are editable
+are not listed.
 
 ### Timeline highlight
 
-On the React composition row (V1) and the chapter row:
+On the React composition row (V1):
 
 - this instance's occurrences in the current scene: a filled accent band;
 - every other occurrence of the element (other instances, and this instance
@@ -235,7 +238,12 @@ On the React composition row (V1) and the chapter row:
 
 Bands draw beneath the playhead and above the row background, are hit-tested
 for a tooltip (scene, frames, the instance's call site), and a click seeks to
-the band's first frame. The bands follow the selection and clear with it.
+the band's first frame.
+
+On the chapter row, the chapters this instance appears in are underlined with
+a 2 px accent bottom border; the current chapter keeps its own highlight.
+
+The bands and underlines follow the selection and clear with it.
 
 ### Keeping the selection across the editor's own writes
 
@@ -249,10 +257,14 @@ After a reload caused by the editor's own write (the existing
 - the canvas keeps the drag's overridden scene until the reloaded frame is
   shown, so the layer does not jump back for a frame;
 - the new lookup's answer replaces them when it arrives. If the layer no
-  longer exists, the selection clears as today.
+  longer exists, the selection clears as today;
+- the last scene scan stays in use (`Refreshing(index)`) until the reload's
+  new sweep lands, so the "Shared" row, the impact line, the bands, and the
+  chapter underlines stay shown; the new sweep's result, ready or failed,
+  replaces it.
 
 Reloads not caused by the editor (an outside edit) clear the selection as
-today.
+today, and the scan starts over from `Scanning`.
 
 ## Testing
 

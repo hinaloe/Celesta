@@ -427,6 +427,8 @@ git commit -m "feat(editor): sweep the React entry for occurrences on every relo
 pub(crate) struct Impact {
     /// Outermost chapters this instance's occurrences overlap (names).
     pub appears_in: Vec<String>,
+    /// The ids of `appears_in`, in the same order.
+    pub appears_in_ids: Vec<String>,
     /// This instance's ranges, for "Appears in" without chapters.
     pub own_ranges: Vec<(u64, u64)>,
     /// Outermost chapters any instance overlaps, minus the current one.
@@ -436,10 +438,12 @@ pub(crate) struct Impact {
     pub places_in_scene: u32,
     /// The innermost component position of each instance's chain, for the hover list.
     pub call_sites: Vec<SourcePos>,
-    /// Filled bands: this instance's ranges inside the current scene.
-    pub own_bands: Vec<(u64, u64)>,
-    /// Outlined bands: every other occurrence of the element.
-    pub other_bands: Vec<(u64, u64)>,
+    /// Filled bands: this instance's ranges inside the current scene, each
+    /// with its instance's index into `call_sites`.
+    pub own_bands: Vec<((u64, u64), usize)>,
+    /// Outlined bands: every other occurrence of the element, each with its
+    /// instance's index into `call_sites`.
+    pub other_bands: Vec<((u64, u64), usize)>,
 }
 pub(crate) enum ImpactView {
     /// No index yet (scanning, failed, or the element is not in it): the report's span only.
