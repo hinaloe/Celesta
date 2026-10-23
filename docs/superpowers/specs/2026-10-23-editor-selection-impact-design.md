@@ -107,7 +107,8 @@ A new request, `{ "collectOccurrences": { "from": 0, "frames": 240 } }`,
 walks the frames `[from, from + frames)` as `collectAudio` walks every frame (settle the tree, walk it with a layer-node map, no scene
 JSON, no audio decoding) and records, for every layer node:
 
-- the element key: the innermost chain entry's `file:line:column`;
+- the element key: the `file:line:column` of the first chain entry that is
+  not a `'wrapper'`;
 - the instance key: the positions of the chain's entries other than
   `'wrapper'` ones, innermost first.
 
@@ -132,8 +133,11 @@ interface OccurrenceIndex {
 }
 ```
 
-Only elements with a source position are recorded. Layers without one (inside
-`node_modules`, or an entry built without positions) are skipped.
+Only layers whose chain has a non-wrapper entry with a source position are
+recorded. Layers without one (an entry built without positions, or library
+code called straight from a wrapper) are skipped. A position-less layer
+drawn by a library component the user called is recorded under that call,
+as `layerSource` reports it.
 
 Ranges are clipped to the requested frames; the bridge joins chunks.
 

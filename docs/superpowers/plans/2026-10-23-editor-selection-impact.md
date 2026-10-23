@@ -164,7 +164,7 @@ for each window fiber, outermost first:
   skip a Sequence whose committed parent is a Loop or LoopCycle, and every LoopCycle
   value = the CompositionRuntimeContext provider value directly below it
           (for a Loop: below its Sequence child)
-  Sequence, not remapped: from = rootFrame - providedFrame(provider); to = from + value.durationInFrames
+  Sequence, not remapped: from = enclosing.from + props.from (finite, else 0); to = from + value.durationInFrames
   Loop:                   same from/to as a Sequence; remapped = true from here down
   FreezeFrame:            from/to = enclosing; remapped = true from here down
   any window while remapped (other than the Loop itself): from/to = enclosing
