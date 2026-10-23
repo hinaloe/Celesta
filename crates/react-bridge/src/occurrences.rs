@@ -99,7 +99,8 @@ pub fn scenes_of<'a>(ranges: &[(u64, u64)], chapters: &'a [ReactChapter]) -> Vec
         .iter()
         .enumerate()
         .filter(|&(index, chapter)| {
-            is_outermost(chapters, index)
+            chapter.duration_in_frames > 0
+                && is_outermost(chapters, index)
                 && ranges
                     .iter()
                     .any(|&(from, to)| from < chapter.end() && chapter.from < to)
@@ -226,6 +227,12 @@ mod tests {
     fn scenes_of_ignores_touching_edges() {
         let chapters = [chapter("a", 0, 30), chapter("b", 30, 30)];
         assert_eq!(ids(scenes_of(&[(0, 30)], &chapters)), vec!["a"]);
+    }
+
+    #[test]
+    fn scenes_of_never_matches_a_mark() {
+        let chapters = [chapter("a", 0, 30), chapter("mark", 50, 0)];
+        assert!(scenes_of(&[(40, 60)], &chapters).is_empty());
     }
 
     #[test]
