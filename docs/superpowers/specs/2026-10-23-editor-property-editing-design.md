@@ -50,7 +50,7 @@ Recognized literal forms, besides the numeric ones resolved today:
 
 | Form | Value | Written back as |
 | --- | --- | --- |
-| `name="text"`, `name={'text'}`, `` name={`text`} `` (no `${}`) | String | the same quote style; a value with that quote or a newline becomes `{"…"}` with JSON escapes |
+| `name="text"`, `name={'text'}`, `` name={`text`} `` (no `${}`) | String | the same quote style. JSX attribute strings have no escapes, so a value with the attribute's quote, `&`, or a newline becomes `{"…"}` with JSON escapes; inside `{'…'}` and `` {`…`} `` the quote, `\`, and (for templates) `${` are escaped in place. An attribute string containing `&` is locked (it may be an HTML entity the source spells differently) |
 | `name` (bare) | Bool(true) | `name` for true, `name={false}` for false |
 | `name={true}` / `name={false}` | Bool | `{true}` / `{false}` |
 | Text children: one JSXText, or one `{'…'}` child | String | JSXText when it has no `{`, `}`, `<`, `>` and no leading or trailing whitespace; otherwise `{"…"}` |
