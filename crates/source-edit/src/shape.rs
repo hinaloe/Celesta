@@ -8,8 +8,9 @@ use oxc_span::GetSpan;
 
 use crate::resolve::{LiteralForm, Span};
 
-/// An element's children, reduced to what the rules need. Every `span`
-/// covers everything between the tags.
+/// An element's children, reduced to what the rules need. A variant's
+/// `span` covers everything between the tags; `Reference` has none, since
+/// it is resolved through the binding it reads.
 #[derive(Debug)]
 pub(crate) enum Children {
     /// `<Text />`.

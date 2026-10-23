@@ -859,8 +859,10 @@ impl<'t> Gather<'t> {
             .find_map(|s| s.component.as_deref())
     }
 
-    /// The parameter `shape` reads: an identifier bound by a component's
-    /// first parameter, or `props.<key>`.
+    /// The parameter `shape` reads: an identifier bound by the first
+    /// parameter of [`Self::component`], or `props.<key>`. A parameter of an
+    /// outer component is not followed: the call site found is the inner
+    /// component's, which never passes it.
     fn parameter(&self, shape: &Shape) -> Option<ParamInfo> {
         let (name, member) = match shape {
             Shape::Ident(name) => (name, None),
@@ -872,7 +874,7 @@ impl<'t> Gather<'t> {
         if self.declared_more_than_once(name) {
             return None;
         }
-        match (self.lookup(name)?, member) {
+        let found = match (self.lookup(name)?, member) {
             (
                 Binding::Parameter {
                     component,
@@ -891,7 +893,8 @@ impl<'t> Gather<'t> {
                 default: ParamDefault::None,
             }),
             _ => None,
-        }
+        }?;
+        (Some(found.component.as_str()) == self.component()).then_some(found)
     }
 
     /// The name a `const` gives the function starting at `start`.

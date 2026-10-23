@@ -84,15 +84,57 @@ fn enclosing_component_names() {
         "export const PriceTag = memo(({ label }) => <Text label={label} />);\n",
         "export const PriceTag = React.forwardRef((props, ref) => <Text label={props.label} />);\n",
         "export const PriceTag = memo(forwardRef((props, ref) => <Text label={props.label} />));\n",
+        "export function PriceTag({ label }: Props) {\n  return <Text label={label} />;\n}\n",
         // A function inside the component that no call site can name.
         "export function PriceTag({ label }) {\n  const row = () => <Text label={label} />;\n  return row();\n}\n",
     ] {
+        let text_element = element(text, "<Text");
         assert_eq!(
-            enclosing_component(text, &element(text, "<Text")),
+            enclosing_component(text, &text_element),
             Some("PriceTag".to_string()),
             "{text}"
         );
+        assert_eq!(
+            parameter_of(text, &text_element, "label").map(|p| (p.component, p.param)),
+            Some(("PriceTag".to_string(), "label".to_string())),
+            "{text}"
+        );
     }
+
+    // A function expression's own name is what the runtime reports.
+    let text = "export const PriceTag = memo(function Tag({ label }) {\n  return <Text label={label} />;\n});\n";
+    let text_element = element(text, "<Text");
+    assert_eq!(
+        enclosing_component(text, &text_element),
+        Some("Tag".to_string())
+    );
+    assert_eq!(
+        parameter_of(text, &text_element, "label").map(|p| p.component),
+        Some("Tag".to_string())
+    );
+
+    // A component inside another: its call site never passes the outer
+    // component's parameter.
+    let text = "export function Outer({ label }) {\n  const Inner = () => <Text label={label} />;\n  return <Inner />;\n}\n";
+    let text_element = element(text, "<Text");
+    assert_eq!(
+        enclosing_component(text, &text_element),
+        Some("Inner".to_string())
+    );
+    assert_eq!(parameter_of(text, &text_element, "label"), None);
+    let call_site = element(text, "<Inner");
+    assert_eq!(
+        resolve_through(
+            text,
+            &text_element,
+            "label",
+            &ctx(Some(string("Sale"))),
+            Some((text, &call_site)),
+        ),
+        EditTarget::Locked(LockReason::UnresolvedIdentifier {
+            name: "label".into()
+        })
+    );
     for text in [
         "export default ({ label }) => <Text label={label} />;\n",
         "export default function ({ label }) {\n  return <Text label={label} />;\n}\n",
