@@ -38,7 +38,8 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   `style.<key>` resolves a property of a `style={{ … }}` object literal, and
   a missing one is inserted into the object. Value shapes live in
   `shape.rs`.
-- Pass-through (`crates/source-edit/src/pass_through.rs`):
+- Pass-through (`crates/source-edit/src/pass_through.rs`, with the
+  enclosing functions and the names they bind in `scope.rs`):
   `enclosing_component` names the function that encloses an element
   (`function`, `const` arrow, through `memo`/`forwardRef`), `parameter_of`
   finds the destructured parameter (renamed or `props.<name>`) a prop reads,
@@ -54,7 +55,7 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
 - Received props (`packages/react/src/source-chain.ts`,
   `crates/react-bridge/src/types.rs`): the `layerSource` report carries
   every finite number, string, and boolean prop of the innermost primitive,
-  string `children`, and each scalar of its `style` object as
+  `children` included, and each scalar of its `style` object as
   `style.<key>`. `ReceivedProps` keeps the six transform numbers as fields
   and the rest in `others`; `ReceivedProps::get` reads either as a
   `ReceivedValue`.
@@ -140,9 +141,9 @@ These differ from, or settle what the plan left open:
 - 2d (inline text editing): `children` targets in their literal forms, with
   `write_value` choosing JSXText or `{"…"}`.
 
-## Verifying by hand
+## Verify by hand
 
-The app check is pending:
+In the editor:
 
 - In a scene that calls a component with `x={40}`, select a layer inside it:
   X shows "Set at scene.tsx:…" with the arrow icon. When the component
