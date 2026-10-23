@@ -2177,6 +2177,116 @@ fn transform_only_a_reset_clears_an_own_write() {
 }
 
 #[test]
+fn expire_keeps_the_resolution_visible_but_not_current() {
+    let report = primitive_report(2, 3, x_only());
+    let mut state = TransformEdit::default();
+    let request = state.begin("a", &report, 0).unwrap();
+    assert!(state.finish(
+        request,
+        Some("a"),
+        resolve_targets(TRANSFORM_FIXTURE, &report)
+    ));
+
+    state.invalidate();
+    state.expire();
+    // The rows keep their values, read-only, while the reloaded code answers.
+    let (_, current) = state.resolved(Some("a")).expect("still shown");
+    assert!(!current);
+    assert!(state.targets(Some("a"), Some((&report, 0))).is_none());
+    // The reloaded code's answer resolves again even when it is the same.
+    assert!(state.begin("a", &report, 0).is_some());
+}
+
+#[test]
+fn finish_after_expire_is_current_again() {
+    let report = primitive_report(2, 3, x_only());
+    let mut state = TransformEdit::default();
+    let request = state.begin("a", &report, 0).unwrap();
+    assert!(state.finish(
+        request,
+        Some("a"),
+        resolve_targets(TRANSFORM_FIXTURE, &report)
+    ));
+    state.invalidate();
+
+    state.expire();
+    let request = state.begin("a", &report, 0).unwrap();
+    assert!(state.finish(
+        request,
+        Some("a"),
+        resolve_targets(TRANSFORM_FIXTURE, &report)
+    ));
+    assert!(state.resolved(Some("a")).unwrap().1);
+    assert!(state.targets(Some("a"), Some((&report, 0))).is_some());
+}
+
+#[test]
+fn expire_then_another_write_stays_stale() {
+    let report = primitive_report(2, 3, x_only());
+    let newer = primitive_report(2, 3, ReceivedProps::default());
+    let targets = |report| resolve_targets(TRANSFORM_FIXTURE, report);
+    let mut state = TransformEdit::default();
+    state.invalidate();
+    state.expire();
+    let request = state.begin("a", &report, 0).unwrap();
+
+    // A second write lands before the reloaded code's answer resolves.
+    state.invalidate();
+    assert!(!state.finish(request, Some("a"), targets(&report)));
+    // A lookup the old code answers after that write is not current.
+    let request = state.begin("a", &newer, 0).unwrap();
+    assert!(state.finish(request, Some("a"), targets(&newer)));
+    assert!(state.targets(Some("a"), Some((&newer, 0))).is_none());
+}
+
+#[test]
+fn an_own_write_reload_keeps_the_lookup() {
+    let report = primitive_report(2, 3, x_only());
+    let targets = || resolve_targets(TRANSFORM_FIXTURE, &report);
+    let mut keep = SelectionKeep::default();
+    let mut state = TransformEdit::default();
+    let request = state.begin("a", &report, 0).unwrap();
+    assert!(state.finish(request, Some("a"), targets()));
+
+    // A transform commit wrote the file and asked for a reload.
+    keep.own_write();
+    state.invalidate();
+    assert!(keep.requested(1, true));
+
+    // The reload is applied: the view keeps the lookup answer, marks it
+    // stale, and expires the targets.
+    assert!(keep.applies(1));
+    state.expire();
+    keep.confirm_from(5);
+    let (_, current) = state.resolved(Some("a")).expect("still shown");
+    assert!(!current);
+
+    // A frame of the old code keeps the stale answer up.
+    assert_eq!(keep.lookup_arrived(4, false), LookupFate::Stale);
+    // The reloaded code still draws the layer: the answer shows and the
+    // same report resolves again, current.
+    assert_eq!(keep.lookup_arrived(5, false), LookupFate::Show);
+    let request = state.begin("a", &report, 0).expect("resolved again");
+    assert!(state.finish(request, Some("a"), targets()));
+    assert!(state.targets(Some("a"), Some((&report, 0))).is_some());
+}
+
+#[test]
+fn an_outside_reload_clears_the_selection() {
+    let mut keep = SelectionKeep::default();
+    // An edit in another editor reloads without an own write.
+    assert!(!keep.requested(1, true));
+    assert!(!keep.applies(1));
+    // An own write whose reload loads another composition.
+    keep.own_write();
+    assert!(!keep.requested(2, false));
+    assert!(!keep.applies(2));
+    // The own write was used up; the next outside reload clears too.
+    assert!(!keep.requested(3, true));
+    assert!(!keep.applies(3));
+}
+
+#[test]
 fn transform_body_press_on_a_group_child_moves_the_group() {
     let mut frame = drag_frame(IDENTITY, pt(10.0, 20.0));
     frame.leaves = vec!["child-1".to_owned(), "child-2".to_owned()];

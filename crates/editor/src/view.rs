@@ -251,6 +251,9 @@ pub(crate) struct EditorView {
     pub(crate) source_lookup: Option<SourceLookup>,
     /// The timeline frame `source_lookup`'s answer was looked up at.
     pub(crate) source_lookup_frame: i64,
+    /// `source_lookup` was answered by the code before an own write's reload;
+    /// it stays shown until the reloaded code answers.
+    pub(crate) source_lookup_stale: bool,
     /// Window bounds of the viewer's frame area as last painted, for mapping
     /// clicks onto the scene.
     pub(crate) viewer_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
@@ -417,6 +420,7 @@ impl EditorView {
             hit_regions: Vec::new(),
             source_lookup: None,
             source_lookup_frame: 0,
+            source_lookup_stale: false,
             viewer_bounds: Rc::default(),
             launch_error: None,
             source_chain_open: false,

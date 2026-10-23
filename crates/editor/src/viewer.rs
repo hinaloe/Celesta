@@ -788,6 +788,7 @@ impl EditorView {
     pub(crate) fn clear_layer_selection(&mut self) {
         self.selected_layer = None;
         self.source_lookup = None;
+        self.source_lookup_stale = false;
         self.launch_error = None;
         self.transform.reset();
         self.layer_frame = None;

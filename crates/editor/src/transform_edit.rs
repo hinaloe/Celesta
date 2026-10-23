@@ -256,10 +256,14 @@ pub(crate) struct TransformEdit {
     /// A resolution is running.
     pending: bool,
     resolved: Option<Resolved>,
-    /// A write changed the file since `resolved` was read. Only `reset` (the
-    /// reload that reads the write) clears it: a lookup the old code answered
-    /// after the write may still resolve meanwhile.
+    /// A write changed the file since `resolved` was read. Only `reset`, or a
+    /// resolution started after `expire` (the reload that reads the write),
+    /// clears it: a lookup the old code answered after the write may still
+    /// resolve meanwhile.
     stale: bool,
+    /// The code reloaded after the write: the next resolution reads the
+    /// written file, so it is current again.
+    expired: bool,
     /// The last commit's error and the layer it belongs to.
     error: Option<(String, String)>,
 }
@@ -306,6 +310,9 @@ impl TransformEdit {
             return false;
         }
         self.pending = false;
+        if std::mem::take(&mut self.expired) {
+            self.stale = false;
+        }
         self.resolved = Some(Resolved {
             layer: layer.clone(),
             report: report.clone(),
@@ -319,8 +326,23 @@ impl TransformEdit {
     /// looked up again in the reloaded code and resolved.
     pub(crate) fn invalidate(&mut self) {
         self.stale = true;
+        self.expired = false;
         self.pending = false;
         self.request += 1;
+    }
+
+    /// The code reloaded after an own write: keeps showing `resolved` (not
+    /// current), and resolves the next lookup answer even when it equals the
+    /// last. The view starts no resolution until the reloaded code answers,
+    /// so the next one reads the written file against the new answer. An old
+    /// commit error is gone, as after `reset`.
+    pub(crate) fn expire(&mut self) {
+        self.stale = true;
+        self.expired = true;
+        self.wanted = None;
+        self.pending = false;
+        self.request += 1;
+        self.error = None;
     }
 
     /// Forgets everything (selection cleared, or the code reloaded): the next
@@ -428,7 +450,9 @@ impl EditorView {
     /// source lookup has an answer the targets were not resolved for. Reads
     /// the file and parses it on the background executor.
     pub(crate) fn sync_transform_targets(&mut self, cx: &mut Context<Self>) {
-        if !self.is_react_preview() {
+        // A stale answer describes the code before the reload; resolving it
+        // against the written file would pair the wrong report with it.
+        if !self.is_react_preview() || self.source_lookup_stale {
             return;
         }
         let (Some(layer), Some(SourceLookup::Found(report))) =

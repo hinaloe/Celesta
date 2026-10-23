@@ -16,6 +16,7 @@ use crate::widgets::{inspector_row, inspector_section};
 use celesta_react_bridge::{ElementKind, LayerSource, LayerSourceReport};
 use celesta_source_edit::EditTarget;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _};
 use gpui_kit::prelude::*;
@@ -161,7 +162,12 @@ impl EditorView {
                     .gap_1()
                     .text_xs()
                     .text_color(muted)
-                    .children(owner_label(report)),
+                    .children(owner_label(report))
+                    // The reloaded code has not answered yet; the rows show
+                    // the answer before it, read-only.
+                    .when(self.source_lookup_stale, |group| {
+                        group.child(Spinner::new().xsmall())
+                    }),
             );
         let opened = source.clone();
         let position = Button::new("selection-source")
