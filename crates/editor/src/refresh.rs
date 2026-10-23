@@ -517,6 +517,11 @@ impl EditorView {
                     "React reload failed",
                     error.message.clone(),
                 );
+                // No reloaded frame will replace a released drag's override;
+                // the old code's frame is drawn without it.
+                if !self.transform_drag_active() {
+                    self.cancel_transform_drag();
+                }
             }
         }
         cx.notify();
