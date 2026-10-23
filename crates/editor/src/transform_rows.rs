@@ -59,23 +59,38 @@ pub(crate) fn field_text(
             String::new(),
         ),
         EditTarget::Keyframe { value, .. } => (format_number(*value), String::new()),
-        EditTarget::Missing { default, .. } => (
+        EditTarget::Missing {
+            default: Some(default),
+            ..
+        } => (
             String::new(),
-            format_number(absent_value(prop, default.as_ref(), report)),
+            format_number(absent_value(prop, Some(default), report)),
+        ),
+        // A parameter without a literal default: the element draws what it
+        // received (`{ scale = base * 2 }`), or its own default when it
+        // received nothing (`{ scale }`).
+        EditTarget::Missing { default: None, .. } => (
+            String::new(),
+            format_number(
+                prop.received(&report.props)
+                    .unwrap_or_else(|| prop_default(prop, report)),
+            ),
         ),
         EditTarget::PassThrough { target, .. } => field_text(prop, target, report),
         EditTarget::Locked(_) => match prop.received(&report.props) {
             Some(value) => (format_number(value), String::new()),
-            None => (
-                String::new(),
-                format_number(absent_value(
-                    prop,
-                    celesta_source_edit::default_for(prop.name()).as_ref(),
-                    report,
-                )),
-            ),
+            None => (String::new(), format_number(prop_default(prop, report))),
         },
     }
+}
+
+/// [`absent_value`] with the prop's own default.
+fn prop_default(prop: TransformProp, report: &LayerSourceReport) -> f64 {
+    absent_value(
+        prop,
+        celesta_source_edit::default_for(prop.name()).as_ref(),
+        report,
+    )
 }
 
 /// A pass-through row's line naming the call site its value is written at,

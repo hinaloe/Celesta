@@ -2404,6 +2404,58 @@ fn transform_missing_scale_axis_shows_the_written_scale() {
 }
 
 #[test]
+fn transform_missing_parameter_without_a_default_shows_the_drawn_value() {
+    // `({ scale }) => <Rect scale={scale} />` called as `<Tag />`: no
+    // default is known, and the layer draws at the primitive's own default.
+    let missing = EditTarget::Missing {
+        insert_at: 0,
+        default: None,
+    };
+    let plain = primitive_report(2, 3, ReceivedProps::default());
+    assert_eq!(
+        field_text(TransformProp::Scale, &missing, &plain),
+        (String::new(), "1".to_owned())
+    );
+    assert_eq!(
+        field_text(TransformProp::X, &missing, &plain),
+        (String::new(), "0".to_owned())
+    );
+    // `({ scale = base * 2 })`: the value received is the one drawn, also
+    // for a scale axis next to a written `scale`.
+    let received = primitive_report(
+        2,
+        3,
+        ReceivedProps {
+            scale: Some(2.0),
+            scale_x: Some(3.0),
+            ..ReceivedProps::default()
+        },
+    );
+    assert_eq!(
+        field_text(TransformProp::Scale, &missing, &received),
+        (String::new(), "2".to_owned())
+    );
+    assert_eq!(
+        field_text(TransformProp::ScaleX, &missing, &received),
+        (String::new(), "3".to_owned())
+    );
+    // Through the call site, as the row shows it.
+    let through = EditTarget::PassThrough {
+        call_site: celesta_source_edit::ElementRef {
+            start: 0,
+            end_of_attributes: 0,
+            children: None,
+        },
+        param: "scale".to_owned(),
+        target: Box::new(missing),
+    };
+    assert_eq!(
+        field_text(TransformProp::Scale, &through, &plain),
+        (String::new(), "1".to_owned())
+    );
+}
+
+#[test]
 fn transform_files_outside_the_project_are_locked() {
     let entry_dir = Path::new("/project/src");
     assert!(inside_project(
