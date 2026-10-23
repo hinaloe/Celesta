@@ -26,10 +26,12 @@ pub(crate) struct Impact {
     /// or its last entry when they never do (or it ends before that index).
     /// One per instance, in instance order.
     pub call_sites: Vec<SourcePos>,
-    /// Filled bands: this instance's ranges inside the current scene.
-    pub own_bands: Vec<(u64, u64)>,
-    /// Outlined bands: every other occurrence of the element.
-    pub other_bands: Vec<(u64, u64)>,
+    /// Filled bands: this instance's ranges inside the current scene, each
+    /// with its instance's index into `call_sites`.
+    pub own_bands: Vec<((u64, u64), usize)>,
+    /// Outlined bands: every other occurrence of the element, each with its
+    /// instance's index into `call_sites`.
+    pub other_bands: Vec<((u64, u64), usize)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -99,13 +101,13 @@ pub(crate) fn impact_view(
 
     let mut own_bands = Vec::new();
     let mut other_bands = Vec::new();
-    for instance in &element.instances {
+    for (index, instance) in element.instances.iter().enumerate() {
         for &range in &instance.ranges {
             match scene {
                 Some(scene) if std::ptr::eq(instance, own) => {
-                    cut(range, scene, &mut own_bands, &mut other_bands);
+                    cut(range, scene, index, &mut own_bands, &mut other_bands);
                 }
-                _ => other_bands.push(range),
+                _ => other_bands.push((range, index)),
             }
         }
     }
@@ -164,17 +166,18 @@ fn overlaps(a: (u64, u64), b: (u64, u64)) -> bool {
     a.0 < b.1 && b.0 < a.1
 }
 
-/// Cuts `range` at `scene`'s edges: the part inside it goes to `inside`, the
-/// parts before and after it to `outside`.
+/// Cuts `range` of instance `index` at `scene`'s edges: the part inside it
+/// goes to `inside`, the parts before and after it to `outside`.
 fn cut(
     (from, to): (u64, u64),
     (start, end): (u64, u64),
-    inside: &mut Vec<(u64, u64)>,
-    outside: &mut Vec<(u64, u64)>,
+    index: usize,
+    inside: &mut Vec<((u64, u64), usize)>,
+    outside: &mut Vec<((u64, u64), usize)>,
 ) {
-    let push = |bands: &mut Vec<(u64, u64)>, from: u64, to: u64| {
+    let push = |bands: &mut Vec<((u64, u64), usize)>, from: u64, to: u64| {
         if from < to {
-            bands.push((from, to));
+            bands.push(((from, to), index));
         }
     };
     push(outside, from, to.min(start));
@@ -390,8 +393,8 @@ mod tests {
         assert!(impact.appears_in.is_empty());
         assert_eq!(impact.own_ranges, vec![(15, 35)]);
         assert!(impact.other_scenes.is_empty());
-        assert_eq!(impact.own_bands, vec![(15, 35)]);
-        assert_eq!(impact.other_bands, vec![(60, 90)]);
+        assert_eq!(impact.own_bands, vec![((15, 35), 0)]);
+        assert_eq!(impact.other_bands, vec![((60, 90), 1)]);
         assert_eq!(line, ("Changes 2 places in this scene".to_owned(), false));
 
         let alone = index(vec![instance(vec![pos(3)], vec![(15, 35)])]);
@@ -419,7 +422,7 @@ mod tests {
         ));
         assert!(impact.appears_in.is_empty());
         assert_eq!(impact.places_in_scene, 1);
-        assert_eq!(impact.own_bands, vec![(15, 35)]);
+        assert_eq!(impact.own_bands, vec![((15, 35), 0)]);
     }
 
     #[test]
@@ -484,8 +487,8 @@ mod tests {
             &chapters,
             10,
         ));
-        assert_eq!(impact.own_bands, vec![(0, 30)]);
-        assert_eq!(impact.other_bands, vec![(60, 90), (100, 120)]);
+        assert_eq!(impact.own_bands, vec![((0, 30), 0)]);
+        assert_eq!(impact.other_bands, vec![((60, 90), 0), ((100, 120), 1)]);
     }
 
     #[test]
@@ -498,8 +501,8 @@ mod tests {
             &chapters,
             40,
         ));
-        assert_eq!(impact.own_bands, vec![(30, 50)]);
-        assert_eq!(impact.other_bands, vec![(20, 30)]);
+        assert_eq!(impact.own_bands, vec![((30, 50), 0)]);
+        assert_eq!(impact.other_bands, vec![((20, 30), 0)]);
     }
 
     #[test]
@@ -515,6 +518,6 @@ mod tests {
         assert_eq!(impact.other_scenes, vec!["A", "B"]);
         assert_eq!(impact.places_in_scene, 0);
         assert!(impact.own_bands.is_empty());
-        assert_eq!(impact.other_bands, vec![(20, 70)]);
+        assert_eq!(impact.other_bands, vec![((20, 70), 0)]);
     }
 }
