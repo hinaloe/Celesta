@@ -425,25 +425,28 @@ pub(crate) fn parameter_in(text: &str, element: &ElementRef, prop: &str) -> Opti
     if failed {
         return None;
     }
-    let path = PropPath::parse(prop);
-    let mut gather = Gather::new(element.start, path);
+    let mut gather = Gather::new(element.start, PropPath::parse(prop));
     gather.visit_program(&program);
     if !gather.found {
         return None;
     }
-    let shape = match (path, &gather.children, &gather.property) {
-        (PropPath::Children, Some(Children::Reference { shape }), _) => shape,
-        (
-            PropPath::Children,
-            Some(Children::Text { .. } | Children::Container { .. } | Children::Other(_)),
-            _,
-        ) => return None,
-        _ if gather.spread_after => return None,
-        (PropPath::Style(_), _, Some(StyleProperty::Value(shape))) => shape,
-        (PropPath::Style(_), ..) => return None,
-        _ => gather.attr.as_ref()?,
+    let shape = match gather.read()? {
+        Read::Children(Children::Reference { shape })
+        | Read::Property(StyleProperty::Value(shape))
+        | Read::Attribute(shape) => shape,
+        Read::Children(_) | Read::Property(_) => return None,
     };
     gather.parameter(shape)
+}
+
+/// The value the rules read for the prop, when one is written.
+pub(crate) enum Read<'g> {
+    /// The element's children, other than none.
+    Children(&'g Children),
+    /// The prop's property of the last `style` attribute.
+    Property(&'g StyleProperty),
+    /// The last attribute that holds the prop.
+    Attribute(&'g Shape),
 }
 
 /// A prop absent at a call site takes the parameter's default. The
@@ -551,7 +554,12 @@ fn expression(text: &str, span: Span) -> EditTarget {
     })
 }
 
-fn resolve_identifier(name: &str, gather: &Gather, text: &str, ctx: &ResolveContext) -> EditTarget {
+pub(crate) fn resolve_identifier(
+    name: &str,
+    gather: &Gather,
+    text: &str,
+    ctx: &ResolveContext,
+) -> EditTarget {
     let unresolved = || {
         EditTarget::Locked(LockReason::UnresolvedIdentifier {
             name: name.to_string(),
@@ -782,7 +790,7 @@ fn check_received(
 }
 
 #[derive(Debug)]
-enum Binding {
+pub(crate) enum Binding {
     Const(Shape),
     /// A property of a component's first parameter (`{ label }`,
     /// `{ label = 'Sale' }`, `{ label: text }`): the call site's prop
@@ -859,11 +867,31 @@ impl<'t> Gather<'t> {
             .find_map(|s| s.component.as_deref())
     }
 
+    /// What the rules read for the prop: JSX children before a `children`
+    /// attribute, and nothing when a spread after the attribute may set it.
+    pub(crate) fn read(&self) -> Option<Read<'_>> {
+        match (self.path, &self.children, &self.property) {
+            (
+                PropPath::Children,
+                Some(
+                    children @ (Children::Text { .. }
+                    | Children::Container { .. }
+                    | Children::Reference { .. }
+                    | Children::Other(_)),
+                ),
+                _,
+            ) => Some(Read::Children(children)),
+            _ if self.spread_after => None,
+            (PropPath::Style(_), _, property) => property.as_ref().map(Read::Property),
+            _ => self.attr.as_ref().map(Read::Attribute),
+        }
+    }
+
     /// The parameter `shape` reads: an identifier bound by the first
     /// parameter of [`Self::component`], or `props.<key>`. A parameter of an
     /// outer component is not followed: the call site found is the inner
     /// component's, which never passes it.
-    fn parameter(&self, shape: &Shape) -> Option<ParamInfo> {
+    pub(crate) fn parameter(&self, shape: &Shape) -> Option<ParamInfo> {
         let (name, member) = match shape {
             Shape::Ident(name) => (name, None),
             Shape::Member {
@@ -906,7 +934,7 @@ impl<'t> Gather<'t> {
     }
 
     /// Innermost binding of `name` among the enclosing functions.
-    fn lookup(&self, name: &str) -> Option<&Binding> {
+    pub(crate) fn lookup(&self, name: &str) -> Option<&Binding> {
         self.scopes
             .iter()
             .rev()
