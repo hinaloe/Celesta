@@ -9,6 +9,7 @@ export type {
   ComponentResolutions,
   EntryComponent,
   MountedComposition,
+  OccurrenceIndex,
   ProjectFrame,
   ResolutionRuntime,
   Resolver,

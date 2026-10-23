@@ -300,6 +300,30 @@ export function layerSourceReport(
   };
 }
 
+/**
+ * The element and instance keys of every distinct node in `layerNodes`: the
+ * positions of its source chain other than `'wrapper'` entries, innermost
+ * first, and the first of them. A node whose chain has no such entry is left
+ * out.
+ */
+export function occurrenceKeys(
+  layerNodes: ReadonlyMap<string, HostNode>,
+  resolveFile: (fileName: string) => string,
+): Array<{ element: SourcePos; chain: SourcePos[] }> {
+  const nodes = new Set(layerNodes.values());
+  const [first] = nodes;
+  if (!first) return [];
+  const committed = committedFibers((first.fiber as Fiber | null | undefined) ?? null);
+  const keys: Array<{ element: SourcePos; chain: SourcePos[] }> = [];
+  for (const node of nodes) {
+    const chain = sourceFibers(node, resolveFile, undefined, committed)
+      .filter(({ entry }) => entry.kind !== 'wrapper')
+      .map(({ entry: { file, line, column } }) => ({ file, line, column }));
+    if (chain.length > 0) keys.push({ element: chain[0], chain });
+  }
+  return keys;
+}
+
 type RuntimeValue = {
   time: { value: number; timescale: number };
   fps: number;
