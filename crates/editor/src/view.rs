@@ -115,8 +115,11 @@ pub(crate) struct EditorView {
     pub(crate) occurrence_worker: OccurrenceWorker,
     /// Where each element of the React entry renders, tagged with the
     /// `react_reload_generation` it was swept for. `None` outside React
-    /// preview.
+    /// preview and while Select layers is off.
     pub(crate) occurrences: Option<(u64, OccurrenceState)>,
+    /// The preview frame a sweep held back after the editor's own write
+    /// waits for before it starts.
+    pub(crate) occurrence_sweep_after: Option<u64>,
     /// Numbers the React entry's reloads so a slow older one is not applied
     /// over a newer one.
     pub(crate) react_reloads: ReloadOrder,
@@ -344,6 +347,7 @@ impl EditorView {
             react_reload_generation: 0,
             occurrence_worker,
             occurrences: None,
+            occurrence_sweep_after: None,
             react_reloads: ReloadOrder::default(),
             watched_since: 0,
             property_panel: PropertyPanelState::default(),

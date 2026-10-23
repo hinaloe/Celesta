@@ -70,6 +70,8 @@ impl EditorView {
                 }
             }
         }
+        // The reloaded code is on screen: a sweep held back for it starts.
+        self.start_due_occurrence_sweep();
 
         loop {
             match self.media_probe_worker.results.try_recv() {

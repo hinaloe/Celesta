@@ -45,7 +45,9 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   last ready index stays in use as `OccurrenceState::Refreshing` until the
   new sweep's result (ready or failed) replaces it (`rescan_state`), so the
   Shared row, the impact line, the bands, and the chapter underlines do not
-  blank after each nudge; outside reloads start from `Scanning`.
+  blank after each nudge; outside reloads start from `Scanning`. That sweep
+  is held back (`occurrence_sweep_after`) until the preview draws the
+  reloaded code, so it does not compete with the reload for CPU.
 - Impact (`crates/editor/src/impact.rs`): `impact_view` turns the report and
   the index into `ImpactView::Known(Impact)` (scenes it appears in, other
   scenes, instance count, places in the current scene, call sites, filled and
@@ -76,7 +78,10 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   the old report is never resolved against the written file. The first
   lookup of the reloaded code (`LookupFate::Show`) clears the flag; the
   resolution started from it is current again. The header shows a small
-  spinner while the flag is set. A successful drag commit keeps the released
+  spinner while the flag is set. A successful commit records the written
+  values (`TransformEdit::record_written`), and the stale fields show them
+  until the reloaded code resolves, so the numbers update when the write
+  lands rather than after the reload. A successful drag commit keeps the released
   drag (and its override) until the kept reload, which drops it before
   redrawing, so a redraw in between still shows the dragged position.
   Playback asks for a lookup while it is stale, as it does while one is

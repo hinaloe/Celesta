@@ -253,7 +253,9 @@ After a reload caused by the editor's own write (the existing
 `selection_keep`):
 
 - the last `SourceLookup::Found` report and the resolved targets stay
-  displayed, marked stale: fields read-only, a small spinner in the header;
+  displayed, marked stale: fields read-only, a small spinner in the header.
+  The fields of the props the write changed show the written values at once,
+  so the numbers do not lag behind the reload;
 - the canvas keeps the drag's overridden scene until the reloaded frame is
   shown, so the layer does not jump back for a frame;
 - the new lookup's answer replaces them when it arrives. If the layer no
@@ -261,7 +263,8 @@ After a reload caused by the editor's own write (the existing
 - the last scene scan stays in use (`Refreshing(index)`) until the reload's
   new sweep lands, so the "Shared" row, the impact line, the bands, and the
   chapter underlines stay shown; the new sweep's result, ready or failed,
-  replaces it.
+  replaces it. That sweep starts only once the preview has drawn the reloaded
+  code, so it does not compete with the reload.
 
 Reloads not caused by the editor (an outside edit) clear the selection as
 today, and the scan starts over from `Scanning`.

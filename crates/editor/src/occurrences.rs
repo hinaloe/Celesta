@@ -174,23 +174,52 @@ pub(crate) const fn accepts(current: u64, result: u64, wanted: bool) -> bool {
     wanted && current == result
 }
 
+/// Whether a sweep held back until preview frame `after` may start, now
+/// that frame `shown` is drawn.
+pub(crate) fn sweep_due(after: Option<u64>, shown: u64) -> bool {
+    after.is_some_and(|after| shown >= after)
+}
+
 impl EditorView {
     /// Starts sweeping the React entry for where each element renders,
     /// tagged with the current reload. Only a preview that picks layers
     /// (Select layers on) can select anything to show the impact of; any
     /// other state has nothing to sweep. `keep` (the editor's own write)
-    /// keeps the last index in use while the sweep runs.
+    /// keeps the last index in use, and holds the sweep back until the
+    /// preview draws the reloaded code, so the two do not compete while the
+    /// written values are on their way to the screen.
     pub(crate) fn refresh_occurrences(&mut self, keep: bool) {
-        let react = match &self.react_preview {
-            Some(react) if self.picks_layers() => react,
-            _ => {
-                self.occurrences = None;
-                return;
-            }
+        if self.react_preview.is_none() || !self.picks_layers() {
+            self.occurrences = None;
+            self.occurrence_sweep_after = None;
+            return;
+        }
+        let state = rescan_state(self.occurrences.take().map(|(_, state)| state), keep);
+        self.occurrences = Some((self.react_reload_generation, state));
+        if keep {
+            self.occurrence_sweep_after = Some(self.preview_generation);
+        } else {
+            self.occurrence_sweep_after = None;
+            self.request_occurrence_sweep();
+        }
+    }
+
+    /// Starts a sweep held back by `refresh_occurrences` once the preview has
+    /// drawn the frame it waited for.
+    pub(crate) fn start_due_occurrence_sweep(&mut self) {
+        if sweep_due(self.occurrence_sweep_after, self.preview_shown_generation) {
+            self.occurrence_sweep_after = None;
+            self.request_occurrence_sweep();
+        }
+    }
+
+    fn request_occurrence_sweep(&mut self) {
+        let Some(react) = &self.react_preview else {
+            return;
         };
         let generation = self.react_reload_generation;
         let (node, cli_script) = react_runtime_paths();
-        let state = match self.occurrence_worker.request(OccurrenceRequest {
+        if let Err(error) = self.occurrence_worker.request(OccurrenceRequest {
             generation,
             node,
             cli_script,
@@ -199,10 +228,8 @@ impl EditorView {
             composition_id: react.composition_id.clone(),
             duration_in_frames: u64::try_from(self.clock.end_frame()).unwrap_or(0),
         }) {
-            Ok(()) => rescan_state(self.occurrences.take().map(|(_, state)| state), keep),
-            Err(error) => OccurrenceState::Failed(error),
-        };
-        self.occurrences = Some((generation, state));
+            self.occurrences = Some((generation, OccurrenceState::Failed(error)));
+        }
     }
 }
 
@@ -312,6 +339,16 @@ mod tests {
             rescan_state(Some(OccurrenceState::Failed("boom".to_owned())), true),
             OccurrenceState::Scanning
         );
+    }
+
+    #[test]
+    fn a_held_back_sweep_waits_for_the_reloaded_frame() {
+        assert!(!sweep_due(None, 9));
+        // The reload asked for preview frame 7; frame 6 is the old code's.
+        assert!(!sweep_due(Some(7), 6));
+        assert!(sweep_due(Some(7), 7));
+        // A frame drawn later than the one waited for also lets it start.
+        assert!(sweep_due(Some(7), 8));
     }
 
     #[test]
