@@ -11,8 +11,11 @@ export interface LayerSourceEntry {
   file: string;
   line: number;
   column: number;
-  /** A Celesta layer component (`<Rect>`, `<Group>`, ...) or anything else. */
-  kind: 'primitive' | 'component';
+  /**
+   * A Celesta layer component (`<Rect>`, `<Group>`, ...), a Celesta component
+   * that draws its caller's JSX (`<Sequence>`, `<Loop>`, ...), or anything else.
+   */
+  kind: 'primitive' | 'wrapper' | 'component';
   /** The layer a primitive entry produced, when it can be told. */
   layerId?: string;
 }
@@ -66,7 +69,7 @@ export function markPrimitive(component: unknown): void {
  * Marks a Celesta component that draws JSX written by its caller
  * (`<Sequence>`, `<FreezeFrame>`, `<MotionBlur>`'s moments, ...): it never
  * owns that JSX, so the frame an `interpolate(frame, …)` reads is looked up
- * above it.
+ * above it. A source chain also reports it as a `'wrapper'` entry.
  */
 export function markTransparent(component: unknown): void {
   const target = unwrap(component);
@@ -83,6 +86,11 @@ function unwrap(component: unknown): object | null {
 function isPrimitive(type: unknown): boolean {
   const target = unwrap(type);
   return target !== null && primitives.has(target);
+}
+
+function isTransparent(type: unknown): boolean {
+  const target = unwrap(type);
+  return target !== null && transparent.has(target);
 }
 
 interface Fiber {
@@ -171,7 +179,7 @@ function sourceFibers(
       file,
       line: source.lineNumber,
       column: source.columnNumber,
-      kind: isPrimitive(type) ? 'primitive' : 'component',
+      kind: isPrimitive(type) ? 'primitive' : isTransparent(type) ? 'wrapper' : 'component',
     };
     if (entry.kind === 'primitive') {
       const host = firstHostNode(fiber);

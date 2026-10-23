@@ -5,7 +5,7 @@ import { createContext, createElement as h, useContext } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { test } from 'vitest';
 
-import { Composition, Group, MotionBlur, Rect, Sequence } from '../src/index.js';
+import { Composition, FreezeFrame, Group, Loop, MotionBlur, Rect, Sequence } from '../src/index.js';
 import type { Layer, Time } from '../src/index.js';
 import { jsxDEV } from '../src/jsx-dev-runtime.js';
 import type { SourcePosition } from '../src/jsx-dev-runtime.js';
@@ -191,6 +191,42 @@ test('a Group entry carries its layerId', () => {
   assert.equal(group.kind, 'primitive');
   assert.equal(group.layerId, scene.layers[0].id);
   assert.equal(report.chain[0].layerId, inner);
+});
+
+test('timing wrappers written in the source are wrapper entries', () => {
+  // <Sequence><Loop><FreezeFrame><Rect /></FreezeFrame></Loop></Sequence> inside <Scene>
+  function Scene() {
+    return sequence(
+      10,
+      jsxDEV(Loop, {
+        durationInFrames: 20,
+        children: jsxDEV(FreezeFrame, { frame: 0, children: rectAt(7) }, undefined, false, at('scene.tsx', 6, 9)),
+      }, undefined, false, at('scene.tsx', 5, 7)),
+    );
+  }
+  const composition = mount(() => comp(jsxDEV(Scene, {}, undefined, false, at('entry.tsx', 3, 5))));
+  const { chain } = reportFor(composition, 30);
+  assert.deepEqual(
+    chain.map(({ name, kind }) => [name, kind]),
+    [
+      ['Rect', 'primitive'],
+      ['FreezeFrame', 'wrapper'],
+      ['Loop', 'wrapper'],
+      ['Sequence', 'wrapper'],
+      ['Scene', 'component'],
+      ['Composition', 'wrapper'],
+    ],
+  );
+});
+
+test('a user component named Sequence is a component entry', () => {
+  function Sequence() {
+    return rectAt(5);
+  }
+  const composition = mount(() => comp(jsxDEV(Sequence, {}, undefined, false, at('entry.tsx', 3, 5))));
+  const entry = reportFor(composition, 0).chain[1];
+  assert.equal(entry.name, 'Sequence');
+  assert.equal(entry.kind, 'component');
 });
 
 test('a missing layer reports null', () => {
