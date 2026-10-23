@@ -3,7 +3,7 @@
 //! on release.
 
 use crate::layer_select::{letterbox, to_scene};
-use crate::transform_edit::{TransformProp, reason_text};
+use crate::transform_edit::{TransformProp, editable, inner_target, reason_text};
 use crate::transform_handles::{
     Handle, drag_label, drag_values, handle_at, override_transform, prop_values, shown_handles,
     turn,
@@ -89,14 +89,14 @@ impl EditorView {
         let editable: Vec<TransformProp> = targets
             .targets
             .iter()
-            .filter(|(_, target)| !matches!(target, EditTarget::Locked(_)))
+            .filter(|(_, target)| editable(&target.target))
             .map(|(prop, _)| *prop)
             .collect();
         if editable.is_empty() {
             let reason = targets
                 .targets
                 .iter()
-                .find_map(|(_, target)| match target {
+                .find_map(|(_, target)| match inner_target(&target.target) {
                     EditTarget::Locked(reason) => Some(reason_text(reason)),
                     _ => None,
                 })

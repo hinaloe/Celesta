@@ -3,7 +3,9 @@
 //! or blur, and the target's state (keyframe, between keyframes, locked).
 
 use crate::icons::CelestaIcon;
-use crate::transform_edit::{Resolved, TransformProp, keyframe_jump_frames, reason_text};
+use crate::transform_edit::{
+    Resolved, TransformProp, editable, inner_target, keyframe_jump_frames, reason_text,
+};
 use crate::view::EditorView;
 use crate::widgets::inspector_section;
 use celesta_react_bridge::LayerSourceReport;
@@ -89,10 +91,6 @@ fn absent_value(
     }
 }
 
-fn editable(target: &EditTarget) -> bool {
-    !matches!(target, EditTarget::Locked(_))
-}
-
 impl EditorView {
     /// Builds the fields once and puts newly resolved values (or, until the
     /// reload after an own write resolves, the written ones) into those not
@@ -119,7 +117,7 @@ impl EditorView {
             };
             let shown = match self.transform.written_value(Some(&resolved.layer), *prop) {
                 Some(value) => (format_number(value), String::new()),
-                None => field_text(*prop, target, &resolved.report),
+                None => field_text(*prop, &target.target, &resolved.report),
             };
             // Typed text stays until committed, but never under another layer.
             let same_layer = field.layer.as_deref() == Some(resolved.layer.as_str());
@@ -227,7 +225,7 @@ impl EditorView {
             Some((resolved, current)) => match &resolved.outcome {
                 Ok(targets) => group
                     .children(targets.targets.iter().map(|(prop, target)| {
-                        self.transform_row(*prop, target, resolved, current, cx)
+                        self.transform_row(*prop, &target.target, resolved, current, cx)
                     }))
                     .into_any_element(),
                 Err(error) => group
@@ -258,11 +256,12 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
-        let icon = match target {
+        // A pass-through row shows the state of the value at the call site.
+        let shown = inner_target(target);
+        let icon = match shown {
             EditTarget::Keyframe { .. } => Some(CelestaIcon::DiamondFilled),
             EditTarget::Locked(LockReason::BetweenKeyframes { .. }) => Some(CelestaIcon::Diamond),
             EditTarget::Locked(_) => Some(CelestaIcon::Lock),
-            // Transform targets don't pass through yet.
             EditTarget::Literal { .. }
             | EditTarget::Missing { .. }
             | EditTarget::PassThrough { .. } => None,
@@ -277,9 +276,9 @@ impl EditorView {
                     .disabled(!(current && editable(target))),
             )
         });
-        let detail = match target {
+        let detail = match shown {
             EditTarget::Locked(reason @ LockReason::BetweenKeyframes { .. }) => {
-                keyframe_jump_frames(target, resolved.timeline_frame)
+                keyframe_jump_frames(shown, resolved.timeline_frame)
                     .map(|frames| self.keyframe_jumps(prop, reason, frames, cx))
             }
             EditTarget::Locked(reason) => Some(

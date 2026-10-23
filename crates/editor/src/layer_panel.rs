@@ -10,7 +10,7 @@ use crate::layer_select::{
     SourceLookup, display_path, launch_outcome_applies, parent_layer_id, source_position,
 };
 use crate::timecode::format_timecode;
-use crate::transform_edit::{TransformTargets, reason_text};
+use crate::transform_edit::{TransformTargets, inner_target, reason_text};
 use crate::view::EditorView;
 use crate::widgets::{inspector_row, inspector_section};
 use celesta_react_bridge::{ElementKind, LayerSource, LayerSourceReport};
@@ -56,7 +56,7 @@ pub(crate) fn owner_label(report: &LayerSourceReport) -> Option<String> {
 pub(crate) fn locked_summary(targets: &TransformTargets) -> Vec<String> {
     let mut reasons: Vec<(String, Vec<&str>)> = Vec::new();
     for (prop, target) in &targets.targets {
-        let EditTarget::Locked(reason) = target else {
+        let EditTarget::Locked(reason) = inner_target(&target.target) else {
             continue;
         };
         let reason = reason_text(reason);
@@ -547,8 +547,8 @@ impl EditorView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transform_edit::TransformProp;
-    use celesta_react_bridge::{ElementKind, ReceivedProps};
+    use crate::transform_edit::{Target, TransformProp};
+    use celesta_react_bridge::{ElementKind, ReceivedProps, SourcePos};
     use celesta_source_edit::{EditTarget, EditValue, ElementRef, LiteralForm, LockReason, Span};
 
     fn entry(name: &str, kind: ElementKind) -> LayerSource {
@@ -632,27 +632,48 @@ mod tests {
                 source: "W / 2".to_owned(),
             })
         };
+        let element = ElementRef {
+            start: 0,
+            end_of_attributes: 5,
+            children: None,
+        };
+        let local = |target| Target {
+            file: "/a/card.tsx".into(),
+            target,
+            call_site: None,
+        };
+        // `y` comes from the call site, where it is written as an expression.
+        let passed = Target {
+            file: "/a/scene.tsx".into(),
+            target: EditTarget::PassThrough {
+                call_site: element,
+                param: "y".to_owned(),
+                target: Box::new(expression()),
+            },
+            call_site: Some(SourcePos {
+                file: "/a/scene.tsx".into(),
+                line: 1,
+                column: 1,
+            }),
+        };
         let targets = TransformTargets {
             file: "/a/card.tsx".into(),
-            element: ElementRef {
-                start: 0,
-                end_of_attributes: 5,
-                children: None,
-            },
+            files: vec!["/a/card.tsx".into(), "/a/scene.tsx".into()],
+            element,
             targets: vec![
-                (TransformProp::X, expression()),
-                (TransformProp::Y, expression()),
+                (TransformProp::X, local(expression())),
+                (TransformProp::Y, passed),
                 (
                     TransformProp::Rotation,
-                    EditTarget::Literal {
+                    local(EditTarget::Literal {
                         span: Span { start: 1, end: 2 },
                         value: EditValue::Number(0.0),
                         form: LiteralForm::Number,
-                    },
+                    }),
                 ),
                 (
                     TransformProp::Scale,
-                    EditTarget::Locked(LockReason::OutsideKeyframes),
+                    local(EditTarget::Locked(LockReason::OutsideKeyframes)),
                 ),
             ],
         };
