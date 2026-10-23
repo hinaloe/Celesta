@@ -637,8 +637,8 @@ impl ReactBridge {
     /// as [`Self::set_preview`] says, like [`Self::layer_source`], so an
     /// instance found there is in this index. Sweep the composition in
     /// chunks and [`OccurrenceIndex::merge`] them to index all of it.
-    /// Instances are told apart only with [`SpawnOptions::source_locations`];
-    /// without it the index is empty.
+    /// The index is empty unless the bridge was spawned with
+    /// [`SpawnOptions::source_locations`].
     pub fn collect_occurrences(
         &mut self,
         from: u64,
