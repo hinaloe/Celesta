@@ -2240,6 +2240,57 @@ fn expire_then_another_write_stays_stale() {
 }
 
 #[test]
+fn written_values_show_until_the_reloaded_code_resolves() {
+    let report = primitive_report(2, 3, x_only());
+    let targets = || resolve_targets(TRANSFORM_FIXTURE, &report);
+    let mut state = TransformEdit::default();
+    let request = state.begin("a", &report, 0).unwrap();
+    assert!(state.finish(request, Some("a"), targets()));
+
+    state.invalidate();
+    state.record_written(Some("a"), &[(TransformProp::X, 184.0)]);
+    state.record_written(Some("a"), &[(TransformProp::Y, 40.0)]);
+    assert_eq!(
+        state.written_value(Some("a"), TransformProp::X),
+        Some(184.0)
+    );
+    assert_eq!(state.written_value(Some("a"), TransformProp::Y), Some(40.0));
+    assert_eq!(
+        state.written_value(Some("a"), TransformProp::Rotation),
+        None
+    );
+    assert_eq!(state.written_value(Some("b"), TransformProp::X), None);
+
+    // Still shown while the reload runs.
+    state.expire();
+    assert_eq!(
+        state.written_value(Some("a"), TransformProp::X),
+        Some(184.0)
+    );
+    // The reloaded code's resolution shows the file's values instead.
+    let request = state.begin("a", &report, 0).unwrap();
+    assert!(state.finish(request, Some("a"), targets()));
+    assert_eq!(state.written_value(Some("a"), TransformProp::X), None);
+}
+
+#[test]
+fn written_values_are_dropped_with_the_selection() {
+    let mut state = TransformEdit::default();
+    state.invalidate();
+    state.record_written(Some("a"), &[(TransformProp::X, 184.0)]);
+    state.reset();
+    assert_eq!(state.written_value(Some("a"), TransformProp::X), None);
+}
+
+#[test]
+fn a_current_resolution_ignores_written_values() {
+    // Nothing was written since the targets were read: nothing to show.
+    let mut state = TransformEdit::default();
+    state.record_written(Some("a"), &[(TransformProp::X, 184.0)]);
+    assert_eq!(state.written_value(Some("a"), TransformProp::X), None);
+}
+
+#[test]
 fn an_own_write_reload_keeps_the_lookup() {
     let report = primitive_report(2, 3, x_only());
     let targets = || resolve_targets(TRANSFORM_FIXTURE, &report);

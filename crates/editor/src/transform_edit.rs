@@ -264,6 +264,10 @@ pub(crate) struct TransformEdit {
     /// The code reloaded after the write: the next resolution reads the
     /// written file, so it is current again.
     expired: bool,
+    /// The values the editor's own writes put into the file, and the layer
+    /// they belong to: shown in the rows while `resolved` is stale, so a
+    /// field does not show the old value until the reload resolves.
+    written: Option<(String, Vec<(TransformProp, f64)>)>,
     /// The last commit's error and the layer it belongs to.
     error: Option<(String, String)>,
 }
@@ -312,6 +316,7 @@ impl TransformEdit {
         self.pending = false;
         if std::mem::take(&mut self.expired) {
             self.stale = false;
+            self.written = None;
         }
         self.resolved = Some(Resolved {
             layer: layer.clone(),
@@ -353,6 +358,38 @@ impl TransformEdit {
             request: self.request + 1,
             ..Self::default()
         };
+    }
+
+    /// An own write for `layer` put `values` into the file (after
+    /// `invalidate`). Kept until the reloaded code resolves; values for a
+    /// prop written again replace the earlier ones.
+    pub(crate) fn record_written(&mut self, layer: Option<&str>, values: &[(TransformProp, f64)]) {
+        let Some(layer) = layer.filter(|_| self.stale) else {
+            return;
+        };
+        if self.written.as_ref().is_none_or(|(was, _)| was != layer) {
+            self.written = Some((layer.to_owned(), Vec::new()));
+        }
+        let Some((_, written)) = &mut self.written else {
+            return;
+        };
+        for &(prop, value) in values {
+            written.retain(|(other, _)| *other != prop);
+            written.push((prop, value));
+        }
+    }
+
+    /// The value an own write put into `prop` of `selected`, while the rows
+    /// still show the targets resolved before that write.
+    pub(crate) fn written_value(&self, selected: Option<&str>, prop: TransformProp) -> Option<f64> {
+        let (layer, written) = self.written.as_ref().filter(|_| self.stale)?;
+        if Some(layer.as_str()) != selected {
+            return None;
+        }
+        written
+            .iter()
+            .find(|(other, _)| *other == prop)
+            .map(|(_, value)| *value)
     }
 
     /// Why a commit for `selected` has no targets to write to.
@@ -528,6 +565,7 @@ impl EditorView {
             return done(self, Err(message), cx);
         };
         let (targets, report) = (targets.clone(), report.clone());
+        let written = values.clone();
         self.transform.set_error(layer.as_deref(), None);
         self.record_own_write(
             targets.file.clone(),
@@ -535,10 +573,13 @@ impl EditorView {
                 commit_text(text, &targets, &report, &values).map_err(|error| error.to_string())
             },
             move |this, result, cx| {
-                // A success invalidated the targets (`apply_own_write_sample`).
-                if let Err(message) = &result {
-                    this.transform
-                        .set_error(layer.as_deref(), Some(message.clone()));
+                // A success invalidated the targets (`apply_own_write_sample`);
+                // the rows show the written values until the reload resolves.
+                match &result {
+                    Ok(()) => this.transform.record_written(layer.as_deref(), &written),
+                    Err(message) => this
+                        .transform
+                        .set_error(layer.as_deref(), Some(message.clone())),
                 }
                 done(this, result, cx);
             },
