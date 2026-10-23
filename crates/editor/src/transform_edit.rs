@@ -98,6 +98,7 @@ pub(crate) fn resolve_targets(
     let target = |prop: TransformProp| {
         let ctx = ResolveContext {
             primitive: source.kind == ElementKind::Primitive,
+            component_props: false,
             candidate_frames: candidate_frames(report),
             received: prop.received(&report.props).map(EditValue::Number),
             render_count: report.render_count,
@@ -233,6 +234,12 @@ pub(crate) fn reason_text(reason: &LockReason) -> String {
         LockReason::FrameUncertain => "Can't tell which frame this animation reads".to_owned(),
         LockReason::OutsideProject => "This file is outside the project".to_owned(),
         LockReason::NoStyleObject => "No style object to set this in".to_owned(),
+        LockReason::ParameterOfCaller { component } => {
+            format!("Comes from `<{component}>`'s caller")
+        }
+        LockReason::CallSiteNotFound { component } => {
+            format!("Can't find where `<{component}>` is called")
+        }
     }
 }
 

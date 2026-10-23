@@ -25,6 +25,9 @@ pub(crate) enum Children {
         value: String,
         quote: char,
     },
+    /// One `{name}` or `{name.key}` child; `shape` is the `Ident` or
+    /// `Member` it reads.
+    Reference { shape: Shape },
     /// Several children, an element, an expression.
     Other(Span),
 }
@@ -57,17 +60,20 @@ pub(crate) fn children_of(element: &JSXElement<'_>) -> Children {
             value: collapse_jsx_text(&t.value),
         },
         [JSXChild::ExpressionContainer(c)] => {
-            let string = match c
-                .expression
-                .as_expression()
-                .map(Expression::without_parentheses)
-            {
-                Some(Expression::StringLiteral(s)) => string_of(s),
-                _ => None,
+            let Some(expression) = c.expression.as_expression() else {
+                return Children::Other(span);
             };
-            match string {
-                Some((value, quote)) => Children::Container { span, value, quote },
-                None => Children::Other(span),
+            match expression.without_parentheses() {
+                Expression::StringLiteral(s) => match string_of(s) {
+                    Some((value, quote)) => Children::Container { span, value, quote },
+                    None => Children::Other(span),
+                },
+                _ => match shape_of(expression) {
+                    shape @ (Shape::Ident(_) | Shape::Member { .. }) => {
+                        Children::Reference { shape }
+                    }
+                    _ => Children::Other(span),
+                },
             }
         }
         _ => Children::Other(span),
@@ -171,6 +177,12 @@ pub(crate) enum Shape {
     Interpolate(Interpolate),
     Call(String),
     Ident(String),
+    /// `object.property`, as `props.label`.
+    Member {
+        span: Span,
+        object: String,
+        property: String,
+    },
     Other(Span),
 }
 
@@ -249,6 +261,14 @@ pub(crate) fn shape_of(expr: &Expression<'_>) -> Shape {
             }
         }
         Expression::Identifier(id) => Shape::Ident(id.name.to_string()),
+        Expression::StaticMemberExpression(m) => match m.object.without_parentheses() {
+            Expression::Identifier(object) => Shape::Member {
+                span: span_of(expr.span()),
+                object: object.name.to_string(),
+                property: m.property.name.to_string(),
+            },
+            _ => other(expr),
+        },
         _ => other(expr),
     }
 }

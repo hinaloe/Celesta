@@ -6,6 +6,7 @@ use celesta_source_edit::{
 fn ctx() -> ResolveContext {
     ResolveContext {
         primitive: true,
+        component_props: false,
         candidate_frames: vec![0.0],
         received: None,
         render_count: 1,
@@ -62,6 +63,14 @@ fn not_primitive_locks() {
         ..ctx()
     };
     assert_eq!(run(&text, "x", &c), locked(LockReason::NotPrimitive));
+
+    // A call site's props are read on purpose.
+    let c = ResolveContext {
+        primitive: false,
+        component_props: true,
+        ..with_received(1.0)
+    };
+    assert!(matches!(run(&text, "x", &c), EditTarget::Literal { .. }));
 }
 
 #[test]

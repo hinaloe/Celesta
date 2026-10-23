@@ -6,6 +6,7 @@ use celesta_source_edit::{
 fn ctx(received: Option<EditValue>) -> ResolveContext {
     ResolveContext {
         primitive: true,
+        component_props: false,
         candidate_frames: vec![0.0],
         received,
         render_count: 1,
@@ -462,7 +463,7 @@ fn string_child_container() {
 
 #[test]
 fn span_children_are_locked() {
-    for children in ["a<Span>b</Span>", "{label}", "a{'b'}", "a &amp; b"] {
+    for children in ["a<Span>b</Span>", "{label + 'b'}", "a{'b'}", "a &amp; b"] {
         let text = text_children(children);
         assert_eq!(
             run(&text, "Text", "children", Some(string("ab"))),
@@ -472,6 +473,45 @@ fn span_children_are_locked() {
             "{children}"
         );
     }
+}
+
+#[test]
+fn identifier_children_follow_the_identifier_rules() {
+    // A const string: the initializer is the literal.
+    let text = component("  const LABEL = 'Sale';\n  return <Text>{LABEL}</Text>;");
+    let target = run(&text, "Text", "children", Some(string("Sale")));
+    let EditTarget::Literal { span, value, form } = &target else {
+        panic!("expected Literal, got {target:?}");
+    };
+    assert_eq!(span_text(&text, *span), "'Sale'");
+    assert_eq!(value, &string("Sale"));
+    assert_eq!(*form, LiteralForm::ContainerQuoted('\''));
+    assert_eq!(
+        write(&text, &target, "children", string("Big")),
+        component("  const LABEL = 'Big';\n  return <Text>{LABEL}</Text>;")
+    );
+
+    // The received check runs on the const's value.
+    assert_eq!(
+        run(&text, "Text", "children", Some(string("Other"))),
+        EditTarget::Locked(LockReason::OverriddenByParent)
+    );
+
+    // A binding that can't be traced, and a member read.
+    let text = text_children("{label}");
+    assert_eq!(
+        run(&text, "Text", "children", Some(string("Sale"))),
+        EditTarget::Locked(LockReason::UnresolvedIdentifier {
+            name: "label".into()
+        })
+    );
+    let text = text_children("{\n    C.label\n  }");
+    assert_eq!(
+        run(&text, "Text", "children", Some(string("Sale"))),
+        EditTarget::Locked(LockReason::Expression {
+            source: "C.label".into()
+        })
+    );
 }
 
 #[test]

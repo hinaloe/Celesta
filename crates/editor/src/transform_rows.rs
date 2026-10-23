@@ -59,6 +59,7 @@ pub(crate) fn field_text(
             String::new(),
             format_number(absent_value(prop, default.as_ref(), report)),
         ),
+        EditTarget::PassThrough { target, .. } => field_text(prop, target, report),
         EditTarget::Locked(_) => match prop.received(&report.props) {
             Some(value) => (format_number(value), String::new()),
             None => (
@@ -261,7 +262,10 @@ impl EditorView {
             EditTarget::Keyframe { .. } => Some(CelestaIcon::DiamondFilled),
             EditTarget::Locked(LockReason::BetweenKeyframes { .. }) => Some(CelestaIcon::Diamond),
             EditTarget::Locked(_) => Some(CelestaIcon::Lock),
-            EditTarget::Literal { .. } | EditTarget::Missing { .. } => None,
+            // Transform targets don't pass through yet.
+            EditTarget::Literal { .. }
+            | EditTarget::Missing { .. }
+            | EditTarget::PassThrough { .. } => None,
         };
         let field = self.transform_inputs.fields.get(&prop).map(|field| {
             let escape = cx.listener(move |this, _: &Escape, _, cx| {
