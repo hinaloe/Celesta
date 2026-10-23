@@ -172,6 +172,32 @@ fn skips_callees_tags_types_and_locals() {
 }
 
 #[test]
+fn every_locked_expression_has_inputs() {
+    // An `interpolate()` that does not read the frame.
+    let text = scene("", "<Rect x={interpolate(t, [0, 10], [0, 1])} />");
+    assert_eq!(inputs(&text, "Rect", "x"), vec![unresolved("t")]);
+
+    // The same call in the `const` the prop reads: the inputs are the
+    // initializer's.
+    let text = scene(
+        "const o = interpolate(t, [0, 10], [0, 1]);",
+        "<Rect x={o} />",
+    );
+    assert_eq!(inputs(&text, "Rect", "x"), vec![unresolved("t")]);
+
+    // A `style` value that is not an object literal.
+    let text = scene("", "<Rect style={box} />");
+    assert_eq!(
+        inputs(&text, "Rect", "style.width"),
+        vec![unresolved("box")]
+    );
+
+    // A member child.
+    let text = scene("", "<Text>{C.label}</Text>");
+    assert_eq!(inputs(&text, "Text", "children"), vec![unresolved("C")]);
+}
+
+#[test]
 fn shared_const_input() {
     let text = scene(
         "const padding = 16;",
