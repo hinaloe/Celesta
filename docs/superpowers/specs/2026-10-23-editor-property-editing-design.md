@@ -41,7 +41,9 @@ pub enum EditTarget {
     Literal { span: Span, value: EditValue },
     Keyframe { span: Span, value: f64, frame: f64 },
     Missing { insert_at: u32, default: Option<EditValue> },
-    PassThrough { call_site: ElementRef, prop: String, target: Box<EditTarget> },
+    /// `param`: the prop name at the call site (it may differ from the
+    /// element's prop, as with `{ label: text }`).
+    PassThrough { call_site: ElementRef, param: String, target: Box<EditTarget> },
     Locked(LockReason),
 }
 ```
@@ -54,6 +56,7 @@ Recognized literal forms, besides the numeric ones resolved today:
 | `name` (bare) | Bool(true) | `name` for true, `name={false}` for false |
 | `name={true}` / `name={false}` | Bool | `{true}` / `{false}` |
 | Text children: one JSXText, or one `{'…'}` child | String | JSXText when it has no `{`, `}`, `<`, `>` and no leading or trailing whitespace; otherwise `{"…"}` |
+| Text children: one `{name}` child | String | resolved like an attribute value that is an identifier: a const, or a pass-through |
 | `style={{ fontSize: 48 }}` (object literal property) | per property | the property's value |
 
 Colors are strings; the panel validates them (`#RRGGBB`, `#RRGGBBAA`, or a
@@ -106,9 +109,19 @@ the prop ("Can't find where `PriceTag` is called"). At that call site:
 
 Renamed destructuring (`{ label: text }`) and one level of `props.label`
 (a parameter named `props`, read as `props.label`) are followed; anything else
-is `UnresolvedIdentifier` as today. One hop only: a call site that itself
-passes a parameter through is locked as `PassThrough` of a parameter
-("Comes from `<Card>`'s caller").
+is `UnresolvedIdentifier` as today. Only the parameter of the function that
+encloses the element counts: a parameter of an outer component read inside a
+nested component (`const Inner = () => <Text label={label} />`) stays
+`UnresolvedIdentifier`. One hop only: a call site that itself passes a
+parameter through is locked (`ParameterOfCaller`, "Comes from `<Card>`'s
+caller").
+
+A component element's own call site would otherwise be locked as
+`NotPrimitive`; while resolving a pass-through, the call site is read as a
+component element on purpose. An element rendered more than once by its
+component's callers is not locked as `Repeated` when its value passes
+through: each edit targets one call site. A call site inside `.map()` is not
+locked yet.
 
 Pass-through edits change one call site, so they change only the instances
 that call site produces. Design 1's impact line counts them that way.
