@@ -575,10 +575,13 @@ impl EditorView {
         let (targets, report) = (targets.clone(), report.clone());
         let written = values.clone();
         self.transform.set_error(layer.as_deref(), None);
-        self.record_own_write(
-            targets.file.clone(),
-            move |text| {
-                commit_text(text, &targets, &report, &values).map_err(|error| error.to_string())
+        let file = targets.file.clone();
+        self.record_own_writes(
+            vec![file.clone()],
+            move |texts| {
+                let text = commit_text(&texts[&file], &targets, &report, &values)
+                    .map_err(|error| error.to_string())?;
+                Ok(vec![(file, text)])
             },
             move |this, result, cx| {
                 // A success invalidated the targets (`apply_own_write_sample`);
