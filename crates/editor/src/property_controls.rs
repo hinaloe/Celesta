@@ -22,10 +22,6 @@ pub(crate) enum ControlKind {
     Number,
     String,
     /// Multi-line text.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the element rows build multi-line text")
-    )]
     Text,
     Boolean,
     Color,
@@ -48,6 +44,7 @@ pub(crate) enum ControlEvent {
     Chosen(String),
     /// A color was picked; the pick is committed when the picker closes.
     ColorPicked,
+    /// The picker went from open to closed; sent only on that change.
     ColorPickerClosed,
     /// `Choose…` on a path control.
     ChoosePath,
@@ -106,6 +103,23 @@ impl Control {
             Control::Switch | Control::Select(_) => return false,
         }
         true
+    }
+
+    /// Replaces the dimmed placeholder of a control with a text input.
+    pub(crate) fn set_placeholder(&self, placeholder: String, window: &mut Window, cx: &mut App) {
+        match self {
+            Control::Text(input) | Control::Color { text: input, .. } => {
+                input.update(cx, |input, cx| {
+                    input.set_placeholder(placeholder, window, cx)
+                });
+            }
+            Control::Textarea(input) => {
+                input.update(cx, |input, cx| {
+                    input.set_placeholder(placeholder, window, cx)
+                });
+            }
+            Control::Switch | Control::Select(_) => {}
+        }
     }
 }
 

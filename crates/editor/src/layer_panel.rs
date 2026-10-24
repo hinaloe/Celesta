@@ -23,9 +23,9 @@ use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, Div, Hsla, SharedString, Stateful, div, px};
 use std::path::{Path, PathBuf};
 
-/// The header rows' label column, as wide as the Transform rows' so the
-/// labels share one edge.
-const LABEL_WIDTH: f32 = 64.0;
+/// The label column of the header rows and the property rows, so the labels
+/// and the values share one edge; wide enough for "Corner radius".
+pub(crate) const LABEL_WIDTH: f32 = 84.0;
 
 /// The icon for a primitive element by its tag; any other shape (and an
 /// element that is not a primitive) gets the generic shapes icon.
@@ -344,8 +344,8 @@ impl EditorView {
             })
     }
 
-    /// The selected layer's Transform rows and the error of its last edit, or
-    /// `None` until its source is found.
+    /// The selected layer's property sections and the error of its last
+    /// edit, or `None` until its source is found.
     pub(crate) fn layer_edit_section(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let id = self.selected_layer.as_deref()?;
         let Some(SourceLookup::Found(report)) = &self.source_lookup else {
@@ -358,7 +358,7 @@ impl EditorView {
             div()
                 .flex()
                 .flex_col()
-                .child(self.transform_group(cx))
+                .child(self.element_sections(cx))
                 .when_some(
                     self.element_edit.error(Some(id)).map(str::to_owned),
                     |section, error| {

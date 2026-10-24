@@ -2,6 +2,7 @@ use crate::audio::{AudioMixWorker, MasterVolumeDrag};
 use crate::component_schema::ComponentSchemaWorker;
 use crate::edit_history::EditHistory;
 use crate::element_edit::ElementEdit;
+use crate::element_rows::ElementRows;
 use crate::export_worker::ExportWorker;
 use crate::helpers::ExportLoudness;
 use crate::layer_select::SourceLookup;
@@ -16,7 +17,6 @@ use crate::refresh::{ReloadOrder, SelectionKeep};
 use crate::source::{PropertyArgs, load_source};
 use crate::timeline::LaneGesture;
 use crate::transform_drag::TransformDrag;
-use crate::transform_rows::TransformInputs;
 use celesta_composition::{AudioClip, Rational};
 use celesta_editor_core::{AssetSummary, EditorDocument, TimelineClock, TrackSummary};
 use celesta_exporter::{ExportCancellation, ExportProgress};
@@ -273,8 +273,8 @@ pub(crate) struct EditorView {
     pub(crate) selection_keep: SelectionKeep,
     /// The selected layer's targets in its source.
     pub(crate) element_edit: ElementEdit,
-    /// The Layer section's Transform fields.
-    pub(crate) transform_inputs: TransformInputs,
+    /// The controls of the selected layer's property rows.
+    pub(crate) element_rows: ElementRows,
     /// The selected layer's frame as the shown frame measured it: the layer
     /// id, and `None` inside when it has no affine frame. `None` when the
     /// frame measured nothing (during playback, or with no selection).
@@ -436,7 +436,7 @@ impl EditorView {
             source_chain_open: false,
             selection_keep: SelectionKeep::default(),
             element_edit: ElementEdit::default(),
-            transform_inputs: TransformInputs::default(),
+            element_rows: ElementRows::default(),
             layer_frame: None,
             transform_drag: None,
         };

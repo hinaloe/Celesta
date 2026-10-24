@@ -3,6 +3,7 @@
 //! the canvas read, and the commit that writes new values.
 
 use crate::edit_history::Texts;
+use crate::element_rows::row_label;
 use crate::layer_select::{SourceLookup, owner_call_site};
 use crate::view::EditorView;
 use celesta_react_bridge::{
@@ -34,12 +35,12 @@ pub(crate) enum PropKey {
 }
 
 impl PropKey {
-    /// The row's name in messages: a transform prop's label, an input's
-    /// name, the key otherwise.
+    /// The row's name in messages: a prop's row label ("Font size"), an
+    /// input's name as written.
     pub(crate) fn label(&self) -> String {
-        match (TransformProp::from_key(self), self) {
-            (Some(prop), _) => prop.label().to_owned(),
-            (None, Self::Prop(name) | Self::Input { name, .. }) => name.clone(),
+        match self {
+            Self::Prop(name) => row_label(name),
+            Self::Input { name, .. } => name.clone(),
         }
     }
 }
@@ -222,15 +223,20 @@ impl ElementTargets {
     }
 }
 
+/// The table key a row belongs to: `scaleX` and `scaleY` are `scale`'s.
+pub(crate) fn table_key(row: &str) -> &str {
+    match row {
+        "scaleX" | "scaleY" => "scale",
+        other => other,
+    }
+}
+
 /// The table field of a row: `scaleX` and `scaleY` take `scale`'s.
-fn field_of<'t>(
+pub(crate) fn field_of<'t>(
     table: &'t PrimitivePropertyTable,
     row: &str,
 ) -> Option<&'t PrimitivePropertyField> {
-    let key = match row {
-        "scaleX" | "scaleY" => "scale",
-        other => other,
-    };
+    let key = table_key(row);
     table
         .groups
         .iter()
@@ -240,13 +246,6 @@ fn field_of<'t>(
 }
 
 /// The table field of `key` as a placeholder-able default.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Properties tab's rows show it as a placeholder"
-    )
-)]
 pub(crate) fn table_default(field: &PrimitivePropertyField) -> Option<EditValue> {
     match field {
         PrimitivePropertyField::Number { default_value, .. } => {
@@ -582,7 +581,8 @@ fn tag_name<'t>(text: &'t str, element: &ElementRef) -> &'t str {
     name[..end].rsplit('.').next().unwrap_or_default()
 }
 
-fn edit_value(value: ReceivedValue) -> EditValue {
+/// A value the runtime passed, as the editor writes values.
+pub(crate) fn edit_value(value: ReceivedValue) -> EditValue {
     match value {
         ReceivedValue::Number(value) => EditValue::Number(value),
         ReceivedValue::String(value) => EditValue::String(value),

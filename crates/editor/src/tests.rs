@@ -11,6 +11,7 @@ use crate::element_edit::{
     inside_project, keyframe_jump_frames, keyframe_timeline_frame, lock_outside_project,
     reason_text, resolve_targets, table_default,
 };
+use crate::element_rows::{control_kind, parse_row_value, row_label, row_text, set_at_text};
 use crate::export_worker::{
     ExportEvent, ExportRequest, ExportSource, ExportWorker, export_options,
 };
@@ -18,10 +19,12 @@ use crate::helpers::{
     ExportLoudness, export_loudness_label, export_output, export_progress_label, export_range_for,
     export_suggested_name, loop_range_for,
 };
+use crate::layer_panel::locked_summary;
 use crate::layer_select::{
     SourceLookup, display_path, launch_outcome_applies, letterbox, outline_quads, owner_call_site,
     parent_layer_id, scene_point, source_lookup, source_lookup_target, source_position,
 };
+use crate::property_controls::ControlKind;
 use crate::react_audio::{react_audio_clip_id, react_tracks};
 use crate::refresh::{LookupFate, SelectionKeep};
 use crate::source::is_react_entry;
@@ -32,7 +35,6 @@ use crate::transform_handles::{
     Handle, drag_label, drag_values, handle_at, handles, preview_values, prop_values,
     shown_handles, turn,
 };
-use crate::transform_rows::{field_text, set_at_text};
 use crate::waveform::{
     clip_level_envelope, level_at_time, map_clip_waveform, master_volume_from_drag, waveform_peaks,
     waveform_segment,
@@ -2450,18 +2452,22 @@ fn transform_missing_scale_axis_shows_the_written_scale() {
             ..ReceivedProps::default()
         },
     );
-    let missing = EditTarget::Missing {
-        insert_at: 0,
-        default: Some(EditValue::Number(1.0)),
-    };
+    let missing = local_target(
+        "scaleY",
+        EditTarget::Missing {
+            insert_at: 0,
+            default: Some(EditValue::Number(1.0)),
+        },
+    );
     assert_eq!(
-        field_text(TransformProp::ScaleY, &missing, &report),
+        row_text("scaleY", &missing, None, &report),
         (String::new(), "2".to_owned())
     );
     assert_eq!(
-        field_text(
-            TransformProp::ScaleY,
-            &EditTarget::Locked(LockReason::Spread),
+        row_text(
+            "scaleY",
+            &local_target("scaleY", EditTarget::Locked(LockReason::Spread)),
+            None,
             &report
         ),
         (String::new(), "2".to_owned())
@@ -2469,20 +2475,35 @@ fn transform_missing_scale_axis_shows_the_written_scale() {
     // Without a scale, the default.
     let plain = primitive_report(2, 3, ReceivedProps::default());
     assert_eq!(
-        field_text(TransformProp::ScaleY, &missing, &plain),
+        row_text("scaleY", &missing, None, &plain),
         (String::new(), "1".to_owned())
     );
     assert_eq!(
-        field_text(
-            TransformProp::X,
-            &EditTarget::Missing {
-                insert_at: 0,
-                default: Some(EditValue::Number(0.0))
-            },
+        row_text(
+            "x",
+            &local_target(
+                "x",
+                EditTarget::Missing {
+                    insert_at: 0,
+                    default: Some(EditValue::Number(0.0))
+                }
+            ),
+            None,
             &report
         ),
         (String::new(), "0".to_owned())
     );
+}
+
+/// A target written on the element itself, at `path`.
+fn local_target(path: &str, target: EditTarget) -> Target {
+    Target {
+        file: PathBuf::from("/project/scene.tsx"),
+        path: path.to_owned(),
+        target,
+        call_site: None,
+        inputs: Vec::new(),
+    }
 }
 
 #[test]
@@ -2494,12 +2515,13 @@ fn transform_missing_parameter_without_a_default_shows_the_drawn_value() {
         default: None,
     };
     let plain = primitive_report(2, 3, ReceivedProps::default());
+    let at = |path: &str| local_target(path, missing.clone());
     assert_eq!(
-        field_text(TransformProp::Scale, &missing, &plain),
+        row_text("scale", &at("scale"), None, &plain),
         (String::new(), "1".to_owned())
     );
     assert_eq!(
-        field_text(TransformProp::X, &missing, &plain),
+        row_text("x", &at("x"), None, &plain),
         (String::new(), "0".to_owned())
     );
     // `({ scale = base * 2 })`: the value received is the one drawn, also
@@ -2514,11 +2536,11 @@ fn transform_missing_parameter_without_a_default_shows_the_drawn_value() {
         },
     );
     assert_eq!(
-        field_text(TransformProp::Scale, &missing, &received),
+        row_text("scale", &at("scale"), None, &received),
         (String::new(), "2".to_owned())
     );
     assert_eq!(
-        field_text(TransformProp::ScaleX, &missing, &received),
+        row_text("scaleX", &at("scaleX"), None, &received),
         (String::new(), "3".to_owned())
     );
     // Through the call site, as the row shows it.
@@ -2532,7 +2554,7 @@ fn transform_missing_parameter_without_a_default_shows_the_drawn_value() {
         target: Box::new(missing),
     };
     assert_eq!(
-        field_text(TransformProp::Scale, &through, &plain),
+        row_text("scale", &local_target("scale", through), None, &plain),
         (String::new(), "1".to_owned())
     );
 }
@@ -3808,5 +3830,294 @@ fn a_font_row_beside_a_style_object_inserts_the_shorthand() {
             &[(prop("fontSize"), EditValue::Number(48.0))]
         ),
         Ok(both.replace("fontSize: 40", "fontSize: 48"))
+    );
+}
+
+#[test]
+fn impact_and_the_locked_summary_stay_transform_only() {
+    let scene = SourcePos {
+        file: PathBuf::from("/project/scene.tsx"),
+        line: 2,
+        column: 3,
+    };
+    let other = SourcePos {
+        file: PathBuf::from("/project/other.tsx"),
+        line: 7,
+        column: 3,
+    };
+    let call = celesta_source_edit::ElementRef {
+        start: 0,
+        end_of_attributes: 0,
+        children: None,
+    };
+    let passed = |path: &str, site: &SourcePos| Target {
+        file: site.file.clone(),
+        path: path.to_owned(),
+        target: EditTarget::PassThrough {
+            call_site: call,
+            param: path.to_owned(),
+            target: Box::new(EditTarget::Literal {
+                span: Span { start: 1, end: 2 },
+                value: EditValue::Number(1.0),
+                form: LiteralForm::Number,
+            }),
+        },
+        call_site: Some(site.clone()),
+        inputs: Vec::new(),
+    };
+    let targets = ElementTargets {
+        file: PathBuf::from("/project/component.tsx"),
+        files: vec![PathBuf::from("/project/component.tsx")],
+        element: call,
+        targets: vec![
+            (prop("x"), passed("x", &scene)),
+            (
+                prop("fontSize"),
+                Target {
+                    file: PathBuf::from("/project/component.tsx"),
+                    path: "fontSize".to_owned(),
+                    target: EditTarget::Locked(LockReason::StyleMaySet),
+                    call_site: None,
+                    inputs: Vec::new(),
+                },
+            ),
+            (prop("color"), passed("color", &other)),
+        ],
+        table: Some(text_table()),
+    };
+
+    assert_eq!(targets.written_at(), Some(&scene));
+    assert!(locked_summary(&targets).is_empty());
+}
+
+fn num_range(default: f64, min: f64, max: f64) -> PrimitivePropertyField {
+    PrimitivePropertyField::Number {
+        default_value: Some(default),
+        min: Some(min),
+        max: Some(max),
+    }
+}
+
+fn fit_field() -> PrimitivePropertyField {
+    PrimitivePropertyField::Select {
+        options: vec!["contain".to_owned(), "cover".to_owned()],
+        default_value: Some("cover".to_owned()),
+    }
+}
+
+#[test]
+fn row_labels() {
+    for (key, label) in [
+        ("cornerRadius", "Corner radius"),
+        ("children", "Text"),
+        ("scaleX", "Scale X"),
+        ("anchorY", "Anchor Y"),
+        ("strokeWidth", "Stroke width"),
+        ("x", "X"),
+        ("opacity", "Opacity"),
+    ] {
+        assert_eq!(row_label(key), label, "{key}");
+    }
+    // A commit error names the row the way the panel labels it.
+    assert_eq!(
+        CommitError::NotEditable(prop("fontSize").label()).to_string(),
+        "Font size can't be edited here"
+    );
+}
+
+#[test]
+fn control_kinds() {
+    let none = || None;
+    assert_eq!(control_kind(&number_field(None)), ControlKind::Number);
+    assert_eq!(
+        control_kind(&PrimitivePropertyField::String {
+            default_value: none()
+        }),
+        ControlKind::String
+    );
+    assert_eq!(
+        control_kind(&PrimitivePropertyField::Text {
+            default_value: none()
+        }),
+        ControlKind::Text
+    );
+    assert_eq!(
+        control_kind(&PrimitivePropertyField::Boolean {
+            default_value: None
+        }),
+        ControlKind::Boolean
+    );
+    assert_eq!(
+        control_kind(&PrimitivePropertyField::Color {
+            default_value: none()
+        }),
+        ControlKind::Color
+    );
+    assert_eq!(
+        control_kind(&fit_field()),
+        ControlKind::Select(vec!["contain".to_owned(), "cover".to_owned()])
+    );
+    assert_eq!(
+        control_kind(&PrimitivePropertyField::Path),
+        ControlKind::Path
+    );
+}
+
+#[test]
+fn parse_row_values() {
+    let number = number_field(None);
+    assert_eq!(
+        parse_row_value(&ControlKind::Number, Some(&number), "12.5"),
+        Ok(EditValue::Number(12.5))
+    );
+    assert_eq!(
+        parse_row_value(&ControlKind::Number, Some(&number), "twelve"),
+        Err("Enter a number".to_owned())
+    );
+    let opacity = num_range(1.0, 0.0, 1.0);
+    assert_eq!(
+        parse_row_value(&ControlKind::Number, Some(&opacity), "1.5"),
+        Err("Enter a number from 0 to 1".to_owned())
+    );
+    assert_eq!(
+        parse_row_value(&ControlKind::Number, Some(&opacity), "0.5"),
+        Ok(EditValue::Number(0.5))
+    );
+    for color in ["#ff8800", "accent"] {
+        assert_eq!(
+            parse_row_value(&ControlKind::Color, None, color),
+            Ok(EditValue::String(color.to_owned()))
+        );
+    }
+    for color in ["#ff88", "two words", "9lives"] {
+        assert_eq!(
+            parse_row_value(&ControlKind::Color, None, color),
+            Err("Enter a color: #RRGGBB, #RRGGBBAA, or a theme color name".to_owned()),
+            "{color}"
+        );
+    }
+    let fit = control_kind(&fit_field());
+    assert!(parse_row_value(&fit, Some(&fit_field()), "fill").is_err());
+    assert_eq!(
+        parse_row_value(&fit, Some(&fit_field()), "cover"),
+        Ok(EditValue::String("cover".to_owned()))
+    );
+    assert_eq!(
+        parse_row_value(&ControlKind::Text, None, "A\nB"),
+        Ok(EditValue::String("A\nB".to_owned()))
+    );
+    // Text keeps its outer spaces.
+    assert_eq!(
+        parse_row_value(&ControlKind::String, None, " Sale "),
+        Ok(EditValue::String(" Sale ".to_owned()))
+    );
+}
+
+#[test]
+fn select_value_outside_the_options_is_shown() {
+    let report = primitive_report(2, 3, ReceivedProps::default());
+    let fit = local_target(
+        "fit",
+        EditTarget::Literal {
+            span: Span { start: 1, end: 7 },
+            value: EditValue::String("fill".to_owned()),
+            form: LiteralForm::Quoted('"'),
+        },
+    );
+    assert_eq!(
+        row_text("fit", &fit, Some(&fit_field()), &report),
+        ("fill".to_owned(), String::new())
+    );
+}
+
+#[test]
+fn missing_rows_show_the_table_default() {
+    let missing = local_target(
+        "cornerRadius",
+        EditTarget::Missing {
+            insert_at: 0,
+            default: None,
+        },
+    );
+    let field = number_field(Some(2.0));
+    let plain = primitive_report(2, 3, ReceivedProps::default());
+    assert_eq!(
+        row_text("cornerRadius", &missing, Some(&field), &plain),
+        (String::new(), "2".to_owned())
+    );
+    let mut received = plain.clone();
+    received
+        .props
+        .others
+        .insert("cornerRadius".to_owned(), ReceivedValue::Number(5.0));
+    assert_eq!(
+        row_text("cornerRadius", &missing, Some(&field), &received),
+        (String::new(), "5".to_owned())
+    );
+}
+
+#[test]
+fn the_scale_axis_placeholder_of_a_parameter_default() {
+    // `({ sx = 3 }) => <Rect scale={2} scaleX={sx} />` called without `sx`.
+    let report = primitive_report(
+        2,
+        3,
+        ReceivedProps {
+            scale: Some(2.0),
+            ..ReceivedProps::default()
+        },
+    );
+    let through = local_target(
+        "scaleX",
+        EditTarget::PassThrough {
+            call_site: celesta_source_edit::ElementRef {
+                start: 0,
+                end_of_attributes: 0,
+                children: None,
+            },
+            param: "sx".to_owned(),
+            target: Box::new(EditTarget::Missing {
+                insert_at: 0,
+                default: Some(EditValue::Number(3.0)),
+            }),
+        },
+    );
+    let field = number_field(Some(1.0));
+    assert_eq!(
+        row_text("scaleX", &through, Some(&field), &report),
+        (String::new(), "3".to_owned())
+    );
+    // An axis absent from the element itself is drawn at the written scale.
+    let missing = local_target(
+        "scaleX",
+        EditTarget::Missing {
+            insert_at: 0,
+            default: Some(EditValue::Number(1.0)),
+        },
+    );
+    assert_eq!(
+        row_text("scaleX", &missing, Some(&field), &report),
+        (String::new(), "2".to_owned())
+    );
+}
+
+#[test]
+fn locked_rows_show_the_received_value() {
+    let report = text_report(
+        Path::new("/project/scene.tsx"),
+        &[("children", ReceivedValue::String("Sale".to_owned()))],
+    );
+    let locked = local_target(
+        "children",
+        EditTarget::Locked(LockReason::Expression {
+            source: "label".to_owned(),
+        }),
+    );
+    let field = PrimitivePropertyField::Text {
+        default_value: None,
+    };
+    assert_eq!(
+        row_text("children", &locked, Some(&field), &report),
+        ("Sale".to_owned(), String::new())
     );
 }
