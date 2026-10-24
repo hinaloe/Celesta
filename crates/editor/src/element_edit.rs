@@ -1070,6 +1070,9 @@ pub(crate) struct ElementEdit {
     /// The code failed to reload since the last successful reload (or
     /// `reset`).
     reload_failed: bool,
+    /// The preview worker stopped: no lookup answers again, whatever
+    /// reloads or is selected.
+    preview_stopped: bool,
 }
 
 impl ElementEdit {
@@ -1157,6 +1160,7 @@ impl ElementEdit {
     pub(crate) fn reset(&mut self) {
         *self = Self {
             request: self.request + 1,
+            preview_stopped: self.preview_stopped,
             ..Self::default()
         };
     }
@@ -1214,9 +1218,10 @@ impl ElementEdit {
     /// file since: a commit has nothing to wait for. Anything else (being
     /// read, or an own write reloading) becomes current again.
     /// Also after the code failed to reload: nothing reads the file again
-    /// until the next reload.
+    /// until the next reload; and once the preview worker stopped.
     pub(crate) fn failed(&self, selected: Option<&str>) -> bool {
         self.reload_failed
+            || self.preview_stopped
             || self.resolved(selected).is_some_and(|(resolved, current)| {
                 current && !self.pending && resolved.outcome.is_err()
             })
@@ -1228,9 +1233,20 @@ impl ElementEdit {
         self.reload_failed = true;
     }
 
+    /// The preview worker stopped: the targets never become current again,
+    /// and a commit fails instead of waiting, for the rest of the session.
+    pub(crate) fn preview_stopped(&mut self) {
+        self.preview_stopped = true;
+    }
+
+    pub(crate) fn preview_has_stopped(&self) -> bool {
+        self.preview_stopped
+    }
+
     /// Why a commit for `selected` has no targets to write to.
     pub(crate) fn unavailable(&self, selected: Option<&str>) -> String {
         match self.resolved(selected) {
+            _ if self.preview_stopped => PREVIEW_STOPPED.to_owned(),
             _ if self.reload_failed => RELOAD_FAILED.to_owned(),
             _ if self.pending => STILL_READING.to_owned(),
             None => STILL_READING.to_owned(),
@@ -1288,6 +1304,10 @@ const STILL_READING: &str = "The source is still being read";
 /// Why a commit made, or held, after the code failed to reload is not
 /// written.
 pub(crate) const RELOAD_FAILED: &str = "Not saved: the code failed to reload";
+
+/// Why a commit made, or held, after the preview worker stopped is not
+/// written.
+pub(crate) const PREVIEW_STOPPED: &str = "Not saved: the preview stopped unexpectedly";
 
 /// The frames an `interpolate(frame, …)` written for `report`'s element could
 /// read; an older runtime that reports none reads its `local_frame`.

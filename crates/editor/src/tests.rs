@@ -5378,6 +5378,28 @@ fn a_failed_reload_fails_commits_instead_of_holding_them() {
 }
 
 #[test]
+fn a_stopped_preview_fails_commits_for_good() {
+    let report = primitive_report(2, 3, x_only());
+    let mut state = ElementEdit::default();
+    let request = state.begin("a", &report, 0).unwrap();
+    assert!(state.finish(request, Some("a"), resolve_in(TRANSFORM_FIXTURE, &report)));
+    state.invalidate();
+    // No lookup will answer again: held commits are dropped, and new ones
+    // fail at once instead of waiting.
+    state.preview_stopped();
+    assert!(state.failed(Some("a")));
+    assert_eq!(
+        state.unavailable(Some("a")),
+        "Not saved: the preview stopped unexpectedly"
+    );
+    // Neither a reload nor another selection brings the preview back.
+    state.expire();
+    state.reset();
+    assert!(state.failed(Some("b")));
+    assert!(state.preview_has_stopped());
+}
+
+#[test]
 fn a_commit_waits_unless_the_current_resolution_failed() {
     let report = primitive_report(2, 3, x_only());
     let mut state = ElementEdit::default();

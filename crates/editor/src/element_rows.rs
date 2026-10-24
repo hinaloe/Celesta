@@ -5,8 +5,8 @@
 //! the row state, and the commit flow; `element_rows_view.rs` renders them.
 
 use crate::element_edit::{
-    ComponentTargets, ElementTargets, PropKey, Target, edit_value, editable, field_of,
-    inner_target, required_of, table_default, text_style_key,
+    ComponentTargets, ElementTargets, PREVIEW_STOPPED, PropKey, Target, edit_value, editable,
+    field_of, inner_target, required_of, table_default, text_style_key,
 };
 use crate::layer_select::{SourceLookup, display_path};
 use crate::property_controls::{
@@ -715,6 +715,10 @@ impl HeldCommits {
             .any(|held| Some(held.layer.as_str()) == layer)
     }
 
+    pub(crate) fn is_empty(&self) -> bool {
+        self.commits.is_empty()
+    }
+
     /// Every held commit, oldest first, none held after.
     pub(crate) fn take_all(&mut self) -> Vec<HeldCommit> {
         self.commits.drain(..).collect()
@@ -1302,12 +1306,17 @@ impl EditorView {
 
     /// What happened to the rows since the last render, done now that a
     /// context is at hand: the playhead moved or playback started (submit
-    /// the typed text, see [`ElementRows::submit_requested`]), or the
-    /// selected layer's source lookup answered without a source, so the
-    /// held commits can never be written.
+    /// the typed text, see [`ElementRows::submit_requested`]), or the held
+    /// commits can never be written: the preview worker stopped, or the
+    /// selected layer's source lookup answered without a source.
     pub(crate) fn settle_row_requests(&mut self, cx: &mut Context<Self>) {
         if std::mem::take(&mut self.element_rows.submit_requested) {
             self.submit_edited_rows(cx);
+        }
+        // Dropping them releases a selection change (and a leave of the
+        // interactive mode) waiting for them.
+        if self.element_edit.preview_has_stopped() && !self.element_rows.held.is_empty() {
+            self.drop_held_rows(PREVIEW_STOPPED, cx);
         }
         let lost = !matches!(
             self.source_lookup,
