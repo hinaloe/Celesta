@@ -386,8 +386,11 @@ center of its box on request:
   compensation below: a resize that moves the anchor point and the anchor
   drag need `x`/`y` targets that are `Literal` or `Missing` (directly or
   through pass-through).
-- Compensation never combines literal `x`/`y` with a value that changes over
-  time: they would hold at one keyframe only. Center falls back to the pivot
+- A keyframed row is never combined with literal `x`/`y` in a compensation:
+  they would hold at one keyframe only. (A value an expression animates is
+  `Locked` and can't be told apart from a constant, so it is not caught;
+  nor are props without a row, `originX`/`Y`, `skewX`/`Y`, `rotationX`/`Y`,
+  nor a box that changes with its content.) Center falls back to the pivot
   when an editable `rotation`, `scale`, `scaleX`, or `scaleY` is a keyframe
   ("Rotation or scale is animated") or a size prop or an anchor is
   ("Size or anchor is animated": the center is a point of the box). A resize

@@ -262,11 +262,18 @@ These differ from, or settle what the spec left open:
   Alt held the cursor also turns not-allowed.
 - The Alt cursor over the cross updates through `on_modifiers_changed`; when
   the window does not have the focus it may wait for the next mouse move.
-- A `rotation` or scale driven by an expression (`rotation={frame * 3}`) is
-  `Locked`, not a `Keyframe`, so it does not trigger the `Animated`
-  fallback: Center scaling on such a layer still writes literal `x`/`y`
-  that keep the center on the current frame only. This is the one
-  animated-value case left; every keyframed one is refused.
+- Only keyframed rows are refused. An expression-driven `rotation`, scale,
+  size, or anchor (`rotation={frame * 3}`) is `Locked`, not a `Keyframe`,
+  so it can't be told apart from a constant: Center, a compensating resize,
+  or the anchor drag on such a layer still writes literal `x`/`y` that hold
+  on the current frame only.
+- Keyframed props without a table row (`originX`/`originY`,
+  `skewX`/`skewY`, `rotationX`/`rotationY`) are not seen, though the
+  compensation folds in origin and skew: a compensation beside one of them
+  holds on the current frame only.
+- A box that changes with its content (a `<Text>` whose text or `fontSize`
+  animates) is measured on the current frame, so a compensation computed
+  from it holds there only.
 - An absent side pinned by an edge drag is written at its current size
   without the field's clamp, and shows as unchanged in the drag's label
   (`height 75 → 75`): it is written, so the label is accurate, but it may
@@ -364,7 +371,8 @@ example changed):
   handles are hidden too (anchored top-left). On a `Rect` with keyframed
   `width` anchored at its top-left, Center's warning reads "Size or anchor
   is animated"; the left edge and the left corners are hidden, the right
-  edge and the top-right corner still resize, and the cross's tooltip reads
+  edge, the top and bottom edges, and the right corners still resize, and
+  the cross's tooltip reads
   "Size is animated". With keyframed `anchorX`: Center's warning reads
   "Size or anchor is animated" and the cross's "Anchor is animated".
 - Select a `Group`: Rect stays selected with the warning "No size to
