@@ -30,8 +30,8 @@ use crate::problems::{ActiveProblem, Source, flow_line_breaks, summarize_warning
 use crate::problems_panel::{detail_block, show_in_problems_row};
 use crate::timecode::format_timecode;
 use crate::transform_drag::{
-    CENTER_MARKER, DragState, HANDLE_SIZE, NO_AFFINE_FRAME, ROTATE_STEM, pivot_note_text,
-    turns_about_pivot,
+    CENTER_MARKER, DragState, HANDLE_SIZE, NO_AFFINE_FRAME, ROTATE_STEM, TransformDrag,
+    pivot_note_text, turns_about_pivot,
 };
 use crate::transform_handles::{
     Handle, Marker, PivotMode, Resize, ResizeTool, anchor_handle, handle_quad, marker, pivot_cross,
@@ -167,7 +167,16 @@ impl EditorView {
         // the frame does not draw it. The Size tool's handles sit on the box
         // they resize, which is then the outline drawn (a stroked text's
         // layout box, a rotated dashed rect's own corners).
+        // An anchor drag holds the overlay on its start frame, the outline
+        // too (the preview's regions would jitter).
+        let held = self
+            .transform_drag
+            .as_ref()
+            .is_some_and(TransformDrag::holds_overlay);
         let resized_box = match &drag_state {
+            DragState::Editable(frame, _, _, resize) if held => {
+                Some(handle_quad(frame, resize.as_ref()))
+            }
             DragState::Editable(frame, _, _, resize @ Some(_)) if frame.anchor_box.is_some() => {
                 Some(handle_quad(frame, resize.as_ref()))
             }
@@ -205,7 +214,14 @@ impl EditorView {
         // The cross of every selected layer with a frame: the point a drag
         // turns about (the box's middle with Center in effect, else the
         // pivot), and whether Alt drags it.
+        // During an anchor drag the overlay stays on the start frame and only
+        // the cross follows, where the written anchor puts the pivot.
+        let anchor_cross = self
+            .transform_drag
+            .as_ref()
+            .and_then(TransformDrag::anchor_cross);
         let marked = match &drag_state {
+            DragState::Editable(..) if anchor_cross.is_some() => anchor_cross.map(Marker::Pivot),
             DragState::Editable(frame, _, pivot, _) => Some(marker(frame, *pivot)),
             DragState::Locked(frame, _) => Some(Marker::Pivot(pivot_cross(frame))),
             _ => None,

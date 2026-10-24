@@ -122,7 +122,12 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   `with_primitive` the element's name, and `TransformDrag::anchored`
   rebuilds the anchor box of a running (or released, being written) drag
   from the values it draws (`received_now`), so the handles follow the box
-  they resize and don't jump to the outline before the reload.
+  they resize and don't jump to the outline before the reload. An anchor
+  drag instead holds the whole overlay (outline, handles, stem) on its
+  start frame (`TransformDrag::overlay_frame` / `holds_overlay`) and draws
+  only the cross where the drag's `x`/`y` put the pivot (`anchor_cross`):
+  the anchor is a reference point, and preview frames, rounded as written
+  and lagging the pointer, would make the layer seem to jitter.
   `EditorView.resize_tool` is session state.
 - Tool strip (`viewer.rs`): `tool_strip`, overlaid at the viewer's
   top-left (above the canvas notice, in one column) while Select layers is
@@ -361,7 +366,9 @@ example changed):
   cursor). Rotate it: it turns about its middle, the label shows
   `rotation`, `x`, and `y`, and one undo restores it. Switch to Pivot: the
   cross jumps to the top-left corner and the layer turns about it. Alt-drag
-  the cross to the middle: nothing moves on screen, and `anchorX`,
+  the cross to the middle: nothing moves on screen (the outline, handles,
+  and stem hold perfectly still, during the drag and after the release
+  until the reload; only the cross follows the pointer), and `anchorX`,
   `anchorY`, `x`, `y` are written in one undo step. Rotate again: it turns
   about the new anchor. With `originX={40}` set, Pivot mode turns about the
   cross 40 px to the right of the anchor.

@@ -2,7 +2,7 @@
 //! change, the prop overrides the preview evaluates the scene with while it
 //! runs, and the one write on release.
 
-use crate::canvas_geometry::{anchor_box, local_box, with_anchor_box};
+use crate::canvas_geometry::{anchor_box, apply, local_box, pivot, with_anchor_box};
 use crate::element_edit::{
     ElementTargets, PropKey, TransformProp, editable, field_of, inner_target, reason_text,
 };
@@ -140,6 +140,48 @@ impl TransformDrag {
     /// released drag is written.
     pub(crate) fn anchored(&self, frame: LayerFrame) -> LayerFrame {
         with_anchor_box(frame, &self.primitive, &self.received_now())
+    }
+
+    /// The frame the overlay (outline, handles, stem) is drawn from while
+    /// this drag runs or is written, given the one the preview drew
+    /// (`drawn`). An anchor drag keeps its start frame: the anchor is a
+    /// reference point and the layer doesn't move, while preview frames,
+    /// rounded as written and lagging the pointer, would jitter. Any other
+    /// drag follows the drawn frame (see `anchored`).
+    pub(crate) fn overlay_frame(&self, drawn: LayerFrame) -> LayerFrame {
+        if self.holds_overlay() {
+            self.frame.clone()
+        } else {
+            self.anchored(drawn)
+        }
+    }
+
+    /// Whether the overlay stays on the start frame (an anchor drag; see
+    /// `overlay_frame`), the selection outline too.
+    pub(crate) fn holds_overlay(&self) -> bool {
+        self.handle == Handle::Anchor
+    }
+
+    /// Where the cross sits during an anchor drag (scene pixels): the pivot
+    /// of the start frame moved to the drag's `x`/`y`, which keep the box
+    /// still for the anchor as written (the anchor is not part of the map).
+    /// `None` for any other drag, and before the pointer moves.
+    pub(crate) fn anchor_cross(&self) -> Option<Point> {
+        if self.handle != Handle::Anchor {
+            return None;
+        }
+        let value = |prop: TransformProp| {
+            self.values
+                .iter()
+                .find(|(key, _)| *key == prop.key())
+                .map(|(_, value)| *value)
+        };
+        let mut after = self.frame.transform;
+        after.position = Point {
+            x: value(TransformProp::X)?,
+            y: value(TransformProp::Y)?,
+        };
+        Some(apply(&self.frame.parent, pivot(&after)))
     }
 
     /// The props the runtime sees with the drag's overrides: those it saw
@@ -741,10 +783,10 @@ impl EditorView {
         };
         let resolved = self.element_targets();
         // The box the source element's anchor refers to, which the drag
-        // keeps with it; while one runs (or is written), built from the
-        // props it draws.
+        // keeps with it; while one runs (or is written), the frame the
+        // overlay is drawn from (see `TransformDrag::overlay_frame`).
         let frame = match (&self.transform_drag, resolved) {
-            (Some(drag), _) => drag.anchored(frame),
+            (Some(drag), _) => drag.overlay_frame(frame),
             (None, Some((_, report))) => {
                 with_anchor_box(frame, primitive_of(report), &report.props)
             }
@@ -1468,6 +1510,59 @@ mod tests {
                 Handle::Edge(2),
             ]
         );
+    }
+
+    #[test]
+    fn an_anchor_drag_holds_the_overlay_still() {
+        // A 100 x 50 box anchored at its top-left at (40, 20); the cross
+        // dragged to its middle.
+        let frame = rect_frame();
+        let anchors = anchors_with(literal(40.0), literal(0.0));
+        let editable = drag_props_in(&anchors, &frame, PivotMode::Pivot);
+        let drag = |handle| {
+            TransformDrag::new(
+                frame.clone(),
+                handle,
+                at(40.0, 20.0),
+                editable.clone(),
+                PivotMode::Pivot,
+                ReceivedProps::default(),
+                Vec::new(),
+            )
+        };
+        let mut anchor = drag(Handle::Anchor);
+        assert_eq!(anchor.anchor_cross(), None, "before the pointer moves");
+        anchor.follow(drag_values(
+            &frame,
+            Handle::Anchor,
+            (at(40.0, 20.0), at(90.0, 45.0)),
+            false,
+            0.0,
+            &editable,
+            PivotMode::Pivot,
+            None,
+        ));
+        // A preview frame drawn mid-drag, a hair off from the rounding.
+        let mut drawn = frame.clone();
+        drawn.transform.position = at(90.004, 44.996);
+        drawn.transform.anchor = at(0.5, 0.5);
+        // The outline, handles and stem stay on the drag's start frame; only
+        // the cross follows, where the written anchor puts the pivot.
+        assert!(anchor.holds_overlay());
+        assert_eq!(anchor.overlay_frame(drawn.clone()), frame);
+        let cross = anchor.anchor_cross().expect("the cross follows");
+        assert!(
+            (cross.x - 90.0).abs() < 1e-9 && (cross.y - 45.0).abs() < 1e-9,
+            "{cross:?}"
+        );
+        // Any other drag draws the frame the preview drew.
+        let moving = drag(Handle::Move);
+        assert!(!moving.holds_overlay());
+        assert_eq!(
+            moving.overlay_frame(drawn.clone()).transform,
+            drawn.transform
+        );
+        assert_eq!(moving.anchor_cross(), None);
     }
 
     #[test]
