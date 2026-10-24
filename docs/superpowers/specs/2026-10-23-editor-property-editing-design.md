@@ -357,22 +357,22 @@ center of its box on request:
   applies.
 - In Center mode a rotation or scale also moves `x`/`y` so the box's center
   stays put. Both writes are one edit.
-- The toggles sit in a small tool strip overlaid at the viewer's top-left
-  while Select layers is on and a layer is selected (not in the transport
-  bar), two labelled rows
-  with muted, always-visible labels: "Rotate about" [Center | Pivot] and
-  "Handles" [Size | Scale]. The strip is an opaque panel in the theme's
-  popover color with a 1px border, radius 0, and takes the pointer over its
-  own bounds only, except while a canvas drag or a row's scrub is pressed
-  (so they pass over it). Segments have fixed widths and square corners;
-  the chosen one is filled with the theme's primary color and its
-  contrasting foreground, the other has no fill and muted text; labels
-  never change. When the chosen mode or tool can't apply to the selected
-  layer, the chosen segment stays filled and a warning icon in a reserved
-  slot of the control gives the reason as its tooltip. A Center
-  that is not in effect also says why at the point of action: hovering the
-  rotation handle or a Scale handle shows "Pivot — reason", and so does the
-  drag's label.
+- The toggles sit in one row docked at the top of the viewer, above the
+  canvas and part of the viewer's layout (the canvas shrinks while it shows;
+  nothing is covered), shown only while Select layers is on and a layer is
+  selected. Left to right: the muted label "Rotate about" with
+  [Center | Pivot], then "Handles" with [Size | Scale], each followed by a
+  reserved warning slot. The row is in the viewer chrome's color with a 1px
+  bottom border, about 34px tall. Each toggle is a tabs list (shadcn's
+  Tabs): a rounded container a few pixels larger than its tabs, in a surface
+  darker than the row; the chosen tab is an inset, smaller rounded pill in a
+  lighter surface with a border and foreground text, so the gap around it
+  shows the choice by shape; the other tab has no fill and muted text. Tabs
+  have fixed widths; labels never change. When the chosen mode or tool
+  can't apply to the selected layer, the chosen tab stays chosen and the
+  warning icon gives the reason as its tooltip. A Center that is not in
+  effect also says why at the point of action: hovering the rotation handle
+  or a Scale handle shows "Pivot — reason", and so does the drag's label.
 - The cross marks the point a rotation or scale turns about: with Center in
   effect, the box's center, as a marker only (tooltip "Rotates about the
   center; switch to Pivot to move the anchor", or, when the anchor couldn't
@@ -438,7 +438,7 @@ center of its box on request:
 
 ### Resize
 
-Handles depend on the tool strip's "Handles" toggle, "Size" (default) or
+Handles depend on the tool row's "Handles" toggle, "Size" (default) or
 "Scale":
 
 - **Size**: corner and edge handles change the `size` props, measured on the
@@ -455,7 +455,7 @@ Handles depend on the tool strip's "Handles" toggle, "Size" (default) or
   absent (an `Image` sized from its source's aspect), an edge drag also
   writes that side at its current value. A primitive without `size` props,
   or whose `size` props are not all editable, or whose every handle is
-  hidden, falls back to Scale: the toggle keeps Size filled and its
+  hidden, falls back to Scale: the toggle keeps Size chosen and its
   warning gives the reason ("No size to resize", the locked row's reason,
   "Size can't be edited here", "x or y can't move", "Rotation or scale is
   animated", "Anchor is animated", "Size is animated", or "No flat box to
@@ -567,6 +567,6 @@ component's call site.
 ## Documentation
 
 - The React preview user docs: inline text editing, the Properties sections, pass-through rows,
-  inputs, the canvas tool strip ("Rotate about" Center/Pivot, "Handles"
+  inputs, the canvas tool row ("Rotate about" Center/Pivot, "Handles"
   Size/Scale).
 - A handoff note.

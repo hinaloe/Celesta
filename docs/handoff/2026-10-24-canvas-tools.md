@@ -2,10 +2,11 @@
 
 On the canvas, rotation and scale turn about the layer's pivot by default,
 or about the middle of its box with Center chosen in the "Rotate about"
-[Center | Pivot] toggle of a tool strip at the viewer's top-left; a cross
-marks the point they turn about, and in Pivot mode the pivot (the anchor
-point plus `origin`) cross Alt-drags the anchor without moving the layer;
-and the strip's "Handles" [Size | Scale] toggle makes the corner and edge
+[Center | Pivot] toggle of a tool row docked at the top of the viewer
+(shown with a selection); a cross marks the point they turn about, and in
+Pivot mode the pivot (the anchor point plus `origin`) cross Alt-drags the
+anchor without moving the layer; and the row's "Handles" [Size | Scale]
+toggle makes the corner and edge
 handles resize the layer through its `size` props
 (`width`/`height`, `radius`, or a `Text`'s `maxWidth`), keeping the
 opposite edge where it is. Every drag that has to keep something still
@@ -129,22 +130,22 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   the anchor is a reference point, and preview frames, rounded as written
   and lagging the pointer, would make the layer seem to jitter.
   `EditorView.resize_tool` is session state.
-- Tool strip (`viewer.rs`): `tool_strip`, overlaid at the viewer's
-  top-left (above the canvas notice, in one column) while Select layers is
-  on in a React preview and a layer is selected: a panel in the theme's
-  popover color with a 1px border, `occlude()`d except while a canvas drag
-  or a row's scrub is pressed (the root follows those only where its hitbox
-  is hovered, so an occluding strip would freeze a drag passing over it and
-  miss a release there), two `strip_row`s with a muted fixed-width label
-  ("Rotate about", "Handles") and a `mode_toggle`. A toggle is two
-  fixed-width, square-cornered (`ButtonRounded::None`) `Segment` buttons
-  (`SEGMENT_WIDTH`) in a bordered row, the chosen one `primary()` (the
-  theme's primary fill and foreground, near-white, not Celesta's orange; the
-  editor is dark-only), the other `ghost()` with muted text so the chosen
-  one stands out, and a reserved slot
-  (`NOTE_SLOT_WIDTH`) with a `TriangleAlert` icon carrying the reason
-  (`pivot_note` / `resize_note`) when the choice is not in effect, so the
-  labels and the width never change. With Center chosen but not in effect,
+- Tool row (`viewer.rs`): `tool_row`, one row docked at the top of the
+  viewer panel's column, above the canvas (the canvas, `flex_1`, shrinks by
+  `TOOL_ROW_HEIGHT` and re-letterboxes; nothing is covered), shown when
+  `shows_tool_row(react_preview, interactive, selected)`: in the transport
+  bar's chrome color (`secondary`) with a 1px bottom border, `px_3`. Two
+  `tool_group`s, each a muted label ("Rotate about", "Handles") and a
+  `mode_toggle`. A toggle is a tabs list after shadcn's Tabs: a
+  `rounded_md` container in the theme's `background` (darker than the
+  row, since the row already has the muted chrome color) with
+  `TAB_LIST_INSET` padding, two fixed-width (`TAB_WIDTH`) `ToolTab`s; the
+  chosen one an inset `rounded_sm` pill in `secondary` with the `input`
+  border, foreground text and a small shadow, the other unfilled with muted
+  text (foreground on hover). The selection reads by shape, the gap around
+  the pill. Then a reserved slot (`NOTE_SLOT_WIDTH`) with a `TriangleAlert`
+  icon carrying the reason (`pivot_note` / `resize_note`) when the choice is
+  not in effect, so the labels and the width never change. With Center chosen but not in effect,
   the rotation handle and the Scale tool's handles get hover areas with the
   tooltip "Pivot — reason" (not while a drag runs; its label says it). The
   transport bar no longer holds the toggles; its breakpoints are its own
@@ -195,7 +196,7 @@ These differ from, or settle what the spec left open:
   silently falls back reads as broken.
 - **Center needs compensable `x`/`y`, nothing animated it depends on, and a
   flat box.** Otherwise the drag turns about the pivot (and the cross sits
-  on the pivot), and the toggle keeps Center filled with a warning whose
+  on the pivot), and the toggle keeps Center chosen with a warning whose
   tooltip is the reason:
   `NotCompensable` "x or y can't be edited", `Animated` "Rotation or scale
   is animated" (an editable `rotation`, `scale`, `scaleX`, or `scaleY` is a
@@ -260,7 +261,7 @@ These differ from, or settle what the spec left open:
   Written as an expression: h * 2"), a size row that is neither locked nor
   writable ("Size can't be edited here"), no handle left (`Pinned` "x or y
   can't move", or `Animated` with the animated value), or no flat box ("No
-  flat box to resize"). The toggle keeps Size filled with a warning whose
+  flat box to resize"). The toggle keeps Size chosen with a warning whose
   tooltip is the reason; the stored choice stays Size.
 - **No compensation beside an animated value.** Literal `x`/`y` written
   beside a value that changes between keyframes would hold at that keyframe
@@ -274,11 +275,14 @@ These differ from, or settle what the spec left open:
   move** (2a's rule), now including `x`/`y` for a Center rotation or scale,
   a compensating resize, and the anchor drag, and the size keys (whose start
   value is the anchor box, so none is dropped).
-- **The tool strip sits over the viewer's top-left, labelled, with a
-  selection only.** Decided with the user after the second hand check: in
-  the transport bar the toggles were easy to miss and their selected state
-  too faint. Labels "Rotate about" and "Handles", the chosen segment filled
-  with the theme's primary color, "Rect" renamed "Size".
+- **The tools sit in one row docked above the viewer, labelled, with a
+  selection only.** Decided with the user over three hand checks: in the
+  transport bar the toggles were easy to miss; an overlay strip at the
+  viewer's top-left covered the scene and its handles; a colored fill did
+  not make the choice readable. The row takes its own height (the canvas
+  shrinks), and the choice shows by shape, a shadcn-style tabs list whose
+  chosen tab is an inset pill. Labels "Rotate about" and "Handles"; "Rect"
+  renamed "Size".
 - **The cross marks what a drag turns about.** In Center mode it sits on the
   box's middle as a marker only; the anchor moves only in Pivot mode, where
   the cross is on the pivot it moves.
@@ -333,11 +337,10 @@ These differ from, or settle what the spec left open:
   (`primitive_of`), not by a registration.
 - `drag_values` takes eight parameters (`#[allow(clippy::too_many_arguments)]`);
   folding `pivot` and `resize` into one tool argument is a follow-up.
-- The tool strip's fixed widths (`SEGMENT_WIDTH` 60 px, `STRIP_LABEL_WIDTH`
-  84 px) are estimated from the labels, not measured on screen; if a label
-  clips, widen the constant. The strip covers the canvas under it (it
-  occludes the pointer there while nothing is pressed): a handle or layer
-  under it can't be pressed. Left to the user to decide.
+- The tool row's tab width (`TAB_WIDTH` 58 px) is estimated from the
+  labels, not measured on screen; if a label clips, widen the constant.
+- Selecting and deselecting a layer adds and removes the row, so the canvas
+  re-letterboxes by the row's height each time.
 
 ## What 2d builds on
 
@@ -357,23 +360,20 @@ In the editor, with **Select layers** on, on a scene of your own (the
 feature tour has no editor-only content these tools supersede, so no
 example changed):
 
-- Turn on **Select layers**: no tool strip while nothing is selected.
-  Select a layer: a tool strip appears at the viewer's top-left with
-  "Rotate about" [Center | Pivot] and "Handles" [Size | Scale], Pivot
-  and Size filled (the theme's primary color, square corners), legible
-  over a bright and a dark scene; the transport bar has no toggles and
-  keeps its old layout. Clicking a segment fills it; clicking the strip
-  never selects or deselects a layer behind it, and clicking just outside
-  it does. Move a layer (and resize it) with a drag that passes over the
-  strip and is released on it: the drag follows the pointer across the
-  strip and ends where released. Select
-  layers one after another, including ones that fall back: the strip's
-  width and labels never change, only a warning icon appears in the
-  reserved slot. Clearing the selection (click empty canvas) or turning the
-  mode off hides the strip.
+- Turn on **Select layers**: no tool row while nothing is selected. Select
+  a layer: a row appears at the top of the viewer, above the frame, and the
+  frame shrinks to make room (nothing is covered). It holds "Rotate about"
+  [Center | Pivot] and "Handles" [Size | Scale] as tabs lists: Pivot and
+  Size are the inset, raised pills with a visible gap around them; the
+  other tab is unfilled with muted text. The transport bar has no toggles
+  and keeps its old layout. Clicking a tab moves the pill there. Select
+  layers one after another, including ones that fall back: the row's
+  widths and labels never change, only a warning icon appears in the
+  reserved slot after the tabs. Clearing the selection (click empty
+  canvas) or turning the mode off removes the row and the frame grows back.
 - 04 TYPE in `examples/feature-tour/film.tsx`, the card `<Rect x={DX} y={top}
-  … rotation={-9.5} anchorX={0.8} …>`: choose Center. The Center segment
-  stays filled and a warning icon appears beside it, tooltip "x or y can't
+  … rotation={-9.5} anchorX={0.8} …>`: choose Center. The Center tab
+  stays chosen and a warning icon appears beside it, tooltip "x or y can't
   be edited"; the cross stays on the pivot. Hover the rotation handle:
   "Pivot — x or y can't be edited"; drag it: the label starts with the same
   note, and the card turns about the cross. Hover the cross: "X: Comes from
@@ -431,7 +431,7 @@ example changed):
 - Select a stroked `Text` with the Size tool: the selection outline is drawn
   on its layout box, through the handles; with Scale it is the padded quad
   again. A `Rect` anchored at its middle with keyframed `x`: Size stays
-  filled with the warning "x or y can't move", and the scale handles show.
+  chosen with the warning "x or y can't move", and the scale handles show.
 - Select a layer with keyframed `rotation`, Center chosen: the warning reads
   "Rotation or scale is animated", and the rotation handle turns it about
   the pivot (the cross), writing `rotation` only; its left and top resize
@@ -442,7 +442,7 @@ example changed):
   the cross's tooltip reads
   "Size is animated". With keyframed `anchorX`: Center's warning reads
   "Size or anchor is animated" and the cross's "Anchor is animated".
-- Select a `Group`: Size stays filled with the warning "No size to
+- Select a `Group`: Size stays chosen with the warning "No size to
   resize", and the 2a scale handles show; hover over the cross: "A group's
   anchor has no effect", and Alt-drag does nothing. A `Rect` with
   `height={h * 2}` reads "Height: Written as an expression: h * 2".
