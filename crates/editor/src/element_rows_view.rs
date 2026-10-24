@@ -6,7 +6,8 @@ use crate::element_edit::{
     reason_text, table_key,
 };
 use crate::element_rows::{
-    element_control_handler, removable, row_field, row_label, scrubs, set_at_text,
+    component_row_label, element_control_handler, removable, row_field, row_label, scrubs,
+    set_at_text,
 };
 use crate::icons::CelestaIcon;
 use crate::layer_panel::LABEL_WIDTH;
@@ -169,7 +170,7 @@ impl EditorView {
                 let key = PropKey::CallSite(prop.name.clone());
                 column = column.child(self.element_row(
                     &key,
-                    prop.name.clone(),
+                    component_row_label(component, &prop.name),
                     &prop.target,
                     row_field(targets, &key),
                     false,

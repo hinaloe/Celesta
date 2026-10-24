@@ -13,7 +13,7 @@ use crate::element_edit::{
 };
 use crate::element_rows::{
     HeldCommit, HeldCommits, InteractiveToggle, Scrub, SelectionGate, TypedText, cleared_path,
-    commit_owns_row, control_kind, edited_rows, interactive_toggle, moved_off_keyframe,
+    commit_owns_row, component_row_label, control_kind, edited_rows, interactive_toggle, moved_off_keyframe,
     parse_row_value, removable, row_field, row_kind, row_label, row_text, scrub_takes_focus,
     scrub_value, set_at_text, typed_text, written_text,
 };
@@ -4259,6 +4259,34 @@ fn component_props_use_the_registered_schema() {
     assert_eq!(component.props[0].kind, ControlKind::Color);
     // A prop the schema does not declare keeps its literal's kind.
     assert_eq!(component.props[1].kind, ControlKind::Number);
+}
+
+#[test]
+fn component_rows_show_the_schema_label_else_the_name() {
+    let mut targets =
+        resolve_targets(read_from(&props_tag_files()), &props_tag_report(), None).unwrap();
+    // Unregistered: the names as written, not put into words.
+    let component = targets.component.as_ref().unwrap();
+    let unregistered = component_row_label(component, &component.props[1].name);
+    assert_eq!(unregistered, component.props[1].name);
+    let schemas = std::collections::BTreeMap::from([(
+        "PriceTag".to_owned(),
+        std::collections::BTreeMap::from([(
+            "label".to_owned(),
+            celesta_react_bridge::ComponentPropertyField::String {
+                label: Some("Caption".to_owned()),
+                default_value: String::new(),
+            },
+        )]),
+    )]);
+
+    type_component_props(&mut targets, &schemas, read_from(&props_tag_files()));
+
+    let component = targets.component.as_ref().unwrap();
+    assert_eq!(component_row_label(component, "label"), "Caption");
+    // A prop the schema does not declare keeps its name.
+    let undeclared = &component.props[1].name;
+    assert_eq!(component_row_label(component, undeclared), *undeclared);
 }
 
 fn schema_number(

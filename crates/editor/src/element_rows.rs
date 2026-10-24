@@ -5,10 +5,11 @@
 //! the row state, and the commit flow; `element_rows_view.rs` renders them.
 
 use crate::element_edit::{
-    ElementTargets, PropKey, Target, edit_value, editable, field_of, inner_target, required_of,
-    table_default, text_style_key,
+    ComponentTargets, ElementTargets, PropKey, Target, edit_value, editable, field_of,
+    inner_target, required_of, table_default, text_style_key,
 };
 use crate::layer_select::{SourceLookup, display_path};
+use crate::property_panel::field_label;
 use crate::property_controls::{
     Control, ControlEvent, ControlKind, build_control, parse_color, parse_color_input,
     parse_number_input, take_picked_color,
@@ -68,6 +69,18 @@ pub(crate) fn row_label(key: &str) -> String {
         })
         .collect::<Vec<String>>()
         .join(" ")
+}
+
+/// The label of the Component-section row for the prop `name`: the `label`
+/// its `registerComponent()` schema gives it, else the name as written
+/// (the author's identifier, not put into words as [`row_label`] does).
+pub(crate) fn component_row_label(component: &ComponentTargets, name: &str) -> String {
+    component
+        .schema
+        .as_ref()
+        .and_then(|schema| schema.get(name))
+        .map_or(name, |field| field_label(name, field))
+        .to_owned()
 }
 
 /// How a value shows in a row's text: numbers as written to the source,
