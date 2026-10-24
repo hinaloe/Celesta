@@ -40,6 +40,12 @@ test('the ready message lists the primitives\' property tables in order', () => 
   assert.equal(message.primitiveProperties.Rect?.groups[0]?.name, 'Transform');
 });
 
+test('a prop the props type requires is sent as required', () => {
+  const size = ready([]).primitiveProperties.Rect?.groups.find((group) => group.name === 'Size')?.fields;
+  assert.deepEqual(size?.find((row) => row.key === 'width')?.field, { type: 'number', required: true });
+  assert.equal(size?.find((row) => row.key === 'cornerRadius')?.field.required, undefined);
+});
+
 test('an entry importing @celesta/shapes lists the shapes too', () => {
   const message = ready(["import { Star } from '@celesta/shapes';"], '<Star radius={8} points={5} />');
   assert.ok(message.primitiveProperties.Star, Object.keys(message.primitiveProperties).join(', '));

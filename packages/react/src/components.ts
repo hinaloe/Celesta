@@ -17,7 +17,18 @@ import type {
   LayerVignette, LayerWave, LayerZoomBlur, ShaderEffect,
 } from './shader';
 import { createdAtOverride } from './jsx-dev-runtime';
-import { bool, color, num, path, propertyTable, registerPrimitiveProperties, select, str, text } from './property-tables';
+import {
+  bool,
+  color,
+  num,
+  path,
+  propertyTable,
+  registerPrimitiveProperties,
+  required,
+  select,
+  str,
+  text,
+} from './property-tables';
 import { markPrimitive, markTransparent, markWindow } from './source-chain';
 import { themeTextContent } from './rich-text';
 import { type TextShorthand, ThemeContext, themedShapePaint, themedTextStyle } from './theme';
@@ -1096,7 +1107,7 @@ registerPrimitiveProperties('Image', propertyTable<ImageProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Source: { src: path() },
+    Source: { src: required(path()) },
     Size: { width: num(), height: num(), fit: select(['contain', 'cover']) },
   },
 }));
@@ -1107,7 +1118,7 @@ registerPrimitiveProperties('Text', propertyTable<TextProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Text: { children: text(), fontFamily: str(), fontSize: num(), fontWeight: num(), color: color() },
+    Text: { children: required(text()), fontFamily: str(), fontSize: num(), fontWeight: num(), color: color() },
     Layout: { maxWidth: num() },
   },
 }));
@@ -1118,7 +1129,7 @@ registerPrimitiveProperties('Rect', propertyTable<RectProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { width: num(), height: num(), cornerRadius: num(0) },
+    Size: { width: required(num()), height: required(num()), cornerRadius: num(0) },
     Appearance: { fill: color(), stroke: color(), strokeWidth: num(0) },
   },
 }));
@@ -1128,7 +1139,7 @@ registerPrimitiveProperties('Video', propertyTable<VideoProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Source: { src: path(), startFrom: num(0), playbackRate: num(1, { step: 0.01 }), loop: bool(false) },
+    Source: { src: required(path()), startFrom: num(0), playbackRate: num(1, { step: 0.01 }), loop: bool(false) },
     Audio: { volume: num(1, { step: 0.01 }), muted: bool(false) },
   },
 }));

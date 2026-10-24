@@ -67,11 +67,13 @@ export {
   path,
   propertyTable,
   registerPrimitiveProperties,
+  required,
   select,
   str,
   text,
 } from './property-tables';
 export type {
+  PrimitiveFieldType,
   PrimitivePropertyField,
   PrimitivePropertyTable,
   PrimitiveSize,

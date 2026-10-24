@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
 import type { RectProps } from '../src/components.js';
-import { listPrimitiveProperties, num, propertyTable } from '../src/internal.js';
+import { listPrimitiveProperties, num, propertyTable, required } from '../src/internal.js';
 
 // The primitives register their tables beside their definitions, as an entry
 // loads them.
@@ -57,11 +57,35 @@ test('ratios and fractions declare a fine scrub step', () => {
   assert.deepEqual(num(0, { min: 0, max: 1, step: 0.05 }), { type: 'number', defaultValue: 0, min: 0, max: 1, step: 0.05 });
 });
 
+test('props the props type requires are declared required', () => {
+  const field = (table: string, group: string, key: string) =>
+    listPrimitiveProperties()[table]?.groups.find((entry) => entry.name === group)?.fields
+      .find((row) => row.key === key)?.field;
+  assert.deepEqual(field('Rect', 'Size', 'width'), { type: 'number', required: true });
+  assert.deepEqual(field('Rect', 'Size', 'height'), { type: 'number', required: true });
+  assert.deepEqual(field('Image', 'Source', 'src'), { type: 'path', required: true });
+  assert.deepEqual(field('Video', 'Source', 'src'), { type: 'path', required: true });
+  assert.deepEqual(field('Text', 'Text', 'children'), { type: 'text', required: true });
+  // An optional prop says nothing.
+  assert.deepEqual(field('Rect', 'Size', 'cornerRadius'), { type: 'number', defaultValue: 0 });
+  assert.deepEqual(field('Text', 'Layout', 'maxWidth'), { type: 'number' });
+  assert.deepEqual(required(num()), { type: 'number', required: true });
+});
+
 // Type test: compiled by `tsc -b test`, never run. A key or size prop the
-// props type lacks does not compile.
+// props type lacks does not compile, nor does a required prop not declared
+// `required`, or an optional one declared so.
 export function misspelledKeysDoNotCompile() {
   // @ts-expect-error `widht` is not a prop of `<Rect>`.
   propertyTable<RectProps>({ groups: { Size: { widht: num() } } });
   // @ts-expect-error `<Rect>` has no `radius`.
   propertyTable<RectProps>({ size: { radius: 'radius' }, groups: {} });
+}
+
+export function requiredMatchesThePropsType() {
+  // @ts-expect-error `<Rect>` requires `width`.
+  propertyTable<RectProps>({ groups: { Size: { width: num() } } });
+  // @ts-expect-error `cornerRadius` is optional.
+  propertyTable<RectProps>({ groups: { Size: { cornerRadius: required(num(0)) } } });
+  propertyTable<RectProps>({ groups: { Size: { width: required(num()), cornerRadius: num(0) } } });
 }

@@ -144,7 +144,11 @@ fn ready_message_carries_primitive_tables_in_order() {
                         {"key": "anchorX", "field": {"type": "number", "defaultValue": 0, "step": 0.01}}
                     ]},
                     {"name": "Size", "fields": [
-                        {"key": "width", "field": {"type": "number"}}
+                        {"key": "width", "field": {"type": "number", "required": true}},
+                        {"key": "cornerRadius", "field": {"type": "number", "defaultValue": 0}}
+                    ]},
+                    {"name": "Source", "fields": [
+                        {"key": "src", "field": {"type": "path", "required": true}}
                     ]}
                 ]
             }
@@ -173,7 +177,7 @@ fn ready_message_carries_primitive_tables_in_order() {
         .iter()
         .map(|group| group.name.as_str())
         .collect();
-    assert_eq!(names, ["Transform", "Size"]);
+    assert_eq!(names, ["Transform", "Size", "Source"]);
     let keys: Vec<&str> = rect.groups[0]
         .fields
         .iter()
@@ -207,6 +211,18 @@ fn ready_message_carries_primitive_tables_in_order() {
             step: None,
         }
     );
+    // `required` rides in the field and is lifted onto the row; a field
+    // that says nothing is optional.
+    let required: Vec<(&str, bool)> = rect.groups[1..]
+        .iter()
+        .flat_map(|group| &group.fields)
+        .map(|row| (row.key.as_str(), row.required))
+        .collect();
+    assert_eq!(
+        required,
+        [("width", true), ("cornerRadius", false), ("src", true)]
+    );
+    assert_eq!(rect.groups[2].fields[0].field, PrimitivePropertyField::Path);
 }
 
 #[test]

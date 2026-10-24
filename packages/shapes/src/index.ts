@@ -8,6 +8,7 @@ import {
   num,
   propertyTable,
   registerPrimitiveProperties,
+  required,
   themedShapePaint,
 } from '@celesta/react/internal';
 import type { CommonProps, LineCap, LineJoin, Paint, PathCommand } from '@celesta/react';
@@ -1190,7 +1191,7 @@ registerPrimitiveProperties('Ellipse', propertyTable<EllipseProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { width: num(), height: num() },
+    Size: { width: required(num()), height: required(num()) },
     Appearance: { fill: color(), stroke: color(), strokeWidth: num(2) },
   },
 }));
@@ -1201,7 +1202,7 @@ registerPrimitiveProperties('Circle', propertyTable<CircleProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { radius: num() },
+    Size: { radius: required(num()) },
     Appearance: { fill: color(), stroke: color(), strokeWidth: num(2) },
   },
 }));
@@ -1212,7 +1213,7 @@ registerPrimitiveProperties('Triangle', propertyTable<TriangleProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { width: num(), height: num(), apex: num(0.5, { min: 0, max: 1 }), cornerRadius: num(0) },
+    Size: { width: required(num()), height: required(num()), apex: num(0.5, { min: 0, max: 1 }), cornerRadius: num(0) },
     Appearance: { fill: color(), stroke: color(), strokeWidth: num(2) },
   },
 }));
@@ -1223,7 +1224,7 @@ registerPrimitiveProperties('Polygon', propertyTable<PolygonProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { radius: num(), sides: num(), cornerRadius: num(0) },
+    Size: { radius: required(num()), sides: required(num()), cornerRadius: num(0) },
     Appearance: { fill: color(), stroke: color(), strokeWidth: num(2) },
   },
 }));
@@ -1234,7 +1235,7 @@ registerPrimitiveProperties('Star', propertyTable<StarProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { radius: num(), points: num(), innerRatio: num(0.5, { min: 0, max: 1 }), cornerRadius: num(0) },
+    Size: { radius: required(num()), points: required(num()), innerRatio: num(0.5, { min: 0, max: 1 }), cornerRadius: num(0) },
     Appearance: { fill: color(), stroke: color(), strokeWidth: num(2) },
   },
 }));
@@ -1245,7 +1246,7 @@ registerPrimitiveProperties('Pie', propertyTable<PieProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { radius: num(), startAngle: num(0), endAngle: num(), cornerRadius: num(0) },
+    Size: { radius: required(num()), startAngle: num(0), endAngle: required(num()), cornerRadius: num(0) },
     Appearance: { fill: color(), stroke: color(), strokeWidth: num(2) },
   },
 }));
@@ -1256,7 +1257,7 @@ registerPrimitiveProperties('Heart', propertyTable<HeartProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { width: num(), height: num() },
+    Size: { width: required(num()), height: required(num()) },
     Appearance: { fill: color(), stroke: color(), strokeWidth: num(2) },
   },
 }));

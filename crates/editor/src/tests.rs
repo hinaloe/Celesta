@@ -3386,6 +3386,7 @@ fn property_table(
                     .map(|(key, field)| PrimitivePropertyRow {
                         key: key.to_owned(),
                         field,
+                        required: false,
                     })
                     .collect(),
             })

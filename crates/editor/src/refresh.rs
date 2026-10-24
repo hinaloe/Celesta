@@ -860,6 +860,7 @@ mod property_outcome {
                         max: None,
                         step: None,
                     },
+                    required: false,
                 }],
             }],
         }

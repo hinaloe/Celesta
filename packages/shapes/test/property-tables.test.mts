@@ -23,6 +23,19 @@ test('shape tables name their box and keep their order', () => {
   );
 });
 
+test('props the shapes require are declared required', () => {
+  const tables = listPrimitiveProperties();
+  const required = (name: string) =>
+    tables[name]?.groups.flatMap((group) => group.fields).filter((row) => row.field.required).map((row) => row.key);
+  assert.deepEqual(required('Circle'), ['radius']);
+  assert.deepEqual(required('Star'), ['radius', 'points']);
+  assert.deepEqual(required('Polygon'), ['radius', 'sides']);
+  assert.deepEqual(required('Pie'), ['radius', 'endAngle']);
+  for (const name of ['Ellipse', 'Triangle', 'Heart']) {
+    assert.deepEqual(required(name), ['width', 'height'], name);
+  }
+});
+
 test('shape transforms scrub scale and anchors finely', () => {
   const tables = listPrimitiveProperties();
   for (const name of ['Ellipse', 'Circle', 'Triangle', 'Polygon', 'Star', 'Pie', 'Heart']) {

@@ -4,7 +4,7 @@
 // CLI sends every table in its ready message.
 
 /** How one prop is edited, and its value when the element does not write it. */
-export type PrimitivePropertyField =
+export type PrimitiveFieldType =
   | { type: 'number'; defaultValue?: number; min?: number; max?: number; step?: number }
   | { type: 'string'; defaultValue?: string }
   | { type: 'text'; defaultValue?: string }
@@ -13,7 +13,21 @@ export type PrimitivePropertyField =
   | { type: 'select'; options: readonly string[]; defaultValue?: string }
   | { type: 'path' };
 
+/**
+ * A field as a table declares it: `required` when the props type requires
+ * the prop, so the editor never offers to remove it.
+ */
+export type PrimitivePropertyField = PrimitiveFieldType & { required?: boolean };
+
 type PropKey<P> = Extract<keyof P, string>;
+
+/** The keys of `P` that are not optional. */
+type RequiredKeys<P> = { [K in keyof P]-?: {} extends Pick<P, K> ? never : K }[keyof P];
+
+/** The field of prop `K`: declared `required` exactly when `P` requires `K`. */
+type FieldOf<P, K extends keyof P> = K extends RequiredKeys<P>
+  ? PrimitiveFieldType & { required: true }
+  : PrimitiveFieldType & { required?: false };
 
 /** The props that hold the box, for the editor's resize handles. */
 export interface PrimitiveSize<P> {
@@ -25,7 +39,7 @@ export interface PrimitiveSize<P> {
 /** A primitive's sections, in order, each its props in order. */
 export interface PrimitivePropertyTable<P> {
   size?: PrimitiveSize<P>;
-  groups: Record<string, Partial<Record<PropKey<P>, PrimitivePropertyField>>>;
+  groups: Record<string, { [K in PropKey<P>]?: FieldOf<P, K> }>;
 }
 
 /** `table`, checked against the props type `P`. */
@@ -40,7 +54,7 @@ export interface NumberRange {
   step?: number;
 }
 
-export function num(defaultValue?: number, { min, max, step }: NumberRange = {}): PrimitivePropertyField {
+export function num(defaultValue?: number, { min, max, step }: NumberRange = {}): PrimitiveFieldType {
   return {
     type: 'number',
     ...(defaultValue === undefined ? {} : { defaultValue }),
@@ -50,30 +64,35 @@ export function num(defaultValue?: number, { min, max, step }: NumberRange = {})
   };
 }
 
-export function str(defaultValue?: string): PrimitivePropertyField {
+export function str(defaultValue?: string): PrimitiveFieldType {
   return defaultValue === undefined ? { type: 'string' } : { type: 'string', defaultValue };
 }
 
 /** A `<Text>`'s children. */
-export function text(): PrimitivePropertyField {
+export function text(): PrimitiveFieldType {
   return { type: 'text' };
 }
 
-export function bool(defaultValue?: boolean): PrimitivePropertyField {
+export function bool(defaultValue?: boolean): PrimitiveFieldType {
   return defaultValue === undefined ? { type: 'boolean' } : { type: 'boolean', defaultValue };
 }
 
-export function color(defaultValue?: string): PrimitivePropertyField {
+export function color(defaultValue?: string): PrimitiveFieldType {
   return defaultValue === undefined ? { type: 'color' } : { type: 'color', defaultValue };
 }
 
-export function select(options: readonly string[], defaultValue?: string): PrimitivePropertyField {
+export function select(options: readonly string[], defaultValue?: string): PrimitiveFieldType {
   return defaultValue === undefined ? { type: 'select', options } : { type: 'select', options, defaultValue };
 }
 
 /** A file path, as an `<Image>`'s `src`. */
-export function path(): PrimitivePropertyField {
+export function path(): PrimitiveFieldType {
   return { type: 'path' };
+}
+
+/** `field` for a prop the props type requires: the editor never removes it. */
+export function required<F extends PrimitiveFieldType>(field: F): F & { required: true } {
+  return { ...field, required: true };
 }
 
 const tables = new Map<string, PrimitivePropertyTable<any>>();

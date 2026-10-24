@@ -517,10 +517,39 @@ pub struct PrimitiveSize {
 
 /// One prop of a [`PrimitivePropertyGroup`].
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(from = "WirePropertyRow")]
 pub struct PrimitivePropertyRow {
     pub key: String,
     pub field: PrimitivePropertyField,
+    /// The props type requires the prop, so the editor never removes it.
+    /// Sent inside `field` (`{ "type": "number", "required": true }`), as the
+    /// table declares it.
+    pub required: bool,
+}
+
+/// [`PrimitivePropertyRow`] as the runtime sends it.
+#[derive(Deserialize)]
+struct WirePropertyRow {
+    key: String,
+    field: WirePropertyField,
+}
+
+#[derive(Deserialize)]
+struct WirePropertyField {
+    #[serde(flatten)]
+    field: PrimitivePropertyField,
+    #[serde(default)]
+    required: bool,
+}
+
+impl From<WirePropertyRow> for PrimitivePropertyRow {
+    fn from(row: WirePropertyRow) -> Self {
+        Self {
+            key: row.key,
+            field: row.field.field,
+            required: row.field.required,
+        }
+    }
 }
 
 /// One section of a primitive's properties, its props in declaration order.
