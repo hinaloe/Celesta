@@ -13,9 +13,9 @@ use crate::element_edit::{
 };
 use crate::element_rows::{
     HeldCommit, HeldCommits, InteractiveToggle, Scrub, SelectionGate, TypedText, cleared_path,
-    commit_owns_row, component_row_label, control_kind, edited_rows, interactive_toggle, moved_off_keyframe,
-    parse_row_value, removable, row_field, row_kind, row_label, row_text, scrub_takes_focus,
-    scrub_value, set_at_text, typed_text, written_text,
+    commit_owns_row, component_row_label, control_kind, edited_rows, interactive_toggle,
+    moved_off_keyframe, parse_row_value, removable, row_field, row_kind, row_label, row_text,
+    scrub_takes_focus, scrub_value, set_at_text, typed_text, written_text,
 };
 use crate::export_worker::{
     ExportEvent, ExportRequest, ExportSource, ExportWorker, export_options,
@@ -4299,7 +4299,26 @@ fn schema_number(
         min,
         max,
         step: None,
+        integer: None,
     }
+}
+
+#[test]
+fn a_component_schema_can_ask_for_whole_numbers() {
+    let field =
+        crate::element_edit::schema_field(&celesta_react_bridge::ComponentPropertyField::Number {
+            label: None,
+            default_value: 3.0,
+            min: Some(1.0),
+            max: None,
+            step: None,
+            integer: Some(true),
+        });
+    assert_eq!(
+        parse_row_value(&ControlKind::Number, Some(&field), "2.5"),
+        Err("Enter a whole number of at least 1".to_owned())
+    );
+    assert_eq!(scrub_value(3.0, 0.4, Some(&field), false), 3.0);
 }
 
 /// `PriceTag` registered with `label: number`, `tone: number` from 0 to 10,
@@ -4526,6 +4545,7 @@ fn scrub_steps() {
                 min: Some(0.0),
                 max: Some(100.0),
                 step: Some(5.0),
+                integer: None,
             },
         )]),
     )]);

@@ -219,7 +219,17 @@ These differ from, or settle what the spec left open:
   order, without `key`, `ref`, spreads, `children`, and the props a row
   above shows with "Set at"; locked rows for anything but a literal. It is
   hidden when nothing is left. Its rows show no received value or table
-  default as a placeholder.
+  default as a placeholder. A row is labeled with the schema field's
+  `label` (`component_row_label`), else the prop's name as written: an
+  author's identifier is not put into words as a table key is.
+- **`integer` on component number fields.** `registerComponent()` and
+  `defineProjectProperties()` number fields take `integer: true`
+  (`ComponentPropertyField::Number.integer`), which `schema_field` passes
+  on, so a Component row refuses a fraction and its scrub rounds. The
+  project Properties panel parses typed numbers with the same
+  `parse_field_number`, so it now keeps to a field's `min`/`max` too. The
+  runtime does not check `integer` against `--props` values, as it does
+  not check `min`/`max`.
 - **The call-site file is read whenever the owner call site is found**, for
   the Component section, so it is in `files`: a commit of any row is refused
   with "The source changed while editing" when the call's props moved

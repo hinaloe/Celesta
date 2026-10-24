@@ -9,11 +9,11 @@ use crate::element_edit::{
     inner_target, required_of, table_default, text_style_key,
 };
 use crate::layer_select::{SourceLookup, display_path};
-use crate::property_panel::field_label;
 use crate::property_controls::{
     Control, ControlEvent, ControlKind, build_control, parse_color, parse_color_input,
     parse_number_input, take_picked_color,
 };
+use crate::property_panel::field_label;
 use crate::transform_drag::override_sites;
 use crate::view::EditorView;
 use celesta_react_bridge::{
@@ -206,6 +206,40 @@ fn theme_color_name(text: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
 }
 
+/// Parses a typed number for a number `field`, inside its range and, with
+/// `integer`, whole; the error says what to enter.
+pub(crate) fn parse_field_number(
+    field: Option<&PrimitivePropertyField>,
+    text: &str,
+) -> Result<f64, String> {
+    let value = parse_number_input(text)?;
+    let (min, max, integer) = match field {
+        Some(PrimitivePropertyField::Number {
+            min, max, integer, ..
+        }) => (*min, *max, integer.unwrap_or(false)),
+        _ => (None, None, false),
+    };
+    let inside = min.is_none_or(|min| value >= min)
+        && max.is_none_or(|max| value <= max)
+        && (!integer || value.fract() == 0.0);
+    let what = if integer {
+        "a whole number"
+    } else {
+        "a number"
+    };
+    match (min, max) {
+        _ if inside => Ok(value),
+        (Some(min), Some(max)) => Err(format!(
+            "Enter {what} from {} to {}",
+            format_number(min),
+            format_number(max)
+        )),
+        (Some(min), None) => Err(format!("Enter {what} of at least {}", format_number(min))),
+        (None, Some(max)) => Err(format!("Enter {what} of at most {}", format_number(max))),
+        (None, None) => Err(format!("Enter {what}")),
+    }
+}
+
 /// Parses typed text for `kind`; the error is the row's message.
 pub(crate) fn parse_row_value(
     kind: &ControlKind,
@@ -213,36 +247,7 @@ pub(crate) fn parse_row_value(
     text: &str,
 ) -> Result<EditValue, String> {
     match kind {
-        ControlKind::Number => {
-            let value = parse_number_input(text)?;
-            let (min, max, integer) = match field {
-                Some(PrimitivePropertyField::Number {
-                    min, max, integer, ..
-                }) => (*min, *max, integer.unwrap_or(false)),
-                _ => (None, None, false),
-            };
-            let inside = min.is_none_or(|min| value >= min)
-                && max.is_none_or(|max| value <= max)
-                && (!integer || value.fract() == 0.0);
-            let what = if integer {
-                "a whole number"
-            } else {
-                "a number"
-            };
-            match (min, max) {
-                _ if inside => Ok(EditValue::Number(value)),
-                (Some(min), Some(max)) => Err(format!(
-                    "Enter {what} from {} to {}",
-                    format_number(min),
-                    format_number(max)
-                )),
-                (Some(min), None) => {
-                    Err(format!("Enter {what} of at least {}", format_number(min)))
-                }
-                (None, Some(max)) => Err(format!("Enter {what} of at most {}", format_number(max))),
-                (None, None) => Err(format!("Enter {what}")),
-            }
-        }
+        ControlKind::Number => parse_field_number(field, text).map(EditValue::Number),
         ControlKind::String | ControlKind::Text | ControlKind::Path => {
             Ok(EditValue::String(text.to_owned()))
         }
