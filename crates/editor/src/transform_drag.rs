@@ -5,9 +5,11 @@
 use crate::element_edit::{
     ElementTargets, PropKey, TransformProp, editable, inner_target, reason_text,
 };
+use crate::canvas_geometry::local_box;
 use crate::layer_select::{letterbox, to_scene};
 use crate::transform_handles::{
-    Handle, drag_label, drag_values, handle_at, preview_values, prop_values, shown_handles, turn,
+    Handle, PivotMode, drag_label, drag_values, handle_at, preview_values, prop_values,
+    shown_handles, turn,
 };
 use crate::view::EditorView;
 use celesta_composition::Point;
@@ -34,6 +36,8 @@ pub(crate) struct TransformDrag {
     handle: Handle,
     start: Point,
     editable: Vec<PropKey>,
+    /// What a rotation or scale turns about, as used (see `pivot_used`).
+    pivot: PivotMode,
     /// The props the runtime saw when the drag started.
     received: ReceivedProps,
     /// Where the runtime takes each editable prop's dragged value, kept from
@@ -57,6 +61,7 @@ impl TransformDrag {
         handle: Handle,
         start: Point,
         editable: Vec<PropKey>,
+        pivot: PivotMode,
         received: ReceivedProps,
         sites: Vec<(PropKey, OverrideSite)>,
     ) -> Self {
@@ -65,6 +70,7 @@ impl TransformDrag {
             handle,
             start,
             editable,
+            pivot,
             received,
             sites,
             turned: 0.0,
@@ -99,6 +105,7 @@ impl TransformDrag {
                 &self.editable,
                 &self.values,
                 &self.received,
+                self.pivot,
             ),
         )
     }
@@ -191,8 +198,48 @@ pub(crate) enum DragState {
     NoFrame,
     /// Every prop is locked; the first reason.
     Locked(LayerFrame, String),
-    /// Draggable with these props.
-    Editable(LayerFrame, Vec<PropKey>),
+    /// Draggable with these props, rotating and scaling about what the
+    /// `PivotMode` names (the mode used, see `pivot_used`).
+    Editable(LayerFrame, Vec<PropKey>, PivotMode),
+}
+
+/// Whether `x` and `y` can absorb a compensation: `Literal` or `Missing`
+/// (directly or through a pass-through), never `Keyframe` or locked. A
+/// keyframe would move at that keyframe only, and the layer would orbit
+/// between them.
+pub(crate) fn compensable(targets: &ElementTargets) -> bool {
+    [TransformProp::X, TransformProp::Y].into_iter().all(|prop| {
+        matches!(
+            targets.transform(prop).map(inner_target),
+            Some(EditTarget::Literal { .. } | EditTarget::Missing { .. })
+        )
+    })
+}
+
+/// The mode a drag of the layer `frame` measures uses when `choice` is
+/// chosen: Center only when `x`/`y` can compensate and the layer's box is
+/// known; the pivot otherwise.
+pub(crate) fn pivot_used(
+    choice: PivotMode,
+    targets: &ElementTargets,
+    frame: &LayerFrame,
+) -> PivotMode {
+    match choice {
+        PivotMode::Center if compensable(targets) && local_box(frame).is_some() => {
+            PivotMode::Center
+        }
+        _ => PivotMode::Pivot,
+    }
+}
+
+/// The props a canvas drag of the element may change: its editable
+/// transform props, in row order.
+pub(crate) fn drag_props(targets: &ElementTargets) -> Vec<PropKey> {
+    TransformProp::ALL
+        .into_iter()
+        .filter(|prop| targets.transform(*prop).is_some_and(editable))
+        .map(TransformProp::key)
+        .collect()
 }
 
 impl EditorView {
@@ -218,32 +265,41 @@ impl EditorView {
         // While dragging, the props stay those the drag began with; the
         // frame is the one drawn with the overrides, so the handles follow.
         if let Some(drag) = &self.transform_drag {
-            return DragState::Editable(frame, drag.editable.clone());
+            return DragState::Editable(frame, drag.editable.clone(), drag.pivot);
         }
         let Some((targets, _)) = self.element_targets() else {
             return DragState::Unknown;
         };
-        // The transform rows, in row order.
-        let transform: Vec<(TransformProp, &EditTarget)> = TransformProp::ALL
-            .into_iter()
-            .filter_map(|prop| Some((prop, targets.transform(prop)?)))
-            .collect();
-        let props: Vec<PropKey> = transform
-            .iter()
-            .filter(|(_, target)| editable(target))
-            .map(|(prop, _)| prop.key())
-            .collect();
+        let props = drag_props(targets);
         if props.is_empty() {
-            let reason = transform
-                .iter()
-                .find_map(|(_, target)| match inner_target(target) {
+            let reason = TransformProp::ALL
+                .into_iter()
+                .filter_map(|prop| targets.transform(prop))
+                .find_map(|target| match inner_target(target) {
                     EditTarget::Locked(reason) => Some(reason_text(reason)),
                     _ => None,
                 })
                 .unwrap_or_default();
             return DragState::Locked(frame, reason);
         }
-        DragState::Editable(frame, props)
+        let pivot = pivot_used(self.pivot_mode, targets, &frame);
+        DragState::Editable(frame, props, pivot)
+    }
+
+    /// The pivot mode the viewer's toggle shows: the one a drag of the
+    /// selected layer uses (the chosen one without a draggable selection),
+    /// and whether Center is chosen but the layer's `x`/`y` can't
+    /// compensate.
+    pub(crate) fn shown_pivot_mode(&self) -> (PivotMode, bool) {
+        let DragState::Editable(_, _, used) = self.drag_state() else {
+            return (self.pivot_mode, false);
+        };
+        let fixed = self.pivot_mode == PivotMode::Center
+            && used == PivotMode::Pivot
+            && self
+                .element_targets()
+                .is_some_and(|(targets, _)| !compensable(targets));
+        (used, fixed)
     }
 
     /// The prop overrides the preview evaluates the scene with while a drag
@@ -303,7 +359,7 @@ impl EditorView {
         if self.row_scrub_released() {
             return false;
         }
-        let DragState::Editable(frame, editable) = self.drag_state() else {
+        let DragState::Editable(frame, editable, pivot) = self.drag_state() else {
             return false;
         };
         let Some((received, sites)) = self
@@ -322,7 +378,7 @@ impl EditorView {
             return false;
         };
         let scale = f64::from(scale);
-        let shown = shown_handles(&frame, &editable, f64::from(ROTATE_STEM) / scale);
+        let shown = shown_handles(&frame, &editable, f64::from(ROTATE_STEM) / scale, pivot);
         let handle = match handle_at(&frame, &shown, start, f64::from(HANDLE_REACH) / scale) {
             Some(Handle::Move)
                 if presses_body(&frame, topmost)
@@ -339,7 +395,7 @@ impl EditorView {
             self.cancel_row_scrub();
         }
         self.transform_drag = Some(TransformDrag::new(
-            frame, handle, start, editable, received, sites,
+            frame, handle, start, editable, pivot, received, sites,
         ));
         true
     }
@@ -375,9 +431,10 @@ impl EditorView {
             event.modifiers.shift,
             drag.turned,
             &drag.editable,
+            drag.pivot,
         );
         if drag.handle == Handle::Rotate
-            && let Some(turned) = turn(&drag.frame, drag.start, now, drag.turned)
+            && let Some(turned) = turn(&drag.frame, drag.pivot, drag.start, now, drag.turned)
         {
             drag.turned = turned;
         }
@@ -464,4 +521,234 @@ impl EditorView {
 /// any of its leaves.
 pub(crate) fn presses_body(frame: &LayerFrame, topmost: Option<&str>) -> bool {
     topmost.is_some_and(|hit| frame.leaves.iter().any(|leaf| leaf == hit))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canvas_geometry::box_frame;
+    use crate::edit_history::{EditHistory, HistoryEntry, write_all_recorded};
+    use crate::element_edit::{Target, commit_files, resolve_targets};
+    use celesta_composition::EvaluatedTransform;
+    use celesta_react_bridge::{ElementKind, LayerSource};
+    use celesta_source_edit::{EditValue, ElementRef, LiteralForm, LockReason, Span};
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn at(x: f64, y: f64) -> Point {
+        Point { x, y }
+    }
+
+    const IDENTITY: [f64; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+
+    /// A 100 × 50 `Rect` anchored at its top-left corner at (40, 20).
+    fn rect_frame() -> LayerFrame {
+        let transform = EvaluatedTransform {
+            position: at(40.0, 20.0),
+            anchor: at(0.0, 0.0),
+            ..EvaluatedTransform::default()
+        };
+        box_frame(transform, IDENTITY, 100.0, 50.0)
+    }
+
+    fn literal(value: f64) -> EditTarget {
+        EditTarget::Literal {
+            span: Span { start: 0, end: 1 },
+            value: EditValue::Number(value),
+            form: LiteralForm::Number,
+        }
+    }
+
+    /// Targets with `rows` (name, target), written on one element.
+    fn targets(rows: Vec<(&str, EditTarget)>) -> ElementTargets {
+        let file = PathBuf::from("/project/scene.tsx");
+        ElementTargets {
+            file: file.clone(),
+            files: vec![file.clone()],
+            element: ElementRef {
+                start: 0,
+                end_of_attributes: 0,
+                children: None,
+            },
+            targets: rows
+                .into_iter()
+                .map(|(name, target)| {
+                    (
+                        PropKey::Prop(name.to_owned()),
+                        Target {
+                            file: file.clone(),
+                            path: name.to_owned(),
+                            target,
+                            call_site: None,
+                            inputs: Vec::new(),
+                        },
+                    )
+                })
+                .collect(),
+            table: None,
+            component: None,
+        }
+    }
+
+    fn with_x(x: EditTarget) -> ElementTargets {
+        targets(vec![
+            ("x", x),
+            ("y", literal(20.0)),
+            ("rotation", literal(0.0)),
+            ("scale", literal(1.0)),
+        ])
+    }
+
+    #[test]
+    fn a_keyframed_x_falls_back_to_the_pivot() {
+        let frame = rect_frame();
+        let keyframed = with_x(EditTarget::Keyframe {
+            span: Span { start: 0, end: 1 },
+            value: 40.0,
+            frame: 0.0,
+        });
+        assert!(!compensable(&keyframed));
+        let pivot = pivot_used(PivotMode::Center, &keyframed, &frame);
+        assert_eq!(pivot, PivotMode::Pivot);
+        let values = drag_values(
+            &frame,
+            Handle::Rotate,
+            (at(200.0, 20.0), at(40.0, 180.0)),
+            false,
+            0.0,
+            &[
+                TransformProp::X.key(),
+                TransformProp::Y.key(),
+                TransformProp::Rotation.key(),
+            ],
+            pivot,
+        );
+        assert_eq!(values.len(), 1, "{values:?}");
+        assert_eq!(values[0].0, TransformProp::Rotation.key());
+
+        // A literal, an absent prop, and one passed through to a literal
+        // take the compensation; a locked one does not.
+        assert_eq!(
+            pivot_used(PivotMode::Center, &with_x(literal(40.0)), &frame),
+            PivotMode::Center
+        );
+        let missing = EditTarget::Missing {
+            insert_at: 0,
+            default: None,
+        };
+        assert!(compensable(&with_x(missing)));
+        let passed = EditTarget::PassThrough {
+            call_site: ElementRef {
+                start: 0,
+                end_of_attributes: 0,
+                children: None,
+            },
+            param: "x".to_owned(),
+            target: Box::new(literal(40.0)),
+        };
+        assert!(compensable(&with_x(passed)));
+        assert!(!compensable(&with_x(EditTarget::Locked(
+            LockReason::Spread
+        ))));
+        assert!(!compensable(&targets(vec![("y", literal(20.0))])));
+        // Pivot chosen is Pivot used.
+        assert_eq!(
+            pivot_used(PivotMode::Pivot, &with_x(literal(40.0)), &frame),
+            PivotMode::Pivot
+        );
+    }
+
+    const COMPONENT: &str =
+        "export const PriceTag = ({ x, y }) => (\n  <Rect x={x} y={y} rotation={0} />\n);\n";
+    const SCENE: &str = "export const Scene = () => (\n  <PriceTag x={40} y={20} />\n);\n";
+
+    fn entry(name: &str, kind: ElementKind, file: &Path) -> LayerSource {
+        LayerSource {
+            name: name.to_owned(),
+            file: file.to_path_buf(),
+            line: 2,
+            column: 3,
+            kind,
+            layer_id: None,
+        }
+    }
+
+    #[test]
+    fn a_two_file_center_rotation_is_one_undo() {
+        let dir = std::env::temp_dir().join(format!(
+            "celesta-center-rotation-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let (component, scene) = (dir.join("component.tsx"), dir.join("scene.tsx"));
+        fs::write(&component, COMPONENT).unwrap();
+        fs::write(&scene, SCENE).unwrap();
+        // `<Rect>` in `PriceTag`, called from the scene with `x`, `y`.
+        let report = LayerSourceReport {
+            chain: vec![
+                entry("Rect", ElementKind::Primitive, &component),
+                entry("PriceTag", ElementKind::Component, &scene),
+            ],
+            local_frame: 0.0,
+            candidate_frames: vec![],
+            props: ReceivedProps {
+                x: Some(40.0),
+                y: Some(20.0),
+                rotation: Some(0.0),
+                ..ReceivedProps::default()
+            },
+            render_count: 1,
+            windows: vec![],
+            span: None,
+        };
+        let read = |path: &Path| fs::read_to_string(path).map_err(|error| error.to_string());
+        let targets = resolve_targets(read, &report, None).expect("the element resolves");
+        assert!(compensable(&targets));
+
+        // A quarter turn about the box center (90, 45): the top-left corner
+        // goes from (40, 20) to (115, −5).
+        let frame = rect_frame();
+        let pivot = pivot_used(PivotMode::Center, &targets, &frame);
+        assert_eq!(pivot, PivotMode::Center);
+        let editable = drag_props(&targets);
+        let values = drag_values(
+            &frame,
+            Handle::Rotate,
+            (at(190.0, 45.0), at(90.0, 145.0)),
+            false,
+            0.0,
+            &editable,
+            pivot,
+        );
+        let values: Vec<_> = prop_values(&frame, &values, &report.props)
+            .into_iter()
+            .map(|(key, value)| (key, Some(EditValue::Number(value))))
+            .collect();
+        let files = write_all_recorded(targets.files.clone(), |texts| {
+            commit_files(texts, &targets, &report, &values).map_err(|error| error.to_string())
+        })
+        .expect("both files are written");
+        assert_eq!(files.len(), 2);
+        assert_eq!(
+            fs::read_to_string(&component).unwrap(),
+            COMPONENT.replace("rotation={0}", "rotation={90}")
+        );
+        assert_eq!(
+            fs::read_to_string(&scene).unwrap(),
+            SCENE.replace("x={40} y={20}", "x={115} y={-5}")
+        );
+
+        // One entry: one undo puts both files back.
+        let mut history = EditHistory::default();
+        history.push(HistoryEntry { files });
+        history.undo().unwrap();
+        assert_eq!(fs::read_to_string(&component).unwrap(), COMPONENT);
+        assert_eq!(fs::read_to_string(&scene).unwrap(), SCENE);
+        fs::remove_dir_all(&dir).ok();
+    }
 }

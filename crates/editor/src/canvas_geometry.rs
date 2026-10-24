@@ -6,9 +6,6 @@
 //! A layer's own pixels are relative to its anchor point, as
 //! `EvaluatedTransform::homography` lays the layer plane out.
 
-// The pivot and resize tools take these up; until then only the tests do.
-#![cfg_attr(not(test), allow(dead_code))]
-
 use celesta_composition::{EvaluatedTransform, Point};
 use celesta_gpu_renderer::{LayerFrame, invert_affine};
 
@@ -61,8 +58,15 @@ pub(crate) fn pivot(transform: &EvaluatedTransform) -> Point {
     apply(&layer_map(transform), transform.origin)
 }
 
-/// The box `frame.outline` encloses, in the layer's own pixels; `None` when a map collapses.
+/// The box `frame.outline` encloses, in the layer's own pixels; `None` when a
+/// map collapses, or when the renderer draws the layer through its
+/// homography (a perspective that tilts it), which `layer_map` does not
+/// describe.
 pub(crate) fn local_box(frame: &LayerFrame) -> Option<LocalBox> {
+    let transform = &frame.transform;
+    if transform.perspective_distance().is_some() && transform.is_projective() {
+        return None;
+    }
     let parent = invert_affine(frame.parent)?;
     let layer = invert_affine(layer_map(&frame.transform))?;
     let corners = frame
@@ -96,10 +100,37 @@ pub(crate) fn keep_fixed(
 }
 
 /// `m` applied to `p` (`x' = a x + c y + tx`).
-fn apply(m: &[f64; 6], p: Point) -> Point {
+pub(crate) fn apply(m: &[f64; 6], p: Point) -> Point {
     Point {
         x: m[0] * p.x + m[2] * p.y + m[4],
         y: m[1] * p.x + m[3] * p.y + m[5],
+    }
+}
+
+/// The frame of a `width` × `height` box placed by `transform` inside
+/// `parent`, its outline mapped with `layer_map` as the renderer lays a quad
+/// out: the box's corners relative to the anchor point.
+#[cfg(test)]
+pub(crate) fn box_frame(
+    transform: EvaluatedTransform,
+    parent: [f64; 6],
+    width: f64,
+    height: f64,
+) -> LayerFrame {
+    let own = layer_map(&transform);
+    let anchor = transform.anchor;
+    let outline = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|(u, v)| {
+        let local = Point {
+            x: (u - anchor.x) * width,
+            y: (v - anchor.y) * height,
+        };
+        apply(&parent, apply(&own, local))
+    });
+    LayerFrame {
+        transform,
+        parent,
+        outline,
+        leaves: vec!["a".to_owned()],
     }
 }
 
@@ -201,6 +232,37 @@ mod tests {
         let local = local_box(&frame(top_left, parent, 200.0, 100.0)).expect("a box");
         assert_near(local.min, at(0.0, 0.0));
         assert_near(local.max, at(200.0, 100.0));
+
+        // An origin moves the turning point, not the box: it stays relative
+        // to the anchor point.
+        let with_origin = EvaluatedTransform {
+            origin: at(40.0, 10.0),
+            scale: at(1.5, 0.5),
+            ..centered
+        };
+        let local = local_box(&box_frame(with_origin, parent, 200.0, 100.0)).expect("a box");
+        assert_near(local.min, at(-100.0, -50.0));
+        assert_near(local.max, at(100.0, 50.0));
+    }
+
+    #[test]
+    fn a_projective_layer_has_no_local_box() {
+        // The renderer draws it through its homography, which `layer_map`
+        // does not describe.
+        let tilted = EvaluatedTransform {
+            rotation_y: 30.0,
+            perspective: Some(800.0),
+            ..EvaluatedTransform::default()
+        };
+        assert!(tilted.is_projective());
+        let parent = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+        assert_eq!(local_box(&box_frame(tilted, parent, 100.0, 50.0)), None);
+        // Without a perspective it is drawn flat, by its affine part.
+        let flat = EvaluatedTransform {
+            perspective: None,
+            ..tilted
+        };
+        assert!(local_box(&box_frame(flat, parent, 100.0, 50.0)).is_some());
     }
 
     #[test]

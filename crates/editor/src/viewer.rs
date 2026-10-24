@@ -5,7 +5,7 @@
 use celesta_composition::Point;
 use celesta_editor_theme as theme;
 use celesta_gpu_renderer::hit_test;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::{Button, ButtonGroup, ButtonVariants as _};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tooltip::Tooltip;
@@ -30,7 +30,7 @@ use crate::problems::{ActiveProblem, Source, flow_line_breaks, summarize_warning
 use crate::problems_panel::{detail_block, show_in_problems_row};
 use crate::timecode::format_timecode;
 use crate::transform_drag::{DragState, HANDLE_SIZE, NO_AFFINE_FRAME, ROTATE_STEM};
-use crate::transform_handles::{Handle, rotate_stem, shown_handles};
+use crate::transform_handles::{Handle, PivotMode, rotate_stem, shown_handles};
 use crate::view::EditorView;
 use celesta_gpu_renderer::LayerFrame;
 
@@ -81,7 +81,9 @@ impl EditorView {
         let dashed = matches!(drag_state, DragState::Locked(..));
         let handle_fill = cx.theme().background;
         let editable_frame = match &drag_state {
-            DragState::Editable(frame, editable) => Some((frame.clone(), editable.clone())),
+            DragState::Editable(frame, editable, pivot) => {
+                Some((frame.clone(), editable.clone(), *pivot))
+            }
             _ => None,
         };
         let notice = match drag_state {
@@ -103,7 +105,7 @@ impl EditorView {
         };
         let label = self.transform_drag_label().and_then(|label| {
             let bounds = last_bounds?;
-            let (frame, _) = editable_frame.as_ref()?;
+            let (frame, _, _) = editable_frame.as_ref()?;
             Some((outline_box(bounds, frame_size, frame)?, label))
         });
         let canvas_area = div()
@@ -133,8 +135,8 @@ impl EditorView {
                         viewer_bounds.set(Some(bounds));
                         // Each handle's square, with a hitbox for its cursor.
                         editable_frame
-                            .map(|(frame, editable)| {
-                                place_handles(bounds, frame_size, &frame, &editable, window)
+                            .map(|(frame, editable, pivot)| {
+                                place_handles(bounds, frame_size, &frame, &editable, pivot, window)
                             })
                             .unwrap_or_default()
                     },
@@ -556,6 +558,9 @@ impl EditorView {
                     .tooltip_with_action("Safe areas", &ToggleSafeAreas, KEY_CONTEXT)
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_safe_areas(cx))),
             )
+            .when(self.is_react_preview() && self.interactive, |bar| {
+                bar.child(self.pivot_toggle(cx))
+            })
             .when(self.is_react_preview(), |bar| {
                 let button = Button::new("toggle-interactive")
                     .small()
@@ -604,6 +609,49 @@ impl EditorView {
             .child(timecode)
             .child(transport)
             .child(trailing)
+    }
+
+    /// "Center" | "Pivot": what canvas rotation and scale turn about. Shows
+    /// the mode the selected layer's drag uses; a layer whose `x`/`y` can't
+    /// compensate reads "Pivot (x, y not editable)" while Center stays
+    /// chosen for the next one.
+    fn pivot_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let (used, fallback) = self.shown_pivot_mode();
+        let muted = cx.theme().muted_foreground;
+        let pivot_label = if fallback {
+            "Pivot (x, y not editable)"
+        } else {
+            "Pivot"
+        };
+        ButtonGroup::new("pivot-mode")
+            .small()
+            .outline()
+            .child(
+                Button::new("pivot-center")
+                    .label("Center")
+                    .selected(used == PivotMode::Center)
+                    .tooltip("Rotate and scale about the layer's center")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.set_pivot_mode(PivotMode::Center, cx);
+                    })),
+            )
+            .child(
+                Button::new("pivot-pivot")
+                    .label(pivot_label)
+                    .selected(used == PivotMode::Pivot)
+                    .when(fallback, |button| button.text_color(muted))
+                    .tooltip("Rotate and scale about the anchor")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.set_pivot_mode(PivotMode::Pivot, cx);
+                    })),
+            )
+    }
+
+    fn set_pivot_mode(&mut self, mode: PivotMode, cx: &mut Context<Self>) {
+        if self.pivot_mode != mode {
+            self.pivot_mode = mode;
+            cx.notify();
+        }
     }
 
     /// The master meter over the preview volume. Sits at the timeline's
@@ -953,12 +1001,13 @@ fn place_handles(
     frame_size: (f32, f32),
     frame: &LayerFrame,
     editable: &[crate::element_edit::PropKey],
+    pivot: PivotMode,
     window: &mut Window,
 ) -> Option<PlacedHandles> {
     let (left, top, scale) = letterbox(bounds, frame_size)?;
     let on_viewer = |p: Point| point(px(left + p.x as f32 * scale), px(top + p.y as f32 * scale));
     let stem = f64::from(ROTATE_STEM / scale);
-    let squares = shown_handles(frame, editable, stem)
+    let squares = shown_handles(frame, editable, stem, pivot)
         .into_iter()
         .map(|(handle, at)| {
             let center = on_viewer(at);

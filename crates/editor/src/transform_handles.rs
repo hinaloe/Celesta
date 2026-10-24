@@ -11,11 +11,43 @@
 //! for the layers that deviate (an `<Instances>`, whose x, y and rotation are
 //! its particles').
 
+use crate::canvas_geometry::{apply, keep_fixed, layer_map, local_box, pivot};
 use crate::element_edit::{PropKey, TransformProp, received_number};
 use celesta_composition::{EvaluatedTransform, Point};
 use celesta_gpu_renderer::{LayerFrame, invert_affine};
 use celesta_react_bridge::ReceivedProps;
 use celesta_source_edit::format_number;
+
+/// What a rotation or scale drag turns about.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) enum PivotMode {
+    /// The center of the layer's box, which stays put: `x`/`y` compensate.
+    #[default]
+    Center,
+    /// The layer's pivot, its anchor point plus `origin`, where the renderer
+    /// turns and scales it.
+    Pivot,
+}
+
+/// The box center a drag of `frame` keeps still under `pivot`, in the
+/// layer's own pixels; `None` in Pivot mode, or when the box is unknown (the
+/// drag then turns about the pivot).
+fn kept_center(frame: &LayerFrame, pivot: PivotMode) -> Option<Point> {
+    match pivot {
+        PivotMode::Center => local_box(frame).map(|local| local.center()),
+        PivotMode::Pivot => None,
+    }
+}
+
+/// The point a rotation or scale of `frame` turns about under `mode`, in its
+/// parent's space: the box center in Center mode, else the pivot.
+fn turning_point(frame: &LayerFrame, mode: PivotMode) -> Point {
+    let transform = &frame.transform;
+    kept_center(frame, mode).map_or_else(
+        || pivot(transform),
+        |center| apply(&layer_map(transform), center),
+    )
+}
 
 /// A part of the selection that a drag starts from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -122,31 +154,34 @@ fn inside(outline: &[Point; 4], point: Point) -> bool {
     !(positive && negative)
 }
 
-fn apply(m: &[f64; 6], p: Point) -> Point {
-    Point {
-        x: m[0] * p.x + m[2] * p.y + m[4],
-        y: m[1] * p.x + m[3] * p.y + m[5],
-    }
-}
-
 /// How far a rotation drag from `start` to `now` (scene pixels) has turned
-/// about the anchor, in degrees: the angle between them, plus the whole turns
-/// that keep it nearest `previous` (the turn at the previous move), so a drag
-/// that goes on past a half turn keeps counting instead of wrapping.
-pub(crate) fn turn(frame: &LayerFrame, start: Point, now: Point, previous: f64) -> Option<f64> {
+/// about the point `pivot` turns about (see [`PivotMode`]), in degrees: the
+/// angle between them, plus the whole turns that keep it nearest `previous`
+/// (the turn at the previous move), so a drag that goes on past a half turn
+/// keeps counting instead of wrapping.
+pub(crate) fn turn(
+    frame: &LayerFrame,
+    pivot: PivotMode,
+    start: Point,
+    now: Point,
+    previous: f64,
+) -> Option<f64> {
     let inverse = invert_affine(frame.parent)?;
     let (start, now) = (apply(&inverse, start), apply(&inverse, now));
-    let anchor = frame.transform.position;
-    let angle = |p: Point| (p.y - anchor.y).atan2(p.x - anchor.x).to_degrees();
+    let about = turning_point(frame, pivot);
+    let angle = |p: Point| (p.y - about.y).atan2(p.x - about.x).to_degrees();
     let raw = angle(now) - angle(start);
     Some(raw + ((previous - raw) / 360.0).round() * 360.0)
 }
 
 /// The transform values a drag of `handle` from `start` to `now` (scene
 /// pixels) makes, for the props in `editable` only. The pointer moves are
-/// taken into the layer's parent space; rotation turns about the anchor by
-/// [`turn`] from `previous_turn` (the result snapped to 15° with `shift`),
-/// and scaling keeps the anchor in place, in one ratio for a uniform `Scale`.
+/// taken into the layer's parent space; rotation turns by [`turn`] from
+/// `previous_turn` (the result snapped to 15° with `shift`), and scaling
+/// keeps the turning point in place, in one ratio for a uniform `Scale`.
+/// Both turn about the point `pivot` names (the mode the drag uses, Center
+/// only when `x`/`y` can compensate); in Center mode `x`/`y` follow so the
+/// box's center stays where it was.
 pub(crate) fn drag_values(
     frame: &LayerFrame,
     handle: Handle,
@@ -154,6 +189,7 @@ pub(crate) fn drag_values(
     shift: bool,
     previous_turn: f64,
     editable: &[PropKey],
+    pivot: PivotMode,
 ) -> Vec<(PropKey, f64)> {
     let pointer = (start, now);
     let Some(inverse) = invert_affine(frame.parent) else {
@@ -161,36 +197,41 @@ pub(crate) fn drag_values(
     };
     let (start, now) = (apply(&inverse, start), apply(&inverse, now));
     let transform = &frame.transform;
-    let anchor = transform.position;
     let can = |prop: TransformProp| editable.contains(&prop.key());
     let mut values = Vec::new();
     let mut push = |prop: TransformProp, value: f64| values.push((prop.key(), value));
+    // The props after the drag, with the old position.
+    let mut after = *transform;
     match handle {
         Handle::Move => {
+            let position = transform.position;
             if can(TransformProp::X) {
-                push(TransformProp::X, anchor.x + now.x - start.x);
+                push(TransformProp::X, position.x + now.x - start.x);
             }
             if can(TransformProp::Y) {
-                push(TransformProp::Y, anchor.y + now.y - start.y);
+                push(TransformProp::Y, position.y + now.y - start.y);
             }
+            return values;
         }
         Handle::Rotate => {
             if can(TransformProp::Rotation)
-                && let Some(delta) = turn(frame, pointer.0, pointer.1, previous_turn)
+                && let Some(delta) = turn(frame, pivot, pointer.0, pointer.1, previous_turn)
             {
                 let mut rotation = transform.rotation + delta;
                 if shift {
                     rotation = (rotation / SNAP_DEGREES).round() * SNAP_DEGREES;
                 }
                 push(TransformProp::Rotation, rotation);
+                after.rotation = rotation;
             }
         }
         Handle::Corner(_) | Handle::Edge(_) => {
             let Some(unturn) = unturn(transform) else {
                 return values;
             };
+            let about = turning_point(frame, pivot);
             let local = |p: Point| {
-                let v = (p.x - anchor.x, p.y - anchor.y);
+                let v = (p.x - about.x, p.y - about.y);
                 Point {
                     x: unturn[0] * v.0 + unturn[2] * v.1,
                     y: unturn[1] * v.0 + unturn[3] * v.1,
@@ -201,7 +242,9 @@ pub(crate) fn drag_values(
                 let length = from.x * from.x + from.y * from.y;
                 if length > 1e-9 {
                     let ratio = ((to.x * from.x + to.y * from.y) / length).max(MIN_SCALE_RATIO);
-                    push(TransformProp::Scale, transform.scale.x * ratio);
+                    let scale = transform.scale.x * ratio;
+                    push(TransformProp::Scale, scale);
+                    after.scale = Point { x: scale, y: scale };
                 }
             } else {
                 let ratio = |from: f64, to: f64| {
@@ -215,16 +258,29 @@ pub(crate) fn drag_values(
                     && can(TransformProp::ScaleX)
                     && let Some(ratio) = ratio(from.x, to.x)
                 {
-                    push(TransformProp::ScaleX, transform.scale.x * ratio);
+                    after.scale.x = transform.scale.x * ratio;
+                    push(TransformProp::ScaleX, after.scale.x);
                 }
                 if y_axis
                     && can(TransformProp::ScaleY)
                     && let Some(ratio) = ratio(from.y, to.y)
                 {
-                    push(TransformProp::ScaleY, transform.scale.y * ratio);
+                    after.scale.y = transform.scale.y * ratio;
+                    push(TransformProp::ScaleY, after.scale.y);
                 }
             }
         }
+    }
+    // Center mode: move the layer so the box center stays where it was.
+    if !values.is_empty()
+        && can(TransformProp::X)
+        && can(TransformProp::Y)
+        && let Some(center) = kept_center(frame, pivot)
+    {
+        let kept = apply(&layer_map(transform), center);
+        let position = keep_fixed(&after, center, kept);
+        values.push((TransformProp::X.key(), position.x));
+        values.push((TransformProp::Y.key(), position.y));
     }
     values
 }
@@ -325,20 +381,21 @@ pub(crate) fn prop_values(
 }
 
 /// The value of every prop `handle` changes in a drag (of those in
-/// `editable`), for the preview: the drag's for the props it changed (see
-/// `prop_values`), and the one the runtime saw when the drag started for the
-/// others. The props are the same on every frame of the drag, so the
-/// preview's overrides keep their positions and the runtime never remounts
-/// for a new one.
+/// `editable`, turning about what `pivot` names), for the preview: the
+/// drag's for the props it changed (see `prop_values`), and the one the
+/// runtime saw when the drag started for the others. The props are the same
+/// on every frame of the drag, so the preview's overrides keep their
+/// positions and the runtime never remounts for a new one.
 pub(crate) fn preview_values(
     frame: &LayerFrame,
     handle: Handle,
     editable: &[PropKey],
     values: &[(PropKey, f64)],
     received: &ReceivedProps,
+    pivot: PivotMode,
 ) -> Vec<(PropKey, f64)> {
     let changed = prop_values(frame, values, received);
-    handle_props(handle, editable)
+    handle_props(handle, editable, pivot)
         .into_iter()
         .filter_map(|key| {
             let value = match changed.iter().find(|(candidate, _)| *candidate == key) {
@@ -352,8 +409,9 @@ pub(crate) fn preview_values(
         .collect()
 }
 
-/// The props of `editable` a drag of `handle` may change (see `drag_values`).
-fn handle_props(handle: Handle, editable: &[PropKey]) -> Vec<PropKey> {
+/// The props of `editable` a drag of `handle` may change (see `drag_values`):
+/// in Center mode a rotation or scale also moves `x`/`y`.
+fn handle_props(handle: Handle, editable: &[PropKey], pivot: PivotMode) -> Vec<PropKey> {
     let uniform = editable.contains(&TransformProp::Scale.key());
     let props: &[TransformProp] = match handle {
         Handle::Move => &[TransformProp::X, TransformProp::Y],
@@ -363,8 +421,13 @@ fn handle_props(handle: Handle, editable: &[PropKey]) -> Vec<PropKey> {
         Handle::Edge(_) => &[TransformProp::ScaleY],
         Handle::Corner(_) => &[TransformProp::ScaleX, TransformProp::ScaleY],
     };
+    let compensation: &[TransformProp] = match (handle, pivot) {
+        (Handle::Move, _) | (_, PivotMode::Pivot) => &[],
+        (_, PivotMode::Center) => &[TransformProp::X, TransformProp::Y],
+    };
     props
         .iter()
+        .chain(compensation)
         .map(|prop| prop.key())
         .filter(|key| editable.contains(key))
         .collect()
@@ -392,33 +455,35 @@ pub(crate) fn drag_label(
         .join("  ")
 }
 
-/// The offset of `point` (scene pixels) from the anchor in the layer's own
-/// axes, still scaled; `None` when the parent or the layer collapses.
-fn local_offset(frame: &LayerFrame, point: Point) -> Option<Point> {
+/// The offset of `point` (scene pixels) from `about` (parent space) in the
+/// layer's own axes, still scaled; `None` when the parent or the layer
+/// collapses.
+fn local_offset(frame: &LayerFrame, point: Point, about: Point) -> Option<Point> {
     let inverse = invert_affine(frame.parent)?;
     let unturn = unturn(&frame.transform)?;
     let p = apply(&inverse, point);
-    let anchor = frame.transform.position;
-    let v = (p.x - anchor.x, p.y - anchor.y);
+    let v = (p.x - about.x, p.y - about.y);
     Some(Point {
         x: unturn[0] * v.0 + unturn[2] * v.1,
         y: unturn[1] * v.0 + unturn[3] * v.1,
     })
 }
 
-/// Below this many scene pixels from the anchor's lines, a scale handle has
-/// nothing to scale.
+/// Below this many scene pixels from the turning point's lines, a scale
+/// handle has nothing to scale.
 const ON_ANCHOR: f64 = 1e-6;
 
 /// The handles that can change something for `editable`: corners and edges
-/// whose drag scales an editable axis (not on the anchor, or on its line for
-/// that axis), edges only for a per-axis scale, and the rotation handle with
-/// `Rotation`.
+/// whose drag scales an editable axis (not on the point `pivot` turns about,
+/// or on its line for that axis), edges only for a per-axis scale, and the
+/// rotation handle with `Rotation`.
 pub(crate) fn shown_handles(
     frame: &LayerFrame,
     editable: &[PropKey],
     stem: f64,
+    pivot: PivotMode,
 ) -> Vec<(Handle, Point)> {
+    let about = turning_point(frame, pivot);
     let can = |prop: TransformProp| editable.contains(&prop.key());
     let uniform = can(TransformProp::Scale);
     let scales_x = uniform || can(TransformProp::ScaleX);
@@ -428,7 +493,7 @@ pub(crate) fn shown_handles(
         .into_iter()
         .filter(|&(handle, at)| {
             let reaches = |x_axis: bool, y_axis: bool| {
-                local_offset(frame, at).is_some_and(|offset| {
+                local_offset(frame, at, about).is_some_and(|offset| {
                     (x_axis && scales_x && offset.x.abs() > ON_ANCHOR)
                         || (y_axis && scales_y && offset.y.abs() > ON_ANCHOR)
                 })
@@ -446,6 +511,7 @@ pub(crate) fn shown_handles(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::canvas_geometry::box_frame;
     use celesta_react_bridge::ReceivedValue;
 
     fn anchor_key(axis: &str) -> PropKey {
@@ -484,6 +550,263 @@ mod tests {
         assert_eq!(
             drag_label(&frame, &values, &received),
             "anchorX 0.25 → 0.35  anchorY 0.5 → 0.6"
+        );
+    }
+
+    fn at(x: f64, y: f64) -> Point {
+        Point { x, y }
+    }
+
+    fn assert_close(actual: Point, expected: Point) {
+        assert!(
+            (actual.x - expected.x).abs() < 1e-6 && (actual.y - expected.y).abs() < 1e-6,
+            "{actual:?} != {expected:?}"
+        );
+    }
+
+    fn keys(props: &[TransformProp]) -> Vec<PropKey> {
+        props.iter().map(|prop| prop.key()).collect()
+    }
+
+    fn uniform() -> Vec<PropKey> {
+        keys(&[
+            TransformProp::X,
+            TransformProp::Y,
+            TransformProp::Rotation,
+            TransformProp::Scale,
+        ])
+    }
+
+    fn per_axis() -> Vec<PropKey> {
+        keys(&[
+            TransformProp::X,
+            TransformProp::Y,
+            TransformProp::Rotation,
+            TransformProp::ScaleX,
+            TransformProp::ScaleY,
+        ])
+    }
+
+    /// A parent turned 45° and scaled 2, moved off the origin.
+    fn turned_parent() -> [f64; 6] {
+        let (sin, cos) = 45.0_f64.to_radians().sin_cos();
+        [2.0 * cos, 2.0 * sin, -2.0 * sin, 2.0 * cos, 30.0, -20.0]
+    }
+
+    /// `transform` with the drag's `values` put in.
+    fn moved(transform: &EvaluatedTransform, values: &[(PropKey, f64)]) -> EvaluatedTransform {
+        let mut after = *transform;
+        for (key, value) in values {
+            match TransformProp::from_key(key) {
+                Some(TransformProp::X) => after.position.x = *value,
+                Some(TransformProp::Y) => after.position.y = *value,
+                Some(TransformProp::Rotation) => after.rotation = *value,
+                Some(TransformProp::Scale) => after.scale = at(*value, *value),
+                Some(TransformProp::ScaleX) => after.scale.x = *value,
+                Some(TransformProp::ScaleY) => after.scale.y = *value,
+                None => match prop_name(key) {
+                    Some("anchorX") => after.anchor.x = *value,
+                    Some("anchorY") => after.anchor.y = *value,
+                    _ => panic!("not a drag prop: {key:?}"),
+                },
+            }
+        }
+        after
+    }
+
+    /// Where `local` (own pixels of `transform`) lands in the scene.
+    fn scene(frame: &LayerFrame, transform: &EvaluatedTransform, local: Point) -> Point {
+        apply(&frame.parent, apply(&layer_map(transform), local))
+    }
+
+    /// `point` turned by `degrees` (clockwise on screen) about `about`.
+    fn turned(about: Point, point: Point, degrees: f64) -> Point {
+        let (sin, cos) = degrees.to_radians().sin_cos();
+        let (dx, dy) = (point.x - about.x, point.y - about.y);
+        at(
+            about.x + dx * cos - dy * sin,
+            about.y + dx * sin + dy * cos,
+        )
+    }
+
+    fn names(values: &[(PropKey, f64)]) -> Vec<&str> {
+        values
+            .iter()
+            .filter_map(|(key, _)| prop_name(key))
+            .collect()
+    }
+
+    fn value(values: &[(PropKey, f64)], prop: TransformProp) -> f64 {
+        values
+            .iter()
+            .find(|(key, _)| *key == prop.key())
+            .map(|(_, value)| *value)
+            .unwrap_or_else(|| panic!("no {}: {values:?}", prop.name()))
+    }
+
+    /// A 100 × 50 `Rect` anchored at its top-left corner at (10, 10).
+    fn top_left_rect() -> EvaluatedTransform {
+        EvaluatedTransform {
+            position: at(10.0, 10.0),
+            anchor: at(0.0, 0.0),
+            ..EvaluatedTransform::default()
+        }
+    }
+
+    #[test]
+    fn center_rotation_keeps_the_box_center() {
+        let before = top_left_rect();
+        let frame = box_frame(before, turned_parent(), 100.0, 50.0);
+        let center = at(50.0, 25.0);
+        let middle = scene(&frame, &before, center);
+        let start = at(middle.x + 100.0, middle.y);
+        let values = drag_values(
+            &frame,
+            Handle::Rotate,
+            (start, turned(middle, start, 30.0)),
+            false,
+            0.0,
+            &uniform(),
+            PivotMode::Center,
+        );
+        assert_eq!(names(&values), ["rotation", "x", "y"]);
+        assert!((value(&values, TransformProp::Rotation) - 30.0).abs() < 1e-9);
+        let after = moved(&before, &values);
+        assert_close(scene(&frame, &after, center), middle);
+    }
+
+    #[test]
+    fn center_scale_keeps_the_box_center() {
+        let before = EvaluatedTransform {
+            rotation: 20.0,
+            ..top_left_rect()
+        };
+        let frame = box_frame(before, turned_parent(), 100.0, 50.0);
+        let (center, corner) = (at(50.0, 25.0), at(100.0, 50.0));
+        let middle = scene(&frame, &before, center);
+        let start = scene(&frame, &before, corner);
+
+        // Uniform: the corner dragged half again as far from the center.
+        let now = at(
+            middle.x + 1.5 * (start.x - middle.x),
+            middle.y + 1.5 * (start.y - middle.y),
+        );
+        let values = drag_values(
+            &frame,
+            Handle::Corner(2),
+            (start, now),
+            false,
+            0.0,
+            &uniform(),
+            PivotMode::Center,
+        );
+        assert_eq!(names(&values), ["scale", "x", "y"]);
+        assert!((value(&values, TransformProp::Scale) - 1.5).abs() < 1e-9);
+        let after = moved(&before, &values);
+        assert_close(scene(&frame, &after, center), middle);
+        assert_close(scene(&frame, &after, corner), now);
+
+        // Per axis: twice as wide and 1.2 times as tall about the center.
+        let now = scene(&frame, &before, at(150.0, 55.0));
+        let values = drag_values(
+            &frame,
+            Handle::Corner(2),
+            (start, now),
+            false,
+            0.0,
+            &per_axis(),
+            PivotMode::Center,
+        );
+        assert_eq!(names(&values), ["scaleX", "scaleY", "x", "y"]);
+        assert!((value(&values, TransformProp::ScaleX) - 2.0).abs() < 1e-9);
+        assert!((value(&values, TransformProp::ScaleY) - 1.2).abs() < 1e-9);
+        let after = moved(&before, &values);
+        assert_close(scene(&frame, &after, center), middle);
+        assert_close(scene(&frame, &after, corner), now);
+    }
+
+    #[test]
+    fn pivot_mode_turns_about_anchor_and_origin() {
+        let before = EvaluatedTransform {
+            origin: at(40.0, 0.0),
+            ..top_left_rect()
+        };
+        let frame = box_frame(before, turned_parent(), 100.0, 50.0);
+        let turning = apply(&frame.parent, pivot(&before));
+        let start = at(turning.x + 100.0, turning.y);
+        let values = drag_values(
+            &frame,
+            Handle::Rotate,
+            (start, turned(turning, start, 30.0)),
+            false,
+            0.0,
+            &uniform(),
+            PivotMode::Pivot,
+        );
+        // Measured about anchor + origin, and nothing compensates.
+        assert_eq!(names(&values), ["rotation"]);
+        assert!((value(&values, TransformProp::Rotation) - 30.0).abs() < 1e-9);
+        let after = moved(&before, &values);
+        assert_close(scene(&frame, &after, before.origin), turning);
+
+        // A scale keeps it too, and measures from it.
+        let start = scene(&frame, &before, at(100.0, 50.0));
+        let now = at(
+            turning.x + 2.0 * (start.x - turning.x),
+            turning.y + 2.0 * (start.y - turning.y),
+        );
+        let values = drag_values(
+            &frame,
+            Handle::Corner(2),
+            (start, now),
+            false,
+            0.0,
+            &uniform(),
+            PivotMode::Pivot,
+        );
+        assert_eq!(names(&values), ["scale"]);
+        assert!((value(&values, TransformProp::Scale) - 2.0).abs() < 1e-9);
+        let after = moved(&before, &values);
+        assert_close(scene(&frame, &after, before.origin), turning);
+    }
+
+    #[test]
+    fn center_mode_preview_overrides_x_and_y_from_the_first_move() {
+        let before = top_left_rect();
+        let frame = box_frame(before, turned_parent(), 100.0, 50.0);
+        let middle = scene(&frame, &before, at(50.0, 25.0));
+        let start = at(middle.x + 100.0, middle.y);
+        // The first move: a hair, which writes nothing yet.
+        let values = drag_values(
+            &frame,
+            Handle::Rotate,
+            (start, turned(middle, start, 1e-9)),
+            false,
+            0.0,
+            &uniform(),
+            PivotMode::Center,
+        );
+        let received = ReceivedProps::default();
+        assert!(prop_values(&frame, &values, &received).is_empty());
+        let preview = |handle, editable: &[PropKey], pivot| {
+            preview_values(&frame, handle, editable, &values, &received, pivot)
+        };
+        assert_eq!(
+            names(&preview(Handle::Rotate, &uniform(), PivotMode::Center)),
+            ["rotation", "x", "y"]
+        );
+        assert_eq!(
+            names(&preview(Handle::Corner(1), &per_axis(), PivotMode::Center)),
+            ["scaleX", "scaleY", "x", "y"]
+        );
+        assert_eq!(
+            names(&preview(Handle::Edge(0), &uniform(), PivotMode::Center)),
+            ["scale", "x", "y"]
+        );
+        // About the pivot nothing compensates.
+        assert_eq!(
+            names(&preview(Handle::Rotate, &uniform(), PivotMode::Pivot)),
+            ["rotation"]
         );
     }
 }
