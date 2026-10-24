@@ -5,6 +5,7 @@
 
 use crate::edit_history::{FileEdit, write_recorded};
 use crate::preview::{KeptSchema, ReactPreview};
+use crate::property_controls::{Control, ControlEvent, ControlKind, build_control};
 use crate::source::{PropertyArgs, watched_mtime};
 use crate::view::EditorView;
 use crate::widgets::{format_component_number, json_display};
@@ -12,13 +13,7 @@ use celesta_react_bridge::{
     ComponentPropertyField, ENTRY_PROPS_FILE, PropertyInputs, PropertyIssue, effective_values,
     import_path, resolve_props_file, set_property_text,
 };
-use gpui_kit::component::color_picker::{ColorPickerEvent, ColorPickerState};
-use gpui_kit::component::input::{InputEvent, InputState};
-use gpui_kit::component::select::{SelectEvent, SelectState};
-use gpui_kit::{
-    App, AppContext as _, Context, Entity, Focusable as _, Hsla, PathPromptOptions, Rgba,
-    Subscription, Window,
-};
+use gpui_kit::{App, Context, Hsla, PathPromptOptions, Rgba, Subscription, Window};
 use serde_json::Value;
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -398,31 +393,40 @@ pub(crate) enum TextUpdate {
     Always,
 }
 
-/// The control a row edits its value with.
-pub(crate) enum RowControl {
-    /// `string`, `number`, and `path` fields.
-    Text(Entity<InputState>),
-    /// `boolean` fields; the switch shows `RowState::shown`.
-    Switch,
-    Select(Entity<SelectState<Vec<String>>>),
-    Color {
-        text: Entity<InputState>,
-        picker: Entity<ColorPickerState>,
-    },
+/// The control kind of a declared field.
+pub(crate) fn control_kind(field: &ComponentPropertyField) -> ControlKind {
+    match field {
+        ComponentPropertyField::String { .. } => ControlKind::String,
+        ComponentPropertyField::Number { .. } => ControlKind::Number,
+        ComponentPropertyField::Boolean { .. } => ControlKind::Boolean,
+        ComponentPropertyField::Color { .. } => ControlKind::Color,
+        ComponentPropertyField::Select { options, .. } => ControlKind::Select(options.clone()),
+        ComponentPropertyField::Path { .. } => ControlKind::Path,
+    }
+}
+
+/// Sends what the person does in a row's controls to the row for `key`.
+pub(crate) fn property_control_handler(
+    key: &str,
+) -> impl Fn(&mut EditorView, ControlEvent, &mut Window, &mut Context<EditorView>) + Clone + 'static
+{
+    let key = key.to_owned();
+    move |this, event, _, cx| this.property_control_event(&key, event, cx)
 }
 
 /// One declared property's controls and what they show.
 pub(crate) struct PropertyRow {
     pub(crate) field: ComponentPropertyField,
-    pub(crate) control: RowControl,
+    pub(crate) kind: ControlKind,
+    /// A switch shows `RowState::shown`.
+    pub(crate) control: Control,
     /// The row's value and when it changes; applied to `control` on render,
     /// which has the window the controls need.
     pub(crate) state: RowState,
     /// Why the typed text was not committed (not a number, not a color).
     pub(crate) invalid: Option<String>,
-    /// The color picker's open state at its last notification, and whether a
-    /// color was picked since it opened. The pick is committed on close.
-    picker_open: bool,
+    /// A color was picked since the picker last closed; the pick is
+    /// committed when it closes.
     picked: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -459,35 +463,29 @@ fn update_controls(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let mut set_text = |input: &Entity<InputState>, window: &mut Window, cx: &mut App| {
-        let replace = match text {
-            TextUpdate::Keep => false,
-            TextUpdate::UnlessFocused => !input.focus_handle(cx).is_focused(window),
-            TextUpdate::Always => true,
-        };
-        if replace {
-            let shown = value_text(&value);
-            input.update(cx, |input, cx| input.set_value(shown, window, cx));
-            row.invalid = None;
-            row.state.text_replaced();
-        }
+    let replace = match text {
+        TextUpdate::Keep => false,
+        TextUpdate::UnlessFocused => !row.control.text_focused(window, cx),
+        TextUpdate::Always => true,
     };
+    if replace && row.control.set_text(value_text(&value), window, cx) {
+        row.invalid = None;
+        row.state.text_replaced();
+    }
     match &row.control {
-        RowControl::Text(input) => set_text(input, window, cx),
-        RowControl::Switch => {}
-        RowControl::Select(select) => {
+        Control::Select(select) => {
             let choice = value.as_str().map(str::to_owned);
             select.update(cx, |select, cx| match &choice {
                 Some(choice) => select.set_selected_value(choice, window, cx),
                 None => select.set_selected_index(None, window, cx),
             });
         }
-        RowControl::Color { text, picker } => {
-            set_text(text, window, cx);
+        Control::Color { picker, .. } => {
             if let Some(color) = parse_color(&value) {
                 picker.update(cx, |picker, cx| picker.set_value(color, window, cx));
             }
         }
+        Control::Text(_) | Control::Textarea(_) | Control::Switch => {}
     }
 }
 
@@ -563,87 +561,50 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> PropertyRow {
-        let (control, subscriptions) = match field {
-            ComponentPropertyField::String { .. }
-            | ComponentPropertyField::Number { .. }
-            | ComponentPropertyField::Path { .. } => {
-                let (input, subscription) = Self::property_text_input(key, window, cx);
-                (RowControl::Text(input), vec![subscription])
-            }
-            ComponentPropertyField::Boolean { .. } => (RowControl::Switch, Vec::new()),
-            ComponentPropertyField::Select { options, .. } => {
-                let select = cx.new(|cx| SelectState::new(options.clone(), None, window, cx));
-                let key = key.to_owned();
-                let subscription = cx.subscribe_in(
-                    &select,
-                    window,
-                    move |this, _, event: &SelectEvent<Vec<String>>, _, cx| {
-                        if let SelectEvent::Confirm(Some(choice)) = event {
-                            let value = Value::String(choice.clone());
-                            this.commit_property(&key, Some(value), TextUpdate::Keep, cx);
-                        }
-                    },
-                );
-                (RowControl::Select(select), vec![subscription])
-            }
-            ComponentPropertyField::Color { .. } => {
-                let (text, typed) = Self::property_text_input(key, window, cx);
-                let picker = cx.new(|cx| ColorPickerState::new(window, cx));
-                let picked_key = key.to_owned();
-                let picked = cx.subscribe_in(
-                    &picker,
-                    window,
-                    move |this, _, _: &ColorPickerEvent, _, _| {
-                        if let Some(row) = this.property_panel.rows.get_mut(&picked_key) {
-                            row.picked = true;
-                        }
-                    },
-                );
-                let closed_key = key.to_owned();
-                let closed = cx.observe_in(&picker, window, move |this, picker, _, cx| {
-                    this.color_picker_notified(&closed_key, &picker, cx);
-                });
-                (
-                    RowControl::Color { text, picker },
-                    vec![typed, picked, closed],
-                )
-            }
-        };
+        let kind = control_kind(field);
+        let built = build_control(&kind, window, cx, property_control_handler(key));
         PropertyRow {
             field: field.clone(),
-            control,
+            kind,
+            control: built.control,
             // Differs from every effective value, so the first sync fills the controls.
             state: RowState::for_field(field),
             invalid: None,
-            picker_open: false,
             picked: false,
-            _subscriptions: subscriptions,
+            _subscriptions: built.subscriptions,
         }
     }
 
-    /// A single-line input that commits its row on Enter or blur.
-    fn property_text_input(
-        key: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> (Entity<InputState>, Subscription) {
-        let input = cx.new(|cx| InputState::new(window, cx));
-        let key = key.to_owned();
-        let subscription =
-            cx.subscribe_in(&input, window, move |this, _, event: &InputEvent, _, cx| {
-                match event {
-                    // `set_value` emits no change, so this is the person typing.
-                    InputEvent::Change => {
-                        if let Some(row) = this.property_panel.rows.get_mut(&key) {
-                            row.state.text_edited();
-                        }
-                    }
-                    InputEvent::PressEnter { .. } => this.submit_property_text(&key, false, cx),
-                    InputEvent::Blur => this.submit_property_text(&key, true, cx),
-                    InputEvent::Focus => {}
+    /// What the person did in the controls of the row for `key`.
+    fn property_control_event(&mut self, key: &str, event: ControlEvent, cx: &mut Context<Self>) {
+        match event {
+            ControlEvent::Edited => {
+                if let Some(row) = self.property_panel.rows.get_mut(key) {
+                    row.state.text_edited();
                 }
-            });
-        (input, subscription)
+            }
+            ControlEvent::Submit { blur } => self.submit_property_text(key, blur, cx),
+            ControlEvent::Escape => self.restore_property_text(key, cx),
+            ControlEvent::Toggled(checked) => {
+                let value = Some(Value::Bool(checked));
+                self.commit_property(key, value, TextUpdate::Keep, cx);
+            }
+            ControlEvent::Chosen(choice) => {
+                let value = Some(Value::String(choice));
+                self.commit_property(key, value, TextUpdate::Keep, cx);
+            }
+            ControlEvent::ColorPicked => {
+                if let Some(row) = self.property_panel.rows.get_mut(key) {
+                    row.picked = true;
+                }
+            }
+            ControlEvent::ColorPickerClosed => self.color_picker_closed(key, cx),
+            ControlEvent::ChoosePath => self.choose_property_path(key, cx),
+            ControlEvent::ClearPath => {
+                let none = Some(Value::String(String::new()));
+                self.commit_property(key, none, TextUpdate::Always, cx);
+            }
+        }
     }
 
     /// Enter (`blur` false) or blur in a row's text: commits an edit, or
@@ -659,11 +620,9 @@ impl EditorView {
             TextSubmit::Refresh => return cx.notify(),
             TextSubmit::Ignore => return,
         }
-        let input = match &row.control {
-            RowControl::Text(input) | RowControl::Color { text: input, .. } => input,
-            RowControl::Switch | RowControl::Select(_) => return,
+        let Some(text) = row.control.text(cx) else {
+            return;
         };
-        let text = input.read(cx).value();
         let parsed = match row.field {
             ComponentPropertyField::Number { .. } => parse_number_input(&text).map(number_value),
             ComponentPropertyField::Color { .. } => parse_color_input(&text).map(Value::String),
@@ -688,24 +647,15 @@ impl EditorView {
     }
 
     /// Commits the picked color when the picker closes.
-    fn color_picker_notified(
-        &mut self,
-        key: &str,
-        picker: &Entity<ColorPickerState>,
-        cx: &mut Context<Self>,
-    ) {
-        let (open, color) = {
-            let picker = picker.read(cx);
-            (picker.is_open(), picker.value())
-        };
+    fn color_picker_closed(&mut self, key: &str, cx: &mut Context<Self>) {
         let Some(row) = self.property_panel.rows.get_mut(key) else {
             return;
         };
-        let was_open = std::mem::replace(&mut row.picker_open, open);
-        if open && !was_open {
-            row.picked = false;
-        }
-        if !was_open || open || !std::mem::take(&mut row.picked) {
+        let Control::Color { picker, .. } = &row.control else {
+            return;
+        };
+        let color = picker.read(cx).value();
+        if !std::mem::take(&mut row.picked) {
             return;
         }
         if let Some(color) = color {

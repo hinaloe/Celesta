@@ -38,6 +38,7 @@ mod playback;
 mod preview;
 mod problems;
 mod problems_panel;
+mod property_controls;
 mod property_panel;
 mod property_panel_view;
 mod react_audio;
