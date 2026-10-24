@@ -500,11 +500,12 @@ impl EditorView {
                     self.source_lookup_stale = true;
                     self.element_edit.expire();
                     // A released drag's or scrub's values are drawn by the
-                    // reloaded code now; a pressed one goes on.
+                    // reloaded code now; a pressed one goes on, and so does
+                    // a released scrub whose write waits for this reload.
                     if !self.transform_drag_active() {
                         self.transform_drag = None;
                     }
-                    if !self.row_scrub_active() {
+                    if !self.row_scrub_active() && !self.row_scrub_held() {
                         self.element_rows.scrub = None;
                     }
                 } else {

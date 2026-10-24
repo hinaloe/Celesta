@@ -1065,6 +1065,16 @@ impl EditorView {
         cx.notify();
     }
 
+    /// Whether a released scrub's write waits its turn in [`HeldCommits`]
+    /// (another write ran when it was released): its override stays through
+    /// that write's reload.
+    pub(crate) fn row_scrub_held(&self) -> bool {
+        self.element_rows
+            .scrub
+            .as_ref()
+            .is_some_and(|scrub| scrub.released && self.element_rows.held.contains(&scrub.key))
+    }
+
     /// Whether a released scrub is being written, or waits for the reload
     /// that draws its value.
     pub(crate) fn row_scrub_released(&self) -> bool {
