@@ -4,11 +4,11 @@
 
 **Goal:** Double-clicking a `Text` layer whose children resolve to an editable string edits the text in place on the canvas, in its own font, size, wrapping and transform, with caret, selection, clipboard and IME (Japanese input), and commits it as one history entry.
 
-**Architecture:** The preview worker keeps the last scene the React runtime evaluated, so a keystroke re-renders it with the edited layer's text replaced, without running the code, and returns the layer's `TextMetrics` with the frame. A pure module (`inline_text.rs`) holds the edit (text, selection, marked text) and turns the metrics into caret, selection and hit-test geometry in the layer's own pixels; the viewer maps them to the screen through `canvas_geometry` as the handles are, paints them, and is GPUI's input handler for the edit. Commit goes through the Properties tab's `text` row path.
+**Architecture:** The preview worker keeps the last scene the React runtime evaluated, so a keystroke re-renders it with the edited layer's text replaced, without running the code, and returns the layer's `TextMetrics` with the frame. A pure module (`inline_text.rs`) holds the edit (text, selection, marked text) and turns the metrics into caret, selection and hit-test geometry in layout coordinates; the viewer maps them to the screen by the homography onto the text's box as the renderer drew it (flat, rotated, or tilted in 3D), paints them, and is GPUI's input handler for the edit. Commit goes through the Properties tab's `text` row path.
 
 **Tech Stack:** Rust (`celesta-editor` with GPUI via gpui-kit 0.6 / gpui-pre 0.3.6, `celesta-gpu-renderer`, `celesta-renderer`, `celesta-composition`), docs in the website package.
 
-**Spec:** `docs/superpowers/specs/2026-10-23-editor-property-editing-design.md`, section "Inline text editing" and the 2d lines of "Testing". Builds on 2b (`text` row, `commit_element_row`, `HeldCommits`, `SelectionGate`, `submit_requested`) and 2c (`canvas_geometry`, `LayerFrame.anchor_box`, the tool row).
+**Spec:** `docs/superpowers/specs/2026-10-23-editor-property-editing-design.md`, section "Inline text editing" and the 2d lines of "Testing". Builds on 2b (`text` row, `commit_element_row`, `HeldCommits`, `SelectionGate`, `submit_requested`) and 2c (`HitRegion::anchor_box`, the tool row).
 
 | Part | Plan | Spec sections |
 | --- | --- | --- |
@@ -29,8 +29,8 @@
 
 ## Rulings (decided here; the spec leaves them open)
 
-- **The line box origin comes from the renderer.** A single-line text's anchor box is trimmed to its ink, so `anchor_box` does not give the line top. The renderer records each text's first baseline across its layout box (`first_baseline`, scene pixels, like `anchor_box`); in own pixels its left end is the layout box's left edge and line `i`'s top is `baseline − ascent + i · line_height`.
-- **Flat text only.** Caret geometry uses `canvas_geometry`'s affine map. A `Text` without a `LayerFrame` (an ancestor turns in 3D or has a perspective) or drawn through its own perspective is refused on double-click with "No flat box to edit on".
+- **The text box comes from the renderer.** A single-line text's anchor box is trimmed to its ink, so `anchor_box` does not give the line top. The renderer records each drawn text's layout box as it lays the lines out (`HitRegion::text_box`: the layout width by `lines · line_height`, from the first line's top, in scene pixels, in the order of `corners`), through whatever the layer is drawn with, so a text in 3D or under a perspective gets its projected quad.
+- **Caret geometry is computed in layout coordinates** (origin at the first line's top-left, line `i` from `i · line_height`) and mapped to the scene by the homography that takes the layout rectangle to `text_box` (`TextMap`). It is exact for a flat text (an affine case) and for a tilted one (a plane's perspective is a homography), so 2D and 3D share one path; the inverse maps a click back. A text whose box faces away (its winding flips) or collapses is refused on double-click with "The text faces away from the view"; one the renderer did not draw has no `text_box` and is refused with "The text isn't drawn in this frame".
 - **The edit starts from the received `children`** (`report.props`), which is what the code passed to `<Text>`; the live render shows it unchanged until a key is pressed.
 - **The live text replaces the layer's string only.** `color_runs`, `font_runs` and `visible_characters` index the old text and are cleared on the edited layer while editing (a shorter text would make `InvalidTextColorRun`); the commit's reload restores whatever the code computes.
 - **Arrow keys move by grapheme cluster** (`unicode-segmentation`); geometry interpolates a caret inside a shaping cluster that spans several graphemes (a ligature). An RTL glyph's leading edge is its right edge.
@@ -39,12 +39,12 @@
 - **Caret is steady** (no blink), 1 px in the accent color, mapped as a segment so it slants with rotated text; the selection is the accent at 30% alpha; marked (IME) text is underlined 1 px at its line's bottom.
 - **Commit.** Unchanged text leaves without writing. An empty text leaves without writing (the `text` row is required: an emptied field shows the source again). Otherwise the row commit runs, and the edited layer's override stays on every preview request until the reload's frame is shown (as a released drag's), or is dropped when the commit fails (its error shows in the viewer's notice).
 - **Ending.** Enter, a canvas press outside the layout box (it commits, then the press acts as usual), blur of the editing element (a click in the Properties tab, the layer list, the tool row), selecting another layer, toggling Select layers, seeking and starting playback commit. Escape cancels. An outside change to the source cancels with "The source changed while editing" (the viewer's notice). An own write's reload keeps the edit.
-- **Exclusive with the Properties `Text` row**: while editing, that row is disabled and reads "Editing on the canvas"; scrubs and canvas drags don't start.
+- **The Properties `Text` row stays enabled** while editing: pressing it moves the focus, so the canvas edit commits on blur first and the row then shows the written value, as after any row commit.
 - **Refusal.** Double-clicking a `Text` whose `text` row is locked or unavailable shows the reason (`reason_text`, or `element_edit.unavailable`) in a note beside the layer, styled as the drag label, until the next press or selection change; editing does not start.
 
 ## Review Focus
 
-- **A single-line text with anchor (0.5, 0.5)**: the caret's top and bottom are the line box's, not the ink's. Test in Task 1 (renderer) and Task 3 (geometry).
+- **A single-line text with anchor (0.5, 0.5), and a text tilted under a perspective**: the caret's top and bottom are the line box's, not the ink's, and the caret leans with the tilted glyphs. Test in Task 1 (renderer) and Task 3 (geometry).
 - **A `Text` with `visibleCharacters` or color runs**: typing past the old length renders without `InvalidTextColorRun`. Test in Task 2.
 - **IME composition then Escape**: the marked text is dropped and the scene shows the original text. Test in Task 3 (edit model) and Task 5 (lifecycle).
 - **RTL glyphs** (`GlyphMetrics.rtl`): the caret before an RTL cluster is at its right edge. Test in Task 3.
@@ -52,11 +52,11 @@
 
 ---
 
-### Task 1: Text metrics and the first baseline from the renderer
+### Task 1: Text metrics and the text box from the renderer
 
 **Files:**
-- Modify: `crates/gpu-renderer/src/{lib.rs,renderer.rs,hit.rs,layer_frame.rs,prepare.rs}` (and wherever `HitRegion`s are built for text)
-- Test: `crates/gpu-renderer/src/tests.rs`, `crates/gpu-renderer/src/layer_frame.rs` tests
+- Modify: `crates/gpu-renderer/src/{lib.rs,renderer.rs,hit.rs,prepare.rs}` (and wherever `HitRegion`s are built for text)
+- Test: `crates/gpu-renderer/src/tests.rs`
 
 **Interfaces:**
 - Produces:
@@ -77,16 +77,17 @@ impl GpuRenderer {
     /// as `measure_text` does; None when there is no such text layer.
     pub fn text_layout(&mut self, scene: &Scene, layer: &str) -> Option<TextLayout>;
 }
-// HitRegion and LayerFrame gain, for a text layer (None for every other):
-/// The first line's baseline across the layout box, left end then right end, in scene pixels.
-pub first_baseline: Option<[Point; 2]>,
+// HitRegion gains, for a drawn text layer (None for every other):
+/// The text's layout box — layout width by `lines · line_height`, from the first
+/// line's top — in scene pixels, in the order of `corners`; projected like them.
+pub text_box: Option<[Point; 4]>,
 ```
 
-- [ ] **Step 1: Write the failing tests** — `measure_text_matches_the_rendered_layout` (width/height equal the text size the frame used); `text_layout_finds_a_text_inside_a_group` (and None for a rect or a missing id); `a_text_s_first_baseline_runs_across_its_layout_box` (multi-line, anchor (0,0): left end = anchor box top-left + ascent down, right end = top-right + ascent down); `a_baseline_anchored_text_s_first_baseline_is_its_position`; `a_single_line_text_s_first_baseline_is_under_its_cap_height` (anchor (0.5, 0.5), "HHH": ink rows lie within `[baseline − cap_height − 1, baseline + 1]` at the glyphs' columns); `layer_frame_carries_the_first_baseline` (rotated parent group: the frame's points equal the region's).
-- [ ] **Step 2: Run them, expect FAIL** — `cargo test -p celesta-gpu-renderer first_baseline measure_text`
-- [ ] **Step 3: Implement** — `measure_text` wraps `text_rasterizer.measure`; the baseline comes from the texture's baseline anchor (`LayerTexture.baseline_anchor`/`anchor_origin`, `prepare.rs` text placement) mapped like `anchor_box`. Add `celesta-renderer` to the editor's dependencies only if the re-export is not enough.
+- [ ] **Step 1: Write the failing tests** — `measure_text_matches_the_rendered_layout` (width/height equal the text size the frame used); `text_layout_finds_a_text_inside_a_group` (and None for a rect or a missing id); `a_multi_line_text_s_box_is_its_anchor_box` (no stroke, anchor (0,0)); `a_single_line_text_s_box_is_its_line_box` (anchor (0.5, 0.5), "HHH": the box is `line_height` tall and the glyphs' ink rows lie inside it, from `ascent − cap_height` to `ascent` below its top, ±1 px); `a_baseline_anchored_text_s_box_starts_an_ascent_above_its_position`; `a_tilted_text_s_box_is_projected` (a text with `rotationX` 40° under a perspective: the box's corners are the layout rectangle's corners projected as its `corners` are — a multi-line, unstroked text's box equals its projected anchor box).
+- [ ] **Step 2: Run them, expect FAIL** — `cargo test -p celesta-gpu-renderer text_box measure_text text_layout`
+- [ ] **Step 3: Implement** — `measure_text` wraps `text_rasterizer.measure`; the box comes from the texture's placement (`LayerTexture.baseline_anchor`/`anchor_origin`, the first baseline less the ascent) carried through the same transform as `anchor_box_corners`. Add `celesta-renderer` to the editor's dependencies only if the re-export is not enough.
 - [ ] **Step 4: Run them, expect PASS**; then `cargo test -p celesta-gpu-renderer`.
-- [ ] **Step 5: Commit** — `feat(gpu-renderer): measure text and record a text's first baseline`
+- [ ] **Step 5: Commit** — `feat(gpu-renderer): measure text and record a text's layout box`
 
 ### Task 2: The held scene and the live text override
 
@@ -95,7 +96,7 @@ pub first_baseline: Option<[Point; 2]>,
 - Test: `crates/editor/src/preview.rs` `#[cfg(test)]`
 
 **Interfaces:**
-- Consumes: Task 1's `GpuRenderer::text_layout`, `TextLayout`, `LayerFrame.first_baseline`.
+- Consumes: Task 1's `GpuRenderer::text_layout`, `TextLayout`.
 - Produces:
 
 ```rust
@@ -119,14 +120,14 @@ pub(crate) fn replace_text(scene: &mut Scene, layer: &str, text: &str) -> bool;
 
 ### Task 3: The edit model and its geometry
 
-Runs in parallel with Task 2 (a new module; it reads only Task 1's `TextLayout` and `LayerFrame`).
+Runs in parallel with Task 2 (a new module; it reads only Task 1's `TextLayout` and `HitRegion::text_box`).
 
 **Files:**
 - Create: `crates/editor/src/inline_text.rs` (with `#[cfg(test)] mod tests`)
 - Modify: `crates/editor/src/main.rs` (`mod inline_text;`)
 
 **Interfaces:**
-- Consumes: `TextLayout` and `LayerFrame.first_baseline` (Task 1; tests build layouts by hand), `canvas_geometry::{layer_map, apply}`, `layer_select::letterbox`.
+- Consumes: `TextLayout` and `HitRegion::text_box` (Task 1; tests build them by hand), `layer_select::letterbox`.
 - Produces:
 
 ```rust
@@ -150,22 +151,26 @@ impl TextEdit {
     pub(crate) fn unmark(&mut self);
     pub(crate) fn marked_utf16(&self) -> Option<Range<usize>>; pub(crate) fn selection_utf16(&self) -> Range<usize>;
 }
-/// The layout box's top-left in the layer's own pixels: the first baseline's left end, up by the ascent.
-pub(crate) fn layout_origin(frame: &LayerFrame, layout: &TextLayout) -> Option<Point>;
-/// The caret at `index` as a segment (line top, line bottom) in own pixels.
-pub(crate) fn caret(layout: &TextLayout, origin: Point, index: usize, upstream: bool) -> [Point; 2];
-/// One quad per line the range covers, in own pixels.
-pub(crate) fn selection_quads(layout: &TextLayout, origin: Point, range: Range<usize>) -> Vec<[Point; 4]>;
-/// The caret position nearest to an own-pixel point: (index, upstream).
-pub(crate) fn index_at(layout: &TextLayout, origin: Point, point: Point) -> (usize, bool);
-/// Own pixels to scene pixels and back, through the frame's maps (None when a map collapses).
-pub(crate) fn to_scene(frame: &LayerFrame, own: Point) -> Point;
-pub(crate) fn to_own(frame: &LayerFrame, scene: Point) -> Option<Point>;
+// Layout coordinates: origin at the first line's top-left, line i from i · line_height.
+/// The caret at `index` as a segment (line top, line bottom).
+pub(crate) fn caret(layout: &TextLayout, index: usize, upstream: bool) -> [Point; 2];
+/// One rectangle per line the range covers.
+pub(crate) fn selection_quads(layout: &TextLayout, range: Range<usize>) -> Vec<[Point; 4]>;
+/// The caret position nearest to a point: (index, upstream).
+pub(crate) fn index_at(layout: &TextLayout, point: Point) -> (usize, bool);
+/// The homography taking the layout rectangle (layout width by lines · line_height) to `text_box`.
+pub(crate) struct TextMap { /* 3×3, and its inverse */ }
+impl TextMap {
+    /// Err("The text faces away from the view") when the box's winding flips or it collapses.
+    pub(crate) fn fit(layout: &TextLayout, text_box: [Point; 4]) -> Result<Self, String>;
+    pub(crate) fn to_scene(&self, layout_point: Point) -> Point;
+    pub(crate) fn to_layout(&self, scene: Point) -> Option<Point>;
+}
 ```
 
-- [ ] **Step 1: Write the failing tests** — edit model: `insert_replaces_the_selection`, `backspace_removes_one_grapheme` ("e\u{301}" goes at once), `shift_moves_extend_the_selection`, `paste_normalizes_line_breaks`, `marked_text_shows_in_display_text_and_unmark_keeps_text_unchanged`, `utf16_ranges_round_trip_through_astral_and_japanese_text` ("日本🎌語"), `escape_after_marking_restores` (a fresh `TextEdit::new(original)` equals the start). Geometry, with hand-built layouts: `caret_on_a_wrapped_line_start_and_upstream_end`, `caret_in_a_multi_line_text_steps_by_line_height`, `caret_before_an_rtl_cluster_is_at_its_right_edge`, `caret_inside_a_ligature_interpolates`, `an_empty_line_s_caret_follows_alignment`, `selection_over_two_lines_gives_two_quads`, `index_at_round_trips_caret` (every boundary of a wrapped two-line text), `vertical_moves_keep_x`, `home_and_end_use_visual_lines`, `geometry_follows_a_rotated_scaled_layer` (`to_scene(caret)` against hand-computed points for rotation 30°, scale 2, anchor (0.5, 0.5)), `single_line_origin_is_the_line_box` (frame with an ink-trimmed anchor box and a `first_baseline`: origin y = baseline − ascent).
+- [ ] **Step 1: Write the failing tests** — edit model: `insert_replaces_the_selection`, `backspace_removes_one_grapheme` ("e\u{301}" goes at once), `shift_moves_extend_the_selection`, `paste_normalizes_line_breaks`, `marked_text_shows_in_display_text_and_unmark_keeps_text_unchanged`, `utf16_ranges_round_trip_through_astral_and_japanese_text` ("日本🎌語"), `escape_after_marking_restores` (a fresh `TextEdit::new(original)` equals the start). Geometry, with hand-built layouts: `caret_on_a_wrapped_line_start_and_upstream_end`, `caret_in_a_multi_line_text_steps_by_line_height`, `caret_before_an_rtl_cluster_is_at_its_right_edge`, `caret_inside_a_ligature_interpolates`, `an_empty_line_s_caret_follows_alignment`, `selection_over_two_lines_gives_two_quads`, `index_at_round_trips_caret` (every boundary of a wrapped two-line text), `vertical_moves_keep_x`, `home_and_end_use_visual_lines`, `a_map_fitted_to_a_rotated_scaled_box_is_its_affine_map` (rotation 30°, scale 2: the caret's scene points against hand-computed ones), `a_map_fitted_to_a_projected_box_follows_the_perspective` (a trapezoid: the corners map exactly and the rectangle's center maps to the diagonals' crossing), `to_layout_inverts_to_scene`, `fit_refuses_a_box_facing_away` (mirrored winding, and a collapsed box).
 - [ ] **Step 2: Run them, expect FAIL** — `cargo test -p celesta-editor inline_text`
-- [ ] **Step 3: Implement.** Line `i` spans `line_starts[i]..line_starts[i + 1]` (the last to the text's end); its top is `origin.y + i · line_height`. A caret x on line `i` is the left edge of the cluster whose `start` is the index (its right edge for `rtl`), else the right edge of the cluster that ends there, else, inside a cluster, `x + width · (index − start) / (end − start)`.
+- [ ] **Step 3: Implement.** Line `i` spans `line_starts[i]..line_starts[i + 1]` (the last to the text's end); its top is `i · line_height`. `TextMap::fit` solves the 4-point homography (the unit square to each quad, composed). A caret x on line `i` is the left edge of the cluster whose `start` is the index (its right edge for `rtl`), else the right edge of the cluster that ends there, else, inside a cluster, `x + width · (index − start) / (end − start)`.
 - [ ] **Step 4: Run them, expect PASS**; then `cargo test -p celesta-editor`.
 - [ ] **Step 5: Commit** — `feat(editor): model an inline text edit and its caret geometry`
 
@@ -184,7 +189,8 @@ pub(crate) struct InlineTextSession { pub(crate) layer: String, pub(crate) edit:
 // EditorView gains: inline_text: Option<InlineTextSession>, inline_text_focus: FocusHandle,
 // inline_note: Option<(String /* layer */, String /* reason */)>
 /// Whether a double-click on `layer` starts an edit, and with which text; else the reason.
-pub(crate) fn inline_entry(targets: Option<(&ElementTargets, &LayerSourceReport)>, unavailable: Option<&str>, primitive: Option<&str>, flat: bool) -> Result<String, String>;
+/// `text_box`: the layer's `HitRegion::text_box` in the frame shown.
+pub(crate) fn inline_entry(targets: Option<(&ElementTargets, &LayerSourceReport)>, unavailable: Option<&str>, primitive: Option<&str>, text_box: Option<[Point; 4]>) -> Result<String, String>;
 impl EditorView {
     pub(crate) fn begin_inline_text(&mut self, layer: String, window: &mut Window, cx: &mut Context<Self>);
     pub(crate) fn inline_text_changed(&mut self, cx: &mut Context<Self>); // live request, reuse_scene
@@ -192,14 +198,14 @@ impl EditorView {
 impl EntityInputHandler for EditorView { /* over the session's TextEdit */ }
 ```
 
-- [ ] **Step 1: Write the failing tests** — `inline_entry_takes_the_received_children` (literal, const, pass-through); `inline_entry_refuses_a_locked_row_with_its_reason` (`<Span>` children, an expression); `inline_entry_refuses_while_the_source_is_read`; `inline_entry_refuses_a_text_without_a_flat_box` ("No flat box to edit on"); `drag_state_hides_handles_and_cross_while_editing`; `a_press_in_the_layout_box_places_the_caret` (pure: screen point → `index_at` via `to_own` and `letterbox`).
+- [ ] **Step 1: Write the failing tests** — `inline_entry_takes_the_received_children` (literal, const, pass-through); `inline_entry_refuses_a_locked_row_with_its_reason` (`<Span>` children, an expression); `inline_entry_refuses_while_the_source_is_read`; `inline_entry_refuses_a_text_that_isn_t_drawn` ("The text isn't drawn in this frame"); `drag_state_hides_handles_and_cross_while_editing`; `a_press_in_the_layout_box_places_the_caret` (pure: screen point → `index_at` via `letterbox` and `TextMap::to_layout`, on a tilted box too).
 - [ ] **Step 2: Run them, expect FAIL**.
 - [ ] **Step 3: Implement.**
   - `select_layer_at`: `click_count >= 2` on the selected `Text` → `inline_entry`; `Ok` begins (focuses `inline_text_focus`), `Err` sets `inline_note`; checked before `begin_transform_drag`. The note clears on the next press and on selection change.
   - While editing, the canvas area tracks `inline_text_focus` with key context `"Input CanvasText"` and handles gpui-kit's Input actions (`Backspace`, `Delete`, `Enter`, `MoveLeft`/`Right`/`Up`/`Down`, `MoveHome`/`End`, `SelectAll`, `Copy`, `Cut`, `Paste`, `Undo`/`Redo` swallowed), `capture_key_down` for Shift+arrows; each change calls `inline_text_changed`.
   - The canvas paint closure calls `window.handle_input(&inline_text_focus, ElementInputHandler::new(bounds, entity), cx)` and paints caret, selection and marked underline from `session.layout` only when `layout.text == edit.display_text()`; `bounds_for_range` gives the candidate window the caret's screen box; call `window.invalidate_character_coordinates()` when the layout changes.
+  - The session keeps the `TextMap` fitted to the latest frame's `text_box`; a frame whose box faces away ends nothing, the caret is just not painted for it.
   - A press inside the layout box places the caret (Shift extends) and the root's `drag_move` extends the selection; `drag_state()` gives no handles or cross while editing; the outline stays.
-  - The Properties `Text` row is disabled with "Editing on the canvas" while a session runs; scrubs and canvas drags don't start.
 - [ ] **Step 4: Run them, expect PASS**; then `cargo test -p celesta-editor`.
 - [ ] **Step 5: Commit** — `feat(editor): edit a text layer in place on the canvas`
 
@@ -235,7 +241,7 @@ pub(crate) fn inline_commit_value(original: &str, edited: &str) -> Option<EditVa
 **Files:**
 - Modify: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-preview.md` (an "Edit text on the canvas" section: double-click, Enter / Shift+Enter / Escape, what commits, IME, what is not editable and why, frames sized to the text following on commit)
 - Modify: `docs/superpowers/specs/2026-10-23-editor-property-editing-design.md` ("Inline text editing": the rulings above that settle what the spec left open)
-- Create: `docs/handoff/2026-10-25-inline-text.md` (decisions, known gaps: no undo inside an edit, no word moves, no 3D text, runs cleared while typing; "Verify by hand": the spec's manual list including Japanese input through the IME, a rotated text, a wrapped `maxWidth` text, a pass-through label, Escape after composing)
+- Create: `docs/handoff/2026-10-25-inline-text.md` (decisions, known gaps: no undo inside an edit, no word moves, runs cleared while typing; "Verify by hand": the spec's manual list including Japanese input through the IME, a rotated text, a text tilted in 3D, a wrapped `maxWidth` text, a pass-through label, Escape after composing)
 
 - [ ] **Step 1: Write the docs**; `pnpm --filter @celesta/website check`.
 - [ ] **Step 2: Commit** — `docs(editor): describe inline text editing`
