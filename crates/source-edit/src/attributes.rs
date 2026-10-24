@@ -13,7 +13,9 @@ use crate::shape::StyleProperty;
 /// `style` is an object literal whose own properties set `style_key`,
 /// `shorthand` otherwise (also without a `style` attribute). Locked
 /// `StyleMaySet` when `style` is written but is not an object literal, or
-/// the object has a spread; `SyntaxError` / `ElementNotFound` as `resolve`.
+/// the object has a spread that may set `style_key`, and when the element
+/// has a spread with no `style` attribute after it; `SyntaxError` /
+/// `ElementNotFound` as `resolve`.
 ///
 /// The object is read as `resolve` reads `style.<key>`: the last `style`
 /// attribute, and its last property named `style_key` (quoted or not).
@@ -32,6 +34,10 @@ pub fn text_style_path(
     gather.visit_program(&program);
     if !gather.found {
         return Err(LockReason::ElementNotFound);
+    }
+    // `{...rest}` with no `style` after it may carry one, which wins.
+    if gather.spread_may_set() {
+        return Err(LockReason::StyleMaySet);
     }
     match gather.property {
         Some(StyleProperty::Value(_)) => Ok(format!("style.{style_key}")),

@@ -368,7 +368,7 @@ pub(crate) fn read_written(
                 return Ok(child(*span, value, LiteralForm::ChildContainer(*quote)));
             }
             Children::Reference { shape } => {
-                return Ok(check(resolve_shape(shape, gather, text, ctx)));
+                return Ok(check(resolve_shape(shape, gather, text, ctx, checked)));
             }
             Children::Other(span) => return Ok(gather.lock_expression(text, *span)),
             // 2b opens the tag before writing children into it.
@@ -399,7 +399,7 @@ pub(crate) fn read_written(
 
     let target = match (path, &gather.property) {
         (PropPath::Style(_), Some(property)) => match property {
-            StyleProperty::Value(shape) => resolve_shape(shape, gather, text, ctx),
+            StyleProperty::Value(shape) => resolve_shape(shape, gather, text, ctx, checked),
             StyleProperty::Absent { object, last } => {
                 if checked && ctx.received.is_some() {
                     return Ok(EditTarget::Locked(LockReason::OverriddenByParent));
@@ -412,7 +412,7 @@ pub(crate) fn read_written(
             StyleProperty::Unknown => return Ok(EditTarget::Locked(LockReason::Spread)),
             StyleProperty::NotObject(span) => return Ok(gather.lock_expression(text, *span)),
         },
-        _ => resolve_shape(shape, gather, text, ctx),
+        _ => resolve_shape(shape, gather, text, ctx, checked),
     };
     Ok(check(target))
 }
@@ -476,7 +476,15 @@ fn skip_trivia(text: &str, mut at: usize) -> usize {
     }
 }
 
-fn resolve_shape(shape: &Shape, gather: &Gather, text: &str, ctx: &ResolveContext) -> EditTarget {
+/// `checked` as [`resolve_written`]'s: whether `ctx.received` is this
+/// value's.
+fn resolve_shape(
+    shape: &Shape,
+    gather: &Gather,
+    text: &str,
+    ctx: &ResolveContext,
+    checked: bool,
+) -> EditTarget {
     match shape {
         Shape::Number(span, value) => EditTarget::Literal {
             span: *span,
@@ -493,11 +501,11 @@ fn resolve_shape(shape: &Shape, gather: &Gather, text: &str, ctx: &ResolveContex
             value: EditValue::Bool(*value),
             form: *form,
         },
-        Shape::Interpolate(call) => resolve_keyframe(call, gather, text, ctx),
+        Shape::Interpolate(call) => resolve_keyframe(call, gather, text, ctx, checked),
         Shape::Call(callee) => EditTarget::Locked(LockReason::UnsupportedCall {
             callee: callee.clone(),
         }),
-        Shape::Ident(name) => resolve_identifier(name, gather, text, ctx),
+        Shape::Ident(name) => resolve_identifier(name, gather, text, ctx, checked),
         Shape::Member { span, .. } | Shape::Other(span) => gather.lock_expression(text, *span),
     }
 }
@@ -514,11 +522,14 @@ fn expression(text: &str, span: Span) -> EditTarget {
     })
 }
 
+/// The value of `name` as read at the element; `checked` as
+/// [`resolve_written`]'s (an expression's input is not).
 pub(crate) fn resolve_identifier(
     name: &str,
     gather: &Gather,
     text: &str,
     ctx: &ResolveContext,
+    checked: bool,
 ) -> EditTarget {
     let unresolved = || {
         EditTarget::Locked(LockReason::UnresolvedIdentifier {
@@ -540,7 +551,7 @@ pub(crate) fn resolve_identifier(
                     uses,
                 });
             }
-            resolve_shape(shape, gather, text, ctx)
+            resolve_shape(shape, gather, text, ctx, checked)
         }
         Shape::Call(callee) => EditTarget::Locked(LockReason::UnsupportedCall {
             callee: callee.clone(),
@@ -559,12 +570,15 @@ pub(crate) fn resolve_identifier(
 /// without an `options` argument (linear, `extend` extrapolation), and a
 /// candidate there is kept otherwise.
 /// The survivors must all point at the same target, or the frame is
+/// uncertain. Unless `checked`, no received value is this value's (an
+/// expression's input), so no candidate can be told apart: the frame is
 /// uncertain.
 fn resolve_keyframe(
     call: &Interpolate,
     gather: &Gather,
     text: &str,
     ctx: &ResolveContext,
+    checked: bool,
 ) -> EditTarget {
     let not_literal = || gather.lock_expression(text, call.call);
     let Input::Frame { name, offset } = &call.input else {
@@ -582,6 +596,9 @@ fn resolve_keyframe(
     };
     if !frame_bound || inputs.is_empty() || inputs.len() != outputs.len() {
         return not_literal();
+    }
+    if !checked {
+        return EditTarget::Locked(LockReason::FrameUncertain);
     }
     // `interpolate()` always returns a number, so an element that received
     // none had the prop set by something else.
@@ -754,6 +771,12 @@ pub(crate) struct Gather<'t> {
     path: PropPath<'t>,
     /// The span of the expression the rules last locked the prop on, so
     /// its inputs are read from exactly what was locked.
+    ///
+    /// Every lock path returns its `Expression` right after recording the
+    /// span, so after [`read_written`] it is the span of the expression it
+    /// returned (`None` for a lock without one). `resolve_inputs` reads it
+    /// before resolving any input, which may lock again on the same
+    /// `Gather`.
     pub(crate) locked: Cell<Option<Span>>,
     pub(crate) found: bool,
     has_spread: bool,
@@ -801,6 +824,12 @@ impl<'t> Gather<'t> {
             (PropPath::Style(_), _, property) => property.as_ref().map(Read::Property),
             _ => self.attr.as_ref().map(Read::Attribute),
         }
+    }
+
+    /// Whether a spread may set the prop's attribute: one is written, and
+    /// no attribute that holds the prop follows the last.
+    pub(crate) fn spread_may_set(&self) -> bool {
+        self.has_spread && (self.attr.is_none() || self.spread_after)
     }
 
     /// Locks the prop as the expression at `span`, and keeps the span in

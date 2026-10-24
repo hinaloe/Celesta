@@ -36,7 +36,9 @@ use crate::shape::Shape;
 /// pass-through rules (literal, `Missing` with the parameter's default,
 /// `ParameterOfCaller` for a second hop); without a call site it is
 /// `CallSiteNotFound`. `ctx.received` is ignored for the inputs, since the
-/// runtime reports the expression's result, not its inputs.
+/// runtime reports the expression's result, not its inputs; so an input
+/// whose value is `interpolate(frame, …)` is `FrameUncertain`, as no
+/// received value tells the candidate frames apart.
 pub fn resolve_inputs(
     text: &str,
     element: &ElementRef,
@@ -73,7 +75,7 @@ pub fn resolve_inputs(
         .map(|name| {
             let target = match gather.scopes.parameter(&Shape::Ident(name.clone())) {
                 Some(parameter) => resolve_parameter(parameter, &ctx, call_site, false),
-                None => resolve_identifier(&name, &gather, text, &ctx),
+                None => resolve_identifier(&name, &gather, text, &ctx, false),
             };
             (name, target)
         })

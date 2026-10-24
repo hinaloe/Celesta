@@ -75,6 +75,56 @@ fn style_not_a_literal_locks() {
 }
 
 #[test]
+fn an_element_spread_may_set_style() {
+    // No `style` after the spread: it may carry one, which wins.
+    assert_eq!(
+        path(
+            "<Text {...rest} fontSize={48}>A</Text>",
+            "fontSize",
+            "fontSize"
+        ),
+        Err(LockReason::StyleMaySet)
+    );
+    assert_eq!(
+        path(
+            "<Text style={{ fontWeight: 700 }} {...rest}>A</Text>",
+            "fontSize",
+            "fontSize"
+        ),
+        Err(LockReason::StyleMaySet)
+    );
+    // A `style` after the spread follows the usual rules.
+    assert_eq!(
+        path(
+            "<Text {...rest} style={{ fontSize: 48 }}>A</Text>",
+            "fontSize",
+            "fontSize"
+        ),
+        Ok("style.fontSize".to_string())
+    );
+}
+
+#[test]
+fn an_object_spread_before_the_key_does_not_lock() {
+    assert_eq!(
+        path(
+            "<Text style={{ ...base, fontSize: 48 }}>A</Text>",
+            "fontSize",
+            "fontSize"
+        ),
+        Ok("style.fontSize".to_string())
+    );
+    assert_eq!(
+        path(
+            "<Text style={{ fontSize: 48, ...base }}>A</Text>",
+            "fontSize",
+            "fontSize"
+        ),
+        Err(LockReason::StyleMaySet)
+    );
+}
+
+#[test]
 fn quoted_style_keys_count() {
     assert_eq!(
         path(

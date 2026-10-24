@@ -345,6 +345,38 @@ fn parameter_input_without_a_call_site() {
 }
 
 #[test]
+fn an_animated_input_has_an_unknown_frame() {
+    // The runtime reports the expression's result, not `w`, so no received
+    // value tells the candidate frames apart.
+    let text = scene(
+        "const frame = useCurrentFrame(); const w = interpolate(frame, [0, 10], [0, 100]);",
+        "<Rect width={w + 2} />",
+    );
+    assert_eq!(
+        inputs(&text, "Rect", "width"),
+        vec![(
+            "w".to_string(),
+            EditTarget::Locked(LockReason::FrameUncertain)
+        )]
+    );
+
+    // The same at the call site.
+    let tag = "function Tag({ w }) { return <Rect width={w + 2} />; }";
+    let call_site = "function Scene() { const frame = useCurrentFrame(); return <Tag w={interpolate(frame, [0, 10], [0, 100])} />; }";
+    assert_eq!(
+        inputs_through(tag, "Rect", "width", call_site, "Tag"),
+        vec![(
+            "w".to_string(),
+            EditTarget::PassThrough {
+                call_site: element(call_site, "<Tag"),
+                param: "w".to_string(),
+                target: Box::new(EditTarget::Locked(LockReason::FrameUncertain)),
+            }
+        )]
+    );
+}
+
+#[test]
 fn an_input_used_twice_in_one_expression_is_one_place() {
     let text = scene("const padding = 16;", "<Rect width={padding + padding} />");
     assert_eq!(
