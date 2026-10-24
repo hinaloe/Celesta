@@ -26,7 +26,8 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   declares, per primitive, its groups of `PrimitivePropertyField`s (`num`,
   `str`, `text`, `bool`, `color`, `select`, `path`) and the props that hold
   its box (`size`). Each table is typed with that primitive's own props, so
-  a renamed prop fails `tsc -b`. `@celesta/react` registers `Group`,
+  a renamed prop fails `tsc -b`, and so does a prop the props type requires
+  that is not wrapped in `required(…)` (or an optional one that is). `@celesta/react` registers `Group`,
   `Image`, `Text`, `Rect`, `Video` and `@celesta/shapes` registers `Ellipse`,
   `Circle`, `Triangle`, `Polygon`, `Star`, `Pie`, `Heart`, beside their
   `markPrimitive` loops. `listPrimitiveProperties()` turns them into ordered
@@ -38,7 +39,10 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   `refresh.rs`, `view.rs`): `PrimitivePropertyTable { size, groups:
   Vec<PrimitivePropertyGroup { name, fields: Vec<PrimitivePropertyRow> }> }`
   keeps the declared order end to end; only the outer map
-  (`ReactCompositionMetadata.primitive_properties`) is keyed by name.
+  (`ReactCompositionMetadata.primitive_properties`) is keyed by name. A
+  row's `required` is sent inside its `field`, as the table declares it, and
+  lifted onto `PrimitivePropertyRow.required` (the field enum stays as it
+  was).
   `apply_property_outcome` replaces the tables on a successful reload and
   keeps them on a failed one, as it does the project schema;
   `EditorView::primitive_table(name)` reads them.
@@ -50,6 +54,14 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   `resolve_call_site_prop` resolves a prop written at a component's call
   without comparing it to a received value (the runtime reports none for a
   component's own props).
+- Removal (`crates/source-edit/src/remove.rs`, `apply.rs`): `removal(text,
+  element, prop)` returns an `Edit::Remove { start, end }` that deletes an
+  attribute with the whitespace before it, or a `style` object's property
+  with the comma that separates it (the previous one's for the last; the
+  only property leaves `{}`). A pass-through is removed at its call site by
+  the parameter's name. `None` for `children`, an absent prop, a prop
+  written twice, one a spread after it may set, or a `style` that is not an
+  object literal.
 - Inputs at the call site (`crates/source-edit/src/inputs.rs`,
   `pass_through.rs`, `scope.rs`): `resolve_inputs` takes the call site and
   resolves an input that is a parameter of the enclosing component as a
@@ -70,12 +82,15 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   when either is written; the transform props alone without a table), locks
   a literal of another kind than its field as `Expression`, lists inputs,
   and fills `ElementTargets.component` (`ComponentTargets`) when the owner
-  call site is found. `commit_files` writes typed `EditValue`s for any key
-  and re-resolves rows, inputs, and component props against every file it
-  read. `TransformProp::received` is gone (`received_number` reads the
-  received props); `ElementEdit` (was `TransformEdit`) records written
-  values of any type; `commit_element` (was `commit_transform`) takes
-  `(PropKey, EditValue)` pairs.
+  call site is found. `commit_files` writes typed `EditValue`s for any key,
+  or removes the prop for a `None` (`removal_of`: the element's file, the
+  call site's for a pass-through, `ComponentTargets.call` for a component
+  prop), and re-resolves rows, inputs, and component props against every
+  file it read. `TransformProp::received` and `TransformProp::label` are gone
+  (`received_number` reads the received props, `row_label` names the rows);
+  `ElementEdit` (was `TransformEdit`) records written values of any type, or
+  a removal; `commit_element` (was `commit_transform`) takes `(PropKey,
+  Option<EditValue>)` pairs.
 - Component section (`element_edit.rs`): the attributes written at the
   owner call site, minus `children` and any `param` a row or input already
   passes through to, typed from their literal (number, string, boolean) or,
@@ -86,8 +101,11 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   `ControlKind`, `ControlEvent`, `Control`, `build_control`, and
   `render_control` build and draw the text, multi-line text, switch, select,
   color, and path controls for both the project Properties panel
-  (`property_panel.rs`, `property_panel_view.rs`) and the element rows. The
-  project panel keeps its own `Value` commit flow.
+  (`property_panel.rs`, `property_panel_view.rs`) and the element rows, with
+  the number and color helpers both use (`parse_number_input`,
+  `parse_color_input`, `parse_color`, `color_hex`, `number_hint`,
+  `take_picked_color`). The project panel keeps its own `Value` commit flow;
+  its control kind comes from `element_rows::control_kind(&schema_field(…))`.
 - Rows (`crates/editor/src/element_rows.rs`, `element_rows_view.rs`,
   `layer_panel.rs`; `transform_rows.rs` is gone): one `inspector_section`
   per table group, a row per target with its control, the keyframe and lock
@@ -98,7 +116,12 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   message. A typed field commits on Enter or blur; a switch, a menu choice, a
   picked color (when the picker closes), and "Choose…" commit at once; each
   commit is one `commit_element` call and one history entry. The label
-  column (`LABEL_WIDTH`) is 84 px, shared with the header rows.
+  column (`LABEL_WIDTH`) is 84 px, shared with the header rows. A row whose
+  prop `removable` says can go removes it when its field is emptied and
+  committed (`typed_text`), or with its hover × (`remove_element_row`);
+  `written_text` shows the default until the reload resolves. A commit made
+  while the targets are not current waits in `HeldCommits` and
+  `drain_held_rows` writes it once they are.
 - Label scrub (`element_rows.rs`, `element_rows_view.rs`,
   `transform_drag.rs`): dragging an editable number row's label changes it
   by `scrub_value` (the field's `step` per pixel, else 0.01 for a field
@@ -196,6 +219,35 @@ These differ from, or settle what the spec left open:
   line, it grows from one to six lines.
 - **Each row parses on its own**, about twenty parses per selection on the
   background executor; parses are not cached.
+- **Removing a prop, both ways.** Emptying a field and committing (Enter or
+  blur) removes the prop, and so does the hover × at the row's end (lucide
+  `X`, ghost, xsmall, tooltip "Remove"), for every control kind. Removable
+  means written and optional: a `Literal` on the element (also one read
+  through a `const`, whose attribute goes), in its `style` object, or at the
+  call through a pass-through. Not removable: a prop declared `required`, an
+  input (a value an expression reads, not a prop), a `Text`'s children,
+  and an absent, locked, or keyframed prop. A Component-section prop is
+  removable, typed by a schema or not. The × is hidden on a row that can't
+  remove, during a scrub, and while its removal is being written; it is a
+  hover shortcut for the empty-and-commit path, which the keyboard reaches.
+- **An emptied field of a row that can't remove its prop writes nothing**
+  (on blur the source's value shows again), for every kind. Before, an
+  emptied string, text, or path field wrote `""`; an empty string is no
+  longer written by emptying (the path row's "None" still writes `""`).
+- **A removed row shows its default** (the table's, else a transform prop's
+  own; nothing when unknown) dimmed until the reload resolves, not the
+  stale received value.
+- **A prop written twice** (`x={1} x={2}`) is not removable: deleting one
+  would let the other apply. The commit says "X can't be removed here".
+- **Fields stay enabled while their own write reloads.** Only a target that
+  can't be written disables its control; scrubbing still needs current
+  targets. A commit (typed, switch, menu, color, file, removal, a released
+  scrub) made while the targets are being read again, or while another write
+  runs, waits in `HeldCommits` for that layer and is written once they are
+  current: one at a time (each its own history entry), in the order made,
+  the latest value per row winning. It fails at once only when the source
+  can't be read. Selecting another layer drops what waits. A row's sync
+  never sets text equal to what its field holds, so the caret stays.
 
 2a carry-overs closed: inputs that are parameters resolve at the call site;
 the lambda, one-place, and callee gaps in `resolve_inputs`; the scale-axis
@@ -210,17 +262,21 @@ scaleX={sx} />` shows 3); the duplicated readers (`TransformProp::received`,
   own expression.
 - A change to the registered component schemas alone re-types the Component
   section only on the next resolution (the next selection or reload).
-- The commit's stale check replays the resolved rows' keys, so a switch
-  between `scale` and `scaleX` in the source is caught only when a span
-  moves; the write still lands on the target it resolved.
+- The commit's stale check replays the resolved rows' keys. Replacing
+  `scale` with `scaleX` is caught (the `scale` row goes from a literal to
+  missing, which `same_place` rejects); adding `scaleX` beside an unchanged
+  `scale` is not, when no span the rows resolved moves: the commit writes
+  the uniform `scale` it resolved.
 - The multi-line control is about 12 px taller than the small single-line
   rows (gpui-component 0.6.6's `Textarea` has no size API); its label is
   top-aligned.
 - 2a's `useMemo` limitation applies to scrubs as to drags: an element cached
   with `useMemo` at an override's position follows the first frame only.
-- Pressing Enter in another row's focused field during a scrub commits that
-  field, and the scrub's release then fails as unavailable ("Select the
-  layer again").
+- A commit that waits shows its value in the row, but nothing says it is
+  waiting; one held while the source can't be found never runs, and goes
+  when another layer is selected.
+- `crates/editor/src/tests.rs`, `element_rows.rs`, and `element_edit.rs`
+  are large; splitting them is a follow-up.
 
 ## What 2c–2d build on
 
@@ -260,5 +316,14 @@ content these rows supersede, so no example changed):
 - Select a layer inside a component called as
   `<PriceTag label="Sale" />`: the "Component · PriceTag" section lists
   `label`; edit it, and only the call site changes.
+- Select a `Text` with `maxWidth={400}`: hover the Max width row and click
+  ×; the attribute goes with its space, and the row shows no value. Select a
+  `Rect` with `cornerRadius={8}`: empty the Corner radius field and press
+  Enter; the attribute goes and the row shows `0` dimmed. Width shows no ×,
+  and emptying it puts its value back. Undo each removal: the file is
+  restored byte for byte.
+- Type in a field and press Enter, then keep typing at once: the field
+  stays enabled, the caret stays where it was, and Enter again writes the
+  new value after the first write's reload (two history entries).
 - Undo each of the above: each is one step and restores the file it wrote
   byte for byte.

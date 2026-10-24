@@ -219,19 +219,20 @@ are declared next to the components, so they cannot drift from the props
 types:
 
 ```ts
-// packages/react/src/property-tables.ts
-export const primitiveProperties = {
-  Rect: {
-    size: { width: 'width', height: 'height' },
-    groups: {
-      Transform: { x: num(0), y: num(0), rotation: num(0), scale: num(1), anchorX: num(0), anchorY: num(0), opacity: num(1, 0, 1) },
-      Size: { width: num(), height: num(), cornerRadius: num(0) },
-      Appearance: { fill: color(), stroke: color(), strokeWidth: num(0) },
+// packages/react/src/components.ts, beside <Rect>
+registerPrimitiveProperties('Rect', propertyTable<RectProps>({
+  size: { width: 'width', height: 'height' },
+  groups: {
+    Transform: {
+      x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
+      anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
+    Size: { width: required(num()), height: required(num()), cornerRadius: num(0) },
+    Appearance: { fill: color(), stroke: color(), strokeWidth: num(0) },
   },
-  // Group, Image, Text, Video, and @celesta/shapes' Ellipse, Circle,
-  // Triangle, Polygon, Star, Pie, Heart
-} satisfies PropertyTables;
+}));
+// Group, Image, Text, Video likewise, and @celesta/shapes' Ellipse,
+// Circle, Triangle, Polygon, Star, Pie, Heart beside theirs
 ```
 
 - Fields are their own type, `PrimitivePropertyField`: `ComponentPropertyField`'s
@@ -241,7 +242,11 @@ export const primitiveProperties = {
   `min`/`max` (`opacity` 0–1): a typed value outside is refused with "Enter a
   number from {min} to {max}" ("Enter a number of at least {min}" or "Enter
   a number of at most {max}" when only one bound is set), and a scrub
-  clamps.
+  clamps. It may carry `step`, what one pixel of a scrub changes.
+- A prop the props type requires is declared `required(…)` (`Rect`'s
+  `width`/`height`, `Image`'s and `Video`'s `src`, `Text`'s `children`, a
+  `Circle`'s `radius`, …): its row is never removed. The table's type
+  rejects a required prop not declared so, and an optional one declared so.
 - `size` names the props that hold the box: `width`/`height`, `radius`
   (uniform), or `maxWidth` (width only, for `Text`). Primitives without one
   (`Group`) have no resize handles.
@@ -272,6 +277,25 @@ Locked with its reason) and a control by type:
 A pass-through row shows a small `corner-down-right` icon and the call site
 ("Set at `Price.tsx:18`"). Commits go through the existing resolve, apply,
 write, and history path; one committed field is one history entry.
+
+A written optional prop can be removed, so its default applies again:
+emptying its field and committing (Enter or blur), or the "×" (lucide `X`,
+ghost, tooltip "Remove") that shows at the row's end on hover, for every
+control kind. The removal deletes bytes only: the attribute with the
+whitespace before it, a `style` object's property with its separating comma
+(the only one leaves `{}`), or for a pass-through the attribute at the call
+site, so the parameter's default applies. It is one history entry, and the
+row shows the default dimmed until the reload resolves. A required prop, an
+input, a `Text`'s children, and an absent, locked, or keyframed prop are
+never removed; an emptied field of such a row shows the source's value
+again. A Component-section prop is removable (the component's own default
+applies).
+
+A row's control is disabled only when its target can't be written. While the
+editor's own write reloads, the fields stay enabled and keep their focus and
+caret; a commit made meanwhile (or while another write runs) waits and is
+written once the targets are current again, one at a time in the order made,
+the latest value per row winning.
 
 When the selected element is a component call's root (the chain's nearest
 component entry exists), a "Component" section lists the props written at that
