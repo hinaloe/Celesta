@@ -5,7 +5,7 @@ use crate::element_edit::{
     ElementTargets, PropKey, Resolved, Target, editable, inner_target, keyframe_jump_frames,
     reason_text, table_key,
 };
-use crate::element_rows::{element_control_handler, row_field, row_label, set_at_text};
+use crate::element_rows::{element_control_handler, row_field, row_label, scrubs, set_at_text};
 use crate::icons::CelestaIcon;
 use crate::layer_panel::LABEL_WIDTH;
 use crate::property_controls::{ControlKind, render_control};
@@ -17,7 +17,10 @@ use celesta_source_edit::{EditTarget, LockReason};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _};
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, Context, Div, ElementId, SharedString, div, px};
+use gpui_kit::{
+    AnyElement, Context, CursorStyle, Div, ElementId, MouseButton, MouseDownEvent, SharedString,
+    div, px,
+};
 use std::path::Path;
 
 /// How far an input sub-row is indented under its row.
@@ -195,6 +198,13 @@ impl EditorView {
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let row = self.element_rows.get(key);
+        // Dragging the label scrubs an editable number (not while playing).
+        let scrubbable = current
+            && !self.playing
+            && resolved
+                .outcome
+                .as_ref()
+                .is_ok_and(|targets| scrubs(targets, key, target));
         let (call_site, target) = (target.call_site.as_ref(), &target.target);
         // A pass-through row shows the state of the value at the call site.
         let shown = inner_target(target);
@@ -283,6 +293,15 @@ impl EditorView {
                             .text_ellipsis()
                             .text_xs()
                             .text_color(muted)
+                            .when(scrubbable, |label| {
+                                let key = key.clone();
+                                label.cursor(CursorStyle::ResizeLeftRight).on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                                        this.begin_row_scrub(&key, f32::from(event.position.x), cx);
+                                    }),
+                                )
+                            })
                             .child(label),
                     )
                     .children(control)

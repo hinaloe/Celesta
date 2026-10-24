@@ -5,17 +5,18 @@
 //! the row state, and the commit flow; `element_rows_view.rs` renders them.
 
 use crate::element_edit::{
-    ElementTargets, PropKey, Target, edit_value, field_of, inner_target, table_default,
+    ElementTargets, PropKey, Target, edit_value, editable, field_of, inner_target, table_default,
 };
 use crate::layer_select::display_path;
 use crate::property_controls::{Control, ControlEvent, ControlKind, build_control};
 use crate::property_panel::{color_hex, parse_color, parse_color_input, parse_number_input};
+use crate::transform_drag::override_sites;
 use crate::view::EditorView;
 use celesta_react_bridge::{
-    LayerSourceReport, PrimitivePropertyField, ReceivedProps, SourcePos, import_path,
+    LayerSourceReport, PrimitivePropertyField, PropOverride, ReceivedProps, SourcePos, import_path,
 };
 use celesta_source_edit::{EditTarget, EditValue, default_for, format_number};
-use gpui_kit::{Context, PathPromptOptions, Subscription, Window};
+use gpui_kit::{Context, MouseMoveEvent, PathPromptOptions, Subscription, Window};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
@@ -279,6 +280,144 @@ pub(crate) fn row_kind(targets: &ElementTargets, key: &PropKey, target: &Target)
     }
 }
 
+/// The value a scrub `dx` pixels from its start gives: `start + dx * step`,
+/// `step` 1 per pixel, 0.01 for a field with `max <= 1` (opacity, ratios),
+/// clamped to `min`/`max`; Shift multiplies the step by 10.
+pub(crate) fn scrub_value(
+    start: f64,
+    dx: f32,
+    field: Option<&PrimitivePropertyField>,
+    shift: bool,
+) -> f64 {
+    let (min, max) = match field {
+        Some(PrimitivePropertyField::Number { min, max, .. }) => (*min, *max),
+        _ => (None, None),
+    };
+    let step = if max.is_some_and(|max| max <= 1.0) {
+        0.01
+    } else {
+        1.0
+    };
+    let step = if shift { step * 10.0 } else { step };
+    let value = start + f64::from(dx) * step;
+    let value = min.map_or(value, |min| value.max(min));
+    max.map_or(value, |max| value.min(max))
+}
+
+/// Whether dragging the label of the row `key` scrubs its value: a number
+/// the editor can write as one value. Not an input (the runtime overrides
+/// props, and an input is a value an expression reads), nor a keyframe (no
+/// single prop value to override); a locked row, between keyframes too,
+/// can't be written at all.
+pub(crate) fn scrubs(targets: &ElementTargets, key: &PropKey, target: &Target) -> bool {
+    !matches!(key, PropKey::Input { .. })
+        && row_kind(targets, key, target) == ControlKind::Number
+        && editable(&target.target)
+        && !matches!(inner_target(&target.target), EditTarget::Keyframe { .. })
+}
+
+/// A scrub in progress on one number row.
+#[derive(Clone, Debug)]
+pub(crate) struct Scrub {
+    key: PropKey,
+    /// Where the label was pressed, in window pixels.
+    start_x: f32,
+    start_value: f64,
+    value: f64,
+    /// The row's override, its position fixed for the scrub: the runtime
+    /// remounts the entry when the positions change.
+    sites: Vec<PropOverride>,
+    /// The row's field (its range), kept from the start: the targets are
+    /// gone while the write runs.
+    field: Option<PrimitivePropertyField>,
+    /// The pointer changed the value at least once.
+    moved: bool,
+    /// Released; the override stays while the write runs and, after a
+    /// successful one, until its reload, as a released canvas drag's does.
+    released: bool,
+}
+
+impl Scrub {
+    /// A scrub of the row `key` pressed at `start_x`, starting from the
+    /// value the row shows (0 when it shows none); `None` when the row does
+    /// not scrub.
+    pub(crate) fn start(
+        targets: &ElementTargets,
+        report: &LayerSourceReport,
+        key: &PropKey,
+        start_x: f32,
+    ) -> Option<Self> {
+        let target = targets.entry(key)?;
+        if !scrubs(targets, key, target) {
+            return None;
+        }
+        let (_, site) = override_sites(targets, report)
+            .into_iter()
+            .find(|(candidate, _)| candidate == key)?;
+        // A literal's own value; the shown text rounds it.
+        let start_value = match inner_target(&target.target) {
+            EditTarget::Literal {
+                value: EditValue::Number(value),
+                ..
+            } => *value,
+            _ => {
+                let (text, placeholder) = entry_text(targets, key, target, report);
+                let shown = if text.is_empty() { placeholder } else { text };
+                shown.trim().parse().unwrap_or(0.0)
+            }
+        };
+        Some(Self {
+            key: key.clone(),
+            start_x,
+            start_value,
+            value: start_value,
+            sites: vec![site.with(start_value)],
+            field: row_field(targets, key).cloned(),
+            moved: false,
+            released: false,
+        })
+    }
+
+    /// Takes the pointer at `x` (window pixels); true when the value
+    /// changed.
+    pub(crate) fn follow(&mut self, x: f32, shift: bool) -> bool {
+        let dx = (x - self.start_x).round();
+        let value = scrub_value(self.start_value, dx, self.field.as_ref(), shift);
+        if value == self.value {
+            return false;
+        }
+        self.value = value;
+        self.moved = true;
+        true
+    }
+
+    /// Whether there is a value to write: the pointer left the start value.
+    pub(crate) fn changed(&self) -> bool {
+        self.value != self.start_value
+    }
+
+    /// The prop overrides the preview evaluates the scene with: none before
+    /// the value first changes, nor while `playing`; from then on the row's
+    /// prop at the same position, also back at the start value.
+    pub(crate) fn overrides(&self, playing: bool) -> Vec<PropOverride> {
+        if playing || !self.moved {
+            return Vec::new();
+        }
+        self.sites
+            .iter()
+            .map(|site| PropOverride {
+                value: self.value,
+                ..site.clone()
+            })
+            .collect()
+    }
+
+    /// The value the row `key` shows while this scrub changes it.
+    fn shown(&self, key: &PropKey) -> Option<f64> {
+        (self.moved && self.key == *key).then_some(self.value)
+    }
+}
+
 /// What a row shows for `key`, as [`row_text`] does for a row, and without
 /// received props for an input or a component prop (the element did not
 /// receive those).
@@ -330,6 +469,9 @@ impl ElementRow {
 #[derive(Default)]
 pub(crate) struct ElementRows {
     rows: HashMap<PropKey, ElementRow>,
+    /// The scrub of a row's value by its label, if one is running or being
+    /// written. Never together with a canvas drag.
+    pub(crate) scrub: Option<Scrub>,
 }
 
 impl ElementRows {
@@ -412,6 +554,7 @@ impl EditorView {
                 (key, kind, shown)
             })
             .collect();
+        let scrub = self.element_rows.scrub.as_ref();
         let rows = &mut self.element_rows.rows;
         rows.retain(|key, _| specs.iter().any(|(wanted, _, _)| wanted == key));
         for (key, kind, shown) in specs {
@@ -433,7 +576,11 @@ impl EditorView {
             let Some(row) = rows.get_mut(&key) else {
                 continue;
             };
-            let shown = match &row.pending {
+            // A value being scrubbed, then the one being written.
+            let scrubbed = scrub
+                .and_then(|scrub| scrub.shown(&key))
+                .map(EditValue::Number);
+            let shown = match scrubbed.as_ref().or(row.pending.as_ref()) {
                 Some(value) => (value_text(value), String::new()),
                 None => shown,
             };
@@ -588,11 +735,118 @@ impl EditorView {
                         row.shown = None;
                     }
                 }
+                // A released scrub's override stays until the reload draws
+                // the written value; none comes after a failure, nor after
+                // a write that left the text as it was (the targets are
+                // still current).
+                let scrubbed = this
+                    .element_rows
+                    .scrub
+                    .as_ref()
+                    .is_some_and(|scrub| scrub.released && scrub.key == written);
+                if scrubbed && (result.is_err() || this.element_targets().is_some()) {
+                    this.cancel_row_scrub();
+                }
                 cx.notify();
             },
             cx,
         );
         cx.notify();
+    }
+
+    /// Whether a scrub is running with the button down (not one released
+    /// and being written).
+    pub(crate) fn row_scrub_active(&self) -> bool {
+        self.element_rows
+            .scrub
+            .as_ref()
+            .is_some_and(|scrub| !scrub.released)
+    }
+
+    /// Mouse down on the label of the row `key` at `x` (window pixels):
+    /// starts a scrub of its value when the row scrubs, ending a canvas drag
+    /// without writing it. Nothing while playing.
+    pub(crate) fn begin_row_scrub(&mut self, key: &PropKey, x: f32, cx: &mut Context<Self>) {
+        if self.playing || self.row_scrub_active() {
+            return;
+        }
+        let Some(scrub) = self
+            .element_targets()
+            .and_then(|(targets, report)| Scrub::start(targets, report, key, x))
+        else {
+            return;
+        };
+        self.cancel_transform_drag();
+        self.cancel_row_scrub();
+        if let Some(row) = self.element_rows.rows.get_mut(key) {
+            row.edited = false;
+            row.invalid = None;
+        }
+        self.element_rows.scrub = Some(scrub);
+        cx.notify();
+    }
+
+    /// Follows the pointer: recomputes the value and redraws the frame with
+    /// it. Writes nothing.
+    pub(crate) fn continue_row_scrub(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+        if !self.row_scrub_active() {
+            return;
+        }
+        // The button came up where the view did not see it: end there.
+        if !event.dragging() {
+            if self.end_row_scrub(cx) {
+                cx.notify();
+            }
+            return;
+        }
+        let Some(scrub) = self.element_rows.scrub.as_mut() else {
+            return;
+        };
+        if scrub.follow(f32::from(event.position.x), event.modifiers.shift) {
+            self.refresh_preview();
+            cx.notify();
+        }
+    }
+
+    /// Release: writes the scrubbed value as one history entry, or nothing
+    /// when the value is back where it started (or never moved). True when
+    /// a scrub was running.
+    pub(crate) fn end_row_scrub(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(scrub) = self
+            .element_rows
+            .scrub
+            .as_mut()
+            .filter(|scrub| !scrub.released)
+        else {
+            return false;
+        };
+        if !scrub.changed() {
+            self.cancel_row_scrub();
+            return true;
+        }
+        scrub.released = true;
+        let (key, value) = (scrub.key.clone(), scrub.value);
+        // The row shows the value until the write finishes; a failure (the
+        // targets went stale, the source changed) drops the override.
+        self.commit_element_row(&key, EditValue::Number(value), cx);
+        true
+    }
+
+    /// Escape during a scrub: drops it and its override, writing nothing.
+    /// True when a pressed scrub was cancelled.
+    pub(crate) fn escape_row_scrub(&mut self) -> bool {
+        if !self.row_scrub_active() {
+            return false;
+        }
+        self.cancel_row_scrub();
+        true
+    }
+
+    /// Drops the scrub and redraws the frame without its override.
+    pub(crate) fn cancel_row_scrub(&mut self) {
+        if self.element_rows.scrub.take().is_some() {
+            self.refresh_preview();
+        }
     }
 
     /// `Choose…` on a path row: imports the chosen file into the project and

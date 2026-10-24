@@ -12,7 +12,8 @@ use crate::element_edit::{
     reason_text, resolve_targets, table_default, type_component_props,
 };
 use crate::element_rows::{
-    cleared_path, control_kind, parse_row_value, row_field, row_label, row_text, set_at_text,
+    Scrub, cleared_path, control_kind, parse_row_value, row_field, row_label, row_text,
+    scrub_value, set_at_text,
 };
 use crate::export_worker::{
     ExportEvent, ExportRequest, ExportSource, ExportWorker, export_options,
@@ -2769,11 +2770,10 @@ fn x_passed_at_the_call_site_is_a_pass_through_target() {
     assert_eq!(targets.targets[2].1.call_site, None);
 }
 
-/// The override sites of `<Rect x={left} rotation={10} scale={size * 2} />`
-/// in `PriceTag`, called as `<PriceTag left={40} size={1} />`: `left` is set
-/// at the call site, `rotation` on the element, `y` nowhere, and `scale` is
-/// computed.
-fn mixed_override_sites() -> Vec<(TransformProp, OverrideSite)> {
+/// `<Rect x={left} rotation={10} scale={size * 2} />` in `PriceTag`, called
+/// as `<PriceTag left={40} size={1} />`: `left` is set at the call site,
+/// `rotation` on the element, `y` nowhere, and `scale` is computed.
+fn mixed_targets() -> ElementTargets {
     let files = Texts::from([
         (
             PathBuf::from("/project/component.tsx"),
@@ -2785,9 +2785,12 @@ fn mixed_override_sites() -> Vec<(TransformProp, OverrideSite)> {
             "export const Scene = () => (\n  <PriceTag left={40} size={1} />\n);\n".to_owned(),
         ),
     ]);
-    let report = price_tag_report();
-    let targets = resolve_targets(read_from(&files), &report, None).expect("the element resolves");
-    override_sites(&targets, &report)
+    resolve_targets(read_from(&files), &price_tag_report(), None).expect("the element resolves")
+}
+
+/// The override sites of [`mixed_targets`].
+fn mixed_override_sites() -> Vec<(PropKey, OverrideSite)> {
+    override_sites(&mixed_targets(), &price_tag_report())
 }
 
 /// An override of the element or call site at line 2, column 3 of `file`.
@@ -4412,4 +4415,155 @@ fn no_component_section_without_a_call_site() {
     let report = primitive_report(2, 3, x_only());
     let targets = resolve_in(TRANSFORM_FIXTURE, &report).unwrap();
     assert_eq!(targets.component, None);
+}
+
+#[test]
+fn scrub_steps() {
+    let free = number_field(None);
+    let unit = PrimitivePropertyField::Number {
+        default_value: Some(1.0),
+        min: Some(0.0),
+        max: Some(1.0),
+    };
+    // One per pixel.
+    assert_eq!(scrub_value(10.0, 5.0, Some(&free), false), 15.0);
+    assert_eq!(scrub_value(10.0, 5.0, None, false), 15.0);
+    // 0.01 per pixel for a field that ends at 1 or below, inside its range.
+    assert!((scrub_value(0.5, 10.0, Some(&unit), false) - 0.6).abs() < 1e-9);
+    assert_eq!(scrub_value(0.5, 100.0, Some(&unit), false), 1.0);
+    assert_eq!(scrub_value(0.5, -100.0, Some(&unit), false), 0.0);
+    // Shift steps ten times as far.
+    assert_eq!(scrub_value(10.0, 5.0, Some(&free), true), 60.0);
+    assert!((scrub_value(0.5, 2.0, Some(&unit), true) - 0.7).abs() < 1e-9);
+}
+
+/// The overrides a scrub of `key` pressed at x 100 sends at x 104, 110 and
+/// 96; `None` when the row does not scrub.
+fn scrub_frames(
+    targets: &ElementTargets,
+    report: &LayerSourceReport,
+    key: &PropKey,
+) -> Option<Vec<Vec<PropOverride>>> {
+    let mut scrub = Scrub::start(targets, report, key, 100.0)?;
+    Some(
+        [104.0, 110.0, 96.0]
+            .into_iter()
+            .map(|x| {
+                scrub.follow(x, false);
+                scrub.overrides(false)
+            })
+            .collect(),
+    )
+}
+
+#[test]
+fn scrub_overrides_the_row_prop() {
+    // A literal on the element: its own prop there.
+    let (targets, report) = corner_radius_rect();
+    let at = |prop: &str, value: f64| vec![override_at("/project/scene.tsx", prop, value)];
+    assert_eq!(
+        scrub_frames(&targets, &report, &prop("cornerRadius")),
+        Some(vec![
+            at("cornerRadius", 8.0),
+            at("cornerRadius", 14.0),
+            at("cornerRadius", 0.0),
+        ])
+    );
+
+    // A `Text` font row the `style` object sets: that key of `style`.
+    let text = "export const Scene = () => (\n  <Text style={{ fontSize: 48 }} fontWeight={700}>A</Text>\n);\n";
+    let report = text_report(
+        Path::new("/project/scene.tsx"),
+        &[("style.fontSize", ReceivedValue::Number(48.0))],
+    );
+    let targets = resolve_table(text, &report, &text_table());
+    assert_eq!(
+        scrub_frames(&targets, &report, &prop("fontSize")),
+        Some(vec![
+            at("style.fontSize", 52.0),
+            at("style.fontSize", 58.0),
+            at("style.fontSize", 44.0),
+        ])
+    );
+
+    // A value passed through: the parameter's prop at the call site.
+    let targets = mixed_targets();
+    let report = price_tag_report();
+    let called = |value: f64| vec![override_at("/project/scene.tsx", "left", value)];
+    assert_eq!(
+        scrub_frames(&targets, &report, &prop("x")),
+        Some(vec![called(44.0), called(50.0), called(36.0)])
+    );
+    // An input is a value the expression reads, not a prop; a computed row
+    // is locked.
+    let input = PropKey::Input {
+        row: "scale".to_owned(),
+        name: "size".to_owned(),
+    };
+    assert_eq!(scrub_frames(&targets, &report, &input), None);
+    assert_eq!(scrub_frames(&targets, &report, &prop("scale")), None);
+
+    // A component prop: that prop at the component's call, inside its range.
+    let texts = typed_props_tag_files();
+    let targets = typed_props_tag_targets(&texts);
+    let report = props_tag_report();
+    let tone = |value: f64| vec![override_at("/project/scene.tsx", "tone", value)];
+    assert_eq!(
+        scrub_frames(&targets, &report, &PropKey::CallSite("tone".to_owned())),
+        Some(vec![tone(6.0), tone(10.0), tone(0.0)])
+    );
+
+    // A keyframe has no single value to override; a color is not a number.
+    let report = above_sequence_report(vec![]);
+    let targets = resolve_in(ABOVE_SEQUENCE, &report).unwrap();
+    assert_eq!(scrub_frames(&targets, &report, &prop("x")), None);
+    let (targets, report) = corner_radius_rect();
+    assert_eq!(scrub_frames(&targets, &report, &prop("fill")), None);
+}
+
+/// `<Rect x={10} fill="#fff" cornerRadius={4} />` at line 2, column 3 of
+/// `/project/scene.tsx`, as the runtime drew it.
+fn corner_radius_rect() -> (ElementTargets, LayerSourceReport) {
+    let text =
+        "export const Scene = () => (\n  <Rect x={10} fill=\"#fff\" cornerRadius={4} />\n);\n";
+    let mut report = primitive_report(
+        2,
+        3,
+        ReceivedProps {
+            x: Some(10.0),
+            ..ReceivedProps::default()
+        },
+    );
+    for (name, value) in [
+        ("fill", ReceivedValue::String("#fff".to_owned())),
+        ("cornerRadius", ReceivedValue::Number(4.0)),
+    ] {
+        report.props.others.insert(name.to_owned(), value);
+    }
+    (resolve_table(text, &report, &rect_table()), report)
+}
+
+#[test]
+fn a_scrub_overrides_nothing_before_it_moves_or_while_playing() {
+    let (targets, report) = corner_radius_rect();
+    let mut scrub = Scrub::start(&targets, &report, &prop("cornerRadius"), 100.0).unwrap();
+    assert_eq!(scrub.overrides(false), []);
+    assert!(!scrub.follow(100.0, false));
+    assert_eq!(scrub.overrides(false), []);
+
+    assert!(scrub.follow(103.0, false));
+    assert!(scrub.changed());
+    assert_eq!(
+        scrub.overrides(false),
+        [override_at("/project/scene.tsx", "cornerRadius", 7.0)]
+    );
+    assert_eq!(scrub.overrides(true), []);
+    // Back at the start it keeps overriding (the same position), and has
+    // nothing to write.
+    assert!(scrub.follow(100.0, false));
+    assert_eq!(
+        scrub.overrides(false),
+        [override_at("/project/scene.tsx", "cornerRadius", 4.0)]
+    );
+    assert!(!scrub.changed());
 }

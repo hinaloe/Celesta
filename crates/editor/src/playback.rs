@@ -74,8 +74,10 @@ impl EditorView {
             };
             self.seek_frame(restart);
         }
-        // Playback draws the code's own frames: a drag stops, unwritten.
+        // Playback draws the code's own frames: a drag or a scrub stops,
+        // unwritten.
         self.transform_drag = None;
+        self.element_rows.scrub = None;
         self.playing = true;
         self.playback_started_at = Some(Instant::now());
         self.playback_started_frame = self.clock.frame();
@@ -292,12 +294,14 @@ impl EditorView {
         }
         self.continue_master_volume_drag(event, window, cx);
         self.continue_transform_drag(event, cx);
+        self.continue_row_scrub(event, cx);
     }
 
     pub(crate) fn drag_end(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
         let ended = self.end_scrub() | self.end_overview_drag();
         let ended = self.master_volume_drag.take().is_some() | ended;
         let ended = self.end_transform_drag(cx) | ended;
+        let ended = self.end_row_scrub(cx) | ended;
         if ended {
             cx.notify();
         }

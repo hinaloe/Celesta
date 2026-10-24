@@ -273,18 +273,19 @@ impl EditorView {
         } else {
             ReactPreviewMode::ResolveComponents
         };
-        // A drag redraws the frame on every move; the runtime's answer is
-        // about the written source, which the drag does not change until it
-        // writes, so it is not asked again (the runtime looks it up without
-        // the drag's overrides, and remounts to drop them). Playback
-        // asks only for an answer it does not have yet, or a stale one.
+        // A drag or a row's scrub redraws the frame on every move; the
+        // runtime's answer is about the written source, which neither
+        // changes until it writes, so it is not asked again (the runtime
+        // looks it up without the overrides, and remounts to drop them).
+        // Playback asks only for an answer it does not have yet, or a stale
+        // one.
         let source_of = source_lookup_target(
             self.selected_layer.as_deref(),
             self.picks_layers(),
             self.playing && !self.source_lookup_stale,
             self.source_lookup.as_ref(),
         )
-        .filter(|_| self.transform_drag.is_none());
+        .filter(|_| self.transform_drag.is_none() && self.element_rows.scrub.is_none());
         match self.document.scene_at(self.current_time()) {
             // The warnings stay until the result replaces them, so their
             // counts don't flicker while frames are in flight.
@@ -498,10 +499,13 @@ impl EditorView {
                     // old answer stays shown, read-only.
                     self.source_lookup_stale = true;
                     self.element_edit.expire();
-                    // A released drag's values are drawn by the reloaded
-                    // code now; a pressed one goes on.
+                    // A released drag's or scrub's values are drawn by the
+                    // reloaded code now; a pressed one goes on.
                     if !self.transform_drag_active() {
                         self.transform_drag = None;
+                    }
+                    if !self.row_scrub_active() {
+                        self.element_rows.scrub = None;
                     }
                 } else {
                     // A layer picked while the reload ran belongs to the old code.
@@ -521,10 +525,13 @@ impl EditorView {
                     "React reload failed",
                     error.message.clone(),
                 );
-                // No reloaded frame will replace a released drag's override;
-                // the old code's frame is drawn without it.
+                // No reloaded frame will replace a released drag's or
+                // scrub's override; the old code's frame is drawn without it.
                 if !self.transform_drag_active() {
                     self.cancel_transform_drag();
+                }
+                if !self.row_scrub_active() {
+                    self.cancel_row_scrub();
                 }
             }
         }

@@ -85,9 +85,12 @@ impl EditorView {
             .when_some(self.focus_handle.as_ref(), |view, focus_handle| {
                 view.track_focus(focus_handle)
             })
-            // Escape cancels a canvas drag before any other key handling.
+            // Escape cancels a canvas drag or a row's scrub before any other
+            // key handling.
             .capture_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
-                if event.keystroke.key == "escape" && this.escape_transform_drag() {
+                if event.keystroke.key == "escape"
+                    && (this.escape_transform_drag() || this.escape_row_scrub())
+                {
                     cx.stop_propagation();
                     cx.notify();
                 }

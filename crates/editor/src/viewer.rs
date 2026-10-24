@@ -795,6 +795,7 @@ impl EditorView {
         self.element_edit.reset();
         self.layer_frame = None;
         self.transform_drag = None;
+        self.element_rows.scrub = None;
     }
 }
 
