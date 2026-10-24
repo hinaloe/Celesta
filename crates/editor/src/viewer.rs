@@ -112,6 +112,9 @@ fn mode_toggle(
     let theme = cx.theme();
     let (warning, muted, foreground) = (theme.warning, theme.muted_foreground, theme.foreground);
     let (pill, pill_border) = (theme.secondary, theme.input);
+    // An unselected tab under the pointer: a step from muted toward the
+    // foreground.
+    let muted_hover = foreground.opacity(0.8);
     let slot = div()
         .id(note_id)
         .flex_none()
@@ -149,16 +152,27 @@ fn mode_toggle(
                 .border_1()
                 .text_xs()
                 .cursor_pointer()
+                // Both tabs carry a hover style, the chosen one restating its
+                // own colors: GPUI tracks a div's hover flag (by its id, one
+                // per value) only while it has a hover style, and reads that
+                // flag for text colors before the frame's hitboxes exist. A
+                // tab without one keeps a stale "hovered" from when it was
+                // clicked, and would show it the next time it is unselected.
                 .map(|this| {
                     if tab.chosen {
                         this.bg(pill)
                             .border_color(pill_border)
                             .text_color(foreground)
                             .shadow_sm()
+                            .hover(move |this| {
+                                this.bg(pill)
+                                    .border_color(pill_border)
+                                    .text_color(foreground)
+                            })
                     } else {
                         this.border_color(gpui_kit::transparent_black())
                             .text_color(muted)
-                            .hover(|this| this.text_color(foreground))
+                            .hover(move |this| this.text_color(muted_hover))
                     }
                 })
                 .child(tab.label)
