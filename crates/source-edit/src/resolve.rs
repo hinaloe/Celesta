@@ -254,7 +254,7 @@ impl<'p> PropPath<'p> {
     }
 
     /// The attribute that holds the prop.
-    fn attribute(self) -> &'p str {
+    pub(crate) fn attribute(self) -> &'p str {
         match self {
             Self::Attribute(name) => name,
             Self::Children => "children",
@@ -474,7 +474,7 @@ fn property_insert_at(text: &str, object: Span, last: Option<u32>) -> u32 {
 
 /// The first offset at or after `at` that is neither whitespace nor inside
 /// a comment.
-fn skip_trivia(text: &str, mut at: usize) -> usize {
+pub(crate) fn skip_trivia(text: &str, mut at: usize) -> usize {
     loop {
         let rest = &text[at..];
         let trimmed = rest.trim_start();

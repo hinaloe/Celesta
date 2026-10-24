@@ -8,6 +8,7 @@ mod attributes;
 mod inputs;
 mod locate;
 mod pass_through;
+mod remove;
 mod resolve;
 mod scope;
 mod shape;
@@ -17,6 +18,7 @@ pub use attributes::{text_style_path, written_attributes};
 pub use inputs::resolve_inputs;
 pub use locate::{ElementRef, element_at};
 pub use pass_through::{Parameter, enclosing_component, parameter_of, resolve_through};
+pub use remove::removal;
 pub use resolve::{
     EditTarget, EditValue, LiteralForm, LockReason, ResolveContext, Span, default_for,
     has_attribute, resolve, resolve_call_site_prop,
