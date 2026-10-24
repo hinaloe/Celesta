@@ -5,7 +5,7 @@
 
 /** How one prop is edited, and its value when the element does not write it. */
 export type PrimitiveFieldType =
-  | { type: 'number'; defaultValue?: number; min?: number; max?: number; step?: number }
+  | { type: 'number'; defaultValue?: number; min?: number; max?: number; step?: number; integer?: boolean }
   | { type: 'string'; defaultValue?: string }
   | { type: 'text'; defaultValue?: string }
   | { type: 'boolean'; defaultValue?: boolean }
@@ -52,15 +52,18 @@ export interface NumberRange {
   min?: number;
   max?: number;
   step?: number;
+  /** Only whole numbers (a polygon's `sides`); a `step` of 1 does not imply it. */
+  integer?: boolean;
 }
 
-export function num(defaultValue?: number, { min, max, step }: NumberRange = {}): PrimitiveFieldType {
+export function num(defaultValue?: number, { min, max, step, integer }: NumberRange = {}): PrimitiveFieldType {
   return {
     type: 'number',
     ...(defaultValue === undefined ? {} : { defaultValue }),
     ...(min === undefined ? {} : { min }),
     ...(max === undefined ? {} : { max }),
     ...(step === undefined ? {} : { step }),
+    ...(integer === true ? { integer } : {}),
   };
 }
 

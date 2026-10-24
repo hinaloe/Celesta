@@ -47,9 +47,9 @@ test('shape numbers stop where the shapes reject them', () => {
   ] as const) {
     assert.equal((field(name, key) as { min?: number } | undefined)?.min, 0, `${name} ${key}`);
   }
-  // At least three sides or points.
-  assert.deepEqual(field('Polygon', 'sides'), { type: 'number', required: true, min: 3 });
-  assert.deepEqual(field('Star', 'points'), { type: 'number', required: true, min: 3 });
+  // At least three sides or points, and a whole number of them.
+  assert.deepEqual(field('Polygon', 'sides'), { type: 'number', required: true, min: 3, integer: true });
+  assert.deepEqual(field('Star', 'points'), { type: 'number', required: true, min: 3, integer: true });
   // A stroke must be wider than nothing.
   for (const name of ['Ellipse', 'Circle', 'Triangle', 'Polygon', 'Star', 'Pie', 'Heart']) {
     assert.deepEqual(field(name, 'strokeWidth'), { type: 'number', defaultValue: 2, min: 0.1 }, name);

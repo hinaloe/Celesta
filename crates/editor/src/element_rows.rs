@@ -202,25 +202,32 @@ pub(crate) fn parse_row_value(
     match kind {
         ControlKind::Number => {
             let value = parse_number_input(text)?;
-            let (min, max) = match field {
-                Some(PrimitivePropertyField::Number { min, max, .. }) => (*min, *max),
-                _ => (None, None),
+            let (min, max, integer) = match field {
+                Some(PrimitivePropertyField::Number {
+                    min, max, integer, ..
+                }) => (*min, *max, integer.unwrap_or(false)),
+                _ => (None, None, false),
             };
-            let inside = min.is_none_or(|min| value >= min) && max.is_none_or(|max| value <= max);
+            let inside = min.is_none_or(|min| value >= min)
+                && max.is_none_or(|max| value <= max)
+                && (!integer || value.fract() == 0.0);
+            let what = if integer {
+                "a whole number"
+            } else {
+                "a number"
+            };
             match (min, max) {
                 _ if inside => Ok(EditValue::Number(value)),
                 (Some(min), Some(max)) => Err(format!(
-                    "Enter a number from {} to {}",
+                    "Enter {what} from {} to {}",
                     format_number(min),
                     format_number(max)
                 )),
                 (Some(min), None) => {
-                    Err(format!("Enter a number of at least {}", format_number(min)))
+                    Err(format!("Enter {what} of at least {}", format_number(min)))
                 }
-                (None, _) => Err(format!(
-                    "Enter a number of at most {}",
-                    max.map(format_number).unwrap_or_default()
-                )),
+                (None, Some(max)) => Err(format!("Enter {what} of at most {}", format_number(max))),
+                (None, None) => Err(format!("Enter {what}")),
             }
         }
         ControlKind::String | ControlKind::Text | ControlKind::Path => {
@@ -267,6 +274,7 @@ static SCALE_WITHOUT_TABLE: PrimitivePropertyField = PrimitivePropertyField::Num
     min: None,
     max: None,
     step: Some(0.01),
+    integer: None,
 };
 
 /// The table field of the row `key`, or a component prop's registered
@@ -410,7 +418,8 @@ pub(crate) fn row_kind(targets: &ElementTargets, key: &PropKey, target: &Target)
 
 /// The value a scrub `dx` pixels from its start gives: `start + dx * step`,
 /// `step` the field's declared step per pixel, else 0.01 for a field with
-/// `max <= 1` (opacity, ratios), else 1, clamped to `min`/`max`; Shift
+/// `max <= 1` (opacity, ratios), else 1, rounded for a whole-number field
+/// (a start that is not whole too), clamped to `min`/`max`; Shift
 /// multiplies the step by 10.
 pub(crate) fn scrub_value(
     start: f64,
@@ -418,9 +427,15 @@ pub(crate) fn scrub_value(
     field: Option<&PrimitivePropertyField>,
     shift: bool,
 ) -> f64 {
-    let (min, max, step) = match field {
-        Some(PrimitivePropertyField::Number { min, max, step, .. }) => (*min, *max, *step),
-        _ => (None, None, None),
+    let (min, max, step, integer) = match field {
+        Some(PrimitivePropertyField::Number {
+            min,
+            max,
+            step,
+            integer,
+            ..
+        }) => (*min, *max, *step, integer.unwrap_or(false)),
+        _ => (None, None, None, false),
     };
     let step = step.unwrap_or(if max.is_some_and(|max| max <= 1.0) {
         0.01
@@ -429,6 +444,7 @@ pub(crate) fn scrub_value(
     });
     let step = if shift { step * 10.0 } else { step };
     let value = start + f64::from(dx) * step;
+    let value = if integer { value.round() } else { value };
     let value = min.map_or(value, |min| value.max(min));
     max.map_or(value, |max| value.min(max))
 }

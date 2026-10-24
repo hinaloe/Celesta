@@ -145,7 +145,8 @@ fn ready_message_carries_primitive_tables_in_order() {
                     ]},
                     {"name": "Size", "fields": [
                         {"key": "width", "field": {"type": "number", "required": true}},
-                        {"key": "cornerRadius", "field": {"type": "number", "defaultValue": 0}}
+                        {"key": "cornerRadius", "field": {"type": "number", "defaultValue": 0}},
+                        {"key": "sides", "field": {"type": "number", "min": 3, "integer": true}}
                     ]},
                     {"name": "Source", "fields": [
                         {"key": "src", "field": {"type": "path", "required": true}}
@@ -191,6 +192,7 @@ fn ready_message_carries_primitive_tables_in_order() {
             min: Some(0.0),
             max: Some(1.0),
             step: None,
+            integer: None,
         }
     );
     assert_eq!(
@@ -200,6 +202,7 @@ fn ready_message_carries_primitive_tables_in_order() {
             min: None,
             max: None,
             step: Some(0.01),
+            integer: None,
         }
     );
     assert_eq!(
@@ -209,6 +212,7 @@ fn ready_message_carries_primitive_tables_in_order() {
             min: None,
             max: None,
             step: None,
+            integer: None,
         }
     );
     // `required` rides in the field and is lifted onto the row; a field
@@ -220,7 +224,23 @@ fn ready_message_carries_primitive_tables_in_order() {
         .collect();
     assert_eq!(
         required,
-        [("width", true), ("cornerRadius", false), ("src", true)]
+        [
+            ("width", true),
+            ("cornerRadius", false),
+            ("sides", false),
+            ("src", true)
+        ]
+    );
+    // A whole-number field says so; the others leave it out.
+    assert_eq!(
+        rect.groups[1].fields[2].field,
+        PrimitivePropertyField::Number {
+            default_value: None,
+            min: Some(3.0),
+            max: None,
+            step: None,
+            integer: Some(true),
+        }
     );
     assert_eq!(rect.groups[2].fields[0].field, PrimitivePropertyField::Path);
 }

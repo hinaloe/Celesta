@@ -1185,10 +1185,11 @@ for (const shape of [Path, Line, Polyline, Ellipse, Circle, Arrow, Triangle, Pol
 
 // What the editor's Properties tab edits on each, by section. The bounds are
 // the shapes' own: sizes and radii of at least 0 (`sizeOf`, `dimensionOf`),
-// at least 3 sides or points (`countOf`), and a stroke wider than nothing
-// (`strokeWidthOf`; the field's bounds are inclusive, so 0.1).
+// a whole number of at least 3 sides or points (`countOf`), and a stroke
+// wider than nothing (`strokeWidthOf`; the field's bounds are inclusive, so
+// 0.1).
 const size = (defaultValue?: number) => num(defaultValue, { min: 0 });
-const count = () => num(undefined, { min: 3 });
+const count = () => num(undefined, { min: 3, integer: true });
 const strokeWidth = () => num(2, { min: 0.1 });
 registerPrimitiveProperties('Ellipse', propertyTable<EllipseProps>({
   size: { width: 'width', height: 'height' },

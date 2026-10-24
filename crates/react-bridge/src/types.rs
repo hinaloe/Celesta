@@ -475,6 +475,9 @@ pub enum PrimitivePropertyField {
         /// How much one pixel of a scrub changes the value.
         #[serde(default)]
         step: Option<f64>,
+        /// Only whole numbers (a polygon's `sides`).
+        #[serde(default)]
+        integer: Option<bool>,
     },
     String {
         #[serde(default)]

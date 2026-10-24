@@ -3365,6 +3365,7 @@ fn number_field(default_value: Option<f64>) -> PrimitivePropertyField {
         min: None,
         max: None,
         step: None,
+        integer: None,
     }
 }
 
@@ -3376,6 +3377,7 @@ fn stepped_field(default_value: f64, step: f64) -> PrimitivePropertyField {
         min: None,
         max: None,
         step: Some(step),
+        integer: None,
     }
 }
 
@@ -3417,6 +3419,7 @@ fn rect_table() -> PrimitivePropertyTable {
                         min: Some(0.0),
                         max: Some(1.0),
                         step: None,
+                        integer: None,
                     },
                 ),
             ],
@@ -3927,6 +3930,7 @@ fn num_range(default: f64, min: f64, max: f64) -> PrimitivePropertyField {
         min: Some(min),
         max: Some(max),
         step: None,
+        integer: None,
     }
 }
 
@@ -4476,6 +4480,7 @@ fn scrub_steps() {
         min: Some(0.0),
         max: Some(1.0),
         step: Some(0.1),
+        integer: None,
     };
     near(scrub_value(0.5, 2.0, Some(&coarse), false), 0.7);
 
@@ -5090,6 +5095,64 @@ fn a_font_row_style_may_set_shows_what_style_received() {
         row_text("color", color, Some(&field), &without),
         ("red".to_owned(), String::new())
     );
+}
+
+/// A whole-number field, as a polygon's `sides`.
+fn whole_field(min: Option<f64>, max: Option<f64>) -> PrimitivePropertyField {
+    PrimitivePropertyField::Number {
+        default_value: None,
+        min,
+        max,
+        step: None,
+        integer: Some(true),
+    }
+}
+
+#[test]
+fn a_whole_number_field_refuses_fractions() {
+    let number = ControlKind::Number;
+    let sides = whole_field(Some(3.0), None);
+    assert_eq!(
+        parse_row_value(&number, Some(&sides), "5"),
+        Ok(EditValue::Number(5.0))
+    );
+    for text in ["3.5", "2"] {
+        assert_eq!(
+            parse_row_value(&number, Some(&sides), text),
+            Err("Enter a whole number of at least 3".to_owned()),
+            "{text}"
+        );
+    }
+    let ranged = whole_field(Some(1.0), Some(10.0));
+    assert_eq!(
+        parse_row_value(&number, Some(&ranged), "2.5"),
+        Err("Enter a whole number from 1 to 10".to_owned())
+    );
+    let capped = whole_field(None, Some(10.0));
+    assert_eq!(
+        parse_row_value(&number, Some(&capped), "0.5"),
+        Err("Enter a whole number of at most 10".to_owned())
+    );
+    assert_eq!(
+        parse_row_value(&number, Some(&whole_field(None, None)), "0.5"),
+        Err("Enter a whole number".to_owned())
+    );
+    // A field that does not say so takes fractions, whatever its step.
+    assert_eq!(
+        parse_row_value(&number, Some(&stepped_field(1.0, 1.0)), "2.5"),
+        Ok(EditValue::Number(2.5))
+    );
+}
+
+#[test]
+fn a_whole_number_scrub_moves_in_whole_numbers() {
+    let sides = whole_field(Some(3.0), None);
+    // A start that is not whole is rounded first.
+    assert_eq!(scrub_value(4.4, 0.0, Some(&sides), false), 4.0);
+    assert_eq!(scrub_value(4.4, 2.0, Some(&sides), false), 6.0);
+    assert_eq!(scrub_value(4.0, -5.0, Some(&sides), false), 3.0);
+    // Without the declaration a scrub keeps the fraction.
+    assert_eq!(scrub_value(4.4, 2.0, Some(&number_field(None)), false), 6.4);
 }
 
 #[test]

@@ -55,6 +55,10 @@ test('ratios and fractions declare a fine scrub step', () => {
   assert.deepEqual(field('Video', 'Source', 'playbackRate'), { type: 'number', defaultValue: 1, min: 0, step: 0.01 });
   assert.deepEqual(field('Video', 'Audio', 'volume'), { type: 'number', defaultValue: 1, min: 0, step: 0.01 });
   assert.deepEqual(num(0, { min: 0, max: 1, step: 0.05 }), { type: 'number', defaultValue: 0, min: 0, max: 1, step: 0.05 });
+  // Whole numbers are declared, never implied by a step of 1.
+  assert.deepEqual(num(undefined, { min: 3, integer: true }), { type: 'number', min: 3, integer: true });
+  assert.deepEqual(num(undefined, { step: 1 }), { type: 'number', step: 1 });
+  assert.deepEqual(num(undefined, { integer: false }), { type: 'number' });
 });
 
 test('props the props type requires are declared required', () => {

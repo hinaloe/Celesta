@@ -251,7 +251,10 @@ registerPrimitiveProperties('Rect', propertyTable<RectProps>({
   draws nothing (sizes, radii, strokes, `fontSize`, `maxWidth`, a video's
   `startFrom`, `playbackRate`, `volume`), the smallest sensible inclusive
   bound where the value must be positive (an `Image`'s size 1, a shape's
-  `strokeWidth` 0.1), 3 for `sides` and `points`, and `fontWeight` 1–1000 in
+  `strokeWidth` 0.1), whole numbers of at least 3 for `sides` and `points`
+  (`integer: true`, never implied by a step of 1: a typed fraction is
+  refused, "Enter a whole number of at least 3", and a scrub rounds), and
+  `fontWeight` 1–1000 in
   steps of 100 (static faces are picked by weight class).
 - A prop the props type requires is declared `required(…)` (`Rect`'s
   `width`/`height`, `Image`'s and `Video`'s `src`, `Text`'s `children`, a

@@ -196,8 +196,12 @@ These differ from, or settle what the spec left open:
   is rejected or draws nothing more than 0 (`Rect` width/height/
   cornerRadius/strokeWidth, `Text` fontSize/maxWidth, `Video`
   startFrom/playbackRate/volume, the shapes' sizes, radii, and corner
-  radii per `sizeOf`/`dimensionOf`); `min: 3` for `sides` and `points`
-  (`countOf`). Props that must be positive get the smallest sensible
+  radii per `sizeOf`/`dimensionOf`); `min: 3, integer: true` for `sides`
+  and `points` (`countOf` rejects fractions). `integer` is its own option
+  on number fields (`integer: Option<bool>` in Rust), never implied by a
+  step of 1: a typed fraction gets "Enter a whole number of at least 3"
+  (and the matching range forms), and a scrub rounds, its start too.
+  Props that must be positive get the smallest sensible
   inclusive bound, since a field's bounds are inclusive: `Image` width/
   height `min: 1`, the shapes' `strokeWidth` `min: 0.1` (`strokeWidthOf`).
   Positions, angles, scales, and anchors stay unbounded; `max` only where a
