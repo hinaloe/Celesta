@@ -5,7 +5,7 @@
 use celesta_composition::Point;
 use celesta_editor_theme as theme;
 use celesta_gpu_renderer::hit_test;
-use gpui_kit::component::button::{Button, ButtonRounded, ButtonVariants as _};
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tooltip::Tooltip;
@@ -62,40 +62,56 @@ fn transport_layout(width: f32) -> (bool, bool) {
 const TRANSPORT_FULL_WIDTH: f32 = 820.0;
 const TRANSPORT_MARKS_WIDTH: f32 = 600.0;
 
-/// Width of a canvas-tool segment, fixed so a warning or a selection never
-/// changes the strip's width.
-const SEGMENT_WIDTH: f32 = 60.0;
+/// Whether the canvas-tool row shows above the viewer: in a React preview's
+/// interactive mode (Select layers on) with a layer selected, which the
+/// tools act on.
+fn shows_tool_row(react_preview: bool, interactive: bool, selected: bool) -> bool {
+    react_preview && interactive && selected
+}
+
+/// Height of the canvas-tool row docked above the viewer.
+const TOOL_ROW_HEIGHT: f32 = 34.0;
+/// Width of a canvas-tool tab, fixed so a warning or a selection never
+/// changes the row.
+const TAB_WIDTH: f32 = 58.0;
+/// Height of a tab's pill inside its list.
+const TAB_HEIGHT: f32 = 22.0;
+/// The gap between a tab list's edge and its selected pill.
+const TAB_LIST_INSET: f32 = 3.0;
 /// The slot a toggle's warning sits in, reserved whether it shows or not.
 const NOTE_SLOT_WIDTH: f32 = 20.0;
-/// Width of the tool strip's row labels ("Rotate about", "Handles").
-const STRIP_LABEL_WIDTH: f32 = 84.0;
 
-/// What clicking a segment does.
-type SegmentClick = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
+/// What clicking a tab does.
+type TabClick = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
-/// One segment of a canvas-tool toggle.
-struct Segment {
+/// One tab of a canvas-tool toggle.
+struct ToolTab {
     id: &'static str,
     label: &'static str,
     tooltip: &'static str,
-    /// The chosen one: filled with the theme's primary color.
+    /// The chosen one: the selected pill.
     chosen: bool,
-    on_click: SegmentClick,
+    on_click: TabClick,
 }
 
-/// A canvas-tool toggle: two fixed-width, square-cornered segments, the
-/// chosen one filled with the theme's primary color (its contrasting
-/// foreground on it), the other with no fill and muted text, and a warning
-/// icon (with `note` as its tooltip) in a reserved slot when the choice is
-/// not in effect on the selected layer.
+/// A canvas-tool toggle as a tabs list (shadcn's Tabs): a rounded, darker
+/// container with a few pixels of padding, the chosen tab an inset, smaller
+/// rounded pill in a lighter surface with a border and foreground text, so
+/// the gap around it shows which is chosen; the other tab unfilled with
+/// muted text. Fixed widths; then a warning icon (with `note` as its
+/// tooltip) in a reserved slot when the choice is not in effect on the
+/// selected layer. The row is in the muted chrome color already, so the
+/// list takes the theme's background to stand apart from it, and the pill
+/// the secondary surface with the input border.
 fn mode_toggle(
     note_id: &'static str,
-    segments: [Segment; 2],
+    tabs: [ToolTab; 2],
     note: Option<String>,
     cx: &App,
 ) -> impl IntoElement {
-    let warning = cx.theme().warning;
-    let muted = cx.theme().muted_foreground;
+    let theme = cx.theme();
+    let (warning, muted, foreground) = (theme.warning, theme.muted_foreground, theme.foreground);
+    let (pill, pill_border) = (theme.secondary, theme.input);
     let slot = div()
         .id(note_id)
         .flex_none()
@@ -112,40 +128,60 @@ fn mode_toggle(
             )
             .tooltip(move |window, cx| Tooltip::new(note.clone()).build(window, cx))
         });
+    let list = div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .p(px(TAB_LIST_INSET))
+        .rounded_md()
+        .bg(theme.background)
+        .children(tabs.map(|tab| {
+            let tooltip = tab.tooltip;
+            div()
+                .id(tab.id)
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .w(px(TAB_WIDTH))
+                .h(px(TAB_HEIGHT))
+                .rounded_sm()
+                .border_1()
+                .text_xs()
+                .cursor_pointer()
+                .map(|this| {
+                    if tab.chosen {
+                        this.bg(pill)
+                            .border_color(pill_border)
+                            .text_color(foreground)
+                            .shadow_sm()
+                    } else {
+                        this.border_color(gpui_kit::transparent_black())
+                            .text_color(muted)
+                            .hover(|this| this.text_color(foreground))
+                    }
+                })
+                .child(tab.label)
+                .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
+                .on_click(tab.on_click)
+        }));
     div()
         .flex()
         .flex_none()
         .items_center()
-        .border_1()
-        .border_color(cx.theme().border)
-        .children(segments.map(|segment| {
-            let button = Button::new(segment.id)
-                .label(segment.label)
-                .small()
-                .rounded(ButtonRounded::None)
-                .w(px(SEGMENT_WIDTH))
-                .tooltip(segment.tooltip)
-                .on_click(segment.on_click);
-            // The other segment recedes: no fill, muted text.
-            if segment.chosen {
-                button.primary()
-            } else {
-                button.ghost().text_color(muted)
-            }
-        }))
+        .child(list)
         .child(slot)
 }
 
-/// One labelled row of the tool strip: a muted label and its toggle.
-fn strip_row(label: &'static str, toggle: impl IntoElement, cx: &App) -> impl IntoElement {
+/// One group of the tool row: a muted label and its toggle.
+fn tool_group(label: &'static str, toggle: impl IntoElement, cx: &App) -> impl IntoElement {
     div()
         .flex()
+        .flex_none()
         .items_center()
         .gap_2()
         .child(
             div()
-                .flex_none()
-                .w(px(STRIP_LABEL_WIDTH))
                 .text_xs()
                 .text_color(cx.theme().muted_foreground)
                 .child(label),
@@ -165,10 +201,13 @@ impl EditorView {
         // Why a chosen Center is not in effect: the toggle's warning and the
         // handles' note.
         let pivot_note = self.pivot_note();
-        // The canvas tools show while Select layers is on and a layer is
-        // selected: they act on the selection.
-        let shows_tools =
-            self.is_react_preview() && self.interactive && self.selected_layer.is_some();
+        // The canvas tools' row docks above the canvas while Select layers
+        // is on and a layer is selected: they act on the selection.
+        let shows_tools = shows_tool_row(
+            self.is_react_preview(),
+            self.interactive,
+            self.selected_layer.is_some(),
+        );
         // Every region of the selected layer in the shown frame; none when
         // the frame does not draw it. The Size tool's handles sit on the box
         // they resize, which is then the outline drawn (a stroked text's
@@ -420,34 +459,20 @@ impl EditorView {
                         .child(label),
                 )
             })
-            // Top-left: the canvas tools while Select layers is on, then
-            // the notice below them.
-            .when(shows_tools || notice.is_some(), |area| {
+            .when_some(notice, |area, notice| {
                 area.child(
                     div()
                         .absolute()
                         .top_2()
                         .left_2()
-                        .flex()
-                        .flex_col()
-                        .items_start()
-                        .gap_2()
-                        .when(shows_tools, |column| {
-                            column.child(self.tool_strip(pivot_note, cx))
-                        })
-                        .when_some(notice, |column, notice| {
-                            column.child(
-                                div()
-                                    .px_2()
-                                    .py_1()
-                                    .border_1()
-                                    .border_color(cx.theme().border)
-                                    .bg(cx.theme().popover)
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(notice),
-                            )
-                        }),
+                        .px_2()
+                        .py_1()
+                        .border_1()
+                        .border_color(cx.theme().border)
+                        .bg(cx.theme().popover)
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(notice),
                 )
             })
             // One column over the frame: the error panel takes the space the
@@ -474,6 +499,9 @@ impl EditorView {
             .flex_1()
             .min_w_0()
             .h_full()
+            .when(shows_tools, |panel| {
+                panel.child(self.tool_row(pivot_note, cx))
+            })
             .child(canvas_area)
             .child(self.transport_bar(cx))
     }
@@ -850,20 +878,19 @@ impl EditorView {
             .child(trailing)
     }
 
-    /// The canvas tools, overlaid at the viewer's top-left while Select
-    /// layers is on: "Rotate about" [Center | Pivot] (what rotation and
-    /// scale turn about) and "Handles" [Size | Scale] (what the corner and
-    /// edge handles do). The chosen segment is filled; when it is not in
-    /// effect on the selected layer, a warning in its control gives the
-    /// reason (`pivot_note`, see `EditorView::pivot_note`, and
-    /// `resize_note`). Fixed widths; an opaque panel that takes the pointer
-    /// over its own bounds only, and not while a drag or a scrub is pressed.
-    fn tool_strip(
+    /// The canvas tools, one row docked above the viewer (part of its
+    /// layout, so the canvas shrinks while it shows; see `shows_tool_row`):
+    /// "Rotate about" [Center | Pivot] (what rotation and scale turn about)
+    /// and "Handles" [Size | Scale] (what the corner and edge handles do).
+    /// The chosen tab is the selected pill; when it is not in effect on the
+    /// selected layer, a warning after its tabs gives the reason
+    /// (`pivot_note`, see `EditorView::pivot_note`, and `resize_note`).
+    fn tool_row(
         &self,
         pivot_note: Option<&'static str>,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let pivot = |id, label, tooltip, mode: PivotMode| Segment {
+        let pivot = |id, label, tooltip, mode: PivotMode| ToolTab {
             id,
             label,
             tooltip,
@@ -872,7 +899,7 @@ impl EditorView {
                 this.set_pivot_mode(mode, cx);
             })),
         };
-        let pivot_segments = [
+        let pivot_tabs = [
             pivot(
                 "pivot-center",
                 "Center",
@@ -886,7 +913,7 @@ impl EditorView {
                 PivotMode::Pivot,
             ),
         ];
-        let tool = |id, label, tooltip, tool: ResizeTool| Segment {
+        let tool = |id, label, tooltip, tool: ResizeTool| ToolTab {
             id,
             label,
             tooltip,
@@ -895,7 +922,7 @@ impl EditorView {
                 this.set_resize_tool(tool, cx);
             })),
         };
-        let tool_segments = [
+        let tool_tabs = [
             tool(
                 "handles-size",
                 "Size",
@@ -911,28 +938,25 @@ impl EditorView {
         ];
         let rotate = mode_toggle(
             "pivot-mode-note",
-            pivot_segments,
+            pivot_tabs,
             pivot_note.map(str::to_owned),
             cx,
         );
-        let handles = mode_toggle("handles-note", tool_segments, self.resize_note(), cx);
-        // It takes the pointer over its bounds only while nothing is
-        // pressed: the root follows a canvas drag or a row's scrub only
-        // where its hitbox is hovered, which an occluding strip would stop,
-        // freezing a drag that passes over it and missing a release there.
-        let pressed = self.transform_drag_active() || self.row_scrub_active();
+        let handles = mode_toggle("handles-note", tool_tabs, self.resize_note(), cx);
         div()
             .id("canvas-tools")
-            .when(!pressed, |strip| strip.occlude())
             .flex()
-            .flex_col()
-            .gap_1()
-            .p_1p5()
-            .bg(cx.theme().popover)
-            .border_1()
+            .flex_none()
+            .items_center()
+            .gap_6()
+            .h(px(TOOL_ROW_HEIGHT))
+            .w_full()
+            .px_3()
+            .bg(cx.theme().secondary)
+            .border_b_1()
             .border_color(cx.theme().border)
-            .child(strip_row("Rotate about", rotate, cx))
-            .child(strip_row("Handles", handles, cx))
+            .child(tool_group("Rotate about", rotate, cx))
+            .child(tool_group("Handles", handles, cx))
     }
 
     fn set_pivot_mode(&mut self, mode: PivotMode, cx: &mut Context<Self>) {
@@ -1472,6 +1496,15 @@ fn outline_box(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_tool_row_shows_only_with_a_selection_in_interactive_mode() {
+        // (React preview, Select layers on, a layer selected)
+        assert!(shows_tool_row(true, true, true));
+        assert!(!shows_tool_row(true, true, false));
+        assert!(!shows_tool_row(true, false, true));
+        assert!(!shows_tool_row(false, true, true));
+    }
 
     #[test]
     fn the_transport_bar_collapses_at_its_own_widths() {
