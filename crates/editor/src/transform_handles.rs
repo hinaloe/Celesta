@@ -250,6 +250,36 @@ pub(crate) fn pivot_cross(frame: &LayerFrame) -> Point {
     apply(&frame.parent, pivot(&frame.transform))
 }
 
+/// What the cross on the canvas marks, in scene pixels: the point a
+/// rotation or scale of the layer turns about.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Marker {
+    /// The box's middle, with Center in effect: a marker only.
+    Center(Point),
+    /// The pivot (anchor + origin), which Alt-drags the anchor.
+    Pivot(Point),
+}
+
+impl Marker {
+    pub(crate) fn at(self) -> Point {
+        match self {
+            Self::Center(at) | Self::Pivot(at) => at,
+        }
+    }
+}
+
+/// The cross of `frame` for the mode a drag uses (`pivot`, see
+/// `pivot_used`): the box's middle in Center mode, else the pivot.
+pub(crate) fn marker(frame: &LayerFrame, pivot: PivotMode) -> Marker {
+    match kept_center(frame, pivot) {
+        Some(center) => Marker::Center(apply(
+            &frame.parent,
+            apply(&layer_map(&frame.transform), center),
+        )),
+        None => Marker::Pivot(pivot_cross(frame)),
+    }
+}
+
 /// Where the cross an Alt-drag moves the anchor from sits (scene pixels),
 /// when `editable` lets it: both anchors, `x` and `y` (which the caller puts
 /// in only when they can compensate), and a box the anchor refers to (see
@@ -1811,6 +1841,34 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_cross_marks_what_the_drag_turns_about() {
+        let before = EvaluatedTransform {
+            rotation: 20.0,
+            origin: at(10.0, 5.0),
+            ..top_left_rect()
+        };
+        let frame = box_frame(before, turned_parent(), 100.0, 50.0);
+        // Center: the box's middle, which Center keeps still.
+        let Marker::Center(center) = marker(&frame, PivotMode::Center) else {
+            panic!("the center is marked");
+        };
+        assert_close(center, scene(&frame, &before, at(50.0, 25.0)));
+        // Pivot: anchor + origin, where the Alt drag starts.
+        assert_eq!(
+            marker(&frame, PivotMode::Pivot),
+            Marker::Pivot(pivot_cross(&frame))
+        );
+        // Without a flat box Center can't apply: the pivot.
+        let mut tilted = frame.clone();
+        tilted.transform.rotation_y = 30.0;
+        tilted.transform.perspective = Some(800.0);
+        assert_eq!(
+            marker(&tilted, PivotMode::Center),
+            Marker::Pivot(pivot_cross(&tilted))
+        );
     }
 
     #[test]

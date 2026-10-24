@@ -31,11 +31,12 @@ use crate::problems::{ActiveProblem, Source, flow_line_breaks, summarize_warning
 use crate::problems_panel::{detail_block, show_in_problems_row};
 use crate::timecode::format_timecode;
 use crate::transform_drag::{
-    DragState, HANDLE_SIZE, NO_AFFINE_FRAME, ROTATE_STEM, pivot_note_text, turns_about_pivot,
+    CENTER_MARKER, DragState, HANDLE_SIZE, NO_AFFINE_FRAME, ROTATE_STEM, pivot_note_text,
+    turns_about_pivot,
 };
 use crate::transform_handles::{
-    Handle, PivotMode, Resize, ResizeTool, anchor_handle, handle_quad, pivot_cross, rotate_stem,
-    shown_handles,
+    Handle, Marker, PivotMode, Resize, ResizeTool, anchor_handle, handle_quad, marker, pivot_cross,
+    rotate_stem, shown_handles,
 };
 use crate::view::EditorView;
 use celesta_gpu_renderer::LayerFrame;
@@ -170,18 +171,26 @@ impl EditorView {
             }
             _ => None,
         };
-        // The pivot cross of every selected layer with a frame, and whether
-        // Alt drags it.
-        // Why it can't, when it can't: every cause, shown on hover.
-        let cross_reason = match &drag_state {
-            DragState::Editable(frame, ..) | DragState::Locked(frame, _) => {
+        // The cross of every selected layer with a frame: the point a drag
+        // turns about (the box's middle with Center in effect, else the
+        // pivot), and whether Alt drags it.
+        let marked = match &drag_state {
+            DragState::Editable(frame, _, pivot, _) => Some(marker(frame, *pivot)),
+            DragState::Locked(frame, _) => Some(Marker::Pivot(pivot_cross(frame))),
+            _ => None,
+        };
+        // Why it can't, when it can't: every cause, shown on hover; the
+        // center marks a point only.
+        let cross_reason = match (&drag_state, marked) {
+            (_, Some(Marker::Center(_))) => Some(CENTER_MARKER.to_owned()),
+            (DragState::Editable(frame, ..) | DragState::Locked(frame, _), _) => {
                 self.anchor_lock_reason(frame)
             }
             _ => None,
         };
         let cross = match &drag_state {
             DragState::Editable(frame, editable, ..) => Some((
-                pivot_cross(frame),
+                marked.map_or_else(|| pivot_cross(frame), Marker::at),
                 CrossDrag::of(anchor_handle(frame, editable).is_some(), &cross_reason),
             )),
             DragState::Locked(frame, _) => {

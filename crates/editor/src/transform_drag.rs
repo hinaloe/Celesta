@@ -609,6 +609,26 @@ pub(crate) fn drag_props(targets: &ElementTargets, frame: &LayerFrame) -> Vec<Pr
     props
 }
 
+/// [`drag_props`] for a drag in the mode `pivot` (the one used, see
+/// `pivot_used`): in Center mode the cross marks the box's middle and moves
+/// no anchor, so the anchors are left out.
+pub(crate) fn drag_props_in(
+    targets: &ElementTargets,
+    frame: &LayerFrame,
+    pivot: PivotMode,
+) -> Vec<PropKey> {
+    let mut props = drag_props(targets, frame);
+    if pivot == PivotMode::Center {
+        let anchors = anchor_keys();
+        props.retain(|key| !anchors.contains(key));
+    }
+    props
+}
+
+/// The cross's tooltip in Center mode, where it marks the box's middle.
+pub(crate) const CENTER_MARKER: &str =
+    "Rotates about the center; switch to Pivot to move the anchor";
+
 /// Whether a size prop of the element (its table's `size`) is a keyframe:
 /// its box is another on the other keyframes.
 fn sizes_animated(targets: &ElementTargets) -> bool {
@@ -744,7 +764,8 @@ impl EditorView {
             return DragState::Unknown;
         };
         let resize = resize_used(self.resize_tool, targets, &frame);
-        let mut props = drag_props(targets, &frame);
+        let pivot = pivot_used(self.pivot_mode, targets, &frame);
+        let mut props = drag_props_in(targets, &frame, pivot);
         props.extend(resize.iter().flat_map(Resize::keys));
         if props.is_empty() {
             let reason = TransformProp::ALL
@@ -757,7 +778,6 @@ impl EditorView {
                 .unwrap_or_default();
             return DragState::Locked(frame, reason);
         }
-        let pivot = pivot_used(self.pivot_mode, targets, &frame);
         DragState::Editable(frame, props, pivot, resize)
     }
 
@@ -1448,6 +1468,28 @@ mod tests {
                 Handle::Edge(2),
             ]
         );
+    }
+
+    #[test]
+    fn the_anchor_moves_only_in_pivot_mode() {
+        // In Center mode the cross marks the box's middle: a marker only.
+        let frame = rect_frame();
+        let anchors = anchors_with(literal(40.0), literal(0.0));
+        let offered = |pivot| anchor_handle(&frame, &drag_props_in(&anchors, &frame, pivot));
+        assert!(offered(PivotMode::Pivot).is_some());
+        assert_eq!(offered(PivotMode::Center), None);
+        assert!(
+            !drag_props_in(&anchors, &frame, PivotMode::Center).contains(&anchor_key("X")),
+            "no anchor prop in Center mode"
+        );
+        assert_eq!(
+            CENTER_MARKER,
+            "Rotates about the center; switch to Pivot to move the anchor"
+        );
+    }
+
+    fn anchor_key(axis: &str) -> PropKey {
+        PropKey::Prop(format!("anchor{axis}"))
     }
 
     #[test]
