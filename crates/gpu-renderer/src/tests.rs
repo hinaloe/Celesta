@@ -4592,12 +4592,32 @@ fn text_content(layer: &Layer) -> (&str, &TextStyle, Option<f64>) {
     (text, style, *max_width)
 }
 
+/// Sets `layer` in IBM Plex Mono from the prism example's fonts, so its
+/// metrics are the same on every platform's system fonts.
+fn in_bundled_font(renderer: &mut GpuRenderer, scene: &mut Scene, layer: &mut Layer) {
+    renderer.set_asset_root(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/prism"));
+    scene.fonts = vec![ResolvedAsset {
+        id: "IBMPlexMono-Regular.ttf".to_owned(),
+        location: AssetLocation::File {
+            path: "assets/fonts/IBMPlexMono-Regular.ttf".to_owned(),
+        },
+    }];
+    if let LayerContent::Text { style, .. } = &mut layer.content {
+        style.font_family = Some("IBM Plex Mono".into());
+    }
+}
+
 /// Asserts each of `actual`'s corners is within a pixel of `expected`'s.
 fn assert_near_corners(actual: [Point; 4], expected: [Point; 4]) {
+    assert_corners_within(actual, expected, 1.0);
+}
+
+/// Asserts each of `actual`'s corners is within `tolerance` of `expected`'s.
+fn assert_corners_within(actual: [Point; 4], expected: [Point; 4], tolerance: f64) {
     for (corner, want) in actual.iter().zip(expected) {
         assert!(
-            (corner.x - want.x).abs() <= 1.0 && (corner.y - want.y).abs() <= 1.0,
-            "{actual:?} is not {expected:?}"
+            (corner.x - want.x).abs() <= tolerance && (corner.y - want.y).abs() <= tolerance,
+            "{actual:?} is not {expected:?} within {tolerance}"
         );
     }
 }
@@ -4726,12 +4746,14 @@ fn a_single_line_text_s_box_is_its_line_box() {
     if let LayerContent::Text { style, .. } = &mut layer.content {
         style.font_size = Some(96.0);
     }
+    in_bundled_font(&mut renderer, &mut scene, &mut layer);
+    scene.layers = vec![layer.clone()];
+    renderer.set_record_hit_regions(true);
+    let frame = renderer.render(&scene).unwrap();
+    // Measured once the frame loaded the scene's fonts.
     let (text, style, max_width) = text_content(&layer);
     let metrics = renderer.measure_text(text, style, max_width);
     assert!(metrics.cap_height > 0.0, "the font says how tall an H is");
-    scene.layers = vec![layer];
-    renderer.set_record_hit_regions(true);
-    let frame = renderer.render(&scene).unwrap();
     let [top_left, top_right, _, bottom_left] =
         renderer.hit_regions()[0].text_box.expect("a text box");
     assert!(
@@ -4780,10 +4802,11 @@ fn a_cached_text_texture_keeps_its_box() {
         return;
     };
     let mut scene = empty_scene(400, 300);
-    let layer = text_saying("t", "Cached", Point { x: 40.0, y: 60.0 }, None);
+    let mut layer = text_saying("t", "Cached", Point { x: 40.0, y: 60.0 }, None);
+    in_bundled_font(&mut renderer, &mut scene, &mut layer);
+    let first = rendered_text_box(&mut renderer, &mut scene, layer.clone());
     let (text, style, max_width) = text_content(&layer);
     let metrics = renderer.measure_text(text, style, max_width);
-    let first = rendered_text_box(&mut renderer, &mut scene, layer.clone());
     let second = rendered_text_box(&mut renderer, &mut scene, layer.clone());
     assert_eq!(second.text_box, first.text_box);
     let [top_left, top_right, _, bottom_left] = first.text_box.unwrap();
@@ -4794,15 +4817,21 @@ fn a_cached_text_texture_keeps_its_box() {
     renderer.textures.clear();
     renderer.max_texture_dimension = 64;
     let shrunk = rendered_text_box(&mut renderer, &mut scene, layer.clone());
-    assert!(
-        renderer
-            .textures
-            .values()
-            .any(|cached| cached.texture.raster_scale < 1.0)
-    );
+    let raster_scale = renderer
+        .textures
+        .values()
+        .map(|cached| cached.texture.raster_scale)
+        .fold(f32::INFINITY, f32::min);
+    assert!(raster_scale < 1.0);
     let cached = rendered_text_box(&mut renderer, &mut scene, layer);
     assert_eq!(cached.text_box, shrunk.text_box);
-    assert_near_corners(shrunk.text_box.unwrap(), first.text_box.unwrap());
+    // The glyphs sit on a baseline moved to a whole texture row, which is
+    // `1 / raster_scale` drawn pixels tall once the texture is shrunk.
+    assert_corners_within(
+        shrunk.text_box.unwrap(),
+        first.text_box.unwrap(),
+        1.0 / f64::from(raster_scale) + 1.0,
+    );
 }
 
 #[test]
