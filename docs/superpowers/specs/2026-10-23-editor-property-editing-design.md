@@ -354,7 +354,7 @@ center of its box on request:
   before; 2a measured angles about `position`, which is wrong once `origin`
   is set. Pivot is the default because in real scenes `x`/`y` are often
   constants or computed values, which can't compensate, so Center rarely
-  applies. (Decided with the user after trying the build.)
+  applies.
 - In Center mode a rotation or scale also moves `x`/`y` so the box's center
   stays put. Both writes are one edit.
 - The toggles sit in a small tool strip overlaid at the viewer's top-left
@@ -363,18 +363,26 @@ center of its box on request:
   with muted, always-visible labels: "Rotate about" [Center | Pivot] and
   "Handles" [Size | Scale]. The strip is an opaque panel in the theme's
   popover color with a 1px border, radius 0, and takes the pointer over its
-  own bounds only. Segments have fixed widths; the chosen one is filled with
-  the theme's primary color and its contrasting foreground, the other is
-  plain; labels never change. When the chosen mode or tool can't apply to
+  own bounds only, except while a canvas drag or a row's scrub is pressed
+  (so they pass over it). Segments have fixed widths and square corners;
+  the chosen one is filled with the theme's primary color and its
+  contrasting foreground, the other is plain; labels never change. When the chosen mode or tool can't apply to
   the selected layer, the chosen segment stays filled and a warning icon in
   a reserved slot of the control gives the reason as its tooltip. A Center
   that is not in effect also says why at the point of action: hovering the
   rotation handle or a Scale handle shows "Pivot — reason", and so does the
-  drag's label. (Decided with the user after two hand checks.)
+  drag's label.
 - The cross marks the point a rotation or scale turns about: with Center in
   effect, the box's center, as a marker only (tooltip "Rotates about the
-  center; switch to Pivot to move the anchor"); with Pivot (or Center not
-  in effect), the pivot, which Alt-drags the anchor. Same style for both.
+  center; switch to Pivot to move the anchor", or, when the anchor couldn't
+  move in Pivot mode either, "Rotates about the center; the anchor can't
+  move:" and the reason); with Pivot (or Center not in effect), the pivot,
+  which Alt-drags the anchor. Same style for both. An Alt press on a cross
+  that moves nothing is taken and starts nothing (it neither moves nor
+  selects the layer).
+- While the anchor is Alt-dragged, the outline, handles, and stem stay on
+  the drag's start frame and only the cross follows: the layer doesn't move,
+  and preview frames, rounded as written, would make it seem to jitter.
 - **One compensation rule.** Every drag that moves `x`/`y` to keep something
   still (Center-mode rotation and scale, a resize whose kept edge is not at
   the anchor, the anchor drag) names a fixed point in the layer's own pixels
@@ -408,8 +416,8 @@ center of its box on request:
   an anchor is a keyframe, and when the size along an axis it moves the
   anchor along is. The anchor drag needs anchors, `rotation`, scales, and
   sizes that are not keyframes. The reason strings are shared constants.
-- In Pivot mode, dragging the pivot cross with Alt moves the anchor: it writes `anchorX`/`anchorY` as fractions of the box the
-  anchor refers to (unclamped: an anchor outside the box is valid) and moves
+- In Pivot mode, dragging the pivot cross with Alt moves the anchor: it
+  writes `anchorX`/`anchorY` as fractions of the box the anchor refers to (unclamped: an anchor outside the box is valid) and moves
   `x`/`y` so nothing moves on screen. That box (the "anchor box") is the
   renderer's layout box for `Text` (its texture quad is padded for strokes),
   the quad for `Image` and `Video`, and `width` × `height` (or `2 · radius`)
@@ -426,7 +434,7 @@ center of its box on request:
 ### Resize
 
 Handles depend on the tool strip's "Handles" toggle, "Size" (default) or
-"Scale" ("Size" was called "Rect" before the second hand check):
+"Scale":
 
 - **Size**: corner and edge handles change the `size` props, measured on the
   anchor box and placed on it. The opposite edge stays, in both Center and

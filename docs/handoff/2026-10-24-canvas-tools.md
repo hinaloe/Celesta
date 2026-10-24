@@ -131,11 +131,15 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   `EditorView.resize_tool` is session state.
 - Tool strip (`viewer.rs`): `tool_strip`, overlaid at the viewer's
   top-left (above the canvas notice, in one column) while Select layers is
-  on in a React preview and a layer is selected: an `occlude()`d panel in the theme's popover color
-  with a 1px border, two `strip_row`s with a muted fixed-width label
+  on in a React preview and a layer is selected: a panel in the theme's
+  popover color with a 1px border, `occlude()`d except while a canvas drag
+  or a row's scrub is pressed (the root follows those only where its hitbox
+  is hovered, so an occluding strip would freeze a drag passing over it and
+  miss a release there), two `strip_row`s with a muted fixed-width label
   ("Rotate about", "Handles") and a `mode_toggle`. A toggle is two
-  fixed-width `Segment` buttons (`SEGMENT_WIDTH`) in a bordered row, the
-  chosen one `primary()` (the theme's primary fill and foreground; the
+  fixed-width, square-cornered (`ButtonRounded::None`) `Segment` buttons
+  (`SEGMENT_WIDTH`) in a bordered row, the chosen one `primary()` (the
+  theme's primary fill and foreground, near-white, not Celesta's orange; the
   editor is dark-only), the other `ghost()`, and a reserved slot
   (`NOTE_SLOT_WIDTH`) with a `TriangleAlert` icon carrying the reason
   (`pivot_note` / `resize_note`) when the choice is not in effect, so the
@@ -149,9 +153,15 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   drag uses Center, else `Marker::Pivot` (`pivot_cross`); the viewer draws
   the same cross at either. `drag_props_in(targets, frame, pivot)` leaves
   the anchors out in Center mode, so the center cross is a marker only
-  (tooltip `CENTER_MARKER`, "Rotates about the center; switch to Pivot to
-  move the anchor"); in Pivot mode the cross Alt-drags the anchor, with
-  its reasons.
+  (tooltip `center_marker_text`: `CENTER_MARKER`, "Rotates about the
+  center; switch to Pivot to move the anchor", or, when the anchor couldn't
+  move in Pivot mode either, "Rotates about the center; the anchor can't
+  move:" and its reason); in Pivot mode the cross Alt-drags the anchor,
+  with its reasons. `swallows_alt_press`: an Alt press within reach of a
+  cross that moves nothing (the center marker, a blocked pivot cross) is
+  taken by `begin_transform_drag` and starts nothing, so it neither moves
+  the layer (the press would otherwise fall through to the body) nor
+  changes the selection.
 
 ## Decisions
 
@@ -261,11 +271,11 @@ These differ from, or settle what the spec left open:
   move** (2a's rule), now including `x`/`y` for a Center rotation or scale,
   a compensating resize, and the anchor drag, and the size keys (whose start
   value is the anchor box, so none is dropped).
-- **The tool strip sits over the viewer's top-left, labelled.** Decided
-  with the user after the second hand check: in the transport bar the
-  toggles were easy to miss and their selected state too faint. Labels
-  "Rotate about" and "Handles", the chosen segment filled with the primary
-  color, "Rect" renamed "Size".
+- **The tool strip sits over the viewer's top-left, labelled, with a
+  selection only.** Decided with the user after the second hand check: in
+  the transport bar the toggles were easy to miss and their selected state
+  too faint. Labels "Rotate about" and "Handles", the chosen segment filled
+  with the theme's primary color, "Rect" renamed "Size".
 - **The cross marks what a drag turns about.** In Center mode it sits on the
   box's middle as a marker only; the anchor moves only in Pivot mode, where
   the cross is on the pivot it moves.
@@ -323,7 +333,8 @@ These differ from, or settle what the spec left open:
 - The tool strip's fixed widths (`SEGMENT_WIDTH` 60 px, `STRIP_LABEL_WIDTH`
   84 px) are estimated from the labels, not measured on screen; if a label
   clips, widen the constant. The strip covers the canvas under it (it
-  occludes the pointer there): a handle under it can't be pressed.
+  occludes the pointer there while nothing is pressed): a handle or layer
+  under it can't be pressed. Left to the user to decide.
 
 ## What 2d builds on
 
@@ -346,10 +357,13 @@ example changed):
 - Turn on **Select layers**: no tool strip while nothing is selected.
   Select a layer: a tool strip appears at the viewer's top-left with
   "Rotate about" [Center | Pivot] and "Handles" [Size | Scale], Pivot
-  and Size filled with the accent color, legible over a bright and a dark
-  scene; the transport bar has no toggles and keeps its old layout.
-  Clicking a segment fills it; clicking the strip never selects or
-  deselects a layer behind it, and clicking just outside it does. Select
+  and Size filled (the theme's primary color, square corners), legible
+  over a bright and a dark scene; the transport bar has no toggles and
+  keeps its old layout. Clicking a segment fills it; clicking the strip
+  never selects or deselects a layer behind it, and clicking just outside
+  it does. Move a layer (and resize it) with a drag that passes over the
+  strip and is released on it: the drag follows the pointer across the
+  strip and ends where released. Select
   layers one after another, including ones that fall back: the strip's
   width and labels never change, only a warning icon appears in the
   reserved slot. Clearing the selection (click empty canvas) or turning the
@@ -364,8 +378,11 @@ example changed):
   cursor is not-allowed.
 - Choose Center on a plain `Rect` with literal `x`/`y`: the cross moves to
   the middle of the box, its tooltip reads "Rotates about the center; switch
-  to Pivot to move the anchor", and Alt-dragging it does nothing (not-allowed
-  cursor). Rotate it: it turns about its middle, the label shows
+  to Pivot to move the anchor", and Alt-dragging it does nothing: the
+  cursor is not-allowed, the layer doesn't move, and the selection stays.
+  On a layer whose anchor is keyframed, the center cross's tooltip reads
+  "Rotates about the center; the anchor can't move: Anchor is animated".
+  Rotate it: it turns about its middle, the label shows
   `rotation`, `x`, and `y`, and one undo restores it. Switch to Pivot: the
   cross jumps to the top-left corner and the layer turns about it. Alt-drag
   the cross to the middle: nothing moves on screen (the outline, handles,
