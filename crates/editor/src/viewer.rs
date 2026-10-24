@@ -5,13 +5,14 @@
 use celesta_composition::Point;
 use celesta_editor_theme as theme;
 use celesta_gpu_renderer::hit_test;
-use gpui_kit::component::button::{Button, ButtonGroup, ButtonVariants as _};
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::spinner::Spinner;
+use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Selectable as _, Sizable as _};
 use gpui_kit::{
-    AnyElement, BorderStyle, Bounds, Context, CursorStyle, Hitbox, HitboxBehavior, Hsla,
+    AnyElement, App, BorderStyle, Bounds, Context, CursorStyle, Hitbox, HitboxBehavior, Hsla,
     IntoElement, MouseButton, MouseDownEvent, ObjectFit, ParentElement as _, PathBuilder, Pixels,
     StyledImage as _, Window, canvas, div, fill, img, outline, point, prelude::*, px, relative,
     rems, size,
@@ -29,7 +30,9 @@ use crate::preview::PreviewPresentation;
 use crate::problems::{ActiveProblem, Source, flow_line_breaks, summarize_warnings};
 use crate::problems_panel::{detail_block, show_in_problems_row};
 use crate::timecode::format_timecode;
-use crate::transform_drag::{DragState, HANDLE_SIZE, NO_AFFINE_FRAME, PivotFallback, ROTATE_STEM};
+use crate::transform_drag::{
+    DragState, HANDLE_SIZE, NO_AFFINE_FRAME, ROTATE_STEM, pivot_note_text, turns_about_pivot,
+};
 use crate::transform_handles::{
     Handle, PivotMode, Resize, ResizeTool, anchor_handle, handle_quad, pivot_cross, rotate_stem,
     shown_handles,
@@ -50,6 +53,68 @@ pub(crate) const AUDIO_PANEL_WIDTH: f32 = 112.0;
 /// then the In/Out buttons, give way to the playback controls.
 const TRANSPORT_FULL_WIDTH: f32 = 820.0;
 const TRANSPORT_MARKS_WIDTH: f32 = 600.0;
+
+/// Widths of the two canvas-tool toggles, their warning slot included:
+/// fixed, so neither a warning nor the selection shifts the transport bar.
+const PIVOT_TOGGLE_WIDTH: f32 = 176.0;
+const RESIZE_TOGGLE_WIDTH: f32 = 168.0;
+/// The slot a toggle's warning sits in, reserved whether it shows or not.
+const NOTE_SLOT_WIDTH: f32 = 20.0;
+
+/// A two-segment toolbar toggle (see `mode_toggle`).
+struct ModeToggle {
+    id: &'static str,
+    note_id: &'static str,
+    width: f32,
+    /// Each segment's label and tooltip.
+    segments: [(&'static str, &'static str); 2],
+    /// The chosen segment, shown selected.
+    chosen: usize,
+    /// Why the chosen segment is not in effect on the selected layer.
+    note: Option<String>,
+}
+
+/// A fixed-width segmented control with the chosen segment selected, and a
+/// warning icon (with `note` as its tooltip) in a reserved slot when the
+/// choice is not in effect.
+fn mode_toggle(
+    toggle: ModeToggle,
+    on_click: impl Fn(&usize, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> impl IntoElement {
+    let warning = cx.theme().warning;
+    let slot = div()
+        .id(toggle.note_id)
+        .flex_none()
+        .w(px(NOTE_SLOT_WIDTH))
+        .h_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .when_some(toggle.note, |slot, note| {
+            slot.child(
+                Icon::new(IconName::TriangleAlert)
+                    .xsmall()
+                    .text_color(warning),
+            )
+            .tooltip(move |window, cx| Tooltip::new(note.clone()).build(window, cx))
+        });
+    TabBar::new(toggle.id)
+        .segmented()
+        .small()
+        .flex_none()
+        .w(px(toggle.width))
+        .last_empty_space(div())
+        .selected_index(toggle.chosen)
+        .children(toggle.segments.map(|(label, tooltip)| {
+            Tab::new()
+                .label(label)
+                .flex_1()
+                .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
+        }))
+        .suffix(slot)
+        .on_click(on_click)
+}
 
 impl EditorView {
     pub(crate) fn viewer_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -146,6 +211,24 @@ impl EditorView {
             let reason = cross_reason.clone()?;
             Some((cross_box(last_bounds?, frame_size, at)?, reason))
         });
+        // Center chosen but not in effect: the handles that turn or scale
+        // about the pivot say why (the drag's label says it too).
+        let handle_note = self.pivot_note().map(pivot_note_text);
+        let note_boxes: Vec<Bounds<Pixels>> = match (&handle_note, &editable_frame, last_bounds) {
+            (Some(_), Some((frame, editable, pivot, resize)), Some(bounds)) => {
+                letterbox(bounds, frame_size)
+                    .map(|(_, _, scale)| {
+                        let stem = f64::from(ROTATE_STEM / scale);
+                        shown_handles(frame, editable, stem, *pivot, resize.as_ref())
+                            .into_iter()
+                            .filter(|(handle, _)| turns_about_pivot(*handle, resize.as_ref()))
+                            .filter_map(|(_, at)| cross_box(bounds, frame_size, at))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            }
+            _ => Vec::new(),
+        };
         let canvas_area = div()
             .relative()
             .flex()
@@ -223,6 +306,17 @@ impl EditorView {
                         .tooltip(move |window, cx| Tooltip::new(reason.clone()).build(window, cx)),
                 )
             })
+            .children(note_boxes.into_iter().enumerate().map(|(i, square)| {
+                let note = handle_note.clone().unwrap_or_default();
+                div()
+                    .id(("pivot-note", i))
+                    .absolute()
+                    .left(square.origin.x)
+                    .top(square.origin.y)
+                    .w(square.size.width)
+                    .h(square.size.height)
+                    .tooltip(move |window, cx| Tooltip::new(note.clone()).build(window, cx))
+            }))
             // Nothing to drag: say why where the pointer is.
             .when_some(locked_box, |area, (locked, reason)| {
                 area.child(
@@ -675,45 +769,32 @@ impl EditorView {
             .child(trailing)
     }
 
-    /// "Center" | "Pivot": what canvas rotation and scale turn about. Shows
-    /// the mode the selected layer's drag uses; a layer whose `x`/`y` can't
-    /// compensate reads "Pivot (x, y not editable)" while Center stays
-    /// chosen for the next one.
+    /// "Center" | "Pivot": what canvas rotation and scale turn about, the
+    /// chosen one selected. When Center is chosen but the selected layer
+    /// can't keep its center, a warning in the control gives the reason
+    /// (see `pivot_note`); the labels never change.
     fn pivot_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let (used, fallback) = self.shown_pivot_mode();
-        let muted = cx.theme().muted_foreground;
-        let pivot_label = if fallback == Some(PivotFallback::NotCompensable) {
-            "Pivot (x, y not editable)"
-        } else {
-            "Pivot"
-        };
-        // Why Center is not used, where the label has no room for it.
-        let pivot_tooltip = fallback.map_or(
-            "Rotate and scale about the pivot (anchor + origin)",
-            PivotFallback::reason,
-        );
-        ButtonGroup::new("pivot-mode")
-            .small()
-            .outline()
-            .child(
-                Button::new("pivot-center")
-                    .label("Center")
-                    .selected(used == PivotMode::Center)
-                    .tooltip("Rotate and scale about the layer's center")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.set_pivot_mode(PivotMode::Center, cx);
-                    })),
-            )
-            .child(
-                Button::new("pivot-pivot")
-                    .label(pivot_label)
-                    .selected(used == PivotMode::Pivot)
-                    .when(fallback.is_some(), |button| button.text_color(muted))
-                    .tooltip(pivot_tooltip)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.set_pivot_mode(PivotMode::Pivot, cx);
-                    })),
-            )
+        let modes = [PivotMode::Center, PivotMode::Pivot];
+        let chosen = modes.iter().position(|mode| *mode == self.pivot_mode);
+        mode_toggle(
+            ModeToggle {
+                id: "pivot-mode",
+                note_id: "pivot-mode-note",
+                width: PIVOT_TOGGLE_WIDTH,
+                segments: [
+                    ("Center", "Rotate and scale about the layer's center"),
+                    ("Pivot", "Rotate and scale about the pivot (anchor + origin)"),
+                ],
+                chosen: chosen.unwrap_or_default(),
+                note: self.pivot_note().map(str::to_owned),
+            },
+            cx.listener(move |this, ix: &usize, _, cx| {
+                if let Some(mode) = modes.get(*ix) {
+                    this.set_pivot_mode(*mode, cx);
+                }
+            }),
+            cx,
+        )
     }
 
     fn set_pivot_mode(&mut self, mode: PivotMode, cx: &mut Context<Self>) {
@@ -723,38 +804,32 @@ impl EditorView {
         }
     }
 
-    /// "Rect" | "Scale": what the canvas's corner and edge handles do. Shows
-    /// the tool the selected layer's drag uses; a layer without editable size
-    /// props reads "Scale", muted, with the reason in its tooltip, while Rect
-    /// stays chosen for the next one.
+    /// "Rect" | "Scale": what the canvas's corner and edge handles do, the
+    /// chosen one selected. When Rect is chosen but the selected layer can't
+    /// use it (its handles scale), a warning in the control gives the reason
+    /// (see `resize_note`); the labels never change.
     fn resize_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let (used, fallback) = self.shown_resize_tool();
-        let muted = cx.theme().muted_foreground;
-        let scale_tooltip = fallback
-            .as_ref()
-            .map_or("Scale the layer".to_owned(), |fallback| fallback.reason());
-        ButtonGroup::new("resize-tool")
-            .small()
-            .outline()
-            .child(
-                Button::new("resize-rect")
-                    .label("Rect")
-                    .selected(used == ResizeTool::Rect)
-                    .tooltip("Resize the layer's box, keeping the opposite edge")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.set_resize_tool(ResizeTool::Rect, cx);
-                    })),
-            )
-            .child(
-                Button::new("resize-scale")
-                    .label("Scale")
-                    .selected(used == ResizeTool::Scale)
-                    .when(fallback.is_some(), |button| button.text_color(muted))
-                    .tooltip(scale_tooltip)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.set_resize_tool(ResizeTool::Scale, cx);
-                    })),
-            )
+        let tools = [ResizeTool::Rect, ResizeTool::Scale];
+        let chosen = tools.iter().position(|tool| *tool == self.resize_tool);
+        mode_toggle(
+            ModeToggle {
+                id: "resize-tool",
+                note_id: "resize-tool-note",
+                width: RESIZE_TOGGLE_WIDTH,
+                segments: [
+                    ("Rect", "Resize the layer's box, keeping the opposite edge"),
+                    ("Scale", "Scale the layer"),
+                ],
+                chosen: chosen.unwrap_or_default(),
+                note: self.resize_note(),
+            },
+            cx.listener(move |this, ix: &usize, _, cx| {
+                if let Some(tool) = tools.get(*ix) {
+                    this.set_resize_tool(*tool, cx);
+                }
+            }),
+            cx,
+        )
     }
 
     fn set_resize_tool(&mut self, tool: ResizeTool, cx: &mut Context<Self>) {

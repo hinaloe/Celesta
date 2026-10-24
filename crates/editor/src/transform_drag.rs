@@ -48,6 +48,9 @@ pub(crate) struct TransformDrag {
     /// The element's name (see `primitive_of`), which says how its anchor
     /// box is laid out; kept, as the targets are gone while the write runs.
     primitive: String,
+    /// Why a rotation or scale turns about the pivot though Center is
+    /// chosen (see `EditorView::pivot_note`), shown in the label.
+    note: Option<&'static str>,
     /// The props the runtime saw when the drag started.
     received: ReceivedProps,
     /// Where the runtime takes each editable prop's dragged value, kept from
@@ -83,6 +86,7 @@ impl TransformDrag {
             pivot,
             resize: None,
             primitive: String::new(),
+            note: None,
             received,
             sites,
             turned: 0.0,
@@ -101,6 +105,32 @@ impl TransformDrag {
         Self {
             primitive: primitive.to_owned(),
             ..self
+        }
+    }
+
+    /// The drag with the reason Center is not in effect, kept for a handle
+    /// that turns or scales about the pivot (see `turns_about_pivot`).
+    pub(crate) fn with_note(self, note: Option<&'static str>) -> Self {
+        let note = note.filter(|_| turns_about_pivot(self.handle, self.resize.as_ref()));
+        Self { note, ..self }
+    }
+
+    /// The label beside the layer: the props the drag writes (`x 120 →
+    /// 184`), after the note why it turns about the pivot (see
+    /// `with_note`); `None` while it has neither.
+    pub(crate) fn label(&self) -> Option<String> {
+        let written = drag_label(
+            &self.frame,
+            &self.values,
+            &self.received,
+            self.resize.as_ref(),
+        );
+        let note = self.note.map(pivot_note_text);
+        match (note, written.is_empty()) {
+            (None, true) => None,
+            (None, false) => Some(written),
+            (Some(note), true) => Some(note),
+            (Some(note), false) => Some(format!("{note}  {written}")),
         }
     }
 
@@ -260,6 +290,24 @@ pub(crate) fn prop_overrides(
             Some(site.with(*value))
         })
         .collect()
+}
+
+/// The note shown at the rotation and scale handles, and in a drag's
+/// label, when Center is chosen but `reason` keeps the layer turning about
+/// its pivot.
+pub(crate) fn pivot_note_text(reason: &str) -> String {
+    format!("Pivot — {reason}")
+}
+
+/// Whether `handle` turns or scales the layer about the point the pivot
+/// mode names: the rotation handle, and the corners and edges of the Scale
+/// tool (`resize` is `None`).
+pub(crate) fn turns_about_pivot(handle: Handle, resize: Option<&Resize>) -> bool {
+    match handle {
+        Handle::Rotate => true,
+        Handle::Corner(_) | Handle::Edge(_) => resize.is_none(),
+        Handle::Move | Handle::Anchor => false,
+    }
 }
 
 /// What the canvas can do with the selected layer.
@@ -707,43 +755,33 @@ impl EditorView {
         DragState::Editable(frame, props, pivot, resize)
     }
 
-    /// The tool the viewer's Rect/Scale toggle shows: the one a drag of the
-    /// selected layer uses (the chosen one without a draggable selection),
-    /// and why it is not the chosen Rect.
-    pub(crate) fn shown_resize_tool(&self) -> (ResizeTool, Option<ResizeFallback>) {
-        let DragState::Editable(frame, _, _, used) = self.drag_state() else {
-            return (self.resize_tool, None);
-        };
-        if used.is_some() {
-            return (ResizeTool::Rect, None);
+    /// Why the chosen Rect tool is not in effect on the selected layer (its
+    /// handles scale instead), for the toggle's warning; `None` when it is,
+    /// or Scale is chosen.
+    pub(crate) fn resize_note(&self) -> Option<String> {
+        if self.resize_tool != ResizeTool::Rect {
+            return None;
         }
-        // A running drag keeps the tool it started with.
-        let fallback = self
-            .transform_drag
-            .is_none()
-            .then(|| {
-                let (targets, _) = self.element_targets()?;
-                resize_fallback(self.resize_tool, targets, &frame)
-            })
-            .flatten();
-        (ResizeTool::Scale, fallback)
+        let DragState::Editable(frame, _, _, None) = self.drag_state() else {
+            return None;
+        };
+        let (targets, _) = self.element_targets()?;
+        resize_fallback(ResizeTool::Rect, targets, &frame).map(|fallback| fallback.reason())
     }
 
-    /// The pivot mode the viewer's toggle shows: the one a drag of the
-    /// selected layer uses (the chosen one without a draggable selection),
-    /// and why it is not the chosen Center.
-    pub(crate) fn shown_pivot_mode(&self) -> (PivotMode, Option<PivotFallback>) {
-        let DragState::Editable(frame, _, used, _) = self.drag_state() else {
-            return (self.pivot_mode, None);
+    /// Why the chosen Center is not in effect on the selected layer (its
+    /// rotation and scale turn about the pivot), for the toggle's warning and
+    /// the note at the rotation and scale handles; `None` when it is, or
+    /// Pivot is chosen.
+    pub(crate) fn pivot_note(&self) -> Option<&'static str> {
+        if self.pivot_mode != PivotMode::Center {
+            return None;
+        }
+        let DragState::Editable(frame, _, PivotMode::Pivot, _) = self.drag_state() else {
+            return None;
         };
-        // A running drag keeps the mode it started with.
-        let fallback = (used == PivotMode::Pivot)
-            .then(|| {
-                let (targets, _) = self.element_targets()?;
-                pivot_fallback(self.pivot_mode, targets, &frame)
-            })
-            .flatten();
-        (used, fallback)
+        let (targets, _) = self.element_targets()?;
+        pivot_fallback(PivotMode::Center, targets, &frame).map(PivotFallback::reason)
     }
 
     /// Why the selected layer's pivot cross can't move its anchor (see
@@ -769,16 +807,9 @@ impl EditorView {
         drag.chain(scrub).collect()
     }
 
-    /// The drag's `x 120 → 184` label, once the pointer changed something.
+    /// The running drag's label (see `TransformDrag::label`).
     pub(crate) fn transform_drag_label(&self) -> Option<String> {
-        let drag = self.transform_drag.as_ref()?;
-        let label = drag_label(
-            &drag.frame,
-            &drag.values,
-            &drag.received,
-            drag.resize.as_ref(),
-        );
-        (!label.is_empty()).then_some(label)
+        self.transform_drag.as_ref()?.label()
     }
 
     /// Whether a drag is running with the button down (not one released and
@@ -861,10 +892,12 @@ impl EditorView {
         if self.row_scrub_active() {
             self.cancel_row_scrub();
         }
+        let note = self.pivot_note();
         self.transform_drag = Some(
             TransformDrag::new(frame, handle, start, editable, pivot, received, sites)
                 .with_resize(resize)
-                .with_primitive(&primitive),
+                .with_primitive(&primitive)
+                .with_note(note),
         );
         true
     }
@@ -1462,6 +1495,47 @@ mod tests {
             .into_iter()
             .map(|(handle, _)| handle)
             .collect()
+    }
+
+    #[test]
+    fn a_drag_about_the_pivot_says_why_center_is_not_in_effect() {
+        let frame = rect_frame();
+        let editable = vec![TransformProp::Rotation.key()];
+        let reason = PivotFallback::NotCompensable.reason();
+        let drag = |handle, resize: Option<Resize>| {
+            TransformDrag::new(
+                frame.clone(),
+                handle,
+                at(200.0, 20.0),
+                editable.clone(),
+                PivotMode::Pivot,
+                ReceivedProps::default(),
+                Vec::new(),
+            )
+            .with_resize(resize)
+            .with_note(Some(reason))
+        };
+        // From the press, before anything is written.
+        let mut rotation = drag(Handle::Rotate, None);
+        assert_eq!(
+            rotation.label().as_deref(),
+            Some("Pivot — x or y can't be edited")
+        );
+        rotation.follow(vec![(TransformProp::Rotation.key(), 30.0)]);
+        assert_eq!(
+            rotation.label().as_deref(),
+            Some("Pivot — x or y can't be edited  rotation 0 → 30")
+        );
+        // The Scale tool's handles turn about it too; the Rect tool's and a
+        // move don't.
+        assert!(drag(Handle::Corner(2), None).label().is_some());
+        let resize = Resize {
+            props: SizeProps::Width(size_field("maxWidth", None)),
+            compensable: true,
+            animated: false,
+        };
+        assert_eq!(drag(Handle::Edge(1), Some(resize)).label(), None);
+        assert_eq!(drag(Handle::Move, None).label(), None);
     }
 
     #[test]
