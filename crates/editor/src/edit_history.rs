@@ -239,7 +239,7 @@ impl EditHistory {
     }
 
     #[cfg(test)]
-    fn undo(&mut self) -> Result<Option<Vec<PathBuf>>, HistoryError> {
+    pub(crate) fn undo(&mut self) -> Result<Option<Vec<PathBuf>>, HistoryError> {
         self.run(Step::Undo)
     }
 

@@ -453,7 +453,6 @@ impl EditorView {
     /// The property table of the primitive `name` (`Rect`, `Star`, ...) as
     /// the React preview last loaded it; `None` for a project, or a name the
     /// runtime declares no table for.
-    #[expect(dead_code, reason = "the Properties tab's sections read it")]
     pub(crate) fn primitive_table(&self, name: &str) -> Option<&PrimitivePropertyTable> {
         self.react_preview.as_ref()?.primitive_table(name)
     }

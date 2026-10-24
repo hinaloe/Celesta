@@ -6,13 +6,16 @@ use crate::edit_history::Texts;
 use crate::layer_select::{SourceLookup, owner_call_site};
 use crate::view::EditorView;
 use celesta_react_bridge::{
-    ElementKind, LayerSource, LayerSourceReport, ReceivedProps, ReceivedValue, SourcePos,
+    ElementKind, LayerSource, LayerSourceReport, PrimitivePropertyField, PrimitivePropertyTable,
+    ReceivedProps, ReceivedValue, SourcePos,
 };
 use celesta_source_edit::{
-    ApplyError, Edit, EditTarget, EditValue, ElementRef, LockReason, ResolveContext, apply,
-    element_at, enclosing_component, format_number, has_attribute, parameter_of, resolve_through,
+    ApplyError, Edit, EditTarget, EditValue, ElementRef, LiteralForm, LockReason, ResolveContext,
+    apply, element_at, enclosing_component, format_number, has_attribute, parameter_of,
+    resolve_inputs, resolve_through, text_style_path,
 };
 use gpui_kit::Context;
+use std::cell::OnceCell;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
@@ -23,17 +26,20 @@ use std::path::{Component, Path, PathBuf};
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) enum PropKey {
     Prop(String),
+    /// Input `name` of the expression row `row` (a table key).
+    Input {
+        row: String,
+        name: String,
+    },
 }
 
 impl PropKey {
-    /// The row's name in messages: a transform prop's label, the key
-    /// otherwise.
+    /// The row's name in messages: a transform prop's label, an input's
+    /// name, the key otherwise.
     pub(crate) fn label(&self) -> String {
-        match TransformProp::from_key(self) {
-            Some(prop) => prop.label().to_owned(),
-            None => match self {
-                Self::Prop(name) => name.clone(),
-            },
+        match (TransformProp::from_key(self), self) {
+            (Some(prop), _) => prop.label().to_owned(),
+            (None, Self::Prop(name) | Self::Input { name, .. }) => name.clone(),
         }
     }
 }
@@ -67,7 +73,9 @@ impl TransformProp {
 
     /// The transform prop `key` names, if any.
     pub(crate) fn from_key(key: &PropKey) -> Option<Self> {
-        let PropKey::Prop(name) = key;
+        let PropKey::Prop(name) = key else {
+            return None;
+        };
         Self::ALL.into_iter().find(|prop| prop.name() == name)
     }
 
@@ -117,6 +125,10 @@ pub(crate) struct Target {
     /// Where the component enclosing the element is called, for a
     /// `PassThrough`.
     pub(crate) call_site: Option<SourcePos>,
+    /// For a row locked as an `Expression`, the identifiers the expression
+    /// reads, each with where its value lives (in the order the expression
+    /// reads them). Empty otherwise, and for an input.
+    pub(crate) inputs: Vec<(String, Target)>,
 }
 
 /// Where each row of one element lives.
@@ -125,12 +137,17 @@ pub(crate) struct ElementTargets {
     /// The element's file.
     pub(crate) file: PathBuf,
     /// The files resolving read: the element's, then the call site's when a
-    /// prop is a parameter of the enclosing component. A commit reads them
-    /// all again.
+    /// row or an input is a parameter of the enclosing component. A commit
+    /// reads them all again.
     pub(crate) files: Vec<PathBuf>,
     pub(crate) element: ElementRef,
-    /// `x`, `y`, `rotation`, then `scale` or `scaleX`, `scaleY`.
+    /// The rows of the element's property table in its order, `scale` split
+    /// into `scaleX`, `scaleY` when either is written on the element; the
+    /// transform props alone without a table.
     pub(crate) targets: Vec<(PropKey, Target)>,
+    /// The table the rows were resolved for, so a commit resolves them
+    /// again the same way.
+    pub(crate) table: Option<PrimitivePropertyTable>,
 }
 
 impl ElementTargets {
@@ -167,12 +184,139 @@ impl ElementTargets {
         sites.all(|site| site == Some(first)).then_some(first)
     }
 
-    /// The row `key`.
+    /// The row or input `key`.
     pub(crate) fn entry(&self, key: &PropKey) -> Option<&Target> {
-        self.targets
-            .iter()
-            .find(|(candidate, _)| candidate == key)
-            .map(|(_, target)| target)
+        let row = |name: &str| {
+            self.targets
+                .iter()
+                .find(|(candidate, _)| matches!(candidate, PropKey::Prop(row) if row == name))
+                .map(|(_, target)| target)
+        };
+        match key {
+            PropKey::Prop(name) => row(name),
+            PropKey::Input { row: of, name } => row(of)?
+                .inputs
+                .iter()
+                .find(|(input, _)| input == name)
+                .map(|(_, target)| target),
+        }
+    }
+
+    /// Every row, each followed by its inputs, with its key.
+    pub(crate) fn entries(&self) -> Vec<(PropKey, &Target)> {
+        let mut entries = Vec::new();
+        for (key, target) in &self.targets {
+            entries.push((key.clone(), target));
+            let PropKey::Prop(row) = key else {
+                continue;
+            };
+            for (name, input) in &target.inputs {
+                let key = PropKey::Input {
+                    row: row.clone(),
+                    name: name.clone(),
+                };
+                entries.push((key, input));
+            }
+        }
+        entries
+    }
+}
+
+/// The table field of a row: `scaleX` and `scaleY` take `scale`'s.
+fn field_of<'t>(
+    table: &'t PrimitivePropertyTable,
+    row: &str,
+) -> Option<&'t PrimitivePropertyField> {
+    let key = match row {
+        "scaleX" | "scaleY" => "scale",
+        other => other,
+    };
+    table
+        .groups
+        .iter()
+        .flat_map(|group| &group.fields)
+        .find(|field| field.key == key)
+        .map(|field| &field.field)
+}
+
+/// The table field of `key` as a placeholder-able default.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Properties tab's rows show it as a placeholder"
+    )
+)]
+pub(crate) fn table_default(field: &PrimitivePropertyField) -> Option<EditValue> {
+    match field {
+        PrimitivePropertyField::Number { default_value, .. } => {
+            default_value.map(EditValue::Number)
+        }
+        PrimitivePropertyField::String { default_value }
+        | PrimitivePropertyField::Text { default_value }
+        | PrimitivePropertyField::Color { default_value }
+        | PrimitivePropertyField::Select { default_value, .. } => {
+            default_value.clone().map(EditValue::String)
+        }
+        PrimitivePropertyField::Boolean { default_value } => default_value.map(EditValue::Bool),
+        PrimitivePropertyField::Path => None,
+    }
+}
+
+/// Whether a literal `value` is of the kind `field` edits.
+fn fits(field: &PrimitivePropertyField, value: &EditValue) -> bool {
+    match field {
+        PrimitivePropertyField::Number { .. } => matches!(value, EditValue::Number(_)),
+        PrimitivePropertyField::Boolean { .. } => matches!(value, EditValue::Bool(_)),
+        PrimitivePropertyField::String { .. }
+        | PrimitivePropertyField::Text { .. }
+        | PrimitivePropertyField::Color { .. }
+        | PrimitivePropertyField::Select { .. }
+        | PrimitivePropertyField::Path => matches!(value, EditValue::String(_)),
+    }
+}
+
+/// Locks a literal of another kind than `field` edits (`anchorY="baseline"`
+/// on a number row) as the expression it is in the source: `text` holds the
+/// element's literal, `call_site_text` a pass-through's. `prop` names a
+/// bare attribute (`loop`), whose source is its name.
+fn fit_kind(
+    target: EditTarget,
+    field: &PrimitivePropertyField,
+    text: &str,
+    call_site_text: Option<&str>,
+    prop: &str,
+) -> EditTarget {
+    match target {
+        EditTarget::Literal {
+            span, value, form, ..
+        } if !fits(field, &value) => {
+            let source = match form {
+                LiteralForm::BareTrue => prop.to_owned(),
+                _ => text
+                    .get(span.start as usize..span.end as usize)
+                    .unwrap_or_default()
+                    .trim()
+                    .to_owned(),
+            };
+            EditTarget::Locked(LockReason::Expression { source })
+        }
+        EditTarget::PassThrough {
+            call_site,
+            param,
+            target,
+        } => {
+            let target = match call_site_text {
+                Some(call_site_text) => fit_kind(*target, field, call_site_text, None, &param),
+                None => *target,
+            };
+            EditTarget::PassThrough {
+                call_site,
+                param,
+                target: Box::new(target),
+            }
+        }
+        other => other,
     }
 }
 
@@ -193,47 +337,87 @@ pub(crate) fn editable(target: &EditTarget) -> bool {
     )
 }
 
-/// Resolves the transform targets of `report`'s innermost element, reading
-/// files with `read`: the element's, and, only when a prop is a parameter of
-/// the component enclosing the element, the file of that component's call
-/// site, where such a prop resolves. Scale is per axis when `scaleX` or
-/// `scaleY` is written as an attribute of the element, and uniform otherwise
-/// (also when only a parent sets them).
+/// Every row of `table` (or the transform props when `table` is `None`),
+/// then their inputs; the call site is read once, when any row or input
+/// passes through.
+///
+/// Resolves `report`'s innermost element, reading files with `read`: the
+/// element's, and, only when a row or an input is a parameter of the
+/// component enclosing the element, the file of that component's call site,
+/// where such a value resolves. Scale is per axis when `scaleX` or `scaleY`
+/// is written as an attribute of the element, and uniform otherwise (also
+/// when only a parent sets them). A `Text`'s font and color rows edit the
+/// `style` property when the `style` object sets it, and a literal of
+/// another kind than its row edits is locked as an expression.
 pub(crate) fn resolve_targets(
     read: impl Fn(&Path) -> Result<String, String>,
     report: &LayerSourceReport,
+    table: Option<&PrimitivePropertyTable>,
 ) -> Result<ElementTargets, String> {
-    resolve_rows(read, report, |text, element| {
+    resolve_rows(read, report, table, |text, element| {
         let per_axis = [TransformProp::ScaleX, TransformProp::ScaleY]
             .iter()
             .any(|prop| has_attribute(text, element, prop.name()));
-        let props: &[TransformProp] = if per_axis {
-            &[
-                TransformProp::X,
-                TransformProp::Y,
-                TransformProp::Rotation,
-                TransformProp::ScaleX,
-                TransformProp::ScaleY,
-            ]
-        } else {
-            &[
-                TransformProp::X,
-                TransformProp::Y,
-                TransformProp::Rotation,
-                TransformProp::Scale,
-            ]
+        let scale = |rows: &mut Vec<String>| {
+            if per_axis {
+                rows.extend(["scaleX".to_owned(), "scaleY".to_owned()]);
+            } else {
+                rows.push("scale".to_owned());
+            }
         };
-        props.iter().map(|prop| prop.key()).collect()
+        let mut rows = Vec::new();
+        match table {
+            Some(table) => {
+                for field in table.groups.iter().flat_map(|group| &group.fields) {
+                    if field.key == "scale" {
+                        scale(&mut rows);
+                    } else {
+                        rows.push(field.key.clone());
+                    }
+                }
+            }
+            None => {
+                rows.extend(["x", "y", "rotation"].map(str::to_owned));
+                scale(&mut rows);
+            }
+        }
+        rows
     })
 }
 
-/// Resolves the rows `keys` picks from the text and element of `report`'s
-/// innermost element; see [`resolve_targets`]. A commit replays the rows it
-/// started from this way.
+/// The `style` key each `Text` shorthand row edits when the `style` object
+/// sets it (`themedTextStyle` fills `fill` from `color`).
+fn text_style_key(row: &str) -> Option<&'static str> {
+    match row {
+        "fontFamily" => Some("fontFamily"),
+        "fontSize" => Some("fontSize"),
+        "fontWeight" => Some("fontWeight"),
+        "color" => Some("fill"),
+        _ => None,
+    }
+}
+
+/// A call site read for a pass-through: its chain entry, text, and element.
+struct CallSite<'r> {
+    entry: &'r LayerSource,
+    text: String,
+    call: ElementRef,
+}
+
+/// The text/element pair `resolve_through` and `resolve_inputs` take.
+fn through<'s>(site: Option<&'s CallSite<'_>>) -> Option<(&'s str, &'s ElementRef)> {
+    site.map(|site| (site.text.as_str(), &site.call))
+}
+
+/// Resolves the rows `rows` names (table keys) from the text and element of
+/// `report`'s innermost element, with the fields of `table`; see
+/// [`resolve_targets`]. A commit resolves the rows it started from again
+/// this way.
 fn resolve_rows(
     read: impl Fn(&Path) -> Result<String, String>,
     report: &LayerSourceReport,
-    keys: impl FnOnce(&str, &ElementRef) -> Vec<PropKey>,
+    table: Option<&PrimitivePropertyTable>,
+    rows: impl FnOnce(&str, &ElementRef) -> Vec<String>,
 ) -> Result<ElementTargets, String> {
     let source = report
         .chain
@@ -242,68 +426,134 @@ fn resolve_rows(
     let text = read(&source.file)?;
     let element = element_at(&text, source.line, source.column)
         .ok_or_else(|| reason_text(&LockReason::ElementNotFound))?;
-    let rows: Vec<(PropKey, String)> = keys(&text, &element)
-        .into_iter()
-        .map(|key| {
-            let PropKey::Prop(name) = &key;
-            let path = name.clone();
-            (key, path)
-        })
-        .collect();
-    let mut files = vec![source.file.clone()];
-    let passes = rows
-        .iter()
-        .any(|(_, path)| parameter_of(&text, &element, path).is_some());
-    // A call site that can't be read or found locks only the props passed
-    // through (`CallSiteNotFound`); the element's own stay editable.
-    let call_site =
-        passes
-            .then(|| caller(&text, &element, report))
-            .flatten()
-            .and_then(|(component, entry)| {
-                let call_site_text = read(&entry.file).ok()?;
-                if !files.contains(&entry.file) {
-                    files.push(entry.file.clone());
-                }
-                let call = element_at(&call_site_text, entry.line, entry.column)?;
+    // Read on first need: the file read (also when the call is not found
+    // there), and the call. A call site that can't be read or found locks
+    // only the values passed through (`CallSiteNotFound`); the element's own
+    // stay editable.
+    let loaded: OnceCell<(Option<PathBuf>, Option<CallSite>)> = OnceCell::new();
+    let call_site = || {
+        loaded
+            .get_or_init(|| {
+                let Some((component, entry)) = caller(&text, &element, report) else {
+                    return (None, None);
+                };
+                let Ok(call_site_text) = read(&entry.file) else {
+                    return (None, None);
+                };
+                let call = element_at(&call_site_text, entry.line, entry.column);
                 // An anonymous entry may be any `memo` component above the
                 // element, one it is only passed to as children among them.
-                (entry.name == component || tag_name(&call_site_text, &call) == component)
-                    .then_some((entry, call_site_text, call))
-            });
-    let target = |(key, path): (PropKey, String)| {
-        let ctx = ResolveContext {
-            primitive: source.kind == ElementKind::Primitive,
-            component_props: false,
-            candidate_frames: candidate_frames(report),
-            received: report.props.get(&path).map(edit_value),
-            render_count: report.render_count,
-        };
-        let through = call_site
+                let call = call.filter(|call| {
+                    entry.name == component || tag_name(&call_site_text, call) == component
+                });
+                let found = call.map(|call| CallSite {
+                    entry,
+                    text: call_site_text,
+                    call,
+                });
+                (Some(entry.file.clone()), found)
+            })
+            .1
             .as_ref()
-            .map(|(_, call_site_text, call)| (call_site_text.as_str(), call));
-        let target = resolve_through(&text, &element, &path, &ctx, through);
-        let target = match (&target, &call_site) {
-            (EditTarget::PassThrough { .. }, Some((entry, ..))) => Target {
-                file: entry.file.clone(),
-                path,
-                target,
-                call_site: Some(SourcePos::from(*entry)),
-            },
-            _ => Target {
-                file: source.file.clone(),
-                path,
-                target,
-                call_site: None,
-            },
-        };
-        (key, target)
     };
+    // Where a resolved value is written: at the call site for a
+    // pass-through, on the element otherwise.
+    let place = |path: String, target: EditTarget, site: Option<&CallSite>| match (&target, site) {
+        (EditTarget::PassThrough { .. }, Some(site)) => Target {
+            file: site.entry.file.clone(),
+            path,
+            target,
+            call_site: Some(SourcePos::from(site.entry)),
+            inputs: Vec::new(),
+        },
+        _ => Target {
+            file: source.file.clone(),
+            path,
+            target,
+            call_site: None,
+            inputs: Vec::new(),
+        },
+    };
+    let ctx = |path: &str| ResolveContext {
+        primitive: source.kind == ElementKind::Primitive,
+        component_props: false,
+        candidate_frames: candidate_frames(report),
+        received: report.props.get(path).map(edit_value),
+        render_count: report.render_count,
+    };
+    let inputs = |path: &str, ctx: &ResolveContext| {
+        let site = loaded.get().and_then(|(_, site)| site.as_ref());
+        let mut found = resolve_inputs(&text, &element, path, ctx, through(site));
+        // A parameter input needs the call site, not read yet.
+        let wants_call_site = found.iter().any(|(_, target)| {
+            matches!(
+                target,
+                EditTarget::Locked(LockReason::CallSiteNotFound { .. })
+            )
+        });
+        let site = match site {
+            None if loaded.get().is_none() && wants_call_site => {
+                let site = call_site();
+                if site.is_some() {
+                    found = resolve_inputs(&text, &element, path, ctx, through(site));
+                }
+                site
+            }
+            site => site,
+        };
+        found
+            .into_iter()
+            .map(|(name, target)| (name.clone(), place(name, target, site)))
+            .collect()
+    };
+    let row = |name: String| {
+        let style_key = if source.name == "Text" {
+            text_style_key(&name)
+        } else {
+            None
+        };
+        let path = match style_key {
+            Some(style_key) => text_style_path(&text, &element, &name, style_key),
+            None => Ok(name.clone()),
+        };
+        let path = match path {
+            Ok(path) => path,
+            Err(reason) => {
+                let target = place(name.clone(), EditTarget::Locked(reason), None);
+                return (PropKey::Prop(name), target);
+            }
+        };
+        let ctx = ctx(&path);
+        let site = match loaded.get() {
+            Some((_, site)) => site.as_ref(),
+            None if parameter_of(&text, &element, &path).is_some() => call_site(),
+            None => None,
+        };
+        let mut target = resolve_through(&text, &element, &path, &ctx, through(site));
+        if let Some(field) = table.and_then(|table| field_of(table, &name)) {
+            let call_site_text = site.map(|site| site.text.as_str());
+            target = fit_kind(target, field, &text, call_site_text, &path);
+        }
+        let expression = matches!(target, EditTarget::Locked(LockReason::Expression { .. }));
+        let mut target = place(path, target, site);
+        if expression {
+            target.inputs = inputs(&target.path, &ctx);
+        }
+        (PropKey::Prop(name), target)
+    };
+    let targets = rows(&text, &element).into_iter().map(row).collect();
+    let mut files = vec![source.file.clone()];
+    if let Some((Some(file), _)) = loaded.get()
+        && !files.contains(file)
+    {
+        files.push(file.clone());
+    }
     Ok(ElementTargets {
         file: source.file.clone(),
         files,
         element,
-        targets: rows.into_iter().map(target).collect(),
+        targets,
+        table: table.cloned(),
     })
 }
 
@@ -364,8 +614,9 @@ impl fmt::Display for CommitError {
 
 /// The new text of every file `values` touch, in path order, after checking
 /// `texts` (each of `expected.files`) still have the targets of `expected`:
-/// its rows, resolved again, are the same kinds at the same spans, in the
-/// same files. Nothing is returned for a file no value is written to.
+/// its rows and their inputs, resolved again, are the same kinds at the
+/// same spans, in the same files. An `Input` value is written to its
+/// input's target. Nothing is returned for a file no value is written to.
 pub(crate) fn commit_files(
     texts: &Texts,
     expected: &ElementTargets,
@@ -390,29 +641,30 @@ pub(crate) fn commit_files(
         expected
             .targets
             .iter()
-            .map(|(key, _)| key.clone())
+            .filter_map(|(key, _)| match key {
+                PropKey::Prop(name) => Some(name.clone()),
+                PropKey::Input { .. } => None,
+            })
             .collect()
     };
-    let mut fresh = resolve_rows(read, report, rows).map_err(|_| CommitError::SourceChanged)?;
-    let outside: Vec<&Path> = expected
-        .targets
+    let mut fresh = resolve_rows(read, report, expected.table.as_ref(), rows)
+        .map_err(|_| CommitError::SourceChanged)?;
+    let was = expected.entries();
+    let outside: Vec<&Path> = was
         .iter()
         .filter(|(_, was)| was.target == EditTarget::Locked(LockReason::OutsideProject))
         .map(|(_, was)| was.file.as_path())
         .collect();
     lock_outside_project(&mut fresh, |file| outside.contains(&file));
+    let now = fresh.entries();
     let unchanged = fresh.element == expected.element
-        && fresh.targets.len() == expected.targets.len()
-        && fresh
-            .targets
-            .iter()
-            .zip(&expected.targets)
-            .all(|((key, now), (was_key, was))| {
-                key == was_key
-                    && now.file == was.file
-                    && now.path == was.path
-                    && same_place(&now.target, &was.target)
-            });
+        && now.len() == was.len()
+        && now.iter().zip(&was).all(|((key, now), (was_key, was))| {
+            key == was_key
+                && now.file == was.file
+                && now.path == was.path
+                && same_place(&now.target, &was.target)
+        });
     if !unchanged {
         return Err(CommitError::SourceChanged);
     }
@@ -771,6 +1023,13 @@ impl EditorView {
         let Some(request) = self.element_edit.begin(layer, report, frame) else {
             return;
         };
+        // The rows the runtime declares for the primitive; the transform
+        // props alone without a table.
+        let table = report
+            .chain
+            .first()
+            .and_then(|element| self.primitive_table(&element.name))
+            .cloned();
         let report = report.clone();
         let entry_dir = self
             .react_entry()
@@ -784,7 +1043,7 @@ impl EditorView {
                         fs::read_to_string(path)
                             .map_err(|error| format!("Couldn't read {}: {error}", path.display()))
                     };
-                    let mut targets = resolve_targets(read, &report)?;
+                    let mut targets = resolve_targets(read, &report, table.as_ref())?;
                     let real = |path: &Path| fs::canonicalize(path).unwrap_or(path.to_path_buf());
                     let entry_dir = entry_dir.map(|dir| real(&dir));
                     lock_outside_project(&mut targets, |file| {
@@ -887,12 +1146,18 @@ fn normalize(path: &Path) -> PathBuf {
     normal
 }
 
-/// Locks every target in a file `outside` says is outside the project (the
-/// element's, or a call site's).
+/// Locks every target, row or input, in a file `outside` says is outside
+/// the project (the element's, or a call site's).
 pub(crate) fn lock_outside_project(targets: &mut ElementTargets, outside: impl Fn(&Path) -> bool) {
-    for (_, target) in &mut targets.targets {
+    let lock = |target: &mut Target| {
         if outside(&target.file) {
             target.target = EditTarget::Locked(LockReason::OutsideProject);
+        }
+    };
+    for (_, target) in &mut targets.targets {
+        lock(target);
+        for (_, input) in &mut target.inputs {
+            lock(input);
         }
     }
 }

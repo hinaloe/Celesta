@@ -662,6 +662,7 @@ mod tests {
             path: path.to_owned(),
             target,
             call_site: None,
+            inputs: Vec::new(),
         };
         // `y` comes from the call site, where it is written as an expression.
         let passed = Target {
@@ -677,6 +678,7 @@ mod tests {
                 line: 1,
                 column: 1,
             }),
+            inputs: Vec::new(),
         };
         let targets = ElementTargets {
             file: "/a/card.tsx".into(),
@@ -701,6 +703,7 @@ mod tests {
                     local("scale", EditTarget::Locked(LockReason::OutsideKeyframes)),
                 ),
             ],
+            table: None,
         };
         assert_eq!(
             locked_summary(&targets),

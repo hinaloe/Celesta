@@ -1,7 +1,7 @@
 use crate::EDITOR_DEMO_PROJECT;
 use crate::audio::{AudioCacheKey, CachedAudioDecoder, take_latest};
 use crate::audio_cache::DiskAudioCache;
-use crate::edit_history::Texts;
+use crate::edit_history::{EditHistory, HistoryEntry, Texts, write_all_recorded};
 use crate::editor_launch::{
     Invocation, LaunchError, default_opener, editor_invocation, editor_value,
     parse_login_shell_output, read_until_closing_marker, split_command,
@@ -9,7 +9,7 @@ use crate::editor_launch::{
 use crate::element_edit::{
     CommitError, ElementEdit, ElementTargets, PropKey, Target, TransformProp, commit_files,
     inside_project, keyframe_jump_frames, keyframe_timeline_frame, lock_outside_project,
-    reason_text, resolve_targets,
+    reason_text, resolve_targets, table_default,
 };
 use crate::export_worker::{
     ExportEvent, ExportRequest, ExportSource, ExportWorker, export_options,
@@ -57,8 +57,9 @@ use celesta_exporter::{
 use celesta_media::{AudioBuffer, AudioDecoder};
 use celesta_project::{Project, TrackKind};
 use celesta_react_bridge::{
-    ComponentResolutions, ElementKind, LayerSource, LayerSourceReport, PropOverride, ReceivedProps,
-    ReceivedValue, SourcePos,
+    ComponentResolutions, ElementKind, LayerSource, LayerSourceReport, PrimitivePropertyField,
+    PrimitivePropertyGroup, PrimitivePropertyRow, PrimitivePropertyTable, PropOverride,
+    ReceivedProps, ReceivedValue, SourcePos,
 };
 use std::collections::HashMap;
 use std::fs;
@@ -1194,7 +1195,7 @@ fn x_only() -> ReceivedProps {
 
 /// Resolves `report` with `text` as the text of every file.
 fn resolve_in(text: &str, report: &LayerSourceReport) -> Result<ElementTargets, String> {
-    resolve_targets(|_| Ok(text.to_owned()), report)
+    resolve_targets(|_| Ok(text.to_owned()), report, None)
 }
 
 /// `prop` set to the number `value`, as a commit takes it.
@@ -1378,8 +1379,10 @@ fn single_row(text: &str, prop: &str, target: EditTarget) -> ElementTargets {
                 path: prop.to_owned(),
                 target,
                 call_site: None,
+                inputs: Vec::new(),
             },
         )],
+        table: None,
     }
 }
 
@@ -2700,8 +2703,8 @@ fn owner_call_site_falls_back_to_an_anonymous_component() {
 #[test]
 fn x_passed_at_the_call_site_is_a_pass_through_target() {
     let report = price_tag_report();
-    let targets =
-        resolve_targets(read_from(&price_tag_files()), &report).expect("the element resolves");
+    let targets = resolve_targets(read_from(&price_tag_files()), &report, None)
+        .expect("the element resolves");
 
     assert_eq!(targets.file, PathBuf::from("/project/component.tsx"));
     assert_eq!(
@@ -2758,7 +2761,7 @@ fn mixed_override_sites() -> Vec<(TransformProp, OverrideSite)> {
         ),
     ]);
     let report = price_tag_report();
-    let targets = resolve_targets(read_from(&files), &report).expect("the element resolves");
+    let targets = resolve_targets(read_from(&files), &report, None).expect("the element resolves");
     override_sites(&targets, &report)
 }
 
@@ -2937,7 +2940,7 @@ fn a_value_written_on_the_element_reads_only_its_file() {
         ..primitive_report(2, 3, x_only())
     };
 
-    let targets = resolve_targets(read_from(&texts), &report).expect("the element resolves");
+    let targets = resolve_targets(read_from(&texts), &report, None).expect("the element resolves");
 
     assert!(
         targets
@@ -2951,7 +2954,7 @@ fn a_value_written_on_the_element_reads_only_its_file() {
 fn a_drag_writes_two_files() {
     let texts = price_tag_files();
     let report = price_tag_report();
-    let targets = resolve_targets(read_from(&texts), &report).unwrap();
+    let targets = resolve_targets(read_from(&texts), &report, None).unwrap();
 
     let written = commit_files(
         &texts,
@@ -2995,7 +2998,7 @@ fn a_value_missing_at_the_call_site_is_inserted_there() {
         },
         ..price_tag_report()
     };
-    let targets = resolve_targets(read_from(&texts), &report).unwrap();
+    let targets = resolve_targets(read_from(&texts), &report, None).unwrap();
     let Some(EditTarget::PassThrough { target, .. }) = targets.transform(TransformProp::X) else {
         panic!(
             "x passes through: {:?}",
@@ -3026,7 +3029,7 @@ fn a_component_called_in_its_own_file_is_written_once() {
         ],
         ..price_tag_report()
     };
-    let targets = resolve_targets(read_from(&texts), &report).unwrap();
+    let targets = resolve_targets(read_from(&texts), &report, None).unwrap();
 
     let written = commit_files(
         &texts,
@@ -3052,7 +3055,7 @@ fn a_component_called_in_its_own_file_is_written_once() {
 #[test]
 fn a_changed_call_site_aborts() {
     let report = price_tag_report();
-    let targets = resolve_targets(read_from(&price_tag_files()), &report).unwrap();
+    let targets = resolve_targets(read_from(&price_tag_files()), &report, None).unwrap();
     // `<PriceTag` moved within its line, so the report's position misses it.
     let moved = PRICE_TAG_SCENE.replace("  <PriceTag", "    <PriceTag");
     // The call stayed but its `x` became longer, so the span moved.
@@ -3082,7 +3085,7 @@ fn a_changed_call_site_aborts() {
 fn a_call_site_outside_the_project_locks_only_its_targets() {
     let texts = price_tag_files();
     let report = price_tag_report();
-    let mut targets = resolve_targets(read_from(&texts), &report).unwrap();
+    let mut targets = resolve_targets(read_from(&texts), &report, None).unwrap();
 
     lock_outside_project(&mut targets, |file| file == Path::new("/project/scene.tsx"));
 
@@ -3118,7 +3121,7 @@ fn a_value_passed_on_again_still_commits_the_element_s_own_props() {
         "export const Card = ({ x }) => (\n  <PriceTag x={x} />\n);\n".to_owned(),
     );
     let report = price_tag_report();
-    let targets = resolve_targets(read_from(&texts), &report).unwrap();
+    let targets = resolve_targets(read_from(&texts), &report, None).unwrap();
 
     assert_eq!(
         targets.transform(TransformProp::X),
@@ -3196,7 +3199,7 @@ fn an_anonymous_call_site_must_call_the_enclosing_component() {
         ),
         price_tag_call.clone(),
     ]);
-    let targets = resolve_targets(read_from(&texts), &report).unwrap();
+    let targets = resolve_targets(read_from(&texts), &report, None).unwrap();
     assert_eq!(
         targets.transform(TransformProp::X),
         Some(&EditTarget::Locked(LockReason::CallSiteNotFound {
@@ -3210,7 +3213,7 @@ fn an_anonymous_call_site_must_call_the_enclosing_component() {
 
     // An anonymous entry whose tag is `<PriceTag>` is its call.
     let report = memo_report(vec![rect, price_tag_call]);
-    let targets = resolve_targets(read_from(&texts), &report).unwrap();
+    let targets = resolve_targets(read_from(&texts), &report, None).unwrap();
     assert_eq!(
         targets.file_of(&TransformProp::X.key()),
         Path::new("/project/scene.tsx")
@@ -3229,7 +3232,7 @@ fn an_unreadable_call_site_locks_only_the_props_passed_through() {
     )]);
     let report = price_tag_report();
 
-    let targets = resolve_targets(read_from(&texts), &report).expect("the element resolves");
+    let targets = resolve_targets(read_from(&texts), &report, None).expect("the element resolves");
 
     assert_eq!(
         targets.transform(TransformProp::X),
@@ -3280,7 +3283,7 @@ fn an_edit_is_written_at_the_call_site_only_when_every_editable_prop_passes_thro
         },
         ..price_tag_report()
     };
-    let mut targets = resolve_targets(read_from(&texts), &report).unwrap();
+    let mut targets = resolve_targets(read_from(&texts), &report, None).unwrap();
     assert_eq!(targets.written_at(), Some(&price_tag_call));
 
     // A locked prop on the element is not written, so it does not count.
@@ -3289,11 +3292,13 @@ fn an_edit_is_written_at_the_call_site_only_when_every_editable_prop_passes_thro
         path: "rotation".to_owned(),
         target: EditTarget::Locked(LockReason::Spread),
         call_site: None,
+        inputs: Vec::new(),
     };
     assert_eq!(targets.written_at(), Some(&price_tag_call));
 
     // `rotation` written on the element changes every instance.
-    let targets = resolve_targets(read_from(&price_tag_files()), &price_tag_report()).unwrap();
+    let targets =
+        resolve_targets(read_from(&price_tag_files()), &price_tag_report(), None).unwrap();
     assert_eq!(targets.written_at(), None);
 
     // Nothing editable writes nowhere.
@@ -3312,5 +3317,496 @@ fn a_pass_through_row_names_its_call_site() {
     assert_eq!(
         set_at_text(&call_site, Path::new("/project")),
         "Set at scenes/price.tsx:18"
+    );
+}
+
+fn prop(name: &str) -> PropKey {
+    PropKey::Prop(name.to_owned())
+}
+
+fn number_field(default_value: Option<f64>) -> PrimitivePropertyField {
+    PrimitivePropertyField::Number {
+        default_value,
+        min: None,
+        max: None,
+    }
+}
+
+fn property_table(
+    groups: Vec<(&str, Vec<(&str, PrimitivePropertyField)>)>,
+) -> PrimitivePropertyTable {
+    PrimitivePropertyTable {
+        size: None,
+        groups: groups
+            .into_iter()
+            .map(|(name, fields)| PrimitivePropertyGroup {
+                name: name.to_owned(),
+                fields: fields
+                    .into_iter()
+                    .map(|(key, field)| PrimitivePropertyRow {
+                        key: key.to_owned(),
+                        field,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+fn rect_table() -> PrimitivePropertyTable {
+    property_table(vec![
+        (
+            "Transform",
+            vec![
+                ("x", number_field(Some(0.0))),
+                ("y", number_field(Some(0.0))),
+                ("rotation", number_field(Some(0.0))),
+                ("scale", number_field(Some(1.0))),
+                (
+                    "opacity",
+                    PrimitivePropertyField::Number {
+                        default_value: Some(1.0),
+                        min: Some(0.0),
+                        max: Some(1.0),
+                    },
+                ),
+            ],
+        ),
+        (
+            "Appearance",
+            vec![
+                (
+                    "fill",
+                    PrimitivePropertyField::Color {
+                        default_value: None,
+                    },
+                ),
+                ("cornerRadius", number_field(Some(0.0))),
+            ],
+        ),
+    ])
+}
+
+fn text_table() -> PrimitivePropertyTable {
+    property_table(vec![
+        (
+            "Transform",
+            vec![
+                ("x", number_field(Some(0.0))),
+                ("anchorY", number_field(Some(0.0))),
+            ],
+        ),
+        (
+            "Text",
+            vec![
+                (
+                    "children",
+                    PrimitivePropertyField::Text {
+                        default_value: None,
+                    },
+                ),
+                (
+                    "fontFamily",
+                    PrimitivePropertyField::String {
+                        default_value: None,
+                    },
+                ),
+                ("fontSize", number_field(None)),
+                ("fontWeight", number_field(None)),
+                (
+                    "color",
+                    PrimitivePropertyField::Color {
+                        default_value: None,
+                    },
+                ),
+            ],
+        ),
+    ])
+}
+
+/// The `<Text>` at line 2, column 3 of `file`, which received `props`.
+fn text_report(file: &Path, props: &[(&str, ReceivedValue)]) -> LayerSourceReport {
+    let mut report = primitive_report(2, 3, ReceivedProps::default());
+    report.chain[0].name = "Text".to_owned();
+    report.chain[0].file = file.to_path_buf();
+    for (name, value) in props {
+        report
+            .props
+            .others
+            .insert((*name).to_owned(), value.clone());
+    }
+    report
+}
+
+/// Resolves `report` with `table`, `text` being the text of every file.
+fn resolve_table(
+    text: &str,
+    report: &LayerSourceReport,
+    table: &PrimitivePropertyTable,
+) -> ElementTargets {
+    resolve_targets(|_| Ok(text.to_owned()), report, Some(table)).expect("the element resolves")
+}
+
+#[test]
+fn table_defaults_per_kind() {
+    assert_eq!(
+        table_default(&number_field(Some(2.0))),
+        Some(EditValue::Number(2.0))
+    );
+    assert_eq!(table_default(&number_field(None)), None);
+    assert_eq!(
+        table_default(&PrimitivePropertyField::Select {
+            options: vec!["contain".to_owned(), "cover".to_owned()],
+            default_value: Some("cover".to_owned()),
+        }),
+        Some(EditValue::String("cover".to_owned()))
+    );
+    assert_eq!(
+        table_default(&PrimitivePropertyField::Boolean {
+            default_value: Some(false)
+        }),
+        Some(EditValue::Bool(false))
+    );
+    assert_eq!(table_default(&PrimitivePropertyField::Path), None);
+}
+
+#[test]
+fn a_table_resolves_every_row_in_order() {
+    let text = "export const Scene = () => (\n  <Rect x={10} fill=\"#fff\" width={10} height={10} />\n);\n";
+    let mut report = primitive_report(
+        2,
+        3,
+        ReceivedProps {
+            x: Some(10.0),
+            ..ReceivedProps::default()
+        },
+    );
+    report
+        .props
+        .others
+        .insert("fill".to_owned(), ReceivedValue::String("#fff".to_owned()));
+
+    let targets = resolve_table(text, &report, &rect_table());
+
+    assert_eq!(
+        keys(&targets),
+        [
+            "x",
+            "y",
+            "rotation",
+            "scale",
+            "opacity",
+            "fill",
+            "cornerRadius"
+        ]
+        .map(prop)
+    );
+    assert!(matches!(
+        targets.target(&prop("fill")),
+        Some(EditTarget::Literal { value: EditValue::String(fill), .. }) if fill == "#fff"
+    ));
+    assert!(matches!(
+        targets.target(&prop("cornerRadius")),
+        Some(EditTarget::Missing { .. })
+    ));
+    assert!(matches!(
+        targets.target(&prop("scale")),
+        Some(EditTarget::Missing { .. })
+    ));
+}
+
+#[test]
+fn per_axis_scale_replaces_scale_in_place() {
+    let text = "export const Scene = () => (\n  <Rect x={10} scaleX={2} />\n);\n";
+    let report = primitive_report(
+        2,
+        3,
+        ReceivedProps {
+            x: Some(10.0),
+            scale_x: Some(2.0),
+            ..ReceivedProps::default()
+        },
+    );
+
+    let targets = resolve_table(text, &report, &rect_table());
+
+    assert_eq!(
+        keys(&targets),
+        [
+            "x",
+            "y",
+            "rotation",
+            "scaleX",
+            "scaleY",
+            "opacity",
+            "fill",
+            "cornerRadius"
+        ]
+        .map(prop)
+    );
+}
+
+#[test]
+fn text_shorthand_edits_the_style_property() {
+    let file = Path::new("/project/scene.tsx");
+    let text = "export const Scene = () => (\n  <Text style={{ fontSize: 48 }} fontWeight={700}>A</Text>\n);\n";
+    let report = text_report(
+        file,
+        &[
+            ("style.fontSize", ReceivedValue::Number(48.0)),
+            ("fontWeight", ReceivedValue::Number(700.0)),
+            ("children", ReceivedValue::String("A".to_owned())),
+        ],
+    );
+
+    let targets = resolve_table(text, &report, &text_table());
+
+    let font_size = targets.entry(&prop("fontSize")).unwrap();
+    assert_eq!(font_size.path, "style.fontSize");
+    assert!(matches!(
+        font_size.target,
+        EditTarget::Literal { value: EditValue::Number(size), .. } if size == 48.0
+    ));
+    let font_weight = targets.entry(&prop("fontWeight")).unwrap();
+    assert_eq!(font_weight.path, "fontWeight");
+    assert!(matches!(
+        font_weight.target,
+        EditTarget::Literal { value: EditValue::Number(weight), .. } if weight == 700.0
+    ));
+
+    // `style` is not an object literal: it may set either.
+    let computed = text.replace("{{ fontSize: 48 }}", "{mono(20)}");
+    let targets = resolve_table(&computed, &report, &text_table());
+    for key in ["fontSize", "fontWeight"] {
+        let row = targets.entry(&prop(key)).unwrap();
+        assert_eq!(row.path, key);
+        assert_eq!(row.target, EditTarget::Locked(LockReason::StyleMaySet));
+    }
+}
+
+#[test]
+fn a_literal_of_another_kind_locks() {
+    let text = "export const Scene = () => (\n  <Text anchorY=\"baseline\">A</Text>\n);\n";
+    let report = text_report(
+        Path::new("/project/scene.tsx"),
+        &[
+            ("anchorY", ReceivedValue::String("baseline".to_owned())),
+            ("children", ReceivedValue::String("A".to_owned())),
+        ],
+    );
+
+    let targets = resolve_table(text, &report, &text_table());
+
+    assert_eq!(
+        targets.target(&prop("anchorY")),
+        Some(&EditTarget::Locked(LockReason::Expression {
+            source: "\"baseline\"".to_owned()
+        }))
+    );
+    // A string row with a string literal stays editable.
+    assert!(matches!(
+        targets.target(&prop("children")),
+        Some(EditTarget::Literal { .. })
+    ));
+}
+
+const TAG: &str = "export function Tag({ padding = 8 }) {\n  const w = 100;\n  return <Rect width={w + padding * 2} height={10} />;\n}\n";
+const TAG_SCENE: &str = "export const Scene = () => (\n  <Tag padding={16} />\n);\n";
+
+fn tag_files() -> Texts {
+    Texts::from([
+        (PathBuf::from("/project/component.tsx"), TAG.to_owned()),
+        (PathBuf::from("/project/scene.tsx"), TAG_SCENE.to_owned()),
+    ])
+}
+
+/// The `<Rect>` in `Tag`, called from the scene as `<Tag padding={16} />`.
+fn tag_report() -> LayerSourceReport {
+    let rect = LayerSource {
+        column: 10,
+        ..entry_at("Rect", ElementKind::Primitive, "/project/component.tsx", 3)
+    };
+    LayerSourceReport {
+        props: ReceivedProps {
+            others: [
+                ("width".to_owned(), ReceivedValue::Number(132.0)),
+                ("height".to_owned(), ReceivedValue::Number(10.0)),
+            ]
+            .into(),
+            ..ReceivedProps::default()
+        },
+        ..report_of(vec![
+            rect,
+            entry_at("Tag", ElementKind::Component, "/project/scene.tsx", 2),
+        ])
+    }
+}
+
+fn size_table() -> PrimitivePropertyTable {
+    property_table(vec![(
+        "Size",
+        vec![
+            ("width", number_field(None)),
+            ("height", number_field(None)),
+        ],
+    )])
+}
+
+#[test]
+fn an_expression_row_lists_its_inputs() {
+    let report = tag_report();
+
+    let targets = resolve_targets(read_from(&tag_files()), &report, Some(&size_table()))
+        .expect("the element resolves");
+
+    let width = targets.entry(&prop("width")).unwrap();
+    assert!(matches!(
+        width.target,
+        EditTarget::Locked(LockReason::Expression { .. })
+    ));
+    let names: Vec<&str> = width.inputs.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["w", "padding"]);
+    let (_, w) = &width.inputs[0];
+    assert_eq!(w.file, Path::new("/project/component.tsx"));
+    assert_eq!(w.call_site, None);
+    assert!(matches!(
+        w.target,
+        EditTarget::Literal { value: EditValue::Number(value), .. } if value == 100.0
+    ));
+    let (_, padding) = &width.inputs[1];
+    assert_eq!(padding.file, Path::new("/project/scene.tsx"));
+    assert_eq!(
+        padding.call_site,
+        Some(SourcePos {
+            file: PathBuf::from("/project/scene.tsx"),
+            line: 2,
+            column: 3,
+        })
+    );
+    assert!(matches!(padding.target, EditTarget::PassThrough { .. }));
+    // Only an expression row has inputs.
+    assert!(targets.entry(&prop("height")).unwrap().inputs.is_empty());
+    assert_eq!(
+        targets.files,
+        [
+            PathBuf::from("/project/component.tsx"),
+            PathBuf::from("/project/scene.tsx")
+        ]
+    );
+}
+
+#[test]
+fn committing_an_input_writes_its_target() {
+    let texts = tag_files();
+    let report = tag_report();
+    let targets = resolve_targets(read_from(&texts), &report, Some(&size_table())).unwrap();
+    let padding = PropKey::Input {
+        row: "width".to_owned(),
+        name: "padding".to_owned(),
+    };
+
+    let written = commit_files(
+        &texts,
+        &targets,
+        &report,
+        &[(padding, EditValue::Number(24.0))],
+    );
+
+    assert_eq!(
+        written,
+        Ok(vec![(
+            PathBuf::from("/project/scene.tsx"),
+            TAG_SCENE.replace("padding={16}", "padding={24}")
+        )])
+    );
+}
+
+#[test]
+fn a_text_with_outer_spaces_is_written_in_braces() {
+    let text = "export const Scene = () => (\n  <Text>Sale</Text>\n);\n";
+    let report = text_report(
+        Path::new("/project/scene.tsx"),
+        &[("children", ReceivedValue::String("Sale".to_owned()))],
+    );
+    let targets = resolve_table(text, &report, &text_table());
+
+    let written = commit_in(
+        text,
+        &targets,
+        &report,
+        &[(prop("children"), EditValue::String(" Sale ".to_owned()))],
+    );
+
+    assert_eq!(written, Ok(text.replace(">Sale<", ">{\" Sale \"}<")));
+}
+
+#[test]
+fn a_font_row_beside_a_style_object_inserts_the_shorthand() {
+    let dir = std::env::temp_dir().join(format!(
+        "celesta-font-row-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("scene.tsx");
+    let text = "export const Scene = () => (\n  <Text style={{ fontWeight: 700 }}>A</Text>\n);\n";
+    fs::write(&file, text).unwrap();
+    let report = text_report(
+        &file,
+        &[
+            ("style.fontWeight", ReceivedValue::Number(700.0)),
+            ("children", ReceivedValue::String("A".to_owned())),
+        ],
+    );
+    let read = |path: &Path| fs::read_to_string(path).map_err(|error| error.to_string());
+    let targets = resolve_targets(read, &report, Some(&text_table())).unwrap();
+
+    // The object does not set it: the shorthand is the prop to write.
+    let font_size = targets.entry(&prop("fontSize")).unwrap();
+    assert_eq!(font_size.path, "fontSize");
+    assert!(matches!(font_size.target, EditTarget::Missing { .. }));
+
+    let files = write_all_recorded(targets.files.clone(), |texts| {
+        commit_files(
+            texts,
+            &targets,
+            &report,
+            &[(prop("fontSize"), EditValue::Number(48.0))],
+        )
+        .map_err(|error| error.to_string())
+    })
+    .unwrap();
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "export const Scene = () => (\n  <Text style={{ fontWeight: 700 }} fontSize={48}>A</Text>\n);\n"
+    );
+    let mut history = EditHistory::default();
+    history.push(HistoryEntry { files });
+    history.undo().unwrap();
+    assert_eq!(fs::read_to_string(&file).unwrap(), text);
+    fs::remove_dir_all(&dir).ok();
+
+    // An object that sets it is written inside.
+    let both = "export const Scene = () => (\n  <Text style={{ fontSize: 40, fontWeight: 700 }}>A</Text>\n);\n";
+    let report = text_report(
+        Path::new("/project/scene.tsx"),
+        &[
+            ("style.fontSize", ReceivedValue::Number(40.0)),
+            ("style.fontWeight", ReceivedValue::Number(700.0)),
+            ("children", ReceivedValue::String("A".to_owned())),
+        ],
+    );
+    let targets = resolve_table(both, &report, &text_table());
+    assert_eq!(
+        commit_in(
+            both,
+            &targets,
+            &report,
+            &[(prop("fontSize"), EditValue::Number(48.0))]
+        ),
+        Ok(both.replace("fontSize: 40", "fontSize: 48"))
     );
 }
