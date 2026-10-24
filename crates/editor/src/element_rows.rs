@@ -739,13 +739,42 @@ impl SelectionGate {
         if held { None } else { self.waiting.take() }
     }
 
-    #[cfg(test)]
     pub(crate) fn waiting(&self) -> bool {
         self.waiting.is_some()
     }
 
     pub(crate) fn clear(&mut self) {
         self.waiting = None;
+    }
+}
+
+/// What toggling the interactive mode does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InteractiveToggle {
+    Enter,
+    /// Leave now: the selection is cleared.
+    Leave,
+    /// Leave once the selected layer's held commits are written: until
+    /// then the mode stays, so frames keep looking the source up and the
+    /// commits can drain.
+    LeaveAfterCommits,
+    /// Toggled again while waiting to leave: stay, keeping the selection.
+    StayInteractive,
+}
+
+/// The toggle's outcome, `interactive` the mode now, `leaving` whether a
+/// leave already waits, and `selection_waits` whether clearing the
+/// selection (asked for before deciding) waits for held commits.
+pub(crate) fn interactive_toggle(
+    interactive: bool,
+    leaving: bool,
+    selection_waits: bool,
+) -> InteractiveToggle {
+    match (interactive, leaving, selection_waits) {
+        (false, ..) => InteractiveToggle::Enter,
+        (true, true, _) => InteractiveToggle::StayInteractive,
+        (true, false, true) => InteractiveToggle::LeaveAfterCommits,
+        (true, false, false) => InteractiveToggle::Leave,
     }
 }
 
@@ -792,7 +821,10 @@ pub(crate) struct ElementRows {
     /// Commits waiting for the targets to be current.
     held: HeldCommits,
     /// A selection change waiting for `held`.
-    selection: SelectionGate,
+    pub(crate) selection: SelectionGate,
+    /// Leaving the interactive mode waits for `selection` (which clears the
+    /// selection) to go.
+    pub(crate) leaving_interactive: bool,
     /// The playhead moved (or playback started) since the rows last
     /// submitted their typed text.
     pub(crate) submit_requested: bool,
@@ -1207,6 +1239,11 @@ impl EditorView {
     /// selected layer the change waits for them (a newer request replaces
     /// it).
     pub(crate) fn select_layer(&mut self, layer: Option<String>, cx: &mut Context<Self>) {
+        // Picking a layer while a leave of the interactive mode waits stays
+        // in the mode.
+        if layer.is_some() {
+            self.element_rows.leaving_interactive = false;
+        }
         self.submit_edited_rows(cx);
         let current = self.selected_layer.clone();
         let held = self.element_rows.held.any(current.as_deref());

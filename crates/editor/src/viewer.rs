@@ -21,6 +21,7 @@ use crate::actions::{
     ClearExportRange, GoToEnd, GoToStart, NextFrame, PreviousFrame, SetExportIn, SetExportOut,
     ToggleInteractive, ToggleLoop, TogglePlayback, ToggleSafeAreas,
 };
+use crate::element_rows::{InteractiveToggle, interactive_toggle};
 use crate::icons::CelestaIcon;
 use crate::layer_select::{SourceLookup, letterbox, outline_quads, scene_point};
 use crate::meter::audio_meter;
@@ -736,20 +737,43 @@ impl EditorView {
     /// without source positions; entering interactive mode sweeps the
     /// composition for scenes, and leaving it drops the selection and the
     /// sweep's index.
+    ///
+    /// Leaving is a click on nothing first: the rows' typed text is
+    /// submitted, and when their commits are held the mode stays until they
+    /// are written (frames go on looking the source up, which they wait
+    /// for); toggling again meanwhile stays in the mode.
     pub(crate) fn toggle_interactive(&mut self, cx: &mut Context<Self>) {
         if !self.is_react_preview() {
             return;
         }
-        self.interactive = !self.interactive;
-        if !self.interactive {
-            // As a click on nothing: the rows' typed text is submitted, and
-            // the selection clears once their commits are written.
+        let leaving = self.element_rows.leaving_interactive;
+        if self.interactive && !leaving {
             self.select_layer(None, cx);
-            self.hit_regions.clear();
         }
+        let waits = self.element_rows.selection.waiting();
+        match interactive_toggle(self.interactive, leaving, waits) {
+            InteractiveToggle::Enter => {
+                self.interactive = true;
+                self.refresh_preview();
+                self.refresh_occurrences(false);
+            }
+            InteractiveToggle::Leave => self.leave_interactive(),
+            InteractiveToggle::LeaveAfterCommits => self.element_rows.leaving_interactive = true,
+            InteractiveToggle::StayInteractive => {
+                self.element_rows.leaving_interactive = false;
+                self.element_rows.selection.clear();
+            }
+        }
+        cx.notify();
+    }
+
+    /// Leaves the interactive mode, its selection already cleared.
+    fn leave_interactive(&mut self) {
+        self.element_rows.leaving_interactive = false;
+        self.interactive = false;
+        self.hit_regions.clear();
         self.refresh_preview();
         self.refresh_occurrences(false);
-        cx.notify();
     }
 
     /// Selects the topmost layer under the click in the shown frame, or
@@ -801,6 +825,10 @@ impl EditorView {
         self.layer_frame = None;
         self.transform_drag = None;
         self.element_rows.scrub = None;
+        // A leave of the interactive mode waited for this.
+        if self.element_rows.leaving_interactive {
+            self.leave_interactive();
+        }
     }
 }
 

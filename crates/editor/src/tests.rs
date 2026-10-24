@@ -12,9 +12,10 @@ use crate::element_edit::{
     lock_outside_project, reason_text, resolve_targets, table_default, type_component_props,
 };
 use crate::element_rows::{
-    HeldCommit, HeldCommits, Scrub, SelectionGate, TypedText, cleared_path, commit_owns_row,
-    control_kind, edited_rows, moved_off_keyframe, parse_row_value, removable, row_field, row_kind,
-    row_label, row_text, scrub_takes_focus, scrub_value, set_at_text, typed_text, written_text,
+    HeldCommit, HeldCommits, InteractiveToggle, Scrub, SelectionGate, TypedText, cleared_path,
+    commit_owns_row, control_kind, edited_rows, interactive_toggle, moved_off_keyframe,
+    parse_row_value, removable, row_field, row_kind, row_label, row_text, scrub_takes_focus,
+    scrub_value, set_at_text, typed_text, written_text,
 };
 use crate::export_worker::{
     ExportEvent, ExportRequest, ExportSource, ExportWorker, export_options,
@@ -5275,6 +5276,19 @@ fn a_held_commit_is_stamped_with_the_frame_its_row_showed() {
     state.begin("a", &report, 20).unwrap();
     assert_eq!(state.shown_frame(Some("a")), Some(10));
     assert_eq!(state.shown_frame(Some("b")), None);
+}
+
+#[test]
+fn leaving_the_interactive_mode_waits_for_the_held_commits() {
+    use InteractiveToggle::*;
+    assert_eq!(interactive_toggle(false, false, false), Enter);
+    // Nothing held: the selection cleared at once, and the mode goes.
+    assert_eq!(interactive_toggle(true, false, false), Leave);
+    // The clearing waits for held commits: so does the mode, which keeps
+    // looking the source up until they are written.
+    assert_eq!(interactive_toggle(true, false, true), LeaveAfterCommits);
+    // Toggled again while waiting: it stays interactive.
+    assert_eq!(interactive_toggle(true, true, true), StayInteractive);
 }
 
 #[test]
