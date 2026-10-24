@@ -419,8 +419,9 @@ content these rows supersede, so no example changed):
   a prop the schema leaves out shows its name as written. With
   `count: { type: "number", defaultValue: 3, integer: true }`, typing
   `2.5` says "Enter a whole number".
-- Type a value, press Enter, and at once press Enter again with another
-  value: the second row says "Saving…" (muted) until its write starts.
+- Type a value in a field and press Enter, then at once type another and
+  press Enter: the row says "Saving…" (muted) until the first write's
+  reload ends and the second value is written.
 - Commit a value and turn **Select layers** off before the reload ends:
   the button keeps its selected look with a spinner for its icon, the
   layer stays selected, and the mode turns off once the value is written.
