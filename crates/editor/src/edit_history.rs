@@ -858,14 +858,16 @@ mod tests {
     #[test]
     fn a_failed_temp_write_renames_nothing() {
         let dir = scratch("temp");
-        let (writable, locked) = (dir.join("a-writable"), dir.join("b-readonly"));
+        let (writable, blocked) = (dir.join("a-writable"), dir.join("b-blocked"));
         fs::create_dir(&writable).unwrap();
-        fs::create_dir(&locked).unwrap();
-        let (a, b) = (writable.join("a.txt"), locked.join("b.txt"));
+        fs::create_dir(&blocked).unwrap();
+        let (a, b) = (writable.join("a.txt"), blocked.join("b.txt"));
         fs::write(&a, "x").unwrap();
         fs::write(&b, "p").unwrap();
-        // The file itself is writable, but no temp file can be made beside it.
-        set_readonly(&locked, true);
+        // The file itself is writable, but its temp file can't be made: a
+        // directory holds its name. (A read-only directory would not stop the
+        // write on Windows.)
+        fs::create_dir(blocked.join(format!(".b.txt.tmp-{}", std::process::id()))).unwrap();
 
         let result = write_all_recorded(vec![a.clone(), b.clone()], |_| {
             Ok(vec![
@@ -874,7 +876,6 @@ mod tests {
             ])
         });
 
-        set_readonly(&locked, false);
         assert!(result.is_err());
         assert_eq!(fs::read_to_string(&a).unwrap(), "x");
         assert_eq!(fs::read_to_string(&b).unwrap(), "p");
