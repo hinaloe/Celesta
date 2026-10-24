@@ -190,10 +190,12 @@ fn as_written(value: f64) -> f64 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub(crate) enum PivotMode {
     /// The center of the layer's box, which stays put: `x`/`y` compensate.
-    #[default]
+    /// Opt-in: in real scenes `x`/`y` are often constants or computed,
+    /// which can't compensate.
     Center,
     /// The layer's pivot, its anchor point plus `origin`, where the renderer
     /// turns and scales it.
+    #[default]
     Pivot,
 }
 
@@ -1796,6 +1798,14 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_pivot_is_the_default() {
+        // `x`/`y` are often constants or computed, so Center rarely applies:
+        // it is opt-in.
+        assert_eq!(PivotMode::default(), PivotMode::Pivot);
+        assert_eq!(ResizeTool::default(), ResizeTool::Rect);
     }
 
     #[test]

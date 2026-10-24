@@ -287,8 +287,8 @@ pub(crate) struct EditorView {
     /// or being written.
     pub(crate) transform_drag: Option<TransformDrag>,
     /// What canvas rotation and scale turn about, as the viewer's toggle
-    /// chose it for the session; a layer whose `x`/`y` can't compensate
-    /// uses its pivot whatever this says.
+    /// chose it for the session (the pivot unless Center is chosen); a layer
+    /// that can't keep its center uses its pivot whatever this says.
     pub(crate) pivot_mode: PivotMode,
     /// What the canvas's corner and edge handles do, as the viewer's toggle
     /// chose it for the session; a layer without editable size props scales
