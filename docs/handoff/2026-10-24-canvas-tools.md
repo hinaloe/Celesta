@@ -131,7 +131,7 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   `EditorView.resize_tool` is session state.
 - Tool strip (`viewer.rs`): `tool_strip`, overlaid at the viewer's
   top-left (above the canvas notice, in one column) while Select layers is
-  on in a React preview: an `occlude()`d panel in the theme's popover color
+  on in a React preview and a layer is selected: an `occlude()`d panel in the theme's popover color
   with a 1px border, two `strip_row`s with a muted fixed-width label
   ("Rotate about", "Handles") and a `mode_toggle`. A toggle is two
   fixed-width `Segment` buttons (`SEGMENT_WIDTH`) in a bordered row, the
@@ -343,15 +343,17 @@ In the editor, with **Select layers** on, on a scene of your own (the
 feature tour has no editor-only content these tools supersede, so no
 example changed):
 
-- Turn on **Select layers**: a tool strip appears at the viewer's top-left
-  with "Rotate about" [Center | Pivot] and "Handles" [Size | Scale], Pivot
+- Turn on **Select layers**: no tool strip while nothing is selected.
+  Select a layer: a tool strip appears at the viewer's top-left with
+  "Rotate about" [Center | Pivot] and "Handles" [Size | Scale], Pivot
   and Size filled with the accent color, legible over a bright and a dark
   scene; the transport bar has no toggles and keeps its old layout.
   Clicking a segment fills it; clicking the strip never selects or
   deselects a layer behind it, and clicking just outside it does. Select
   layers one after another, including ones that fall back: the strip's
   width and labels never change, only a warning icon appears in the
-  reserved slot. Turning the mode off hides the strip.
+  reserved slot. Clearing the selection (click empty canvas) or turning the
+  mode off hides the strip.
 - 04 TYPE in `examples/feature-tour/film.tsx`, the card `<Rect x={DX} y={top}
   … rotation={-9.5} anchorX={0.8} …>`: choose Center. The Center segment
   stays filled and a warning icon appears beside it, tooltip "x or y can't

@@ -116,7 +116,7 @@ A layer inside a `<Group>` or `<Stack>` moves with its parent. A child of a `<St
 
 ### Turn about the center or the pivot
 
-While **Select layers** is on, a small tool strip sits at the top-left of the viewer with two labelled toggles, the choice you made filled with the accent color. The first, **Rotate about** [**Center** | **Pivot**], sets what the rotation handle and the **Scale** handles turn about; a cross on the selected layer marks that point:
+While **Select layers** is on and a layer is selected, a small tool strip sits at the top-left of the viewer with two labelled toggles, the choice you made filled with the accent color. The first, **Rotate about** [**Center** | **Pivot**], sets what the rotation handle and the **Scale** handles turn about; a cross on the selected layer marks that point:
 
 - **Pivot**, the default, turns the layer about its pivot, the point the renderer turns it about: its anchor (`anchorX` and `anchorY` of its box, the top-left corner unless you set them), moved by `originX` and `originY` when you set those. Only `rotation` or the scale is written. The cross sits on the pivot, and Alt-dragging it moves the anchor (see "Move the anchor" below).
 - **Center** keeps the middle of the layer's box where it is. To do that, Celesta also writes `x` and `y`: a rotation writes `rotation`, `x`, and `y` together, as one change, which writes two files when `x` and `y` are passed through from a component call. The cross sits on the middle of the box. It only marks that point: its tooltip says **Rotates about the center; switch to Pivot to move the anchor**.

@@ -161,8 +161,10 @@ impl EditorView {
         // Why a chosen Center is not in effect: the toggle's warning and the
         // handles' note.
         let pivot_note = self.pivot_note();
-        // The canvas tools show while Select layers is on.
-        let shows_tools = self.is_react_preview() && self.interactive;
+        // The canvas tools show while Select layers is on and a layer is
+        // selected: they act on the selection.
+        let shows_tools =
+            self.is_react_preview() && self.interactive && self.selected_layer.is_some();
         // Every region of the selected layer in the shown frame; none when
         // the frame does not draw it. The Size tool's handles sit on the box
         // they resize, which is then the outline drawn (a stroked text's

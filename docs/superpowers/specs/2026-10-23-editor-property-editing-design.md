@@ -358,7 +358,8 @@ center of its box on request:
 - In Center mode a rotation or scale also moves `x`/`y` so the box's center
   stays put. Both writes are one edit.
 - The toggles sit in a small tool strip overlaid at the viewer's top-left
-  while Select layers is on (not in the transport bar), two labelled rows
+  while Select layers is on and a layer is selected (not in the transport
+  bar), two labelled rows
   with muted, always-visible labels: "Rotate about" [Center | Pivot] and
   "Handles" [Size | Scale]. The strip is an opaque panel in the theme's
   popover color with a 1px border, radius 0, and takes the pointer over its
