@@ -193,9 +193,10 @@ from the plan's Rulings, these supersede them:
   write, and a commit still held then is lost as it was before the wait.
   A deferred Reload comes after the own write's reload, so it reloads again
   and clears the selection, as an explicit Reload does.
-- **A commit that is not written says why on the canvas**, in the viewer's
-  notice, as well as in its `text` row: the text reverts, and the
-  Properties tab may not be shown.
+- **A commit whose write fails, or which is dropped while held, says why on
+  the canvas**, in the viewer's notice, as well as in its `text` row: the
+  text reverts, and the Properties tab may not be shown. (A held commit
+  forgotten with the selection is not covered; see Known gaps.)
 - **A failed refit keeps the previous map**: an emptied text without
   `maxWidth` is 0 wide and can't be fitted; the caret stays where the last
   character was. Only entry refuses a degenerate box.
@@ -232,6 +233,13 @@ from the plan's Rulings, these supersede them:
   history entry and reload belong to the old project and are dropped; a
   commit still held then dies with the old view in `replace_contents`,
   unwritten.
+- A canvas commit still held when the selection is cleared without waiting
+  (a reload that does not keep it, such as one for an outside change or
+  another composition, or the layer disappearing) is forgotten by
+  `forget_held_rows` with no viewer notice: the text silently reverts. In
+  particular, a held commit's "Not saved: the code failed to reload" shows
+  only when a kept reload (an own write's) fails; an outside change's reload
+  has already forgotten it.
 - Close, Quit, and Reload stop waiting after 5 s: a commit still held then
   (one that neither drains nor is dropped; no known path does that) is lost.
 - A click just past the last glyph of a single-line text without `maxWidth`
@@ -330,16 +338,16 @@ In the editor, with **Select layers** on, on a scene of your own:
   Edit, then Cmd+Shift+E right away: check whether the export has the new
   text (see Known gaps). Edit, then Cmd+W or Cmd+Q right away: the file has
   the new text after the window closes.
-- Commit held, then Cmd+R: change a Properties row and, while it is still
-  "Saving…", edit the canvas text and press Enter (the commit is held for
-  its turn); press Cmd+R at once. The reload runs only after the canvas
-  commit is written: the file has the new text, the canvas shows it after
-  the reload, and one Cmd+Z restores it.
-- A commit that is not written: hide the Properties tab, commit a canvas
-  edit while another value is being written, and make the code fail to
-  reload meanwhile (a syntax error saved elsewhere): the text reverts and the
-  viewer's notice says "Not saved: the code failed to reload" until the next
-  click.
+- Commit held, then Cmd+R: type in the Properties Text row without
+  pressing Enter, double-click the canvas text (the row's value is written
+  first and the edit begins), type, and press Enter once the row's reload
+  has started (the commit is held for the targets that reload resolves);
+  press Cmd+R at once. The reload runs only after the canvas commit is
+  written: the file has the new text, the canvas shows it after the reload,
+  and one Cmd+Z restores it.
+- A commit that is not written: hide the Properties tab, make the entry
+  file read-only, edit the canvas text, and press Enter: the text reverts
+  and the viewer's notice gives the write's error until the next click.
 - Type in the Properties Text row, double-click the canvas text, type, and
   press Enter quickly: both writes land, the row's first. Then again, but
   wait while still editing until the row's reload finishes before typing
