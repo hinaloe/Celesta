@@ -25,8 +25,9 @@ use crate::helpers::{
 };
 use crate::layer_panel::locked_summary;
 use crate::layer_select::{
-    SourceLookup, display_path, launch_outcome_applies, letterbox, outline_quads, owner_call_site,
-    parent_layer_id, scene_point, source_lookup, source_lookup_target, source_position,
+    SourceLookup, display_path, launch_outcome_applies, letterbox, lookup_allowed, outline_quads,
+    owner_call_site, parent_layer_id, scene_point, source_lookup, source_lookup_target,
+    source_position,
 };
 use crate::property_controls::ControlKind;
 use crate::react_audio::{react_audio_clip_id, react_tracks};
@@ -5274,6 +5275,16 @@ fn a_held_commit_is_stamped_with_the_frame_its_row_showed() {
     state.begin("a", &report, 20).unwrap();
     assert_eq!(state.shown_frame(Some("a")), Some(10));
     assert_eq!(state.shown_frame(Some("b")), None);
+}
+
+#[test]
+fn a_released_scrub_lets_the_frame_look_its_source_up() {
+    // A pressed scrub and any drag redraw on every move: no lookup.
+    assert!(!lookup_allowed(false, true));
+    assert!(!lookup_allowed(true, false));
+    // Released (its write held for a reload): the lookup goes, or the write
+    // would wait for targets that are never resolved.
+    assert!(lookup_allowed(false, false));
 }
 
 #[test]

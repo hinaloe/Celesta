@@ -1,7 +1,7 @@
 use crate::component_schema::ComponentSchemaRequest;
 use crate::element_edit::RELOAD_FAILED;
 use crate::helpers::format_time;
-use crate::layer_select::source_lookup_target;
+use crate::layer_select::{lookup_allowed, source_lookup_target};
 use crate::media_probe::{MediaProbeRequest, ProbeAsset};
 use crate::preview::{
     KeptSchema, PreviewRequest, ReactPreview, ReactPreviewContext, ReactPreviewMode,
@@ -274,19 +274,19 @@ impl EditorView {
         } else {
             ReactPreviewMode::ResolveComponents
         };
-        // A drag or a row's scrub redraws the frame on every move; the
+        // A drag or a pressed scrub redraws the frame on every move; the
         // runtime's answer is about the written source, which neither
         // changes until it writes, so it is not asked again (the runtime
         // looks it up without the overrides, and remounts to drop them).
-        // Playback asks only for an answer it does not have yet, or a stale
-        // one.
+        // A released scrub asks (see `lookup_allowed`). Playback asks only
+        // for an answer it does not have yet, or a stale one.
         let source_of = source_lookup_target(
             self.selected_layer.as_deref(),
             self.picks_layers(),
             self.playing && !self.source_lookup_stale,
             self.source_lookup.as_ref(),
         )
-        .filter(|_| self.transform_drag.is_none() && self.element_rows.scrub.is_none());
+        .filter(|_| lookup_allowed(self.transform_drag.is_some(), self.row_scrub_active()));
         match self.document.scene_at(self.current_time()) {
             // The warnings stay until the result replaces them, so their
             // counts don't flicker while frames are in flight.
