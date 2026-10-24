@@ -87,13 +87,16 @@ pub(crate) enum SizeProps {
     Width(SizeField),
 }
 
-/// The Rect tool on the selected layer: the props that hold its box, and
+/// The Rect tool on the selected layer: the props that hold its box,
 /// whether `x`/`y` can move it so the opposite edge stays (see
-/// `compensable`).
+/// `compensable`), and whether something that compensation turns, scales,
+/// or measures from changes between keyframes (`rotation`, a scale, an
+/// anchor), which leaves only the handles that keep the anchor point.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Resize {
     pub(crate) props: SizeProps,
     pub(crate) compensable: bool,
+    pub(crate) animated: bool,
 }
 
 impl Resize {
@@ -629,14 +632,17 @@ fn moved_axes(frame: &LayerFrame, handle: Handle, resize: &Resize) -> (bool, boo
 
 /// Whether the Rect tool's `handle` can resize the layer: the box has it,
 /// the size props are `editable`, and when it moves the anchor point (see
-/// `resize_moves`), `x`/`y` can compensate and the size along each axis it
-/// moves along is not a keyframe (literal `x`/`y` would keep the edge at
-/// that keyframe only).
+/// `resize_moves`), `x`/`y` can compensate, nothing the compensation uses
+/// is a keyframe (`Resize::animated`), and neither is the size along each
+/// axis it moves along (literal `x`/`y` would keep the edge at that
+/// keyframe only).
 fn resizes(frame: &LayerFrame, handle: Handle, editable: &[PropKey], resize: &Resize) -> bool {
     let position = [TransformProp::X.key(), TransformProp::Y.key()];
     let (moves_x, moves_y) = moved_axes(frame, handle, resize);
     let (along_x, along_y) = resize.axis_fields();
-    let animated = (moves_x && along_x.keyframed) || (moves_y && along_y.keyframed);
+    let animated = resize.animated
+        || (moves_x && along_x.keyframed)
+        || (moves_y && along_y.keyframed);
     resize.axes(handle).is_some()
         && anchor_box(frame).is_some()
         && resize.keys().iter().all(|key| editable.contains(key))
@@ -1160,6 +1166,7 @@ mod tests {
                 height: field("height"),
             },
             compensable,
+            animated: false,
         }
     }
 
@@ -1311,6 +1318,7 @@ mod tests {
         let resize = Resize {
             props: SizeProps::Radius(field("radius")),
             compensable: true,
+            animated: false,
         };
         let values = resize_drag(
             &frame,
@@ -1379,6 +1387,7 @@ mod tests {
         let resize = Resize {
             props: SizeProps::Width(field("maxWidth")),
             compensable: true,
+            animated: false,
         };
         // From the right handle, on the padded quad, 50 px out.
         let values = resize_drag(
@@ -1454,6 +1463,7 @@ mod tests {
                     height: field("height"),
                 },
                 compensable: true,
+                animated: false,
             };
             let values = resize_drag(&frame, Handle::Edge(1), through, false, &resize);
             assert!(
@@ -1483,6 +1493,7 @@ mod tests {
                 height: field("height"),
             },
             compensable: true,
+            animated: false,
         };
         let values = resize_drag(
             &frame,
@@ -1705,6 +1716,7 @@ mod tests {
                 },
             },
             compensable: true,
+            animated: false,
         };
         let values = resize_drag(
             &frame,
@@ -1760,6 +1772,7 @@ mod tests {
         let resize = Resize {
             props: SizeProps::Width(field("maxWidth")),
             compensable: true,
+            animated: false,
         };
         for anchor_x in [0.5, 1.0] {
             let before = EvaluatedTransform {

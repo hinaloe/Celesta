@@ -101,11 +101,22 @@ impl EditorView {
         };
         // The pivot cross of every selected layer with a frame, and whether
         // Alt drags it.
-        let cross = match &drag_state {
-            DragState::Editable(frame, editable, ..) => {
-                Some((pivot_cross(frame), anchor_handle(frame, editable).is_some()))
+        // Why it can't, when it can't: every cause, shown on hover.
+        let cross_reason = match &drag_state {
+            DragState::Editable(frame, ..) | DragState::Locked(frame, _) => {
+                self.anchor_lock_reason(frame)
             }
-            DragState::Locked(frame, _) => Some((pivot_cross(frame), false)),
+            _ => None,
+        };
+        let cross = match &drag_state {
+            DragState::Editable(frame, editable, ..) => Some((
+                pivot_cross(frame),
+                CrossDrag::of(anchor_handle(frame, editable).is_some(), &cross_reason),
+            )),
+            DragState::Locked(frame, _) => Some((
+                pivot_cross(frame),
+                CrossDrag::of(false, &cross_reason),
+            )),
             _ => None,
         };
         let notice = match drag_state {
@@ -130,9 +141,9 @@ impl EditorView {
             let (frame, ..) = editable_frame.as_ref()?;
             Some((outline_box(bounds, frame_size, frame)?, label))
         });
-        // A locked anchor (`anchorY="baseline"`): the cross says why it stays.
+        // An anchor Alt can't move: the cross says why it stays.
         let cross_lock = cross.and_then(|(at, _)| {
-            let reason = self.anchor_lock_reason()?;
+            let reason = cross_reason.clone()?;
             Some((cross_box(last_bounds?, frame_size, at)?, reason))
         });
         let canvas_area = div()
@@ -166,8 +177,8 @@ impl EditorView {
                                 let tools = (pivot, resize.as_ref());
                                 place_handles(bounds, frame_size, &frame, &editable, tools, window)
                             });
-                        let cross = cross.and_then(|(at, draggable)| {
-                            place_cross(bounds, frame_size, at, draggable, window)
+                        let cross = cross.and_then(|(at, drag)| {
+                            place_cross(bounds, frame_size, at, drag, window)
                         });
                         (handles, cross)
                     },
@@ -1095,9 +1106,30 @@ struct PlacedHandles {
 /// The pivot cross, placed on the viewer.
 struct PlacedCross {
     at: gpui_kit::Point<Pixels>,
-    /// Sets the cursor while Alt is held, when Alt-dragging it moves the
-    /// anchor.
-    hitbox: Option<Hitbox>,
+    /// Sets the cursor while Alt is held: a grab when Alt-dragging it moves
+    /// the anchor, not-allowed when something keeps the anchor.
+    hitbox: Option<(Hitbox, CrossDrag)>,
+}
+
+/// What Alt does on the pivot cross.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CrossDrag {
+    /// Alt-dragging it moves the anchor.
+    Moves,
+    /// Something keeps the anchor; its tooltip says what.
+    Blocked,
+    /// The element has no anchor to move (a `<Path>`).
+    None,
+}
+
+impl CrossDrag {
+    fn of(draggable: bool, reason: &Option<String>) -> Self {
+        match (draggable, reason) {
+            (true, _) => Self::Moves,
+            (false, Some(_)) => Self::Blocked,
+            (false, None) => Self::None,
+        }
+    }
 }
 
 /// The square a handle centered on `at` (scene pixels) covers on the frame
@@ -1119,20 +1151,22 @@ fn handle_square(
     ))
 }
 
-/// Places the pivot cross at `at` (scene pixels), with a hitbox when Alt
-/// drags it.
+/// Places the pivot cross at `at` (scene pixels), with a hitbox for its
+/// cursor when Alt does something there (see `CrossDrag`).
 fn place_cross(
     bounds: Bounds<Pixels>,
     frame_size: (f32, f32),
     at: Point,
-    draggable: bool,
+    drag: CrossDrag,
     window: &mut Window,
 ) -> Option<PlacedCross> {
     let square = handle_square(bounds, frame_size, at)?;
     Some(PlacedCross {
         at: square.center(),
-        hitbox: draggable
-            .then(|| window.insert_hitbox(square.dilate(px(2.0)), HitboxBehavior::Normal)),
+        hitbox: (drag != CrossDrag::None).then(|| {
+            let hitbox = window.insert_hitbox(square.dilate(px(2.0)), HitboxBehavior::Normal);
+            (hitbox, drag)
+        }),
     })
 }
 
@@ -1150,10 +1184,14 @@ fn paint_cross(cross: &PlacedCross, window: &mut Window) {
         Bounds::new(point(at.x, at.y - arm), size(px(1.0), arm * 2.0)),
         accent,
     ));
-    if let Some(hitbox) = &cross.hitbox
+    if let Some((hitbox, drag)) = &cross.hitbox
         && window.modifiers().alt
     {
-        window.set_cursor_style(CursorStyle::OpenHand, hitbox);
+        let cursor = match drag {
+            CrossDrag::Moves => CursorStyle::OpenHand,
+            _ => CursorStyle::OperationNotAllowed,
+        };
+        window.set_cursor_style(cursor, hitbox);
     }
 }
 

@@ -325,9 +325,10 @@ pub(crate) enum ResizeFallback {
     /// Every corner and edge moves the anchor point, and `x` or `y` can't
     /// compensate (a keyframe, or locked).
     Pinned,
-    /// Every corner and edge moves the anchor point along an axis whose size
-    /// is a keyframe (see `resizes`).
-    Animated,
+    /// Every corner and edge moves the anchor point, and something the
+    /// compensation uses is a keyframe (see `resizes`): the reason, one of
+    /// [`TURN_ANIMATED`], [`ANCHOR_ANIMATED`], [`SIZE_ANIMATED`].
+    Animated(&'static str),
     /// The layer turns in its own perspective: no flat box to resize.
     NoBox,
 }
@@ -340,11 +341,22 @@ impl ResizeFallback {
             Self::Locked(reason) => reason.clone(),
             Self::Uneditable => "Size can't be edited here".to_owned(),
             Self::Pinned => "x or y can't move".to_owned(),
-            Self::Animated => "Size is animated".to_owned(),
+            Self::Animated(reason) => (*reason).to_owned(),
             Self::NoBox => "No flat box to resize".to_owned(),
         }
     }
 }
+
+/// Why a compensation is refused: `x`/`y` written as literals beside a
+/// value that changes between keyframes would hold at that keyframe only,
+/// and the layer would drift on the others.
+pub(crate) const TURN_ANIMATED: &str = "Rotation or scale is animated";
+pub(crate) const SIZE_ANIMATED: &str = "Size is animated";
+pub(crate) const ANCHOR_ANIMATED: &str = "Anchor is animated";
+/// The box's center moves with its size and its anchor.
+pub(crate) const BOX_ANIMATED: &str = "Size or anchor is animated";
+/// The cross's tooltip when the anchor has no box to be a fraction of.
+pub(crate) const NO_ANCHOR_BOX: &str = "No box to anchor in";
 
 /// Why a drag of the layer `frame` measures can't use `choice`: the Rect
 /// tool needs editable size props (see `size_props`), the box they describe
@@ -371,12 +383,17 @@ pub(crate) fn resize_fallback(
         let resize = Resize {
             props,
             compensable: compensable(targets),
+            animated: resize_animated(targets),
         };
         return (!resizes_any(frame, &resize)).then(|| {
-            if resize.compensable && size_animated(&resize) {
-                ResizeFallback::Animated
-            } else {
-                ResizeFallback::Pinned
+            let animated = [
+                (turns_animated(targets), TURN_ANIMATED),
+                (anchors_animated(targets), ANCHOR_ANIMATED),
+                (size_animated(&resize), SIZE_ANIMATED),
+            ];
+            match animated.into_iter().find(|(animated, _)| *animated) {
+                Some((_, reason)) if resize.compensable => ResizeFallback::Animated(reason),
+                _ => ResizeFallback::Pinned,
             }
         });
     }
@@ -413,7 +430,25 @@ pub(crate) fn resize_used(
     Some(Resize {
         props: size_props(targets)?,
         compensable: compensable(targets),
+        animated: resize_animated(targets),
     })
+}
+
+/// Whether a resize that moves the anchor point would compensate with a
+/// value that changes between keyframes: the compensation turns and scales
+/// with `rotation` and the scales, and is measured from the anchor.
+fn resize_animated(targets: &ElementTargets) -> bool {
+    turns_animated(targets) || anchors_animated(targets)
+}
+
+/// Whether `anchorX` or `anchorY` is a keyframe.
+fn anchors_animated(targets: &ElementTargets) -> bool {
+    anchor_keys().iter().any(|key| keyframed(targets.target(key)))
+}
+
+/// Whether `target` is a keyframe (directly or through a pass-through).
+fn keyframed(target: Option<&EditTarget>) -> bool {
+    matches!(target.map(inner_target), Some(EditTarget::Keyframe { .. }))
 }
 
 /// Whether `x` and `y` can absorb a compensation: `Literal` or `Missing`
@@ -446,12 +481,7 @@ fn turns_animated(targets: &ElementTargets) -> bool {
         TransformProp::ScaleY,
     ]
     .into_iter()
-    .any(|prop| {
-        matches!(
-            targets.transform(prop).map(inner_target),
-            Some(EditTarget::Keyframe { .. })
-        )
-    })
+    .any(|prop| keyframed(targets.transform(prop)))
 }
 
 /// Why a drag with Center chosen turns about the pivot instead.
@@ -462,24 +492,28 @@ pub(crate) enum PivotFallback {
     /// `rotation` or a scale is a keyframe: literal `x`/`y` written beside
     /// it would keep the center at this keyframe only.
     Animated,
+    /// A size prop or an anchor is a keyframe: the center, a point of the
+    /// box, is another one on the other keyframes.
+    AnimatedBox,
     /// The layer turns in its own perspective: no flat box to center on.
     NoFlatBox,
 }
 
 impl PivotFallback {
-    /// The toggle's tooltip for it.
+    /// The toggle's tooltip for it, and the note beside the handles.
     pub(crate) fn reason(self) -> &'static str {
         match self {
-            Self::NotCompensable => "x or y is animated or locked",
-            Self::Animated => "Rotation or scale is animated",
+            Self::NotCompensable => "x or y can't be edited",
+            Self::Animated => TURN_ANIMATED,
+            Self::AnimatedBox => BOX_ANIMATED,
             Self::NoFlatBox => "No flat box to center on",
         }
     }
 }
 
 /// Why a drag of the layer `frame` measures can't use `choice`: Center needs
-/// `x`/`y` that can compensate, a rotation and scale that hold for every
-/// frame, and a known box. `None` when it can.
+/// `x`/`y` that can compensate, a rotation, scale, size and anchor that hold
+/// for every frame, and a known box. `None` when it can.
 pub(crate) fn pivot_fallback(
     choice: PivotMode,
     targets: &ElementTargets,
@@ -489,6 +523,9 @@ pub(crate) fn pivot_fallback(
         PivotMode::Pivot => None,
         PivotMode::Center if !compensable(targets) => Some(PivotFallback::NotCompensable),
         PivotMode::Center if turns_animated(targets) => Some(PivotFallback::Animated),
+        PivotMode::Center if sizes_animated(targets) || anchors_animated(targets) => {
+            Some(PivotFallback::AnimatedBox)
+        }
         PivotMode::Center if local_box(frame).is_none() => Some(PivotFallback::NoFlatBox),
         PivotMode::Center => None,
     }
@@ -509,68 +546,94 @@ pub(crate) fn pivot_used(
 
 /// The props a canvas drag of the layer `frame` measures may change: its
 /// editable transform props, in row order, then `anchorX`/`anchorY` when
-/// both hold one value for every frame (not keyframes), `x`/`y` can
-/// compensate, no rotation or scale is a keyframe (the compensation turns
-/// and scales with them), and the frame has a box the anchor refers to
-/// (`with_anchor_box`; none for a `<Group>`).
+/// nothing keeps the anchor (see `anchor_blocker`).
 pub(crate) fn drag_props(targets: &ElementTargets, frame: &LayerFrame) -> Vec<PropKey> {
     let mut props: Vec<PropKey> = TransformProp::ALL
         .into_iter()
         .filter(|prop| targets.transform(*prop).is_some_and(editable))
         .map(TransformProp::key)
         .collect();
-    let anchors = anchor_keys();
-    if anchors.iter().all(|key| settable(targets.target(key)))
-        && compensable(targets)
-        && !turns_animated(targets)
-        && !box_animated(targets)
-        && anchor_box(frame).is_some()
-    {
-        props.extend(anchors);
+    if anchor_blocker(targets, frame).is_none() {
+        props.extend(anchor_keys());
     }
     props
 }
 
 /// Whether a size prop of the element (its table's `size`) is a keyframe:
-/// the box the anchor is a fraction of is another on the other keyframes,
-/// so `x`/`y` compensating an anchor drag would hold at this one only.
-fn box_animated(targets: &ElementTargets) -> bool {
+/// its box is another on the other keyframes.
+fn sizes_animated(targets: &ElementTargets) -> bool {
     let size = targets.table.as_ref().and_then(|table| table.size.as_ref());
     size.into_iter()
         .flat_map(|size| [&size.width, &size.height, &size.radius])
         .flatten()
-        .any(|name| {
-            matches!(
-                targets
-                    .target(&PropKey::Prop(name.clone()))
-                    .map(inner_target),
-                Some(EditTarget::Keyframe { .. })
-            )
-        })
+        .any(|name| keyframed(targets.target(&PropKey::Prop(name.clone()))))
+}
+
+/// Why `prop` (`x`, `y`, an anchor) can't take one value for every frame:
+/// its row's lock reason ("X: Comes from DX, which can't be traced"), that
+/// it is a keyframe, or that it has no row. `None` when it can.
+fn unsettable(targets: &ElementTargets, key: &PropKey, animated: &str) -> Option<String> {
+    let target = targets.target(key);
+    if settable(target) {
+        return None;
+    }
+    Some(match target.map(inner_target) {
+        Some(EditTarget::Locked(reason)) => format!("{}: {}", key.label(), reason_text(reason)),
+        Some(EditTarget::Keyframe { .. }) => animated.to_owned(),
+        _ => format!("{} can't be edited", key.label()),
+    })
+}
+
+/// Why an Alt-drag of the cross can't move the layer's anchor, the first of:
+/// an anchor that can't take one value for every frame (locked, as
+/// `anchorY="baseline"` on a `Text`, or a keyframe); `x` or `y` that can't
+/// compensate, with its own reason; a keyframed `rotation` or scale (the
+/// compensation turns and scales with them) or size (it is the anchor's
+/// change times the box); no box the anchor refers to (`with_anchor_box`;
+/// none for a `<Group>`, a projective layer, or a shape whose size the
+/// runtime didn't report). `None` when the drag is offered.
+fn anchor_blocker(targets: &ElementTargets, frame: &LayerFrame) -> Option<String> {
+    let anchors = anchor_keys()
+        .into_iter()
+        .find_map(|key| unsettable(targets, &key, ANCHOR_ANIMATED));
+    let position = [TransformProp::X, TransformProp::Y]
+        .into_iter()
+        .find_map(|prop| {
+            let key = prop.key();
+            unsettable(targets, &key, &format!("{} is animated", key.label()))
+        });
+    anchors
+        .or(position)
+        .or_else(|| turns_animated(targets).then(|| TURN_ANIMATED.to_owned()))
+        .or_else(|| sizes_animated(targets).then(|| SIZE_ANIMATED.to_owned()))
+        .or_else(|| anchor_box(frame).is_none().then(|| NO_ANCHOR_BOX.to_owned()))
 }
 
 pub(crate) const GROUP_ANCHOR: &str = "A group's anchor has no effect";
 
-/// The cross's tooltip when the element's box is animated (see
-/// `box_animated`).
-pub(crate) const BOX_ANIMATED: &str = "Size is animated";
-
-/// Why the pivot cross of the element `primitive` names can't move its
-/// anchor: an anchor row is locked (`anchorY="baseline"` on a `Text`), with
-/// the row and its reason; the element is a `<Group>`, whose anchor the
-/// renderer ignores; or its size is a keyframe (see `box_animated`).
-pub(crate) fn anchor_reason(targets: &ElementTargets, primitive: &str) -> Option<String> {
+/// Why the pivot cross of the element `primitive` names can't be
+/// Alt-dragged (see `anchor_blocker`), its tooltip; a `<Group>`'s anchor has
+/// no effect at all (the renderer places its children by its position
+/// alone). `None` when it can, and for an element without anchor rows
+/// (a `<Path>`), which has no anchor to move.
+pub(crate) fn anchor_reason(
+    targets: &ElementTargets,
+    frame: &LayerFrame,
+    primitive: &str,
+) -> Option<String> {
     let anchors = anchor_keys();
+    if !anchors.iter().any(|key| targets.target(key).is_some()) {
+        return None;
+    }
     let locked = anchors.iter().find_map(|key| {
         let EditTarget::Locked(reason) = inner_target(targets.target(key)?) else {
             return None;
         };
         Some(format!("{}: {}", key.label(), reason_text(reason)))
     });
-    let has_rows = anchors.iter().any(|key| targets.target(key).is_some());
     locked
-        .or_else(|| (primitive == "Group" && has_rows).then(|| GROUP_ANCHOR.to_owned()))
-        .or_else(|| (has_rows && box_animated(targets)).then(|| BOX_ANIMATED.to_owned()))
+        .or_else(|| (primitive == "Group").then(|| GROUP_ANCHOR.to_owned()))
+        .or_else(|| anchor_blocker(targets, frame))
 }
 
 /// The name of the element `report` found (its innermost entry), which
@@ -684,10 +747,10 @@ impl EditorView {
     }
 
     /// Why the selected layer's pivot cross can't move its anchor (see
-    /// `anchor_reason`).
-    pub(crate) fn anchor_lock_reason(&self) -> Option<String> {
+    /// `anchor_reason`), for the layer `frame` measures (see `drag_state`).
+    pub(crate) fn anchor_lock_reason(&self, frame: &LayerFrame) -> Option<String> {
         let (targets, report) = self.element_targets()?;
-        anchor_reason(targets, primitive_of(report))
+        anchor_reason(targets, frame, primitive_of(report))
     }
 
     /// The prop overrides the preview evaluates the scene with while a drag
@@ -1365,6 +1428,141 @@ mod tests {
         assert!(!has_anchor(&rows(literal(0.0), keyframe(0.0)), &frame));
     }
 
+    /// A `Rect` with `x`, `y`, `rotation`, `anchorX`, `anchorY`, `width`,
+    /// `height`, each literal unless `animated` names it as a keyframe.
+    fn rect_rows(animated: &str) -> ElementTargets {
+        let row = |name: &'static str, value: f64| {
+            let target = if name == animated {
+                keyframe(value)
+            } else {
+                literal(value)
+            };
+            (name, target)
+        };
+        sized(
+            vec![
+                row("x", 40.0),
+                row("y", 20.0),
+                row("rotation", 0.0),
+                row("anchorX", 0.0),
+                row("anchorY", 0.0),
+                row("width", 100.0),
+                row("height", 50.0),
+            ],
+            [Some("width"), Some("height"), None],
+            &[],
+        )
+    }
+
+    fn shown_with(targets: &ElementTargets, frame: &LayerFrame) -> Vec<Handle> {
+        let resize = resize_used(ResizeTool::Rect, targets, frame).expect("the Rect tool");
+        let mut editable = drag_props(targets, frame);
+        editable.extend(resize.keys());
+        shown_handles(frame, &editable, 20.0, PivotMode::Pivot, Some(&resize))
+            .into_iter()
+            .map(|(handle, _)| handle)
+            .collect()
+    }
+
+    #[test]
+    fn a_resize_that_moves_the_anchor_needs_a_still_turn_and_anchor() {
+        // Anchored at the top-left: the handles that keep the top-left
+        // corner need no x/y and stay; the others would combine literal
+        // x/y with a value that changes between keyframes.
+        let frame = rect_frame();
+        let still = [
+            Handle::Corner(2),
+            Handle::Edge(1),
+            Handle::Edge(2),
+            Handle::Rotate,
+        ];
+        assert_eq!(shown_with(&rect_rows("rotation"), &frame), still);
+        assert_eq!(shown_with(&rect_rows("anchorX"), &frame), still);
+        assert_eq!(shown_with(&rect_rows(""), &frame).len(), 9);
+        // Anchored at the middle, no handle is left: Scale, with the reason.
+        let mut centered = rect_frame();
+        centered.transform.anchor = at(0.5, 0.5);
+        for (animated, reason) in [
+            ("rotation", TURN_ANIMATED),
+            ("anchorX", ANCHOR_ANIMATED),
+        ] {
+            let fallback = resize_fallback(ResizeTool::Rect, &rect_rows(animated), &centered);
+            assert_eq!(fallback, Some(ResizeFallback::Animated(reason)));
+            assert_eq!(fallback.unwrap().reason(), reason);
+        }
+        // A keyframed width hides only the handles that move the anchor
+        // along x: the top and bottom edges still resize the height.
+        assert_eq!(
+            shown_with(&rect_rows("width"), &centered),
+            [Handle::Edge(0), Handle::Edge(2), Handle::Rotate]
+        );
+    }
+
+    #[test]
+    fn center_needs_a_still_box() {
+        // The center is a point of the box, which a keyframed size or
+        // anchor moves between keyframes.
+        let frame = rect_frame();
+        for animated in ["width", "anchorX"] {
+            let fallback = pivot_fallback(PivotMode::Center, &rect_rows(animated), &frame);
+            assert_eq!(fallback, Some(PivotFallback::AnimatedBox));
+            assert_eq!(fallback.unwrap().reason(), BOX_ANIMATED);
+            assert_eq!(BOX_ANIMATED, "Size or anchor is animated");
+        }
+        assert_eq!(pivot_fallback(PivotMode::Center, &rect_rows(""), &frame), None);
+        assert_eq!(
+            PivotFallback::NotCompensable.reason(),
+            "x or y can't be edited"
+        );
+        assert_eq!(PivotFallback::Animated.reason(), TURN_ANIMATED);
+    }
+
+    #[test]
+    fn the_cross_says_why_it_stays() {
+        let frame = rect_frame();
+        let reason = |targets: &ElementTargets, frame: &LayerFrame| {
+            let reason = anchor_reason(targets, frame, "Rect");
+            // A reason exactly when the cross can't be Alt-dragged.
+            assert_eq!(reason.is_none(), has_anchor(targets, frame), "{reason:?}");
+            reason
+        };
+        assert_eq!(reason(&rect_rows(""), &frame), None);
+        // `x` an imported constant: the row's own reason, named.
+        let mut traced = rect_rows("");
+        traced.targets[0].1.target = EditTarget::Locked(LockReason::UnresolvedIdentifier {
+            name: "DX".to_owned(),
+        });
+        assert_eq!(
+            reason(&traced, &frame).as_deref(),
+            Some("X: Comes from DX, which can't be traced")
+        );
+        assert_eq!(
+            reason(&rect_rows("y"), &frame).as_deref(),
+            Some("Y is animated")
+        );
+        assert_eq!(
+            reason(&rect_rows("rotation"), &frame).as_deref(),
+            Some(TURN_ANIMATED)
+        );
+        assert_eq!(
+            reason(&rect_rows("anchorX"), &frame).as_deref(),
+            Some(ANCHOR_ANIMATED)
+        );
+        assert_eq!(
+            reason(&rect_rows("width"), &frame).as_deref(),
+            Some(SIZE_ANIMATED)
+        );
+        let mut tilted = frame.clone();
+        tilted.transform.rotation_y = 30.0;
+        tilted.transform.perspective = Some(800.0);
+        assert_eq!(
+            reason(&rect_rows(""), &tilted).as_deref(),
+            Some(NO_ANCHOR_BOX)
+        );
+        // Without anchor rows (a `<Path>`) there is no cross to explain.
+        assert_eq!(anchor_reason(&with_x(literal(40.0)), &frame, "Path"), None);
+    }
+
     #[test]
     fn an_anchor_whose_box_is_animated_stays() {
         // `x`/`y` would move by the anchor's change times the box's width,
@@ -1385,11 +1583,11 @@ mod tests {
         };
         let frame = rect_frame();
         assert!(has_anchor(&rect(literal(100.0)), &frame));
-        assert_eq!(anchor_reason(&rect(literal(100.0)), "Rect"), None);
+        assert_eq!(anchor_reason(&rect(literal(100.0)), &frame, "Rect"), None);
         let animated = rect(keyframe(100.0));
         assert!(!has_anchor(&animated, &frame));
         assert_eq!(
-            anchor_reason(&animated, "Rect").as_deref(),
+            anchor_reason(&animated, &frame, "Rect").as_deref(),
             Some("Size is animated")
         );
     }
@@ -1431,7 +1629,7 @@ mod tests {
             &[],
         );
         let fallback = resize_fallback(ResizeTool::Rect, &circle, &centered());
-        assert_eq!(fallback, Some(ResizeFallback::Animated));
+        assert_eq!(fallback, Some(ResizeFallback::Animated(SIZE_ANIMATED)));
         assert_eq!(fallback.unwrap().reason(), "Size is animated");
     }
 
@@ -1506,6 +1704,7 @@ mod tests {
                 height: size_field("height", None),
             },
             compensable: true,
+            animated: false,
         };
         let mut editable = vec![TransformProp::X.key(), TransformProp::Y.key()];
         editable.extend(resize.keys());
@@ -1756,13 +1955,13 @@ mod tests {
         let group = with_anchor_box(rect_frame(), "Group", &received);
         assert!(!has_anchor(&anchors, &group));
         assert_eq!(
-            anchor_reason(&anchors, "Group").as_deref(),
+            anchor_reason(&anchors, &group, "Group").as_deref(),
             Some(GROUP_ANCHOR)
         );
         // Any other element anchors in its box.
         let rect = with_anchor_box(rect_frame(), "Rect", &received);
         assert!(has_anchor(&anchors, &rect));
-        assert_eq!(anchor_reason(&anchors, "Rect"), None);
+        assert_eq!(anchor_reason(&anchors, &rect, "Rect"), None);
     }
 
     #[test]
@@ -1776,11 +1975,11 @@ mod tests {
         );
         assert!(!has_anchor(&baseline, &frame));
         assert_eq!(
-            anchor_reason(&baseline, "Text").as_deref(),
+            anchor_reason(&baseline, &frame, "Text").as_deref(),
             Some("Anchor Y: Written as an expression: \"baseline\"")
         );
         assert_eq!(
-            anchor_reason(&anchors_with(literal(40.0), literal(0.0)), "Text"),
+            anchor_reason(&anchors_with(literal(40.0), literal(0.0)), &frame, "Text"),
             None
         );
     }
