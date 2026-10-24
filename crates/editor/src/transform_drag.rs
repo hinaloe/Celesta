@@ -491,7 +491,9 @@ fn resize_animated(targets: &ElementTargets) -> bool {
 
 /// Whether `anchorX` or `anchorY` is a keyframe.
 fn anchors_animated(targets: &ElementTargets) -> bool {
-    anchor_keys().iter().any(|key| keyframed(targets.target(key)))
+    anchor_keys()
+        .iter()
+        .any(|key| keyframed(targets.target(key)))
 }
 
 /// Whether `target` is a keyframe (directly or through a pass-through).
@@ -654,7 +656,11 @@ fn anchor_blocker(targets: &ElementTargets, frame: &LayerFrame) -> Option<String
         .or(position)
         .or_else(|| turns_animated(targets).then(|| TURN_ANIMATED.to_owned()))
         .or_else(|| sizes_animated(targets).then(|| SIZE_ANIMATED.to_owned()))
-        .or_else(|| anchor_box(frame).is_none().then(|| NO_ANCHOR_BOX.to_owned()))
+        .or_else(|| {
+            anchor_box(frame)
+                .is_none()
+                .then(|| NO_ANCHOR_BOX.to_owned())
+        })
 }
 
 pub(crate) const GROUP_ANCHOR: &str = "A group's anchor has no effect";
@@ -1556,10 +1562,7 @@ mod tests {
         // Anchored at the middle, no handle is left: Scale, with the reason.
         let mut centered = rect_frame();
         centered.transform.anchor = at(0.5, 0.5);
-        for (animated, reason) in [
-            ("rotation", TURN_ANIMATED),
-            ("anchorX", ANCHOR_ANIMATED),
-        ] {
+        for (animated, reason) in [("rotation", TURN_ANIMATED), ("anchorX", ANCHOR_ANIMATED)] {
             let fallback = resize_fallback(ResizeTool::Rect, &rect_rows(animated), &centered);
             assert_eq!(fallback, Some(ResizeFallback::Animated(reason)));
             assert_eq!(fallback.unwrap().reason(), reason);
@@ -1583,7 +1586,10 @@ mod tests {
             assert_eq!(fallback.unwrap().reason(), BOX_ANIMATED);
             assert_eq!(BOX_ANIMATED, "Size or anchor is animated");
         }
-        assert_eq!(pivot_fallback(PivotMode::Center, &rect_rows(""), &frame), None);
+        assert_eq!(
+            pivot_fallback(PivotMode::Center, &rect_rows(""), &frame),
+            None
+        );
         assert_eq!(
             PivotFallback::NotCompensable.reason(),
             "x or y can't be edited"

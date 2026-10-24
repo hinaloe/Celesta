@@ -178,10 +178,9 @@ impl EditorView {
                 pivot_cross(frame),
                 CrossDrag::of(anchor_handle(frame, editable).is_some(), &cross_reason),
             )),
-            DragState::Locked(frame, _) => Some((
-                pivot_cross(frame),
-                CrossDrag::of(false, &cross_reason),
-            )),
+            DragState::Locked(frame, _) => {
+                Some((pivot_cross(frame), CrossDrag::of(false, &cross_reason)))
+            }
             _ => None,
         };
         let notice = match drag_state {
@@ -783,7 +782,10 @@ impl EditorView {
                 width: PIVOT_TOGGLE_WIDTH,
                 segments: [
                     ("Center", "Rotate and scale about the layer's center"),
-                    ("Pivot", "Rotate and scale about the pivot (anchor + origin)"),
+                    (
+                        "Pivot",
+                        "Rotate and scale about the pivot (anchor + origin)",
+                    ),
                 ],
                 chosen: chosen.unwrap_or_default(),
                 note: self.pivot_note().map(str::to_owned),

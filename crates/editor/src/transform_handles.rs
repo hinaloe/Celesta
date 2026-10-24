@@ -640,9 +640,8 @@ fn resizes(frame: &LayerFrame, handle: Handle, editable: &[PropKey], resize: &Re
     let position = [TransformProp::X.key(), TransformProp::Y.key()];
     let (moves_x, moves_y) = moved_axes(frame, handle, resize);
     let (along_x, along_y) = resize.axis_fields();
-    let animated = resize.animated
-        || (moves_x && along_x.keyframed)
-        || (moves_y && along_y.keyframed);
+    let animated =
+        resize.animated || (moves_x && along_x.keyframed) || (moves_y && along_y.keyframed);
     resize.axes(handle).is_some()
         && anchor_box(frame).is_some()
         && resize.keys().iter().all(|key| editable.contains(key))
