@@ -8,9 +8,9 @@ use crate::element_edit::{
 };
 use crate::layer_select::{letterbox, to_scene};
 use crate::transform_handles::{
-    Handle, PivotMode, Resize, ResizeTool, SizeField, SizeProps, anchor_handle, anchor_keys,
-    drag_label, drag_values, marker, pressed_handle, preview_values, prop_values, resizes_any,
-    shown_handles, size_animated, turn,
+    Handle, Marker, PivotMode, Resize, ResizeTool, SizeField, SizeProps, anchor_handle,
+    anchor_keys, drag_label, drag_values, marker, pressed_handle, preview_values, prop_values,
+    resizes_any, shown_handles, size_animated, turn,
 };
 use crate::view::EditorView;
 use celesta_composition::Point;
@@ -671,21 +671,36 @@ pub(crate) fn drag_props_in(
 pub(crate) const CENTER_MARKER: &str =
     "Rotates about the center; switch to Pivot to move the anchor";
 
-/// The center cross's tooltip: [`CENTER_MARKER`], or, when the anchor
-/// couldn't move in Pivot mode either (`blocked`, see `anchor_reason`),
-/// that reason instead of the promise.
-pub(crate) fn center_marker_text(blocked: Option<String>) -> String {
-    blocked.map_or_else(
-        || CENTER_MARKER.to_owned(),
-        |reason| format!("Rotates about the center; the anchor can't move: {reason}"),
-    )
+/// The center cross's tooltip: [`CENTER_MARKER`]; when the anchor couldn't
+/// move in Pivot mode either (`blocked`, see `anchor_reason`), that reason
+/// instead of the promise; and only "Rotates about the center" for an
+/// element without anchor rows (`has_anchor` false: a `<Path>`), which has
+/// no anchor to move.
+pub(crate) fn center_marker_text(has_anchor: bool, blocked: Option<String>) -> String {
+    match (has_anchor, blocked) {
+        (false, _) => "Rotates about the center".to_owned(),
+        (true, None) => CENTER_MARKER.to_owned(),
+        (true, Some(reason)) => {
+            format!("Rotates about the center; the anchor can't move: {reason}")
+        }
+    }
+}
+
+/// Whether the element has anchor rows (`anchorX`/`anchorY`), so its cross
+/// can tell about its anchor; a `<Path>` has none.
+pub(crate) fn has_anchor_rows(targets: &ElementTargets) -> bool {
+    anchor_keys()
+        .iter()
+        .any(|key| targets.target(key).is_some())
 }
 
 /// Whether a press at `point` (scene pixels, within `reach` of the cross the
 /// canvas draws for `pivot`, see `marker`) with `alt` held is taken and
 /// starts nothing: Alt there means the anchor, and when no anchor drag is
-/// offered (Center's marker, or a blocked pivot cross), falling through to
-/// the body would move the layer under the not-allowed cursor.
+/// offered but the cross says why (Center's marker, always; a pivot cross
+/// with a `reason`, see `anchor_reason`), falling through to the body would
+/// move the layer under the not-allowed cursor. A pivot cross that shows
+/// nothing (an element without anchor rows) lets the press through.
 pub(crate) fn swallows_alt_press(
     frame: &LayerFrame,
     editable: &[PropKey],
@@ -693,9 +708,13 @@ pub(crate) fn swallows_alt_press(
     point: Point,
     reach: f64,
     alt: bool,
+    reason: bool,
 ) -> bool {
-    let at = marker(frame, pivot).at();
-    alt && (at.x - point.x).hypot(at.y - point.y) <= reach
+    let marked = marker(frame, pivot);
+    let at = marked.at();
+    let shows = matches!(marked, Marker::Center(_)) || reason;
+    alt && shows
+        && (at.x - point.x).hypot(at.y - point.y) <= reach
         && anchor_handle(frame, editable).is_none()
 }
 
@@ -766,7 +785,7 @@ pub(crate) fn anchor_reason(
     primitive: &str,
 ) -> Option<String> {
     let anchors = anchor_keys();
-    if !anchors.iter().any(|key| targets.target(key).is_some()) {
+    if !has_anchor_rows(targets) {
         return None;
     }
     let locked = anchors.iter().find_map(|key| {
@@ -887,6 +906,15 @@ impl EditorView {
         anchor_reason(targets, frame, primitive_of(report))
     }
 
+    /// The center cross's tooltip for the selected layer (see
+    /// `center_marker_text`).
+    pub(crate) fn center_cross_text(&self, frame: &LayerFrame) -> String {
+        let has_anchor = self
+            .element_targets()
+            .is_some_and(|(targets, _)| has_anchor_rows(targets));
+        center_marker_text(has_anchor, self.anchor_lock_reason(frame))
+    }
+
     /// The prop overrides the preview evaluates the scene with while a drag
     /// or a row's scrub runs (see `TransformDrag::overrides`,
     /// `Scrub::overrides`); the two never run together.
@@ -975,8 +1003,10 @@ impl EditorView {
             resize.as_ref(),
         );
         let reach = f64::from(HANDLE_REACH) / scale;
-        // Alt on a cross that moves nothing: take the press, start nothing.
-        if swallows_alt_press(&frame, &editable, pivot, start, reach, alt) {
+        // Alt on a cross that moves nothing and says why: take the press,
+        // start nothing.
+        let reason = self.anchor_lock_reason(&frame).is_some();
+        if swallows_alt_press(&frame, &editable, pivot, start, reach, alt, reason) {
             return true;
         }
         let handle = match pressed_handle(&frame, &shown, &editable, start, reach, alt) {
@@ -1552,38 +1582,47 @@ mod tests {
         // where Center puts the cross, is inside the outline, so a press
         // there would otherwise move the layer.
         let frame = rect_frame();
-        let anchors = anchors_with(literal(40.0), literal(0.0));
-        let swallows = |pivot, point, alt| {
-            let editable = drag_props_in(&anchors, &frame, pivot);
-            swallows_alt_press(&frame, &editable, pivot, point, 4.0, alt)
+        let swallows = |targets: &ElementTargets, pivot, point, alt| {
+            let editable = drag_props_in(targets, &frame, pivot);
+            let reason = anchor_reason(targets, &frame, "Rect").is_some();
+            swallows_alt_press(&frame, &editable, pivot, point, 4.0, alt, reason)
         };
+        let anchors = anchors_with(literal(40.0), literal(0.0));
         let middle = at(90.0, 45.0);
-        assert!(swallows(PivotMode::Center, middle, true));
+        assert!(swallows(&anchors, PivotMode::Center, middle, true));
         // Without Alt, or away from the cross, the press drags as usual.
-        assert!(!swallows(PivotMode::Center, middle, false));
-        assert!(!swallows(PivotMode::Center, at(60.0, 30.0), true));
+        assert!(!swallows(&anchors, PivotMode::Center, middle, false));
+        assert!(!swallows(&anchors, PivotMode::Center, at(60.0, 30.0), true));
         // In Pivot mode Alt on the cross drags the anchor: not swallowed.
-        assert!(!swallows(PivotMode::Pivot, at(40.0, 20.0), true));
-        // A pivot cross whose anchor can't move swallows Alt too.
+        assert!(!swallows(&anchors, PivotMode::Pivot, at(40.0, 20.0), true));
+        // A pivot cross whose anchor can't move, and says why, swallows Alt.
         let keyframed = anchors_with(keyframe(40.0), literal(0.0));
-        let editable = drag_props_in(&keyframed, &frame, PivotMode::Pivot);
-        assert!(swallows_alt_press(
-            &frame,
-            &editable,
+        assert!(swallows(&keyframed, PivotMode::Pivot, at(41.0, 21.0), true));
+        // An element without anchor rows (a `<Path>`): its pivot cross shows
+        // nothing, so the press goes through as before; its center marker
+        // still shows "Rotates about the center", so Alt there is taken.
+        let no_anchor = with_x(literal(40.0));
+        assert!(!swallows(
+            &no_anchor,
             PivotMode::Pivot,
-            at(41.0, 21.0),
-            4.0,
+            at(40.0, 20.0),
             true
         ));
+        assert!(swallows(&no_anchor, PivotMode::Center, middle, true));
     }
 
     #[test]
     fn the_center_cross_says_why_the_anchor_stays_in_pivot_mode_too() {
-        assert_eq!(center_marker_text(None), CENTER_MARKER);
+        assert_eq!(center_marker_text(true, None), CENTER_MARKER);
         assert_eq!(
-            center_marker_text(Some("X: Comes from DX, which can't be traced".to_owned())),
+            center_marker_text(
+                true,
+                Some("X: Comes from DX, which can't be traced".to_owned())
+            ),
             "Rotates about the center; the anchor can't move: X: Comes from DX, which can't be traced"
         );
+        // Without anchor rows there is no anchor to promise.
+        assert_eq!(center_marker_text(false, None), "Rotates about the center");
     }
 
     #[test]

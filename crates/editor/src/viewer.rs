@@ -30,8 +30,8 @@ use crate::problems::{ActiveProblem, Source, flow_line_breaks, summarize_warning
 use crate::problems_panel::{detail_block, show_in_problems_row};
 use crate::timecode::format_timecode;
 use crate::transform_drag::{
-    DragState, HANDLE_SIZE, NO_AFFINE_FRAME, ROTATE_STEM, TransformDrag, center_marker_text,
-    pivot_note_text, turns_about_pivot,
+    DragState, HANDLE_SIZE, NO_AFFINE_FRAME, ROTATE_STEM, TransformDrag, pivot_note_text,
+    turns_about_pivot,
 };
 use crate::transform_handles::{
     Handle, Marker, PivotMode, Resize, ResizeTool, anchor_handle, handle_quad, marker, pivot_cross,
@@ -85,9 +85,9 @@ struct Segment {
 
 /// A canvas-tool toggle: two fixed-width, square-cornered segments, the
 /// chosen one filled with the theme's primary color (its contrasting
-/// foreground on it), the other
-/// plain, and a warning icon (with `note` as its tooltip) in a reserved slot
-/// when the choice is not in effect on the selected layer.
+/// foreground on it), the other with no fill and muted text, and a warning
+/// icon (with `note` as its tooltip) in a reserved slot when the choice is
+/// not in effect on the selected layer.
 fn mode_toggle(
     note_id: &'static str,
     segments: [Segment; 2],
@@ -95,6 +95,7 @@ fn mode_toggle(
     cx: &App,
 ) -> impl IntoElement {
     let warning = cx.theme().warning;
+    let muted = cx.theme().muted_foreground;
     let slot = div()
         .id(note_id)
         .flex_none()
@@ -125,10 +126,11 @@ fn mode_toggle(
                 .w(px(SEGMENT_WIDTH))
                 .tooltip(segment.tooltip)
                 .on_click(segment.on_click);
+            // The other segment recedes: no fill, muted text.
             if segment.chosen {
                 button.primary()
             } else {
-                button.ghost()
+                button.ghost().text_color(muted)
             }
         }))
         .child(slot)
@@ -234,7 +236,7 @@ impl EditorView {
         // center marks a point only.
         let cross_reason = match (&drag_state, marked) {
             (DragState::Editable(frame, ..), Some(Marker::Center(_))) => {
-                Some(center_marker_text(self.anchor_lock_reason(frame)))
+                Some(self.center_cross_text(frame))
             }
             (DragState::Editable(frame, ..) | DragState::Locked(frame, _), _) => {
                 self.anchor_lock_reason(frame)
