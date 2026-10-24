@@ -772,6 +772,7 @@ impl EditorView {
             }
         }
         self.drain_property_commits(cx);
+        self.drain_held_rows(cx);
         cx.notify();
     }
 

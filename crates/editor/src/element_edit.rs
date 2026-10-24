@@ -1175,6 +1175,15 @@ impl ElementEdit {
             .map(|(_, value)| value)
     }
 
+    /// The newest resolution for `selected` failed and no write changed the
+    /// file since: a commit has nothing to wait for. Anything else (being
+    /// read, or an own write reloading) becomes current again.
+    pub(crate) fn failed(&self, selected: Option<&str>) -> bool {
+        self.resolved(selected).is_some_and(|(resolved, current)| {
+            current && !self.pending && resolved.outcome.is_err()
+        })
+    }
+
     /// Why a commit for `selected` has no targets to write to.
     pub(crate) fn unavailable(&self, selected: Option<&str>) -> String {
         match self.resolved(selected) {
@@ -1324,6 +1333,8 @@ impl EditorView {
                     .element_edit
                     .finish(request, selected.as_deref(), outcome)
                 {
+                    // Commits made while the targets were read go now.
+                    this.drain_held_rows(cx);
                     cx.notify();
                 }
             })

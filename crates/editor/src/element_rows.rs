@@ -19,7 +19,7 @@ use celesta_react_bridge::{
 use celesta_source_edit::{EditTarget, EditValue, default_for, format_number};
 use gpui_kit::{Context, MouseMoveEvent, PathPromptOptions, Subscription, Window};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 
 /// The control kind of a table field.
@@ -600,6 +600,47 @@ impl ElementRow {
     }
 }
 
+/// Row commits made while the targets could not be written to (an own
+/// write's reload, the source being read, another write running), for one
+/// layer. Each is written once the targets are current again, one at a
+/// time in the order made; a row committed again keeps its place with the
+/// newer value.
+#[derive(Debug, Default)]
+pub(crate) struct HeldCommits {
+    layer: Option<String>,
+    commits: VecDeque<(PropKey, Option<EditValue>)>,
+}
+
+impl HeldCommits {
+    /// Holds `value` for the row `key` of `layer`; commits held for another
+    /// layer are dropped.
+    pub(crate) fn push(&mut self, layer: &str, key: PropKey, value: Option<EditValue>) {
+        if self.layer.as_deref() != Some(layer) {
+            self.commits.clear();
+            self.layer = Some(layer.to_owned());
+        }
+        match self.commits.iter_mut().find(|(held, _)| *held == key) {
+            Some((_, held)) => *held = value,
+            None => self.commits.push_back((key, value)),
+        }
+    }
+
+    /// The oldest commit held for `selected`; those held for another layer
+    /// are dropped.
+    pub(crate) fn pop(&mut self, selected: Option<&str>) -> Option<(PropKey, Option<EditValue>)> {
+        if self.layer.as_deref() != selected {
+            self.commits.clear();
+            self.layer = None;
+            return None;
+        }
+        self.commits.pop_front()
+    }
+
+    pub(crate) fn contains(&self, key: &PropKey) -> bool {
+        self.commits.iter().any(|(held, _)| held == key)
+    }
+}
+
 /// The selected layer's row controls, built on first need (controls need a
 /// window) and kept while the rows' keys and kinds stay.
 #[derive(Default)]
@@ -608,6 +649,8 @@ pub(crate) struct ElementRows {
     /// The scrub of a row's value by its label, if one is running or being
     /// written. Never together with a canvas drag.
     pub(crate) scrub: Option<Scrub>,
+    /// Commits waiting for the targets to be current.
+    held: HeldCommits,
 }
 
 impl ElementRows {
@@ -631,7 +674,15 @@ fn show(
     window: &mut Window,
     cx: &mut Context<EditorView>,
 ) {
-    row.control.set_text(shown.0.clone(), window, cx);
+    // Text equal to what the field holds is left alone, so its caret stays
+    // (the field holds what was just typed and committed).
+    if row
+        .control
+        .text(cx)
+        .is_none_or(|text| text != shown.0.as_str())
+    {
+        row.control.set_text(shown.0.clone(), window, cx);
+    }
     row.control.set_placeholder(shown.1.clone(), window, cx);
     let value = if shown.0.is_empty() {
         &shown.1
@@ -719,6 +770,13 @@ impl EditorView {
             let Some(row) = rows.get_mut(&key) else {
                 continue;
             };
+            // Typed text stays until committed, but never under another
+            // layer, nor does a value written (or held) for another layer.
+            let same_layer = row.layer.as_deref() == Some(layer.as_str());
+            if !same_layer {
+                row.invalid = None;
+                row.pending = None;
+            }
             // A value being scrubbed, then the one being written.
             let scrubbed = scrub.and_then(|scrub| scrub.shown(&key));
             let shown = match (scrubbed, &row.pending) {
@@ -726,13 +784,8 @@ impl EditorView {
                 (None, Some(pending)) => written_text(&key, field.as_ref(), pending.as_ref()),
                 (None, None) => shown,
             };
-            // Typed text stays until committed, but never under another layer.
-            let same_layer = row.layer.as_deref() == Some(layer.as_str());
             if same_layer && (row.edited || row.shown.as_ref() == Some(&shown)) {
                 continue;
-            }
-            if !same_layer {
-                row.invalid = None;
             }
             show(row, &shown, window, cx);
             row.shown = Some(shown);
@@ -877,11 +930,25 @@ impl EditorView {
             row.invalid = None;
             row.pending = Some(value.clone());
         }
+        // While the targets are being read again (after an own write, say)
+        // or another write runs, the commit waits its turn; it fails at once
+        // only when the source can't be read.
+        if let Some(layer) = self.selected_layer.clone()
+            && self.row_commit_waits()
+        {
+            self.element_rows.held.push(&layer, key.clone(), value);
+            cx.notify();
+            return;
+        }
         let written = key.clone();
         self.commit_element(
             vec![(key.clone(), value)],
             move |this, result, cx| {
-                if let Some(row) = this.element_rows.rows.get_mut(&written) {
+                // A newer commit of the row waiting its turn keeps showing.
+                let held = this.element_rows.held.contains(&written);
+                if let Some(row) = this.element_rows.rows.get_mut(&written)
+                    && !held
+                {
                     row.pending = None;
                     if result.is_err() {
                         row.edited = false;
@@ -905,6 +972,30 @@ impl EditorView {
             cx,
         );
         cx.notify();
+    }
+
+    /// Whether a row commit made now waits its turn in [`HeldCommits`]:
+    /// another write runs, or the targets are not current but will be (the
+    /// source is being read, or an own write's reload is coming).
+    fn row_commit_waits(&self) -> bool {
+        if self.edit_history.is_busy() || self.property_panel.is_writing() {
+            return true;
+        }
+        self.element_targets().is_none()
+            && !self.element_edit.failed(self.selected_layer.as_deref())
+    }
+
+    /// Writes the held row commits in order once they need not wait: each
+    /// write that starts makes the next wait again (one history entry per
+    /// commit), and one that fails at once lets the next go.
+    pub(crate) fn drain_held_rows(&mut self, cx: &mut Context<Self>) {
+        while !self.row_commit_waits() {
+            let selected = self.selected_layer.clone();
+            let Some((key, value)) = self.element_rows.held.pop(selected.as_deref()) else {
+                break;
+            };
+            self.commit_element_row(&key, value, cx);
+        }
     }
 
     /// Whether a scrub is running with the button down (not one released

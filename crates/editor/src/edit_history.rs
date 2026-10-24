@@ -470,6 +470,7 @@ impl EditorView {
                 };
                 done(this, outcome, cx);
                 this.drain_property_commits(cx);
+                this.drain_held_rows(cx);
                 cx.notify();
             })
             .ok();
@@ -526,6 +527,7 @@ impl EditorView {
                     None => {}
                 }
                 this.drain_property_commits(cx);
+                this.drain_held_rows(cx);
                 cx.notify();
             })
             .ok();

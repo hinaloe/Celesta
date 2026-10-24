@@ -234,7 +234,10 @@ impl EditorView {
             | EditTarget::Missing { .. }
             | EditTarget::PassThrough { .. } => None,
         };
-        let locked = !(current && editable(target));
+        // Only a target that can't be written disables its control: while an
+        // own write's reload runs, the field keeps its focus and caret, and
+        // a commit made meanwhile waits for the reload.
+        let locked = !editable(target);
         let control = row.map(|row| {
             let hint = match (&row.kind, field) {
                 (ControlKind::Number, Some(PrimitivePropertyField::Number { min, max, .. })) => {

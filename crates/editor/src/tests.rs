@@ -12,8 +12,9 @@ use crate::element_edit::{
     reason_text, resolve_targets, table_default, type_component_props,
 };
 use crate::element_rows::{
-    Scrub, TypedText, cleared_path, control_kind, parse_row_value, removable, row_field, row_label,
-    row_text, scrub_takes_focus, scrub_value, set_at_text, typed_text, written_text,
+    HeldCommits, Scrub, TypedText, cleared_path, control_kind, parse_row_value, removable,
+    row_field, row_label, row_text, scrub_takes_focus, scrub_value, set_at_text, typed_text,
+    written_text,
 };
 use crate::export_worker::{
     ExportEvent, ExportRequest, ExportSource, ExportWorker, export_options,
@@ -4969,6 +4970,48 @@ fn a_style_property_row_is_removed_from_the_object() {
         commit_in(text, &targets, &report, &[(prop("fontSize"), None)]),
         Ok(text.replace("fontSize: 40, ", ""))
     );
+}
+
+#[test]
+fn held_commits_keep_the_latest_value_per_row_in_order() {
+    let number = |value: f64| Some(EditValue::Number(value));
+    let mut held = HeldCommits::default();
+    held.push("a", prop("x"), number(1.0));
+    held.push("a", prop("fill"), None);
+    held.push("a", prop("x"), number(3.0));
+    assert!(held.contains(&prop("x")));
+    assert_eq!(held.pop(Some("a")), Some((prop("x"), number(3.0))));
+    assert_eq!(held.pop(Some("a")), Some((prop("fill"), None)));
+    assert_eq!(held.pop(Some("a")), None);
+
+    // Commits made for a layer no longer selected are dropped.
+    held.push("a", prop("x"), number(1.0));
+    assert_eq!(held.pop(Some("b")), None);
+    assert_eq!(held.pop(Some("a")), None);
+    // A commit for another layer replaces them.
+    held.push("a", prop("x"), number(1.0));
+    held.push("b", prop("y"), number(2.0));
+    assert!(!held.contains(&prop("x")));
+    assert_eq!(held.pop(Some("b")), Some((prop("y"), number(2.0))));
+}
+
+#[test]
+fn a_commit_waits_unless_the_current_resolution_failed() {
+    let report = primitive_report(2, 3, x_only());
+    let mut state = ElementEdit::default();
+    // Still being read: the commit waits for it.
+    assert!(!state.failed(Some("a")));
+    let request = state.begin("a", &report, 0).unwrap();
+    assert!(state.finish(request, Some("a"), resolve_in(TRANSFORM_FIXTURE, &report)));
+    assert!(!state.failed(Some("a")));
+
+    let request = state.begin("a", &report, 1).unwrap();
+    assert!(state.finish(request, Some("a"), Err("Couldn't read".to_owned())));
+    assert!(state.failed(Some("a")));
+    assert!(!state.failed(Some("b")));
+    // An own write's reload may read it again.
+    state.invalidate();
+    assert!(!state.failed(Some("a")));
 }
 
 #[test]
