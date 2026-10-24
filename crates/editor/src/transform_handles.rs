@@ -11,7 +11,9 @@
 //! for the layers that deviate (an `<Instances>`, whose x, y and rotation are
 //! its particles').
 
-use crate::canvas_geometry::{anchor_box, apply, keep_fixed, layer_map, local_box, pivot};
+use crate::canvas_geometry::{
+    ANCHOR_PROPS, anchor_box, apply, keep_fixed, layer_map, local_box, pivot,
+};
 use crate::element_edit::{PropKey, TransformProp, received_number};
 use celesta_composition::{EvaluatedTransform, Point};
 use celesta_gpu_renderer::{LayerFrame, invert_affine};
@@ -234,7 +236,7 @@ pub(crate) enum Handle {
 
 /// The anchor props an anchor drag writes.
 pub(crate) fn anchor_keys() -> [PropKey; 2] {
-    ["anchorX", "anchorY"].map(|name| PropKey::Prop(name.to_owned()))
+    ANCHOR_PROPS.map(|name| PropKey::Prop(name.to_owned()))
 }
 
 /// Where the pivot cross of `frame` sits, in scene pixels.
@@ -642,6 +644,26 @@ fn resizes(frame: &LayerFrame, handle: Handle, editable: &[PropKey], resize: &Re
                 && position.iter().all(|key| editable.contains(key))))
 }
 
+/// Whether any corner or edge of the box can resize the layer with the Rect
+/// tool (see `resizes`), with every size prop editable and `x`/`y` when they
+/// can compensate.
+pub(crate) fn resizes_any(frame: &LayerFrame, resize: &Resize) -> bool {
+    let mut editable = resize.keys();
+    if resize.compensable {
+        editable.extend([TransformProp::X.key(), TransformProp::Y.key()]);
+    }
+    (0..4u8)
+        .flat_map(|i| [Handle::Corner(i), Handle::Edge(i)])
+        .any(|handle| resizes(frame, handle, &editable, resize))
+}
+
+/// Whether a size prop of `resize` is a keyframe (which hides the handles
+/// that move the anchor point along its axis; see `resizes`).
+pub(crate) fn size_animated(resize: &Resize) -> bool {
+    let (along_x, along_y) = resize.axis_fields();
+    along_x.keyframed || along_y.keyframed
+}
+
 /// The values a Rect-tool drag of `handle` from `start` to `now` (parent
 /// space) makes: the dragged edges follow the pointer in the layer's own
 /// pixels, measured on the box the size props describe (`anchor_box`), and
@@ -807,9 +829,10 @@ fn start_value(frame: &LayerFrame, key: &PropKey, resize: Option<&Resize>) -> Op
     if let Some(start) = resize.and_then(|resize| resize.start(frame, key)) {
         return Some(start);
     }
+    let [anchor_x, anchor_y] = ANCHOR_PROPS;
     match prop_name(key)? {
-        "anchorX" => Some(transform.anchor.x),
-        "anchorY" => Some(transform.anchor.y),
+        name if name == anchor_x => Some(transform.anchor.x),
+        name if name == anchor_y => Some(transform.anchor.y),
         _ => None,
     }
 }
@@ -1008,7 +1031,6 @@ pub(crate) fn shown_handles(
     pivot: PivotMode,
     resize: Option<&Resize>,
 ) -> Vec<(Handle, Point)> {
-    let about = turning_point(frame, pivot);
     let can = |prop: TransformProp| editable.contains(&prop.key());
     let uniform = can(TransformProp::Scale);
     let scales_x = uniform || can(TransformProp::ScaleX);
@@ -1024,6 +1046,7 @@ pub(crate) fn shown_handles(
             })
             .collect();
     }
+    let about = turning_point(frame, pivot);
     handles(frame, uniform, stem)
         .into_iter()
         .filter(|&(handle, at)| {

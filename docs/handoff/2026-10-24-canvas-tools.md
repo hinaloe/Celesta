@@ -42,8 +42,9 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   layout box in scene pixels, in the order of `corners`
   (`PreparedLayer::anchor_box_corners`, from the texture's
   `anchor_origin`/`anchor_span`, mapped through the same `drawn_transform`
-  as the quad; `quad_corners` now delegates to `quad_corners_between`).
-  `LayerFrame.anchor_box` is the box the renderer anchors the layer in: the
+  as the quad; `quad_corners` now delegates to `quad_corners_between`). An
+  anchor box that doesn't map to the scene through its planes is dropped,
+  and the region stays without it. `LayerFrame.anchor_box` is the box the renderer anchors the layer in: the
   region's `anchor_box`, else its quad; `None` for a group, a path, and
   instances.
 - Drag props keyed by prop name (`crates/editor/src/transform_handles.rs`,
@@ -89,14 +90,20 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   `Resize { props, compensable }`, the Rect tool resolved for a layer.
   `size_props(targets)` reads `table.size` and the fields' bounds, and needs
   every named prop `editable`; `resize_fallback` / `resize_used` /
-  `ResizeFallback { NoSize, Locked, Uneditable, NoBox }` mirror the pivot
-  pair; `shown_resize_tool` gives the toggle's state. `drag_values` gains
+  `ResizeFallback { NoSize, Locked, Uneditable, Pinned, Animated, NoBox }`
+  mirror the pivot pair (`NoSize` also when a flat shape has no anchor box,
+  its size unreported; `Pinned`/`Animated` when no corner or edge passes
+  `resizes`, see `resizes_any`, tooltips "x or y can't move" / "Size is
+  animated"); `shown_resize_tool` gives the toggle's state. `drag_values` gains
   `resize: Option<&Resize>` (`None` is the Scale tool) and sends corners
   and edges to `resize_values`; `shown_handles` and `handle_props` follow
   `resizes` / `resize_moves`. `handle_quad` puts the Rect tool's handles and
-  stem on the anchor box; `TransformDrag::with_resize` attaches the tool,
-  and `TransformDrag::received_now` rebuilds a running drag's anchor box
-  from the values it draws, so the handles follow the box they resize.
+  stem on the anchor box, which the viewer then strokes as the selection
+  outline; `TransformDrag::with_resize` attaches the tool and
+  `with_primitive` the element's name, and `TransformDrag::anchored`
+  rebuilds the anchor box of a running (or released, being written) drag
+  from the values it draws (`received_now`), so the handles follow the box
+  they resize and don't jump to the outline before the reload.
   `EditorView.resize_tool` is session state.
 - Toolbar (`viewer.rs`): `pivot_toggle` and `resize_toggle`, two small
   outline `ButtonGroup`s before "Select layers", shown only in interactive
@@ -230,8 +237,10 @@ These differ from, or settle what the spec left open:
 - Test coverage: the one-undo resize test runs at rotation 0, so it does
   not cover a compensated `y`; the skew compensation test is formula-level.
 - Code nits: the box fold does not skip NaN; the test prop lists are
-  `LazyLock` statics; `"anchorX"`/`"anchorY"` are literals with no shared
-  constant.
+  `LazyLock` statics.
+- The renderer's fallback for an anchor box that doesn't map (dropped, the
+  region kept) has no test: no cheap scene puts only the anchor box behind
+  a 3D plane's camera.
 - `with_anchor_box` picks the layout by the innermost element's name
   (`primitive_of`), not by a registration.
 - `drag_values` takes eight parameters (`#[allow(clippy::too_many_arguments)]`);
@@ -296,6 +305,10 @@ example changed):
   editable)", muted, with Pivot selected; the left and top edges (and the
   corners touching them) are hidden while the right and bottom ones resize;
   the cross is not Alt-draggable. Select a plain layer: Center shows again.
+- Select a stroked `Text` with the Rect tool: the selection outline is drawn
+  on its layout box, through the handles; with Scale it is the padded quad
+  again. A `Rect` anchored at its middle with keyframed `x`: "Scale" is
+  selected and muted, tooltip "x or y can't move".
 - Select a layer with keyframed `rotation`, in Center mode: the toggle reads
   "Pivot", muted, with the tooltip "Rotation or scale is animated", and the
   rotation handle turns it about the pivot (the cross), writing `rotation`

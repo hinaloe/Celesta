@@ -1344,7 +1344,10 @@ impl GpuRenderer {
                     layer_id: leaf.layer_id,
                     corners,
                     hole: to_scene(hole)?,
-                    anchor_box: to_scene(anchor_box)?,
+                    // A box that doesn't map leaves the layer hittable,
+                    // without an anchor box.
+                    anchor_box: anchor_box
+                        .and_then(|quad| corners_to_scene(planes, leaf.plane, quad)),
                     clips: hit_clips(clips, planes, leaf.plane, leaf.clip)?,
                 };
                 (region.area() > 0.0).then_some(region)

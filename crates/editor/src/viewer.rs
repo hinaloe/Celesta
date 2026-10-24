@@ -33,8 +33,8 @@ use crate::transform_drag::{
     DragState, HANDLE_SIZE, NO_AFFINE_FRAME, PivotFallback, ROTATE_STEM,
 };
 use crate::transform_handles::{
-    Handle, PivotMode, Resize, ResizeTool, anchor_handle, pivot_cross, rotate_stem,
-    shown_handles,
+    Handle, PivotMode, Resize, ResizeTool, anchor_handle, handle_quad, pivot_cross,
+    rotate_stem, shown_handles,
 };
 use crate::view::EditorView;
 use celesta_gpu_renderer::LayerFrame;
@@ -61,11 +61,21 @@ impl EditorView {
         let preview_problem = self.problems.active(Source::Preview).cloned();
         let has_warnings = !self.problems.preview_warnings().is_empty();
         let show_safe_areas = self.show_safe_areas;
+        let drag_state = self.drag_state();
         // Every region of the selected layer in the shown frame; none when
-        // the frame does not draw it.
+        // the frame does not draw it. The Rect tool's handles sit on the box
+        // they resize, which is then the outline drawn (a stroked text's
+        // layout box, a rotated dashed rect's own corners).
+        let resized_box = match &drag_state {
+            DragState::Editable(frame, _, _, resize @ Some(_)) if frame.anchor_box.is_some() => {
+                Some(handle_quad(frame, resize.as_ref()))
+            }
+            _ => None,
+        };
         let selected_quads: Vec<[Point; 4]> = self
             .selected_layer
             .as_ref()
+            .filter(|_| resized_box.is_none())
             .map(|id| {
                 let regions = self
                     .hit_regions
@@ -80,9 +90,9 @@ impl EditorView {
                 };
                 outline_quads(regions, frame)
             })
+            .or_else(|| resized_box.map(|quad| vec![quad]))
             .unwrap_or_default();
         let viewer_bounds = self.viewer_bounds.clone();
-        let drag_state = self.drag_state();
         let dashed = matches!(drag_state, DragState::Locked(..));
         let handle_fill = cx.theme().background;
         let editable_frame = match &drag_state {

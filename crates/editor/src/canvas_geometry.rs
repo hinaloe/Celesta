@@ -75,6 +75,9 @@ pub(crate) fn anchor_box(frame: &LayerFrame) -> Option<LocalBox> {
     own_box(frame, frame.anchor_box?)
 }
 
+/// The props that put a layer's anchor point at fractions of its box.
+pub(crate) const ANCHOR_PROPS: [&str; 2] = ["anchorX", "anchorY"];
+
 /// `@celesta/shapes` primitives sized by `radius`: their box is `2 * radius`
 /// square.
 const RADIUS_SHAPES: [&str; 4] = ["Circle", "Polygon", "Star", "Pie"];
@@ -113,10 +116,7 @@ pub(crate) fn with_anchor_box(
         None
     };
     if let Some((width, height)) = size {
-        let (ax, ay) = (
-            number("anchorX").unwrap_or(0.0),
-            number("anchorY").unwrap_or(0.0),
-        );
+        let [ax, ay] = ANCHOR_PROPS.map(|name| number(name).unwrap_or(0.0));
         let map = layer_map(&frame.transform);
         frame.anchor_box = Some([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|(u, v)| {
             let local = Point {

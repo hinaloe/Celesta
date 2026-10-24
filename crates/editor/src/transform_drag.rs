@@ -9,7 +9,8 @@ use crate::canvas_geometry::{anchor_box, local_box, with_anchor_box};
 use crate::layer_select::{letterbox, to_scene};
 use crate::transform_handles::{
     Handle, PivotMode, Resize, ResizeTool, SizeField, SizeProps, anchor_keys, drag_label,
-    drag_values, preview_values, pressed_handle, prop_values, shown_handles, turn,
+    drag_values, preview_values, pressed_handle, prop_values, resizes_any, shown_handles,
+    size_animated, turn,
 };
 use crate::view::EditorView;
 use celesta_composition::Point;
@@ -44,6 +45,9 @@ pub(crate) struct TransformDrag {
     /// The Rect tool, when the corners and edges resize (see
     /// `resize_used`); `None` when they scale.
     resize: Option<Resize>,
+    /// The element's name (see `primitive_of`), which says how its anchor
+    /// box is laid out; kept, as the targets are gone while the write runs.
+    primitive: String,
     /// The props the runtime saw when the drag started.
     received: ReceivedProps,
     /// Where the runtime takes each editable prop's dragged value, kept from
@@ -78,6 +82,7 @@ impl TransformDrag {
             editable,
             pivot,
             resize: None,
+            primitive: String::new(),
             received,
             sites,
             turned: 0.0,
@@ -89,6 +94,22 @@ impl TransformDrag {
     /// The drag with the Rect tool's `resize` (`None`: the Scale tool).
     pub(crate) fn with_resize(self, resize: Option<Resize>) -> Self {
         Self { resize, ..self }
+    }
+
+    /// The drag of the element `primitive` names (see `primitive_of`).
+    pub(crate) fn with_primitive(self, primitive: &str) -> Self {
+        Self {
+            primitive: primitive.to_owned(),
+            ..self
+        }
+    }
+
+    /// `frame` (drawn with the drag's overrides) with the box its element's
+    /// anchor refers to, built from the props the drag draws (see
+    /// `received_now`), so the handles follow the box, also while a
+    /// released drag is written.
+    pub(crate) fn anchored(&self, frame: LayerFrame) -> LayerFrame {
+        with_anchor_box(frame, &self.primitive, &self.received_now())
     }
 
     /// The props the runtime sees with the drag's overrides: those it saw
@@ -301,6 +322,12 @@ pub(crate) enum ResizeFallback {
     Locked(String),
     /// A size prop has no row the editor can write, without a lock to name.
     Uneditable,
+    /// Every corner and edge moves the anchor point, and `x` or `y` can't
+    /// compensate (a keyframe, or locked).
+    Pinned,
+    /// Every corner and edge moves the anchor point along an axis whose size
+    /// is a keyframe (see `resizes`).
+    Animated,
     /// The layer turns in its own perspective: no flat box to resize.
     NoBox,
 }
@@ -312,14 +339,17 @@ impl ResizeFallback {
             Self::NoSize => "No size to resize".to_owned(),
             Self::Locked(reason) => reason.clone(),
             Self::Uneditable => "Size can't be edited here".to_owned(),
+            Self::Pinned => "x or y can't move".to_owned(),
+            Self::Animated => "Size is animated".to_owned(),
             Self::NoBox => "No flat box to resize".to_owned(),
         }
     }
 }
 
 /// Why a drag of the layer `frame` measures can't use `choice`: the Rect
-/// tool needs editable size props (see `size_props`) and the box they
-/// describe. `None` when it can.
+/// tool needs editable size props (see `size_props`), the box they describe
+/// (from the props the runtime reported, for a shape), and a corner or edge
+/// that can resize it (see `resizes_any`). `None` when it can.
 pub(crate) fn resize_fallback(
     choice: ResizeTool,
     targets: &ElementTargets,
@@ -328,8 +358,27 @@ pub(crate) fn resize_fallback(
     if choice == ResizeTool::Scale {
         return None;
     }
-    if size_props(targets).is_some() {
-        return anchor_box(frame).is_none().then_some(ResizeFallback::NoBox);
+    if let Some(props) = size_props(targets) {
+        if anchor_box(frame).is_none() {
+            // Drawn flat, a layer without a box is one whose size the
+            // runtime didn't report.
+            return Some(if local_box(frame).is_some() {
+                ResizeFallback::NoSize
+            } else {
+                ResizeFallback::NoBox
+            });
+        }
+        let resize = Resize {
+            props,
+            compensable: compensable(targets),
+        };
+        return (!resizes_any(frame, &resize)).then(|| {
+            if resize.compensable && size_animated(&resize) {
+                ResizeFallback::Animated
+            } else {
+                ResizeFallback::Pinned
+            }
+        });
     }
     let size = targets.table.as_ref().and_then(|table| table.size.as_ref());
     let names: Vec<&String> = size
@@ -530,16 +579,14 @@ impl EditorView {
         };
         let resolved = self.element_targets();
         // The box the source element's anchor refers to, which the drag
-        // keeps with it; while one runs, built from the props it draws.
-        let frame = match resolved {
-            Some((_, report)) => {
-                let received = self
-                    .transform_drag
-                    .as_ref()
-                    .map_or_else(|| report.props.clone(), TransformDrag::received_now);
-                with_anchor_box(frame, primitive_of(report), &received)
+        // keeps with it; while one runs (or is written), built from the
+        // props it draws.
+        let frame = match (&self.transform_drag, resolved) {
+            (Some(drag), _) => drag.anchored(frame),
+            (None, Some((_, report))) => {
+                with_anchor_box(frame, primitive_of(report), &report.props)
             }
-            None => frame,
+            (None, None) => frame,
         };
         // While dragging, the props stay those the drag began with; the
         // frame is the one drawn with the overrides, so the handles follow.
@@ -684,10 +731,13 @@ impl EditorView {
         let DragState::Editable(frame, editable, pivot, resize) = self.drag_state() else {
             return false;
         };
-        let Some((received, sites)) = self
-            .element_targets()
-            .map(|(targets, report)| (report.props.clone(), override_sites(targets, report)))
-        else {
+        let Some((received, sites, primitive)) = self.element_targets().map(|(targets, report)| {
+            (
+                report.props.clone(),
+                override_sites(targets, report),
+                primitive_of(report).to_owned(),
+            )
+        }) else {
             return false;
         };
         let Some(bounds) = self.viewer_bounds.get() else {
@@ -725,7 +775,8 @@ impl EditorView {
         }
         self.transform_drag = Some(
             TransformDrag::new(frame, handle, start, editable, pivot, received, sites)
-                .with_resize(resize),
+                .with_resize(resize)
+                .with_primitive(&primitive),
         );
         true
     }
@@ -1280,6 +1331,85 @@ mod tests {
         assert!(has_anchor(&rows(literal(0.0), literal(0.0)), &frame));
         assert!(!has_anchor(&rows(keyframe(0.0), literal(0.0)), &frame));
         assert!(!has_anchor(&rows(literal(0.0), keyframe(0.0)), &frame));
+    }
+
+    #[test]
+    fn a_box_no_handle_can_resize_falls_back_to_scale() {
+        let centered = || {
+            let mut frame = rect_frame();
+            frame.transform.anchor = at(0.5, 0.5);
+            frame
+        };
+        // Anchored at its middle, every handle moves x and y, which are
+        // keyframes.
+        let rect = sized(
+            vec![
+                ("x", keyframe(40.0)),
+                ("y", literal(20.0)),
+                ("width", literal(100.0)),
+                ("height", literal(50.0)),
+            ],
+            [Some("width"), Some("height"), None],
+            &[],
+        );
+        assert_eq!(resize_used(ResizeTool::Rect, &rect, &centered()), None);
+        let fallback = resize_fallback(ResizeTool::Rect, &rect, &centered());
+        assert_eq!(fallback, Some(ResizeFallback::Pinned));
+        assert_eq!(fallback.unwrap().reason(), "x or y can't move");
+        // Anchored at its top-left, the right and bottom edges still work.
+        assert!(resize_used(ResizeTool::Rect, &rect, &rect_frame()).is_some());
+        // A keyframed radius about its middle: x and y could move, but
+        // only on this keyframe.
+        let circle = sized(
+            vec![
+                ("x", literal(40.0)),
+                ("y", literal(20.0)),
+                ("radius", keyframe(30.0)),
+            ],
+            [None, None, Some("radius")],
+            &[],
+        );
+        let fallback = resize_fallback(ResizeTool::Rect, &circle, &centered());
+        assert_eq!(fallback, Some(ResizeFallback::Animated));
+        assert_eq!(fallback.unwrap().reason(), "Size is animated");
+    }
+
+    #[test]
+    fn an_unreported_size_has_no_size_to_resize() {
+        // A shape whose `width` the runtime didn't report: no box from its
+        // props, and its path has none of its own.
+        let rect = sized(
+            vec![("width", literal(100.0)), ("height", literal(50.0))],
+            [Some("width"), Some("height"), None],
+            &[],
+        );
+        let mut path = rect_frame();
+        path.anchor_box = None;
+        assert_eq!(
+            resize_fallback(ResizeTool::Rect, &rect, &path),
+            Some(ResizeFallback::NoSize)
+        );
+    }
+
+    #[test]
+    fn a_released_drag_keeps_its_box() {
+        // The targets are gone while the write runs: the drag still knows
+        // the element and the props it draws.
+        let received = number_props(&[("width", 100.0), ("height", 50.0)]);
+        let mut path = rect_frame();
+        path.anchor_box = None;
+        let drag = TransformDrag::new(
+            path.clone(),
+            Handle::Edge(1),
+            at(140.0, 45.0),
+            Vec::new(),
+            PivotMode::Pivot,
+            received,
+            Vec::new(),
+        )
+        .with_primitive("Ellipse");
+        let anchored = drag.anchored(path);
+        assert_eq!(anchored.anchor_box, rect_frame().anchor_box);
     }
 
     #[test]
