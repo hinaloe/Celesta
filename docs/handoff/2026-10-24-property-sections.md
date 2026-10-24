@@ -284,14 +284,20 @@ These differ from, or settle what the spec left open:
   fails at once only when the source can't be read, or the code failed to
   reload. A row's sync never sets text
   equal to what its field holds, so the caret stays.
-- **A field keeps plain `←` and `→`.** gpui-base's input passes on Left at
-  the start of its text and Right at the end; macOS then offers the
-  unhandled key to the menu, whose Previous Frame and Next Frame items
-  use those keys, so the playhead moved while typing (the keymap's
-  `!Input` did not help: the binding never fired, the menu did).
-  `escapable`, which wraps every text field and the multi-line text,
-  stops those keys in its key-down listener (`field_keeps_key`), so the
-  menu items still work when clicked.
+- **The playhead's keys rest while a text field has the focus.** The
+  arrows, Shift+arrows, Home, and End moved the playhead while typing in a
+  field, though the keymap's `EDITOR_KEYS` excludes `Input`. One path is
+  known: gpui-base's input passes on Left at the start of its text and
+  Right at the end, and macOS offers an unhandled key to the menu, whose
+  Previous Frame and Next Frame items take those keys. `escapable`, which
+  wraps every text field and the multi-line text, keeps a plain Left or
+  Right (`field_keeps_key`). Up and Down leaked by a path not found in
+  the source, so the actions themselves (`PreviousFrame`, `NextFrame`,
+  `JumpBackward`, `JumpForward`, `PreviousEditPoint`, `NextEditPoint`,
+  `GoToStart`, `GoToEnd`) do nothing while the focus's key contexts
+  include `Input` (`in_text_field`). The trade-off: while a field has the
+  focus, those menu items do nothing either; clicking outside the field
+  brings them back.
 - **Leaving a field commits it** (as Unity's inspector does). Before the
   selection changes by a canvas click, the layer list, clearing it, or
   leaving the interactive mode (`select_layer`), and after a seek by hand

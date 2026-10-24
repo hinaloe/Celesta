@@ -30,6 +30,7 @@ use crate::layer_select::{
     owner_call_site, parent_layer_id, scene_point, source_lookup, source_lookup_target,
     source_position,
 };
+use crate::playback::in_text_field;
 use crate::property_controls::ControlKind;
 use crate::react_audio::{react_audio_clip_id, react_tracks};
 use crate::refresh::{LookupFate, SelectionKeep};
@@ -185,6 +186,20 @@ fn export_range_needs_both_markers_ordered() {
     let range = export_range_for(Some(30), Some(90), rate).unwrap();
     assert_eq!(range.start, Time::frames(30, rate).unwrap());
     assert_eq!(range.end, Some(Time::frames(90, rate).unwrap()));
+}
+
+#[test]
+fn the_playhead_keys_rest_while_a_text_field_has_the_focus() {
+    let stack = |contexts: &[&str]| {
+        contexts
+            .iter()
+            .map(|context| gpui_kit::KeyContext::parse(context).unwrap())
+            .collect::<Vec<_>>()
+    };
+    assert!(!in_text_field(&stack(&["CelestaEditor"])));
+    assert!(in_text_field(&stack(&["CelestaEditor", "Input"])));
+    // A menu control is not a text field.
+    assert!(!in_text_field(&stack(&["CelestaEditor", "Select"])));
 }
 
 #[test]

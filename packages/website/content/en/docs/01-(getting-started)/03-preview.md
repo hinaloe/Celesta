@@ -25,7 +25,7 @@ Compositions reload when you save. You can also choose **File → Reload** to re
 | Clear the export range | `Shift X` | `Shift X` |
 | Mark export start / end | `I` / `O` | `I` / `O` |
 
-While you type in a field, these keys type or move the caret instead: `←` and `→` stay in the field even at the start or end of its text.
+While a field has the keyboard focus, these keys type or move the caret instead: the arrow keys, `Home`, and `End` never move the playhead, even at the start or end of the text, and neither do the matching items of the **Playback** menu. Click outside the field to use them again.
 
 ## Listen as you look
 
