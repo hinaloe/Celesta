@@ -9,7 +9,9 @@ use crate::layer_select::SourceLookup;
 use crate::media_probe::{MediaAssetInfo, MediaProbeWorker};
 use crate::meter::MasterLevels;
 use crate::occurrences::{OccurrenceState, OccurrenceWorker};
-use crate::preview::{AudioPreview, PreviewPresentation, PreviewWorker, ReactPreview};
+use crate::preview::{
+    AudioPreview, PreviewPresentation, PreviewWorker, ReactPreview, TextOverride,
+};
 use crate::problems::{Problems, Source};
 use crate::property_panel::PropertyPanelState;
 use crate::react_audio::ReactAudioWorker;
@@ -21,7 +23,9 @@ use crate::transform_handles::{PivotMode, ResizeTool};
 use celesta_composition::{AudioClip, Rational};
 use celesta_editor_core::{AssetSummary, EditorDocument, TimelineClock, TrackSummary};
 use celesta_exporter::{ExportCancellation, ExportProgress};
-use celesta_gpu_renderer::{GpuDriver, GpuRenderOptions, GpuRenderer, HitRegion, LayerFrame};
+use celesta_gpu_renderer::{
+    GpuDriver, GpuRenderOptions, GpuRenderer, HitRegion, LayerFrame, TextLayout,
+};
 use celesta_media::FfmpegBackend;
 use celesta_react_bridge::{
     ComponentPropertyField, ComponentPropertySchema, PrimitivePropertyTable,
@@ -294,6 +298,15 @@ pub(crate) struct EditorView {
     /// chose it for the session; a layer without editable size props scales
     /// whatever this says.
     pub(crate) resize_tool: ResizeTool,
+    /// The text edited on the canvas, or committed and waiting for its
+    /// reload: every requested frame draws it in place of its layer's text.
+    pub(crate) text_override: Option<TextOverride>,
+    /// The next requested frame redraws the scene the runtime last evaluated
+    /// (a keystroke's); `refresh_preview` clears it.
+    pub(crate) reuse_scene: bool,
+    /// The `text_override` layer's layout as the shown frame drew it; `None`
+    /// when that frame had no override or did not draw the layer.
+    pub(crate) text_layout: Option<TextLayout>,
 }
 
 impl EditorView {
@@ -454,6 +467,9 @@ impl EditorView {
             transform_drag: None,
             pivot_mode: PivotMode::default(),
             resize_tool: ResizeTool::default(),
+            text_override: None,
+            reuse_scene: false,
+            text_layout: None,
         };
         editor.refresh_preview();
         editor.refresh_audio_preview();

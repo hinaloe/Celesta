@@ -39,6 +39,7 @@ impl EditorView {
                     self.problems.set_preview_warnings(result.warnings);
                     self.hit_regions = result.hit_regions;
                     self.layer_frame = result.layer_frame;
+                    self.text_layout = result.text_layout;
                     // An answer for a layer that is no longer selected is stale.
                     if let Some((id, source)) = result.layer_source
                         && self.selected_layer.as_ref() == Some(&id)

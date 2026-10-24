@@ -280,14 +280,24 @@ impl EditorView {
         // changes until it writes, so it is not asked again (the runtime
         // looks it up without the overrides, and remounts to drop them).
         // A released scrub asks (see `lookup_allowed`). Playback asks only
-        // for an answer it does not have yet, or a stale one.
+        // for an answer it does not have yet, or a stale one. A text edited
+        // on the canvas, or committed until its reload, asks nothing.
         let source_of = source_lookup_target(
             self.selected_layer.as_deref(),
             self.picks_layers(),
             self.playing && !self.source_lookup_stale,
             self.source_lookup.as_ref(),
         )
-        .filter(|_| lookup_allowed(self.transform_drag.is_some(), self.row_scrub_active()));
+        .filter(|_| {
+            lookup_allowed(
+                self.transform_drag.is_some(),
+                self.row_scrub_active(),
+                self.text_override.is_some(),
+            )
+        });
+        // Only the request it was set for reuses the held scene; any other
+        // frame is evaluated again.
+        let reuse_scene = std::mem::take(&mut self.reuse_scene);
         match self.document.scene_at(self.current_time()) {
             // The warnings stay until the result replaces them, so their
             // counts don't flicker while frames are in flight.
@@ -312,6 +322,9 @@ impl EditorView {
                         .clone()
                         .filter(|_| self.picks_layers() && !self.playing),
                     timeline_frame: self.clock.frame(),
+                    // On every request, so coalescing never drops it.
+                    text_override: self.text_override.clone(),
+                    reuse_scene,
                 }) {
                     self.preview_pending = false;
                     self.problems.set_preview_warnings(Vec::new());
