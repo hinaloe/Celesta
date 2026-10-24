@@ -8,11 +8,12 @@ use crate::actions::{Redo, Undo};
 use crate::problems::Source;
 use crate::source::{PropertyArgs, watched_mtime};
 use crate::view::EditorView;
+use celesta_react_bridge::write_temp;
 use gpui_kit::{Context, Window};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -268,8 +269,8 @@ fn read(path: &Path) -> Result<Option<String>, HistoryError> {
 }
 
 /// Writes every file of `writes` as one step, as far as the file system
-/// allows: each text first goes to a temp file beside its file (named the way
-/// `celesta_react_bridge::replace_file` names them), and only once all of
+/// allows: each text first goes to a temp file beside its file
+/// (`celesta_react_bridge::write_temp`), and only once all of
 /// them are written are they renamed over their files and the `None` files
 /// removed. A failed temp write removes the temps already written and leaves
 /// every file alone. A failed rename removes the temps not yet renamed, but
@@ -308,27 +309,6 @@ fn write_files(writes: &[(&Path, Option<&str>)]) -> Result<(), HistoryError> {
         }
     }
     Ok(())
-}
-
-/// Writes `text` to a temp file beside `path` and returns the temp's path;
-/// removes the temp again when the write fails.
-fn write_temp(path: &Path, text: &str) -> io::Result<PathBuf> {
-    let name = path
-        .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not a file path"))?
-        .to_string_lossy();
-    let temp = path.with_file_name(format!(".{name}.tmp-{}", std::process::id()));
-    let written = fs::File::create(&temp).and_then(|mut handle| {
-        handle.write_all(text.as_bytes())?;
-        handle.sync_all()
-    });
-    match written {
-        Ok(()) => Ok(temp),
-        Err(error) => {
-            let _ = fs::remove_file(&temp);
-            Err(error)
-        }
-    }
 }
 
 /// Refuses a read-only file, which a rename would replace without a word.
