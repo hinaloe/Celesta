@@ -524,9 +524,10 @@ impl Scrub {
         let (_, site) = override_sites(targets, report)
             .into_iter()
             .find(|(candidate, _)| candidate == key)?;
-        // The value or the placeholder the row shows, unrounded, moved
-        // inside the field's range: a pointer back at the start pixel then
-        // gives the start value, which writes nothing.
+        // The value or the placeholder the row shows, as the value it is
+        // (not its text), moved inside the field's range and, for a
+        // whole-number field, rounded: a pointer back at the start pixel
+        // then gives the start value, which writes nothing.
         let field = row_field(targets, key).cloned();
         let shown = match entry_value(targets, key, target, report) {
             Some(EditValue::Number(value)) => value,
