@@ -6,11 +6,13 @@ use super::*;
 use crate::element_edit::{editable, inner_target};
 use crate::inline_text::{TextEdit, TextMap};
 use crate::inline_text_view::{
-    EditEnd, EditEvent, InlineEntry, InlineTextSession, KeptOverride, cancel_session, edit_end,
-    held_commit_override, inline_commit_value, inline_entry, is_text_layer,
-    kept_override_after_write, kept_override_on_reload, live_override, press_inside, pressed_index,
+    EditEnd, EditEvent, InlineEntry, InlineTextSession, KeptOverride, cancel_session,
+    committed_override, edit_end, held_commit_override, inline_commit_value, inline_entry,
+    is_text_layer, kept_override_after_write, kept_override_on_reload, live_override, press_inside,
+    pressed_index,
 };
 use crate::preview::TextOverride;
+use crate::refresh::ReloadOrder;
 use crate::transform_drag::{DragState, editing_drag_state};
 use celesta_composition::TextAlign;
 use celesta_gpu_renderer::{GlyphMetrics, TextLayout, TextMetrics};
@@ -718,19 +720,49 @@ fn the_override_is_dropped_on_an_error_or_without_a_reload() {
 }
 
 #[test]
-fn the_override_waits_for_the_first_kept_reload_at_or_after_its_sequence() {
+fn the_override_waits_for_the_first_reload_at_or_after_its_sequence() {
     let kept = KeptOverride::UntilReload(4);
     // A reload requested before the write finished read the old file.
-    assert!(kept_override_on_reload(&kept, 3, true));
-    // One that clears the selection (the file changed elsewhere) does not
-    // draw this write as the editor's own.
-    assert!(kept_override_on_reload(&kept, 4, false));
-    // The own write's reload draws it.
-    assert!(!kept_override_on_reload(&kept, 4, true));
-    assert!(!kept_override_on_reload(&kept, 5, true));
+    assert!(kept_override_on_reload(&kept, 3));
+    // Any reload requested after it read the written file, whether it
+    // keeps the selection (the own write's) or clears it (the file also
+    // changed elsewhere).
+    assert!(!kept_override_on_reload(&kept, 4));
+    assert!(!kept_override_on_reload(&kept, 5));
     // Still being written (or waiting its turn): no reload draws it yet.
-    assert!(kept_override_on_reload(&KeptOverride::Writing, 9, true));
-    assert!(!kept_override_on_reload(&KeptOverride::Dropped, 9, true));
+    assert!(kept_override_on_reload(&KeptOverride::Writing, 9));
+    assert!(!kept_override_on_reload(&KeptOverride::Dropped, 9));
+}
+
+#[test]
+fn a_superseded_own_reload_still_releases_the_override() {
+    let mut reloads = ReloadOrder::default();
+    // The write finished: its own reload gets the next number.
+    let kept = kept_override_after_write(&Ok(()), false, reloads.next());
+    let own = reloads.request();
+    assert_eq!(kept, KeptOverride::UntilReload(own));
+    // The file changed elsewhere right after: a reload that keeps nothing.
+    let outside = reloads.request();
+    // It finishes first and applies; the own one never applies after it.
+    assert!(reloads.finish(outside));
+    assert!(!kept_override_on_reload(&kept, outside));
+    assert!(!reloads.finish(own));
+}
+
+#[test]
+fn the_commit_frame_may_look_the_source_up() {
+    // Enter after typing, nothing marked: the committed text is the one
+    // already drawn, so the override does not change. The commit still asks
+    // for a frame, which (no edit running) looks the layer up, so a commit
+    // held for stale targets gets them resolved.
+    let mut session = InlineTextSession::new("title".to_owned(), "Sale".to_owned());
+    session.edit.insert("!");
+    let live = live_override(&session);
+    assert_eq!(committed_override(&mut session), live);
+    assert!(lookup_allowed(false, false, false));
+    // A composition still marked is accepted into it.
+    session.edit.mark_utf16(None, "に", None);
+    assert_eq!(committed_override(&mut session).text, "Sale!に");
 }
 
 #[test]

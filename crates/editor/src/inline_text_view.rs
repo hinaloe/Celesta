@@ -278,18 +278,26 @@ pub(crate) fn kept_override_after_write(
     }
 }
 
-/// Whether the override is still kept once reload `sequence` applies;
-/// `keeps_selection` when it is an own write's reload (one that keeps the
-/// selected layer), which draws the written text.
-pub(crate) fn kept_override_on_reload(
-    kept: &KeptOverride,
-    sequence: u64,
-    keeps_selection: bool,
-) -> bool {
+/// Whether the override is still kept once reload `sequence` applies: any
+/// reload numbered `from` or later was requested after the write and read
+/// the written file, whether it keeps the selection or not (an outside
+/// change's may supersede the own write's, which then never applies).
+pub(crate) fn kept_override_on_reload(kept: &KeptOverride, sequence: u64) -> bool {
     match kept {
         KeptOverride::Writing => true,
-        KeptOverride::UntilReload(from) => !(keeps_selection && sequence >= *from),
+        KeptOverride::UntilReload(from) => sequence < *from,
         KeptOverride::Dropped => false,
+    }
+}
+
+/// The override that draws `session`'s text once committed: what it shows,
+/// a composition still marked accepted.
+pub(crate) fn committed_override(session: &mut InlineTextSession) -> TextOverride {
+    session.edit.unmark();
+    TextOverride {
+        layer: session.layer.clone(),
+        original: session.original.clone(),
+        text: session.edit.text().to_owned(),
     }
 }
 
@@ -585,39 +593,31 @@ impl EditorView {
         let Some(mut session) = self.inline_text.take() else {
             return;
         };
-        session.edit.unmark();
+        let committed = committed_override(&mut session);
         self.text_layout = None;
         self.inline_notice = None;
         // The row writes for the selected layer, which every end keeps
         // until the commit is made.
-        let value = inline_commit_value(&session.original, session.edit.text())
-            .filter(|_| self.selected_layer.as_deref() == Some(session.layer.as_str()));
-        let Some(value) = value else {
-            if self
-                .text_override
-                .as_ref()
-                .is_some_and(|live| live.layer == session.layer)
-            {
-                self.text_override = None;
-            }
-            self.reuse_scene = true;
-            self.refresh_preview();
-            cx.notify();
-            return;
-        };
-        let committed = TextOverride {
-            text: session.edit.text().to_owned(),
-            layer: session.layer,
-            original: session.original,
-        };
-        if self.text_override.as_ref() != Some(&committed) {
+        let value = inline_commit_value(&committed.original, &committed.text)
+            .filter(|_| self.selected_layer.as_deref() == Some(committed.layer.as_str()));
+        if let Some(value) = value {
             self.text_override = Some(committed);
-            self.reuse_scene = true;
-            self.refresh_preview();
+            // Before the commit, which may finish at once (a failure).
+            self.kept_override = KeptOverride::Writing;
+            self.commit_element_row(&children_key(), Some(value), cx);
+        } else if self
+            .text_override
+            .as_ref()
+            .is_some_and(|live| live.layer == committed.layer)
+        {
+            self.text_override = None;
         }
-        // Before the commit, which may finish at once (a failure).
-        self.kept_override = KeptOverride::Writing;
-        self.commit_element_row(&children_key(), Some(value), cx);
+        // Always a frame, even when it draws what is shown: with no edit
+        // running it looks the layer up, and a commit held for targets that
+        // went stale while editing (an own write's reload, whose frames
+        // asked nothing) waits for that answer.
+        self.reuse_scene = true;
+        self.refresh_preview();
         cx.notify();
     }
 

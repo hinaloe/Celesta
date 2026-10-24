@@ -511,13 +511,13 @@ impl EditorView {
                     .into();
                 }
                 self.react_reload_generation = self.react_reload_generation.wrapping_add(1);
-                let own_write = self.selection_keep.applies(sequence);
-                let keep = own_write && self.selected_layer.is_some();
+                let keep = self.selection_keep.applies(sequence) && self.selected_layer.is_some();
                 // A text committed on the canvas is drawn by the reloaded
-                // code once its own write's reload applies, whatever is
-                // selected now. Dropped before the frame below, so that
-                // frame looks the layer up and draws the code's own runs.
-                if !kept_override_on_reload(&self.kept_override, sequence, own_write) {
+                // code once a reload requested after its write applies,
+                // whatever it does to the selection. Dropped before the
+                // frame below, so that frame looks the layer up and draws
+                // the code's own runs.
+                if !kept_override_on_reload(&self.kept_override, sequence) {
                     self.drop_kept_override();
                 }
                 if keep {
