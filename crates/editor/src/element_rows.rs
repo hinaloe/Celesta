@@ -8,6 +8,7 @@ use crate::element_edit::{
     ComponentTargets, ElementTargets, PREVIEW_STOPPED, PropKey, Target, edit_value, editable,
     field_of, inner_target, required_of, table_default, text_style_key,
 };
+use crate::inline_text_view::EditEvent;
 use crate::layer_select::{SourceLookup, display_path};
 use crate::property_controls::{
     Control, ControlEvent, ControlKind, build_control, parse_color, parse_color_input,
@@ -1272,6 +1273,10 @@ impl EditorView {
         // in the mode.
         if layer.is_some() {
             self.element_rows.leaving_interactive = false;
+        }
+        // A text edited on the canvas is committed first, like the rows.
+        if layer != self.selected_layer {
+            self.end_inline_text(EditEvent::SelectionChange, cx);
         }
         self.submit_edited_rows(cx);
         let current = self.selected_layer.clone();

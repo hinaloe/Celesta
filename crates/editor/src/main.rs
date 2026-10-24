@@ -32,9 +32,8 @@ mod export_control;
 mod export_worker;
 mod helpers;
 mod impact;
-// The canvas's inline text editing uses it; until then only its tests do.
-#[allow(dead_code)]
 mod inline_text;
+mod inline_text_view;
 mod layer_panel;
 mod layer_select;
 mod lifecycle;
@@ -68,6 +67,7 @@ use actions::{
     ToggleLoop, TogglePlayback, ToggleSafeAreas, Undo, ZoomTimelineIn, ZoomTimelineOut,
     ZoomTimelineToFit,
 };
+use inline_text_view::EditEvent;
 use source::PropertyArgs;
 use view::EditorView;
 
@@ -186,9 +186,22 @@ fn run() -> Result<(), Box<dyn Error>> {
                 let view = cx.new(|cx| {
                     let focus_handle = cx.focus_handle();
                     let master_volume_focus = cx.focus_handle().tab_stop(true).tab_index(0);
+                    let inline_text_focus = cx.focus_handle();
+                    // A click elsewhere (the Properties tab, the layer list)
+                    // commits a text edited on the canvas. Kept for the
+                    // window's life: another file opened keeps the handle.
+                    cx.on_blur(
+                        &inline_text_focus,
+                        window,
+                        |this: &mut EditorView, _, cx| {
+                            this.end_inline_text(EditEvent::Blur, cx);
+                        },
+                    )
+                    .detach();
                     focus_handle.focus(window, cx);
                     editor.focus_handle = Some(focus_handle);
                     editor.master_volume_focus = Some(master_volume_focus);
+                    editor.inline_text_focus = Some(inline_text_focus);
                     editor.dock_split = Some(cx.new(|_| ResizableState::default()));
                     editor.body_split = Some(cx.new(|_| ResizableState::default()));
                     #[cfg(not(target_os = "macos"))]

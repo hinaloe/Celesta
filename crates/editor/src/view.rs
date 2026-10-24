@@ -5,6 +5,7 @@ use crate::element_edit::ElementEdit;
 use crate::element_rows::ElementRows;
 use crate::export_worker::ExportWorker;
 use crate::helpers::ExportLoudness;
+use crate::inline_text_view::{EditEvent, InlineTextSession};
 use crate::layer_select::SourceLookup;
 use crate::media_probe::{MediaAssetInfo, MediaProbeWorker};
 use crate::meter::MasterLevels;
@@ -307,6 +308,25 @@ pub(crate) struct EditorView {
     /// The `text_override` layer's layout as the shown frame drew it; `None`
     /// when that frame had no override or did not draw the layer.
     pub(crate) text_layout: Option<TextLayout>,
+    /// The text being edited on the canvas.
+    pub(crate) inline_text: Option<InlineTextSession>,
+    /// What the canvas tracks while a text is edited there, so the keys and
+    /// the IME reach the edit.
+    pub(crate) inline_text_focus: Option<FocusHandle>,
+    /// A double-click waiting for its layer's source: the layer.
+    pub(crate) inline_pending: Option<String>,
+    /// Why a double-click did not edit: the layer, beside which it shows,
+    /// and the reason. Until the next press or selection change.
+    pub(crate) inline_note: Option<(String, String)>,
+    /// Why an edit was cancelled, for the viewer's notice. Until the next
+    /// press or selection change.
+    pub(crate) inline_notice: Option<String>,
+    /// A seek or play that ends the edit on the next render, which has a
+    /// context for it.
+    pub(crate) inline_end_due: Option<EditEvent>,
+    /// An edit ended with the focus on it: the root takes it back on the
+    /// next render.
+    pub(crate) inline_refocus: bool,
 }
 
 impl EditorView {
@@ -470,6 +490,13 @@ impl EditorView {
             text_override: None,
             reuse_scene: false,
             text_layout: None,
+            inline_text: None,
+            inline_text_focus: None,
+            inline_pending: None,
+            inline_note: None,
+            inline_notice: None,
+            inline_end_due: None,
+            inline_refocus: false,
         };
         editor.refresh_preview();
         editor.refresh_audio_preview();

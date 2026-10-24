@@ -29,6 +29,9 @@ pub(crate) struct TextEdit {
     /// The range of `text` the marked text stands in for, and the marked
     /// text.
     marked: Option<(Range<usize>, String)>,
+    /// The x (layout units) Up and Down keep to across lines shorter than
+    /// it; any other change or move forgets it.
+    goal_x: Option<f64>,
 }
 
 impl TextEdit {
@@ -41,10 +44,13 @@ impl TextEdit {
             head: end,
             upstream: false,
             marked: None,
+            goal_x: None,
         }
     }
 
     /// The committed text, without the marked text.
+    // Until the canvas edit is written, only the tests read it.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn text(&self) -> &str {
         &self.text
     }
@@ -110,15 +116,16 @@ impl TextEdit {
         self.place(index, false, extend);
     }
 
-    /// One line on at the caret's x, or the text's start (end) from its
-    /// first (last) line.
+    /// One line on at the goal column (the caret's x when the last move
+    /// was not vertical), or the text's start (end) from its first (last)
+    /// line.
     pub(crate) fn move_vertical(&mut self, layout: &TextLayout, down: bool, extend: bool) {
         self.unmark();
         let (from, upstream) = self.moving_from(down, extend);
         let lines = Lines::new(layout);
         let from = lines.clamp(from);
         let line = lines.line_of(from, upstream);
-        let x = lines.caret_x(line, from);
+        let x = self.goal_x.unwrap_or_else(|| lines.caret_x(line, from));
         let (index, upstream) = match (down, line) {
             (false, 0) => (0, false),
             (true, line) if line + 1 >= lines.count() => (self.text.chars().count(), false),
@@ -128,6 +135,7 @@ impl TextEdit {
             }
         };
         self.place(index, upstream, extend);
+        self.goal_x = Some(x);
     }
 
     /// The start or end of the caret's visual line; the end of a wrapped
@@ -163,6 +171,7 @@ impl TextEdit {
         self.anchor = 0;
         self.head = self.text.chars().count();
         self.upstream = false;
+        self.goal_x = None;
     }
 
     pub(crate) fn selected_text(&self) -> String {
@@ -182,6 +191,7 @@ impl TextEdit {
             self.anchor = self.head;
         }
         self.upstream = upstream;
+        self.goal_x = None;
     }
 
     /// Replaces `range` of `display_text` (UTF-16; the marked text, else
@@ -231,6 +241,7 @@ impl TextEdit {
             self.marked = Some((replaced, text));
         }
         self.upstream = false;
+        self.goal_x = None;
     }
 
     /// Accepts the marked text as it is shown (NSTextInputClient's
@@ -239,6 +250,12 @@ impl TextEdit {
         if let Some((range, marked)) = self.marked.take() {
             self.text = splice(&self.text, range, &marked);
         }
+    }
+
+    /// The marked text's range in `display_text`.
+    pub(crate) fn marked(&self) -> Option<Range<usize>> {
+        let (range, marked) = self.marked.as_ref()?;
+        Some(range.start..range.start + count(marked))
     }
 
     /// The marked text's range in `display_text`, UTF-16.
@@ -303,13 +320,13 @@ fn normalize_line_breaks(text: &str) -> String {
 }
 
 /// Code point `index` of `text` as a UTF-16 offset.
-fn to_utf16(text: &str, index: usize) -> usize {
+pub(crate) fn to_utf16(text: &str, index: usize) -> usize {
     text.chars().take(index).map(char::len_utf16).sum()
 }
 
 /// UTF-16 offset `offset` of `text` as a code point; inside a surrogate
 /// pair, the code point after it.
-fn from_utf16(text: &str, offset: usize) -> usize {
+pub(crate) fn from_utf16(text: &str, offset: usize) -> usize {
     let mut utf16 = 0;
     for (index, c) in text.chars().enumerate() {
         if utf16 >= offset {
@@ -571,7 +588,16 @@ impl<'a> Lines<'a> {
 }
 
 /// The message for a text box a homography cannot be fitted to.
-const EDGE_ON: &str = "The text is edge-on to the view";
+pub(crate) const EDGE_ON: &str = "The text is edge-on to the view";
+
+/// A layout's rectangle: its layout width (`maxWidth`, else the measured
+/// width) by `lines · line_height`, as the renderer records the text box;
+/// an empty text is one line.
+pub(crate) fn layout_size(layout: &TextLayout) -> (f64, f64) {
+    let width = layout.max_width.unwrap_or(layout.metrics.width);
+    let height = layout.metrics.lines.max(1) as f64 * layout.metrics.line_height;
+    (width, height)
+}
 
 /// The homography taking a text's layout rectangle (layout width by
 /// `lines · line_height`) onto `HitRegion::text_box`, and back.
@@ -581,16 +607,15 @@ pub(crate) struct TextMap {
     /// point's `[x, y, 1]`.
     forward: [f64; 9],
     inverse: [f64; 9],
+    /// The layout rectangle it was fitted for.
+    size: (f64, f64),
 }
 
 impl TextMap {
     /// Fails for a box of zero area or not convex (a bow-tie): the text is
     /// seen edge-on. A mirrored box, its corners in reverse, is convex.
     pub(crate) fn fit(layout: &TextLayout, text_box: [Point; 4]) -> Result<Self, String> {
-        let width = layout.max_width.unwrap_or(layout.metrics.width);
-        // The renderer's box is `lines · line_height` tall; an empty text
-        // is one line.
-        let height = layout.metrics.lines.max(1) as f64 * layout.metrics.line_height;
+        let (width, height) = layout_size(layout);
         let sized = |side: f64| side.is_finite() && side > 0.0;
         if !sized(width) || !sized(height) || !convex(text_box) {
             return Err(EDGE_ON.to_owned());
@@ -598,7 +623,18 @@ impl TextMap {
         let scale = [1.0 / width, 0.0, 0.0, 0.0, 1.0 / height, 0.0, 0.0, 0.0, 1.0];
         let forward = multiply(square_to(text_box), scale);
         let inverse = invert(forward).ok_or_else(|| EDGE_ON.to_owned())?;
-        Ok(Self { forward, inverse })
+        Ok(Self {
+            forward,
+            inverse,
+            size: (width, height),
+        })
+    }
+
+    /// Whether `layout_point` is inside the layout rectangle the map was
+    /// fitted for, edges included.
+    pub(crate) fn contains(&self, layout_point: Point) -> bool {
+        let (width, height) = self.size;
+        (0.0..=width).contains(&layout_point.x) && (0.0..=height).contains(&layout_point.y)
     }
 
     pub(crate) fn to_scene(&self, layout_point: Point) -> Point {
@@ -619,7 +655,7 @@ impl TextMap {
 
 /// Whether `quad` turns the same way at every corner with some area: not
 /// a line, a point or a bow-tie.
-fn convex(quad: [Point; 4]) -> bool {
+pub(crate) fn convex(quad: [Point; 4]) -> bool {
     let turns: [f64; 4] = std::array::from_fn(|i| {
         let [a, b, c] = [quad[i], quad[(i + 1) % 4], quad[(i + 2) % 4]];
         (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)
@@ -1099,6 +1135,27 @@ mod tests {
         let mut edit = edit_at("abc\nde\nfgh", 8);
         edit.move_vertical(&layout, true, false);
         assert_eq!(edit.selection(), 10..10);
+    }
+
+    #[test]
+    fn vertical_moves_keep_a_goal_column() {
+        let layout = grid(&["abc\n", "de\n", "fgh"]);
+        // From the end of "abc", through the shorter "de", back to x 30.
+        let mut edit = edit_at("abc\nde\nfgh", 3);
+        edit.move_vertical(&layout, true, false);
+        assert_eq!(edit.selection(), 6..6);
+        edit.move_vertical(&layout, true, false);
+        assert_eq!(edit.selection(), 10..10);
+        edit.move_vertical(&layout, false, false);
+        edit.move_vertical(&layout, false, false);
+        assert_eq!(edit.selection(), 3..3);
+
+        // Any other move forgets it.
+        let mut edit = edit_at("abc\nde\nfgh", 3);
+        edit.move_vertical(&layout, true, false);
+        edit.move_horizontal(false, false);
+        edit.move_vertical(&layout, true, false);
+        assert_eq!(edit.selection(), 8..8);
     }
 
     #[test]

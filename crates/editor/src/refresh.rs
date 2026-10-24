@@ -384,9 +384,11 @@ impl EditorView {
         let session = self.session;
         let sequence = self.react_reloads.request();
         // The reloaded code may not produce the same layers, unless only the
-        // editor's own write changed it.
+        // editor's own write changed it. Reloading the same composition
+        // otherwise means the file changed outside the editor (File > Reload
+        // commits a text edit before it reloads).
         if !self.selection_keep.requested(sequence, same_composition) {
-            self.clear_layer_selection();
+            self.clear_layer_selection(same_composition);
         }
         cx.spawn(async move |view, cx| {
             let reload = cx
@@ -525,7 +527,7 @@ impl EditorView {
                     }
                 } else {
                     // A layer picked while the reload ran belongs to the old code.
-                    self.clear_layer_selection();
+                    self.clear_layer_selection(false);
                 }
                 self.problems.clear(Source::Preview);
                 self.refresh_preview();

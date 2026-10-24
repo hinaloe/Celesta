@@ -79,6 +79,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 mod element_edit;
 mod element_rows;
 mod held_scene;
+mod inline_text_view;
 
 #[test]
 fn background_workers_coalesce_queued_requests() {

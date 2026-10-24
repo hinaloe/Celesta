@@ -2,6 +2,7 @@ use crate::actions::{
     CloseWindow, CreateNewProject, OpenProject, ReloadProject, SetUpTypeScript,
     SetUpTypeScriptInFolder,
 };
+use crate::inline_text_view::EditEvent;
 use crate::problems::{Source, error_chain};
 use crate::source::load_source;
 use crate::view::EditorView;
@@ -33,6 +34,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.end_inline_text(EditEvent::ProjectCommand, cx);
         self.request_create_project(window, cx);
     }
 
@@ -276,6 +278,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.end_inline_text(EditEvent::ProjectCommand, cx);
         self.request_open(window, cx);
     }
 
@@ -334,6 +337,8 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Committed first, so the reload is not an outside change to it.
+        self.end_inline_text(EditEvent::ProjectCommand, cx);
         if self.is_react_preview() {
             self.request_react_reload(cx);
             cx.notify();
@@ -463,8 +468,9 @@ impl EditorView {
         &mut self,
         _: &CloseWindow,
         window: &mut Window,
-        _: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
+        self.end_inline_text(EditEvent::ProjectCommand, cx);
         window.remove_window();
     }
 
@@ -536,9 +542,13 @@ impl EditorView {
     /// Swaps in a freshly opened view while keeping the window-owned UI state
     /// (focus, pane sizes, menu bar, and the preview volume).
     pub(crate) fn replace_contents(&mut self, mut next: EditorView, cx: &mut Context<Self>) {
+        // A text edited meanwhile belongs to the file going away.
+        self.inline_text_selection_cleared(false);
+        next.inline_refocus = self.inline_refocus;
         next.session = self.session.wrapping_add(1);
         next.focus_handle = self.focus_handle.take();
         next.master_volume_focus = self.master_volume_focus.take();
+        next.inline_text_focus = self.inline_text_focus.take();
         next.dock_split = self.dock_split.take();
         next.body_split = self.body_split.take();
         #[cfg(not(target_os = "macos"))]
