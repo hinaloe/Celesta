@@ -33,7 +33,8 @@ use crate::transform_drag::{
     DragState, HANDLE_SIZE, NO_AFFINE_FRAME, PivotFallback, ROTATE_STEM,
 };
 use crate::transform_handles::{
-    Handle, PivotMode, anchor_handle, pivot_cross, rotate_stem, shown_handles,
+    Handle, PivotMode, Resize, ResizeTool, anchor_handle, pivot_cross, rotate_stem,
+    shown_handles,
 };
 use crate::view::EditorView;
 use celesta_gpu_renderer::LayerFrame;
@@ -85,15 +86,15 @@ impl EditorView {
         let dashed = matches!(drag_state, DragState::Locked(..));
         let handle_fill = cx.theme().background;
         let editable_frame = match &drag_state {
-            DragState::Editable(frame, editable, pivot) => {
-                Some((frame.clone(), editable.clone(), *pivot))
+            DragState::Editable(frame, editable, pivot, resize) => {
+                Some((frame.clone(), editable.clone(), *pivot, resize.clone()))
             }
             _ => None,
         };
         // The pivot cross of every selected layer with a frame, and whether
         // Alt drags it.
         let cross = match &drag_state {
-            DragState::Editable(frame, editable, _) => Some((
+            DragState::Editable(frame, editable, ..) => Some((
                 pivot_cross(frame),
                 anchor_handle(frame, editable).is_some(),
             )),
@@ -119,7 +120,7 @@ impl EditorView {
         };
         let label = self.transform_drag_label().and_then(|label| {
             let bounds = last_bounds?;
-            let (frame, _, _) = editable_frame.as_ref()?;
+            let (frame, ..) = editable_frame.as_ref()?;
             Some((outline_box(bounds, frame_size, frame)?, label))
         });
         // A locked anchor (`anchorY="baseline"`): the cross says why it stays.
@@ -153,9 +154,11 @@ impl EditorView {
                     move |bounds, window, _| {
                         viewer_bounds.set(Some(bounds));
                         // Each handle's square, with a hitbox for its cursor.
-                        let handles = editable_frame.and_then(|(frame, editable, pivot)| {
-                            place_handles(bounds, frame_size, &frame, &editable, pivot, window)
-                        });
+                        let handles =
+                            editable_frame.and_then(|(frame, editable, pivot, resize)| {
+                                let tools = (pivot, resize.as_ref());
+                                place_handles(bounds, frame_size, &frame, &editable, tools, window)
+                            });
                         let cross = cross.and_then(|(at, draggable)| {
                             place_cross(bounds, frame_size, at, draggable, window)
                         });
@@ -602,6 +605,7 @@ impl EditorView {
             )
             .when(self.is_react_preview() && self.interactive, |bar| {
                 bar.child(self.pivot_toggle(cx))
+                    .child(self.resize_toggle(cx))
             })
             .when(self.is_react_preview(), |bar| {
                 let button = Button::new("toggle-interactive")
@@ -697,6 +701,46 @@ impl EditorView {
     fn set_pivot_mode(&mut self, mode: PivotMode, cx: &mut Context<Self>) {
         if self.pivot_mode != mode {
             self.pivot_mode = mode;
+            cx.notify();
+        }
+    }
+
+    /// "Rect" | "Scale": what the canvas's corner and edge handles do. Shows
+    /// the tool the selected layer's drag uses; a layer without editable size
+    /// props reads "Scale", muted, with the reason in its tooltip, while Rect
+    /// stays chosen for the next one.
+    fn resize_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let (used, fallback) = self.shown_resize_tool();
+        let muted = cx.theme().muted_foreground;
+        let scale_tooltip =
+            fallback.as_ref().map_or("Scale the layer".to_owned(), |fallback| fallback.reason());
+        ButtonGroup::new("resize-tool")
+            .small()
+            .outline()
+            .child(
+                Button::new("resize-rect")
+                    .label("Rect")
+                    .selected(used == ResizeTool::Rect)
+                    .tooltip("Resize the layer's box, keeping the opposite edge")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.set_resize_tool(ResizeTool::Rect, cx);
+                    })),
+            )
+            .child(
+                Button::new("resize-scale")
+                    .label("Scale")
+                    .selected(used == ResizeTool::Scale)
+                    .when(fallback.is_some(), |button| button.text_color(muted))
+                    .tooltip(scale_tooltip)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.set_resize_tool(ResizeTool::Scale, cx);
+                    })),
+            )
+    }
+
+    fn set_resize_tool(&mut self, tool: ResizeTool, cx: &mut Context<Self>) {
+        if self.resize_tool != tool {
+            self.resize_tool = tool;
             cx.notify();
         }
     }
@@ -1112,19 +1156,20 @@ fn cross_box(bounds: Bounds<Pixels>, frame_size: (f32, f32), at: Point) -> Optio
     Some(Bounds::new(square.origin - bounds.origin, square.size))
 }
 
-/// Places the handles `editable` allows on the frame fitted into `bounds`.
+/// Places the handles `editable` allows on the frame fitted into `bounds`,
+/// for the pivot mode and the Rect tool in use.
 fn place_handles(
     bounds: Bounds<Pixels>,
     frame_size: (f32, f32),
     frame: &LayerFrame,
     editable: &[crate::element_edit::PropKey],
-    pivot: PivotMode,
+    (pivot, resize): (PivotMode, Option<&Resize>),
     window: &mut Window,
 ) -> Option<PlacedHandles> {
     let (left, top, scale) = letterbox(bounds, frame_size)?;
     let on_viewer = |p: Point| point(px(left + p.x as f32 * scale), px(top + p.y as f32 * scale));
     let stem = f64::from(ROTATE_STEM / scale);
-    let squares = shown_handles(frame, editable, stem, pivot)
+    let squares = shown_handles(frame, editable, stem, pivot, resize)
         .into_iter()
         .filter_map(|(handle, at)| {
             let square = handle_square(bounds, frame_size, at)?;

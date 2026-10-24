@@ -4505,7 +4505,8 @@ fn a_text_s_anchor_box_is_its_layout_box() {
         return;
     };
     let mut scene = empty_scene(800, 800);
-    // A stroke pads the texture past the layout box on every side.
+    // A stroke pads the texture past the layout box on its left and right;
+    // a single line's box keeps the stroked rows, so not above or below.
     let stroked = |id: &str, rotation: f64| {
         let mut text = text_layer(id, Point { x: 100.0, y: 50.0 }, 1.0, 24.0);
         text.transform.rotation = rotation;

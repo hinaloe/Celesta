@@ -75,17 +75,6 @@ pub(crate) fn anchor_box(frame: &LayerFrame) -> Option<LocalBox> {
     own_box(frame, frame.anchor_box?)
 }
 
-/// The anchor the anchor box puts the layer's anchor point at, in fractions
-/// of the box: own pixels are relative to that point, so it is where 0 is.
-pub(crate) fn anchor_in_box(frame: &LayerFrame) -> Option<Point> {
-    let local = anchor_box(frame)?;
-    let size = local.size();
-    (size.x.abs() > 1e-9 && size.y.abs() > 1e-9).then(|| Point {
-        x: -local.min.x / size.x,
-        y: -local.min.y / size.y,
-    })
-}
-
 /// `@celesta/shapes` primitives sized by `radius`: their box is `2 * radius`
 /// square.
 const RADIUS_SHAPES: [&str; 4] = ["Circle", "Polygon", "Star", "Pie"];
@@ -101,7 +90,9 @@ const SIZED_SHAPES: [&str; 4] = ["Rect", "Ellipse", "Triangle", "Heart"];
 ///   by its position alone: none;
 /// - a shape (and a `<Rect>`, which can be drawn as a group) puts its anchor
 ///   at `anchorX`, `anchorY` (0 when not passed, as every one defaults) of its
-///   `width` x `height` (or `2 * radius`) box;
+///   `width` x `height` (or `2 * radius`) box; `transform.anchor` becomes
+///   that anchor too, as the layer drawing a shape's path has an anchor of
+///   its own that places nothing (`layer_map` never reads it);
 /// - anything else keeps the renderer's: a text's layout box, a rect's,
 ///   image's or video's quad, none for a path.
 pub(crate) fn with_anchor_box(
@@ -134,6 +125,7 @@ pub(crate) fn with_anchor_box(
             };
             apply(&frame.parent, apply(&map, local))
         }));
+        frame.transform.anchor = Point { x: ax, y: ay };
     }
     frame
 }
@@ -359,6 +351,14 @@ mod tests {
         .expect("a box");
         assert_near(ellipse.min, at(-50.0, 0.0));
         assert_near(ellipse.max, at(50.0, 50.0));
+        // Its anchor is the props', not the one of the layer drawing its path.
+        let mut centered = path.clone();
+        centered.transform.anchor = at(0.5, 0.5);
+        let shape = received(&[("width", 100.0), ("height", 50.0), ("anchorX", 0.25)]);
+        assert_eq!(
+            with_anchor_box(centered, "Ellipse", &shape).transform.anchor,
+            at(0.25, 0.0)
+        );
         // `<Circle>` and the radius shapes against `2 * radius`.
         let circle = anchored("Circle", &[("radius", 30.0), ("anchorY", 1.0)]).expect("a box");
         assert_near(circle.min, at(0.0, -60.0));

@@ -3,18 +3,20 @@
 //! runs, and the one write on release.
 
 use crate::element_edit::{
-    ElementTargets, PropKey, TransformProp, editable, inner_target, reason_text,
+    ElementTargets, PropKey, TransformProp, editable, field_of, inner_target, reason_text,
 };
 use crate::canvas_geometry::{anchor_box, local_box, with_anchor_box};
 use crate::layer_select::{letterbox, to_scene};
 use crate::transform_handles::{
-    Handle, PivotMode, anchor_keys, drag_label, drag_values, preview_values, pressed_handle,
-    prop_values, shown_handles, turn,
+    Handle, PivotMode, Resize, ResizeTool, SizeField, SizeProps, anchor_keys, drag_label,
+    drag_values, preview_values, pressed_handle, prop_values, shown_handles, turn,
 };
 use crate::view::EditorView;
 use celesta_composition::Point;
 use celesta_gpu_renderer::LayerFrame;
-use celesta_react_bridge::{LayerSourceReport, PropOverride, ReceivedProps, SourcePos};
+use celesta_react_bridge::{
+    LayerSourceReport, PrimitivePropertyField, PropOverride, ReceivedProps, SourcePos,
+};
 use celesta_source_edit::{EditTarget, EditValue};
 use gpui_kit::{Context, MouseMoveEvent};
 
@@ -38,6 +40,9 @@ pub(crate) struct TransformDrag {
     editable: Vec<PropKey>,
     /// What a rotation or scale turns about, as used (see `pivot_used`).
     pivot: PivotMode,
+    /// The Rect tool, when the corners and edges resize (see
+    /// `resize_used`); `None` when they scale.
+    resize: Option<Resize>,
     /// The props the runtime saw when the drag started.
     received: ReceivedProps,
     /// Where the runtime takes each editable prop's dragged value, kept from
@@ -71,12 +76,18 @@ impl TransformDrag {
             start,
             editable,
             pivot,
+            resize: None,
             received,
             sites,
             turned: 0.0,
             values: Vec::new(),
             released: false,
         }
+    }
+
+    /// The drag with the Rect tool's `resize` (`None`: the Scale tool).
+    pub(crate) fn with_resize(self, resize: Option<Resize>) -> Self {
+        Self { resize, ..self }
     }
 
     /// Takes the values the pointer made; true when they changed.
@@ -106,6 +117,7 @@ impl TransformDrag {
                 &self.values,
                 &self.received,
                 self.pivot,
+                self.resize.as_ref(),
             ),
         )
     }
@@ -199,8 +211,112 @@ pub(crate) enum DragState {
     /// Every prop is locked; the first reason.
     Locked(LayerFrame, String),
     /// Draggable with these props, rotating and scaling about what the
-    /// `PivotMode` names (the mode used, see `pivot_used`).
-    Editable(LayerFrame, Vec<PropKey>, PivotMode),
+    /// `PivotMode` names (the mode used, see `pivot_used`), and resizing
+    /// with the Rect tool when it is used (see `resize_used`).
+    Editable(LayerFrame, Vec<PropKey>, PivotMode, Option<Resize>),
+}
+
+/// The props that hold the element's box (its table's `size`), each with
+/// its field's bounds, when every one is editable (a literal, a keyframe,
+/// or absent); `None` otherwise, and the Rect tool falls back to Scale.
+pub(crate) fn size_props(targets: &ElementTargets) -> Option<SizeProps> {
+    let table = targets.table.as_ref()?;
+    let size = table.size.as_ref()?;
+    let field = |name: &String| {
+        let key = PropKey::Prop(name.clone());
+        if !targets.target(&key).is_some_and(editable) {
+            return None;
+        }
+        let (min, max, integer) = match field_of(table, name) {
+            Some(PrimitivePropertyField::Number {
+                min, max, integer, ..
+            }) => (*min, *max, integer.unwrap_or(false)),
+            _ => (None, None, false),
+        };
+        Some(SizeField {
+            name: name.clone(),
+            min,
+            max,
+            integer,
+        })
+    };
+    match (&size.width, &size.height, &size.radius) {
+        (_, _, Some(radius)) => Some(SizeProps::Radius(field(radius)?)),
+        (Some(width), Some(height), None) => Some(SizeProps::Box {
+            width: field(width)?,
+            height: field(height)?,
+        }),
+        (Some(width), None, None) => Some(SizeProps::Width(field(width)?)),
+        (None, _, None) => None,
+    }
+}
+
+/// Why a drag of the layer `frame` measures can't use the Rect tool.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ResizeFallback {
+    /// The element has no size props (a `<Group>`).
+    NoSize,
+    /// A size prop is locked: the row and its reason.
+    Locked(String),
+    /// The layer turns in its own perspective: no flat box to resize.
+    NoBox,
+}
+
+impl ResizeFallback {
+    /// The toggle's tooltip for it.
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::NoSize => "No size to resize".to_owned(),
+            Self::Locked(reason) => reason.clone(),
+            Self::NoBox => "No flat box to resize".to_owned(),
+        }
+    }
+}
+
+/// Why a drag of the layer `frame` measures can't use `choice`: the Rect
+/// tool needs editable size props (see `size_props`) and the box they
+/// describe. `None` when it can.
+pub(crate) fn resize_fallback(
+    choice: ResizeTool,
+    targets: &ElementTargets,
+    frame: &LayerFrame,
+) -> Option<ResizeFallback> {
+    if choice == ResizeTool::Scale {
+        return None;
+    }
+    if size_props(targets).is_some() {
+        return anchor_box(frame).is_none().then_some(ResizeFallback::NoBox);
+    }
+    let size = targets.table.as_ref().and_then(|table| table.size.as_ref());
+    let locked = size
+        .into_iter()
+        .flat_map(|size| [&size.width, &size.height, &size.radius])
+        .flatten()
+        .find_map(|name| {
+            let key = PropKey::Prop(name.clone());
+            let EditTarget::Locked(reason) = inner_target(targets.target(&key)?) else {
+                return None;
+            };
+            Some(format!("{}: {}", key.label(), reason_text(reason)))
+        });
+    Some(locked.map_or(ResizeFallback::NoSize, ResizeFallback::Locked))
+}
+
+/// The Rect tool a drag of the layer `frame` measures uses when `choice` is
+/// chosen; `None` (the Scale tool) when it falls back (see
+/// `resize_fallback`) or Scale is chosen.
+pub(crate) fn resize_used(
+    choice: ResizeTool,
+    targets: &ElementTargets,
+    frame: &LayerFrame,
+) -> Option<Resize> {
+    if choice == ResizeTool::Scale || resize_fallback(choice, targets, frame).is_some() {
+        return None;
+    }
+    Some(Resize {
+        props: size_props(targets)?,
+        compensable: compensable(targets),
+    })
 }
 
 /// Whether `x` and `y` can absorb a compensation: `Literal` or `Missing`
@@ -332,18 +448,29 @@ impl EditorView {
             Some(None) => return DragState::NoFrame,
             Some(Some(frame)) => frame.clone(),
         };
+        let resolved = self.element_targets();
+        // The box the source element's anchor refers to, which the drag
+        // keeps with it.
+        let frame = match resolved {
+            Some((_, report)) => with_anchor_box(frame, primitive_of(report), &report.props),
+            None => frame,
+        };
         // While dragging, the props stay those the drag began with; the
         // frame is the one drawn with the overrides, so the handles follow.
         if let Some(drag) = &self.transform_drag {
-            return DragState::Editable(frame, drag.editable.clone(), drag.pivot);
+            return DragState::Editable(
+                frame,
+                drag.editable.clone(),
+                drag.pivot,
+                drag.resize.clone(),
+            );
         }
-        let Some((targets, report)) = self.element_targets() else {
+        let Some((targets, _)) = resolved else {
             return DragState::Unknown;
         };
-        // The box the source element's anchor refers to, which the drag
-        // keeps with it.
-        let frame = with_anchor_box(frame, primitive_of(report), &report.props);
-        let props = drag_props(targets, &frame);
+        let resize = resize_used(self.resize_tool, targets, &frame);
+        let mut props = drag_props(targets, &frame);
+        props.extend(resize.iter().flat_map(Resize::keys));
         if props.is_empty() {
             let reason = TransformProp::ALL
                 .into_iter()
@@ -356,14 +483,36 @@ impl EditorView {
             return DragState::Locked(frame, reason);
         }
         let pivot = pivot_used(self.pivot_mode, targets, &frame);
-        DragState::Editable(frame, props, pivot)
+        DragState::Editable(frame, props, pivot, resize)
+    }
+
+    /// The tool the viewer's Rect/Scale toggle shows: the one a drag of the
+    /// selected layer uses (the chosen one without a draggable selection),
+    /// and why it is not the chosen Rect.
+    pub(crate) fn shown_resize_tool(&self) -> (ResizeTool, Option<ResizeFallback>) {
+        let DragState::Editable(frame, _, _, used) = self.drag_state() else {
+            return (self.resize_tool, None);
+        };
+        if used.is_some() {
+            return (ResizeTool::Rect, None);
+        }
+        // A running drag keeps the tool it started with.
+        let fallback = self
+            .transform_drag
+            .is_none()
+            .then(|| {
+                let (targets, _) = self.element_targets()?;
+                resize_fallback(self.resize_tool, targets, &frame)
+            })
+            .flatten();
+        (ResizeTool::Scale, fallback)
     }
 
     /// The pivot mode the viewer's toggle shows: the one a drag of the
     /// selected layer uses (the chosen one without a draggable selection),
     /// and why it is not the chosen Center.
     pub(crate) fn shown_pivot_mode(&self) -> (PivotMode, Option<PivotFallback>) {
-        let DragState::Editable(frame, _, used) = self.drag_state() else {
+        let DragState::Editable(frame, _, used, _) = self.drag_state() else {
             return (self.pivot_mode, None);
         };
         // A running drag keeps the mode it started with.
@@ -402,7 +551,12 @@ impl EditorView {
     /// The drag's `x 120 → 184` label, once the pointer changed something.
     pub(crate) fn transform_drag_label(&self) -> Option<String> {
         let drag = self.transform_drag.as_ref()?;
-        let label = drag_label(&drag.frame, &drag.values, &drag.received);
+        let label = drag_label(
+            &drag.frame,
+            &drag.values,
+            &drag.received,
+            drag.resize.as_ref(),
+        );
         (!label.is_empty()).then_some(label)
     }
 
@@ -441,7 +595,7 @@ impl EditorView {
         if self.row_scrub_released() {
             return false;
         }
-        let DragState::Editable(frame, editable, pivot) = self.drag_state() else {
+        let DragState::Editable(frame, editable, pivot, resize) = self.drag_state() else {
             return false;
         };
         let Some((received, sites)) = self
@@ -460,7 +614,13 @@ impl EditorView {
             return false;
         };
         let scale = f64::from(scale);
-        let shown = shown_handles(&frame, &editable, f64::from(ROTATE_STEM) / scale, pivot);
+        let shown = shown_handles(
+            &frame,
+            &editable,
+            f64::from(ROTATE_STEM) / scale,
+            pivot,
+            resize.as_ref(),
+        );
         let reach = f64::from(HANDLE_REACH) / scale;
         let handle = match pressed_handle(&frame, &shown, &editable, start, reach, alt) {
             Some(Handle::Move)
@@ -477,9 +637,10 @@ impl EditorView {
         if self.row_scrub_active() {
             self.cancel_row_scrub();
         }
-        self.transform_drag = Some(TransformDrag::new(
-            frame, handle, start, editable, pivot, received, sites,
-        ));
+        self.transform_drag = Some(
+            TransformDrag::new(frame, handle, start, editable, pivot, received, sites)
+                .with_resize(resize),
+        );
         true
     }
 
@@ -515,6 +676,7 @@ impl EditorView {
             drag.turned,
             &drag.editable,
             drag.pivot,
+            drag.resize.as_ref(),
         );
         if drag.handle == Handle::Rotate
             && let Some(turned) = turn(&drag.frame, drag.pivot, drag.start, now, drag.turned)
@@ -535,7 +697,12 @@ impl EditorView {
         };
         // Back where it started (or never moved): nothing to write, and no
         // history entry.
-        let values = prop_values(&drag.frame, &drag.values, &drag.received);
+        let values = prop_values(
+            &drag.frame,
+            &drag.values,
+            &drag.received,
+            drag.resize.as_ref(),
+        );
         if values.is_empty() {
             self.cancel_transform_drag();
             return true;
@@ -612,9 +779,12 @@ mod tests {
     use crate::canvas_geometry::{box_frame, with_anchor_box};
     use crate::edit_history::{EditHistory, HistoryEntry, write_all_recorded};
     use crate::element_edit::{Target, commit_files, resolve_targets};
-    use crate::transform_handles::anchor_handle;
+    use crate::transform_handles::{SizeField, SizeProps, anchor_handle};
     use celesta_composition::EvaluatedTransform;
-    use celesta_react_bridge::{ElementKind, LayerSource};
+    use celesta_react_bridge::{
+        ElementKind, LayerSource, PrimitivePropertyField, PrimitivePropertyGroup,
+        PrimitivePropertyRow, PrimitivePropertyTable, PrimitiveSize,
+    };
     use celesta_source_edit::{EditValue, ElementRef, LiteralForm, LockReason, Span};
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -707,6 +877,7 @@ mod tests {
                 TransformProp::Rotation.key(),
             ],
             pivot,
+            None,
         );
         assert_eq!(values.len(), 1, "{values:?}");
         assert_eq!(values[0].0, TransformProp::Rotation.key());
@@ -740,6 +911,173 @@ mod tests {
         assert_eq!(
             pivot_used(PivotMode::Pivot, &with_x(literal(40.0)), &frame),
             PivotMode::Pivot
+        );
+    }
+
+    fn number(min: Option<f64>) -> PrimitivePropertyRow {
+        PrimitivePropertyRow {
+            key: String::new(),
+            field: PrimitivePropertyField::Number {
+                default_value: None,
+                min,
+                max: None,
+                step: None,
+                integer: None,
+            },
+            required: false,
+        }
+    }
+
+    /// `rows` with a table whose `size` names `size` (width, height,
+    /// radius) and whose Size section declares `fields` (name, min).
+    fn sized(
+        rows: Vec<(&str, EditTarget)>,
+        size: [Option<&str>; 3],
+        fields: &[(&str, Option<f64>)],
+    ) -> ElementTargets {
+        let [width, height, radius] = size.map(|name| name.map(str::to_owned));
+        let mut targets = targets(rows);
+        targets.table = Some(PrimitivePropertyTable {
+            size: Some(PrimitiveSize {
+                width,
+                height,
+                radius,
+            }),
+            groups: vec![PrimitivePropertyGroup {
+                name: "Size".to_owned(),
+                fields: fields
+                    .iter()
+                    .map(|(name, min)| PrimitivePropertyRow {
+                        key: (*name).to_owned(),
+                        ..number(*min)
+                    })
+                    .collect(),
+            }],
+        });
+        targets
+    }
+
+    fn missing() -> EditTarget {
+        EditTarget::Missing {
+            insert_at: 0,
+            default: None,
+        }
+    }
+
+    fn size_field(name: &str, min: Option<f64>) -> SizeField {
+        SizeField {
+            name: name.to_owned(),
+            min,
+            max: None,
+            integer: false,
+        }
+    }
+
+    #[test]
+    fn size_props_read_the_table() {
+        let rect = sized(
+            vec![
+                ("x", literal(40.0)),
+                ("width", literal(100.0)),
+                ("height", missing()),
+            ],
+            [Some("width"), Some("height"), None],
+            &[("width", Some(1.0)), ("height", None)],
+        );
+        assert_eq!(
+            size_props(&rect),
+            Some(SizeProps::Box {
+                width: size_field("width", Some(1.0)),
+                height: size_field("height", None),
+            })
+        );
+        let circle = sized(
+            vec![("radius", literal(30.0))],
+            [None, None, Some("radius")],
+            &[("radius", Some(0.0))],
+        );
+        assert_eq!(
+            size_props(&circle),
+            Some(SizeProps::Radius(size_field("radius", Some(0.0))))
+        );
+        // A keyframed size is written at its keyframe.
+        let text = sized(
+            vec![(
+                "maxWidth",
+                EditTarget::Keyframe {
+                    span: Span { start: 0, end: 1 },
+                    value: 300.0,
+                    frame: 0.0,
+                },
+            )],
+            [Some("maxWidth"), None, None],
+            &[("maxWidth", Some(0.0))],
+        );
+        assert_eq!(
+            size_props(&text),
+            Some(SizeProps::Width(size_field("maxWidth", Some(0.0))))
+        );
+
+        // The Rect tool on a layer with a box: its sizes join the drag, and
+        // x/y compensate when they can.
+        let frame = rect_frame();
+        let resize = resize_used(ResizeTool::Rect, &rect, &frame).expect("the Rect tool");
+        assert!(!resize.compensable, "y has no row");
+        assert_eq!(resize_fallback(ResizeTool::Rect, &rect, &frame), None);
+        assert_eq!(resize_used(ResizeTool::Scale, &rect, &frame), None);
+    }
+
+    #[test]
+    fn locked_size_falls_back_to_scale() {
+        let rect = sized(
+            vec![
+                ("width", literal(100.0)),
+                (
+                    "height",
+                    EditTarget::Locked(LockReason::Expression {
+                        source: "h".to_owned(),
+                    }),
+                ),
+            ],
+            [Some("width"), Some("height"), None],
+            &[("width", None), ("height", None)],
+        );
+        let frame = rect_frame();
+        assert_eq!(size_props(&rect), None);
+        assert_eq!(resize_used(ResizeTool::Rect, &rect, &frame), None);
+        let fallback = resize_fallback(ResizeTool::Rect, &rect, &frame).expect("a fallback");
+        assert_eq!(fallback.reason(), "Height: Written as an expression: h");
+        // Scale chosen falls back from nothing.
+        assert_eq!(resize_fallback(ResizeTool::Scale, &rect, &frame), None);
+    }
+
+    #[test]
+    fn no_size_falls_back_to_scale() {
+        let frame = rect_frame();
+        // A `<Group>`'s table names no size; without a table there is none.
+        let mut group = sized(vec![("x", literal(40.0))], [None, None, None], &[]);
+        group.table.as_mut().unwrap().size = None;
+        for targets in [group, with_x(literal(40.0))] {
+            assert_eq!(size_props(&targets), None);
+            assert_eq!(resize_used(ResizeTool::Rect, &targets, &frame), None);
+            assert_eq!(
+                resize_fallback(ResizeTool::Rect, &targets, &frame),
+                Some(ResizeFallback::NoSize)
+            );
+        }
+        // Nor without a flat box to resize.
+        let rect = sized(
+            vec![("width", literal(100.0)), ("height", literal(50.0))],
+            [Some("width"), Some("height"), None],
+            &[],
+        );
+        let mut tilted = frame.clone();
+        tilted.transform.rotation_y = 30.0;
+        tilted.transform.perspective = Some(800.0);
+        assert_eq!(resize_used(ResizeTool::Rect, &rect, &tilted), None);
+        assert_eq!(
+            resize_fallback(ResizeTool::Rect, &rect, &tilted),
+            Some(ResizeFallback::NoBox)
         );
     }
 
@@ -916,8 +1254,9 @@ mod tests {
             0.0,
             &editable,
             pivot,
+            None,
         );
-        let values: Vec<_> = prop_values(&frame, &values, &report.props)
+        let values: Vec<_> = prop_values(&frame, &values, &report.props, None)
             .into_iter()
             .map(|(key, value)| (key, Some(EditValue::Number(value))))
             .collect();

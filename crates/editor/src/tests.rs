@@ -1387,6 +1387,7 @@ fn drag_values_move_inside_a_parent_scaled_by_two_halves_the_delta() {
         0.0,
         &UNIFORM,
         PivotMode::Pivot,
+        None,
     );
     assert_values(
         &values,
@@ -1410,6 +1411,7 @@ fn drag_values_move_with_y_locked_changes_only_x() {
         0.0,
         &editable,
         PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[(TransformProp::X, 15.0)]);
 }
@@ -1427,6 +1429,7 @@ fn drag_values_rotate_turns_about_the_anchor_and_snaps_with_shift() {
         0.0,
         &UNIFORM,
         PivotMode::Pivot,
+        None,
     );
     assert_values(&free, &[(TransformProp::Rotation, 37.0)]);
     let snapped = drag_values(
@@ -1437,6 +1440,7 @@ fn drag_values_rotate_turns_about_the_anchor_and_snaps_with_shift() {
         0.0,
         &UNIFORM,
         PivotMode::Pivot,
+        None,
     );
     assert_values(&snapped, &[(TransformProp::Rotation, 30.0)]);
 }
@@ -1456,6 +1460,7 @@ fn drag_values_rotate_snaps_the_resulting_angle() {
         0.0,
         &UNIFORM,
         PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[(TransformProp::Rotation, 30.0)]);
 }
@@ -1473,6 +1478,7 @@ fn drag_values_corner_with_uniform_scale_keeps_the_aspect() {
         0.0,
         &UNIFORM,
         PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[(TransformProp::Scale, 4.0)]);
     // Off the diagonal: one ratio, the projection on it.
@@ -1484,6 +1490,7 @@ fn drag_values_corner_with_uniform_scale_keeps_the_aspect() {
         0.0,
         &UNIFORM,
         PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[(TransformProp::Scale, 2.0 * 24000.0 / 12500.0)]);
 }
@@ -1499,6 +1506,7 @@ fn drag_values_corner_with_per_axis_scale_scales_each_axis() {
         0.0,
         &PER_AXIS,
         PivotMode::Pivot,
+        None,
     );
     assert_values(
         &values,
@@ -1517,6 +1525,7 @@ fn drag_values_edge_changes_only_scale_x() {
         0.0,
         &PER_AXIS,
         PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[(TransformProp::ScaleX, 1.5)]);
 }
@@ -1534,6 +1543,7 @@ fn drag_values_scale_in_the_layers_rotated_axes() {
         0.0,
         &PER_AXIS,
         PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[(TransformProp::ScaleX, 3.0)]);
 }
@@ -1549,6 +1559,7 @@ fn drag_values_corner_on_the_anchor_leaves_the_scale() {
         0.0,
         &UNIFORM,
         PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[]);
 }
@@ -1603,7 +1614,7 @@ fn transform_drag_props() {
         ..ReceivedProps::default()
     };
     assert_eq!(
-        prop_values(&frame, &values, &props),
+        prop_values(&frame, &values, &props, None),
         keyed(&[
             (TransformProp::X, 130.0),
             (TransformProp::Rotation, 15.0),
@@ -1613,11 +1624,11 @@ fn transform_drag_props() {
     // The label shows what is written: the received values, not the
     // transform's.
     assert_eq!(
-        drag_label(&frame, &values, &props),
+        drag_label(&frame, &values, &props, None),
         "x 110 → 130  rotation 0 → 15  scale 4 → 6"
     );
     assert_eq!(
-        drag_label(&frame, &values, &ReceivedProps::default()),
+        drag_label(&frame, &values, &ReceivedProps::default(), None),
         "x 10 → 30  rotation 0 → 15  scale 2 → 3"
     );
 }
@@ -1638,10 +1649,11 @@ fn transform_drag_back_at_the_start_writes_nothing() {
         0.0,
         &UNIFORM,
         PivotMode::Pivot,
+        None,
     );
     assert_eq!(values.len(), 2);
-    assert!(prop_values(&frame, &values, &props).is_empty());
-    assert_eq!(drag_label(&frame, &values, &props), "");
+    assert!(prop_values(&frame, &values, &props, None).is_empty());
+    assert_eq!(drag_label(&frame, &values, &props, None), "");
     // Only the changed axis is written.
     let values = drag_values(
         &frame,
@@ -1651,9 +1663,10 @@ fn transform_drag_back_at_the_start_writes_nothing() {
         0.0,
         &UNIFORM,
         PivotMode::Pivot,
+        None,
     );
     assert_eq!(
-        prop_values(&frame, &values, &props),
+        prop_values(&frame, &values, &props, None),
         keyed(&[(TransformProp::X, 14.0)])
     );
 }
@@ -1680,6 +1693,7 @@ fn drag_values_rotation_keeps_counting_past_a_half_turn() {
         170.0,
         &UNIFORM,
         PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[(TransformProp::Rotation, 190.0)]);
     // From a fresh start the same pointer is the short way round.
@@ -1691,12 +1705,13 @@ fn drag_values_rotation_keeps_counting_past_a_half_turn() {
         0.0,
         &UNIFORM,
         PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[(TransformProp::Rotation, -170.0)]);
 }
 
 fn shown(frame: &LayerFrame, editable: &[PropKey]) -> Vec<Handle> {
-    shown_handles(frame, editable, 20.0, PivotMode::Pivot)
+    shown_handles(frame, editable, 20.0, PivotMode::Pivot, None)
         .into_iter()
         .map(|(handle, _)| handle)
         .collect()
@@ -2035,6 +2050,7 @@ fn a_drag_overrides_nothing_before_the_pointer_moves_or_while_playing() {
         0.0,
         &editable,
         PivotMode::Pivot,
+        None,
     );
     assert!(drag.follow(values.clone()));
     assert!(!drag.follow(values));
@@ -2057,6 +2073,7 @@ fn each_handle_previews_every_prop_it_changes() {
             &keyed(values),
             &received,
             PivotMode::Pivot,
+            None,
         )
     };
     // Unchanged props keep the value the runtime saw, or the frame's.
@@ -2117,6 +2134,7 @@ fn a_move_drag_overrides_both_axes_from_its_first_frame() {
             0.0,
             &editable,
             PivotMode::Pivot,
+            None,
         );
         prop_overrides(
             &sites,
@@ -2127,6 +2145,7 @@ fn a_move_drag_overrides_both_axes_from_its_first_frame() {
                 &values,
                 &received,
                 PivotMode::Pivot,
+                None,
             ),
         )
     };

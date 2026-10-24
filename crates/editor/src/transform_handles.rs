@@ -11,14 +11,147 @@
 //! for the layers that deviate (an `<Instances>`, whose x, y and rotation are
 //! its particles').
 
-use crate::canvas_geometry::{
-    anchor_box, anchor_in_box, apply, keep_fixed, layer_map, local_box, pivot,
-};
+use crate::canvas_geometry::{anchor_box, apply, keep_fixed, layer_map, local_box, pivot};
 use crate::element_edit::{PropKey, TransformProp, received_number};
 use celesta_composition::{EvaluatedTransform, Point};
 use celesta_gpu_renderer::{LayerFrame, invert_affine};
 use celesta_react_bridge::ReceivedProps;
 use celesta_source_edit::format_number;
+
+/// What the corner and edge handles do, as the viewer's toggle chose it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) enum ResizeTool {
+    /// Change the props that hold the box (`width`, `height`, `radius`, a
+    /// text's `maxWidth`), keeping the opposite edge where it is.
+    #[default]
+    Rect,
+    /// Scale the layer (`scale`, or `scaleX`/`scaleY`).
+    Scale,
+}
+
+/// A size prop and the bounds its table field declares.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct SizeField {
+    pub(crate) name: String,
+    pub(crate) min: Option<f64>,
+    pub(crate) max: Option<f64>,
+    /// Only whole numbers.
+    pub(crate) integer: bool,
+}
+
+impl SizeField {
+    pub(crate) fn key(&self) -> PropKey {
+        PropKey::Prop(self.name.clone())
+    }
+
+    /// The smallest value a drag gives: the declared minimum, and never
+    /// below `smallest` (the value of a box one own pixel across), so no
+    /// drag collapses or flips the box.
+    fn low(&self, smallest: f64) -> f64 {
+        self.min.map_or(smallest, |min| min.max(smallest))
+    }
+
+    fn high(&self) -> f64 {
+        self.max.unwrap_or(f64::INFINITY)
+    }
+
+    /// `value` inside [`low`](Self::low) and the maximum, whole with
+    /// `integer`.
+    fn clamp(&self, value: f64, smallest: f64) -> f64 {
+        let (low, high) = (self.low(smallest), self.high());
+        if self.integer {
+            value.round().max(low.ceil()).min(high.floor())
+        } else {
+            value.max(low).min(high)
+        }
+    }
+}
+
+/// The props that hold an element's box (its table's `size`).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum SizeProps {
+    /// `width` x `height`: the corners change both, the edges one.
+    Box { width: SizeField, height: SizeField },
+    /// A `2 * radius` square: the corners only, uniformly.
+    Radius(SizeField),
+    /// A width alone (a text's `maxWidth`): the left and right edges.
+    Width(SizeField),
+}
+
+/// The Rect tool on the selected layer: the props that hold its box, and
+/// whether `x`/`y` can move it so the opposite edge stays (see
+/// `compensable`).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Resize {
+    pub(crate) props: SizeProps,
+    pub(crate) compensable: bool,
+}
+
+impl Resize {
+    fn fields(&self) -> Vec<&SizeField> {
+        match &self.props {
+            SizeProps::Box { width, height } => vec![width, height],
+            SizeProps::Radius(field) | SizeProps::Width(field) => vec![field],
+        }
+    }
+
+    /// The size props, which a drag of this layer may change.
+    pub(crate) fn keys(&self) -> Vec<PropKey> {
+        self.fields().into_iter().map(SizeField::key).collect()
+    }
+
+    /// The box's axes (x, y) a drag of `handle` resizes; `None` for a handle
+    /// the box has none of (a radius's edges, a width's corners).
+    fn axes(&self, handle: Handle) -> Option<(bool, bool)> {
+        match (&self.props, handle) {
+            (SizeProps::Box { .. } | SizeProps::Radius(_), Handle::Corner(_)) => Some((true, true)),
+            (SizeProps::Box { .. }, Handle::Edge(i)) => Some((i % 2 == 1, i % 2 == 0)),
+            (SizeProps::Width(_), Handle::Edge(1 | 3)) => Some((true, false)),
+            _ => None,
+        }
+    }
+
+    /// The size props a drag of `handle` changes.
+    fn handle_keys(&self, handle: Handle) -> Vec<PropKey> {
+        let Some((x, y)) = self.axes(handle) else {
+            return Vec::new();
+        };
+        match &self.props {
+            SizeProps::Box { width, height } => [x.then(|| width.key()), y.then(|| height.key())]
+                .into_iter()
+                .flatten()
+                .collect(),
+            SizeProps::Radius(field) | SizeProps::Width(field) => vec![field.key()],
+        }
+    }
+
+    /// The value `key` had when the drag started: what the box the size
+    /// props describe (`anchor_box`) measures. `None` for any other prop.
+    fn start(&self, frame: &LayerFrame, key: &PropKey) -> Option<f64> {
+        let size = anchor_box(frame)?.size();
+        match &self.props {
+            SizeProps::Box { width, .. } if width.key() == *key => Some(size.x),
+            SizeProps::Box { height, .. } if height.key() == *key => Some(size.y),
+            SizeProps::Radius(field) if field.key() == *key => Some(size.x / 2.0),
+            SizeProps::Width(field) if field.key() == *key => Some(size.x),
+            _ => None,
+        }
+    }
+
+    /// Whether `key` is written as the new box's width itself, whatever the
+    /// runtime saw: a text's `maxWidth`, which its box is (or, unset, its
+    /// measured width).
+    fn absolute(&self, key: &PropKey) -> bool {
+        matches!(&self.props, SizeProps::Width(field) if field.key() == *key)
+    }
+}
+
+/// `value` as the source will hold it (`format_number`'s rounding): what
+/// a compensation is computed from, so the reloaded layer lands where the
+/// preview drew it.
+fn as_written(value: f64) -> f64 {
+    format_number(value).parse().unwrap_or(value)
+}
 
 /// What a rotation or scale drag turns about.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -226,7 +359,9 @@ pub(crate) fn turn(
 /// keeps the turning point in place, in one ratio for a uniform `Scale`.
 /// Both turn about the point `pivot` names (the mode the drag uses, Center
 /// only when `x`/`y` can compensate); in Center mode `x`/`y` follow so the
-/// box's center stays where it was.
+/// box's center stays where it was. With `resize` (the Rect tool) the
+/// corners and edges change the size props instead (see `resize_values`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn drag_values(
     frame: &LayerFrame,
     handle: Handle,
@@ -235,6 +370,7 @@ pub(crate) fn drag_values(
     previous_turn: f64,
     editable: &[PropKey],
     pivot: PivotMode,
+    resize: Option<&Resize>,
 ) -> Vec<(PropKey, f64)> {
     let pointer = (start, now);
     let Some(inverse) = invert_affine(frame.parent) else {
@@ -243,6 +379,15 @@ pub(crate) fn drag_values(
     let (start, now) = (apply(&inverse, start), apply(&inverse, now));
     let transform = &frame.transform;
     let can = |prop: TransformProp| editable.contains(&prop.key());
+    if let (Some(resize), Handle::Corner(_) | Handle::Edge(_)) = (resize, handle) {
+        return resize_values(frame, handle, (start, now), shift, editable, resize);
+    }
+    // Center mode: the box center stays, so `x`/`y` are computed from the
+    // values as written.
+    let centered = can(TransformProp::X)
+        && can(TransformProp::Y)
+        && kept_center(frame, pivot).is_some();
+    let written = |value: f64| if centered { as_written(value) } else { value };
     let mut values = Vec::new();
     let mut push = |prop: TransformProp, value: f64| values.push((prop.key(), value));
     // The props after the drag, with the old position.
@@ -267,6 +412,7 @@ pub(crate) fn drag_values(
                 if shift {
                     rotation = (rotation / SNAP_DEGREES).round() * SNAP_DEGREES;
                 }
+                let rotation = written(rotation);
                 push(TransformProp::Rotation, rotation);
                 after.rotation = rotation;
             }
@@ -288,7 +434,7 @@ pub(crate) fn drag_values(
                 let length = from.x * from.x + from.y * from.y;
                 if length > 1e-9 {
                     let ratio = ((to.x * from.x + to.y * from.y) / length).max(MIN_SCALE_RATIO);
-                    let scale = transform.scale.x * ratio;
+                    let scale = written(transform.scale.x * ratio);
                     push(TransformProp::Scale, scale);
                     after.scale = Point { x: scale, y: scale };
                 }
@@ -304,14 +450,14 @@ pub(crate) fn drag_values(
                     && can(TransformProp::ScaleX)
                     && let Some(ratio) = ratio(from.x, to.x)
                 {
-                    after.scale.x = transform.scale.x * ratio;
+                    after.scale.x = written(transform.scale.x * ratio);
                     push(TransformProp::ScaleX, after.scale.x);
                 }
                 if y_axis
                     && can(TransformProp::ScaleY)
                     && let Some(ratio) = ratio(from.y, to.y)
                 {
-                    after.scale.y = transform.scale.y * ratio;
+                    after.scale.y = written(transform.scale.y * ratio);
                     push(TransformProp::ScaleY, after.scale.y);
                 }
             }
@@ -343,10 +489,9 @@ fn anchor_values(
 ) -> Vec<(PropKey, f64)> {
     let transform = &frame.transform;
     let map = layer_map(transform);
-    let (Some(_), Some(local), Some(anchor), Some(inverse)) = (
+    let (Some(_), Some(local), Some(inverse)) = (
         anchor_handle(frame, editable),
         anchor_box(frame),
-        anchor_in_box(frame),
         invert_affine(map),
     ) else {
         return Vec::new();
@@ -356,26 +501,187 @@ fn anchor_values(
         return Vec::new();
     }
     let (from, to) = (apply(&inverse, start), apply(&inverse, now));
-    let moved = Point {
-        x: (to.x - from.x) / size.x,
-        y: (to.y - from.y) / size.y,
+    // The anchor as written: the props' (see `with_anchor_box`).
+    let anchor = Point {
+        x: as_written(transform.anchor.x + (to.x - from.x) / size.x),
+        y: as_written(transform.anchor.y + (to.y - from.y) / size.y),
     };
-    // Own pixels are relative to the anchor point, so every point of the box
-    // moves by the opposite offset; keep its top-left corner where it is.
-    // The anchor is not part of the map, so the props after are the same.
-    let corner = local.min;
+    // Own pixels are relative to the anchor point, so the box's top-left
+    // corner moves to `-anchor` of it; keep that corner where it is. The
+    // anchor is not part of the map, so the props after are the same.
     let corner_after = Point {
-        x: corner.x - moved.x * size.x,
-        y: corner.y - moved.y * size.y,
+        x: -anchor.x * size.x,
+        y: -anchor.y * size.y,
     };
-    let position = keep_fixed(transform, corner_after, apply(&map, corner));
+    let position = keep_fixed(transform, corner_after, apply(&map, local.min));
     let [anchor_x, anchor_y] = anchor_keys();
     vec![
-        (anchor_x, anchor.x + moved.x),
-        (anchor_y, anchor.y + moved.y),
+        (anchor_x, anchor.x),
+        (anchor_y, anchor.y),
         (TransformProp::X.key(), position.x),
         (TransformProp::Y.key(), position.y),
     ]
+}
+
+/// Where `handle` sits on the box, in fractions of it (see
+/// `LocalBox::at`): 0 its left or top, 1 its right or bottom, `None` along
+/// an edge (its middle).
+fn handle_fractions(handle: Handle) -> (Option<f64>, Option<f64>) {
+    match handle {
+        // The outline's order: top-left, top-right, bottom-right,
+        // bottom-left.
+        Handle::Corner(i) => (
+            Some(if matches!(i, 1 | 2) { 1.0 } else { 0.0 }),
+            Some(if i >= 2 { 1.0 } else { 0.0 }),
+        ),
+        Handle::Edge(0) => (None, Some(0.0)),
+        Handle::Edge(1) => (Some(1.0), None),
+        Handle::Edge(2) => (None, Some(1.0)),
+        Handle::Edge(3) => (Some(0.0), None),
+        _ => (None, None),
+    }
+}
+
+/// The fractions of the box (x, y) a resize by `handle` keeps where they
+/// are: the opposite edge on each axis it changes, `None` on one it doesn't.
+fn kept_fractions(handle: Handle, resize: &Resize) -> (Option<f64>, Option<f64>) {
+    let (x, y) = resize.axes(handle).unwrap_or_default();
+    let (hx, hy) = handle_fractions(handle);
+    (
+        hx.filter(|_| x).map(|h| 1.0 - h),
+        hy.filter(|_| y).map(|h| 1.0 - h),
+    )
+}
+
+/// Whether a resize by `handle` moves the layer's anchor point: the edge it
+/// keeps is not where the anchor is, so `x`/`y` must move the layer for that
+/// edge to stay (left and top edges with the default top-left anchor).
+fn resize_moves(frame: &LayerFrame, handle: Handle, resize: &Resize) -> bool {
+    let anchor = frame.transform.anchor;
+    let (kx, ky) = kept_fractions(handle, resize);
+    kx.is_some_and(|k| (k - anchor.x).abs() > 1e-9) || ky.is_some_and(|k| (k - anchor.y).abs() > 1e-9)
+}
+
+/// Whether the Rect tool's `handle` can resize the layer: the box has it,
+/// the size props are `editable`, and `x`/`y` can compensate when it moves
+/// the anchor point (see `resize_moves`).
+fn resizes(frame: &LayerFrame, handle: Handle, editable: &[PropKey], resize: &Resize) -> bool {
+    let position = [TransformProp::X.key(), TransformProp::Y.key()];
+    resize.axes(handle).is_some()
+        && anchor_box(frame).is_some()
+        && resize.keys().iter().all(|key| editable.contains(key))
+        && (!resize_moves(frame, handle, resize)
+            || (resize.compensable && position.iter().all(|key| editable.contains(key))))
+}
+
+/// The values a Rect-tool drag of `handle` from `start` to `now` (parent
+/// space) makes: the dragged edges follow the pointer in the layer's own
+/// pixels, measured on the box the size props describe (`anchor_box`), and
+/// the opposite ones stay, `x`/`y` moving the layer when the anchor point
+/// is not on them. A radius, and a box's corner with `shift`, keep the
+/// aspect (the pointer projected onto the box's diagonal). Sizes keep to
+/// their fields' bounds and to one own pixel; empty unless [`resizes`].
+fn resize_values(
+    frame: &LayerFrame,
+    handle: Handle,
+    (start, now): (Point, Point),
+    shift: bool,
+    editable: &[PropKey],
+    resize: &Resize,
+) -> Vec<(PropKey, f64)> {
+    let transform = &frame.transform;
+    let map = layer_map(transform);
+    let (true, Some((x_axis, y_axis)), Some(local), Some(inverse)) = (
+        resizes(frame, handle, editable, resize),
+        resize.axes(handle),
+        anchor_box(frame),
+        invert_affine(map),
+    ) else {
+        return Vec::new();
+    };
+    let size = local.size();
+    if size.x.abs() < 1e-9 || size.y.abs() < 1e-9 {
+        return Vec::new();
+    }
+    let (from, to) = (apply(&inverse, start), apply(&inverse, now));
+    let (hx, hy) = handle_fractions(handle);
+    // The dragged edge moves with the pointer: the right or bottom one away
+    // from the box's start, the left or top one toward it.
+    let grown = |on: bool, at: Option<f64>, moved: f64, length: f64| match at {
+        Some(at) if on => length + if at > 0.5 { moved } else { -moved },
+        _ => length,
+    };
+    let pulled = Point {
+        x: grown(x_axis, hx, to.x - from.x, size.x),
+        y: grown(y_axis, hy, to.y - from.y, size.y),
+    };
+    // The pointer projected onto the box's diagonal, as a ratio of the box.
+    let ratio = (pulled.x * size.x + pulled.y * size.y) / (size.x * size.x + size.y * size.y);
+    let mut values = Vec::new();
+    let resized = match &resize.props {
+        SizeProps::Box { width, height } => {
+            let (w, h) = if shift && matches!(handle, Handle::Corner(_)) {
+                let low = (width.low(1.0) / size.x).max(height.low(1.0) / size.y);
+                let high = (width.high() / size.x).min(height.high() / size.y);
+                let ratio = ratio.max(low).min(high);
+                (
+                    as_written(width.clamp(ratio * size.x, 1.0)),
+                    as_written(height.clamp(ratio * size.y, 1.0)),
+                )
+            } else {
+                (
+                    as_written(width.clamp(pulled.x, 1.0)),
+                    as_written(height.clamp(pulled.y, 1.0)),
+                )
+            };
+            if x_axis {
+                values.push((width.key(), w));
+            }
+            if y_axis {
+                values.push((height.key(), h));
+            }
+            Point {
+                x: if x_axis { w } else { size.x },
+                y: if y_axis { h } else { size.y },
+            }
+        }
+        SizeProps::Radius(field) => {
+            let radius = as_written(field.clamp(ratio * size.x / 2.0, 0.5));
+            values.push((field.key(), radius));
+            Point {
+                x: 2.0 * radius,
+                y: 2.0 * radius,
+            }
+        }
+        SizeProps::Width(field) => {
+            let width = as_written(field.clamp(pulled.x, 1.0));
+            values.push((field.key(), width));
+            Point { x: width, y: size.y }
+        }
+    };
+    if resize_moves(frame, handle, resize) {
+        // Own pixels are relative to the anchor point, which stays at the
+        // anchor's fractions of the new box: keep the opposite edge's point
+        // (the pivot's coordinate along an axis that does not change) where
+        // it is.
+        let (kx, ky) = kept_fractions(handle, resize);
+        let (anchor, origin) = (transform.anchor, transform.origin);
+        let kept = |k: Option<f64>, min: f64, length: f64, pivot: f64| {
+            k.map_or(pivot, |k| min + k * length)
+        };
+        let before = Point {
+            x: kept(kx, local.min.x, size.x, origin.x),
+            y: kept(ky, local.min.y, size.y, origin.y),
+        };
+        let after = Point {
+            x: kept(kx, -anchor.x * resized.x, resized.x, origin.x),
+            y: kept(ky, -anchor.y * resized.y, resized.y, origin.y),
+        };
+        let position = keep_fixed(transform, after, apply(&map, before));
+        values.push((TransformProp::X.key(), position.x));
+        values.push((TransformProp::Y.key(), position.y));
+    }
+    values
 }
 
 /// The inverse of the layer's linear part without its scale (its rotation
@@ -404,11 +710,10 @@ fn prop_name(key: &PropKey) -> Option<&str> {
 }
 
 /// The value the drag started from for `key`: the evaluated transform's
-/// field for a transform prop; for an anchor, where the box it refers to
-/// puts it (a shape's path layer carries no anchor of its own), else the
-/// evaluated one. `None` for any other prop: a size's start is the layer's
-/// box, which the Rect tool reads; no drag changes a size yet.
-fn start_value(frame: &LayerFrame, key: &PropKey) -> Option<f64> {
+/// field for a transform prop and an anchor (a shape's, from its props: see
+/// `with_anchor_box`); for a size prop of `resize`, what the box it
+/// describes measures (`Resize::start`). `None` for any other prop.
+fn start_value(frame: &LayerFrame, key: &PropKey, resize: Option<&Resize>) -> Option<f64> {
     let transform = &frame.transform;
     if let Some(prop) = TransformProp::from_key(key) {
         return Some(match prop {
@@ -419,10 +724,12 @@ fn start_value(frame: &LayerFrame, key: &PropKey) -> Option<f64> {
             TransformProp::ScaleY => transform.scale.y,
         });
     }
-    let anchor = anchor_in_box(frame).unwrap_or(transform.anchor);
+    if let Some(start) = resize.and_then(|resize| resize.start(frame, key)) {
+        return Some(start);
+    }
     match prop_name(key)? {
-        "anchorX" => Some(anchor.x),
-        "anchorY" => Some(anchor.y),
+        "anchorX" => Some(transform.anchor.x),
+        "anchorY" => Some(transform.anchor.y),
         _ => None,
     }
 }
@@ -437,20 +744,24 @@ fn is_scale(key: &PropKey) -> bool {
 
 /// Each prop of the drag's `values` as the source has it (`was`) and as the
 /// drag writes it (`now`): the prop the runtime saw (`received`) moved by the
-/// same amount (position, anchors, rotation) or ratio (scales) as the
-/// evaluated value; the evaluated value when it saw none. A prop without a
-/// start value (see `start_value`) is left out.
+/// same amount (position, anchors, rotation, sizes) or ratio (scales) as the
+/// evaluated value; the evaluated value when it saw none. A text's
+/// `maxWidth` is the new box width itself (`Resize::absolute`). A prop
+/// without a start value (see `start_value`) is left out.
 fn prop_changes(
     frame: &LayerFrame,
     values: &[(PropKey, f64)],
     received: &ReceivedProps,
+    resize: Option<&Resize>,
 ) -> Vec<(PropKey, f64, f64)> {
     values
         .iter()
         .filter_map(|(key, value)| {
-            let start = start_value(frame, key)?;
+            let start = start_value(frame, key, resize)?;
             let was = received_number(received, prop_name(key)?).unwrap_or(start);
-            let now = if is_scale(key) {
+            let now = if resize.is_some_and(|resize| resize.absolute(key)) {
+                *value
+            } else if is_scale(key) {
                 was * ratio(start, *value)
             } else {
                 was + value - start
@@ -467,8 +778,9 @@ pub(crate) fn prop_values(
     frame: &LayerFrame,
     values: &[(PropKey, f64)],
     received: &ReceivedProps,
+    resize: Option<&Resize>,
 ) -> Vec<(PropKey, f64)> {
-    prop_changes(frame, values, received)
+    prop_changes(frame, values, received, resize)
         .into_iter()
         .filter(|&(_, was, now)| format_number(was) != format_number(now))
         .map(|(key, _, now)| (key, now))
@@ -476,11 +788,12 @@ pub(crate) fn prop_values(
 }
 
 /// The value of every prop `handle` changes in a drag (of those in
-/// `editable`, turning about what `pivot` names), for the preview: the
-/// drag's for the props it changed (see `prop_values`), and the one the
-/// runtime saw when the drag started for the others. The props are the same
-/// on every frame of the drag, so the preview's overrides keep their
-/// positions and the runtime never remounts for a new one.
+/// `editable`, turning about what `pivot` names, resizing with `resize`),
+/// for the preview: the drag's for the props it changed (see
+/// `prop_values`), and the one the runtime saw when the drag started (else
+/// the start value) for the others. The props are the same on every frame
+/// of the drag, so the preview's overrides keep their positions and the
+/// runtime never remounts for a new one.
 pub(crate) fn preview_values(
     frame: &LayerFrame,
     handle: Handle,
@@ -488,16 +801,17 @@ pub(crate) fn preview_values(
     values: &[(PropKey, f64)],
     received: &ReceivedProps,
     pivot: PivotMode,
+    resize: Option<&Resize>,
 ) -> Vec<(PropKey, f64)> {
-    let changed = prop_values(frame, values, received);
-    handle_props(handle, editable, pivot)
+    let changed = prop_values(frame, values, received, resize);
+    handle_props(frame, handle, editable, pivot, resize)
         .into_iter()
         .filter_map(|key| {
             let value = match changed.iter().find(|(candidate, _)| *candidate == key) {
                 Some(&(_, value)) => value,
                 None => prop_name(&key)
                     .and_then(|name| received_number(received, name))
-                    .or_else(|| start_value(frame, &key))?,
+                    .or_else(|| start_value(frame, &key, resize))?,
             };
             Some((key, value))
         })
@@ -505,10 +819,26 @@ pub(crate) fn preview_values(
 }
 
 /// The props of `editable` a drag of `handle` may change (see `drag_values`):
-/// in Center mode a rotation or scale also moves `x`/`y`.
-fn handle_props(handle: Handle, editable: &[PropKey], pivot: PivotMode) -> Vec<PropKey> {
-    let uniform = editable.contains(&TransformProp::Scale.key());
+/// in Center mode a rotation or scale also moves `x`/`y`; with `resize`, a
+/// corner or edge changes the size props it resizes, and `x`/`y` when it
+/// moves the anchor point.
+fn handle_props(
+    frame: &LayerFrame,
+    handle: Handle,
+    editable: &[PropKey],
+    pivot: PivotMode,
+    resize: Option<&Resize>,
+) -> Vec<PropKey> {
     let position = [TransformProp::X.key(), TransformProp::Y.key()];
+    if let (Some(resize), Handle::Corner(_) | Handle::Edge(_)) = (resize, handle) {
+        let mut props = resize.handle_keys(handle);
+        if resize_moves(frame, handle, resize) {
+            props.extend(position);
+        }
+        props.retain(|key| editable.contains(key));
+        return props;
+    }
+    let uniform = editable.contains(&TransformProp::Scale.key());
     let mut props: Vec<PropKey> = match handle {
         Handle::Move => position.to_vec(),
         // The anchor drag always keeps the box where it is.
@@ -533,8 +863,9 @@ pub(crate) fn drag_label(
     frame: &LayerFrame,
     values: &[(PropKey, f64)],
     received: &ReceivedProps,
+    resize: Option<&Resize>,
 ) -> String {
-    prop_changes(frame, values, received)
+    prop_changes(frame, values, received, resize)
         .into_iter()
         .filter(|&(_, was, now)| format_number(was) != format_number(now))
         .map(|(key, was, now)| {
@@ -570,12 +901,14 @@ const ON_ANCHOR: f64 = 1e-6;
 /// The handles that can change something for `editable`: corners and edges
 /// whose drag scales an editable axis (not on the point `pivot` turns about,
 /// or on its line for that axis), edges only for a per-axis scale, and the
-/// rotation handle with `Rotation`.
+/// rotation handle with `Rotation`. With `resize` (the Rect tool), the
+/// corners and edges the box has that can resize it (see `resizes`).
 pub(crate) fn shown_handles(
     frame: &LayerFrame,
     editable: &[PropKey],
     stem: f64,
     pivot: PivotMode,
+    resize: Option<&Resize>,
 ) -> Vec<(Handle, Point)> {
     let about = turning_point(frame, pivot);
     let can = |prop: TransformProp| editable.contains(&prop.key());
@@ -583,6 +916,16 @@ pub(crate) fn shown_handles(
     let scales_x = uniform || can(TransformProp::ScaleX);
     let scales_y = uniform || can(TransformProp::ScaleY);
     let rotates = can(TransformProp::Rotation);
+    if let Some(resize) = resize {
+        return handles(frame, false, stem)
+            .into_iter()
+            .filter(|&(handle, _)| match handle {
+                Handle::Corner(_) | Handle::Edge(_) => resizes(frame, handle, editable, resize),
+                Handle::Rotate => rotates,
+                Handle::Move | Handle::Anchor => true,
+            })
+            .collect();
+    }
     handles(frame, uniform, stem)
         .into_iter()
         .filter(|&(handle, at)| {
@@ -605,7 +948,7 @@ pub(crate) fn shown_handles(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::canvas_geometry::box_frame;
+    use crate::canvas_geometry::{box_frame, with_anchor_box};
     use celesta_react_bridge::ReceivedValue;
 
     fn anchor_key(axis: &str) -> PropKey {
@@ -632,7 +975,7 @@ mod tests {
         };
         // The drag moves each anchor by +0.1.
         let values = [(anchor_key("X"), 0.6), (anchor_key("Y"), 0.6)];
-        let written = prop_values(&frame, &values, &received);
+        let written = prop_values(&frame, &values, &received, None);
         assert_eq!(
             written
                 .iter()
@@ -643,9 +986,508 @@ mod tests {
         assert!((written[0].1 - 0.35).abs() < 1e-9, "{written:?}");
         assert!((written[1].1 - 0.6).abs() < 1e-9, "{written:?}");
         assert_eq!(
-            drag_label(&frame, &values, &received),
+            drag_label(&frame, &values, &received, None),
             "anchorX 0.25 → 0.35  anchorY 0.5 → 0.6"
         );
+
+        // A size: the box is 100 wide while the runtime saw `width` 80, and
+        // the drag makes it 130.
+        let frame = box_frame(top_left_rect(), IDENTITY, 100.0, 50.0);
+        let received = ReceivedProps {
+            others: [("width".to_owned(), ReceivedValue::Number(80.0))].into(),
+            ..ReceivedProps::default()
+        };
+        let resize = box_resize(true);
+        let values = [(size_key("width"), 130.0)];
+        assert_eq!(
+            prop_values(&frame, &values, &received, Some(&resize)),
+            [(size_key("width"), 110.0)]
+        );
+        assert_eq!(
+            drag_label(&frame, &values, &received, Some(&resize)),
+            "width 80 → 110"
+        );
+    }
+
+    fn size_key(name: &str) -> PropKey {
+        PropKey::Prop(name.to_owned())
+    }
+
+    fn field(name: &str) -> SizeField {
+        SizeField {
+            name: name.to_owned(),
+            min: None,
+            max: None,
+            integer: false,
+        }
+    }
+
+    /// The Rect tool on a `width` x `height` box.
+    fn box_resize(compensable: bool) -> Resize {
+        Resize {
+            props: SizeProps::Box {
+                width: field("width"),
+                height: field("height"),
+            },
+            compensable,
+        }
+    }
+
+    /// `uniform()` and the size props `resize` holds.
+    fn with_sizes(resize: &Resize) -> Vec<PropKey> {
+        let mut editable = uniform();
+        editable.extend(resize.keys());
+        editable
+    }
+
+    fn size(values: &[(PropKey, f64)], name: &str) -> f64 {
+        values
+            .iter()
+            .find(|(key, _)| *key == size_key(name))
+            .map(|(_, value)| *value)
+            .unwrap_or_else(|| panic!("no {name}: {values:?}"))
+    }
+
+    /// A Rect-tool drag of `handle` from own pixels `from` to `to` of
+    /// `before`'s frame.
+    fn resize_drag(
+        frame: &LayerFrame,
+        handle: Handle,
+        (from, to): (Point, Point),
+        shift: bool,
+        resize: &Resize,
+    ) -> Vec<(PropKey, f64)> {
+        let transform = &frame.transform;
+        drag_values(
+            frame,
+            handle,
+            (scene(frame, transform, from), scene(frame, transform, to)),
+            shift,
+            0.0,
+            &with_sizes(resize),
+            // The opposite edge stays whatever the pivot mode.
+            PivotMode::Center,
+            Some(resize),
+        )
+    }
+
+    fn assert_corners_kept(after: &LayerFrame, before: &LayerFrame, corners: &[usize]) {
+        for &i in corners {
+            assert_close(after.outline[i], before.outline[i]);
+        }
+    }
+
+    #[test]
+    fn right_edge_resize_at_anchor_0_rotated() {
+        let before = EvaluatedTransform {
+            rotation: 30.0,
+            ..top_left_rect()
+        };
+        let frame = box_frame(before, turned_parent(), 100.0, 50.0);
+        let values = resize_drag(
+            &frame,
+            Handle::Edge(1),
+            (at(100.0, 25.0), at(150.0, 40.0)),
+            false,
+            &box_resize(true),
+        );
+        // Along the layer's own x axis only; the anchor is on the left edge,
+        // which stays, so x and y do too.
+        assert_eq!(names(&values), ["width"]);
+        assert!((size(&values, "width") - 150.0).abs() < 1e-9, "{values:?}");
+        let after = box_frame(moved(&before, &values), turned_parent(), 150.0, 50.0);
+        assert_corners_kept(&after, &frame, &[0, 3]);
+    }
+
+    #[test]
+    fn left_edge_resize_at_anchor_0_5_rotated() {
+        let before = EvaluatedTransform {
+            position: at(60.0, 40.0),
+            rotation: 30.0,
+            anchor: at(0.5, 0.5),
+            ..EvaluatedTransform::default()
+        };
+        let frame = box_frame(before, turned_parent(), 100.0, 50.0);
+        let values = resize_drag(
+            &frame,
+            Handle::Edge(3),
+            (at(-50.0, 0.0), at(-80.0, 5.0)),
+            false,
+            &box_resize(true),
+        );
+        assert_eq!(names(&values), ["width", "x", "y"]);
+        assert!((size(&values, "width") - 130.0).abs() < 1e-9, "{values:?}");
+        // The right edge stays where it was.
+        let after = box_frame(moved(&before, &values), turned_parent(), 130.0, 50.0);
+        assert_corners_kept(&after, &frame, &[1, 2]);
+    }
+
+    #[test]
+    fn a_skewed_layer_left_edge() {
+        let before = EvaluatedTransform {
+            position: at(60.0, 40.0),
+            rotation: 15.0,
+            skew: at(20.0, 0.0),
+            origin: at(40.0, 0.0),
+            anchor: at(0.5, 0.5),
+            ..EvaluatedTransform::default()
+        };
+        let frame = box_frame(before, turned_parent(), 100.0, 50.0);
+        let values = resize_drag(
+            &frame,
+            Handle::Edge(3),
+            (at(-50.0, 0.0), at(-90.0, 0.0)),
+            false,
+            &box_resize(true),
+        );
+        assert!((size(&values, "width") - 140.0).abs() < 1e-9, "{values:?}");
+        let after = box_frame(moved(&before, &values), turned_parent(), 140.0, 50.0);
+        assert_corners_kept(&after, &frame, &[1, 2]);
+    }
+
+    #[test]
+    fn shift_corner_keeps_the_aspect() {
+        let before = top_left_rect();
+        let frame = box_frame(before, turned_parent(), 100.0, 50.0);
+        let drag = |shift| {
+            resize_drag(
+                &frame,
+                Handle::Corner(2),
+                (at(100.0, 50.0), at(180.0, 60.0)),
+                shift,
+                &box_resize(true),
+            )
+        };
+        let free = drag(false);
+        assert_eq!(names(&free), ["width", "height"]);
+        assert!((size(&free, "width") - 180.0).abs() < 1e-9, "{free:?}");
+        assert!((size(&free, "height") - 60.0).abs() < 1e-9, "{free:?}");
+        // The pointer projected onto the box's diagonal: 1.68 times as big.
+        let kept = drag(true);
+        assert!((size(&kept, "width") - 168.0).abs() < 1e-9, "{kept:?}");
+        assert!((size(&kept, "height") - 84.0).abs() < 1e-9, "{kept:?}");
+    }
+
+    #[test]
+    fn radius_corners_resize_uniformly() {
+        // A circle of radius 30 anchored at its center.
+        let before = EvaluatedTransform {
+            position: at(60.0, 40.0),
+            rotation: 30.0,
+            anchor: at(0.5, 0.5),
+            ..EvaluatedTransform::default()
+        };
+        let frame = box_frame(before, turned_parent(), 60.0, 60.0);
+        let resize = Resize {
+            props: SizeProps::Radius(field("radius")),
+            compensable: true,
+        };
+        let values = resize_drag(
+            &frame,
+            Handle::Corner(2),
+            (at(30.0, 30.0), at(45.0, 39.0)),
+            false,
+            &resize,
+        );
+        // (75 · 60 + 69 · 60) / (60² + 60²) = 1.2 times the box.
+        assert_eq!(names(&values), ["radius", "x", "y"]);
+        assert!((size(&values, "radius") - 36.0).abs() < 1e-9, "{values:?}");
+        let after = box_frame(moved(&before, &values), turned_parent(), 72.0, 72.0);
+        assert_corners_kept(&after, &frame, &[0]);
+        // Corners only.
+        let shown: Vec<Handle> =
+            shown_handles(&frame, &with_sizes(&resize), 20.0, PivotMode::Center, Some(&resize))
+                .into_iter()
+                .map(|(handle, _)| handle)
+                .collect();
+        assert_eq!(
+            shown,
+            [
+                Handle::Corner(0),
+                Handle::Corner(1),
+                Handle::Corner(2),
+                Handle::Corner(3),
+                Handle::Rotate
+            ]
+        );
+    }
+
+    #[test]
+    fn text_max_width_starts_from_the_laid_out_box() {
+        // A text whose 120 x 40 layout box is padded 12 px on the left and
+        // right by its texture; no `maxWidth` written.
+        let before = EvaluatedTransform {
+            position: at(20.0, 30.0),
+            rotation: 30.0,
+            anchor: at(0.0, 0.0),
+            ..EvaluatedTransform::default()
+        };
+        let layout = box_frame(before, turned_parent(), 120.0, 40.0).outline;
+        let quad = [
+            at(-12.0, 0.0),
+            at(132.0, 0.0),
+            at(132.0, 40.0),
+            at(-12.0, 40.0),
+        ]
+        .map(|local| scene(&box_frame(before, turned_parent(), 1.0, 1.0), &before, local));
+        let frame = LayerFrame {
+            outline: quad,
+            anchor_box: Some(layout),
+            ..box_frame(before, turned_parent(), 120.0, 40.0)
+        };
+        let resize = Resize {
+            props: SizeProps::Width(field("maxWidth")),
+            compensable: true,
+        };
+        // From the right handle, on the padded quad, 50 px out.
+        let values = resize_drag(
+            &frame,
+            Handle::Edge(1),
+            (at(132.0, 20.0), at(182.0, 20.0)),
+            false,
+            &resize,
+        );
+        assert_eq!(names(&values), ["maxWidth"]);
+        let none = ReceivedProps::default();
+        assert_eq!(
+            prop_values(&frame, &values, &none, Some(&resize)),
+            [(size_key("maxWidth"), 170.0)]
+        );
+        // Written as the new box width, whatever the runtime saw.
+        let wide = ReceivedProps {
+            others: [("maxWidth".to_owned(), ReceivedValue::Number(300.4))].into(),
+            ..ReceivedProps::default()
+        };
+        assert_eq!(
+            drag_label(&frame, &values, &wide, Some(&resize)),
+            "maxWidth 300.4 → 170"
+        );
+        // The left and right edges only; the left one keeps the right edge,
+        // so it moves x and y.
+        let shown: Vec<Handle> =
+            shown_handles(&frame, &with_sizes(&resize), 20.0, PivotMode::Center, Some(&resize))
+                .into_iter()
+                .map(|(handle, _)| handle)
+                .collect();
+        assert_eq!(shown, [Handle::Edge(1), Handle::Edge(3), Handle::Rotate]);
+        let values = resize_drag(
+            &frame,
+            Handle::Edge(3),
+            (at(-12.0, 20.0), at(-42.0, 20.0)),
+            false,
+            &resize,
+        );
+        assert_eq!(names(&values), ["maxWidth", "x", "y"]);
+        assert!((size(&values, "maxWidth") - 150.0).abs() < 1e-9, "{values:?}");
+        let after = moved(&before, &values);
+        assert_close(
+            scene(&frame, &after, at(150.0, 0.0)),
+            scene(&frame, &before, at(120.0, 0.0)),
+        );
+    }
+
+    #[test]
+    fn resize_through_the_opposite_edge_clamps() {
+        let before = top_left_rect();
+        let frame = box_frame(before, turned_parent(), 100.0, 50.0);
+        let through = (at(100.0, 25.0), at(-300.0, 25.0));
+        // No minimum declared: one own pixel.
+        let values = resize_drag(&frame, Handle::Edge(1), through, false, &box_resize(true));
+        assert!((size(&values, "width") - 1.0).abs() < 1e-9, "{values:?}");
+        // A declared minimum of 0 still keeps one pixel; a larger one holds.
+        for (min, expected) in [(0.0, 1.0), (10.0, 10.0)] {
+            let resize = Resize {
+                props: SizeProps::Box {
+                    width: SizeField {
+                        min: Some(min),
+                        ..field("width")
+                    },
+                    height: field("height"),
+                },
+                compensable: true,
+            };
+            let values = resize_drag(&frame, Handle::Edge(1), through, false, &resize);
+            assert!((size(&values, "width") - expected).abs() < 1e-9, "{values:?}");
+        }
+        // From the left: the right edge stays, the box never flips.
+        let values = resize_drag(
+            &frame,
+            Handle::Edge(3),
+            (at(0.0, 25.0), at(400.0, 25.0)),
+            false,
+            &box_resize(true),
+        );
+        assert!((size(&values, "width") - 1.0).abs() < 1e-9, "{values:?}");
+        let after = box_frame(moved(&before, &values), turned_parent(), 1.0, 50.0);
+        assert_corners_kept(&after, &frame, &[1, 2]);
+        // A maximum and whole numbers.
+        let resize = Resize {
+            props: SizeProps::Box {
+                width: SizeField {
+                    max: Some(120.0),
+                    integer: true,
+                    ..field("width")
+                },
+                height: field("height"),
+            },
+            compensable: true,
+        };
+        let values = resize_drag(
+            &frame,
+            Handle::Edge(1),
+            (at(100.0, 25.0), at(110.4, 25.0)),
+            false,
+            &resize,
+        );
+        assert!((size(&values, "width") - 110.0).abs() < 1e-9, "{values:?}");
+        let values = resize_drag(
+            &frame,
+            Handle::Edge(1),
+            (at(100.0, 25.0), at(200.0, 25.0)),
+            false,
+            &resize,
+        );
+        assert!((size(&values, "width") - 120.0).abs() < 1e-9, "{values:?}");
+    }
+
+    #[test]
+    fn left_edge_hidden_without_compensable_x() {
+        let frame = box_frame(top_left_rect(), turned_parent(), 100.0, 50.0);
+        let shown = |resize: &Resize, frame: &LayerFrame| -> Vec<Handle> {
+            shown_handles(frame, &with_sizes(resize), 20.0, PivotMode::Center, Some(resize))
+                .into_iter()
+                .map(|(handle, _)| handle)
+                .collect()
+        };
+        // Every corner and edge (edges even with a uniform scale).
+        assert_eq!(shown(&box_resize(true), &frame).len(), 9);
+        // Anchored at the top-left: only what leaves the top and left edges
+        // where they are.
+        assert_eq!(
+            shown(&box_resize(false), &frame),
+            [
+                Handle::Corner(2),
+                Handle::Edge(1),
+                Handle::Edge(2),
+                Handle::Rotate
+            ]
+        );
+        // Anchored at the center, every handle moves the anchor point.
+        let centered = box_frame(
+            EvaluatedTransform {
+                anchor: at(0.5, 0.5),
+                ..top_left_rect()
+            },
+            turned_parent(),
+            100.0,
+            50.0,
+        );
+        assert_eq!(shown(&box_resize(false), &centered), [Handle::Rotate]);
+        // The values agree: nothing without x and y.
+        let values = drag_values(
+            &frame,
+            Handle::Edge(3),
+            (
+                scene(&frame, &frame.transform, at(0.0, 25.0)),
+                scene(&frame, &frame.transform, at(-20.0, 25.0)),
+            ),
+            false,
+            0.0,
+            &with_sizes(&box_resize(false)),
+            PivotMode::Pivot,
+            Some(&box_resize(false)),
+        );
+        assert!(values.is_empty(), "{values:?}");
+    }
+
+    #[test]
+    fn preview_overrides_size_and_x_y_from_the_first_move() {
+        let frame = box_frame(top_left_rect(), turned_parent(), 100.0, 50.0);
+        let resize = box_resize(true);
+        let received = ReceivedProps::default();
+        let first_move = |handle, from: Point| {
+            let values = resize_drag(&frame, handle, (from, from), false, &resize);
+            assert!(
+                prop_values(&frame, &values, &received, Some(&resize)).is_empty(),
+                "{values:?}"
+            );
+            preview_values(
+                &frame,
+                handle,
+                &with_sizes(&resize),
+                &values,
+                &received,
+                PivotMode::Center,
+                Some(&resize),
+            )
+        };
+        // Every size the handle changes, at the box's own size, and x/y when
+        // it moves the anchor point.
+        let preview = first_move(Handle::Edge(3), at(0.0, 25.0));
+        assert_eq!(names(&preview), ["width", "x", "y"]);
+        assert!((size(&preview, "width") - 100.0).abs() < 1e-6, "{preview:?}");
+        assert_eq!(
+            names(&first_move(Handle::Edge(1), at(100.0, 25.0))),
+            ["width"]
+        );
+        assert_eq!(
+            names(&first_move(Handle::Corner(0), at(0.0, 0.0))),
+            ["width", "height", "x", "y"]
+        );
+        // The rotation stem stays as it was.
+        assert_eq!(
+            names(&preview_values(
+                &frame,
+                Handle::Rotate,
+                &with_sizes(&resize),
+                &[],
+                &received,
+                PivotMode::Center,
+                Some(&resize),
+            )),
+            ["rotation", "x", "y"]
+        );
+    }
+
+    #[test]
+    fn written_values_are_what_compensates() {
+        // An anchor drag to a third of the box writes 0.33: x and y keep
+        // the box for 0.33, not for 1/3.
+        let before = EvaluatedTransform {
+            anchor: at(0.0, 0.0),
+            ..EvaluatedTransform::default()
+        };
+        let frame = box_frame(before, IDENTITY, 300.0, 90.0);
+        let values = drag_values(
+            &frame,
+            Handle::Anchor,
+            (at(0.0, 0.0), at(100.0, 30.0)),
+            false,
+            0.0,
+            &anchor_props(),
+            PivotMode::Pivot,
+            None,
+        );
+        let after = moved(&before, &values);
+        assert!((after.anchor.x - 0.33).abs() < 1e-12, "{values:?}");
+        assert_same_outline(&box_frame(after, IDENTITY, 300.0, 90.0), &frame);
+
+        // A size the same: 100.004 is written 100.
+        let centered = EvaluatedTransform {
+            anchor: at(0.5, 0.5),
+            ..before
+        };
+        let frame = box_frame(centered, IDENTITY, 100.0, 50.0);
+        let values = resize_drag(
+            &frame,
+            Handle::Edge(3),
+            (at(-50.0, 0.0), at(-50.004, 0.0)),
+            false,
+            &box_resize(true),
+        );
+        assert_eq!(size(&values, "width"), 100.0);
+        let x = value(&values, TransformProp::X);
+        assert!(x.abs() < 1e-12, "{values:?}");
     }
 
     fn at(x: f64, y: f64) -> Point {
@@ -704,6 +1546,8 @@ mod tests {
                 None => match prop_name(key) {
                     Some("anchorX") => after.anchor.x = *value,
                     Some("anchorY") => after.anchor.y = *value,
+                    // A size changes the box, not the transform.
+                    Some("width" | "height" | "radius" | "maxWidth") => {}
                     _ => panic!("not a drag prop: {key:?}"),
                 },
             }
@@ -765,6 +1609,7 @@ mod tests {
             0.0,
             &uniform(),
             PivotMode::Center,
+            None,
         );
         assert_eq!(names(&values), ["rotation", "x", "y"]);
         assert!((value(&values, TransformProp::Rotation) - 30.0).abs() < 1e-9);
@@ -796,6 +1641,7 @@ mod tests {
             0.0,
             &uniform(),
             PivotMode::Center,
+            None,
         );
         assert_eq!(names(&values), ["scale", "x", "y"]);
         assert!((value(&values, TransformProp::Scale) - 1.5).abs() < 1e-9);
@@ -813,6 +1659,7 @@ mod tests {
             0.0,
             &per_axis(),
             PivotMode::Center,
+            None,
         );
         assert_eq!(names(&values), ["scaleX", "scaleY", "x", "y"]);
         assert!((value(&values, TransformProp::ScaleX) - 2.0).abs() < 1e-9);
@@ -839,6 +1686,7 @@ mod tests {
             0.0,
             &uniform(),
             PivotMode::Pivot,
+            None,
         );
         // Measured about anchor + origin, and nothing compensates.
         assert_eq!(names(&values), ["rotation"]);
@@ -860,6 +1708,7 @@ mod tests {
             0.0,
             &uniform(),
             PivotMode::Pivot,
+            None,
         );
         assert_eq!(names(&values), ["scale"]);
         assert!((value(&values, TransformProp::Scale) - 2.0).abs() < 1e-9);
@@ -882,11 +1731,12 @@ mod tests {
             0.0,
             &uniform(),
             PivotMode::Center,
+            None,
         );
         let received = ReceivedProps::default();
-        assert!(prop_values(&frame, &values, &received).is_empty());
+        assert!(prop_values(&frame, &values, &received, None).is_empty());
         let preview = |handle, editable: &[PropKey], pivot| {
-            preview_values(&frame, handle, editable, &values, &received, pivot)
+            preview_values(&frame, handle, editable, &values, &received, pivot, None)
         };
         assert_eq!(
             names(&preview(Handle::Rotate, &uniform(), PivotMode::Center)),
@@ -946,6 +1796,7 @@ mod tests {
                 0.0,
                 &anchor_props(),
                 PivotMode::Center,
+                None,
             );
             assert_eq!(names(&values), ["anchorX", "anchorY", "x", "y"]);
             let after = moved(&before, &values);
@@ -995,6 +1846,7 @@ mod tests {
             0.0,
             &anchor_props(),
             PivotMode::Center,
+            None,
         );
         // Half of the layout box, not of the padded quad.
         let after = moved(&before, &values);
@@ -1010,15 +1862,22 @@ mod tests {
     #[test]
     fn an_unwritten_anchor_starts_from_the_box() {
         // A shape's path: its layer has whatever anchor the runtime gives a
-        // path, while the box puts the shape's anchor at its top-left.
+        // path, while the shape's props put its anchor at its top-left.
         let layer = EvaluatedTransform {
             anchor: at(0.5, 0.5),
             ..top_left_rect()
         };
-        let frame = LayerFrame {
-            anchor_box: Some(box_frame(top_left_rect(), IDENTITY, 100.0, 50.0).outline),
-            ..box_frame(layer, IDENTITY, 100.0, 50.0)
+        let mut path = box_frame(layer, IDENTITY, 100.0, 50.0);
+        path.anchor_box = None;
+        let shape = ReceivedProps {
+            others: [
+                ("width".to_owned(), ReceivedValue::Number(100.0)),
+                ("height".to_owned(), ReceivedValue::Number(50.0)),
+            ]
+            .into(),
+            ..ReceivedProps::default()
         };
+        let frame = with_anchor_box(path, "Ellipse", &shape);
         let values = drag_values(
             &frame,
             Handle::Anchor,
@@ -1027,12 +1886,13 @@ mod tests {
             0.0,
             &anchor_props(),
             PivotMode::Pivot,
+            None,
         );
-        let written = prop_values(&frame, &values, &ReceivedProps::default());
+        let written = prop_values(&frame, &values, &ReceivedProps::default(), None);
         assert_eq!(written[0].0, anchor_key("X"));
         assert!((written[0].1 - 0.25).abs() < 1e-9, "{written:?}");
         assert_eq!(
-            drag_label(&frame, &values, &ReceivedProps::default()),
+            drag_label(&frame, &values, &ReceivedProps::default(), None),
             "anchorX 0 → 0.25  x 10 → 35"
         );
     }
@@ -1052,6 +1912,7 @@ mod tests {
             0.0,
             &anchor_props(),
             PivotMode::Pivot,
+            None,
         );
         let expected = [0.25, 0.25, 50.0, 25.0];
         assert_eq!(names(&values), ["anchorX", "anchorY", "x", "y"]);
@@ -1067,6 +1928,7 @@ mod tests {
             0.0,
             &anchor_props(),
             PivotMode::Pivot,
+            None,
         );
         assert!((values[0].1 + 0.5).abs() < 1e-9, "{values:?}");
         assert!((values[1].1 - 1.5).abs() < 1e-9, "{values:?}");
@@ -1079,6 +1941,7 @@ mod tests {
                 &[],
                 &ReceivedProps::default(),
                 PivotMode::Pivot,
+                None,
             )),
             ["anchorX", "anchorY", "x", "y"]
         );
@@ -1094,7 +1957,7 @@ mod tests {
         let frame = box_frame(before, IDENTITY, 100.0, 60.0);
         let mut editable = uniform();
         editable.extend([anchor_key("X"), anchor_key("Y")]);
-        let shown = shown_handles(&frame, &editable, 20.0, PivotMode::Center);
+        let shown = shown_handles(&frame, &editable, 20.0, PivotMode::Center, None);
         let press = |point, alt| pressed_handle(&frame, &shown, &editable, point, 4.0, alt);
         assert_eq!(anchor_handle(&frame, &editable), Some(at(50.0, 30.0)));
         // Without Alt the cross is the body.
@@ -1103,7 +1966,7 @@ mod tests {
         // Off the cross Alt changes nothing.
         assert_eq!(press(at(0.0, 0.0), true), Some(Handle::Corner(0)));
         // Without the anchors there is no cross to drag.
-        let shown = shown_handles(&frame, &uniform(), 20.0, PivotMode::Center);
+        let shown = shown_handles(&frame, &uniform(), 20.0, PivotMode::Center, None);
         assert_eq!(anchor_handle(&frame, &uniform()), None);
         assert_eq!(
             pressed_handle(&frame, &shown, &uniform(), at(50.0, 30.0), 4.0, true),
