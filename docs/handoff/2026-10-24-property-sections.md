@@ -189,7 +189,19 @@ These differ from, or settle what the spec left open:
   `volume`, unbounded ratios and fractions where 1 per pixel is unusable.
   Without a step, a field with `max` ≤ 1 steps 0.01 and any other 1. The
   transform rows without a table give `scale`, `scaleX`, and `scaleY` a
-  field with step 0.01.
+  field with step 0.01. `Text`'s `fontWeight` is `{ min: 1, max: 1000,
+  step: 100 }`: the renderer picks the nearest static face by its OS/2
+  weight class (there is no `wght` axis), so 1-unit steps change nothing.
+- **Number bounds follow the components.** `min: 0` where a negative value
+  is rejected or draws nothing more than 0 (`Rect` width/height/
+  cornerRadius/strokeWidth, `Text` fontSize/maxWidth, `Video`
+  startFrom/playbackRate/volume, the shapes' sizes, radii, and corner
+  radii per `sizeOf`/`dimensionOf`); `min: 3` for `sides` and `points`
+  (`countOf`). Props that must be positive get the smallest sensible
+  inclusive bound, since a field's bounds are inclusive: `Image` width/
+  height `min: 1`, the shapes' `strokeWidth` `min: 0.1` (`strokeWidthOf`).
+  Positions, angles, scales, and anchors stay unbounded; `max` only where a
+  component enforces one (`opacity`, `apex`, `innerRatio`).
 - **Where a scrub starts, and the focus.** A scrub on a row with no value
   starts from the placeholder the row shows (the source's default, else the
   received value, else the table's default), and from 0 only when there is
@@ -239,6 +251,12 @@ These differ from, or settle what the spec left open:
   stale received value.
 - **A prop written twice** (`x={1} x={2}`) is not removable: deleting one
   would let the other apply. The commit says "X can't be removed here".
+- **A removal never crosses a line break.** The attribute alone on its line
+  takes the line; first on its line, the spaces after it go (what follows
+  keeps the indentation); otherwise the spaces before it. Trimming back
+  across the line break joined the next text to a `//` comment. As a safety
+  net, every text a commit would write is parsed again, and one with syntax
+  errors is refused: "Couldn't edit the source: the result does not parse".
 - **Fields stay enabled while their own write reloads.** Only a target that
   can't be written disables its control; scrubbing still needs current
   targets. A commit (typed, switch, menu, color, file, removal, a released
@@ -246,8 +264,26 @@ These differ from, or settle what the spec left open:
   runs, waits in `HeldCommits` for that layer and is written once they are
   current: one at a time (each its own history entry), in the order made,
   the latest value per row winning. It fails at once only when the source
-  can't be read. Selecting another layer drops what waits. A row's sync
-  never sets text equal to what its field holds, so the caret stays.
+  can't be read, or the code failed to reload. A row's sync never sets text
+  equal to what its field holds, so the caret stays.
+- **Leaving a field commits it** (as Unity's inspector does). Before the
+  selection changes by a canvas click, the layer list, clearing it, or
+  leaving the interactive mode (`select_layer`), and after a seek by hand
+  or the start of playback (`submit_requested`, done on the next render,
+  since those paths have no context), the rows' typed text is submitted as
+  a blur would; text that does not parse is dropped with its message.
+- **A selection change waits for the held commits of the selected layer**
+  (`SelectionGate`): it is made once they are written, and a newer request
+  replaces the waiting one (clicking the selected layer cancels it).
+  `HeldCommits` entries carry their layer and the timeline frame their
+  targets were looked up at. They are dropped when the code fails to reload
+  ("Not saved: the code failed to reload" on each row, or the Layer section
+  for a layer no longer shown; later commits fail with it until the next
+  reload), when the layer's lookup answers without a source ("Not saved:
+  the layer's source was not found again"), and when the selection clears
+  without waiting (the reloaded code lacks the layer). A held commit to a
+  keyframe made before a seek is not written to another keyframe ("Not
+  saved: the playhead moved off this keyframe"); a plain value is.
 
 2a carry-overs closed: inputs that are parameters resolve at the call site;
 the lambda, one-place, and callee gaps in `resolve_inputs`; the scale-axis
@@ -272,9 +308,12 @@ scaleX={sx} />` shows 3); the duplicated readers (`TransformProp::received`,
   top-aligned.
 - 2a's `useMemo` limitation applies to scrubs as to drags: an element cached
   with `useMemo` at an override's position follows the first frame only.
-- A commit that waits shows its value in the row, but nothing says it is
-  waiting; one held while the source can't be found never runs, and goes
-  when another layer is selected.
+- A commit that waits shows its value in the row, and a selection change
+  that waits for it shows nothing either; both normally last only until the
+  editor's own write reloads.
+- A seek or the start of playback submits typed text on the next render,
+  after the playhead moved; a commit made then still writes against the
+  targets read before the seek (the new frame's lookup has not answered).
 - `crates/editor/src/tests.rs`, `element_rows.rs`, and `element_edit.rs`
   are large; splitting them is a follow-up.
 
@@ -325,5 +364,15 @@ content these rows supersede, so no example changed):
 - Type in a field and press Enter, then keep typing at once: the field
   stays enabled, the caret stays where it was, and Enter again writes the
   new value after the first write's reload (two history entries).
+- Type a value in a field without pressing Enter and click an empty part of
+  the canvas: the value is written. Scrub a number label, release, and at
+  once click another layer: the scrubbed value is written, and the other
+  layer shows selected after the write.
+- With `<Rect\n  // background\n  fill="#fff" stroke="#000"\n/>` and with
+  `x={1} // left` on the line before `cornerRadius={8} />`, remove Fill and
+  Corner radius: the comment stays on its line, `stroke` stays, and the
+  file still parses.
+- Scrub Font weight: it moves by 100 and stops at 1 and 1000. Scrub Corner
+  radius below 0: it stops at 0; type `-4`: "Enter a number of at least 0".
 - Undo each of the above: each is one step and restores the file it wrote
   byte for byte.

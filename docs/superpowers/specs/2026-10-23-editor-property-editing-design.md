@@ -227,8 +227,12 @@ registerPrimitiveProperties('Rect', propertyTable<RectProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { width: required(num()), height: required(num()), cornerRadius: num(0) },
-    Appearance: { fill: color(), stroke: color(), strokeWidth: num(0) },
+    Size: {
+      width: required(num(undefined, { min: 0 })),
+      height: required(num(undefined, { min: 0 })),
+      cornerRadius: num(0, { min: 0 }),
+    },
+    Appearance: { fill: color(), stroke: color(), strokeWidth: num(0, { min: 0 }) },
   },
 }));
 // Group, Image, Text, Video likewise, and @celesta/shapes' Ellipse,
@@ -242,7 +246,13 @@ registerPrimitiveProperties('Rect', propertyTable<RectProps>({
   `min`/`max` (`opacity` 0–1): a typed value outside is refused with "Enter a
   number from {min} to {max}" ("Enter a number of at least {min}" or "Enter
   a number of at most {max}" when only one bound is set), and a scrub
-  clamps. It may carry `step`, what one pixel of a scrub changes.
+  clamps. It may carry `step`, what one pixel of a scrub changes. The bounds
+  are the components' own: `min: 0` where a negative value is rejected or
+  draws nothing (sizes, radii, strokes, `fontSize`, `maxWidth`, a video's
+  `startFrom`, `playbackRate`, `volume`), the smallest sensible inclusive
+  bound where the value must be positive (an `Image`'s size 1, a shape's
+  `strokeWidth` 0.1), 3 for `sides` and `points`, and `fontWeight` 1–1000 in
+  steps of 100 (static faces are picked by weight class).
 - A prop the props type requires is declared `required(…)` (`Rect`'s
   `width`/`height`, `Image`'s and `Video`'s `src`, `Text`'s `children`, a
   `Circle`'s `radius`, …): its row is never removed. The table's type
@@ -281,8 +291,9 @@ write, and history path; one committed field is one history entry.
 A written optional prop can be removed, so its default applies again:
 emptying its field and committing (Enter or blur), or the "×" (lucide `X`,
 ghost, tooltip "Remove") that shows at the row's end on hover, for every
-control kind. The removal deletes bytes only: the attribute with the
-whitespace before it, a `style` object's property with its separating comma
+control kind. The removal deletes bytes only, never across a line break:
+the attribute with the spaces around it on its line (the whole line when it
+stands alone there), a `style` object's property with its separating comma
 (the only one leaves `{}`), or for a pass-through the attribute at the call
 site, so the parameter's default applies. It is one history entry, and the
 row shows the default dimmed until the reload resolves. A required prop, an
@@ -295,7 +306,16 @@ A row's control is disabled only when its target can't be written. While the
 editor's own write reloads, the fields stay enabled and keep their focus and
 caret; a commit made meanwhile (or while another write runs) waits and is
 written once the targets are current again, one at a time in the order made,
-the latest value per row winning.
+the latest value per row winning. If the code fails to reload, the waiting
+commits are dropped, each row saying "Not saved: the code failed to reload".
+Every text a commit would write is parsed first; one with syntax errors is
+not written.
+
+Leaving a field commits it, as a blur does: before the selection changes (a
+canvas click, the layer list, clearing it) and when the playhead is moved by
+hand or playback starts, the rows' typed text is submitted, and text that
+does not parse is dropped. While commits wait for the selected layer, a
+selection change waits for them to be written; a newer one replaces it.
 
 When the selected element is a component call's root (the chain's nearest
 component entry exists), a "Component" section lists the props written at that
