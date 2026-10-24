@@ -60,6 +60,9 @@ const PIVOT_TOGGLE_WIDTH: f32 = 176.0;
 const RESIZE_TOGGLE_WIDTH: f32 = 168.0;
 /// The slot a toggle's warning sits in, reserved whether it shows or not.
 const NOTE_SLOT_WIDTH: f32 = 20.0;
+/// What the two toggles add to the transport bar while they show (with the
+/// `gap_1` before each), which the collapse widths count.
+const TOGGLES_WIDTH: f32 = PIVOT_TOGGLE_WIDTH + RESIZE_TOGGLE_WIDTH + 2.0 * 4.0;
 
 /// A two-segment toolbar toggle (see `mode_toggle`).
 struct ModeToggle {
@@ -125,6 +128,9 @@ impl EditorView {
         let has_warnings = !self.problems.preview_warnings().is_empty();
         let show_safe_areas = self.show_safe_areas;
         let drag_state = self.drag_state();
+        // Why a chosen Center is not in effect: the toggle's warning and the
+        // handles' note.
+        let pivot_note = self.pivot_note();
         // Every region of the selected layer in the shown frame; none when
         // the frame does not draw it. The Rect tool's handles sit on the box
         // they resize, which is then the outline drawn (a stroked text's
@@ -211,8 +217,11 @@ impl EditorView {
             Some((cross_box(last_bounds?, frame_size, at)?, reason))
         });
         // Center chosen but not in effect: the handles that turn or scale
-        // about the pivot say why (the drag's label says it too).
-        let handle_note = self.pivot_note().map(pivot_note_text);
+        // about the pivot say why. While a drag runs, its label says it
+        // instead.
+        let handle_note = pivot_note
+            .filter(|_| self.transform_drag.is_none())
+            .map(pivot_note_text);
         let note_boxes: Vec<Bounds<Pixels>> = match (&handle_note, &editable_frame, last_bounds) {
             (Some(_), Some((frame, editable, pivot, resize)), Some(bounds)) => {
                 letterbox(bounds, frame_size)
@@ -388,7 +397,7 @@ impl EditorView {
             .min_w_0()
             .h_full()
             .child(canvas_area)
-            .child(self.transport_bar(cx))
+            .child(self.transport_bar(pivot_note, cx))
     }
 
     /// The active preview error, centered in the space above the warnings
@@ -531,17 +540,26 @@ impl EditorView {
         lines
     }
 
-    /// Playhead timecode, transport controls, and the In/Out marks.
-    fn transport_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// Playhead timecode, transport controls, and the In/Out marks; in
+    /// interactive mode, the canvas-tool toggles, Center's warning being
+    /// `pivot_note` (see `EditorView::pivot_note`).
+    fn transport_bar(
+        &self,
+        pivot_note: Option<&'static str>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let frame_rate = self.frame_rate_value;
         let mono = cx.theme().mono_font_family.clone();
         let muted = cx.theme().muted_foreground;
+        let shows_toggles = self.is_react_preview() && self.interactive;
+        // The toggles take room the readouts would otherwise have.
+        let toggles = if shows_toggles { TOGGLES_WIDTH } else { 0.0 };
         let width = self
             .transport_width
             .get()
-            .map_or(TRANSPORT_FULL_WIDTH, f32::from);
-        let full = width >= TRANSPORT_FULL_WIDTH;
-        let show_marks = width >= TRANSPORT_MARKS_WIDTH;
+            .map_or(TRANSPORT_FULL_WIDTH + toggles, f32::from);
+        let full = width >= TRANSPORT_FULL_WIDTH + toggles;
+        let show_marks = width >= TRANSPORT_MARKS_WIDTH + toggles;
         let has_range = full && (self.export_in_frame.is_some() || self.export_out_frame.is_some());
         let mark = |frame: Option<i64>| {
             frame.map_or_else(
@@ -714,8 +732,8 @@ impl EditorView {
                     .tooltip_with_action("Safe areas", &ToggleSafeAreas, KEY_CONTEXT)
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_safe_areas(cx))),
             )
-            .when(self.is_react_preview() && self.interactive, |bar| {
-                bar.child(self.pivot_toggle(cx))
+            .when(shows_toggles, |bar| {
+                bar.child(self.pivot_toggle(pivot_note, cx))
                     .child(self.resize_toggle(cx))
             })
             .when(self.is_react_preview(), |bar| {
@@ -771,8 +789,8 @@ impl EditorView {
     /// "Center" | "Pivot": what canvas rotation and scale turn about, the
     /// chosen one selected. When Center is chosen but the selected layer
     /// can't keep its center, a warning in the control gives the reason
-    /// (see `pivot_note`); the labels never change.
-    fn pivot_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// (`note`, see `EditorView::pivot_note`); the labels never change.
+    fn pivot_toggle(&self, note: Option<&'static str>, cx: &mut Context<Self>) -> impl IntoElement {
         let modes = [PivotMode::Center, PivotMode::Pivot];
         let chosen = modes.iter().position(|mode| *mode == self.pivot_mode);
         mode_toggle(
@@ -788,7 +806,7 @@ impl EditorView {
                     ),
                 ],
                 chosen: chosen.unwrap_or_default(),
-                note: self.pivot_note().map(str::to_owned),
+                note: note.map(str::to_owned),
             },
             cx.listener(move |this, ix: &usize, _, cx| {
                 if let Some(mode) = modes.get(*ix) {
@@ -1196,7 +1214,7 @@ enum CrossDrag {
     /// Something keeps the anchor; its tooltip says what.
     Blocked,
     /// The element has no anchor to move (a `<Path>`).
-    None,
+    NoAnchor,
 }
 
 impl CrossDrag {
@@ -1204,7 +1222,7 @@ impl CrossDrag {
         match (draggable, reason) {
             (true, _) => Self::Moves,
             (false, Some(_)) => Self::Blocked,
-            (false, None) => Self::None,
+            (false, None) => Self::NoAnchor,
         }
     }
 }
@@ -1240,7 +1258,7 @@ fn place_cross(
     let square = handle_square(bounds, frame_size, at)?;
     Some(PlacedCross {
         at: square.center(),
-        hitbox: (drag != CrossDrag::None).then(|| {
+        hitbox: (drag != CrossDrag::NoAnchor).then(|| {
             let hitbox = window.insert_hitbox(square.dilate(px(2.0)), HitboxBehavior::Normal);
             (hitbox, drag)
         }),
