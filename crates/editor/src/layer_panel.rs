@@ -704,6 +704,7 @@ mod tests {
                 ),
             ],
             table: None,
+            component: None,
         };
         assert_eq!(
             locked_summary(&targets),

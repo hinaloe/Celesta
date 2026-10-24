@@ -23,11 +23,13 @@ use std::path::Path;
 /// How far an input sub-row is indented under its row.
 const INDENT: f32 = 12.0;
 
-/// A row's id part: the table key, `row.input` for an input.
+/// A row's id part: the table key, `row.input` for an input, `call.name`
+/// for a component prop.
 fn key_id(key: &PropKey) -> String {
     match key {
         PropKey::Prop(name) => name.clone(),
         PropKey::Input { row, name } => format!("{row}.{name}"),
+        PropKey::CallSite(name) => format!("call.{name}"),
     }
 }
 
@@ -114,6 +116,31 @@ impl EditorView {
                         cx,
                     ));
                 }
+            }
+        }
+        // The props written at the component's call, under its name; none
+        // when every prop written there already shows "Set at …" above.
+        if let Some(component) = targets
+            .component
+            .as_ref()
+            .filter(|component| !component.props.is_empty())
+        {
+            column = column.child(inspector_section(
+                format!("Component · {}", component.name),
+                cx,
+            ));
+            for (name, target, _) in &component.props {
+                column = column.child(self.element_row(
+                    &PropKey::CallSite(name.clone()),
+                    name.clone(),
+                    target,
+                    None,
+                    false,
+                    resolved,
+                    current,
+                    &entry_dir,
+                    cx,
+                ));
             }
         }
         column.into_any_element()

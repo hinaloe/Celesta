@@ -5,15 +5,17 @@
 use crate::edit_history::Texts;
 use crate::element_rows::row_label;
 use crate::layer_select::{SourceLookup, owner_call_site};
+use crate::property_controls::ControlKind;
+use crate::property_panel::control_kind as property_control_kind;
 use crate::view::EditorView;
 use celesta_react_bridge::{
-    ElementKind, LayerSource, LayerSourceReport, PrimitivePropertyField, PrimitivePropertyTable,
-    ReceivedProps, ReceivedValue, SourcePos,
+    ComponentPropertySchema, ElementKind, LayerSource, LayerSourceReport, PrimitivePropertyField,
+    PrimitivePropertyTable, ReceivedProps, ReceivedValue, SourcePos,
 };
 use celesta_source_edit::{
     ApplyError, Edit, EditTarget, EditValue, ElementRef, LiteralForm, LockReason, ResolveContext,
     apply, element_at, enclosing_component, format_number, has_attribute, parameter_of,
-    resolve_inputs, resolve_through, text_style_path,
+    resolve_call_site_prop, resolve_inputs, resolve_through, text_style_path, written_attributes,
 };
 use gpui_kit::Context;
 use std::cell::OnceCell;
@@ -32,17 +34,31 @@ pub(crate) enum PropKey {
         row: String,
         name: String,
     },
+    /// The prop `name` written at the call of the component that encloses
+    /// the element.
+    CallSite(String),
 }
 
 impl PropKey {
     /// The row's name in messages: a prop's row label ("Font size"), an
-    /// input's name as written.
+    /// input's or a component prop's name as written.
     pub(crate) fn label(&self) -> String {
         match self {
             Self::Prop(name) => row_label(name),
-            Self::Input { name, .. } => name.clone(),
+            Self::Input { name, .. } | Self::CallSite(name) => name.clone(),
         }
     }
+}
+
+/// The props written at the call of the component that encloses the
+/// element: its Component section.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ComponentTargets {
+    /// The tag at the call site (`PriceTag`), as `tag_name` reads it.
+    pub(crate) name: String,
+    pub(crate) call_site: SourcePos,
+    /// In source order; `kind` from the registered schema or the literal.
+    pub(crate) props: Vec<(String, Target, ControlKind)>,
 }
 
 /// A transform prop the editor writes back.
@@ -149,6 +165,9 @@ pub(crate) struct ElementTargets {
     /// The table the rows were resolved for, so a commit resolves them
     /// again the same way.
     pub(crate) table: Option<PrimitivePropertyTable>,
+    /// The props written at the enclosing component's call, when that call
+    /// is found and readable.
+    pub(crate) component: Option<ComponentTargets>,
 }
 
 impl ElementTargets {
@@ -185,7 +204,7 @@ impl ElementTargets {
         sites.all(|site| site == Some(first)).then_some(first)
     }
 
-    /// The row or input `key`.
+    /// The row, input, or component prop `key`.
     pub(crate) fn entry(&self, key: &PropKey) -> Option<&Target> {
         let row = |name: &str| {
             self.targets
@@ -200,10 +219,18 @@ impl ElementTargets {
                 .iter()
                 .find(|(input, _)| input == name)
                 .map(|(_, target)| target),
+            PropKey::CallSite(name) => self
+                .component
+                .as_ref()?
+                .props
+                .iter()
+                .find(|(prop, _, _)| prop == name)
+                .map(|(_, target, _)| target),
         }
     }
 
-    /// Every row, each followed by its inputs, with its key.
+    /// Every row, each followed by its inputs, then the component's props,
+    /// with its key.
     pub(crate) fn entries(&self) -> Vec<(PropKey, &Target)> {
         let mut entries = Vec::new();
         for (key, target) in &self.targets {
@@ -219,7 +246,43 @@ impl ElementTargets {
                 entries.push((key, input));
             }
         }
+        for (name, target, _) in self.component.iter().flat_map(|component| &component.props) {
+            entries.push((PropKey::CallSite(name.clone()), target));
+        }
         entries
+    }
+}
+
+/// The control kind of a literal's value; `String` for anything else (a
+/// locked prop, whose row is disabled anyway).
+fn literal_kind(target: &EditTarget) -> ControlKind {
+    match target {
+        EditTarget::Literal { value, .. } => match value {
+            EditValue::Number(_) => ControlKind::Number,
+            EditValue::String(_) => ControlKind::String,
+            EditValue::Bool(_) => ControlKind::Boolean,
+        },
+        _ => ControlKind::String,
+    }
+}
+
+/// Types the Component section's props from the schema `registerComponent()`
+/// registered for the component's name, when it declares the prop; the
+/// others keep their literal's kind.
+pub(crate) fn type_component_props(
+    targets: &mut ElementTargets,
+    schemas: &BTreeMap<String, ComponentPropertySchema>,
+) {
+    let Some(component) = &mut targets.component else {
+        return;
+    };
+    let Some(schema) = schemas.get(&component.name) else {
+        return;
+    };
+    for (name, _, kind) in &mut component.props {
+        if let Some(field) = schema.get(name) {
+            *kind = property_control_kind(field);
+        }
     }
 }
 
@@ -540,7 +603,49 @@ fn resolve_rows(
         }
         (PropKey::Prop(name), target)
     };
-    let targets = rows(&text, &element).into_iter().map(row).collect();
+    let targets: Vec<(PropKey, Target)> = rows(&text, &element).into_iter().map(row).collect();
+    // The props written at the component's call, read now when no row
+    // needed it. A prop a row or an input passes through to is shown there.
+    let component = call_site().map(|site| {
+        let passed: Vec<&str> = targets
+            .iter()
+            .flat_map(|(_, row)| {
+                std::iter::once(row).chain(row.inputs.iter().map(|(_, input)| input))
+            })
+            .filter_map(|target| match &target.target {
+                EditTarget::PassThrough { param, .. } => Some(param.as_str()),
+                _ => None,
+            })
+            .collect();
+        let ctx = ResolveContext {
+            primitive: false,
+            component_props: true,
+            candidate_frames: candidate_frames(report),
+            received: None,
+            render_count: 1,
+        };
+        let props = written_attributes(&site.text, &site.call)
+            .into_iter()
+            .filter(|name| !passed.contains(&name.as_str()))
+            .map(|name| {
+                let target = resolve_call_site_prop(&site.text, &site.call, &name, &ctx);
+                let kind = literal_kind(&target);
+                let target = Target {
+                    file: site.entry.file.clone(),
+                    path: name.clone(),
+                    target,
+                    call_site: None,
+                    inputs: Vec::new(),
+                };
+                (name, target, kind)
+            })
+            .collect();
+        ComponentTargets {
+            name: tag_name(&site.text, &site.call).to_owned(),
+            call_site: SourcePos::from(site.entry),
+            props,
+        }
+    });
     let mut files = vec![source.file.clone()];
     if let Some((Some(file), _)) = loaded.get()
         && !files.contains(file)
@@ -553,6 +658,7 @@ fn resolve_rows(
         element,
         targets,
         table: table.cloned(),
+        component,
     })
 }
 
@@ -643,7 +749,7 @@ pub(crate) fn commit_files(
             .iter()
             .filter_map(|(key, _)| match key {
                 PropKey::Prop(name) => Some(name.clone()),
-                PropKey::Input { .. } => None,
+                PropKey::Input { .. } | PropKey::CallSite(_) => None,
             })
             .collect()
     };
@@ -1030,6 +1136,8 @@ impl EditorView {
             .first()
             .and_then(|element| self.primitive_table(&element.name))
             .cloned();
+        // What `registerComponent()` declared types the Component section.
+        let schemas = self.component_schemas.clone();
         let report = report.clone();
         let entry_dir = self
             .react_entry()
@@ -1044,6 +1152,7 @@ impl EditorView {
                             .map_err(|error| format!("Couldn't read {}: {error}", path.display()))
                     };
                     let mut targets = resolve_targets(read, &report, table.as_ref())?;
+                    type_component_props(&mut targets, &schemas);
                     let real = |path: &Path| fs::canonicalize(path).unwrap_or(path.to_path_buf());
                     let entry_dir = entry_dir.map(|dir| real(&dir));
                     lock_outside_project(&mut targets, |file| {
@@ -1146,8 +1255,8 @@ fn normalize(path: &Path) -> PathBuf {
     normal
 }
 
-/// Locks every target, row or input, in a file `outside` says is outside
-/// the project (the element's, or a call site's).
+/// Locks every target, row, input, or component prop, in a file `outside`
+/// says is outside the project (the element's, or a call site's).
 pub(crate) fn lock_outside_project(targets: &mut ElementTargets, outside: impl Fn(&Path) -> bool) {
     let lock = |target: &mut Target| {
         if outside(&target.file) {
@@ -1159,5 +1268,12 @@ pub(crate) fn lock_outside_project(targets: &mut ElementTargets, outside: impl F
         for (_, input) in &mut target.inputs {
             lock(input);
         }
+    }
+    for (_, target, _) in targets
+        .component
+        .iter_mut()
+        .flat_map(|component| &mut component.props)
+    {
+        lock(target);
     }
 }

@@ -291,6 +291,23 @@ pub fn resolve(text: &str, element: &ElementRef, prop: &str, ctx: &ResolveContex
     }
 }
 
+/// [`resolve`] for a prop written at a component's call (`ctx` with
+/// `component_props`), unchecked: the runtime reports no value for a
+/// component's own props, so a literal is not compared with
+/// `ctx.received`, as a pass-through's call site is read. An absent prop is
+/// `Missing` at the end of the attributes, with no default known.
+pub fn resolve_call_site_prop(
+    text: &str,
+    element: &ElementRef,
+    prop: &str,
+    ctx: &ResolveContext,
+) -> EditTarget {
+    resolve_written(text, element, prop, ctx, false).unwrap_or(EditTarget::Missing {
+        insert_at: element.end_of_attributes,
+        default: None,
+    })
+}
+
 /// A prop nothing written on the element sets: no attribute, no children,
 /// and no spread.
 pub(crate) struct Absent {

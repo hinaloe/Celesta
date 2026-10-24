@@ -9,7 +9,7 @@ use crate::editor_launch::{
 use crate::element_edit::{
     CommitError, ElementEdit, ElementTargets, PropKey, Target, TransformProp, commit_files,
     inside_project, keyframe_jump_frames, keyframe_timeline_frame, lock_outside_project,
-    reason_text, resolve_targets, table_default,
+    reason_text, resolve_targets, table_default, type_component_props,
 };
 use crate::element_rows::{control_kind, parse_row_value, row_label, row_text, set_at_text};
 use crate::export_worker::{
@@ -1385,6 +1385,7 @@ fn single_row(text: &str, prop: &str, target: EditTarget) -> ElementTargets {
             },
         )],
         table: None,
+        component: None,
     }
 }
 
@@ -3884,6 +3885,7 @@ fn impact_and_the_locked_summary_stay_transform_only() {
             (prop("color"), passed("color", &other)),
         ],
         table: Some(text_table()),
+        component: None,
     };
 
     assert_eq!(targets.written_at(), Some(&scene));
@@ -4120,4 +4122,136 @@ fn locked_rows_show_the_received_value() {
         row_text("children", &locked, Some(&field), &report),
         ("Sale".to_owned(), String::new())
     );
+}
+
+const PROPS_TAG: &str = "export function PriceTag({ x = 0, label }) {\n  return <Rect x={x} width={10} height={10} />;\n}\n";
+const PROPS_TAG_SCENE: &str =
+    "export const Scene = () => (\n  <PriceTag x={40} label=\"Sale\" tone={2} on />\n);\n";
+
+fn props_tag_files() -> Texts {
+    Texts::from([
+        (
+            PathBuf::from("/project/component.tsx"),
+            PROPS_TAG.to_owned(),
+        ),
+        (
+            PathBuf::from("/project/scene.tsx"),
+            PROPS_TAG_SCENE.to_owned(),
+        ),
+    ])
+}
+
+/// The `<Rect>` in `PriceTag`, called with props of every literal kind.
+fn props_tag_report() -> LayerSourceReport {
+    let rect = LayerSource {
+        column: 10,
+        ..entry_at("Rect", ElementKind::Primitive, "/project/component.tsx", 2)
+    };
+    LayerSourceReport {
+        props: ReceivedProps {
+            x: Some(40.0),
+            ..ReceivedProps::default()
+        },
+        ..report_of(vec![
+            rect,
+            entry_at("PriceTag", ElementKind::Component, "/project/scene.tsx", 2),
+        ])
+    }
+}
+
+#[test]
+fn component_section_lists_the_call_sites_props() {
+    let targets = resolve_targets(read_from(&props_tag_files()), &props_tag_report(), None)
+        .expect("the element resolves");
+
+    let component = targets.component.as_ref().expect("a component section");
+    assert_eq!(component.name, "PriceTag");
+    assert_eq!(
+        component.call_site,
+        SourcePos {
+            file: PathBuf::from("/project/scene.tsx"),
+            line: 2,
+            column: 3,
+        }
+    );
+    // `x` shows once, in its own row passing through to the call site.
+    let props: Vec<(&str, &ControlKind)> = component
+        .props
+        .iter()
+        .map(|(name, _, kind)| (name.as_str(), kind))
+        .collect();
+    assert_eq!(
+        props,
+        [
+            ("label", &ControlKind::String),
+            ("tone", &ControlKind::Number),
+            ("on", &ControlKind::Boolean),
+        ]
+    );
+    let (_, label, _) = &component.props[0];
+    assert_eq!(label.file, Path::new("/project/scene.tsx"));
+    assert!(matches!(
+        &label.target,
+        EditTarget::Literal { value: EditValue::String(text), .. } if text == "Sale"
+    ));
+    assert!(matches!(
+        targets.transform(TransformProp::X),
+        Some(EditTarget::PassThrough { .. })
+    ));
+}
+
+#[test]
+fn component_props_use_the_registered_schema() {
+    let mut targets =
+        resolve_targets(read_from(&props_tag_files()), &props_tag_report(), None).unwrap();
+    let schemas = std::collections::BTreeMap::from([(
+        "PriceTag".to_owned(),
+        std::collections::BTreeMap::from([(
+            "label".to_owned(),
+            celesta_react_bridge::ComponentPropertyField::Color {
+                label: None,
+                default_value: "#000000".to_owned(),
+            },
+        )]),
+    )]);
+
+    type_component_props(&mut targets, &schemas);
+
+    let component = targets.component.as_ref().unwrap();
+    assert_eq!(component.props[0].0, "label");
+    assert_eq!(component.props[0].2, ControlKind::Color);
+    // A prop the schema does not declare keeps its literal's kind.
+    assert_eq!(component.props[1].2, ControlKind::Number);
+}
+
+#[test]
+fn component_prop_commit_writes_the_call_site() {
+    let texts = props_tag_files();
+    let report = props_tag_report();
+    let targets = resolve_targets(read_from(&texts), &report, None).unwrap();
+
+    let written = commit_files(
+        &texts,
+        &targets,
+        &report,
+        &[(
+            PropKey::CallSite("label".to_owned()),
+            EditValue::String("Sold".to_owned()),
+        )],
+    );
+
+    assert_eq!(
+        written,
+        Ok(vec![(
+            PathBuf::from("/project/scene.tsx"),
+            PROPS_TAG_SCENE.replace("label=\"Sale\"", "label=\"Sold\"")
+        )])
+    );
+}
+
+#[test]
+fn no_component_section_without_a_call_site() {
+    let report = primitive_report(2, 3, x_only());
+    let targets = resolve_in(TRANSFORM_FIXTURE, &report).unwrap();
+    assert_eq!(targets.component, None);
 }

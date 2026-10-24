@@ -109,11 +109,12 @@ pub(crate) fn shown_text(
             .then(|| received("scale"))
             .flatten()
     };
-    // What an absent prop is drawn with when the source sets no default.
+    // What an absent prop is drawn with when the source sets no default; a
+    // primitive's own defaults only for the element's props.
     let absent = || {
         axis()
             .or_else(|| field.and_then(table_default))
-            .or_else(|| default_for(key))
+            .or_else(|| props.and_then(|_| default_for(key)))
     };
     let placeholder = |value: Option<EditValue>| {
         (
@@ -224,20 +225,21 @@ pub(crate) fn set_at_text(call_site: &SourcePos, entry_dir: &Path) -> String {
     )
 }
 
-/// The table field of the row `key`; inputs have none.
+/// The table field of the row `key`; inputs and component props have none.
 pub(crate) fn row_field<'t>(
     targets: &'t ElementTargets,
     key: &PropKey,
 ) -> Option<&'t PrimitivePropertyField> {
     match key {
         PropKey::Prop(name) => field_of(targets.table.as_ref()?, name),
-        PropKey::Input { .. } => None,
+        PropKey::Input { .. } | PropKey::CallSite(_) => None,
     }
 }
 
 /// The control a row edits its value with: its table field's, a number for
-/// a transform prop without a table, and a number or (for a string
-/// literal) a string for an input.
+/// a transform prop without a table, a number or (for a string literal) a
+/// string for an input, and the Component section's kind for a component
+/// prop.
 pub(crate) fn row_kind(targets: &ElementTargets, key: &PropKey, target: &Target) -> ControlKind {
     match key {
         PropKey::Prop(_) => row_field(targets, key).map_or(ControlKind::Number, control_kind),
@@ -248,11 +250,18 @@ pub(crate) fn row_kind(targets: &ElementTargets, key: &PropKey, target: &Target)
             } => ControlKind::String,
             _ => ControlKind::Number,
         },
+        PropKey::CallSite(name) => targets
+            .component
+            .iter()
+            .flat_map(|component| &component.props)
+            .find(|(prop, _, _)| prop == name)
+            .map_or(ControlKind::String, |(_, _, kind)| kind.clone()),
     }
 }
 
-/// What a row shows for `key`, as [`row_text`] does for a row and without
-/// received props for an input.
+/// What a row shows for `key`, as [`row_text`] does for a row, and without
+/// received props for an input or a component prop (the element did not
+/// receive those).
 fn entry_text(
     targets: &ElementTargets,
     key: &PropKey,
@@ -261,7 +270,9 @@ fn entry_text(
 ) -> (String, String) {
     match key {
         PropKey::Prop(name) => row_text(name, target, row_field(targets, key), report),
-        PropKey::Input { name, .. } => shown_text(name, &target.path, &target.target, None, None),
+        PropKey::Input { name, .. } | PropKey::CallSite(name) => {
+            shown_text(name, &target.path, &target.target, None, None)
+        }
     }
 }
 
