@@ -279,6 +279,14 @@ impl EditorView {
             .is_some_and(|drag| !drag.released)
     }
 
+    /// Whether a released drag is being written, or waits for the reload
+    /// that draws its values.
+    pub(crate) fn transform_drag_released(&self) -> bool {
+        self.transform_drag
+            .as_ref()
+            .is_some_and(|drag| drag.released)
+    }
+
     /// Starts a drag when `position` (window pixels) is on a handle of the
     /// selected layer, or on its body with the layer topmost there. True when
     /// a drag started.
@@ -291,6 +299,11 @@ impl EditorView {
         // written, clicks select as usual (and no second drag starts).
         if let Some(drag) = &self.transform_drag {
             return !drag.released;
+        }
+        // Nor while a released scrub is: its override stays until the reload
+        // draws the written value.
+        if self.row_scrub_released() {
+            return false;
         }
         let DragState::Editable(frame, editable) = self.drag_state() else {
             return false;
@@ -323,8 +336,10 @@ impl EditorView {
             Some(Handle::Move) | None => return false,
             Some(handle) => handle,
         };
-        // A row's scrub ends unwritten: the two never run together.
-        self.cancel_row_scrub();
+        // A pressed scrub ends unwritten: the two never run together.
+        if self.row_scrub_active() {
+            self.cancel_row_scrub();
+        }
         self.transform_drag = Some(TransformDrag::new(
             frame, handle, start, editable, received, sites,
         ));

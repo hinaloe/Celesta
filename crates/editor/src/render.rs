@@ -5,7 +5,7 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::status_bar::StatusBar;
 use gpui_kit::component::{ActiveTheme as _, Root, Sizable as _};
 use gpui_kit::prelude::*;
-use gpui_kit::{Context, KeyDownEvent, MouseButton, Window, div, px};
+use gpui_kit::{Context, CursorStyle, KeyDownEvent, MouseButton, Window, canvas, div, px};
 
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -107,6 +107,19 @@ impl EditorView {
             .child(self.title_bar(cx))
             .child(self.workspace(cx))
             .child(self.status_bar(cx))
+            // A scrub keeps its cursor wherever the pointer goes.
+            .when(self.row_scrub_active(), |root| {
+                root.child(
+                    canvas(
+                        |_, _, _| {},
+                        |_, _, window, _| {
+                            window.set_window_cursor_style(CursorStyle::ResizeLeftRight);
+                        },
+                    )
+                    .absolute()
+                    .size_0(),
+                )
+            })
     }
 
     /// The resizable shell: the asset list, the viewer, and the inspector,

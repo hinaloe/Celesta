@@ -4425,16 +4425,127 @@ fn scrub_steps() {
         min: Some(0.0),
         max: Some(1.0),
     };
+    let radius = prop("cornerRadius");
+    let opacity = prop("opacity");
+    let near = |actual: f64, expected: f64| {
+        assert!(
+            (actual - expected).abs() < 1e-9,
+            "{actual} is not {expected}"
+        );
+    };
     // One per pixel.
-    assert_eq!(scrub_value(10.0, 5.0, Some(&free), false), 15.0);
-    assert_eq!(scrub_value(10.0, 5.0, None, false), 15.0);
+    assert_eq!(scrub_value(&radius, 10.0, 5.0, Some(&free), false), 15.0);
+    assert_eq!(scrub_value(&radius, 10.0, 5.0, None, false), 15.0);
     // 0.01 per pixel for a field that ends at 1 or below, inside its range.
-    assert!((scrub_value(0.5, 10.0, Some(&unit), false) - 0.6).abs() < 1e-9);
-    assert_eq!(scrub_value(0.5, 100.0, Some(&unit), false), 1.0);
-    assert_eq!(scrub_value(0.5, -100.0, Some(&unit), false), 0.0);
+    near(scrub_value(&opacity, 0.5, 10.0, Some(&unit), false), 0.6);
+    assert_eq!(scrub_value(&opacity, 0.5, 100.0, Some(&unit), false), 1.0);
+    assert_eq!(scrub_value(&opacity, 0.5, -100.0, Some(&unit), false), 0.0);
     // Shift steps ten times as far.
-    assert_eq!(scrub_value(10.0, 5.0, Some(&free), true), 60.0);
-    assert!((scrub_value(0.5, 2.0, Some(&unit), true) - 0.7).abs() < 1e-9);
+    assert_eq!(scrub_value(&radius, 10.0, 5.0, Some(&free), true), 60.0);
+    near(scrub_value(&opacity, 0.5, 2.0, Some(&unit), true), 0.7);
+    // Scale is a ratio around 1: 0.01 per pixel too, unbounded.
+    for axis in ["scale", "scaleX", "scaleY"] {
+        near(
+            scrub_value(
+                &prop(axis),
+                1.0,
+                10.0,
+                Some(&number_field(Some(1.0))),
+                false,
+            ),
+            1.1,
+        );
+        near(scrub_value(&prop(axis), 1.0, 10.0, None, true), 2.0);
+        near(scrub_value(&prop(axis), 1.0, -150.0, None, false), -0.5);
+    }
+}
+
+/// `<Rect x={10} {attributes} />` at line 2, column 3 of
+/// `/project/scene.tsx`, drawn with `x` 10 and `received`.
+fn drawn_rect(attributes: &str, received: &[(&str, f64)]) -> (ElementTargets, LayerSourceReport) {
+    let text = format!("export const Scene = () => (\n  <Rect x={{10}} {attributes} />\n);\n");
+    let mut report = primitive_report(
+        2,
+        3,
+        ReceivedProps {
+            x: Some(10.0),
+            ..ReceivedProps::default()
+        },
+    );
+    for (name, value) in received {
+        report
+            .props
+            .others
+            .insert((*name).to_owned(), ReceivedValue::Number(*value));
+    }
+    (resolve_table(&text, &report, &rect_table()), report)
+}
+
+/// The override value a scrub of `key` pressed at x 100 sends at `x`.
+fn scrubbed_to(
+    (targets, report): &(ElementTargets, LayerSourceReport),
+    key: &PropKey,
+    x: f32,
+) -> f64 {
+    let mut scrub = Scrub::start(targets, report, key, 100.0).expect("the row scrubs");
+    scrub.follow(x, false);
+    let overrides = scrub.overrides(false);
+    assert_eq!(overrides.len(), 1, "{overrides:?}");
+    overrides[0].value
+}
+
+#[test]
+fn a_scrub_starts_from_the_value_the_row_shows() {
+    // The placeholder of an absent prop without a default in the source
+    // (`({ r = base * 2 })`): what the element received, unrounded.
+    let text = "export const Scene = () => (\n  <Rect x={10} />\n);\n";
+    let missing = EditTarget::Missing {
+        insert_at: 0,
+        default: None,
+    };
+    let received = (
+        single_row(text, "cornerRadius", missing),
+        other_prop_report("Rect", "cornerRadius", ReceivedValue::Number(2.125)),
+    );
+    assert_eq!(scrubbed_to(&received, &prop("cornerRadius"), 104.0), 6.125);
+    // Else the table's default.
+    let absent = drawn_rect("", &[]);
+    assert!((scrubbed_to(&absent, &prop("opacity"), 90.0) - 0.9).abs() < 1e-9);
+    // A parameter's default in the source, at the call that leaves it out.
+    let texts = Texts::from([
+        (
+            PathBuf::from("/project/component.tsx"),
+            PRICE_TAG.replace("({ x })", "({ x = 7 })"),
+        ),
+        (
+            PathBuf::from("/project/scene.tsx"),
+            PRICE_TAG_SCENE.replace(" x={40}", ""),
+        ),
+    ]);
+    let report = LayerSourceReport {
+        props: ReceivedProps {
+            x: Some(7.0),
+            rotation: Some(10.0),
+            ..ReceivedProps::default()
+        },
+        ..price_tag_report()
+    };
+    let targets = resolve_targets(read_from(&texts), &report, None).unwrap();
+    assert_eq!(scrubbed_to(&(targets, report), &prop("x"), 104.0), 11.0);
+}
+
+#[test]
+fn a_scrub_back_at_its_start_writes_nothing_outside_the_range() {
+    // `opacity={1.5}` scrubs from 1, the nearest value inside its range.
+    let (targets, report) = drawn_rect("opacity={1.5}", &[("opacity", 1.5)]);
+    let mut scrub = Scrub::start(&targets, &report, &prop("opacity"), 100.0).unwrap();
+    assert!(scrub.follow(95.0, false));
+    assert_eq!(
+        scrub.overrides(false),
+        [override_at("/project/scene.tsx", "opacity", 0.95)]
+    );
+    scrub.follow(100.0, false);
+    assert!(!scrub.changed());
 }
 
 /// The overrides a scrub of `key` pressed at x 100 sends at x 104, 110 and

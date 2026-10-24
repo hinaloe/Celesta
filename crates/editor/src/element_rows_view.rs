@@ -297,7 +297,11 @@ impl EditorView {
                                 let key = key.clone();
                                 label.cursor(CursorStyle::ResizeLeftRight).on_mouse_down(
                                     MouseButton::Left,
-                                    cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                                    cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                                        // The focus stays where it is: the
+                                        // root's `track_focus` would take it
+                                        // and blur (and submit) a row's field.
+                                        window.prevent_default();
                                         this.begin_row_scrub(&key, f32::from(event.position.x), cx);
                                     }),
                                 )

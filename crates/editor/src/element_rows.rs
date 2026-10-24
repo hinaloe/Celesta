@@ -104,6 +104,24 @@ pub(crate) fn shown_text(
     field: Option<&PrimitivePropertyField>,
     props: Option<&ReceivedProps>,
 ) -> (String, String) {
+    let (value, placeholder) = shown_value(key, path, target, field, props);
+    let text = value.as_ref().map(value_text).unwrap_or_default();
+    if placeholder {
+        (String::new(), text)
+    } else {
+        (text, String::new())
+    }
+}
+
+/// The value [`shown_text`] shows, unrounded, and whether it shows as the
+/// dimmed placeholder of an absent prop.
+fn shown_value(
+    key: &str,
+    path: &str,
+    target: &EditTarget,
+    field: Option<&PrimitivePropertyField>,
+    props: Option<&ReceivedProps>,
+) -> (Option<EditValue>, bool) {
     let received = |path: &str| props.and_then(|props| props.get(path)).map(edit_value);
     // A scale axis absent from the element is drawn at the `scale` it
     // received (`<Rect scale={2} scaleX={3} />` draws Y at 2).
@@ -119,15 +137,10 @@ pub(crate) fn shown_text(
             .or_else(|| field.and_then(table_default))
             .or_else(|| props.and_then(|_| default_for(key)))
     };
-    let placeholder = |value: Option<EditValue>| {
-        (
-            String::new(),
-            value.as_ref().map(value_text).unwrap_or_default(),
-        )
-    };
+    let placeholder = |value: Option<EditValue>| (value, true);
     match target {
-        EditTarget::Literal { value, .. } => (value_text(value), String::new()),
-        EditTarget::Keyframe { value, .. } => (format_number(*value), String::new()),
+        EditTarget::Literal { value, .. } => (Some(value.clone()), false),
+        EditTarget::Keyframe { value, .. } => (Some(EditValue::Number(*value)), false),
         EditTarget::Missing {
             default: Some(default),
             ..
@@ -141,10 +154,10 @@ pub(crate) fn shown_text(
                 default: Some(default),
                 ..
             } => placeholder(Some(default.clone())),
-            inner => shown_text(key, path, inner, field, props),
+            inner => shown_value(key, path, inner, field, props),
         },
         EditTarget::Locked(_) => match received(path) {
-            Some(value) => (value_text(&value), String::new()),
+            Some(value) => (Some(value), false),
             None => placeholder(absent()),
         },
     }
@@ -280,10 +293,13 @@ pub(crate) fn row_kind(targets: &ElementTargets, key: &PropKey, target: &Target)
     }
 }
 
-/// The value a scrub `dx` pixels from its start gives: `start + dx * step`,
-/// `step` 1 per pixel, 0.01 for a field with `max <= 1` (opacity, ratios),
-/// clamped to `min`/`max`; Shift multiplies the step by 10.
+/// The value a scrub of the row `key` `dx` pixels from its start gives:
+/// `start + dx * step`, `step` 1 per pixel, 0.01 for a field with
+/// `max <= 1` (opacity, ratios) and for `scale`, `scaleX`, `scaleY` (ratios
+/// around 1, unbounded), clamped to `min`/`max`; Shift multiplies the step
+/// by 10.
 pub(crate) fn scrub_value(
+    key: &PropKey,
     start: f64,
     dx: f32,
     field: Option<&PrimitivePropertyField>,
@@ -293,7 +309,8 @@ pub(crate) fn scrub_value(
         Some(PrimitivePropertyField::Number { min, max, .. }) => (*min, *max),
         _ => (None, None),
     };
-    let step = if max.is_some_and(|max| max <= 1.0) {
+    let ratio = matches!(key, PropKey::Prop(name) if matches!(name.as_str(), "scale" | "scaleX" | "scaleY"));
+    let step = if ratio || max.is_some_and(|max| max <= 1.0) {
         0.01
     } else {
         1.0
@@ -354,25 +371,22 @@ impl Scrub {
         let (_, site) = override_sites(targets, report)
             .into_iter()
             .find(|(candidate, _)| candidate == key)?;
-        // A literal's own value; the shown text rounds it.
-        let start_value = match inner_target(&target.target) {
-            EditTarget::Literal {
-                value: EditValue::Number(value),
-                ..
-            } => *value,
-            _ => {
-                let (text, placeholder) = entry_text(targets, key, target, report);
-                let shown = if text.is_empty() { placeholder } else { text };
-                shown.trim().parse().unwrap_or(0.0)
-            }
+        // The value or the placeholder the row shows, unrounded, moved
+        // inside the field's range: a pointer back at the start pixel then
+        // gives the start value, which writes nothing.
+        let field = row_field(targets, key).cloned();
+        let shown = match entry_value(targets, key, target, report) {
+            Some(EditValue::Number(value)) => value,
+            _ => 0.0,
         };
+        let start_value = scrub_value(key, shown, 0.0, field.as_ref(), false);
         Some(Self {
             key: key.clone(),
             start_x,
             start_value,
             value: start_value,
             sites: vec![site.with(start_value)],
-            field: row_field(targets, key).cloned(),
+            field,
             moved: false,
             released: false,
         })
@@ -382,7 +396,7 @@ impl Scrub {
     /// changed.
     pub(crate) fn follow(&mut self, x: f32, shift: bool) -> bool {
         let dx = (x - self.start_x).round();
-        let value = scrub_value(self.start_value, dx, self.field.as_ref(), shift);
+        let value = scrub_value(&self.key, self.start_value, dx, self.field.as_ref(), shift);
         if value == self.value {
             return false;
         }
@@ -433,6 +447,21 @@ fn entry_text(
             shown_text(name, &target.path, &target.target, None, None)
         }
     }
+}
+
+/// The value [`entry_text`] shows, unrounded: the row's value, else its
+/// placeholder (source default, else received, else table default).
+fn entry_value(
+    targets: &ElementTargets,
+    key: &PropKey,
+    target: &Target,
+    report: &LayerSourceReport,
+) -> Option<EditValue> {
+    let (name, field, props) = match key {
+        PropKey::Prop(name) => (name, row_field(targets, key), Some(&report.props)),
+        PropKey::Input { name, .. } | PropKey::CallSite(name) => (name, None, None),
+    };
+    shown_value(name, &target.path, &target.target, field, props).0
 }
 
 /// One row's control and what it shows.
@@ -767,7 +796,9 @@ impl EditorView {
     /// starts a scrub of its value when the row scrubs, ending a canvas drag
     /// without writing it. Nothing while playing.
     pub(crate) fn begin_row_scrub(&mut self, key: &PropKey, x: f32, cx: &mut Context<Self>) {
-        if self.playing || self.row_scrub_active() {
+        // While a released scrub or drag is being written, none starts: its
+        // override stays until the reload draws the written value.
+        if self.playing || self.element_rows.scrub.is_some() || self.transform_drag_released() {
             return;
         }
         let Some(scrub) = self
@@ -776,14 +807,28 @@ impl EditorView {
         else {
             return;
         };
-        self.cancel_transform_drag();
-        self.cancel_row_scrub();
-        if let Some(row) = self.element_rows.rows.get_mut(key) {
-            row.edited = false;
-            row.invalid = None;
+        if self.transform_drag_active() {
+            self.cancel_transform_drag();
+        }
+        // Text typed in this row gives way to the scrubbed value; text typed
+        // in another row stays in its field, which keeps the focus (the
+        // label's press does not take it).
+        match self.element_rows.rows.get_mut(key) {
+            Some(row) if row.edited => self.restore_element_row(key, true, cx),
+            Some(row) => row.invalid = None,
+            None => {}
         }
         self.element_rows.scrub = Some(scrub);
         cx.notify();
+    }
+
+    /// Whether a released scrub is being written, or waits for the reload
+    /// that draws its value.
+    pub(crate) fn row_scrub_released(&self) -> bool {
+        self.element_rows
+            .scrub
+            .as_ref()
+            .is_some_and(|scrub| scrub.released)
     }
 
     /// Follows the pointer: recomputes the value and redraws the frame with
