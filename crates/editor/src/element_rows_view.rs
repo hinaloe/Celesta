@@ -12,12 +12,12 @@ use crate::property_controls::{ControlKind, render_control};
 use crate::property_panel::number_hint;
 use crate::view::EditorView;
 use crate::widgets::inspector_section;
-use celesta_react_bridge::PrimitivePropertyField;
+use celesta_react_bridge::{PrimitivePropertyField, SourcePos};
 use celesta_source_edit::{EditTarget, LockReason};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _};
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, Context, ElementId, SharedString, div, px};
+use gpui_kit::{AnyElement, Context, Div, ElementId, SharedString, div, px};
 use std::path::Path;
 
 /// How far an input sub-row is indented under its row.
@@ -61,6 +61,26 @@ fn sections(targets: &ElementTargets) -> Vec<(String, Vec<&(PropKey, Target)>)> 
         })
         .filter(|(_, rows)| !rows.is_empty())
         .collect()
+}
+
+/// "Set at `<file>`:`<line>`" after a `corner-down-right` icon.
+fn set_at_line(call_site: &SourcePos, entry_dir: &Path, cx: &Context<EditorView>) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .text_xs()
+        .text_color(cx.theme().muted_foreground)
+        .child(Icon::new(CelestaIcon::CornerDownRight).xsmall())
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(set_at_text(call_site, entry_dir)),
+        )
 }
 
 impl EditorView {
@@ -125,16 +145,26 @@ impl EditorView {
             .as_ref()
             .filter(|component| !component.props.is_empty())
         {
-            column = column.child(inspector_section(
-                format!("Component · {}", component.name),
-                cx,
-            ));
-            for (name, target, _) in &component.props {
+            column = column
+                .child(inspector_section(
+                    format!("Component · {}", component.name),
+                    cx,
+                ))
+                .child(
+                    div()
+                        .px_3()
+                        .py_2()
+                        .border_b_1()
+                        .border_color(cx.theme().border)
+                        .child(set_at_line(&component.call_site, &entry_dir, cx)),
+                );
+            for prop in &component.props {
+                let key = PropKey::CallSite(prop.name.clone());
                 column = column.child(self.element_row(
-                    &PropKey::CallSite(name.clone()),
-                    name.clone(),
-                    target,
-                    None,
+                    &key,
+                    prop.name.clone(),
+                    &prop.target,
+                    row_field(targets, &key),
                     false,
                     resolved,
                     current,
@@ -217,24 +247,7 @@ impl EditorView {
             ),
             _ => None,
         };
-        let set_at = call_site.map(|call_site| {
-            div()
-                .flex()
-                .items_center()
-                .gap_1()
-                .text_xs()
-                .text_color(muted)
-                .child(Icon::new(CelestaIcon::CornerDownRight).xsmall())
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .child(set_at_text(call_site, entry_dir)),
-                )
-        });
+        let set_at = call_site.map(|call_site| set_at_line(call_site, entry_dir, cx));
         let message = row
             .and_then(|row| row.invalid.clone())
             .map(|message| div().text_xs().text_color(cx.theme().danger).child(message));

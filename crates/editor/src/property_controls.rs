@@ -105,7 +105,8 @@ impl Control {
         true
     }
 
-    /// Replaces the dimmed placeholder of a control with a text input.
+    /// Replaces the dimmed placeholder of the control's text input; does
+    /// nothing for a control without one.
     pub(crate) fn set_placeholder(&self, placeholder: String, window: &mut Window, cx: &mut App) {
         match self {
             Control::Text(input) | Control::Color { text: input, .. } => {

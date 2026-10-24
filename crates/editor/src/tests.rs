@@ -11,7 +11,9 @@ use crate::element_edit::{
     inside_project, keyframe_jump_frames, keyframe_timeline_frame, lock_outside_project,
     reason_text, resolve_targets, table_default, type_component_props,
 };
-use crate::element_rows::{control_kind, parse_row_value, row_label, row_text, set_at_text};
+use crate::element_rows::{
+    cleared_path, control_kind, parse_row_value, row_field, row_label, row_text, set_at_text,
+};
 use crate::export_worker::{
     ExportEvent, ExportRequest, ExportSource, ExportWorker, export_options,
 };
@@ -3917,6 +3919,7 @@ fn row_labels() {
         ("strokeWidth", "Stroke width"),
         ("x", "X"),
         ("opacity", "Opacity"),
+        ("src", "Source"),
     ] {
         assert_eq!(row_label(key), label, "{key}");
     }
@@ -4178,7 +4181,7 @@ fn component_section_lists_the_call_sites_props() {
     let props: Vec<(&str, &ControlKind)> = component
         .props
         .iter()
-        .map(|(name, _, kind)| (name.as_str(), kind))
+        .map(|prop| (prop.name.as_str(), &prop.kind))
         .collect();
     assert_eq!(
         props,
@@ -4188,7 +4191,7 @@ fn component_section_lists_the_call_sites_props() {
             ("on", &ControlKind::Boolean),
         ]
     );
-    let (_, label, _) = &component.props[0];
+    let label = &component.props[0].target;
     assert_eq!(label.file, Path::new("/project/scene.tsx"));
     assert!(matches!(
         &label.target,
@@ -4215,13 +4218,168 @@ fn component_props_use_the_registered_schema() {
         )]),
     )]);
 
-    type_component_props(&mut targets, &schemas);
+    type_component_props(&mut targets, &schemas, read_from(&props_tag_files()));
 
     let component = targets.component.as_ref().unwrap();
-    assert_eq!(component.props[0].0, "label");
-    assert_eq!(component.props[0].2, ControlKind::Color);
+    assert_eq!(component.props[0].name, "label");
+    assert_eq!(component.props[0].kind, ControlKind::Color);
     // A prop the schema does not declare keeps its literal's kind.
-    assert_eq!(component.props[1].2, ControlKind::Number);
+    assert_eq!(component.props[1].kind, ControlKind::Number);
+}
+
+fn schema_number(
+    min: Option<f64>,
+    max: Option<f64>,
+) -> celesta_react_bridge::ComponentPropertyField {
+    celesta_react_bridge::ComponentPropertyField::Number {
+        label: None,
+        default_value: 0.0,
+        min,
+        max,
+        step: None,
+    }
+}
+
+/// `PriceTag` registered with `label: number`, `tone: number` from 0 to 10,
+/// and `on: boolean`.
+fn price_tag_schemas()
+-> std::collections::BTreeMap<String, celesta_react_bridge::ComponentPropertySchema> {
+    std::collections::BTreeMap::from([(
+        "PriceTag".to_owned(),
+        std::collections::BTreeMap::from([
+            ("label".to_owned(), schema_number(None, None)),
+            ("tone".to_owned(), schema_number(Some(0.0), Some(10.0))),
+            (
+                "on".to_owned(),
+                celesta_react_bridge::ComponentPropertyField::Boolean {
+                    label: None,
+                    default_value: false,
+                },
+            ),
+        ]),
+    )])
+}
+
+/// `PriceTag`'s files with `on={1}` at the call.
+fn typed_props_tag_files() -> Texts {
+    let mut texts = props_tag_files();
+    let scene = PROPS_TAG_SCENE.replace(" on />", " on={1} />");
+    texts.insert(PathBuf::from("/project/scene.tsx"), scene);
+    texts
+}
+
+/// `PriceTag`'s targets typed by [`price_tag_schemas`].
+fn typed_props_tag_targets(texts: &Texts) -> ElementTargets {
+    let mut targets = resolve_targets(read_from(texts), &props_tag_report(), None).unwrap();
+    type_component_props(&mut targets, &price_tag_schemas(), read_from(texts));
+    targets
+}
+
+#[test]
+fn component_props_that_do_not_fit_their_schema_lock() {
+    let texts = typed_props_tag_files();
+    let targets = typed_props_tag_targets(&texts);
+    let call_site = |name: &str| PropKey::CallSite(name.to_owned());
+
+    assert_eq!(
+        targets.target(&call_site("label")),
+        Some(&EditTarget::Locked(LockReason::Expression {
+            source: "\"Sale\"".to_owned()
+        }))
+    );
+    assert!(matches!(
+        targets.target(&call_site("on")),
+        Some(EditTarget::Locked(LockReason::Expression { .. }))
+    ));
+    // A number in its range stays editable, and typed text is checked
+    // against the range.
+    assert!(matches!(
+        targets.target(&call_site("tone")),
+        Some(EditTarget::Literal { .. })
+    ));
+    let field = row_field(&targets, &call_site("tone"));
+    assert_eq!(
+        parse_row_value(&ControlKind::Number, field, "11"),
+        Err("Enter a number from 0 to 10".to_owned())
+    );
+}
+
+#[test]
+fn a_schema_locked_prop_does_not_block_other_commits() {
+    let texts = typed_props_tag_files();
+    let targets = typed_props_tag_targets(&texts);
+    let report = props_tag_report();
+
+    let written = commit_files(
+        &texts,
+        &targets,
+        &report,
+        &[(PropKey::CallSite("tone".to_owned()), EditValue::Number(5.0))],
+    );
+
+    let scene = &texts[Path::new("/project/scene.tsx")];
+    assert_eq!(
+        written,
+        Ok(vec![(
+            PathBuf::from("/project/scene.tsx"),
+            scene.replace("tone={2}", "tone={5}")
+        )])
+    );
+}
+
+#[test]
+fn a_moved_call_site_attribute_refuses_the_commit() {
+    let texts = props_tag_files();
+    let report = props_tag_report();
+    let targets = resolve_targets(read_from(&texts), &report, None).unwrap();
+    // `label` moved at the call; the Rect's own `y` is what is written.
+    let mut moved = texts.clone();
+    moved.insert(
+        PathBuf::from("/project/scene.tsx"),
+        PROPS_TAG_SCENE.replace("label=\"Sale\"", "label=\"On sale\""),
+    );
+
+    assert_eq!(
+        commit_files(&moved, &targets, &report, &[num(TransformProp::Y, 5.0)]),
+        Err(CommitError::SourceChanged)
+    );
+}
+
+#[test]
+fn none_on_an_absent_path_writes_nothing() {
+    let missing = EditTarget::Missing {
+        insert_at: 0,
+        default: None,
+    };
+    assert_eq!(cleared_path(&missing), None);
+    let written = EditTarget::Literal {
+        span: Span { start: 1, end: 7 },
+        value: EditValue::String("a.png".to_owned()),
+        form: LiteralForm::Quoted('"'),
+    };
+    assert_eq!(
+        cleared_path(&written),
+        Some(EditValue::String(String::new()))
+    );
+}
+
+#[test]
+fn the_component_section_leaves_out_children() {
+    let mut texts = props_tag_files();
+    texts.insert(
+        PathBuf::from("/project/scene.tsx"),
+        PROPS_TAG_SCENE.replace(" on />", " children=\"A\" />"),
+    );
+    let targets = resolve_targets(read_from(&texts), &props_tag_report(), None).unwrap();
+    let names: Vec<&str> = targets
+        .component
+        .as_ref()
+        .unwrap()
+        .props
+        .iter()
+        .map(|prop| prop.name.as_str())
+        .collect();
+    assert_eq!(names, ["label", "tone"]);
 }
 
 #[test]

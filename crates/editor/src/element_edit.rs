@@ -3,14 +3,13 @@
 //! the canvas read, and the commit that writes new values.
 
 use crate::edit_history::Texts;
-use crate::element_rows::row_label;
+use crate::element_rows::{control_kind, row_label};
 use crate::layer_select::{SourceLookup, owner_call_site};
 use crate::property_controls::ControlKind;
-use crate::property_panel::control_kind as property_control_kind;
 use crate::view::EditorView;
 use celesta_react_bridge::{
-    ComponentPropertySchema, ElementKind, LayerSource, LayerSourceReport, PrimitivePropertyField,
-    PrimitivePropertyTable, ReceivedProps, ReceivedValue, SourcePos,
+    ComponentPropertyField, ComponentPropertySchema, ElementKind, LayerSource, LayerSourceReport,
+    PrimitivePropertyField, PrimitivePropertyTable, ReceivedProps, ReceivedValue, SourcePos,
 };
 use celesta_source_edit::{
     ApplyError, Edit, EditTarget, EditValue, ElementRef, LiteralForm, LockReason, ResolveContext,
@@ -58,7 +57,21 @@ pub(crate) struct ComponentTargets {
     pub(crate) name: String,
     pub(crate) call_site: SourcePos,
     /// In source order; `kind` from the registered schema or the literal.
-    pub(crate) props: Vec<(String, Target, ControlKind)>,
+    pub(crate) props: Vec<ComponentProp>,
+    /// The schema `registerComponent()` registered for `name`, which typed
+    /// the props; a commit types its fresh resolution with it again.
+    pub(crate) schema: Option<ComponentPropertySchema>,
+}
+
+/// One prop written at the component's call.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ComponentProp {
+    pub(crate) name: String,
+    pub(crate) target: Target,
+    pub(crate) kind: ControlKind,
+    /// The registered field as a table field (range, options, default),
+    /// when the schema declares the prop.
+    pub(crate) field: Option<PrimitivePropertyField>,
 }
 
 /// A transform prop the editor writes back.
@@ -224,8 +237,8 @@ impl ElementTargets {
                 .as_ref()?
                 .props
                 .iter()
-                .find(|(prop, _, _)| prop == name)
-                .map(|(_, target, _)| target),
+                .find(|prop| prop.name == *name)
+                .map(|prop| &prop.target),
         }
     }
 
@@ -246,8 +259,8 @@ impl ElementTargets {
                 entries.push((key, input));
             }
         }
-        for (name, target, _) in self.component.iter().flat_map(|component| &component.props) {
-            entries.push((PropKey::CallSite(name.clone()), target));
+        for prop in self.component.iter().flat_map(|component| &component.props) {
+            entries.push((PropKey::CallSite(prop.name.clone()), &prop.target));
         }
         entries
     }
@@ -266,24 +279,88 @@ fn literal_kind(target: &EditTarget) -> ControlKind {
     }
 }
 
+/// A registered component field as a table field, so its row is typed,
+/// hinted, checked, and locked as a table row is.
+fn schema_field(field: &ComponentPropertyField) -> PrimitivePropertyField {
+    match field {
+        ComponentPropertyField::String { default_value, .. } => PrimitivePropertyField::String {
+            default_value: Some(default_value.clone()),
+        },
+        ComponentPropertyField::Number {
+            default_value,
+            min,
+            max,
+            ..
+        } => PrimitivePropertyField::Number {
+            default_value: Some(*default_value),
+            min: *min,
+            max: *max,
+        },
+        ComponentPropertyField::Boolean { default_value, .. } => PrimitivePropertyField::Boolean {
+            default_value: Some(*default_value),
+        },
+        ComponentPropertyField::Color { default_value, .. } => PrimitivePropertyField::Color {
+            default_value: Some(default_value.clone()),
+        },
+        ComponentPropertyField::Select {
+            default_value,
+            options,
+            ..
+        } => PrimitivePropertyField::Select {
+            options: options.clone(),
+            default_value: Some(default_value.clone()),
+        },
+        ComponentPropertyField::Path { .. } => PrimitivePropertyField::Path,
+    }
+}
+
 /// Types the Component section's props from the schema `registerComponent()`
-/// registered for the component's name, when it declares the prop; the
-/// others keep their literal's kind.
+/// registered for the component's name, reading the call site's file with
+/// `read`; see [`apply_component_schema`].
 pub(crate) fn type_component_props(
     targets: &mut ElementTargets,
     schemas: &BTreeMap<String, ComponentPropertySchema>,
+    read: impl Fn(&Path) -> Result<String, String>,
+) {
+    let Some(schema) = targets
+        .component
+        .as_ref()
+        .and_then(|component| schemas.get(&component.name))
+        .cloned()
+    else {
+        return;
+    };
+    apply_component_schema(targets, schema, read);
+}
+
+/// Types each component prop `schema` declares by its field, and locks a
+/// literal of another kind (`label="Sale"` for a number) as the expression
+/// it is in the source, as table rows are. The others keep their literal's
+/// kind. Without the call site's text, nothing is typed.
+fn apply_component_schema(
+    targets: &mut ElementTargets,
+    schema: ComponentPropertySchema,
+    read: impl Fn(&Path) -> Result<String, String>,
 ) {
     let Some(component) = &mut targets.component else {
         return;
     };
-    let Some(schema) = schemas.get(&component.name) else {
+    let Ok(text) = read(&component.call_site.file) else {
         return;
     };
-    for (name, _, kind) in &mut component.props {
-        if let Some(field) = schema.get(name) {
-            *kind = property_control_kind(field);
-        }
+    for prop in &mut component.props {
+        let Some(field) = schema.get(&prop.name).map(schema_field) else {
+            continue;
+        };
+        let target = std::mem::replace(
+            &mut prop.target.target,
+            EditTarget::Locked(LockReason::ElementNotFound),
+        );
+        prop.target.target = fit_kind(target, &field, &text, None, &prop.name);
+        prop.kind = control_kind(&field);
+        prop.field = Some(field);
     }
+    component.schema = Some(schema);
 }
 
 /// The table key a row belongs to: `scaleX` and `scaleY` are `scale`'s.
@@ -624,9 +701,11 @@ fn resolve_rows(
             received: None,
             render_count: 1,
         };
+        // The call's children are not listed: they are the component's
+        // content, not a value (a `children` attribute among them too).
         let props = written_attributes(&site.text, &site.call)
             .into_iter()
-            .filter(|name| !passed.contains(&name.as_str()))
+            .filter(|name| name != "children" && !passed.contains(&name.as_str()))
             .map(|name| {
                 let target = resolve_call_site_prop(&site.text, &site.call, &name, &ctx);
                 let kind = literal_kind(&target);
@@ -637,13 +716,19 @@ fn resolve_rows(
                     call_site: None,
                     inputs: Vec::new(),
                 };
-                (name, target, kind)
+                ComponentProp {
+                    name,
+                    target,
+                    kind,
+                    field: None,
+                }
             })
             .collect();
         ComponentTargets {
             name: tag_name(&site.text, &site.call).to_owned(),
             call_site: SourcePos::from(site.entry),
             props,
+            schema: None,
         }
     });
     let mut files = vec![source.file.clone()];
@@ -755,6 +840,14 @@ pub(crate) fn commit_files(
     };
     let mut fresh = resolve_rows(read, report, expected.table.as_ref(), rows)
         .map_err(|_| CommitError::SourceChanged)?;
+    // Typed by the schema the targets were typed with, as when resolved.
+    if let Some(schema) = expected
+        .component
+        .as_ref()
+        .and_then(|component| component.schema.clone())
+    {
+        apply_component_schema(&mut fresh, schema, read);
+    }
     let was = expected.entries();
     let outside: Vec<&Path> = was
         .iter()
@@ -1152,7 +1245,7 @@ impl EditorView {
                             .map_err(|error| format!("Couldn't read {}: {error}", path.display()))
                     };
                     let mut targets = resolve_targets(read, &report, table.as_ref())?;
-                    type_component_props(&mut targets, &schemas);
+                    type_component_props(&mut targets, &schemas, read);
                     let real = |path: &Path| fs::canonicalize(path).unwrap_or(path.to_path_buf());
                     let entry_dir = entry_dir.map(|dir| real(&dir));
                     lock_outside_project(&mut targets, |file| {
@@ -1269,11 +1362,11 @@ pub(crate) fn lock_outside_project(targets: &mut ElementTargets, outside: impl F
             lock(input);
         }
     }
-    for (_, target, _) in targets
+    for prop in targets
         .component
         .iter_mut()
         .flat_map(|component| &mut component.props)
     {
-        lock(target);
+        lock(&mut prop.target);
     }
 }

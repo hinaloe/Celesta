@@ -37,8 +37,10 @@ pub(crate) fn control_kind(field: &PrimitivePropertyField) -> ControlKind {
 /// `children` → "Text", `scaleX` → "Scale X", `x` → "X", `anchorX` →
 /// "Anchor X").
 pub(crate) fn row_label(key: &str) -> String {
-    if key == "children" {
-        return "Text".to_owned();
+    match key {
+        "children" => return "Text".to_owned(),
+        "src" => return "Source".to_owned(),
+        _ => {}
     }
     let mut words: Vec<String> = Vec::new();
     for c in key.chars() {
@@ -225,14 +227,32 @@ pub(crate) fn set_at_text(call_site: &SourcePos, entry_dir: &Path) -> String {
     )
 }
 
-/// The table field of the row `key`; inputs and component props have none.
+/// The table field of the row `key`, or a component prop's registered
+/// field; inputs have none.
 pub(crate) fn row_field<'t>(
     targets: &'t ElementTargets,
     key: &PropKey,
 ) -> Option<&'t PrimitivePropertyField> {
     match key {
         PropKey::Prop(name) => field_of(targets.table.as_ref()?, name),
-        PropKey::Input { .. } | PropKey::CallSite(_) => None,
+        PropKey::Input { .. } => None,
+        PropKey::CallSite(name) => targets
+            .component
+            .as_ref()?
+            .props
+            .iter()
+            .find(|prop| prop.name == *name)?
+            .field
+            .as_ref(),
+    }
+}
+
+/// What "None" on a path row writes: an empty path over a written one, and
+/// nothing for an absent prop (no `src=""` is inserted).
+pub(crate) fn cleared_path(target: &EditTarget) -> Option<EditValue> {
+    match inner_target(target) {
+        EditTarget::Missing { .. } => None,
+        _ => Some(EditValue::String(String::new())),
     }
 }
 
@@ -254,8 +274,8 @@ pub(crate) fn row_kind(targets: &ElementTargets, key: &PropKey, target: &Target)
             .component
             .iter()
             .flat_map(|component| &component.props)
-            .find(|(prop, _, _)| prop == name)
-            .map_or(ControlKind::String, |(_, _, kind)| kind.clone()),
+            .find(|prop| prop.name == *name)
+            .map_or(ControlKind::String, |prop| prop.kind.clone()),
     }
 }
 
@@ -475,7 +495,15 @@ impl EditorView {
             }
             ControlEvent::ChoosePath => self.choose_element_path(key, cx),
             ControlEvent::ClearPath => {
-                self.commit_element_row(key, EditValue::String(String::new()), cx);
+                let cleared = self
+                    .element_edit
+                    .resolved(self.selected_layer.as_deref())
+                    .and_then(|(resolved, _)| resolved.outcome.as_ref().ok())
+                    .and_then(|targets| targets.entry(key))
+                    .and_then(|target| cleared_path(&target.target));
+                if let Some(value) = cleared {
+                    self.commit_element_row(key, value, cx);
+                }
             }
         }
     }
@@ -585,7 +613,7 @@ impl EditorView {
                 Ok(Ok(Some(paths))) => paths.into_iter().next(),
                 Ok(Ok(None)) | Err(_) => None,
                 Ok(Err(error)) => {
-                    let message = format!("Couldn’t show the file dialog: {error}");
+                    let message = format!("Couldn't show the file dialog: {error}");
                     view.update(cx, |this, cx| this.set_row_message(&key, message, cx))
                         .ok();
                     None
@@ -606,7 +634,7 @@ impl EditorView {
                 match imported {
                     Ok(path) => this.commit_element_row(&key, EditValue::String(path), cx),
                     Err(error) => {
-                        let message = format!("Couldn’t use the chosen file: {error}");
+                        let message = format!("Couldn't use the chosen file: {error}");
                         this.set_row_message(&key, message, cx);
                     }
                 }
