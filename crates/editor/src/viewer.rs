@@ -29,12 +29,10 @@ use crate::preview::PreviewPresentation;
 use crate::problems::{ActiveProblem, Source, flow_line_breaks, summarize_warnings};
 use crate::problems_panel::{detail_block, show_in_problems_row};
 use crate::timecode::format_timecode;
-use crate::transform_drag::{
-    DragState, HANDLE_SIZE, NO_AFFINE_FRAME, PivotFallback, ROTATE_STEM,
-};
+use crate::transform_drag::{DragState, HANDLE_SIZE, NO_AFFINE_FRAME, PivotFallback, ROTATE_STEM};
 use crate::transform_handles::{
-    Handle, PivotMode, Resize, ResizeTool, anchor_handle, handle_quad, pivot_cross,
-    rotate_stem, shown_handles,
+    Handle, PivotMode, Resize, ResizeTool, anchor_handle, handle_quad, pivot_cross, rotate_stem,
+    shown_handles,
 };
 use crate::view::EditorView;
 use celesta_gpu_renderer::LayerFrame;
@@ -104,10 +102,9 @@ impl EditorView {
         // The pivot cross of every selected layer with a frame, and whether
         // Alt drags it.
         let cross = match &drag_state {
-            DragState::Editable(frame, editable, ..) => Some((
-                pivot_cross(frame),
-                anchor_handle(frame, editable).is_some(),
-            )),
+            DragState::Editable(frame, editable, ..) => {
+                Some((pivot_cross(frame), anchor_handle(frame, editable).is_some()))
+            }
             DragState::Locked(frame, _) => Some((pivot_cross(frame), false)),
             _ => None,
         };
@@ -722,8 +719,9 @@ impl EditorView {
     fn resize_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let (used, fallback) = self.shown_resize_tool();
         let muted = cx.theme().muted_foreground;
-        let scale_tooltip =
-            fallback.as_ref().map_or("Scale the layer".to_owned(), |fallback| fallback.reason());
+        let scale_tooltip = fallback
+            .as_ref()
+            .map_or("Scale the layer".to_owned(), |fallback| fallback.reason());
         ButtonGroup::new("resize-tool")
             .small()
             .outline()

@@ -4538,10 +4538,12 @@ fn a_text_s_anchor_box_is_its_layout_box() {
     let near = |a: f64, b: f64| (a - b).abs() <= 1.0;
 
     let flat = &regions[0];
-    let [top_left, top_right, _, bottom_left] =
-        flat.anchor_box.expect("a text has an anchor box");
+    let [top_left, top_right, _, bottom_left] = flat.anchor_box.expect("a text has an anchor box");
     // `x`/`y` place the layout box's top-left; it is `maxWidth` wide.
-    assert!(near(top_left.x, 100.0) && near(top_left.y, 50.0), "{top_left:?}");
+    assert!(
+        near(top_left.x, 100.0) && near(top_left.y, 50.0),
+        "{top_left:?}"
+    );
     assert!(near(top_right.x - top_left.x, 300.0), "{top_right:?}");
     assert!(bottom_left.y - top_left.y > 10.0, "{bottom_left:?}");
     // The texture's quad reaches past it, by the stroke on either side.
@@ -4550,7 +4552,10 @@ fn a_text_s_anchor_box_is_its_layout_box() {
 
     // Mapped like the corners: turned 90°, its top edge runs down.
     let [top_left, top_right, ..] = regions[1].anchor_box.expect("an anchor box");
-    assert!(near(top_left.x, 100.0) && near(top_left.y, 50.0), "{top_left:?}");
+    assert!(
+        near(top_left.x, 100.0) && near(top_left.y, 50.0),
+        "{top_left:?}"
+    );
     assert!(near(top_right.x, 100.0), "{top_right:?}");
     assert!(near(top_right.y - top_left.y, 300.0), "{top_right:?}");
 

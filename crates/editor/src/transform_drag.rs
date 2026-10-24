@@ -2,14 +2,14 @@
 //! change, the prop overrides the preview evaluates the scene with while it
 //! runs, and the one write on release.
 
+use crate::canvas_geometry::{anchor_box, local_box, with_anchor_box};
 use crate::element_edit::{
     ElementTargets, PropKey, TransformProp, editable, field_of, inner_target, reason_text,
 };
-use crate::canvas_geometry::{anchor_box, local_box, with_anchor_box};
 use crate::layer_select::{letterbox, to_scene};
 use crate::transform_handles::{
     Handle, PivotMode, Resize, ResizeTool, SizeField, SizeProps, anchor_keys, drag_label,
-    drag_values, preview_values, pressed_handle, prop_values, resizes_any, shown_handles,
+    drag_values, pressed_handle, preview_values, prop_values, resizes_any, shown_handles,
     size_animated, turn,
 };
 use crate::view::EditorView;
@@ -1254,7 +1254,10 @@ mod tests {
             pivot_fallback(PivotMode::Center, &animated, &frame),
             Some(PivotFallback::Animated)
         );
-        assert_eq!(PivotFallback::Animated.reason(), "Rotation or scale is animated");
+        assert_eq!(
+            PivotFallback::Animated.reason(),
+            "Rotation or scale is animated"
+        );
         let pivot = pivot_used(PivotMode::Center, &animated, &frame);
         assert_eq!(pivot, PivotMode::Pivot);
         let values = drag_values(
@@ -1271,7 +1274,11 @@ mod tests {
         assert_eq!(values[0].0, TransformProp::Rotation.key());
         // A keyframed scale too; a locked one is no drag at all.
         assert_eq!(
-            pivot_fallback(PivotMode::Center, &rows(literal(0.0), keyframe(1.0)), &frame),
+            pivot_fallback(
+                PivotMode::Center,
+                &rows(literal(0.0), keyframe(1.0)),
+                &frame
+            ),
             Some(PivotFallback::Animated)
         );
         let locked = EditTarget::Locked(LockReason::Spread);
@@ -1544,7 +1551,16 @@ mod tests {
         let mut editable = drag_props(&targets, &frame);
         editable.extend(resize.keys());
         let pivot = pivot_used(PivotMode::Center, &targets, &frame);
-        let values = drag_values(&frame, handle, (from, to), false, 0.0, &editable, pivot, Some(&resize));
+        let values = drag_values(
+            &frame,
+            handle,
+            (from, to),
+            false,
+            0.0,
+            &editable,
+            pivot,
+            Some(&resize),
+        );
         let values: Vec<_> = prop_values(&frame, &values, &report.props, Some(&resize))
             .into_iter()
             .map(|(key, value)| (key, Some(EditValue::Number(value))))

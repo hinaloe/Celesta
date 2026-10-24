@@ -118,13 +118,15 @@ pub(crate) fn with_anchor_box(
     if let Some((width, height)) = size {
         let [ax, ay] = ANCHOR_PROPS.map(|name| number(name).unwrap_or(0.0));
         let map = layer_map(&frame.transform);
-        frame.anchor_box = Some([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|(u, v)| {
-            let local = Point {
-                x: (u - ax) * width,
-                y: (v - ay) * height,
-            };
-            apply(&frame.parent, apply(&map, local))
-        }));
+        frame.anchor_box = Some(
+            [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|(u, v)| {
+                let local = Point {
+                    x: (u - ax) * width,
+                    y: (v - ay) * height,
+                };
+                apply(&frame.parent, apply(&map, local))
+            }),
+        );
         frame.transform.anchor = Point { x: ax, y: ay };
     }
     frame
@@ -356,7 +358,9 @@ mod tests {
         centered.transform.anchor = at(0.5, 0.5);
         let shape = received(&[("width", 100.0), ("height", 50.0), ("anchorX", 0.25)]);
         assert_eq!(
-            with_anchor_box(centered, "Ellipse", &shape).transform.anchor,
+            with_anchor_box(centered, "Ellipse", &shape)
+                .transform
+                .anchor,
             at(0.25, 0.0)
         );
         // `<Circle>` and the radius shapes against `2 * radius`.
@@ -381,7 +385,11 @@ mod tests {
         assert_near(anchor_box(&text).expect("a box").max, at(100.0, 50.0));
         // A `<Group>` places its children by its position: its anchor has no
         // effect, whatever box the renderer reports.
-        let group = with_anchor_box(box_frame(turned, parent, 120.0, 70.0), "Group", &received(&[]));
+        let group = with_anchor_box(
+            box_frame(turned, parent, 120.0, 70.0),
+            "Group",
+            &received(&[]),
+        );
         assert_eq!(anchor_box(&group), None);
     }
 

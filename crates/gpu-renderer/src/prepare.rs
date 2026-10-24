@@ -1328,9 +1328,7 @@ impl GpuRenderer {
                         layer.hole_corners(),
                         layer.anchor_box_corners(),
                     ),
-                    PreparedItem::Instances(particles) => {
-                        (particles.shape().corners(), None, None)
-                    }
+                    PreparedItem::Instances(particles) => (particles.shape().corners(), None, None),
                     _ => return None,
                 };
                 // A leaf in a plane is in the plane's canvas pixels.

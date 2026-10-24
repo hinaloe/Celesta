@@ -151,9 +151,9 @@ impl Resize {
     /// runtime would derive from the new one (an `<Image>`'s aspect).
     fn pinned(&self, key: &PropKey) -> bool {
         match &self.props {
-            SizeProps::Box { width, height } => {
-                [width, height].iter().any(|field| field.absent && field.key() == *key)
-            }
+            SizeProps::Box { width, height } => [width, height]
+                .iter()
+                .any(|field| field.absent && field.key() == *key),
             SizeProps::Radius(_) | SizeProps::Width(_) => false,
         }
     }
@@ -250,7 +250,10 @@ pub(crate) fn pivot_cross(frame: &LayerFrame) -> Point {
 /// `with_anchor_box`).
 pub(crate) fn anchor_handle(frame: &LayerFrame, editable: &[PropKey]) -> Option<Point> {
     let keys = [TransformProp::X.key(), TransformProp::Y.key()];
-    let draggable = keys.iter().chain(&anchor_keys()).all(|key| editable.contains(key))
+    let draggable = keys
+        .iter()
+        .chain(&anchor_keys())
+        .all(|key| editable.contains(key))
         && anchor_box(frame).is_some();
     draggable.then(|| pivot_cross(frame))
 }
@@ -307,9 +310,7 @@ fn handles_on(quad: &[Point; 4], uniform: bool, stem: f64) -> Vec<(Handle, Point
 /// children's scene-axis box and a text's is padded, so a corner of it is
 /// not the box's.
 pub(crate) fn handle_quad(frame: &LayerFrame, resize: Option<&Resize>) -> [Point; 4] {
-    resize
-        .and(frame.anchor_box)
-        .unwrap_or(frame.outline)
+    resize.and(frame.anchor_box).unwrap_or(frame.outline)
 }
 
 /// The middle of the top edge and the rotation handle at the stem's end,
@@ -437,9 +438,8 @@ pub(crate) fn drag_values(
     }
     // Center mode: the box center stays, so `x`/`y` are computed from the
     // values as written.
-    let centered = can(TransformProp::X)
-        && can(TransformProp::Y)
-        && kept_center(frame, pivot).is_some();
+    let centered =
+        can(TransformProp::X) && can(TransformProp::Y) && kept_center(frame, pivot).is_some();
     let written = |value: f64| if centered { as_written(value) } else { value };
     let mut values = Vec::new();
     let mut push = |prop: TransformProp, value: f64| values.push((prop.key(), value));
@@ -758,7 +758,10 @@ fn resize_values(
             };
             let width = as_written(whole.clamp(pulled.x, 1.0));
             values.push((field.key(), width));
-            Point { x: width, y: size.y }
+            Point {
+                x: width,
+                y: size.y,
+            }
         }
     };
     if resize_moves(frame, handle, resize) {
@@ -972,7 +975,9 @@ fn handle_props(
         Handle::Corner(_) => vec![TransformProp::ScaleX.key(), TransformProp::ScaleY.key()],
     };
     // In Center mode a rotation or scale moves the layer too.
-    if pivot == PivotMode::Center && matches!(handle, Handle::Rotate | Handle::Corner(_) | Handle::Edge(_)) {
+    if pivot == PivotMode::Center
+        && matches!(handle, Handle::Rotate | Handle::Corner(_) | Handle::Edge(_))
+    {
         props.extend(position);
     }
     props.retain(|key| editable.contains(key));
@@ -1318,11 +1323,16 @@ mod tests {
         let after = box_frame(moved(&before, &values), turned_parent(), 72.0, 72.0);
         assert_corners_kept(&after, &frame, &[0]);
         // Corners only.
-        let shown: Vec<Handle> =
-            shown_handles(&frame, &with_sizes(&resize), 20.0, PivotMode::Center, Some(&resize))
-                .into_iter()
-                .map(|(handle, _)| handle)
-                .collect();
+        let shown: Vec<Handle> = shown_handles(
+            &frame,
+            &with_sizes(&resize),
+            20.0,
+            PivotMode::Center,
+            Some(&resize),
+        )
+        .into_iter()
+        .map(|(handle, _)| handle)
+        .collect();
         assert_eq!(
             shown,
             [
@@ -1352,7 +1362,13 @@ mod tests {
             at(132.0, 40.0),
             at(-12.0, 40.0),
         ]
-        .map(|local| scene(&box_frame(before, turned_parent(), 1.0, 1.0), &before, local));
+        .map(|local| {
+            scene(
+                &box_frame(before, turned_parent(), 1.0, 1.0),
+                &before,
+                local,
+            )
+        });
         let frame = LayerFrame {
             outline: quad,
             anchor_box: Some(layout),
@@ -1387,11 +1403,16 @@ mod tests {
         );
         // The left and right edges only; the left one keeps the right edge,
         // so it moves x and y.
-        let shown: Vec<Handle> =
-            shown_handles(&frame, &with_sizes(&resize), 20.0, PivotMode::Center, Some(&resize))
-                .into_iter()
-                .map(|(handle, _)| handle)
-                .collect();
+        let shown: Vec<Handle> = shown_handles(
+            &frame,
+            &with_sizes(&resize),
+            20.0,
+            PivotMode::Center,
+            Some(&resize),
+        )
+        .into_iter()
+        .map(|(handle, _)| handle)
+        .collect();
         assert_eq!(shown, [Handle::Edge(1), Handle::Edge(3), Handle::Rotate]);
         let values = resize_drag(
             &frame,
@@ -1401,7 +1422,10 @@ mod tests {
             &resize,
         );
         assert_eq!(names(&values), ["maxWidth", "x", "y"]);
-        assert!((size(&values, "maxWidth") - 150.0).abs() < 1e-9, "{values:?}");
+        assert!(
+            (size(&values, "maxWidth") - 150.0).abs() < 1e-9,
+            "{values:?}"
+        );
         let after = moved(&before, &values);
         assert_close(
             scene(&frame, &after, at(150.0, 0.0)),
@@ -1430,7 +1454,10 @@ mod tests {
                 compensable: true,
             };
             let values = resize_drag(&frame, Handle::Edge(1), through, false, &resize);
-            assert!((size(&values, "width") - expected).abs() < 1e-9, "{values:?}");
+            assert!(
+                (size(&values, "width") - expected).abs() < 1e-9,
+                "{values:?}"
+            );
         }
         // From the left: the right edge stays, the box never flips.
         let values = resize_drag(
@@ -1477,10 +1504,16 @@ mod tests {
     fn left_edge_hidden_without_compensable_x() {
         let frame = box_frame(top_left_rect(), turned_parent(), 100.0, 50.0);
         let shown = |resize: &Resize, frame: &LayerFrame| -> Vec<Handle> {
-            shown_handles(frame, &with_sizes(resize), 20.0, PivotMode::Center, Some(resize))
-                .into_iter()
-                .map(|(handle, _)| handle)
-                .collect()
+            shown_handles(
+                frame,
+                &with_sizes(resize),
+                20.0,
+                PivotMode::Center,
+                Some(resize),
+            )
+            .into_iter()
+            .map(|(handle, _)| handle)
+            .collect()
         };
         // Every corner and edge (edges even with a uniform scale).
         assert_eq!(shown(&box_resize(true), &frame).len(), 9);
@@ -1548,7 +1581,10 @@ mod tests {
         // it moves the anchor point.
         let preview = first_move(Handle::Edge(3), at(0.0, 25.0));
         assert_eq!(names(&preview), ["width", "x", "y"]);
-        assert!((size(&preview, "width") - 100.0).abs() < 1e-6, "{preview:?}");
+        assert!(
+            (size(&preview, "width") - 100.0).abs() < 1e-6,
+            "{preview:?}"
+        );
         assert_eq!(
             names(&first_move(Handle::Edge(1), at(100.0, 25.0))),
             ["width"]
@@ -1577,17 +1613,34 @@ mod tests {
     fn bounding(quad: [Point; 4]) -> [Point; 4] {
         let xs = quad.map(|p| p.x);
         let ys = quad.map(|p| p.y);
-        let (left, right) = (xs.iter().copied().fold(f64::INFINITY, f64::min), xs.iter().copied().fold(f64::NEG_INFINITY, f64::max));
-        let (top, bottom) = (ys.iter().copied().fold(f64::INFINITY, f64::min), ys.iter().copied().fold(f64::NEG_INFINITY, f64::max));
-        [at(left, top), at(right, top), at(right, bottom), at(left, bottom)]
+        let (left, right) = (
+            xs.iter().copied().fold(f64::INFINITY, f64::min),
+            xs.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+        );
+        let (top, bottom) = (
+            ys.iter().copied().fold(f64::INFINITY, f64::min),
+            ys.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+        );
+        [
+            at(left, top),
+            at(right, top),
+            at(right, bottom),
+            at(left, bottom),
+        ]
     }
 
     fn shown_at(frame: &LayerFrame, resize: &Resize, handle: Handle) -> Point {
-        shown_handles(frame, &with_sizes(resize), 20.0, PivotMode::Center, Some(resize))
-            .into_iter()
-            .find(|(candidate, _)| *candidate == handle)
-            .map(|(_, point)| point)
-            .unwrap_or_else(|| panic!("no {handle:?}"))
+        shown_handles(
+            frame,
+            &with_sizes(resize),
+            20.0,
+            PivotMode::Center,
+            Some(resize),
+        )
+        .into_iter()
+        .find(|(candidate, _)| *candidate == handle)
+        .map(|(_, point)| point)
+        .unwrap_or_else(|| panic!("no {handle:?}"))
     }
 
     #[test]
@@ -1630,7 +1683,10 @@ mod tests {
         let (base, _) = rotate_stem(&frame, 20.0, Some(&resize));
         assert_close(base, scene(&frame, &before, at(50.0, 0.0)));
         // The Scale tool keeps the outline.
-        assert_eq!(rotate_stem(&frame, 20.0, None).0, edge_middle(&frame.outline, 0));
+        assert_eq!(
+            rotate_stem(&frame, 20.0, None).0,
+            edge_middle(&frame.outline, 0)
+        );
     }
 
     #[test]
@@ -1661,7 +1717,10 @@ mod tests {
             prop_values(&frame, &values, &none, Some(&resize)),
             [(size_key("width"), 140.0), (size_key("height"), 75.0)]
         );
-        assert_eq!(drag_label(&frame, &values, &none, Some(&resize)), "width 100 → 140  height 75 → 75");
+        assert_eq!(
+            drag_label(&frame, &values, &none, Some(&resize)),
+            "width 100 → 140  height 75 → 75"
+        );
         // From the first move, and nothing written while nothing changes.
         let still = resize_drag(
             &frame,
@@ -1725,7 +1784,11 @@ mod tests {
                 assert_eq!(width, if kept == 0.0 { 170.0 } else { 150.0 }, "{values:?}");
                 // The edge it keeps stays, at the pivot's height.
                 let moves = (kept - anchor_x).abs() > 1e-9;
-                assert_eq!(names(&values).len(), if moves { 3 } else { 1 }, "{values:?}");
+                assert_eq!(
+                    names(&values).len(),
+                    if moves { 3 } else { 1 },
+                    "{values:?}"
+                );
                 let after = moved(&before, &values);
                 assert_close(
                     scene(&frame, &after, at((kept - anchor_x) * width, 0.0)),
@@ -1850,10 +1913,7 @@ mod tests {
     fn turned(about: Point, point: Point, degrees: f64) -> Point {
         let (sin, cos) = degrees.to_radians().sin_cos();
         let (dx, dy) = (point.x - about.x, point.y - about.y);
-        at(
-            about.x + dx * cos - dy * sin,
-            about.y + dx * sin + dy * cos,
-        )
+        at(about.x + dx * cos - dy * sin, about.y + dx * sin + dy * cos)
     }
 
     fn names(values: &[(PropKey, f64)]) -> Vec<&str> {
