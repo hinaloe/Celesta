@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     ArrowFunctionExpression, BindingIdentifier, Function, IdentifierReference, JSXAttributeItem,
@@ -269,7 +271,7 @@ pub(crate) const TOLERANCE: f64 = 1e-6;
 /// `prop` is an attribute name, `children` for the element's children, or
 /// `style.<key>` for a property of a `style={{ … }}` object literal.
 pub fn resolve(text: &str, element: &ElementRef, prop: &str, ctx: &ResolveContext) -> EditTarget {
-    let absent = match resolve_written(text, element, prop, ctx) {
+    let absent = match resolve_written(text, element, prop, ctx, true) {
         Ok(target) => return target,
         Err(absent) => absent,
     };
@@ -299,17 +301,37 @@ pub(crate) struct Absent {
 
 /// [`resolve`] up to an absent prop, which is `Err` for the caller to decide:
 /// [`resolve`] takes the prop's default, a call site the parameter's.
+///
+/// `checked`: the value found must be the one the runtime saw,
+/// `ctx.received` (see [`check_received`]). An expression's input is not
+/// reported by the runtime, so its call site is read unchecked.
 pub(crate) fn resolve_written(
     text: &str,
     element: &ElementRef,
     prop: &str,
     ctx: &ResolveContext,
+    checked: bool,
 ) -> Result<EditTarget, Absent> {
     let alloc = Allocator::default();
     let (program, failed) = parse_checked(text, &alloc);
     if failed {
         return Ok(EditTarget::Locked(LockReason::SyntaxError));
     }
+    let mut gather = Gather::new(element.start, PropPath::parse(prop));
+    gather.visit_program(&program);
+    read_written(&gather, text, prop, ctx, checked)
+}
+
+/// [`resolve_written`] on what `gather` found in the parsed text. A prop
+/// locked as an expression leaves that expression's span in
+/// `gather.locked`.
+pub(crate) fn read_written(
+    gather: &Gather,
+    text: &str,
+    prop: &str,
+    ctx: &ResolveContext,
+    checked: bool,
+) -> Result<EditTarget, Absent> {
     if !ctx.primitive && !ctx.component_props {
         return Ok(EditTarget::Locked(LockReason::NotPrimitive));
     }
@@ -318,24 +340,27 @@ pub(crate) fn resolve_written(
             count: ctx.render_count,
         }));
     }
-
-    let path = PropPath::parse(prop);
-    let mut gather = Gather::new(element.start, path);
-    gather.visit_program(&program);
     if !gather.found {
         return Ok(EditTarget::Locked(LockReason::ElementNotFound));
     }
+    let check = |target| {
+        if checked {
+            check_received(target, ctx.received.as_ref(), text, prop)
+        } else {
+            target
+        }
+    };
 
+    let path = gather.path;
     // JSX children win over a `children` attribute and a spread. Without
     // any, a `children` attribute follows the attribute rules below.
     if let (PropPath::Children, Some(children)) = (path, &gather.children) {
         let child = |span: Span, value: &str, form| {
-            let target = EditTarget::Literal {
+            check(EditTarget::Literal {
                 span,
                 value: EditValue::String(value.to_string()),
                 form,
-            };
-            check_received(target, ctx.received.as_ref(), text, prop)
+            })
         };
         match children {
             Children::Text { span, value } => return Ok(child(*span, value, LiteralForm::JsxText)),
@@ -343,10 +368,9 @@ pub(crate) fn resolve_written(
                 return Ok(child(*span, value, LiteralForm::ChildContainer(*quote)));
             }
             Children::Reference { shape } => {
-                let target = resolve_shape(shape, &gather, text, ctx);
-                return Ok(check_received(target, ctx.received.as_ref(), text, prop));
+                return Ok(check(resolve_shape(shape, gather, text, ctx)));
             }
-            Children::Other(span) => return Ok(expression(text, *span)),
+            Children::Other(span) => return Ok(gather.lock_expression(text, *span)),
             // 2b opens the tag before writing children into it.
             Children::SelfClosing if gather.attr.is_none() => {
                 return Ok(EditTarget::Locked(LockReason::Expression {
@@ -375,9 +399,9 @@ pub(crate) fn resolve_written(
 
     let target = match (path, &gather.property) {
         (PropPath::Style(_), Some(property)) => match property {
-            StyleProperty::Value(shape) => resolve_shape(shape, &gather, text, ctx),
+            StyleProperty::Value(shape) => resolve_shape(shape, gather, text, ctx),
             StyleProperty::Absent { object, last } => {
-                if ctx.received.is_some() {
+                if checked && ctx.received.is_some() {
                     return Ok(EditTarget::Locked(LockReason::OverriddenByParent));
                 }
                 return Ok(EditTarget::Missing {
@@ -386,11 +410,11 @@ pub(crate) fn resolve_written(
                 });
             }
             StyleProperty::Unknown => return Ok(EditTarget::Locked(LockReason::Spread)),
-            StyleProperty::NotObject(span) => return Ok(expression(text, *span)),
+            StyleProperty::NotObject(span) => return Ok(gather.lock_expression(text, *span)),
         },
-        _ => resolve_shape(shape, &gather, text, ctx),
+        _ => resolve_shape(shape, gather, text, ctx),
     };
-    Ok(check_received(target, ctx.received.as_ref(), text, prop))
+    Ok(check(target))
 }
 
 /// Whether `prop` is written as an attribute on `element` (a spread does not
@@ -474,12 +498,14 @@ fn resolve_shape(shape: &Shape, gather: &Gather, text: &str, ctx: &ResolveContex
             callee: callee.clone(),
         }),
         Shape::Ident(name) => resolve_identifier(name, gather, text, ctx),
-        Shape::Member { span, .. } | Shape::Other(span) => expression(text, *span),
+        Shape::Member { span, .. } | Shape::Other(span) => gather.lock_expression(text, *span),
     }
 }
 
 /// Locks `span` as an expression. The source is trimmed: a children span
-/// includes the whitespace between the tags.
+/// includes the whitespace between the tags. A value the rules read locks
+/// through [`Gather::lock_expression`]; this alone is for a literal of
+/// another kind than the received value, which has no inputs.
 fn expression(text: &str, span: Span) -> EditTarget {
     EditTarget::Locked(LockReason::Expression {
         source: text[span.start as usize..span.end as usize]
@@ -540,7 +566,7 @@ fn resolve_keyframe(
     text: &str,
     ctx: &ResolveContext,
 ) -> EditTarget {
-    let not_literal = || expression(text, call.call);
+    let not_literal = || gather.lock_expression(text, call.call);
     let Input::Frame { name, offset } = &call.input else {
         return not_literal();
     };
@@ -726,6 +752,9 @@ fn check_received(
 pub(crate) struct Gather<'t> {
     element_start: u32,
     path: PropPath<'t>,
+    /// The span of the expression the rules last locked the prop on, so
+    /// its inputs are read from exactly what was locked.
+    pub(crate) locked: Cell<Option<Span>>,
     pub(crate) found: bool,
     has_spread: bool,
     /// A spread follows the last attribute that holds the prop.
@@ -743,6 +772,7 @@ impl<'t> Gather<'t> {
         Self {
             element_start,
             path,
+            locked: Cell::new(None),
             found: false,
             has_spread: false,
             spread_after: false,
@@ -771,6 +801,13 @@ impl<'t> Gather<'t> {
             (PropPath::Style(_), _, property) => property.as_ref().map(Read::Property),
             _ => self.attr.as_ref().map(Read::Attribute),
         }
+    }
+
+    /// Locks the prop as the expression at `span`, and keeps the span in
+    /// [`Self::locked`].
+    fn lock_expression(&self, text: &str, span: Span) -> EditTarget {
+        self.locked.set(Some(span));
+        expression(text, span)
     }
 }
 
