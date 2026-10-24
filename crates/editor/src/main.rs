@@ -32,6 +32,9 @@ mod export_control;
 mod export_worker;
 mod helpers;
 mod impact;
+// The canvas's inline text editing uses it; until then only its tests do.
+#[allow(dead_code)]
+mod inline_text;
 mod layer_panel;
 mod layer_select;
 mod lifecycle;
