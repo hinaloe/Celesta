@@ -12,8 +12,8 @@ use crate::element_edit::{
     reason_text, resolve_targets, table_default, type_component_props,
 };
 use crate::element_rows::{
-    Scrub, cleared_path, control_kind, parse_row_value, row_field, row_label, row_text,
-    scrub_takes_focus, scrub_value, set_at_text,
+    Scrub, TypedText, cleared_path, control_kind, parse_row_value, removable, row_field, row_label,
+    row_text, scrub_takes_focus, scrub_value, set_at_text, typed_text, written_text,
 };
 use crate::export_worker::{
     ExportEvent, ExportRequest, ExportSource, ExportWorker, export_options,
@@ -1204,8 +1204,8 @@ fn resolve_in(text: &str, report: &LayerSourceReport) -> Result<ElementTargets, 
 }
 
 /// `prop` set to the number `value`, as a commit takes it.
-fn num(prop: TransformProp, value: f64) -> (PropKey, EditValue) {
-    (prop.key(), EditValue::Number(value))
+fn num(prop: TransformProp, value: f64) -> (PropKey, Option<EditValue>) {
+    (prop.key(), Some(EditValue::Number(value)))
 }
 
 /// The row keys of `targets`, in order.
@@ -1218,7 +1218,7 @@ fn commit_in(
     text: &str,
     expected: &ElementTargets,
     report: &LayerSourceReport,
-    values: &[(PropKey, EditValue)],
+    values: &[(PropKey, Option<EditValue>)],
 ) -> Result<String, CommitError> {
     let texts = Texts::from([(expected.file.clone(), text.to_owned())]);
     let files = commit_files(&texts, expected, report, values)?;
@@ -1416,7 +1416,7 @@ fn commit_files_writes_a_string() {
         &report,
         &[(
             PropKey::Prop("children".to_owned()),
-            EditValue::String("Sold out".to_owned()),
+            Some(EditValue::String("Sold out".to_owned())),
         )],
     );
 
@@ -1445,7 +1445,10 @@ fn commit_files_writes_a_bool() {
         text,
         &expected,
         &report,
-        &[(PropKey::Prop("loop".to_owned()), EditValue::Bool(false))],
+        &[(
+            PropKey::Prop("loop".to_owned()),
+            Some(EditValue::Bool(false)),
+        )],
     );
 
     assert_eq!(
@@ -1461,11 +1464,14 @@ fn written_values_keep_their_type() {
     let children = PropKey::Prop("children".to_owned());
     state.record_written(
         Some("a"),
-        &[(children.clone(), EditValue::String("Sold out".to_owned()))],
+        &[(
+            children.clone(),
+            Some(EditValue::String("Sold out".to_owned())),
+        )],
     );
     assert_eq!(
         state.written_value(Some("a"), &children),
-        Some(&EditValue::String("Sold out".to_owned()))
+        Some(&Some(EditValue::String("Sold out".to_owned())))
     );
 }
 
@@ -2336,11 +2342,11 @@ fn written_values_show_until_the_reloaded_code_resolves() {
     let (x, y) = (TransformProp::X.key(), TransformProp::Y.key());
     assert_eq!(
         state.written_value(Some("a"), &x),
-        Some(&EditValue::Number(184.0))
+        Some(&Some(EditValue::Number(184.0)))
     );
     assert_eq!(
         state.written_value(Some("a"), &y),
-        Some(&EditValue::Number(40.0))
+        Some(&Some(EditValue::Number(40.0)))
     );
     assert_eq!(
         state.written_value(Some("a"), &TransformProp::Rotation.key()),
@@ -2352,7 +2358,7 @@ fn written_values_show_until_the_reloaded_code_resolves() {
     state.expire();
     assert_eq!(
         state.written_value(Some("a"), &x),
-        Some(&EditValue::Number(184.0))
+        Some(&Some(EditValue::Number(184.0)))
     );
     // The reloaded code's resolution shows the file's values instead.
     let request = state.begin("a", &report, 0).unwrap();
@@ -3751,7 +3757,7 @@ fn committing_an_input_writes_its_target() {
         &texts,
         &targets,
         &report,
-        &[(padding, EditValue::Number(24.0))],
+        &[(padding, Some(EditValue::Number(24.0)))],
     );
 
     assert_eq!(
@@ -3776,7 +3782,10 @@ fn a_text_with_outer_spaces_is_written_in_braces() {
         text,
         &targets,
         &report,
-        &[(prop("children"), EditValue::String(" Sale ".to_owned()))],
+        &[(
+            prop("children"),
+            Some(EditValue::String(" Sale ".to_owned())),
+        )],
     );
 
     assert_eq!(written, Ok(text.replace(">Sale<", ">{\" Sale \"}<")));
@@ -3816,7 +3825,7 @@ fn a_font_row_beside_a_style_object_inserts_the_shorthand() {
             texts,
             &targets,
             &report,
-            &[(prop("fontSize"), EditValue::Number(48.0))],
+            &[(prop("fontSize"), Some(EditValue::Number(48.0)))],
         )
         .map_err(|error| error.to_string())
     })
@@ -3847,7 +3856,7 @@ fn a_font_row_beside_a_style_object_inserts_the_shorthand() {
             both,
             &targets,
             &report,
-            &[(prop("fontSize"), EditValue::Number(48.0))]
+            &[(prop("fontSize"), Some(EditValue::Number(48.0)))]
         ),
         Ok(both.replace("fontSize: 40", "fontSize: 48"))
     );
@@ -4332,7 +4341,10 @@ fn a_schema_locked_prop_does_not_block_other_commits() {
         &texts,
         &targets,
         &report,
-        &[(PropKey::CallSite("tone".to_owned()), EditValue::Number(5.0))],
+        &[(
+            PropKey::CallSite("tone".to_owned()),
+            Some(EditValue::Number(5.0)),
+        )],
     );
 
     let scene = &texts[Path::new("/project/scene.tsx")];
@@ -4412,7 +4424,7 @@ fn component_prop_commit_writes_the_call_site() {
         &report,
         &[(
             PropKey::CallSite("label".to_owned()),
-            EditValue::String("Sold".to_owned()),
+            Some(EditValue::String("Sold".to_owned())),
         )],
     );
 
@@ -4736,4 +4748,255 @@ fn a_scrub_overrides_nothing_before_it_moves_or_while_playing() {
         [override_at("/project/scene.tsx", "cornerRadius", 4.0)]
     );
     assert!(!scrub.changed());
+}
+
+/// `table` with the rows `keys` declared required, as `required(…)` does.
+fn with_required(mut table: PrimitivePropertyTable, keys: &[&str]) -> PrimitivePropertyTable {
+    for row in table.groups.iter_mut().flat_map(|group| &mut group.fields) {
+        row.required = keys.contains(&row.key.as_str());
+    }
+    table
+}
+
+/// A `<Rect>` with a required `width`, written optional props, an absent
+/// `x`, and a `strokeWidth` read from what can't be traced.
+fn removable_rect() -> (String, ElementTargets, LayerSourceReport) {
+    let text = "export const Scene = () => (\n  <Rect width={10} cornerRadius={8} fill=\"#fff\" strokeWidth={w} />\n);\n";
+    let mut report = primitive_report(2, 3, ReceivedProps::default());
+    for (name, value) in [
+        ("width", ReceivedValue::Number(10.0)),
+        ("cornerRadius", ReceivedValue::Number(8.0)),
+        ("fill", ReceivedValue::String("#fff".to_owned())),
+        ("strokeWidth", ReceivedValue::Number(2.0)),
+    ] {
+        report.props.others.insert(name.to_owned(), value);
+    }
+    let table = with_required(
+        property_table(vec![
+            ("Transform", vec![("x", number_field(Some(0.0)))]),
+            (
+                "Size",
+                vec![
+                    ("width", number_field(None)),
+                    ("cornerRadius", number_field(Some(0.0))),
+                ],
+            ),
+            (
+                "Appearance",
+                vec![
+                    (
+                        "fill",
+                        PrimitivePropertyField::Color {
+                            default_value: None,
+                        },
+                    ),
+                    ("strokeWidth", number_field(Some(0.0))),
+                ],
+            ),
+        ]),
+        &["width"],
+    );
+    let targets = resolve_table(text, &report, &table);
+    (text.to_owned(), targets, report)
+}
+
+#[test]
+fn only_a_written_optional_value_is_removable() {
+    let (_, targets, _) = removable_rect();
+    let can_remove = |key: &PropKey| removable(&targets, key, targets.entry(key).unwrap());
+    // Written and optional.
+    assert!(can_remove(&prop("cornerRadius")));
+    assert!(can_remove(&prop("fill")));
+    // Required by the props type, absent, or locked.
+    assert!(!can_remove(&prop("width")));
+    assert!(!can_remove(&prop("x")));
+    assert!(!can_remove(&prop("strokeWidth")));
+    // A keyframe is an entry of an animation, not the prop.
+    let keyframe = local_target(
+        "x",
+        EditTarget::Keyframe {
+            span: Span { start: 0, end: 1 },
+            value: 1.0,
+            frame: 0.0,
+        },
+    );
+    assert!(!removable(&targets, &prop("x"), &keyframe));
+    // An input is a value an expression reads, never a prop.
+    let literal = targets.entry(&prop("cornerRadius")).unwrap();
+    let input = PropKey::Input {
+        row: "width".to_owned(),
+        name: "w".to_owned(),
+    };
+    assert!(!removable(&targets, &input, literal));
+
+    // A `<Text>`'s children are never removed, table or not.
+    let text = "export const Scene = () => (\n  <Text>Sale</Text>\n);\n";
+    let report = text_report(
+        Path::new("/project/scene.tsx"),
+        &[("children", ReceivedValue::String("Sale".to_owned()))],
+    );
+    let targets = resolve_table(text, &report, &text_table());
+    let children = prop("children");
+    assert!(!removable(
+        &targets,
+        &children,
+        targets.entry(&children).unwrap()
+    ));
+}
+
+#[test]
+fn a_value_set_at_the_call_is_removable_there() {
+    let texts = props_tag_files();
+    let report = props_tag_report();
+    let targets = resolve_targets(read_from(&texts), &report, None).unwrap();
+    let x = prop("x");
+    let label = PropKey::CallSite("label".to_owned());
+    assert!(removable(&targets, &x, targets.entry(&x).unwrap()));
+    assert!(removable(&targets, &label, targets.entry(&label).unwrap()));
+
+    // The pass-through's attribute goes at the call (`PriceTag`'s `x = 0`
+    // applies), and so does a component prop.
+    let scene = PathBuf::from("/project/scene.tsx");
+    assert_eq!(
+        commit_files(&texts, &targets, &report, &[(x, None)]),
+        Ok(vec![(
+            scene.clone(),
+            PROPS_TAG_SCENE.replace(" x={40}", "")
+        )])
+    );
+    assert_eq!(
+        commit_files(&texts, &targets, &report, &[(label, None)]),
+        Ok(vec![(
+            scene,
+            PROPS_TAG_SCENE.replace(" label=\"Sale\"", "")
+        )])
+    );
+}
+
+#[test]
+fn an_emptied_field_removes_a_removable_row() {
+    let number = ControlKind::Number;
+    assert_eq!(
+        typed_text(&number, None, "  ", true),
+        TypedText::Write(None)
+    );
+    assert_eq!(typed_text(&number, None, "", false), TypedText::Restore);
+    // Strings too: an empty string is not written over a removable prop.
+    assert_eq!(
+        typed_text(&ControlKind::String, None, "", true),
+        TypedText::Write(None)
+    );
+    assert_eq!(
+        typed_text(&ControlKind::Text, None, "", false),
+        TypedText::Restore
+    );
+    // Anything typed is parsed as before.
+    assert_eq!(
+        typed_text(&number, None, "12", true),
+        TypedText::Write(Some(EditValue::Number(12.0)))
+    );
+    assert_eq!(
+        typed_text(&number, None, "big", true),
+        TypedText::Invalid("Enter a number".to_owned())
+    );
+}
+
+#[test]
+fn removing_a_prop_is_one_undoable_write() {
+    let dir = std::env::temp_dir().join(format!(
+        "celesta-remove-prop-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("scene.tsx");
+    let (text, _, mut report) = removable_rect();
+    fs::write(&file, &text).unwrap();
+    report.chain[0].file = file.clone();
+    let read = |path: &Path| fs::read_to_string(path).map_err(|error| error.to_string());
+    let table = with_required(rect_table(), &[]);
+    let targets = resolve_targets(read, &report, Some(&table)).unwrap();
+
+    let files = write_all_recorded(targets.files.clone(), |texts| {
+        commit_files(texts, &targets, &report, &[(prop("cornerRadius"), None)])
+            .map_err(|error| error.to_string())
+    })
+    .unwrap();
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        text.replace(" cornerRadius={8}", "")
+    );
+    let mut history = EditHistory::default();
+    history.push(HistoryEntry { files });
+    history.undo().unwrap();
+    assert_eq!(fs::read_to_string(&file).unwrap(), text);
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_required_or_absent_prop_is_not_removed() {
+    let (text, targets, report) = removable_rect();
+    assert_eq!(
+        commit_in(&text, &targets, &report, &[(prop("width"), None)]),
+        Err(CommitError::NotRemovable("Width".to_owned()))
+    );
+    assert_eq!(
+        commit_in(&text, &targets, &report, &[(prop("x"), None)]),
+        Err(CommitError::NotRemovable("X".to_owned()))
+    );
+    assert_eq!(
+        CommitError::NotRemovable("Width".to_owned()).to_string(),
+        "Width can't be removed here"
+    );
+}
+
+#[test]
+fn a_style_property_row_is_removed_from_the_object() {
+    let text = "export const Scene = () => (\n  <Text style={{ fontSize: 40, fontWeight: 700 }}>A</Text>\n);\n";
+    let report = text_report(
+        Path::new("/project/scene.tsx"),
+        &[
+            ("style.fontSize", ReceivedValue::Number(40.0)),
+            ("style.fontWeight", ReceivedValue::Number(700.0)),
+            ("children", ReceivedValue::String("A".to_owned())),
+        ],
+    );
+    let targets = resolve_table(text, &report, &text_table());
+    assert_eq!(
+        commit_in(text, &targets, &report, &[(prop("fontSize"), None)]),
+        Ok(text.replace("fontSize: 40, ", ""))
+    );
+}
+
+#[test]
+fn a_removed_row_shows_its_placeholder_until_the_reload_resolves() {
+    let mut state = ElementEdit::default();
+    state.invalidate();
+    state.record_written(Some("a"), &[(prop("cornerRadius"), None)]);
+    assert_eq!(
+        state.written_value(Some("a"), &prop("cornerRadius")),
+        Some(&None)
+    );
+
+    let corner = number_field(Some(0.0));
+    assert_eq!(
+        written_text(&prop("cornerRadius"), Some(&corner), None),
+        (String::new(), "0".to_owned())
+    );
+    // Without a table field, a transform prop's own default.
+    assert_eq!(
+        written_text(&prop("x"), None, None),
+        (String::new(), "0".to_owned())
+    );
+    assert_eq!(
+        written_text(
+            &prop("fill"),
+            None,
+            Some(&EditValue::String("#fff".to_owned()))
+        ),
+        ("#fff".to_owned(), String::new())
+    );
 }

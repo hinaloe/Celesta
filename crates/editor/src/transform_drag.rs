@@ -420,7 +420,7 @@ impl EditorView {
         // The error shows in the Layer section and over the canvas.
         let values = values
             .into_iter()
-            .map(|(prop, value)| (prop.key(), EditValue::Number(value)))
+            .map(|(prop, value)| (prop.key(), Some(EditValue::Number(value))))
             .collect();
         self.commit_element(
             values,

@@ -5,7 +5,9 @@ use crate::element_edit::{
     ElementTargets, PropKey, Resolved, Target, editable, inner_target, keyframe_jump_frames,
     reason_text, table_key,
 };
-use crate::element_rows::{element_control_handler, row_field, row_label, scrubs, set_at_text};
+use crate::element_rows::{
+    element_control_handler, removable, row_field, row_label, scrubs, set_at_text,
+};
 use crate::icons::CelestaIcon;
 use crate::layer_panel::LABEL_WIDTH;
 use crate::property_controls::{ControlKind, render_control};
@@ -25,6 +27,9 @@ use std::path::Path;
 
 /// How far an input sub-row is indented under its row.
 const INDENT: f32 = 12.0;
+
+/// The hover group of a row, which shows its remove button.
+const ROW_GROUP: &str = "element-row";
 
 /// A row's id part: the table key, `row.input` for an input, `call.name`
 /// for a component prop.
@@ -205,6 +210,19 @@ impl EditorView {
                 .outcome
                 .as_ref()
                 .is_ok_and(|targets| scrubs(targets, key, target));
+        // A written optional value offers its removal on hover, except while
+        // a scrub runs or the removal is already being written.
+        let removing = row.is_some_and(|row| row.removing())
+            || self
+                .element_edit
+                .written_value(self.selected_layer.as_deref(), key)
+                .is_some_and(Option::is_none);
+        let can_remove = !removing
+            && self.element_rows.scrub.is_none()
+            && resolved
+                .outcome
+                .as_ref()
+                .is_ok_and(|targets| removable(targets, key, target));
         let (call_site, target) = (target.call_site.as_ref(), &target.target);
         // A pass-through row shows the state of the value at the call site.
         let shown = inner_target(target);
@@ -261,6 +279,22 @@ impl EditorView {
         let message = row
             .and_then(|row| row.invalid.clone())
             .map(|message| div().text_xs().text_color(cx.theme().danger).child(message));
+        let remove = can_remove.then(|| {
+            let key = key.clone();
+            div()
+                .invisible()
+                .group_hover(ROW_GROUP, |remove| remove.visible())
+                .child(
+                    Button::new(row_id("remove", &key))
+                        .ghost()
+                        .xsmall()
+                        .icon(IconName::Close)
+                        .tooltip("Remove")
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.remove_element_row(&key, cx)),
+                        ),
+                )
+        });
         let multi_line = row.is_some_and(|row| row.kind == ControlKind::Text);
         let label_width = if indented {
             LABEL_WIDTH - INDENT
@@ -268,6 +302,7 @@ impl EditorView {
             LABEL_WIDTH
         };
         div()
+            .group(ROW_GROUP)
             .flex()
             .flex_col()
             .gap_1()
@@ -311,15 +346,18 @@ impl EditorView {
                             .child(label),
                     )
                     .children(control)
+                    // The state icon, or the remove button of a written
+                    // value (a row with one has no icon).
                     .child(
                         div()
                             .flex_none()
-                            .size_4()
+                            .size_5()
                             .flex()
                             .items_center()
                             .justify_center()
                             .text_color(muted)
-                            .children(icon.map(|icon| Icon::new(icon).xsmall())),
+                            .children(icon.map(|icon| Icon::new(icon).xsmall()))
+                            .children(remove),
                     ),
             )
             .children(set_at)

@@ -3,7 +3,7 @@
 //! the canvas read, and the commit that writes new values.
 
 use crate::edit_history::Texts;
-use crate::element_rows::{control_kind, row_label};
+use crate::element_rows::{control_kind, removable, row_label};
 use crate::layer_select::{SourceLookup, owner_call_site};
 use crate::property_controls::ControlKind;
 use crate::view::EditorView;
@@ -13,7 +13,7 @@ use celesta_react_bridge::{
 };
 use celesta_source_edit::{
     ApplyError, Edit, EditTarget, EditValue, ElementRef, LiteralForm, LockReason, ResolveContext,
-    apply, element_at, enclosing_component, format_number, has_attribute, parameter_of,
+    apply, element_at, enclosing_component, format_number, has_attribute, parameter_of, removal,
     resolve_call_site_prop, resolve_inputs, resolve_through, text_style_path, written_attributes,
 };
 use gpui_kit::Context;
@@ -56,6 +56,8 @@ pub(crate) struct ComponentTargets {
     /// The tag at the call site (`PriceTag`), as `tag_name` reads it.
     pub(crate) name: String,
     pub(crate) call_site: SourcePos,
+    /// The call in the call site's text, where a removed prop is deleted.
+    pub(crate) call: ElementRef,
     /// In source order; `kind` from the registered schema or the literal.
     pub(crate) props: Vec<ComponentProp>,
     /// The schema `registerComponent()` registered for `name`, which typed
@@ -385,6 +387,17 @@ pub(crate) fn field_of<'t>(
         .flat_map(|group| &group.fields)
         .find(|field| field.key == key)
         .map(|field| &field.field)
+}
+
+/// Whether the props type requires the prop of a row (`scaleX` and
+/// `scaleY` as `scale`), so it is never removed.
+pub(crate) fn required_of(table: &PrimitivePropertyTable, row: &str) -> bool {
+    let key = table_key(row);
+    table
+        .groups
+        .iter()
+        .flat_map(|group| &group.fields)
+        .any(|field| field.key == key && field.required)
 }
 
 /// The table field of `key` as a placeholder-able default.
@@ -729,6 +742,7 @@ fn resolve_rows(
         ComponentTargets {
             name: tag_name(&site.text, &site.call).to_owned(),
             call_site: SourcePos::from(site.entry),
+            call: site.call,
             props,
             schema: None,
         }
@@ -789,6 +803,9 @@ pub(crate) enum CommitError {
     SourceChanged,
     /// The row (by its label) is locked or not a target of this element.
     NotEditable(String),
+    /// The row (by its label) has no written value it can do without: the
+    /// prop is required, absent, locked, or animated.
+    NotRemovable(String),
     /// The value is NaN or infinite.
     NotANumber,
     Apply(ApplyError),
@@ -799,6 +816,7 @@ impl fmt::Display for CommitError {
         match self {
             Self::SourceChanged => f.write_str("The source changed while editing"),
             Self::NotEditable(label) => write!(f, "{label} can't be edited here"),
+            Self::NotRemovable(label) => write!(f, "{label} can't be removed here"),
             Self::NotANumber => f.write_str("Enter a number"),
             Self::Apply(error) => write!(f, "Couldn't edit the source: {error}"),
         }
@@ -809,20 +827,27 @@ impl fmt::Display for CommitError {
 /// `texts` (each of `expected.files`) still have the targets of `expected`:
 /// its rows and their inputs, resolved again, are the same kinds at the
 /// same spans, in the same files. An `Input` value is written to its
-/// input's target. Nothing is returned for a file no value is written to.
+/// input's target. A `None` value removes the prop (see [`removable`]).
+/// Nothing is returned for a file no value is written to.
 pub(crate) fn commit_files(
     texts: &Texts,
     expected: &ElementTargets,
     report: &LayerSourceReport,
-    values: &[(PropKey, EditValue)],
+    values: &[(PropKey, Option<EditValue>)],
 ) -> Result<Vec<(PathBuf, String)>, CommitError> {
     // A prop locked when the edit started (outside the project, say) stays
     // locked whatever the file holds now.
-    if let Some((key, _)) = values
-        .iter()
-        .find(|(key, _)| !expected.target(key).is_some_and(editable))
-    {
-        return Err(CommitError::NotEditable(key.label()));
+    for (key, value) in values {
+        let entry = expected.entry(key);
+        match value {
+            Some(_) if !entry.is_some_and(|target| editable(&target.target)) => {
+                return Err(CommitError::NotEditable(key.label()));
+            }
+            None if !entry.is_some_and(|target| removable(expected, key, target)) => {
+                return Err(CommitError::NotRemovable(key.label()));
+            }
+            _ => {}
+        }
     }
     let read = |path: &Path| {
         texts
@@ -871,14 +896,20 @@ pub(crate) fn commit_files(
     }
     let mut edits: BTreeMap<&Path, Vec<Edit>> = BTreeMap::new();
     for (key, value) in values {
-        if value.as_number().is_some_and(|value| !value.is_finite()) {
-            return Err(CommitError::NotANumber);
-        }
-        // `None` for a keyframe given anything but a number, too.
-        let edit = fresh
-            .entry(key)
-            .and_then(|target| target.target.to_edit(&target.path, value))
-            .ok_or_else(|| CommitError::NotEditable(key.label()))?;
+        let edit = match value {
+            Some(value) => {
+                if value.as_number().is_some_and(|value| !value.is_finite()) {
+                    return Err(CommitError::NotANumber);
+                }
+                // `None` for a keyframe given anything but a number, too.
+                fresh
+                    .entry(key)
+                    .and_then(|target| target.target.to_edit(&target.path, value))
+                    .ok_or_else(|| CommitError::NotEditable(key.label()))?
+            }
+            None => removal_of(&fresh, key, texts)
+                .ok_or_else(|| CommitError::NotRemovable(key.label()))?,
+        };
         edits.entry(fresh.file_of(key)).or_default().push(edit);
     }
     edits
@@ -890,6 +921,26 @@ pub(crate) fn commit_files(
             Ok((file.to_path_buf(), written))
         })
         .collect()
+}
+
+/// The edit that removes the prop of `key` from `targets`, in the text of
+/// the file it is written in: a pass-through's at its call site, by the
+/// parameter's name; a component prop's at the component's call. `None`
+/// for an input, or when the text holds nothing [`removal`] can delete.
+fn removal_of(targets: &ElementTargets, key: &PropKey, texts: &Texts) -> Option<Edit> {
+    let target = targets.entry(key)?;
+    let text = texts.get(&target.file)?;
+    match (key, &target.target) {
+        (PropKey::Input { .. }, _) => None,
+        (
+            _,
+            EditTarget::PassThrough {
+                call_site, param, ..
+            },
+        ) => removal(text, call_site, param),
+        (PropKey::CallSite(name), _) => removal(text, &targets.component.as_ref()?.call, name),
+        (PropKey::Prop(_), _) => removal(text, &targets.element, &target.path),
+    }
 }
 
 /// Same kind at the same span; locked targets compare by reason kind, and
@@ -964,6 +1015,9 @@ pub(crate) struct Resolved {
     pub(crate) outcome: Result<ElementTargets, String>,
 }
 
+/// The values own writes put into rows; `None` removed the prop.
+type WrittenValues = Vec<(PropKey, Option<EditValue>)>;
+
 /// The selected layer's targets as the view keeps them. Resolution runs off
 /// the UI thread; a result for an older request or another layer is
 /// dropped.
@@ -983,10 +1037,11 @@ pub(crate) struct ElementEdit {
     /// The code reloaded after the write: the next resolution reads the
     /// written file, so it is current again.
     expired: bool,
-    /// The values the editor's own writes put into the file, and the layer
-    /// they belong to: shown in the rows while `resolved` is stale, so a
-    /// field does not show the old value until the reload resolves.
-    written: Option<(String, Vec<(PropKey, EditValue)>)>,
+    /// The values the editor's own writes put into the file (`None` for a
+    /// removed prop), and the layer they belong to: shown in the rows while
+    /// `resolved` is stale, so a field does not show the old value until the
+    /// reload resolves.
+    written: Option<(String, WrittenValues)>,
     /// The last commit's error and the layer it belongs to.
     error: Option<(String, String)>,
 }
@@ -1080,9 +1135,13 @@ impl ElementEdit {
     }
 
     /// An own write for `layer` put `values` into the file (after
-    /// `invalidate`). Kept until the reloaded code resolves; values for a
-    /// row written again replace the earlier ones.
-    pub(crate) fn record_written(&mut self, layer: Option<&str>, values: &[(PropKey, EditValue)]) {
+    /// `invalidate`; `None` removed the prop). Kept until the reloaded code
+    /// resolves; values for a row written again replace the earlier ones.
+    pub(crate) fn record_written(
+        &mut self,
+        layer: Option<&str>,
+        values: &[(PropKey, Option<EditValue>)],
+    ) {
         let Some(layer) = layer.filter(|_| self.stale) else {
             return;
         };
@@ -1098,13 +1157,14 @@ impl ElementEdit {
         }
     }
 
-    /// The value an own write put into `key` of `selected`, while the rows
-    /// still show the targets resolved before that write.
+    /// The value an own write put into `key` of `selected` (`None` when it
+    /// removed the prop), while the rows still show the targets resolved
+    /// before that write.
     pub(crate) fn written_value(
         &self,
         selected: Option<&str>,
         key: &PropKey,
-    ) -> Option<&EditValue> {
+    ) -> Option<&Option<EditValue>> {
         let (layer, written) = self.written.as_ref().filter(|_| self.stale)?;
         if Some(layer.as_str()) != selected {
             return None;
@@ -1285,12 +1345,12 @@ impl EditorView {
     }
 
     /// Writes `values` for the selected layer into its source as one undo
-    /// entry, the call site's file too when a value passes through, then
-    /// reloads keeping the selection. `done` gets the outcome (also shown in
-    /// the Layer section when it failed).
+    /// entry (`None` removes the prop), the call site's file too when a
+    /// value passes through, then reloads keeping the selection. `done` gets
+    /// the outcome (also shown in the Layer section when it failed).
     pub(crate) fn commit_element(
         &mut self,
-        values: Vec<(PropKey, EditValue)>,
+        values: Vec<(PropKey, Option<EditValue>)>,
         done: impl FnOnce(&mut Self, Result<(), String>, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) {

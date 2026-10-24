@@ -5,7 +5,8 @@
 //! the row state, and the commit flow; `element_rows_view.rs` renders them.
 
 use crate::element_edit::{
-    ElementTargets, PropKey, Target, edit_value, editable, field_of, inner_target, table_default,
+    ElementTargets, PropKey, Target, edit_value, editable, field_of, inner_target, required_of,
+    table_default,
 };
 use crate::layer_select::display_path;
 use crate::property_controls::{Control, ControlEvent, ControlKind, build_control};
@@ -274,6 +275,84 @@ pub(crate) fn row_field<'t>(
     }
 }
 
+/// Whether the row `key` can remove its prop, so the default applies again:
+/// its value is written (on the element, in its `style` object, or at the
+/// call a pass-through reads it from), and the props type does not require
+/// it. Never an input (a value an expression reads, not a prop), nor a
+/// `<Text>`'s children, an absent, locked, or animated prop. A component
+/// prop is optional for the editor: the component's own default applies.
+pub(crate) fn removable(targets: &ElementTargets, key: &PropKey, target: &Target) -> bool {
+    let optional = match key {
+        PropKey::Prop(name) => {
+            name != "children"
+                && !targets
+                    .table
+                    .as_ref()
+                    .is_some_and(|table| required_of(table, name))
+        }
+        PropKey::CallSite(_) => true,
+        PropKey::Input { .. } => false,
+    };
+    optional && matches!(inner_target(&target.target), EditTarget::Literal { .. })
+}
+
+/// What committing typed text in a row does.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum TypedText {
+    /// Write the value; `None` removes the prop.
+    Write(Option<EditValue>),
+    /// Show the source's value again: an emptied row that can't remove its
+    /// prop.
+    Restore,
+    /// The text does not parse; the row's message.
+    Invalid(String),
+}
+
+/// Typed `text` in a row of `kind`: an emptied field removes the prop when
+/// the row is `removable`, and otherwise writes nothing; anything else is
+/// parsed by [`parse_row_value`].
+pub(crate) fn typed_text(
+    kind: &ControlKind,
+    field: Option<&PrimitivePropertyField>,
+    text: &str,
+    removable: bool,
+) -> TypedText {
+    if text.trim().is_empty() {
+        return if removable {
+            TypedText::Write(None)
+        } else {
+            TypedText::Restore
+        };
+    }
+    match parse_row_value(kind, field, text) {
+        Ok(value) => TypedText::Write(Some(value)),
+        Err(message) => TypedText::Invalid(message),
+    }
+}
+
+/// What a row shows for a value it wrote, until the reload resolves: the
+/// value, or for a removed prop the dimmed default that applies now (the
+/// table's, else a transform prop's own; nothing when unknown).
+pub(crate) fn written_text(
+    key: &PropKey,
+    field: Option<&PrimitivePropertyField>,
+    written: Option<&EditValue>,
+) -> (String, String) {
+    match written {
+        Some(value) => (value_text(value), String::new()),
+        None => {
+            let default = field.and_then(table_default).or_else(|| match key {
+                PropKey::Prop(name) => default_for(name),
+                PropKey::Input { .. } | PropKey::CallSite(_) => None,
+            });
+            (
+                String::new(),
+                default.as_ref().map(value_text).unwrap_or_default(),
+            )
+        }
+    }
+}
+
 /// What "None" on a path row writes: an empty path over a written one, and
 /// nothing for an absent prop (no `src=""` is inserted).
 pub(crate) fn cleared_path(target: &EditTarget) -> Option<EditValue> {
@@ -500,8 +579,9 @@ pub(crate) struct ElementRow {
     pub(crate) invalid: Option<String>,
     /// A color was picked since the picker last closed.
     picked: bool,
-    /// A value this row committed whose write has not finished.
-    pending: Option<EditValue>,
+    /// A value this row committed whose write has not finished (`None`
+    /// removes the prop).
+    pending: Option<Option<EditValue>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -512,6 +592,11 @@ impl ElementRow {
             let text = if text.is_empty() { placeholder } else { text };
             text == "true"
         })
+    }
+
+    /// A removal of the row's prop is being written.
+    pub(crate) fn removing(&self) -> bool {
+        matches!(self.pending, Some(None))
     }
 }
 
@@ -593,22 +678,29 @@ impl EditorView {
             return;
         };
         let layer = resolved.layer.clone();
-        let specs: Vec<(PropKey, ControlKind, (String, String))> = targets
+        type Spec = (
+            PropKey,
+            ControlKind,
+            Option<PrimitivePropertyField>,
+            (String, String),
+        );
+        let specs: Vec<Spec> = targets
             .entries()
             .into_iter()
             .map(|(key, target)| {
                 let kind = row_kind(targets, &key, target);
+                let field = row_field(targets, &key).cloned();
                 let shown = match self.element_edit.written_value(Some(&layer), &key) {
-                    Some(value) => (value_text(value), String::new()),
+                    Some(written) => written_text(&key, field.as_ref(), written.as_ref()),
                     None => entry_text(targets, &key, target, &resolved.report),
                 };
-                (key, kind, shown)
+                (key, kind, field, shown)
             })
             .collect();
         let scrub = self.element_rows.scrub.as_ref();
         let rows = &mut self.element_rows.rows;
-        rows.retain(|key, _| specs.iter().any(|(wanted, _, _)| wanted == key));
-        for (key, kind, shown) in specs {
+        rows.retain(|key, _| specs.iter().any(|(wanted, ..)| wanted == key));
+        for (key, kind, field, shown) in specs {
             if rows.get(&key).is_none_or(|row| row.kind != kind) {
                 let built = build_control(&kind, window, cx, element_control_handler(key.clone()));
                 let row = ElementRow {
@@ -628,12 +720,11 @@ impl EditorView {
                 continue;
             };
             // A value being scrubbed, then the one being written.
-            let scrubbed = scrub
-                .and_then(|scrub| scrub.shown(&key))
-                .map(EditValue::Number);
-            let shown = match scrubbed.as_ref().or(row.pending.as_ref()) {
-                Some(value) => (value_text(value), String::new()),
-                None => shown,
+            let scrubbed = scrub.and_then(|scrub| scrub.shown(&key));
+            let shown = match (scrubbed, &row.pending) {
+                (Some(value), _) => (value_text(&EditValue::Number(value)), String::new()),
+                (None, Some(pending)) => written_text(&key, field.as_ref(), pending.as_ref()),
+                (None, None) => shown,
             };
             // Typed text stays until committed, but never under another layer.
             let same_layer = row.layer.as_deref() == Some(layer.as_str());
@@ -667,10 +758,10 @@ impl EditorView {
             ControlEvent::Submit { blur } => self.submit_element_row(key, blur, cx),
             ControlEvent::Escape => self.restore_element_row(key, true, cx),
             ControlEvent::Toggled(checked) => {
-                self.commit_element_row(key, EditValue::Bool(checked), cx);
+                self.commit_element_row(key, Some(EditValue::Bool(checked)), cx);
             }
             ControlEvent::Chosen(choice) => {
-                self.commit_element_row(key, EditValue::String(choice), cx);
+                self.commit_element_row(key, Some(EditValue::String(choice)), cx);
             }
             ControlEvent::ColorPicked => {
                 if let Some(row) = self.element_rows.rows.get_mut(key) {
@@ -688,7 +779,7 @@ impl EditorView {
                 if std::mem::take(&mut row.picked)
                     && let Some(color) = color
                 {
-                    self.commit_element_row(key, EditValue::String(color_hex(color)), cx);
+                    self.commit_element_row(key, Some(EditValue::String(color_hex(color))), cx);
                 }
             }
             ControlEvent::ChoosePath => self.choose_element_path(key, cx),
@@ -700,7 +791,7 @@ impl EditorView {
                     .and_then(|targets| targets.entry(key))
                     .and_then(|target| cleared_path(&target.target));
                 if let Some(value) = cleared {
-                    self.commit_element_row(key, value, cx);
+                    self.commit_element_row(key, Some(value), cx);
                 }
             }
         }
@@ -720,15 +811,21 @@ impl EditorView {
     }
 
     /// Enter (`blur` false) or blur: writes typed text that parses for the
-    /// row's kind. Unedited text is never written; text that does not parse
-    /// shows the row's message, and on blur the source's value again.
+    /// row's kind, and removes the prop of an emptied row that can (see
+    /// [`typed_text`]). Unedited text is never written; text that does not
+    /// parse shows the row's message, and on blur, like an emptied row that
+    /// can't remove its prop, the source's value again.
     fn submit_element_row(&mut self, key: &PropKey, blur: bool, cx: &mut Context<Self>) {
-        let field = self
+        let (field, can_remove) = self
             .element_edit
             .resolved(self.selected_layer.as_deref())
             .and_then(|(resolved, _)| resolved.outcome.as_ref().ok())
-            .and_then(|targets| row_field(targets, key))
-            .cloned();
+            .map_or((None, false), |targets| {
+                let can_remove = targets
+                    .entry(key)
+                    .is_some_and(|target| removable(targets, key, target));
+                (row_field(targets, key).cloned(), can_remove)
+            });
         let Some(row) = self.element_rows.rows.get_mut(key) else {
             return;
         };
@@ -743,20 +840,14 @@ impl EditorView {
         let Some(text) = row.control.text(cx) else {
             return;
         };
-        // An emptied field of a value that can't be empty writes nothing.
-        let may_be_empty = matches!(
-            row.kind,
-            ControlKind::String | ControlKind::Text | ControlKind::Path
-        );
-        if text.trim().is_empty() && !may_be_empty {
-            if blur {
-                self.restore_element_row(key, true, cx);
+        match typed_text(&row.kind, field.as_ref(), &text, can_remove) {
+            TypedText::Write(value) => self.commit_element_row(key, value, cx),
+            TypedText::Restore => {
+                if blur {
+                    self.restore_element_row(key, true, cx);
+                }
             }
-            return;
-        }
-        match parse_row_value(&row.kind, field.as_ref(), &text) {
-            Ok(value) => self.commit_element_row(key, value, cx),
-            Err(message) => {
+            TypedText::Invalid(message) => {
                 row.invalid = Some(message);
                 if blur {
                     self.restore_element_row(key, false, cx);
@@ -766,10 +857,21 @@ impl EditorView {
         }
     }
 
-    /// Writes `value` into the row `key` as one history entry; the row shows
-    /// it until the write finishes, and the written value until the reload
-    /// resolves (the source's value again when the write failed).
-    fn commit_element_row(&mut self, key: &PropKey, value: EditValue, cx: &mut Context<Self>) {
+    /// The row's remove button: removes its prop, as emptying the field does.
+    pub(crate) fn remove_element_row(&mut self, key: &PropKey, cx: &mut Context<Self>) {
+        self.commit_element_row(key, None, cx);
+    }
+
+    /// Writes `value` into the row `key` as one history entry (`None`
+    /// removes the prop); the row shows it until the write finishes, and the
+    /// written value until the reload resolves (the source's value again
+    /// when the write failed).
+    fn commit_element_row(
+        &mut self,
+        key: &PropKey,
+        value: Option<EditValue>,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(row) = self.element_rows.rows.get_mut(key) {
             row.edited = false;
             row.invalid = None;
@@ -913,7 +1015,7 @@ impl EditorView {
         let (key, value) = (scrub.key.clone(), scrub.value);
         // The row shows the value until the write finishes; a failure (the
         // targets went stale, the source changed) drops the override.
-        self.commit_element_row(&key, EditValue::Number(value), cx);
+        self.commit_element_row(&key, Some(EditValue::Number(value)), cx);
         true
     }
 
@@ -971,7 +1073,7 @@ impl EditorView {
                     return;
                 }
                 match imported {
-                    Ok(path) => this.commit_element_row(&key, EditValue::String(path), cx),
+                    Ok(path) => this.commit_element_row(&key, Some(EditValue::String(path)), cx),
                     Err(error) => {
                         let message = format!("Couldn't use the chosen file: {error}");
                         this.set_row_message(&key, message, cx);
