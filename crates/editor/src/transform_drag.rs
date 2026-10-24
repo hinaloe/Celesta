@@ -8,9 +8,9 @@ use crate::element_edit::{
 };
 use crate::layer_select::{letterbox, to_scene};
 use crate::transform_handles::{
-    Handle, PivotMode, Resize, ResizeTool, SizeField, SizeProps, anchor_keys, drag_label,
-    drag_values, pressed_handle, preview_values, prop_values, resizes_any, shown_handles,
-    size_animated, turn,
+    Handle, PivotMode, Resize, ResizeTool, SizeField, SizeProps, anchor_handle, anchor_keys,
+    drag_label, drag_values, marker, pressed_handle, preview_values, prop_values, resizes_any,
+    shown_handles, size_animated, turn,
 };
 use crate::view::EditorView;
 use celesta_composition::Point;
@@ -671,6 +671,34 @@ pub(crate) fn drag_props_in(
 pub(crate) const CENTER_MARKER: &str =
     "Rotates about the center; switch to Pivot to move the anchor";
 
+/// The center cross's tooltip: [`CENTER_MARKER`], or, when the anchor
+/// couldn't move in Pivot mode either (`blocked`, see `anchor_reason`),
+/// that reason instead of the promise.
+pub(crate) fn center_marker_text(blocked: Option<String>) -> String {
+    blocked.map_or_else(
+        || CENTER_MARKER.to_owned(),
+        |reason| format!("Rotates about the center; the anchor can't move: {reason}"),
+    )
+}
+
+/// Whether a press at `point` (scene pixels, within `reach` of the cross the
+/// canvas draws for `pivot`, see `marker`) with `alt` held is taken and
+/// starts nothing: Alt there means the anchor, and when no anchor drag is
+/// offered (Center's marker, or a blocked pivot cross), falling through to
+/// the body would move the layer under the not-allowed cursor.
+pub(crate) fn swallows_alt_press(
+    frame: &LayerFrame,
+    editable: &[PropKey],
+    pivot: PivotMode,
+    point: Point,
+    reach: f64,
+    alt: bool,
+) -> bool {
+    let at = marker(frame, pivot).at();
+    alt && (at.x - point.x).hypot(at.y - point.y) <= reach
+        && anchor_handle(frame, editable).is_none()
+}
+
 /// Whether a size prop of the element (its table's `size`) is a keyframe:
 /// its box is another on the other keyframes.
 fn sizes_animated(targets: &ElementTargets) -> bool {
@@ -898,7 +926,9 @@ impl EditorView {
 
     /// Starts a drag when `position` (window pixels) is on a handle of the
     /// selected layer, on its pivot cross with `alt` held, or on its body
-    /// with the layer topmost there. True when a drag started.
+    /// with the layer topmost there. True when a drag started, and when the
+    /// press is taken without one (Alt on a cross that moves nothing, see
+    /// `swallows_alt_press`): the selection doesn't change either.
     pub(crate) fn begin_transform_drag(
         &mut self,
         position: gpui_kit::Point<gpui_kit::Pixels>,
@@ -945,6 +975,10 @@ impl EditorView {
             resize.as_ref(),
         );
         let reach = f64::from(HANDLE_REACH) / scale;
+        // Alt on a cross that moves nothing: take the press, start nothing.
+        if swallows_alt_press(&frame, &editable, pivot, start, reach, alt) {
+            return true;
+        }
         let handle = match pressed_handle(&frame, &shown, &editable, start, reach, alt) {
             Some(Handle::Move)
                 if presses_body(&frame, topmost)
@@ -1105,7 +1139,7 @@ mod tests {
     use crate::canvas_geometry::{box_frame, with_anchor_box};
     use crate::edit_history::{EditHistory, HistoryEntry, write_all_recorded};
     use crate::element_edit::{Target, commit_files, resolve_targets};
-    use crate::transform_handles::{SizeField, SizeProps, anchor_handle};
+    use crate::transform_handles::{SizeField, SizeProps};
     use celesta_composition::EvaluatedTransform;
     use celesta_react_bridge::{
         ElementKind, LayerSource, PrimitivePropertyField, PrimitivePropertyGroup,
@@ -1509,6 +1543,46 @@ mod tests {
                 Handle::Edge(1),
                 Handle::Edge(2),
             ]
+        );
+    }
+
+    #[test]
+    fn alt_on_a_cross_that_moves_nothing_starts_nothing() {
+        // A 100 x 50 box anchored at its top-left at (40, 20): its middle,
+        // where Center puts the cross, is inside the outline, so a press
+        // there would otherwise move the layer.
+        let frame = rect_frame();
+        let anchors = anchors_with(literal(40.0), literal(0.0));
+        let swallows = |pivot, point, alt| {
+            let editable = drag_props_in(&anchors, &frame, pivot);
+            swallows_alt_press(&frame, &editable, pivot, point, 4.0, alt)
+        };
+        let middle = at(90.0, 45.0);
+        assert!(swallows(PivotMode::Center, middle, true));
+        // Without Alt, or away from the cross, the press drags as usual.
+        assert!(!swallows(PivotMode::Center, middle, false));
+        assert!(!swallows(PivotMode::Center, at(60.0, 30.0), true));
+        // In Pivot mode Alt on the cross drags the anchor: not swallowed.
+        assert!(!swallows(PivotMode::Pivot, at(40.0, 20.0), true));
+        // A pivot cross whose anchor can't move swallows Alt too.
+        let keyframed = anchors_with(keyframe(40.0), literal(0.0));
+        let editable = drag_props_in(&keyframed, &frame, PivotMode::Pivot);
+        assert!(swallows_alt_press(
+            &frame,
+            &editable,
+            PivotMode::Pivot,
+            at(41.0, 21.0),
+            4.0,
+            true
+        ));
+    }
+
+    #[test]
+    fn the_center_cross_says_why_the_anchor_stays_in_pivot_mode_too() {
+        assert_eq!(center_marker_text(None), CENTER_MARKER);
+        assert_eq!(
+            center_marker_text(Some("X: Comes from DX, which can't be traced".to_owned())),
+            "Rotates about the center; the anchor can't move: X: Comes from DX, which can't be traced"
         );
     }
 

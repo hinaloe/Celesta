@@ -30,7 +30,7 @@ use crate::problems::{ActiveProblem, Source, flow_line_breaks, summarize_warning
 use crate::problems_panel::{detail_block, show_in_problems_row};
 use crate::timecode::format_timecode;
 use crate::transform_drag::{
-    CENTER_MARKER, DragState, HANDLE_SIZE, NO_AFFINE_FRAME, ROTATE_STEM, TransformDrag,
+    DragState, HANDLE_SIZE, NO_AFFINE_FRAME, ROTATE_STEM, TransformDrag, center_marker_text,
     pivot_note_text, turns_about_pivot,
 };
 use crate::transform_handles::{
@@ -231,7 +231,9 @@ impl EditorView {
         // Why it can't, when it can't: every cause, shown on hover; the
         // center marks a point only.
         let cross_reason = match (&drag_state, marked) {
-            (_, Some(Marker::Center(_))) => Some(CENTER_MARKER.to_owned()),
+            (DragState::Editable(frame, ..), Some(Marker::Center(_))) => {
+                Some(center_marker_text(self.anchor_lock_reason(frame)))
+            }
             (DragState::Editable(frame, ..) | DragState::Locked(frame, _), _) => {
                 self.anchor_lock_reason(frame)
             }
