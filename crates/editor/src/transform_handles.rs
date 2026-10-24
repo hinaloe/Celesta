@@ -61,6 +61,48 @@ pub(crate) enum Handle {
     Edge(u8),
     /// The square on a stem above the top edge: rotates.
     Rotate,
+    /// The cross on the pivot, pressed with Alt: moves the anchor, and
+    /// `x`/`y` with it so the layer stays where it is.
+    Anchor,
+}
+
+/// The anchor props an anchor drag writes.
+pub(crate) fn anchor_keys() -> [PropKey; 2] {
+    ["anchorX", "anchorY"].map(|name| PropKey::Prop(name.to_owned()))
+}
+
+/// Where the pivot cross of `frame` sits, in scene pixels.
+pub(crate) fn pivot_cross(frame: &LayerFrame) -> Point {
+    apply(&frame.parent, pivot(&frame.transform))
+}
+
+/// Where the cross an Alt-drag moves the anchor from sits (scene pixels),
+/// when `editable` lets it: both anchors, `x` and `y` (which the caller puts
+/// in only when they can compensate), and a known box.
+pub(crate) fn anchor_handle(frame: &LayerFrame, editable: &[PropKey]) -> Option<Point> {
+    let keys = [TransformProp::X.key(), TransformProp::Y.key()];
+    let draggable = keys.iter().chain(&anchor_keys()).all(|key| editable.contains(key))
+        && local_box(frame).is_some();
+    draggable.then(|| pivot_cross(frame))
+}
+
+/// The handle a press at `point` (scene pixels) takes: with `alt`, the
+/// pivot cross when it is within `radius` and an anchor drag can start
+/// there (even over another handle); otherwise the one [`handle_at`] finds.
+pub(crate) fn pressed_handle(
+    frame: &LayerFrame,
+    shown: &[(Handle, Point)],
+    editable: &[PropKey],
+    point: Point,
+    radius: f64,
+    alt: bool,
+) -> Option<Handle> {
+    let on_cross = anchor_handle(frame, editable)
+        .is_some_and(|at| (at.x - point.x).hypot(at.y - point.y) <= radius);
+    if alt && on_cross {
+        return Some(Handle::Anchor);
+    }
+    handle_at(frame, shown, point, radius)
 }
 
 /// Rotation steps with Shift held, in degrees.
@@ -213,6 +255,7 @@ pub(crate) fn drag_values(
             }
             return values;
         }
+        Handle::Anchor => return anchor_values(frame, (start, now), editable),
         Handle::Rotate => {
             if can(TransformProp::Rotation)
                 && let Some(delta) = turn(frame, pivot, pointer.0, pointer.1, previous_turn)
@@ -283,6 +326,52 @@ pub(crate) fn drag_values(
         values.push((TransformProp::Y.key(), position.y));
     }
     values
+}
+
+/// The values an anchor drag from `start` to `now` (parent space) makes:
+/// the anchor moves by the pointer's move in fractions of the box (not
+/// clamped: an anchor outside the box is valid), so the cross follows the
+/// pointer, and `x`/`y` move so the box stays where it was. Empty unless
+/// [`anchor_handle`] allows the drag.
+fn anchor_values(
+    frame: &LayerFrame,
+    (start, now): (Point, Point),
+    editable: &[PropKey],
+) -> Vec<(PropKey, f64)> {
+    let transform = &frame.transform;
+    let map = layer_map(transform);
+    let (Some(_), Some(local), Some(inverse)) = (
+        anchor_handle(frame, editable),
+        local_box(frame),
+        invert_affine(map),
+    ) else {
+        return Vec::new();
+    };
+    let size = local.size();
+    if size.x.abs() < 1e-9 || size.y.abs() < 1e-9 {
+        return Vec::new();
+    }
+    let (from, to) = (apply(&inverse, start), apply(&inverse, now));
+    let moved = Point {
+        x: (to.x - from.x) / size.x,
+        y: (to.y - from.y) / size.y,
+    };
+    // Own pixels are relative to the anchor point, so every point of the box
+    // moves by the opposite offset; keep its top-left corner where it is.
+    // The anchor is not part of the map, so the props after are the same.
+    let corner = local.min;
+    let corner_after = Point {
+        x: corner.x - moved.x * size.x,
+        y: corner.y - moved.y * size.y,
+    };
+    let position = keep_fixed(transform, corner_after, apply(&map, corner));
+    let [anchor_x, anchor_y] = anchor_keys();
+    vec![
+        (anchor_x, transform.anchor.x + moved.x),
+        (anchor_y, transform.anchor.y + moved.y),
+        (TransformProp::X.key(), position.x),
+        (TransformProp::Y.key(), position.y),
+    ]
 }
 
 /// The inverse of the layer's linear part without its scale (its rotation
@@ -412,9 +501,15 @@ pub(crate) fn preview_values(
 /// The props of `editable` a drag of `handle` may change (see `drag_values`):
 /// in Center mode a rotation or scale also moves `x`/`y`.
 fn handle_props(handle: Handle, editable: &[PropKey], pivot: PivotMode) -> Vec<PropKey> {
+    if handle == Handle::Anchor {
+        let mut props = anchor_keys().to_vec();
+        props.extend([TransformProp::X.key(), TransformProp::Y.key()]);
+        props.retain(|key| editable.contains(key));
+        return props;
+    }
     let uniform = editable.contains(&TransformProp::Scale.key());
     let props: &[TransformProp] = match handle {
-        Handle::Move => &[TransformProp::X, TransformProp::Y],
+        Handle::Move | Handle::Anchor => &[TransformProp::X, TransformProp::Y],
         Handle::Rotate => &[TransformProp::Rotation],
         _ if uniform => &[TransformProp::Scale],
         Handle::Edge(i) if i % 2 == 1 => &[TransformProp::ScaleX],
@@ -422,7 +517,7 @@ fn handle_props(handle: Handle, editable: &[PropKey], pivot: PivotMode) -> Vec<P
         Handle::Corner(_) => &[TransformProp::ScaleX, TransformProp::ScaleY],
     };
     let compensation: &[TransformProp] = match (handle, pivot) {
-        (Handle::Move, _) | (_, PivotMode::Pivot) => &[],
+        (Handle::Move | Handle::Anchor, _) | (_, PivotMode::Pivot) => &[],
         (_, PivotMode::Center) => &[TransformProp::X, TransformProp::Y],
     };
     props
@@ -502,7 +597,7 @@ pub(crate) fn shown_handles(
                 Handle::Corner(_) => reaches(true, true),
                 Handle::Edge(i) => reaches(i % 2 == 1, i % 2 == 0),
                 Handle::Rotate => rotates,
-                Handle::Move => true,
+                Handle::Move | Handle::Anchor => true,
             }
         })
         .collect()
@@ -556,6 +651,8 @@ mod tests {
     fn at(x: f64, y: f64) -> Point {
         Point { x, y }
     }
+
+    const IDENTITY: [f64; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
 
     fn assert_close(actual: Point, expected: Point) {
         assert!(
@@ -807,6 +904,132 @@ mod tests {
         assert_eq!(
             names(&preview(Handle::Rotate, &uniform(), PivotMode::Pivot)),
             ["rotation"]
+        );
+    }
+
+    /// `x`, `y` and both anchors.
+    fn anchor_props() -> Vec<PropKey> {
+        let mut props = keys(&[TransformProp::X, TransformProp::Y]);
+        props.extend([anchor_key("X"), anchor_key("Y")]);
+        props
+    }
+
+    fn assert_same_outline(after: &LayerFrame, before: &LayerFrame) {
+        for (now, was) in after.outline.iter().zip(&before.outline) {
+            assert_close(*now, *was);
+        }
+    }
+
+    #[test]
+    fn an_anchor_drag_keeps_the_layer_on_screen() {
+        let parent = [2.0, 0.0, 0.0, 2.0, 5.0, -5.0];
+        for origin in [at(0.0, 0.0), at(10.0, -5.0)] {
+            let before = EvaluatedTransform {
+                position: at(30.0, 40.0),
+                rotation: 30.0,
+                scale: at(1.5, 1.5),
+                anchor: at(0.0, 0.0),
+                origin,
+                ..EvaluatedTransform::default()
+            };
+            let frame = box_frame(before, parent, 100.0, 50.0);
+            // From the cross to the box's middle.
+            let cross = apply(&parent, pivot(&before));
+            // The cross is at the origin in own pixels: move it by half the
+            // box.
+            let middle = scene(&frame, &before, at(50.0 + origin.x, 25.0 + origin.y));
+            let values = drag_values(
+                &frame,
+                Handle::Anchor,
+                (cross, middle),
+                false,
+                0.0,
+                &anchor_props(),
+                PivotMode::Center,
+            );
+            assert_eq!(names(&values), ["anchorX", "anchorY", "x", "y"]);
+            let after = moved(&before, &values);
+            assert!((after.anchor.x - 0.5).abs() < 1e-9, "{values:?}");
+            assert!((after.anchor.y - 0.5).abs() < 1e-9, "{values:?}");
+            // Every corner stays where it was; the cross is now where the
+            // pointer let go.
+            let moved_frame = box_frame(after, parent, 100.0, 50.0);
+            assert_same_outline(&moved_frame, &frame);
+            assert_close(apply(&parent, pivot(&after)), middle);
+        }
+    }
+
+    #[test]
+    fn anchor_values_are_fractions_of_the_box() {
+        let before = EvaluatedTransform {
+            anchor: at(0.0, 0.0),
+            ..EvaluatedTransform::default()
+        };
+        let frame = box_frame(before, IDENTITY, 200.0, 100.0);
+        let values = drag_values(
+            &frame,
+            Handle::Anchor,
+            (at(0.0, 0.0), at(50.0, 25.0)),
+            false,
+            0.0,
+            &anchor_props(),
+            PivotMode::Pivot,
+        );
+        let expected = [0.25, 0.25, 50.0, 25.0];
+        assert_eq!(names(&values), ["anchorX", "anchorY", "x", "y"]);
+        for ((_, value), expected) in values.iter().zip(expected) {
+            assert!((value - expected).abs() < 1e-9, "{values:?}");
+        }
+        // Past the box: an anchor outside it is kept as it is.
+        let values = drag_values(
+            &frame,
+            Handle::Anchor,
+            (at(0.0, 0.0), at(-100.0, 150.0)),
+            false,
+            0.0,
+            &anchor_props(),
+            PivotMode::Pivot,
+        );
+        assert!((values[0].1 + 0.5).abs() < 1e-9, "{values:?}");
+        assert!((values[1].1 - 1.5).abs() < 1e-9, "{values:?}");
+        // The preview overrides all four from the first move.
+        assert_eq!(
+            names(&preview_values(
+                &frame,
+                Handle::Anchor,
+                &anchor_props(),
+                &[],
+                &ReceivedProps::default(),
+                PivotMode::Pivot,
+            )),
+            ["anchorX", "anchorY", "x", "y"]
+        );
+    }
+
+    #[test]
+    fn alt_on_the_cross_takes_the_anchor() {
+        let before = EvaluatedTransform {
+            position: at(50.0, 30.0),
+            anchor: at(0.5, 0.5),
+            ..EvaluatedTransform::default()
+        };
+        let frame = box_frame(before, IDENTITY, 100.0, 60.0);
+        let mut editable = uniform();
+        editable.extend([anchor_key("X"), anchor_key("Y")]);
+        let shown = shown_handles(&frame, &editable, 20.0, PivotMode::Center);
+        let press = |point, alt| pressed_handle(&frame, &shown, &editable, point, 4.0, alt);
+        assert_eq!(anchor_handle(&frame, &editable), Some(at(50.0, 30.0)));
+        // Without Alt the cross is the body.
+        assert_eq!(press(at(51.0, 31.0), false), Some(Handle::Move));
+        assert_eq!(press(at(51.0, 31.0), true), Some(Handle::Anchor));
+        // Off the cross Alt changes nothing.
+        assert_eq!(press(at(0.0, 0.0), true), Some(Handle::Corner(0)));
+        // Without the anchors there is no cross to drag.
+        let shown = shown_handles(&frame, &uniform(), 20.0, PivotMode::Center);
+        assert_eq!(anchor_handle(&frame, &uniform()), None);
+        assert_eq!(
+            pressed_handle(&frame, &shown, &uniform(), at(50.0, 30.0), 4.0, true),
+            Some(Handle::Move)
         );
     }
 }

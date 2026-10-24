@@ -30,7 +30,9 @@ use crate::problems::{ActiveProblem, Source, flow_line_breaks, summarize_warning
 use crate::problems_panel::{detail_block, show_in_problems_row};
 use crate::timecode::format_timecode;
 use crate::transform_drag::{DragState, HANDLE_SIZE, NO_AFFINE_FRAME, ROTATE_STEM};
-use crate::transform_handles::{Handle, PivotMode, rotate_stem, shown_handles};
+use crate::transform_handles::{
+    Handle, PivotMode, anchor_handle, pivot_cross, rotate_stem, shown_handles,
+};
 use crate::view::EditorView;
 use celesta_gpu_renderer::LayerFrame;
 
@@ -86,6 +88,16 @@ impl EditorView {
             }
             _ => None,
         };
+        // The pivot cross of every selected layer with a frame, and whether
+        // Alt drags it.
+        let cross = match &drag_state {
+            DragState::Editable(frame, editable, _) => Some((
+                pivot_cross(frame),
+                anchor_handle(frame, editable).is_some(),
+            )),
+            DragState::Locked(frame, _) => Some((pivot_cross(frame), false)),
+            _ => None,
+        };
         let notice = match drag_state {
             DragState::NoFrame => Some(NO_AFFINE_FRAME.to_owned()),
             _ => None,
@@ -107,6 +119,11 @@ impl EditorView {
             let bounds = last_bounds?;
             let (frame, _, _) = editable_frame.as_ref()?;
             Some((outline_box(bounds, frame_size, frame)?, label))
+        });
+        // A locked anchor (`anchorY="baseline"`): the cross says why it stays.
+        let cross_lock = cross.and_then(|(at, _)| {
+            let reason = self.anchor_lock_reason()?;
+            Some((cross_box(last_bounds?, frame_size, at)?, reason))
         });
         let canvas_area = div()
             .relative()
@@ -134,21 +151,26 @@ impl EditorView {
                     move |bounds, window, _| {
                         viewer_bounds.set(Some(bounds));
                         // Each handle's square, with a hitbox for its cursor.
-                        editable_frame
-                            .map(|(frame, editable, pivot)| {
-                                place_handles(bounds, frame_size, &frame, &editable, pivot, window)
-                            })
-                            .unwrap_or_default()
+                        let handles = editable_frame.and_then(|(frame, editable, pivot)| {
+                            place_handles(bounds, frame_size, &frame, &editable, pivot, window)
+                        });
+                        let cross = cross.and_then(|(at, draggable)| {
+                            place_cross(bounds, frame_size, at, draggable, window)
+                        });
+                        (handles, cross)
                     },
-                    move |bounds, placed, window, _| {
+                    move |bounds, (handles, cross), window, _| {
                         if show_safe_areas {
                             paint_safe_areas(bounds, frame_size, overlay_color, window);
                         }
                         for corners in &selected_quads {
                             paint_layer_outline(bounds, frame_size, corners, dashed, window);
                         }
-                        if let Some(placed) = placed {
-                            paint_handles(&placed, handle_fill, window);
+                        if let Some(handles) = handles {
+                            paint_handles(&handles, handle_fill, window);
+                        }
+                        if let Some(cross) = cross {
+                            paint_cross(&cross, window);
                         }
                     },
                 )
@@ -159,6 +181,24 @@ impl EditorView {
             )
             .when(self.picks_layers(), |area| {
                 area.on_mouse_down(MouseButton::Left, cx.listener(Self::select_layer_at))
+                    // Alt over the pivot cross changes its cursor.
+                    .on_modifiers_changed(cx.listener(|this, _, _, cx| {
+                        if this.selected_layer.is_some() {
+                            cx.notify();
+                        }
+                    }))
+            })
+            .when_some(cross_lock, |area, (cross, reason)| {
+                area.child(
+                    div()
+                        .id("pivot-locked")
+                        .absolute()
+                        .left(cross.origin.x)
+                        .top(cross.origin.y)
+                        .w(cross.size.width)
+                        .h(cross.size.height)
+                        .tooltip(move |window, cx| Tooltip::new(reason.clone()).build(window, cx)),
+                )
             })
             // Nothing to drag: say why where the pointer is.
             .when_some(locked_box, |area, (locked, reason)| {
@@ -862,7 +902,7 @@ impl EditorView {
             .and_then(|point| hit_test(&self.hit_regions, point))
             .map(str::to_owned);
         // A press on the selection's handles, or on its body, drags it.
-        if self.begin_transform_drag(event.position, hit.as_deref()) {
+        if self.begin_transform_drag(event.position, hit.as_deref(), event.modifiers.alt) {
             cx.notify();
             return;
         }
@@ -991,8 +1031,78 @@ struct PlacedHandles {
     squares: Vec<(Handle, Bounds<Pixels>, Hitbox)>,
     /// The rotation handle's stem, from the top edge's middle.
     stem: Option<(gpui_kit::Point<Pixels>, gpui_kit::Point<Pixels>)>,
-    /// Where the anchor is.
-    anchor: Option<gpui_kit::Point<Pixels>>,
+}
+
+/// The pivot cross, placed on the viewer.
+struct PlacedCross {
+    at: gpui_kit::Point<Pixels>,
+    /// Sets the cursor while Alt is held, when Alt-dragging it moves the
+    /// anchor.
+    hitbox: Option<Hitbox>,
+}
+
+/// The square a handle centered on `at` (scene pixels) covers on the frame
+/// fitted into `bounds`, in window pixels.
+fn handle_square(
+    bounds: Bounds<Pixels>,
+    frame_size: (f32, f32),
+    at: Point,
+) -> Option<Bounds<Pixels>> {
+    let (left, top, scale) = letterbox(bounds, frame_size)?;
+    let half = px(HANDLE_SIZE / 2.0);
+    let center = point(
+        px(left + at.x as f32 * scale),
+        px(top + at.y as f32 * scale),
+    );
+    Some(Bounds::new(
+        point(center.x - half, center.y - half),
+        size(px(HANDLE_SIZE), px(HANDLE_SIZE)),
+    ))
+}
+
+/// Places the pivot cross at `at` (scene pixels), with a hitbox when Alt
+/// drags it.
+fn place_cross(
+    bounds: Bounds<Pixels>,
+    frame_size: (f32, f32),
+    at: Point,
+    draggable: bool,
+    window: &mut Window,
+) -> Option<PlacedCross> {
+    let square = handle_square(bounds, frame_size, at)?;
+    Some(PlacedCross {
+        at: square.center(),
+        hitbox: draggable
+            .then(|| window.insert_hitbox(square.dilate(px(2.0)), HitboxBehavior::Normal)),
+    })
+}
+
+/// The pivot cross, a handle wide, in the accent color; a grab cursor over
+/// it while Alt is held, when that drags the anchor.
+fn paint_cross(cross: &PlacedCross, window: &mut Window) {
+    let accent = theme::accent();
+    let arm = px(HANDLE_SIZE / 2.0);
+    let at = cross.at;
+    window.paint_quad(fill(
+        Bounds::new(point(at.x - arm, at.y), size(arm * 2.0, px(1.0))),
+        accent,
+    ));
+    window.paint_quad(fill(
+        Bounds::new(point(at.x, at.y - arm), size(px(1.0), arm * 2.0)),
+        accent,
+    ));
+    if let Some(hitbox) = &cross.hitbox
+        && window.modifiers().alt
+    {
+        window.set_cursor_style(CursorStyle::OpenHand, hitbox);
+    }
+}
+
+/// The square of the pivot cross at `at` (scene pixels) on the frame fitted
+/// into `bounds`, relative to `bounds`' origin.
+fn cross_box(bounds: Bounds<Pixels>, frame_size: (f32, f32), at: Point) -> Option<Bounds<Pixels>> {
+    let square = handle_square(bounds, frame_size, at)?;
+    Some(Bounds::new(square.origin - bounds.origin, square.size))
 }
 
 /// Places the handles `editable` allows on the frame fitted into `bounds`.
@@ -1009,38 +1119,26 @@ fn place_handles(
     let stem = f64::from(ROTATE_STEM / scale);
     let squares = shown_handles(frame, editable, stem, pivot)
         .into_iter()
-        .map(|(handle, at)| {
-            let center = on_viewer(at);
-            let half = px(HANDLE_SIZE / 2.0);
-            let square = Bounds::new(
-                point(center.x - half, center.y - half),
-                size(px(HANDLE_SIZE), px(HANDLE_SIZE)),
-            );
+        .filter_map(|(handle, at)| {
+            let square = handle_square(bounds, frame_size, at)?;
             let hitbox = window.insert_hitbox(square.dilate(px(2.0)), HitboxBehavior::Normal);
-            (handle, square, hitbox)
+            Some((handle, square, hitbox))
         })
         .collect::<Vec<_>>();
     let rotates = squares
         .iter()
         .any(|(handle, _, _)| *handle == Handle::Rotate);
-    let [a, b, c, d, tx, ty] = frame.parent;
-    let position = frame.transform.position;
-    let anchor = Point {
-        x: a * position.x + c * position.y + tx,
-        y: b * position.x + d * position.y + ty,
-    };
     Some(PlacedHandles {
         squares,
         stem: rotates.then(|| {
             let (from, to) = rotate_stem(frame, stem);
             (on_viewer(from), on_viewer(to))
         }),
-        anchor: Some(on_viewer(anchor)),
     })
 }
 
-/// Square handles in the accent color, a stem to the rotation handle, and a
-/// small cross on the anchor. Sets each handle's cursor.
+/// Square handles in the accent color and a stem to the rotation handle.
+/// Sets each handle's cursor.
 fn paint_handles(placed: &PlacedHandles, handle_fill: Hsla, window: &mut Window) {
     let accent = theme::accent();
     if let Some((from, to)) = placed.stem {
@@ -1050,17 +1148,6 @@ fn paint_handles(placed: &PlacedHandles, handle_fill: Hsla, window: &mut Window)
         if let Ok(path) = path.build() {
             window.paint_path(path, accent);
         }
-    }
-    if let Some(anchor) = placed.anchor {
-        let arm = px(5.0);
-        window.paint_quad(fill(
-            Bounds::new(point(anchor.x - arm, anchor.y), size(arm * 2.0, px(1.0))),
-            accent,
-        ));
-        window.paint_quad(fill(
-            Bounds::new(point(anchor.x, anchor.y - arm), size(px(1.0), arm * 2.0)),
-            accent,
-        ));
     }
     for (handle, square, hitbox) in &placed.squares {
         window.paint_quad(fill(*square, handle_fill));
@@ -1076,6 +1163,7 @@ fn handle_cursor(handle: Handle) -> CursorStyle {
         Handle::Edge(1 | 3) => CursorStyle::ResizeLeftRight,
         Handle::Edge(_) => CursorStyle::ResizeUpDown,
         Handle::Rotate => CursorStyle::Crosshair,
+        Handle::Anchor => CursorStyle::OpenHand,
         Handle::Move => CursorStyle::Arrow,
     }
 }

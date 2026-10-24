@@ -8,8 +8,8 @@ use crate::element_edit::{
 use crate::canvas_geometry::local_box;
 use crate::layer_select::{letterbox, to_scene};
 use crate::transform_handles::{
-    Handle, PivotMode, drag_label, drag_values, handle_at, preview_values, prop_values,
-    shown_handles, turn,
+    Handle, PivotMode, anchor_keys, drag_label, drag_values, preview_values, pressed_handle,
+    prop_values, shown_handles, turn,
 };
 use crate::view::EditorView;
 use celesta_composition::Point;
@@ -232,14 +232,36 @@ pub(crate) fn pivot_used(
     }
 }
 
-/// The props a canvas drag of the element may change: its editable
-/// transform props, in row order.
-pub(crate) fn drag_props(targets: &ElementTargets) -> Vec<PropKey> {
-    TransformProp::ALL
+/// The props a canvas drag of the layer `frame` measures may change: its
+/// editable transform props, in row order, then `anchorX`/`anchorY` when
+/// both are editable, `x`/`y` can compensate, and the box is known.
+pub(crate) fn drag_props(targets: &ElementTargets, frame: &LayerFrame) -> Vec<PropKey> {
+    let mut props: Vec<PropKey> = TransformProp::ALL
         .into_iter()
         .filter(|prop| targets.transform(*prop).is_some_and(editable))
         .map(TransformProp::key)
-        .collect()
+        .collect();
+    let anchors = anchor_keys();
+    if anchors
+        .iter()
+        .all(|key| targets.target(key).is_some_and(editable))
+        && compensable(targets)
+        && local_box(frame).is_some()
+    {
+        props.extend(anchors);
+    }
+    props
+}
+
+/// Why the pivot cross can't move the anchor when an anchor row is locked
+/// (`anchorY="baseline"` on a `Text`): the row and its reason.
+pub(crate) fn anchor_lock(targets: &ElementTargets) -> Option<String> {
+    anchor_keys().into_iter().find_map(|key| {
+        let EditTarget::Locked(reason) = inner_target(targets.target(&key)?) else {
+            return None;
+        };
+        Some(format!("{}: {}", key.label(), reason_text(reason)))
+    })
 }
 
 impl EditorView {
@@ -270,7 +292,7 @@ impl EditorView {
         let Some((targets, _)) = self.element_targets() else {
             return DragState::Unknown;
         };
-        let props = drag_props(targets);
+        let props = drag_props(targets, &frame);
         if props.is_empty() {
             let reason = TransformProp::ALL
                 .into_iter()
@@ -300,6 +322,12 @@ impl EditorView {
                 .element_targets()
                 .is_some_and(|(targets, _)| !compensable(targets));
         (used, fixed)
+    }
+
+    /// Why the selected layer's pivot cross can't move its anchor, when an
+    /// anchor row is locked (see `anchor_lock`).
+    pub(crate) fn anchor_lock_reason(&self) -> Option<String> {
+        anchor_lock(self.element_targets()?.0)
     }
 
     /// The prop overrides the preview evaluates the scene with while a drag
@@ -342,12 +370,13 @@ impl EditorView {
     }
 
     /// Starts a drag when `position` (window pixels) is on a handle of the
-    /// selected layer, or on its body with the layer topmost there. True when
-    /// a drag started.
+    /// selected layer, on its pivot cross with `alt` held, or on its body
+    /// with the layer topmost there. True when a drag started.
     pub(crate) fn begin_transform_drag(
         &mut self,
         position: gpui_kit::Point<gpui_kit::Pixels>,
         topmost: Option<&str>,
+        alt: bool,
     ) -> bool {
         // Only a pressed drag takes the click; while a released one is being
         // written, clicks select as usual (and no second drag starts).
@@ -379,7 +408,8 @@ impl EditorView {
         };
         let scale = f64::from(scale);
         let shown = shown_handles(&frame, &editable, f64::from(ROTATE_STEM) / scale, pivot);
-        let handle = match handle_at(&frame, &shown, start, f64::from(HANDLE_REACH) / scale) {
+        let reach = f64::from(HANDLE_REACH) / scale;
+        let handle = match pressed_handle(&frame, &shown, &editable, start, reach, alt) {
             Some(Handle::Move)
                 if presses_body(&frame, topmost)
                     && (editable.contains(&TransformProp::X.key())
@@ -529,6 +559,7 @@ mod tests {
     use crate::canvas_geometry::box_frame;
     use crate::edit_history::{EditHistory, HistoryEntry, write_all_recorded};
     use crate::element_edit::{Target, commit_files, resolve_targets};
+    use crate::transform_handles::anchor_handle;
     use celesta_composition::EvaluatedTransform;
     use celesta_react_bridge::{ElementKind, LayerSource};
     use celesta_source_edit::{EditValue, ElementRef, LiteralForm, LockReason, Span};
@@ -659,6 +690,68 @@ mod tests {
         );
     }
 
+    fn anchors_with(x: EditTarget, anchor_y: EditTarget) -> ElementTargets {
+        targets(vec![
+            ("x", x),
+            ("y", literal(20.0)),
+            ("rotation", literal(0.0)),
+            ("scale", literal(1.0)),
+            ("anchorX", literal(0.0)),
+            ("anchorY", anchor_y),
+        ])
+    }
+
+    fn has_anchor(targets: &ElementTargets, frame: &LayerFrame) -> bool {
+        anchor_handle(frame, &drag_props(targets, frame)).is_some()
+    }
+
+    #[test]
+    fn an_anchor_drag_needs_compensable_x_y() {
+        let frame = rect_frame();
+        let anchors = anchors_with(literal(40.0), literal(0.0));
+        assert!(has_anchor(&anchors, &frame));
+        assert_eq!(
+            drag_props(&anchors, &frame)[4..],
+            [
+                PropKey::Prop("anchorX".to_owned()),
+                PropKey::Prop("anchorY".to_owned())
+            ]
+        );
+        let keyframed = anchors_with(
+            EditTarget::Keyframe {
+                span: Span { start: 0, end: 1 },
+                value: 40.0,
+                frame: 0.0,
+            },
+            literal(0.0),
+        );
+        assert!(!has_anchor(&keyframed, &frame));
+        // Nor without a box to take fractions of.
+        let mut tilted = frame.clone();
+        tilted.transform.rotation_y = 30.0;
+        tilted.transform.perspective = Some(800.0);
+        assert!(!has_anchor(&anchors, &tilted));
+        // Without anchor rows (no property table) there is nothing to drag.
+        assert!(!has_anchor(&with_x(literal(40.0)), &frame));
+    }
+
+    #[test]
+    fn a_baseline_text_anchor_is_inert() {
+        let frame = rect_frame();
+        let baseline = anchors_with(
+            literal(40.0),
+            EditTarget::Locked(LockReason::Expression {
+                source: "\"baseline\"".to_owned(),
+            }),
+        );
+        assert!(!has_anchor(&baseline, &frame));
+        assert_eq!(
+            anchor_lock(&baseline).as_deref(),
+            Some("Anchor Y: Written as an expression: \"baseline\"")
+        );
+        assert_eq!(anchor_lock(&anchors_with(literal(40.0), literal(0.0))), None);
+    }
+
     const COMPONENT: &str =
         "export const PriceTag = ({ x, y }) => (\n  <Rect x={x} y={y} rotation={0} />\n);\n";
     const SCENE: &str = "export const Scene = () => (\n  <PriceTag x={40} y={20} />\n);\n";
@@ -715,7 +808,7 @@ mod tests {
         let frame = rect_frame();
         let pivot = pivot_used(PivotMode::Center, &targets, &frame);
         assert_eq!(pivot, PivotMode::Center);
-        let editable = drag_props(&targets);
+        let editable = drag_props(&targets, &frame);
         let values = drag_values(
             &frame,
             Handle::Rotate,
