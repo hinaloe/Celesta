@@ -1402,6 +1402,7 @@ fn transform_reason_texts_match_spec() {
             LockReason::OutsideProject,
             "This file is outside the project",
         ),
+        (LockReason::StyleMaySet, "May be set by `style`"),
     ];
     for (reason, text) in cases {
         assert_eq!(reason_text(&reason), text);

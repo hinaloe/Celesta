@@ -408,6 +408,7 @@ pub(crate) fn reason_text(reason: &LockReason) -> String {
         LockReason::FrameUncertain => "Can't tell which frame this animation reads".to_owned(),
         LockReason::OutsideProject => "This file is outside the project".to_owned(),
         LockReason::NoStyleObject => "No style object to set this in".to_owned(),
+        LockReason::StyleMaySet => "May be set by `style`".to_owned(),
         LockReason::ParameterOfCaller { component } => {
             format!("Comes from `<{component}>`'s caller")
         }

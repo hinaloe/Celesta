@@ -138,6 +138,9 @@ pub enum LockReason {
     /// `style.<key>` on an element without a `style` attribute: there is no
     /// object to edit, and the shorthand prop is what sets the value.
     NoStyleObject,
+    /// A `Text` shorthand (`fontSize`) next to a `style` that is not an
+    /// object literal, or has a spread: `style` wins, and may set it.
+    StyleMaySet,
     /// The value is a parameter of `component` that its caller passes on
     /// again (a second hop).
     ParameterOfCaller {
@@ -730,7 +733,7 @@ pub(crate) struct Gather<'t> {
     /// The last attribute that holds the prop.
     attr: Option<Shape>,
     /// For `style.<key>`: the key in the last `style` attribute.
-    property: Option<StyleProperty>,
+    pub(crate) property: Option<StyleProperty>,
     children: Option<Children>,
     pub(crate) scopes: Scopes,
 }

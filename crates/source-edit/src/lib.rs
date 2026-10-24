@@ -4,6 +4,7 @@
 //! comments and formatting outside the edited spans survive byte-for-byte.
 
 mod apply;
+mod attributes;
 mod inputs;
 mod locate;
 mod pass_through;
@@ -12,6 +13,7 @@ mod scope;
 mod shape;
 
 pub use apply::{ApplyError, Edit, apply, format_number, write_value};
+pub use attributes::{text_style_path, written_attributes};
 pub use inputs::resolve_inputs;
 pub use locate::{ElementRef, element_at};
 pub use pass_through::{Parameter, enclosing_component, parameter_of, resolve_through};
