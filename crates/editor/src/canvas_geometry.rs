@@ -130,6 +130,8 @@ pub(crate) fn box_frame(
         transform,
         parent,
         outline,
+        // A box primitive's quad is the box its anchor is a fraction of.
+        anchor_box: Some(outline),
         leaves: vec!["a".to_owned()],
     }
 }
@@ -188,6 +190,7 @@ mod tests {
             transform,
             parent,
             outline,
+            anchor_box: Some(outline),
             leaves: vec!["a".to_owned()],
         }
     }

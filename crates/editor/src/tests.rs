@@ -1318,6 +1318,7 @@ fn drag_frame(parent: [f64; 6], position: Point) -> LayerFrame {
             corner(100.0, 50.0),
             corner(0.0, 50.0),
         ],
+        anchor_box: None,
         leaves: vec!["a".to_owned()],
     }
 }
