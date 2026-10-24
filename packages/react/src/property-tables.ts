@@ -5,7 +5,7 @@
 
 /** How one prop is edited, and its value when the element does not write it. */
 export type PrimitivePropertyField =
-  | { type: 'number'; defaultValue?: number; min?: number; max?: number }
+  | { type: 'number'; defaultValue?: number; min?: number; max?: number; step?: number }
   | { type: 'string'; defaultValue?: string }
   | { type: 'text'; defaultValue?: string }
   | { type: 'boolean'; defaultValue?: boolean }
@@ -33,12 +33,20 @@ export function propertyTable<P>(table: PrimitivePropertyTable<P>): PrimitivePro
   return table;
 }
 
-export function num(defaultValue?: number, min?: number, max?: number): PrimitivePropertyField {
+/** How far a number may go, and how much one pixel of a scrub changes it. */
+export interface NumberRange {
+  min?: number;
+  max?: number;
+  step?: number;
+}
+
+export function num(defaultValue?: number, { min, max, step }: NumberRange = {}): PrimitivePropertyField {
   return {
     type: 'number',
     ...(defaultValue === undefined ? {} : { defaultValue }),
     ...(min === undefined ? {} : { min }),
     ...(max === undefined ? {} : { max }),
+    ...(step === undefined ? {} : { step }),
   };
 }
 

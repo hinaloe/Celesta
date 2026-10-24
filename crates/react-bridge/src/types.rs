@@ -472,6 +472,9 @@ pub enum PrimitivePropertyField {
         min: Option<f64>,
         #[serde(default)]
         max: Option<f64>,
+        /// How much one pixel of a scrub changes the value.
+        #[serde(default)]
+        step: Option<f64>,
     },
     String {
         #[serde(default)]

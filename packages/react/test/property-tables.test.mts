@@ -39,7 +39,22 @@ test('fields carry their defaults and bounds', () => {
     listPrimitiveProperties()[table]?.groups.find((entry) => entry.name === group)?.fields
       .find((row) => row.key === key)?.field;
   assert.deepEqual(field('Rect', 'Transform', 'opacity'), { type: 'number', defaultValue: 1, min: 0, max: 1 });
+  assert.deepEqual(field('Rect', 'Transform', 'x'), { type: 'number', defaultValue: 0 });
   assert.deepEqual(field('Image', 'Size', 'fit'), { type: 'select', options: ['contain', 'cover'] });
+});
+
+test('ratios and fractions declare a fine scrub step', () => {
+  const field = (table: string, group: string, key: string) =>
+    listPrimitiveProperties()[table]?.groups.find((entry) => entry.name === group)?.fields
+      .find((row) => row.key === key)?.field;
+  for (const table of ['Group', 'Image', 'Text', 'Rect', 'Video']) {
+    assert.deepEqual(field(table, 'Transform', 'scale'), { type: 'number', defaultValue: 1, step: 0.01 }, table);
+    assert.deepEqual(field(table, 'Transform', 'anchorX'), { type: 'number', defaultValue: 0, step: 0.01 }, table);
+    assert.deepEqual(field(table, 'Transform', 'anchorY'), { type: 'number', defaultValue: 0, step: 0.01 }, table);
+  }
+  assert.deepEqual(field('Video', 'Source', 'playbackRate'), { type: 'number', defaultValue: 1, step: 0.01 });
+  assert.deepEqual(field('Video', 'Audio', 'volume'), { type: 'number', defaultValue: 1, step: 0.01 });
+  assert.deepEqual(num(0, { min: 0, max: 1, step: 0.05 }), { type: 'number', defaultValue: 0, min: 0, max: 1, step: 0.05 });
 });
 
 // Type test: compiled by `tsc -b test`, never run. A key or size prop the

@@ -22,3 +22,15 @@ test('shape tables name their box and keep their order', () => {
     ['radius', 'points', 'innerRatio', 'cornerRadius'],
   );
 });
+
+test('shape transforms scrub scale and anchors finely', () => {
+  const tables = listPrimitiveProperties();
+  for (const name of ['Ellipse', 'Circle', 'Triangle', 'Polygon', 'Star', 'Pie', 'Heart']) {
+    const transform = tables[name]?.groups.find((group) => group.name === 'Transform')?.fields;
+    const field = (key: string) => transform?.find((row) => row.key === key)?.field;
+    assert.deepEqual(field('scale'), { type: 'number', defaultValue: 1, step: 0.01 }, name);
+    assert.deepEqual(field('anchorX'), { type: 'number', defaultValue: 0, step: 0.01 }, name);
+    assert.deepEqual(field('anchorY'), { type: 'number', defaultValue: 0, step: 0.01 }, name);
+    assert.deepEqual(field('opacity'), { type: 'number', defaultValue: 1, min: 0, max: 1 }, name);
+  }
+});

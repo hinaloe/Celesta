@@ -241,14 +241,27 @@ pub(crate) fn set_at_text(call_site: &SourcePos, entry_dir: &Path) -> String {
     )
 }
 
+/// The field of a scale row without a table (the transform rows alone): a
+/// ratio around 1, scrubbed as the tables declare `scale`.
+static SCALE_WITHOUT_TABLE: PrimitivePropertyField = PrimitivePropertyField::Number {
+    default_value: None,
+    min: None,
+    max: None,
+    step: Some(0.01),
+};
+
 /// The table field of the row `key`, or a component prop's registered
-/// field; inputs have none.
+/// field; inputs have none. Without a table, only a scale row has one.
 pub(crate) fn row_field<'t>(
     targets: &'t ElementTargets,
     key: &PropKey,
 ) -> Option<&'t PrimitivePropertyField> {
     match key {
-        PropKey::Prop(name) => field_of(targets.table.as_ref()?, name),
+        PropKey::Prop(name) => match &targets.table {
+            Some(table) => field_of(table, name),
+            None => matches!(name.as_str(), "scale" | "scaleX" | "scaleY")
+                .then_some(&SCALE_WITHOUT_TABLE),
+        },
         PropKey::Input { .. } => None,
         PropKey::CallSite(name) => targets
             .component
@@ -293,28 +306,25 @@ pub(crate) fn row_kind(targets: &ElementTargets, key: &PropKey, target: &Target)
     }
 }
 
-/// The value a scrub of the row `key` `dx` pixels from its start gives:
-/// `start + dx * step`, `step` 1 per pixel, 0.01 for a field with
-/// `max <= 1` (opacity, ratios) and for `scale`, `scaleX`, `scaleY` (ratios
-/// around 1, unbounded), clamped to `min`/`max`; Shift multiplies the step
-/// by 10.
+/// The value a scrub `dx` pixels from its start gives: `start + dx * step`,
+/// `step` the field's declared step per pixel, else 0.01 for a field with
+/// `max <= 1` (opacity, ratios), else 1, clamped to `min`/`max`; Shift
+/// multiplies the step by 10.
 pub(crate) fn scrub_value(
-    key: &PropKey,
     start: f64,
     dx: f32,
     field: Option<&PrimitivePropertyField>,
     shift: bool,
 ) -> f64 {
-    let (min, max) = match field {
-        Some(PrimitivePropertyField::Number { min, max, .. }) => (*min, *max),
-        _ => (None, None),
+    let (min, max, step) = match field {
+        Some(PrimitivePropertyField::Number { min, max, step, .. }) => (*min, *max, *step),
+        _ => (None, None, None),
     };
-    let ratio = matches!(key, PropKey::Prop(name) if matches!(name.as_str(), "scale" | "scaleX" | "scaleY"));
-    let step = if ratio || max.is_some_and(|max| max <= 1.0) {
+    let step = step.unwrap_or(if max.is_some_and(|max| max <= 1.0) {
         0.01
     } else {
         1.0
-    };
+    });
     let step = if shift { step * 10.0 } else { step };
     let value = start + f64::from(dx) * step;
     let value = min.map_or(value, |min| value.max(min));
@@ -379,7 +389,7 @@ impl Scrub {
             Some(EditValue::Number(value)) => value,
             _ => 0.0,
         };
-        let start_value = scrub_value(key, shown, 0.0, field.as_ref(), false);
+        let start_value = scrub_value(shown, 0.0, field.as_ref(), false);
         Some(Self {
             key: key.clone(),
             start_x,
@@ -396,7 +406,7 @@ impl Scrub {
     /// changed.
     pub(crate) fn follow(&mut self, x: f32, shift: bool) -> bool {
         let dx = (x - self.start_x).round();
-        let value = scrub_value(&self.key, self.start_value, dx, self.field.as_ref(), shift);
+        let value = scrub_value(self.start_value, dx, self.field.as_ref(), shift);
         if value == self.value {
             return false;
         }

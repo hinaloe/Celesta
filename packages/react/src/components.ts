@@ -1083,13 +1083,19 @@ for (const primitive of [Group, Image, Text, Rect, Video, Mask]) markPrimitive(p
 // What the editor's Properties tab edits on each, by section.
 registerPrimitiveProperties('Group', propertyTable<GroupProps>({
   groups: {
-    Transform: { x: num(0), y: num(0), rotation: num(0), scale: num(1), anchorX: num(0), anchorY: num(0), opacity: num(1, 0, 1) },
+    Transform: {
+      x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
+      anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
+    },
   },
 }));
 registerPrimitiveProperties('Image', propertyTable<ImageProps>({
   size: { width: 'width', height: 'height' },
   groups: {
-    Transform: { x: num(0), y: num(0), rotation: num(0), scale: num(1), anchorX: num(0), anchorY: num(0), opacity: num(1, 0, 1) },
+    Transform: {
+      x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
+      anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
+    },
     Source: { src: path() },
     Size: { width: num(), height: num(), fit: select(['contain', 'cover']) },
   },
@@ -1097,7 +1103,10 @@ registerPrimitiveProperties('Image', propertyTable<ImageProps>({
 registerPrimitiveProperties('Text', propertyTable<TextProps>({
   size: { width: 'maxWidth' },
   groups: {
-    Transform: { x: num(0), y: num(0), rotation: num(0), scale: num(1), anchorX: num(0), anchorY: num(0), opacity: num(1, 0, 1) },
+    Transform: {
+      x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
+      anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
+    },
     Text: { children: text(), fontFamily: str(), fontSize: num(), fontWeight: num(), color: color() },
     Layout: { maxWidth: num() },
   },
@@ -1105,16 +1114,22 @@ registerPrimitiveProperties('Text', propertyTable<TextProps>({
 registerPrimitiveProperties('Rect', propertyTable<RectProps>({
   size: { width: 'width', height: 'height' },
   groups: {
-    Transform: { x: num(0), y: num(0), rotation: num(0), scale: num(1), anchorX: num(0), anchorY: num(0), opacity: num(1, 0, 1) },
+    Transform: {
+      x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
+      anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
+    },
     Size: { width: num(), height: num(), cornerRadius: num(0) },
     Appearance: { fill: color(), stroke: color(), strokeWidth: num(0) },
   },
 }));
 registerPrimitiveProperties('Video', propertyTable<VideoProps>({
   groups: {
-    Transform: { x: num(0), y: num(0), rotation: num(0), scale: num(1), anchorX: num(0), anchorY: num(0), opacity: num(1, 0, 1) },
-    Source: { src: path(), startFrom: num(0), playbackRate: num(1), loop: bool(false) },
-    Audio: { volume: num(1), muted: bool(false) },
+    Transform: {
+      x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
+      anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
+    },
+    Source: { src: path(), startFrom: num(0), playbackRate: num(1, { step: 0.01 }), loop: bool(false) },
+    Audio: { volume: num(1, { step: 0.01 }), muted: bool(false) },
   },
 }));
 for (const wrapper of [Composition, Sequence, FreezeFrame, Loop]) markTransparent(wrapper);

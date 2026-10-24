@@ -858,6 +858,7 @@ mod property_outcome {
                         default_value: Some(0.0),
                         min: None,
                         max: None,
+                        step: None,
                     },
                 }],
             }],

@@ -140,7 +140,8 @@ fn ready_message_carries_primitive_tables_in_order() {
                 "groups": [
                     {"name": "Transform", "fields": [
                         {"key": "x", "field": {"type": "number", "defaultValue": 0}},
-                        {"key": "opacity", "field": {"type": "number", "defaultValue": 1, "min": 0, "max": 1}}
+                        {"key": "opacity", "field": {"type": "number", "defaultValue": 1, "min": 0, "max": 1}},
+                        {"key": "anchorX", "field": {"type": "number", "defaultValue": 0, "step": 0.01}}
                     ]},
                     {"name": "Size", "fields": [
                         {"key": "width", "field": {"type": "number"}}
@@ -178,13 +179,23 @@ fn ready_message_carries_primitive_tables_in_order() {
         .iter()
         .map(|row| row.key.as_str())
         .collect();
-    assert_eq!(keys, ["x", "opacity"]);
+    assert_eq!(keys, ["x", "opacity", "anchorX"]);
     assert_eq!(
         rect.groups[0].fields[1].field,
         PrimitivePropertyField::Number {
             default_value: Some(1.0),
             min: Some(0.0),
             max: Some(1.0),
+            step: None,
+        }
+    );
+    assert_eq!(
+        rect.groups[0].fields[2].field,
+        PrimitivePropertyField::Number {
+            default_value: Some(0.0),
+            min: None,
+            max: None,
+            step: Some(0.01),
         }
     );
     assert_eq!(
@@ -193,6 +204,7 @@ fn ready_message_carries_primitive_tables_in_order() {
             default_value: None,
             min: None,
             max: None,
+            step: None,
         }
     );
 }

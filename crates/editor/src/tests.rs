@@ -3357,6 +3357,18 @@ fn number_field(default_value: Option<f64>) -> PrimitivePropertyField {
         default_value,
         min: None,
         max: None,
+        step: None,
+    }
+}
+
+/// A number field scrubbed `step` per pixel, as the tables declare `scale`
+/// and the anchors.
+fn stepped_field(default_value: f64, step: f64) -> PrimitivePropertyField {
+    PrimitivePropertyField::Number {
+        default_value: Some(default_value),
+        min: None,
+        max: None,
+        step: Some(step),
     }
 }
 
@@ -3389,13 +3401,14 @@ fn rect_table() -> PrimitivePropertyTable {
                 ("x", number_field(Some(0.0))),
                 ("y", number_field(Some(0.0))),
                 ("rotation", number_field(Some(0.0))),
-                ("scale", number_field(Some(1.0))),
+                ("scale", stepped_field(1.0, 0.01)),
                 (
                     "opacity",
                     PrimitivePropertyField::Number {
                         default_value: Some(1.0),
                         min: Some(0.0),
                         max: Some(1.0),
+                        step: None,
                     },
                 ),
             ],
@@ -3902,6 +3915,7 @@ fn num_range(default: f64, min: f64, max: f64) -> PrimitivePropertyField {
         default_value: Some(default),
         min: Some(min),
         max: Some(max),
+        step: None,
     }
 }
 
@@ -4420,13 +4434,7 @@ fn no_component_section_without_a_call_site() {
 #[test]
 fn scrub_steps() {
     let free = number_field(None);
-    let unit = PrimitivePropertyField::Number {
-        default_value: Some(1.0),
-        min: Some(0.0),
-        max: Some(1.0),
-    };
-    let radius = prop("cornerRadius");
-    let opacity = prop("opacity");
+    let unit = num_range(1.0, 0.0, 1.0);
     let near = |actual: f64, expected: f64| {
         assert!(
             (actual - expected).abs() < 1e-9,
@@ -4434,30 +4442,68 @@ fn scrub_steps() {
         );
     };
     // One per pixel.
-    assert_eq!(scrub_value(&radius, 10.0, 5.0, Some(&free), false), 15.0);
-    assert_eq!(scrub_value(&radius, 10.0, 5.0, None, false), 15.0);
+    assert_eq!(scrub_value(10.0, 5.0, Some(&free), false), 15.0);
+    assert_eq!(scrub_value(10.0, 5.0, None, false), 15.0);
     // 0.01 per pixel for a field that ends at 1 or below, inside its range.
-    near(scrub_value(&opacity, 0.5, 10.0, Some(&unit), false), 0.6);
-    assert_eq!(scrub_value(&opacity, 0.5, 100.0, Some(&unit), false), 1.0);
-    assert_eq!(scrub_value(&opacity, 0.5, -100.0, Some(&unit), false), 0.0);
+    near(scrub_value(0.5, 10.0, Some(&unit), false), 0.6);
+    assert_eq!(scrub_value(0.5, 100.0, Some(&unit), false), 1.0);
+    assert_eq!(scrub_value(0.5, -100.0, Some(&unit), false), 0.0);
     // Shift steps ten times as far.
-    assert_eq!(scrub_value(&radius, 10.0, 5.0, Some(&free), true), 60.0);
-    near(scrub_value(&opacity, 0.5, 2.0, Some(&unit), true), 0.7);
-    // Scale is a ratio around 1: 0.01 per pixel too, unbounded.
-    for axis in ["scale", "scaleX", "scaleY"] {
-        near(
-            scrub_value(
-                &prop(axis),
-                1.0,
-                10.0,
-                Some(&number_field(Some(1.0))),
-                false,
-            ),
-            1.1,
-        );
-        near(scrub_value(&prop(axis), 1.0, 10.0, None, true), 2.0);
-        near(scrub_value(&prop(axis), 1.0, -150.0, None, false), -0.5);
-    }
+    assert_eq!(scrub_value(10.0, 5.0, Some(&free), true), 60.0);
+    near(scrub_value(0.5, 2.0, Some(&unit), true), 0.7);
+    // The step a field declares (an anchor, a scale): unbounded.
+    let anchor = stepped_field(0.0, 0.01);
+    near(scrub_value(0.5, 10.0, Some(&anchor), false), 0.6);
+    near(scrub_value(0.5, 10.0, Some(&anchor), true), 1.5);
+    near(scrub_value(0.5, -150.0, Some(&anchor), false), -1.0);
+    // A declared step wins over the range's.
+    let coarse = PrimitivePropertyField::Number {
+        default_value: None,
+        min: Some(0.0),
+        max: Some(1.0),
+        step: Some(0.1),
+    };
+    near(scrub_value(0.5, 2.0, Some(&coarse), false), 0.7);
+
+    // A component prop takes the step its registered schema declares.
+    let texts = typed_props_tag_files();
+    let schemas = std::collections::BTreeMap::from([(
+        "PriceTag".to_owned(),
+        std::collections::BTreeMap::from([(
+            "tone".to_owned(),
+            celesta_react_bridge::ComponentPropertyField::Number {
+                label: None,
+                default_value: 0.0,
+                min: Some(0.0),
+                max: Some(100.0),
+                step: Some(5.0),
+            },
+        )]),
+    )]);
+    let mut targets = resolve_targets(read_from(&texts), &props_tag_report(), None).unwrap();
+    type_component_props(&mut targets, &schemas, read_from(&texts));
+    let tone = (targets, props_tag_report());
+    assert_eq!(
+        scrubbed_to(&tone, &PropKey::CallSite("tone".to_owned()), 102.0),
+        12.0
+    );
+
+    // A table's `scale` declares 0.01; without a table, the transform rows'
+    // scale scrubs the same.
+    let text = "export const Scene = () => (\n  <Rect x={10} scale={2} />\n);\n";
+    let report = primitive_report(
+        2,
+        3,
+        ReceivedProps {
+            x: Some(10.0),
+            scale: Some(2.0),
+            ..ReceivedProps::default()
+        },
+    );
+    let table = (resolve_table(text, &report, &rect_table()), report.clone());
+    near(scrubbed_to(&table, &prop("scale"), 110.0), 2.1);
+    let bare = (resolve_in(text, &report).unwrap(), report);
+    near(scrubbed_to(&bare, &prop("scale"), 110.0), 2.1);
 }
 
 /// `<Rect x={10} {attributes} />` at line 2, column 3 of

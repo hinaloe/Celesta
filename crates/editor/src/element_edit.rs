@@ -290,11 +290,13 @@ fn schema_field(field: &ComponentPropertyField) -> PrimitivePropertyField {
             default_value,
             min,
             max,
+            step,
             ..
         } => PrimitivePropertyField::Number {
             default_value: Some(*default_value),
             min: *min,
             max: *max,
+            step: *step,
         },
         ComponentPropertyField::Boolean { default_value, .. } => PrimitivePropertyField::Boolean {
             default_value: Some(*default_value),
