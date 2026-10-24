@@ -76,7 +76,7 @@ On the timeline, the **Composition** row marks where the element is drawn: a fil
 
 ## Move layers on the canvas
 
-In interactive mode, a selected layer can be moved, rotated, and scaled, and the result is written into your source. Drag inside the outline to move it, drag a square handle at a corner or an edge to scale it about its anchor, and drag the handle above the top edge to rotate it (hold Shift to snap to 15°). You can also type a value into the **Transform** rows below the header of the **Properties** tab and press Enter or leave the field; the next section describes every row of the tab. One drag or one committed field is one change, even when it writes two files: Celesta replaces only the number it changes and leaves the rest of your formatting and comments as they are, and the preview keeps the selection when it reloads.
+In interactive mode, a selected layer can be moved, rotated, resized, and scaled, and the result is written into your source. Drag inside the outline to move it, drag a square handle at a corner or an edge to resize it (or scale it, with the **Scale** tool), and drag the handle above the top edge to rotate it (hold Shift to snap to 15°). Rotation and scale turn about the middle of the layer's box unless you choose **Pivot**, as described at the end of this section. You can also type a value into the **Transform** rows below the header of the **Properties** tab and press Enter or leave the field; the next section describes every row of the tab. One drag or one committed field is one change, even when it writes two files: Celesta replaces only the number it changes and leaves the rest of your formatting and comments as they are, and the preview keeps the selection when it reloads.
 
 Celesta writes a value only where your source states it plainly, on an element written directly in your file, or at the call of the component that element is written in:
 
@@ -110,9 +110,49 @@ Anything else is locked: its field shows a lock icon and the reason, the header'
 | Couldn't find this element in the source | The file no longer has the element where the preview found it, such as while a save is still reloading |
 | The source has syntax errors | Fix the file first; every field is locked until it parses |
 
-If a file the drag would write changes while you drag, Celesta discards the drag and says so instead of writing over your edit. Dragging on the canvas edits only `x`, `y`, `rotation`, and `scale` (or `scaleX` and `scaleY`, when written); size props such as `width` and the anchor are edited in the **Properties** tab, as the next section describes, and skew is not edited.
+If a file the drag would write changes while you drag, Celesta discards the drag and says so instead of writing over your edit. Dragging on the canvas edits `x`, `y`, `rotation`, and `scale` (or `scaleX` and `scaleY`, when written), the props that hold the layer's size, such as `width`, and `anchorX` and `anchorY`, as described at the end of this section. Skew is not edited.
 
 A layer inside a `<Group>` or `<Stack>` moves with its parent. A child of a `<Stack>` stays editable: its `x` and `y` are offsets from the place the `<Stack>` gives it. Under **Source chain**, each row of **Called from** that is a Celesta element drawing its own layer, such as a `<Group>`, has a **Select** button that selects that layer; a group is outlined as the box around its children, and dragging anywhere inside it moves the whole group. A `<Stack>` or `<SafeArea>` row has no **Select** button: they are components, and the groups they create are not written in your source.
+
+### Turn about the center or the pivot
+
+While **Select layers** is on, two toggles sit before its button. The first, **Center** | **Pivot**, sets what the rotation handle and the **Scale** tool turn about:
+
+- **Center**, the default, keeps the middle of the layer's box where it is. To do that, Celesta also writes `x` and `y`: a rotation writes `rotation`, `x`, and `y` together, as one change, which writes two files when `x` and `y` are set at a component's call.
+- **Pivot** turns the layer about its pivot, the point the renderer turns it about: its anchor (`anchorX` and `anchorY` of its box, the top-left corner unless you set them), moved by `originX` and `originY` when you set those. Only `rotation` or the scale is written.
+
+**Center** needs `x` and `y` that Celesta can write: each a number, a prop left out, or a value set at a component's call, as described above. When `x` or `y` is animated with keyframes or locked, a drag can't keep the middle still (a keyframe would move it at that keyframe only), so it turns about the pivot, and the toggle shows **Pivot (x, y not editable)**, dimmed. A layer turned in its own perspective has no flat box to center on: the toggle shows **Pivot**, dimmed, and its tooltip says **No flat box to center on**. Your choice stays **Center** either way, so the next layer you select uses it again.
+
+### Resize with the Rect tool
+
+The second toggle, **Rect** | **Scale**, sets what the corner and edge handles do. With **Rect**, the default, they change the props that hold the layer's size, and the edge or corner opposite the one you drag stays where it is, whichever of **Center** and **Pivot** is chosen:
+
+| Element | Handles | Writes |
+| --- | --- | --- |
+| `<Rect>`, `<Image>`, `<Ellipse>`, `<Triangle>`, `<Heart>` | Four corners and four edges: an edge changes one side, a corner both | `width`, `height` |
+| `<Circle>`, `<Polygon>`, `<Star>`, `<Pie>` | Four corners, which resize evenly | `radius` |
+| `<Text>` | The left and right edges | `maxWidth` |
+
+The handles sit on the box those props describe and follow the layer's rotation, scale, and skew; a drag is measured along the layer's own axes. Hold Shift while you drag a corner to keep the box's proportions. A `<Text>`'s box is its laid-out text: dragging an edge starts from the width you see, wraps the text to the new width, writes `maxWidth` in whole pixels, and adds it when it is left out. An `<Image>` that leaves out `width` or `height` sizes it from the picture's proportions; dragging the other side writes it at its current size, so only the side you drag changes.
+
+When the edge that stays is not where the anchor is, such as the left and top edges of a layer anchored at its top-left corner, Celesta also writes `x` and `y` to keep it there. That needs `x` and `y` that Celesta can write, as for **Center**; without them, those handles are hidden. A size stops at its prop's range, such as 1 for an image's **Width**, and never goes below 1 pixel, so dragging an edge past the opposite one does not flip the box. A size animated with keyframes can be resized on one of its keyframes, as in its row.
+
+An element without size props, such as a `<Group>`, a `<Video>`, or a `<Path>`, or one whose size can't be written, gets the **Scale** handles instead: the toggle shows **Scale**, dimmed, with the reason as its tooltip, and your choice stays **Rect** for the next layer.
+
+| Tooltip | Meaning |
+| --- | --- |
+| No size to resize | The element has no size props |
+| `<Row>`: `<reason>` | A size row is locked, such as **Height: Written as an expression: h**; the reasons are listed above |
+| Size can't be edited here | A size prop has no row Celesta can write |
+| No flat box to resize | The layer is turned in its own perspective |
+
+With **Scale**, the corner and edge handles scale the layer, writing `scale`, or `scaleX` and `scaleY` when your source writes either. The rotation handle works the same in both tools.
+
+### Move the anchor
+
+A small cross marks the pivot of the selected layer. Hold Alt (Option) and drag the cross to move the anchor: Celesta writes `anchorX` and `anchorY` as fractions of the layer's box (0 at its left or top edge, 1 at its right or bottom; a value outside the box is kept), and moves `x` and `y` by the opposite amount, so the layer stays where it is on screen. The box is the one the anchor refers to: a `<Text>`'s laid-out text, a shape's `width` × `height` (twice its `radius` for a `<Circle>`), or an image's or video's picture. While Alt is held, the pointer over the cross is an open hand, and the cross takes the press even when it sits on a handle. Like **Center**, moving the anchor needs `x` and `y` that Celesta can write. Choose **Pivot** to rotate about the new anchor.
+
+Some crosses can't be dragged. Hover over the cross to see why: **Anchor Y: Written as an expression: "baseline"** for a `<Text>` written with `anchorY="baseline"`, or **A group's anchor has no effect** for a `<Group>`, whose children are placed by its position alone. A `<Path>`, `<Line>`, `<Arrow>`, and other elements without anchor props have no anchor to move.
 
 ## Edit properties
 
@@ -162,7 +202,7 @@ The **Font family**, **Font size**, **Font weight**, and **Color** rows of a `<T
 
 When the element is written inside one of your components and Celesta finds the call that renders it, a **Component** section follows, such as **Component · PriceTag**, with **Set at `<file>`:`<line>`** for that call. It lists the props written at the call in the order they are written, so you can change `label="Sale"` on `<PriceTag>` while a `<Rect>` inside it is selected. A prop a row above already shows with **Set at** is not repeated, and `key`, `ref`, spreads, and children are left out. A number gets a number field, a string a text field, and `true` or `false` a switch. When the component is registered with `registerComponent()`, its schema gives the control and the range instead, a field's `label` names its row (a prop the schema leaves out shows its name as written), a number field with `integer: true` takes whole numbers only, and a value of another kind than the schema's is locked. A value that is not written plainly is locked with its reason.
 
-The impact line and **Can't move** look at the transform props only. Editing another prop written on the element, such as **Fill**, changes every instance even when the line counts only one call's instances; a value set at the call, in a row with **Set at** or in the **Component** section, changes only that call.
+The impact line and **Can't move** look at the transform props only. Editing another prop written on the element, such as **Fill**, or a size or the anchor dragged on the canvas, changes every instance even when the line counts only one call's instances; a value set at the call, in a row with **Set at** or in the **Component** section, changes only that call.
 
 ## Undo
 
