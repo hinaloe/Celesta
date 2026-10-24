@@ -5,7 +5,7 @@
 use celesta_composition::Point;
 use celesta_editor_theme as theme;
 use celesta_gpu_renderer::hit_test;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::{Button, ButtonRounded, ButtonVariants as _};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tooltip::Tooltip;
@@ -78,13 +78,14 @@ struct Segment {
     id: &'static str,
     label: &'static str,
     tooltip: &'static str,
-    /// The chosen one: filled with the accent color.
+    /// The chosen one: filled with the theme's primary color.
     chosen: bool,
     on_click: SegmentClick,
 }
 
-/// A canvas-tool toggle: two fixed-width segments, the chosen one filled
-/// with the accent color (its contrasting foreground on it), the other
+/// A canvas-tool toggle: two fixed-width, square-cornered segments, the
+/// chosen one filled with the theme's primary color (its contrasting
+/// foreground on it), the other
 /// plain, and a warning icon (with `note` as its tooltip) in a reserved slot
 /// when the choice is not in effect on the selected layer.
 fn mode_toggle(
@@ -120,6 +121,7 @@ fn mode_toggle(
             let button = Button::new(segment.id)
                 .label(segment.label)
                 .small()
+                .rounded(ButtonRounded::None)
                 .w(px(SEGMENT_WIDTH))
                 .tooltip(segment.tooltip)
                 .on_click(segment.on_click);
@@ -853,7 +855,7 @@ impl EditorView {
     /// effect on the selected layer, a warning in its control gives the
     /// reason (`pivot_note`, see `EditorView::pivot_note`, and
     /// `resize_note`). Fixed widths; an opaque panel that takes the pointer
-    /// over its own bounds only.
+    /// over its own bounds only, and not while a drag or a scrub is pressed.
     fn tool_strip(
         &self,
         pivot_note: Option<&'static str>,
@@ -912,9 +914,14 @@ impl EditorView {
             cx,
         );
         let handles = mode_toggle("handles-note", tool_segments, self.resize_note(), cx);
+        // It takes the pointer over its bounds only while nothing is
+        // pressed: the root follows a canvas drag or a row's scrub only
+        // where its hitbox is hovered, which an occluding strip would stop,
+        // freezing a drag that passes over it and missing a release there.
+        let pressed = self.transform_drag_active() || self.row_scrub_active();
         div()
             .id("canvas-tools")
-            .occlude()
+            .when(!pressed, |strip| strip.occlude())
             .flex()
             .flex_col()
             .gap_1()
