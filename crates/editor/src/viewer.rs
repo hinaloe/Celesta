@@ -132,7 +132,7 @@ impl EditorView {
         // handles' note.
         let pivot_note = self.pivot_note();
         // Every region of the selected layer in the shown frame; none when
-        // the frame does not draw it. The Rect tool's handles sit on the box
+        // the frame does not draw it. The Size tool's handles sit on the box
         // they resize, which is then the outline drawn (a stroked text's
         // layout box, a rotated dashed rect's own corners).
         let resized_box = match &drag_state {
@@ -824,12 +824,12 @@ impl EditorView {
         }
     }
 
-    /// "Rect" | "Scale": what the canvas's corner and edge handles do, the
-    /// chosen one selected. When Rect is chosen but the selected layer can't
+    /// "Size" | "Scale": what the canvas's corner and edge handles do, the
+    /// chosen one selected. When Size is chosen but the selected layer can't
     /// use it (its handles scale), a warning in the control gives the reason
     /// (see `resize_note`); the labels never change.
     fn resize_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let tools = [ResizeTool::Rect, ResizeTool::Scale];
+        let tools = [ResizeTool::Size, ResizeTool::Scale];
         let chosen = tools.iter().position(|tool| *tool == self.resize_tool);
         mode_toggle(
             ModeToggle {
@@ -837,7 +837,7 @@ impl EditorView {
                 note_id: "resize-tool-note",
                 width: RESIZE_TOGGLE_WIDTH,
                 segments: [
-                    ("Rect", "Resize the layer's box, keeping the opposite edge"),
+                    ("Size", "Resize the layer's box, keeping the opposite edge"),
                     ("Scale", "Scale the layer"),
                 ],
                 chosen: chosen.unwrap_or_default(),
@@ -1298,7 +1298,7 @@ fn cross_box(bounds: Bounds<Pixels>, frame_size: (f32, f32), at: Point) -> Optio
 }
 
 /// Places the handles `editable` allows on the frame fitted into `bounds`,
-/// for the pivot mode and the Rect tool in use.
+/// for the pivot mode and the Size tool in use.
 fn place_handles(
     bounds: Bounds<Pixels>,
     frame_size: (f32, f32),

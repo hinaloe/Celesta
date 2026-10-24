@@ -42,7 +42,7 @@ pub(crate) struct TransformDrag {
     editable: Vec<PropKey>,
     /// What a rotation or scale turns about, as used (see `pivot_used`).
     pivot: PivotMode,
-    /// The Rect tool, when the corners and edges resize (see
+    /// The Size tool, when the corners and edges resize (see
     /// `resize_used`); `None` when they scale.
     resize: Option<Resize>,
     /// The element's name (see `primitive_of`), which says how its anchor
@@ -95,7 +95,7 @@ impl TransformDrag {
         }
     }
 
-    /// The drag with the Rect tool's `resize` (`None`: the Scale tool).
+    /// The drag with the Size tool's `resize` (`None`: the Scale tool).
     pub(crate) fn with_resize(self, resize: Option<Resize>) -> Self {
         Self { resize, ..self }
     }
@@ -320,13 +320,13 @@ pub(crate) enum DragState {
     Locked(LayerFrame, String),
     /// Draggable with these props, rotating and scaling about what the
     /// `PivotMode` names (the mode used, see `pivot_used`), and resizing
-    /// with the Rect tool when it is used (see `resize_used`).
+    /// with the Size tool when it is used (see `resize_used`).
     Editable(LayerFrame, Vec<PropKey>, PivotMode, Option<Resize>),
 }
 
 /// The props that hold the element's box (its table's `size`), each with
 /// its field's bounds, when every one is editable (a literal, a keyframe,
-/// or absent); `None` otherwise, and the Rect tool falls back to Scale.
+/// or absent); `None` otherwise, and the Size tool falls back to Scale.
 pub(crate) fn size_props(targets: &ElementTargets) -> Option<SizeProps> {
     let table = targets.table.as_ref()?;
     let size = table.size.as_ref()?;
@@ -361,7 +361,7 @@ pub(crate) fn size_props(targets: &ElementTargets) -> Option<SizeProps> {
     }
 }
 
-/// Why a drag of the layer `frame` measures can't use the Rect tool.
+/// Why a drag of the layer `frame` measures can't use the Size tool.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ResizeFallback {
     /// The element has no size props (a `<Group>`).
@@ -406,7 +406,7 @@ pub(crate) const BOX_ANIMATED: &str = "Size or anchor is animated";
 /// The cross's tooltip when the anchor has no box to be a fraction of.
 pub(crate) const NO_ANCHOR_BOX: &str = "No box to anchor in";
 
-/// Why a drag of the layer `frame` measures can't use `choice`: the Rect
+/// Why a drag of the layer `frame` measures can't use `choice`: the Size
 /// tool needs editable size props (see `size_props`), the box they describe
 /// (from the props the runtime reported, for a shape), and a corner or edge
 /// that can resize it (see `resizes_any`). `None` when it can.
@@ -464,7 +464,7 @@ pub(crate) fn resize_fallback(
     Some(locked.map_or(ResizeFallback::Uneditable, ResizeFallback::Locked))
 }
 
-/// The Rect tool a drag of the layer `frame` measures uses when `choice` is
+/// The Size tool a drag of the layer `frame` measures uses when `choice` is
 /// chosen; `None` (the Scale tool) when it falls back (see
 /// `resize_fallback`) or Scale is chosen.
 pub(crate) fn resize_used(
@@ -761,18 +761,18 @@ impl EditorView {
         DragState::Editable(frame, props, pivot, resize)
     }
 
-    /// Why the chosen Rect tool is not in effect on the selected layer (its
+    /// Why the chosen Size tool is not in effect on the selected layer (its
     /// handles scale instead), for the toggle's warning; `None` when it is,
     /// or Scale is chosen.
     pub(crate) fn resize_note(&self) -> Option<String> {
-        if self.resize_tool != ResizeTool::Rect {
+        if self.resize_tool != ResizeTool::Size {
             return None;
         }
         let DragState::Editable(frame, _, _, None) = self.drag_state() else {
             return None;
         };
         let (targets, _) = self.element_targets()?;
-        resize_fallback(ResizeTool::Rect, targets, &frame).map(|fallback| fallback.reason())
+        resize_fallback(ResizeTool::Size, targets, &frame).map(|fallback| fallback.reason())
     }
 
     /// Why the chosen Center is not in effect on the selected layer (its
@@ -1291,12 +1291,12 @@ mod tests {
             }))
         );
 
-        // The Rect tool on a layer with a box: its sizes join the drag, and
+        // The Size tool on a layer with a box: its sizes join the drag, and
         // x/y compensate when they can.
         let frame = rect_frame();
-        let resize = resize_used(ResizeTool::Rect, &rect, &frame).expect("the Rect tool");
+        let resize = resize_used(ResizeTool::Size, &rect, &frame).expect("the Size tool");
         assert!(!resize.compensable, "y has no row");
-        assert_eq!(resize_fallback(ResizeTool::Rect, &rect, &frame), None);
+        assert_eq!(resize_fallback(ResizeTool::Size, &rect, &frame), None);
         assert_eq!(resize_used(ResizeTool::Scale, &rect, &frame), None);
     }
 
@@ -1317,8 +1317,8 @@ mod tests {
         );
         let frame = rect_frame();
         assert_eq!(size_props(&rect), None);
-        assert_eq!(resize_used(ResizeTool::Rect, &rect, &frame), None);
-        let fallback = resize_fallback(ResizeTool::Rect, &rect, &frame).expect("a fallback");
+        assert_eq!(resize_used(ResizeTool::Size, &rect, &frame), None);
+        let fallback = resize_fallback(ResizeTool::Size, &rect, &frame).expect("a fallback");
         assert_eq!(fallback.reason(), "Height: Written as an expression: h");
         // Scale chosen falls back from nothing.
         assert_eq!(resize_fallback(ResizeTool::Scale, &rect, &frame), None);
@@ -1332,9 +1332,9 @@ mod tests {
         group.table.as_mut().unwrap().size = None;
         for targets in [group, with_x(literal(40.0))] {
             assert_eq!(size_props(&targets), None);
-            assert_eq!(resize_used(ResizeTool::Rect, &targets, &frame), None);
+            assert_eq!(resize_used(ResizeTool::Size, &targets, &frame), None);
             assert_eq!(
-                resize_fallback(ResizeTool::Rect, &targets, &frame),
+                resize_fallback(ResizeTool::Size, &targets, &frame),
                 Some(ResizeFallback::NoSize)
             );
         }
@@ -1347,9 +1347,9 @@ mod tests {
         let mut tilted = frame.clone();
         tilted.transform.rotation_y = 30.0;
         tilted.transform.perspective = Some(800.0);
-        assert_eq!(resize_used(ResizeTool::Rect, &rect, &tilted), None);
+        assert_eq!(resize_used(ResizeTool::Size, &rect, &tilted), None);
         assert_eq!(
-            resize_fallback(ResizeTool::Rect, &rect, &tilted),
+            resize_fallback(ResizeTool::Size, &rect, &tilted),
             Some(ResizeFallback::NoBox)
         );
     }
@@ -1430,7 +1430,7 @@ mod tests {
         // Anchored at the top-left: only a width drag that moves the left
         // edge needs x, which would then hold at this keyframe only.
         let frame = rect_frame();
-        let resize = resize_used(ResizeTool::Rect, &rect, &frame).expect("the Rect tool");
+        let resize = resize_used(ResizeTool::Size, &rect, &frame).expect("the Size tool");
         let mut editable = drag_props(&rect, &frame);
         editable.extend(resize.keys());
         let shown: Vec<Handle> =
@@ -1494,7 +1494,7 @@ mod tests {
     }
 
     fn shown_with(targets: &ElementTargets, frame: &LayerFrame) -> Vec<Handle> {
-        let resize = resize_used(ResizeTool::Rect, targets, frame).expect("the Rect tool");
+        let resize = resize_used(ResizeTool::Size, targets, frame).expect("the Size tool");
         let mut editable = drag_props(targets, frame);
         editable.extend(resize.keys());
         shown_handles(frame, &editable, 20.0, PivotMode::Pivot, Some(&resize))
@@ -1532,7 +1532,7 @@ mod tests {
             rotation.label().as_deref(),
             Some("Pivot — x or y can't be edited  rotation 0 → 30")
         );
-        // The Scale tool's handles turn about it too; the Rect tool's and a
+        // The Scale tool's handles turn about it too; the Size tool's and a
         // move don't.
         assert!(drag(Handle::Corner(2), None).label().is_some());
         let resize = Resize {
@@ -1563,7 +1563,7 @@ mod tests {
         let mut centered = rect_frame();
         centered.transform.anchor = at(0.5, 0.5);
         for (animated, reason) in [("rotation", TURN_ANIMATED), ("anchorX", ANCHOR_ANIMATED)] {
-            let fallback = resize_fallback(ResizeTool::Rect, &rect_rows(animated), &centered);
+            let fallback = resize_fallback(ResizeTool::Size, &rect_rows(animated), &centered);
             assert_eq!(fallback, Some(ResizeFallback::Animated(reason)));
             assert_eq!(fallback.unwrap().reason(), reason);
         }
@@ -1691,12 +1691,12 @@ mod tests {
             [Some("width"), Some("height"), None],
             &[],
         );
-        assert_eq!(resize_used(ResizeTool::Rect, &rect, &centered()), None);
-        let fallback = resize_fallback(ResizeTool::Rect, &rect, &centered());
+        assert_eq!(resize_used(ResizeTool::Size, &rect, &centered()), None);
+        let fallback = resize_fallback(ResizeTool::Size, &rect, &centered());
         assert_eq!(fallback, Some(ResizeFallback::Pinned));
         assert_eq!(fallback.unwrap().reason(), "x or y can't move");
         // Anchored at its top-left, the right and bottom edges still work.
-        assert!(resize_used(ResizeTool::Rect, &rect, &rect_frame()).is_some());
+        assert!(resize_used(ResizeTool::Size, &rect, &rect_frame()).is_some());
         // A keyframed radius about its middle: x and y could move, but
         // only on this keyframe.
         let circle = sized(
@@ -1708,7 +1708,7 @@ mod tests {
             [None, None, Some("radius")],
             &[],
         );
-        let fallback = resize_fallback(ResizeTool::Rect, &circle, &centered());
+        let fallback = resize_fallback(ResizeTool::Size, &circle, &centered());
         assert_eq!(fallback, Some(ResizeFallback::Animated(SIZE_ANIMATED)));
         assert_eq!(fallback.unwrap().reason(), "Size is animated");
     }
@@ -1725,7 +1725,7 @@ mod tests {
         let mut path = rect_frame();
         path.anchor_box = None;
         assert_eq!(
-            resize_fallback(ResizeTool::Rect, &rect, &path),
+            resize_fallback(ResizeTool::Size, &rect, &path),
             Some(ResizeFallback::NoSize)
         );
     }
@@ -1759,7 +1759,7 @@ mod tests {
             [Some("width"), Some("height"), None],
             &[],
         );
-        let fallback = resize_fallback(ResizeTool::Rect, &rect, &rect_frame());
+        let fallback = resize_fallback(ResizeTool::Size, &rect, &rect_frame());
         assert_eq!(fallback, Some(ResizeFallback::Uneditable));
         assert_eq!(fallback.unwrap().reason(), "Size can't be edited here");
     }
@@ -1868,7 +1868,7 @@ mod tests {
     }
 
     /// Resizes the element `report` names by `handle` from `from` to `to`
-    /// (scene pixels) with the Rect tool, and writes the result as one
+    /// (scene pixels) with the Size tool, and writes the result as one
     /// history entry.
     fn resize_and_write(
         report: &LayerSourceReport,
@@ -1880,7 +1880,7 @@ mod tests {
         let read = |path: &Path| fs::read_to_string(path).map_err(|error| error.to_string());
         let targets = resolve_targets(read, report, Some(table)).expect("the element resolves");
         let frame = with_anchor_box(frame, &report.chain[0].name, &report.props);
-        let resize = resize_used(ResizeTool::Rect, &targets, &frame).expect("the Rect tool");
+        let resize = resize_used(ResizeTool::Size, &targets, &frame).expect("the Size tool");
         let mut editable = drag_props(&targets, &frame);
         editable.extend(resize.keys());
         let pivot = pivot_used(PivotMode::Center, &targets, &frame);

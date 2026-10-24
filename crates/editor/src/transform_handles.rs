@@ -20,13 +20,14 @@ use celesta_gpu_renderer::{LayerFrame, invert_affine};
 use celesta_react_bridge::ReceivedProps;
 use celesta_source_edit::format_number;
 
-/// What the corner and edge handles do, as the viewer's toggle chose it.
+/// What the corner and edge handles do, as the viewer's "Handles" toggle
+/// chose it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub(crate) enum ResizeTool {
     /// Change the props that hold the box (`width`, `height`, `radius`, a
     /// text's `maxWidth`), keeping the opposite edge where it is.
     #[default]
-    Rect,
+    Size,
     /// Scale the layer (`scale`, or `scaleX`/`scaleY`).
     Scale,
 }
@@ -87,7 +88,7 @@ pub(crate) enum SizeProps {
     Width(SizeField),
 }
 
-/// The Rect tool on the selected layer: the props that hold its box,
+/// The Size tool on the selected layer: the props that hold its box,
 /// whether `x`/`y` can move it so the opposite edge stays (see
 /// `compensable`), and whether something that compensation turns, scales,
 /// or measures from changes between keyframes (`rotation`, a scale, an
@@ -308,7 +309,7 @@ fn handles_on(quad: &[Point; 4], uniform: bool, stem: f64) -> Vec<(Handle, Point
     handles
 }
 
-/// The quad the handles of `frame` sit on: with `resize` (the Rect tool),
+/// The quad the handles of `frame` sit on: with `resize` (the Size tool),
 /// the box the size props describe (`anchor_box`, the own top-left,
 /// top-right, bottom-right, bottom-left), which a drag measures; else, and
 /// when that box is unknown, the outline. A group's outline is its
@@ -418,7 +419,7 @@ pub(crate) fn turn(
 /// keeps the turning point in place, in one ratio for a uniform `Scale`.
 /// Both turn about the point `pivot` names (the mode the drag uses, Center
 /// only when `x`/`y` can compensate); in Center mode `x`/`y` follow so the
-/// box's center stays where it was. With `resize` (the Rect tool) the
+/// box's center stays where it was. With `resize` (the Size tool) the
 /// corners and edges change the size props instead (see `resize_values`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drag_values(
@@ -630,7 +631,7 @@ fn moved_axes(frame: &LayerFrame, handle: Handle, resize: &Resize) -> (bool, boo
     )
 }
 
-/// Whether the Rect tool's `handle` can resize the layer: the box has it,
+/// Whether the Size tool's `handle` can resize the layer: the box has it,
 /// the size props are `editable`, and when it moves the anchor point (see
 /// `resize_moves`), `x`/`y` can compensate, nothing the compensation uses
 /// is a keyframe (`Resize::animated`), and neither is the size along each
@@ -651,7 +652,7 @@ fn resizes(frame: &LayerFrame, handle: Handle, editable: &[PropKey], resize: &Re
                 && position.iter().all(|key| editable.contains(key))))
 }
 
-/// Whether any corner or edge of the box can resize the layer with the Rect
+/// Whether any corner or edge of the box can resize the layer with the Size
 /// tool (see `resizes`), with every size prop editable and `x`/`y` when they
 /// can compensate.
 pub(crate) fn resizes_any(frame: &LayerFrame, resize: &Resize) -> bool {
@@ -671,7 +672,7 @@ pub(crate) fn size_animated(resize: &Resize) -> bool {
     along_x.keyframed || along_y.keyframed
 }
 
-/// The values a Rect-tool drag of `handle` from `start` to `now` (parent
+/// The values a Size-tool drag of `handle` from `start` to `now` (parent
 /// space) makes: the dragged edges follow the pointer in the layer's own
 /// pixels, measured on the box the size props describe (`anchor_box`), and
 /// the opposite ones stay, `x`/`y` moving the layer when the anchor point
@@ -1034,7 +1035,7 @@ const ON_ANCHOR: f64 = 1e-6;
 /// The handles that can change something for `editable`: corners and edges
 /// whose drag scales an editable axis (not on the point `pivot` turns about,
 /// or on its line for that axis), edges only for a per-axis scale, and the
-/// rotation handle with `Rotation`. With `resize` (the Rect tool), the
+/// rotation handle with `Rotation`. With `resize` (the Size tool), the
 /// corners and edges the box has that can resize it (see `resizes`).
 pub(crate) fn shown_handles(
     frame: &LayerFrame,
@@ -1157,7 +1158,7 @@ mod tests {
         }
     }
 
-    /// The Rect tool on a `width` x `height` box.
+    /// The Size tool on a `width` x `height` box.
     fn box_resize(compensable: bool) -> Resize {
         Resize {
             props: SizeProps::Box {
@@ -1184,7 +1185,7 @@ mod tests {
             .unwrap_or_else(|| panic!("no {name}: {values:?}"))
     }
 
-    /// A Rect-tool drag of `handle` from own pixels `from` to `to` of
+    /// A Size-tool drag of `handle` from own pixels `from` to `to` of
     /// `before`'s frame.
     fn resize_drag(
         frame: &LayerFrame,
@@ -1817,7 +1818,7 @@ mod tests {
         // `x`/`y` are often constants or computed, so Center rarely applies:
         // it is opt-in.
         assert_eq!(PivotMode::default(), PivotMode::Pivot);
-        assert_eq!(ResizeTool::default(), ResizeTool::Rect);
+        assert_eq!(ResizeTool::default(), ResizeTool::Size);
     }
 
     #[test]
