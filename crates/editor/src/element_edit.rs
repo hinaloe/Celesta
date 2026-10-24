@@ -13,8 +13,9 @@ use celesta_react_bridge::{
 };
 use celesta_source_edit::{
     ApplyError, Edit, EditTarget, EditValue, ElementRef, LiteralForm, LockReason, ResolveContext,
-    apply, element_at, enclosing_component, format_number, has_attribute, parameter_of, removal,
-    resolve_call_site_prop, resolve_inputs, resolve_through, text_style_path, written_attributes,
+    apply, element_at, enclosing_component, format_number, has_attribute, parameter_of, parses,
+    removal, resolve_call_site_prop, resolve_inputs, resolve_through, text_style_path,
+    written_attributes,
 };
 use gpui_kit::Context;
 use std::cell::OnceCell;
@@ -798,6 +799,8 @@ pub(crate) enum CommitError {
     /// The value is NaN or infinite.
     NotANumber,
     Apply(ApplyError),
+    /// The edited text has syntax errors; nothing is written.
+    Unparseable,
 }
 
 impl fmt::Display for CommitError {
@@ -808,6 +811,7 @@ impl fmt::Display for CommitError {
             Self::NotRemovable(label) => write!(f, "{label} can't be removed here"),
             Self::NotANumber => f.write_str("Enter a number"),
             Self::Apply(error) => write!(f, "Couldn't edit the source: {error}"),
+            Self::Unparseable => f.write_str("Couldn't edit the source: the result does not parse"),
         }
     }
 }
@@ -906,10 +910,21 @@ pub(crate) fn commit_files(
         .map(|(file, edits)| {
             // Resolving read every file a target is in.
             let text = texts.get(file).ok_or(CommitError::SourceChanged)?;
-            let written = apply(text, &edits).map_err(CommitError::Apply)?;
+            let written = apply_checked(text, &edits)?;
             Ok((file.to_path_buf(), written))
         })
         .collect()
+}
+
+/// `text` with `edits` applied, refused when the result does not parse: a
+/// commit never writes a source it broke, whatever the edit.
+pub(crate) fn apply_checked(text: &str, edits: &[Edit]) -> Result<String, CommitError> {
+    let written = apply(text, edits).map_err(CommitError::Apply)?;
+    if parses(&written) {
+        Ok(written)
+    } else {
+        Err(CommitError::Unparseable)
+    }
 }
 
 /// The edit that removes the prop of `key` from `targets`, in the text of

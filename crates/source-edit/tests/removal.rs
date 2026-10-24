@@ -1,5 +1,5 @@
 use celesta_source_edit::{
-    ApplyError, Edit, EditTarget, EditValue, ElementRef, ResolveContext, apply, element_at,
+    ApplyError, Edit, EditTarget, EditValue, ElementRef, ResolveContext, apply, element_at, parses,
     removal, resolve_through,
 };
 
@@ -66,6 +66,44 @@ fn a_quoted_string_and_a_container_go() {
         remove("<Rect width={w + 2 * pad} height={10} />;", "Rect", "width"),
         "<Rect height={10} />;"
     );
+}
+
+#[test]
+fn an_attribute_after_a_line_comment_stays_off_the_comment() {
+    // The attribute starts its line: it goes with the space after it, and
+    // the next attribute keeps the line (and its indentation).
+    let text = "<Rect\n  // background\n  fill=\"#fff\" stroke=\"#000\"\n/>;";
+    let removed = remove(text, "Rect", "fill");
+    assert_eq!(removed, "<Rect\n  // background\n  stroke=\"#000\"\n/>;");
+    assert!(parses(&removed));
+
+    // After a line ending in a comment, the tag's end stays on its line.
+    let text = "<Rect\n  x={1} // left\n  cornerRadius={8} />;";
+    let removed = remove(text, "Rect", "cornerRadius");
+    assert_eq!(removed, "<Rect\n  x={1} // left\n  />;");
+    assert!(parses(&removed));
+}
+
+#[test]
+fn an_attribute_alone_on_its_line_takes_the_line() {
+    let text = "<Rect\n  x={1}\n  cornerRadius={8}\n  y={2}\n/>;";
+    assert_eq!(
+        remove(text, "Rect", "cornerRadius"),
+        "<Rect\n  x={1}\n  y={2}\n/>;"
+    );
+    assert_eq!(
+        remove(text, "Rect", "y"),
+        "<Rect\n  x={1}\n  cornerRadius={8}\n/>;"
+    );
+    // Windows line breaks too.
+    let crlf = "<Rect\r\n  x={1}\r\n  y={2}\r\n/>;";
+    assert_eq!(remove(crlf, "Rect", "x"), "<Rect\r\n  y={2}\r\n/>;");
+}
+
+#[test]
+fn parses_tells_a_text_with_syntax_errors() {
+    assert!(parses("export const A = () => <Rect x={1} />;"));
+    assert!(!parses("export const A = () => <Rect x={1} // />;"));
 }
 
 #[test]

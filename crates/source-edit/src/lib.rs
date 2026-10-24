@@ -34,6 +34,13 @@ pub(crate) fn parse<'a>(text: &'a str, alloc: &'a Allocator) -> Program<'a> {
     parse_checked(text, alloc).0
 }
 
+/// Whether `text` parses as TSX without any error: an edited text that
+/// does not is never written.
+pub fn parses(text: &str) -> bool {
+    let alloc = Allocator::default();
+    !parse_checked(text, &alloc).1
+}
+
 /// Like [`parse`], also reporting whether the parser found any error. A
 /// recovered program must never be written into.
 pub(crate) fn parse_checked<'a>(text: &'a str, alloc: &'a Allocator) -> (Program<'a>, bool) {

@@ -55,13 +55,36 @@ pub fn removal(text: &str, element: &ElementRef, prop: &str) -> Option<Edit> {
     }
     let (start, end) = match path {
         PropPath::Children => return None,
-        PropPath::Attribute(_) => {
-            let start = text[..attribute.start as usize].trim_end().len() as u32;
-            (start, attribute.end)
-        }
+        PropPath::Attribute(_) => attribute_removal(text, *attribute),
         PropPath::Style(key) => find.style?.removal(text, key)?,
     };
     Some(Edit::Remove { start, end })
+}
+
+/// The bytes that remove the attribute at `attribute`, never across a line
+/// break (the text before it may end in a `//` comment): alone on its line,
+/// the whole line goes; first on its line, the spaces after it go, so what
+/// follows keeps the indentation; otherwise the spaces before it.
+fn attribute_removal(text: &str, attribute: Span) -> (u32, u32) {
+    let (start, end) = (attribute.start as usize, attribute.end as usize);
+    let is_space = |c: char| c == ' ' || c == '\t';
+    let line_start = text[..start].rfind('\n').map_or(0, |at| at + 1);
+    let before = &text[line_start..start];
+    let rest = &text[end..];
+    let after = rest.len() - rest.trim_start_matches(is_space).len();
+    let first = before.chars().all(is_space);
+    let line_end = rest.find('\n');
+    let alone = first
+        && line_end
+            .is_some_and(|newline| rest[..newline].trim_end_matches('\r').chars().all(is_space));
+    match line_end {
+        Some(newline) if alone && line_start > 0 => (line_start as u32, (end + newline + 1) as u32),
+        _ if first => (start as u32, (end + after) as u32),
+        _ => {
+            let spaces = before.len() - before.trim_end_matches(is_space).len();
+            ((start - spaces) as u32, end as u32)
+        }
+    }
 }
 
 /// The properties of a `style` object literal, each with its name

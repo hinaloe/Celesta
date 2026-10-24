@@ -7,9 +7,9 @@ use crate::editor_launch::{
     parse_login_shell_output, read_until_closing_marker, split_command,
 };
 use crate::element_edit::{
-    CommitError, ElementEdit, ElementTargets, PropKey, Target, TransformProp, commit_files,
-    inside_project, keyframe_jump_frames, keyframe_timeline_frame, lock_outside_project,
-    reason_text, resolve_targets, table_default, type_component_props,
+    CommitError, ElementEdit, ElementTargets, PropKey, Target, TransformProp, apply_checked,
+    commit_files, inside_project, keyframe_jump_frames, keyframe_timeline_frame,
+    lock_outside_project, reason_text, resolve_targets, table_default, type_component_props,
 };
 use crate::element_rows::{
     HeldCommits, Scrub, TypedText, cleared_path, control_kind, parse_row_value, removable,
@@ -45,7 +45,7 @@ use crate::waveform::{
 };
 use celesta_editor_core::ClipKind;
 use celesta_gpu_renderer::{GpuDriver, LayerFrame};
-use celesta_source_edit::{EditTarget, EditValue, LiteralForm, LockReason, Span, element_at};
+use celesta_source_edit::{Edit, EditTarget, EditValue, LiteralForm, LockReason, Span, element_at};
 
 use crate::preview::{
     ReactPreviewContext, ReactPreviewMode, collect_component_requests, records_hit_regions,
@@ -4935,6 +4935,30 @@ fn removing_a_prop_is_one_undoable_write() {
     history.undo().unwrap();
     assert_eq!(fs::read_to_string(&file).unwrap(), text);
     fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn an_edit_whose_result_does_not_parse_is_refused() {
+    let text = "export const A = () => <Rect x={1} y={2} />;";
+    let at = text.find("x={1}").unwrap() as u32;
+    // Deleting the name alone leaves `={1}`.
+    let broken = [Edit::Remove {
+        start: at,
+        end: at + 1,
+    }];
+    assert_eq!(apply_checked(text, &broken), Err(CommitError::Unparseable));
+    assert_eq!(
+        CommitError::Unparseable.to_string(),
+        "Couldn't edit the source: the result does not parse"
+    );
+    let whole = [Edit::Remove {
+        start: at - 1,
+        end: at + 5,
+    }];
+    assert_eq!(
+        apply_checked(text, &whole),
+        Ok("export const A = () => <Rect y={2} />;".to_owned())
+    );
 }
 
 #[test]
