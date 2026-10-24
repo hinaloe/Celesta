@@ -76,7 +76,7 @@ On the timeline, the **Composition** row marks where the element is drawn: a fil
 
 ## Move layers on the canvas
 
-In interactive mode, a selected layer can be moved, rotated, resized, and scaled, and the result is written into your source. Drag inside the outline to move it, drag a square handle at a corner or an edge to resize it (or scale it, with the **Scale** tool), and drag the handle above the top edge to rotate it (hold Shift to snap to 15°). Rotation and scale turn about the middle of the layer's box unless you choose **Pivot**, as described at the end of this section. You can also type a value into the **Transform** rows below the header of the **Properties** tab and press Enter or leave the field; the next section describes every row of the tab. One drag or one committed field is one change, even when it writes two files: Celesta replaces only the number it changes and leaves the rest of your formatting and comments as they are, and the preview keeps the selection when it reloads.
+In interactive mode, a selected layer can be moved, rotated, resized, and scaled, and the result is written into your source. Drag inside the outline to move it, drag a square handle at a corner or an edge to resize it (or scale it, with the **Scale** tool), and drag the handle above the top edge to rotate it (hold Shift to snap to 15°). Rotation and scale turn about the layer's pivot unless you choose **Center**, as described at the end of this section. You can also type a value into the **Transform** rows below the header of the **Properties** tab and press Enter or leave the field; the next section describes every row of the tab. One drag or one committed field is one change, even when it writes two files: Celesta replaces only the number it changes and leaves the rest of your formatting and comments as they are, and the preview keeps the selection when it reloads.
 
 Celesta writes a value only where your source states it plainly, on an element written directly in your file, or at the call of the component that element is written in:
 
@@ -116,12 +116,21 @@ A layer inside a `<Group>` or `<Stack>` moves with its parent. A child of a `<St
 
 ### Turn about the center or the pivot
 
-While **Select layers** is on, two toggles sit before its button. The first, **Center** | **Pivot**, sets what the rotation handle and the **Scale** tool turn about:
+While **Select layers** is on, two toggles sit before its button, each with the choice you made selected. The first, **Center** | **Pivot**, sets what the rotation handle and the **Scale** tool turn about:
 
-- **Center**, the default, keeps the middle of the layer's box where it is. To do that, Celesta also writes `x` and `y`: a rotation writes `rotation`, `x`, and `y` together, as one change, which writes two files when `x` and `y` are passed through from a component call.
-- **Pivot** turns the layer about its pivot, the point the renderer turns it about: its anchor (`anchorX` and `anchorY` of its box, the top-left corner unless you set them), moved by `originX` and `originY` when you set those. Only `rotation` or the scale is written.
+- **Pivot**, the default, turns the layer about its pivot, the point the renderer turns it about: its anchor (`anchorX` and `anchorY` of its box, the top-left corner unless you set them), moved by `originX` and `originY` when you set those. Only `rotation` or the scale is written.
+- **Center** keeps the middle of the layer's box where it is. To do that, Celesta also writes `x` and `y`: a rotation writes `rotation`, `x`, and `y` together, as one change, which writes two files when `x` and `y` are passed through from a component call.
 
-**Center** needs `x` and `y` that Celesta can write: each a number, a prop left out, or a value passed through from a component call, as described above. When `x` or `y` is animated with keyframes or locked, a drag can't keep the middle still (a keyframe would move it at that keyframe only), so it turns about the pivot, and the toggle shows **Pivot (x, y not editable)**, dimmed. When `rotation` or a scale is animated with keyframes, `x` and `y` written on one keyframe would keep the middle still on that keyframe only, so the drag turns about the pivot too: the toggle shows **Pivot**, dimmed, and its tooltip says **Rotation or scale is animated**. A layer turned in its own perspective has no flat box to center on: the toggle shows **Pivot**, dimmed, and its tooltip says **No flat box to center on**. Your choice stays **Center** either way, so the next layer you select uses it again.
+**Center** needs `x` and `y` that Celesta can write: each a number, a prop left out, or a value passed through from a component call, as described above. It also needs a `rotation`, scale, size, and anchor that are not animated with keyframes: `x` and `y` written on one keyframe would keep the middle still on that keyframe only, and the layer would drift on the others. A layer that doesn't meet these turns about its pivot even with **Center** chosen. The toggle then keeps **Center** selected, so the next layer you select uses it again, and shows a warning icon whose tooltip gives the reason:
+
+| Tooltip | Meaning |
+| --- | --- |
+| x or y can't be edited | `x` or `y` is animated with keyframes or locked, such as a value computed in your code |
+| Rotation or scale is animated | `rotation` or a scale is animated with keyframes |
+| Size or anchor is animated | A size prop, `anchorX`, or `anchorY` is animated with keyframes |
+| No flat box to center on | The layer is turned in its own perspective |
+
+The same reason, after **Pivot —**, shows when you hover over the rotation handle or a **Scale** handle, and beside the layer while you drag one.
 
 ### Resize with the Rect tool
 
@@ -135,9 +144,9 @@ The second toggle, **Rect** | **Scale**, sets what the corner and edge handles d
 
 The handles sit on the box those props describe, which is drawn as the selection outline, and follow the layer's rotation, scale, and skew; a drag is measured along the layer's own axes. Hold Shift while you drag a corner to keep the box's proportions. A `<Text>`'s box is its layout box: dragging an edge starts from its `maxWidth` when set, otherwise from the width of its longest line, wraps the text to the new width, writes `maxWidth` in whole pixels, and adds it when it is left out. An `<Image>` that leaves out `width` or `height` sizes it from the picture's proportions; dragging the other side writes it at its current size, so only the side you drag changes.
 
-When the edge that stays is not where the anchor is, such as the left and top edges of a layer anchored at its top-left corner, Celesta also writes `x` and `y` to keep it there. That needs `x` and `y` that Celesta can write, as for **Center**; without them, those handles are hidden. A size stops at its prop's range, such as 1 for an image's **Width**, and never goes below 1 pixel, so dragging an edge past the opposite one does not flip the box. A size animated with keyframes can be resized on one of its keyframes, as in its row, but only with the handles whose opposite edge is where the anchor is, such as the right and bottom edges of a layer anchored at its top-left corner: the others would write `x` and `y` that keep the edge still on that keyframe only, so they are hidden.
+When the edge that stays is not where the anchor is, such as the left and top edges of a layer anchored at its top-left corner, Celesta also writes `x` and `y` to keep it there. That needs `x` and `y` that Celesta can write, as for **Center**, and a `rotation`, scale, and anchor that are not animated with keyframes; otherwise those handles are hidden. A size stops at its prop's range, such as 1 for an image's **Width**, and never goes below 1 pixel, so dragging an edge past the opposite one does not flip the box. A size animated with keyframes can be resized on one of its keyframes, as in its row. The handles that would move the anchor along that size's direction are hidden, since the `x` and `y` they write would keep the edge still on that keyframe only. For a `width` animated on a layer anchored at its top-left corner, that is the left edge and the two left corners; the right edge and the top-right corner still work.
 
-An element without size props, such as a `<Group>`, a `<Video>`, or a `<Path>`, or one whose size can't be written, gets the **Scale** handles instead: the toggle shows **Scale**, dimmed, with the reason as its tooltip, and your choice stays **Rect** for the next layer.
+An element without size props, such as a `<Group>`, a `<Video>`, or a `<Path>`, or one whose size can't be written, gets the **Scale** handles instead. The toggle keeps **Rect** selected for the next layer and shows a warning icon whose tooltip gives the reason:
 
 | Tooltip | Meaning |
 | --- | --- |
@@ -145,6 +154,8 @@ An element without size props, such as a `<Group>`, a `<Video>`, or a `<Path>`, 
 | `<Row>`: `<reason>` | A size row is locked, such as **Height: Written as an expression: h * 2**; the reasons are listed above |
 | Size can't be edited here | A size prop has no row Celesta can write |
 | x or y can't move | Every handle would move the anchor, and `x` or `y` is animated with keyframes or locked |
+| Rotation or scale is animated | Every handle would move the anchor, and `rotation` or a scale is animated with keyframes |
+| Anchor is animated | Every handle would move the anchor, and `anchorX` or `anchorY` is animated with keyframes |
 | Size is animated | Every handle would move the anchor along a size animated with keyframes |
 | No flat box to resize | The layer is turned in its own perspective |
 
@@ -152,9 +163,21 @@ With **Scale**, the corner and edge handles scale the layer, writing `scale`, or
 
 ### Move the anchor
 
-A small cross marks the pivot of the selected layer. Hold Alt (Option) and drag the cross to move the anchor: Celesta writes `anchorX` and `anchorY` as fractions of the layer's box (0 at its left or top edge, 1 at its right or bottom; a value outside the box is kept), and moves `x` and `y` with the cross, so the layer stays where it is on screen. The box is the one the anchor refers to: a `<Text>`'s layout box, a shape's `width` × `height` (twice its `radius` for a `<Circle>`), or an image's or video's picture. While Alt is held, the pointer over the cross is an open hand, and the cross takes the press even when it sits on a handle. Like **Center**, moving the anchor needs `x` and `y` that Celesta can write, and an anchor, `rotation`, scale, and size that are not animated with keyframes; when the size is, the cross's tooltip says **Size is animated**. Choose **Pivot** to rotate about the new anchor.
+A small cross marks the pivot of the selected layer. Hold Alt (Option) and drag the cross to move the anchor: Celesta writes `anchorX` and `anchorY` as fractions of the layer's box (0 at its left or top edge, 1 at its right or bottom; a value outside the box is kept), and moves `x` and `y` with the cross, so the layer stays where it is on screen. The box is the one the anchor refers to: a `<Text>`'s layout box, a shape's `width` × `height` (twice its `radius` for a `<Circle>`), or an image's or video's picture. While Alt is held, the pointer over the cross is an open hand, and the cross takes the press even when it sits on a handle. Like **Center**, moving the anchor needs `x` and `y` that Celesta can write, and an anchor, `rotation`, scale, and size that are not animated with keyframes. With **Pivot** chosen, rotation turns about the new anchor.
 
-Some crosses can't be dragged for a reason of their own; hover over the cross to see it: **Anchor Y: Written as an expression: "baseline"** for a `<Text>` written with `anchorY="baseline"`, or **A group's anchor has no effect** for a `<Group>`, whose children are placed by its position alone. A `<Path>`, `<Line>`, `<Arrow>`, and other elements without anchor props have no anchor to move.
+When the cross can't be dragged, the pointer over it shows a not-allowed sign while Alt is held, and hovering over it shows the reason:
+
+| Tooltip | Meaning |
+| --- | --- |
+| `<Row>`: `<reason>` | The row's own lock reason, such as **X: Comes from DX, which can't be traced** for an `x` set from an imported constant, or **Anchor Y: Written as an expression: "baseline"** for a `<Text>` with `anchorY="baseline"` |
+| X is animated, Y is animated | `x` or `y` is animated with keyframes |
+| Anchor is animated | `anchorX` or `anchorY` is animated with keyframes |
+| Rotation or scale is animated | `rotation` or a scale is animated with keyframes |
+| Size is animated | A size prop is animated with keyframes |
+| A group's anchor has no effect | A `<Group>` places its children by its position alone |
+| No box to anchor in | The layer is turned in its own perspective, or the preview didn't report its size |
+
+A `<Path>`, `<Line>`, `<Arrow>`, and other elements without anchor props have no anchor to move.
 
 ## Edit properties
 

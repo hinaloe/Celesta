@@ -344,18 +344,27 @@ being stretched.
 
 ### Pivot
 
-Rotation and scale today turn about the layer's anchor (`x`/`y`), which is the
-top-left corner for most primitives. They now turn about the center of the
-layer's box by default, as the handles suggest:
+Rotation and scale turn about the layer's pivot by default, and about the
+center of its box on request:
 
-- A viewer toolbar toggle, "Center" (default) / "Pivot", like Unity's. In
+- A viewer toolbar toggle, "Center" / "Pivot" (default), like Unity's. In
   Pivot mode they turn about the layer's pivot: the anchor point plus
   `origin` (`originX`/`originY`), where `EvaluatedTransform::translation`
   places the turning point. With a zero `origin` that is the anchor, as
   before; 2a measured angles about `position`, which is wrong once `origin`
-  is set.
+  is set. Pivot is the default because in real scenes `x`/`y` are often
+  constants or computed values, which can't compensate, so Center rarely
+  applies. (Decided with the user after trying the build.)
 - In Center mode a rotation or scale also moves `x`/`y` so the box's center
   stays put. Both writes are one edit.
+- The toggles ("Center" | "Pivot", "Rect" | "Scale") are fixed-width
+  segmented controls with the chosen segment selected; their labels never
+  change, so the toolbar never changes width. When the chosen mode or tool
+  can't apply to the selected layer, the chosen segment stays selected and
+  a warning icon in a reserved slot of the control gives the reason as its
+  tooltip. A Center that is not in effect also says why at the point of
+  action: hovering the rotation handle or a Scale-tool handle shows
+  "Pivot — reason", and so does the drag's label.
 - **One compensation rule.** Every drag that moves `x`/`y` to keep something
   still (Center-mode rotation and scale, a resize whose kept edge is not at
   the anchor, the anchor drag) names a fixed point in the layer's own pixels
@@ -370,23 +379,22 @@ layer's box by default, as the handles suggest:
   so the reloaded layer lands where the preview drew it.
 - When `x` or `y` is locked or a keyframe, Center mode cannot keep the center
   (a keyframe would move at one keyframe only, and the element would orbit
-  between them), so that drag uses the pivot, and the toggle shows
-  "Pivot (x, y not editable)" in the muted color, still clickable; the
-  stored choice stays Center for the next layer. A layer drawn through its
-  own perspective has no flat box: the toggle shows "Pivot", muted, with the
-  tooltip "No flat box to center on". The same `x`/`y` condition applies to
-  every compensation below: a resize that moves the anchor point and the
-  anchor drag need `x`/`y` targets that are `Literal` or `Missing` (directly
-  or through pass-through).
-- A compensation is also refused when what it compensates is a keyframe:
-  literal `x`/`y` written beside it would hold at that keyframe only. An
-  editable `rotation`, `scale`, `scaleX`, or `scaleY` that is a keyframe
-  makes Center fall back to the pivot (the toggle shows "Pivot", muted, with
-  the tooltip "Rotation or scale is animated") and disables the anchor drag;
-  a keyframed anchor disables it too, and so does a keyframed size prop
-  (the anchor box changes between keyframes; the cross's tooltip reads
-  "Size is animated"); a resize handle that moves the anchor
-  point along an axis whose size is a keyframe is hidden.
+  between them), so that drag uses the pivot, with the toggle's warning
+  "x or y can't be edited"; the stored choice stays Center for the next
+  layer. A layer drawn through its own perspective has no flat box: "No flat
+  box to center on". The same `x`/`y` condition applies to every
+  compensation below: a resize that moves the anchor point and the anchor
+  drag need `x`/`y` targets that are `Literal` or `Missing` (directly or
+  through pass-through).
+- Compensation never combines literal `x`/`y` with a value that changes over
+  time: they would hold at one keyframe only. Center falls back to the pivot
+  when an editable `rotation`, `scale`, `scaleX`, or `scaleY` is a keyframe
+  ("Rotation or scale is animated") or a size prop or an anchor is
+  ("Size or anchor is animated": the center is a point of the box). A resize
+  handle that moves the anchor point is hidden when `rotation`, a scale, or
+  an anchor is a keyframe, and when the size along an axis it moves the
+  anchor along is. The anchor drag needs anchors, `rotation`, scales, and
+  sizes that are not keyframes. The reason strings are shared constants.
 - The pivot is always drawn as a small cross. Dragging the cross with Alt
   moves the anchor: it writes `anchorX`/`anchorY` as fractions of the box the
   anchor refers to (unclamped: an anchor outside the box is valid) and moves
@@ -394,11 +402,14 @@ layer's box by default, as the handles suggest:
   renderer's layout box for `Text` (its texture quad is padded for strokes),
   the quad for `Image` and `Video`, and `width` × `height` (or `2 · radius`)
   from the props for `Rect` and the `@celesta/shapes` primitives, which can be
-  drawn as a path or a group. A `Group`'s anchor has no effect (the renderer
-  places its children by its position alone), so its cross is inert with the
-  tooltip "A group's anchor has no effect"; `Path`, `Line`, `Arrow`, and
-  `Instances` have none. `anchorY="baseline"` on `Text` is locked, and the
-  cross shows the row's lock reason.
+  drawn as a path or a group. When the cross can't be Alt-dragged, its
+  tooltip names the cause, and Alt over it shows a not-allowed cursor: a
+  locked row's own reason, named ("X: Comes from DX, which can't be traced",
+  `Anchor Y: Written as an expression: "baseline"` on a `Text`), "X is
+  animated", "Anchor is animated", "Rotation or scale is animated", "Size is
+  animated", "A group's anchor has no effect" (the renderer places a
+  `Group`'s children by its position alone), or "No box to anchor in".
+  `Path`, `Line`, `Arrow`, and `Instances` have no anchor rows and no reason.
 
 ### Resize
 
@@ -408,7 +419,8 @@ Handles depend on a viewer toolbar tool, "Rect" (default) or "Scale":
   anchor box and placed on it. The opposite edge stays, in both Center and
   Pivot mode: a drag whose kept edge is not at the anchor (a left or top edge
   with the default anchor) also moves `x`/`y` (through the anchor and
-  rotation), and without compensable `x`/`y` those handles are hidden. Shift
+  rotation), and without compensable `x`/`y` (or with an animated value the
+  compensation uses, see above) those handles are hidden. Shift
   keeps the aspect on a corner. `radius` primitives get corner handles only
   and resize uniformly; `Text` gets left and right edge handles changing
   `maxWidth` in whole pixels, starting from the laid-out width and inserted
@@ -416,10 +428,12 @@ Handles depend on a viewer toolbar tool, "Rect" (default) or "Scale":
   `integer`) and never below one own pixel. On a box whose other side is
   absent (an `Image` sized from its source's aspect), an edge drag also
   writes that side at its current value. A primitive without `size` props,
-  or whose `size` props are not all editable, falls back to Scale: the
-  toggle shows "Scale", muted, with the reason as its tooltip ("No size to
-  resize", the locked row's reason, "Size can't be edited here", or "No flat
-  box to resize"), and the stored choice stays Rect.
+  or whose `size` props are not all editable, or whose every handle is
+  hidden, falls back to Scale: the toggle keeps Rect selected and its
+  warning gives the reason ("No size to resize", the locked row's reason,
+  "Size can't be edited here", "x or y can't move", "Rotation or scale is
+  animated", "Anchor is animated", "Size is animated", or "No flat box to
+  resize").
 - **Scale**: today's scale handles, about the center or the pivot.
 
 Rotation keeps its stem handle in both tools.
@@ -482,6 +496,10 @@ Rust (`crates/editor`):
   refuses the entry; a failed temp write renames nothing.
 - Center-mode rotation and scale keep the center for a rotated, scaled parent;
   `x` as a keyframe falls back to the anchor.
+- No compensation beside an animated value: a keyframed `rotation`, scale,
+  size, or anchor makes Center fall back, hides the resize handles that
+  move the anchor point (per axis for a size), and keeps the anchor; each
+  with its reason.
 - Anchor drag keeps the screen position.
 - Edge resize with anchor 0 and 0.5, rotated.
 - Inline text: caret and selection geometry from `TextMetrics` for wrapped,
