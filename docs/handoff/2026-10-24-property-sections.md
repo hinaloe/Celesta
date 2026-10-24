@@ -318,6 +318,10 @@ scaleX={sx} />` shows 3); the duplicated readers (`TransformProp::received`,
 - A seek or the start of playback submits typed text on the next render,
   after the playhead moved; a commit made then still writes against the
   targets read before the seek (the new frame's lookup has not answered).
+- A required prop that passes through to a parameter with a default
+  (`({ width = 100 }) => <Rect width={width} … />` called as
+  `<Card width={240} />`) is not removable at the call site, though the
+  parameter's default would apply there.
 - `crates/editor/src/tests.rs`, `element_rows.rs`, and `element_edit.rs`
   are large; splitting them is a follow-up.
 
