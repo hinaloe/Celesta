@@ -98,6 +98,24 @@ fn received_text(report: &LayerSourceReport) -> String {
         .unwrap_or_default()
 }
 
+/// Whether a double-clicked layer is a `Text` for an inline edit: its
+/// report says so once the lookup answers with one; until then (and
+/// without one) the frame's `HitRegion::text_box` does, which the renderer
+/// records for every drawn text. Anything else is no entry, and the press
+/// goes on as usual.
+pub(crate) fn is_text_layer(lookup: &SourceLookup, drawn_text: bool) -> bool {
+    match lookup {
+        SourceLookup::Found(report) => report
+            .chain
+            .first()
+            .is_some_and(|element| element.name == "Text"),
+        SourceLookup::Pending
+        | SourceLookup::NotInFrame
+        | SourceLookup::NoPosition
+        | SourceLookup::Failed(_) => drawn_text,
+    }
+}
+
 /// A double-click on a `Text`: `text_box` is its `HitRegion::text_box` in
 /// the frame shown, and `layout` its layout when that frame measured one.
 /// `targets` are the layer's current targets; without them,
@@ -374,38 +392,25 @@ impl EditorView {
             .iter()
             .filter(|region| region.layer_id == layer)
             .find_map(|region| region.text_box);
-        let targets = self.element_targets();
-        // Without a report, the renderer's box says it is a text.
-        let (is_text, lookup_pending, unavailable) = match self.source_lookup.as_ref()? {
-            SourceLookup::Pending => (true, true, None),
-            SourceLookup::Found(report) => {
-                let is_text = report
-                    .chain
-                    .first()
-                    .is_some_and(|element| element.name == "Text");
-                // Being read, or waiting for an own write's reload: the
-                // targets are coming.
-                let pending = targets.is_none() && !self.element_edit.failed(Some(layer));
-                let unavailable = targets
-                    .is_none()
-                    .then(|| self.element_edit.unavailable(Some(layer)));
-                (is_text, pending, unavailable)
-            }
-            SourceLookup::NotInFrame => (
-                text_box.is_some(),
-                false,
-                Some("Not in this frame".to_owned()),
-            ),
-            SourceLookup::NoPosition => (
-                text_box.is_some(),
-                false,
-                Some("No source position".to_owned()),
-            ),
-            SourceLookup::Failed(error) => (text_box.is_some(), false, Some(error.clone())),
-        };
-        if !is_text {
+        let lookup = self.source_lookup.as_ref()?;
+        if !is_text_layer(lookup, text_box.is_some()) {
             return None;
         }
+        let targets = self.element_targets();
+        let (lookup_pending, unavailable) = match lookup {
+            SourceLookup::Pending => (true, None),
+            // Being read, or waiting for an own write's reload: the targets
+            // are coming.
+            SourceLookup::Found(_) => (
+                targets.is_none() && !self.element_edit.failed(Some(layer)),
+                targets
+                    .is_none()
+                    .then(|| self.element_edit.unavailable(Some(layer))),
+            ),
+            SourceLookup::NotInFrame => (false, Some("Not in this frame".to_owned())),
+            SourceLookup::NoPosition => (false, Some("No source position".to_owned())),
+            SourceLookup::Failed(error) => (false, Some(error.clone())),
+        };
         // The frame measured the layer's layout only when it drew an
         // override of it (a commit waiting for its reload).
         let layout = self.text_layout.as_ref().filter(|_| {

@@ -6,7 +6,7 @@ use crate::element_edit::{editable, inner_target};
 use crate::inline_text::TextMap;
 use crate::inline_text_view::{
     EditEnd, EditEvent, InlineEntry, InlineTextSession, cancel_session, edit_end, inline_entry,
-    live_override, pressed_index,
+    is_text_layer, live_override, pressed_index,
 };
 use crate::preview::TextOverride;
 use crate::transform_drag::{DragState, editing_drag_state};
@@ -135,6 +135,34 @@ fn inline_entry_takes_the_received_children() {
         "{children:?}"
     );
     assert_eq!(enter(&targets, &report), InlineEntry::Begin(String::new()));
+}
+
+#[test]
+fn inline_entry_skips_a_layer_without_a_text_box_while_its_lookup_is_pending() {
+    // A double-click on a Rect just selected: no box for a text in the
+    // frame, so it is no entry (no wait, no "reloading" note) and the
+    // press goes on to drag or select as usual.
+    assert!(!is_text_layer(&SourceLookup::Pending, false));
+    // A drawn text waits for its lookup.
+    assert!(is_text_layer(&SourceLookup::Pending, true));
+    // The report decides once it answers, whatever the frame recorded.
+    let (_, text) = text_targets(
+        "export const Scene = () => (\n  <Text>Sale</Text>\n);\n",
+        "Sale",
+    );
+    assert!(is_text_layer(&SourceLookup::Found(text.clone()), false));
+    let mut rect = text;
+    rect.chain[0].name = "Rect".to_owned();
+    assert!(!is_text_layer(&SourceLookup::Found(rect), true));
+    // Without a report, the frame's box says it is a text.
+    for lookup in [
+        SourceLookup::NotInFrame,
+        SourceLookup::NoPosition,
+        SourceLookup::Failed("Couldn't look it up".to_owned()),
+    ] {
+        assert!(is_text_layer(&lookup, true), "{lookup:?}");
+        assert!(!is_text_layer(&lookup, false), "{lookup:?}");
+    }
 }
 
 #[test]
