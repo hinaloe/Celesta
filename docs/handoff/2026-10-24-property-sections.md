@@ -348,8 +348,13 @@ scaleX={sx} />` shows 3); the duplicated readers (`TransformProp::received`,
   (`({ width = 100 }) => <Rect width={width} … />` called as
   `<Card width={240} />`) is not removable at the call site, though the
   parameter's default would apply there.
-- `crates/editor/src/tests.rs`, `element_rows.rs`, and `element_edit.rs`
-  are large; splitting them is a follow-up.
+- `element_rows.rs` is still large (about 1.5k lines); splitting its
+  commit flow from its pure helpers is a follow-up. `element_edit.rs` keeps
+  the targets' types, the `ElementEdit` state, and its sync, with the
+  resolution in `element_edit/resolve.rs` and the commit in
+  `element_edit/commit.rs`; the element tests are in
+  `src/tests/element_edit.rs` and `src/tests/element_rows.rs` (the editor is
+  a binary crate, so a top-level `tests/` directory can't reach them).
 
 ## What 2c–2d build on
 
@@ -408,5 +413,18 @@ content these rows supersede, so no example changed):
   file still parses.
 - Scrub Font weight: it moves by 100 and stops at 1 and 1000. Scrub Corner
   radius below 0: it stops at 0; type `-4`: "Enter a number of at least 0".
+- Select a layer inside a component registered with
+  `registerComponent("PriceTag", …, { label: { type: "string", label:
+  "Caption", defaultValue: "" } })`: the Component row reads "Caption";
+  a prop the schema leaves out shows its name as written. With
+  `count: { type: "number", defaultValue: 3, integer: true }`, typing
+  `2.5` says "Enter a whole number".
+- Type a value, press Enter, and at once press Enter again with another
+  value: the second row says "Saving…" (muted) until its write starts.
+- Commit a value and turn **Select layers** off before the reload ends:
+  the button keeps its selected look with a spinner for its icon, the
+  layer stays selected, and the mode turns off once the value is written.
+  Repeat, and click the button again while it spins: the mode and the
+  selection stay.
 - Undo each of the above: each is one step and restores the file it wrote
   byte for byte.
