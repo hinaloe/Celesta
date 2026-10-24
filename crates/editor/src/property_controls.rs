@@ -167,7 +167,7 @@ pub(crate) fn build_control(
         }
         ControlKind::Color => {
             let text = cx.new(|cx| InputState::new(window, cx));
-            let typed = subscribe_text(&text, window, cx, on.clone());
+            let typed = subscribe_text(&text, false, window, cx, on.clone());
             let picker = cx.new(|cx| ColorPickerState::new(window, cx));
             let picked_on = on.clone();
             let picked = cx.subscribe_in(
@@ -194,12 +194,12 @@ pub(crate) fn build_control(
                             .submit_on_enter(submit_on_enter)
                             .auto_grow(1, 6)
                     });
-                    let subscription = subscribe_text(&input, window, cx, on);
+                    let subscription = subscribe_text(&input, true, window, cx, on);
                     (Control::Textarea(input), vec![subscription])
                 }
                 _ => {
                     let input = cx.new(|cx| InputState::new(window, cx));
-                    let subscription = subscribe_text(&input, window, cx, on);
+                    let subscription = subscribe_text(&input, false, window, cx, on);
                     (Control::Text(input), vec![subscription])
                 }
             }
@@ -214,6 +214,7 @@ pub(crate) fn build_control(
 /// Sends a text input's typing, Enter, and blur to `on`.
 fn subscribe_text<S: EventEmitter<InputEvent>>(
     input: &Entity<S>,
+    multi_line: bool,
     window: &mut Window,
     cx: &mut Context<EditorView>,
     on: impl Fn(&mut EditorView, ControlEvent, &mut Window, &mut Context<EditorView>) + 'static,
@@ -225,13 +226,24 @@ fn subscribe_text<S: EventEmitter<InputEvent>>(
             let event = match event {
                 // `set_value` emits no change, so this is the person typing.
                 InputEvent::Change => ControlEvent::Edited,
-                InputEvent::PressEnter { .. } => ControlEvent::Submit { blur: false },
+                InputEvent::PressEnter { shift, .. } => enter_event(multi_line, *shift),
                 InputEvent::Blur => ControlEvent::Submit { blur: true },
                 InputEvent::Focus => return,
             };
             on(this, event, window, cx);
         },
     )
+}
+
+/// What Enter in a text input is: a submit, except Shift+Enter in
+/// multi-line text, which gpui-base reports after inserting the newline it
+/// typed (an edit, not a submit).
+pub(crate) fn enter_event(multi_line: bool, shift: bool) -> ControlEvent {
+    if multi_line && shift {
+        ControlEvent::Edited
+    } else {
+        ControlEvent::Submit { blur: false }
+    }
 }
 
 /// Renders `control`, disabled when `locked`. `shown_bool` is the switch
@@ -370,6 +382,25 @@ fn color_swatch(color: Option<Hsla>, cx: &mut Context<EditorView>) -> impl IntoE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shift_enter_breaks_the_line_in_multi_line_text() {
+        // gpui-base inserts the newline and still reports the Enter.
+        assert_eq!(enter_event(true, true), ControlEvent::Edited);
+        assert_eq!(
+            enter_event(true, false),
+            ControlEvent::Submit { blur: false }
+        );
+        // A single-line input submits on any Enter.
+        assert_eq!(
+            enter_event(false, true),
+            ControlEvent::Submit { blur: false }
+        );
+        assert_eq!(
+            enter_event(false, false),
+            ControlEvent::Submit { blur: false }
+        );
+    }
 
     #[test]
     fn input_options_per_kind() {
