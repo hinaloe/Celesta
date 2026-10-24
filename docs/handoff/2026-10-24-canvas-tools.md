@@ -6,10 +6,9 @@ or about the middle of its box with Center chosen in the "Rotate about"
 (shown with a selection); a cross marks the point they turn about, and in
 Pivot mode the pivot (the anchor point plus `origin`) cross Alt-drags the
 anchor without moving the layer; and the row's "Handles" [Size | Scale]
-toggle makes the corner and edge
-handles resize the layer through its `size` props
-(`width`/`height`, `radius`, or a `Text`'s `maxWidth`), keeping the
-opposite edge where it is. Every drag that has to keep something still
+toggle makes the corner and edge handles resize the layer through its
+`size` props (`width`/`height`, `radius`, or a `Text`'s `maxWidth`),
+keeping the opposite edge where it is. Every drag that has to keep something still
 moves `x`/`y` by one rule, and is still one history entry, in one or two
 files.
 Design: `docs/superpowers/specs/2026-10-23-editor-property-editing-design.md`
@@ -142,14 +141,24 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   `TAB_LIST_INSET` padding, two fixed-width (`TAB_WIDTH`) `ToolTab`s; the
   chosen one an inset `rounded_sm` pill in `secondary` with the `input`
   border, foreground text and a small shadow, the other unfilled with muted
-  text (foreground on hover). The selection reads by shape, the gap around
-  the pill. Then a reserved slot (`NOTE_SLOT_WIDTH`) with a `TriangleAlert`
-  icon carrying the reason (`pivot_note` / `resize_note`) when the choice is
-  not in effect, so the labels and the width never change. With Center chosen but not in effect,
-  the rotation handle and the Scale tool's handles get hover areas with the
-  tooltip "Pivot — reason" (not while a drag runs; its label says it). The
-  transport bar no longer holds the toggles; its breakpoints are its own
-  again (`transport_layout`, 820 and 600 px).
+  text that brightens a step while it is hovered. The selection reads by
+  shape, the gap around the pill. Both tabs always carry a hover style (the
+  chosen one restating its own colors): GPUI tracks a div's hover flag only
+  while it has one, and text colors read that flag before the frame's
+  hitboxes exist, so a tab without one kept a stale "hovered" from its click
+  and showed it bright when it was next unselected. Ids go by value
+  (`pivot-center`, …). Then a reserved slot (`NOTE_SLOT_WIDTH`) with a
+  `TriangleAlert` icon carrying the reason (`pivot_note` / `resize_note`)
+  when the choice is not in effect, so the labels and the width never
+  change. The row clips (`min_w_0`, `overflow_hidden`) in a narrow viewer.
+  With Center chosen but not in effect, the rotation handle and the Scale
+  tool's handles get hover areas with the tooltip "Pivot — reason" (not
+  while a drag runs; its label says it). Those areas, the cross's and the
+  locked box's tooltips, and the drag label are placed by the canvas's last
+  painted bounds; the canvas notifies the view when its bounds change (the
+  row appears or goes), so they are redrawn at once. The transport bar no
+  longer holds the toggles; its breakpoints are its own again
+  (`transport_layout`, 820 and 600 px).
 - The cross (`transform_handles.rs`, `transform_drag.rs`, `viewer.rs`):
   `marker(frame, pivot)` gives `Marker::Center` (the box's middle) when the
   drag uses Center, else `Marker::Pivot` (`pivot_cross`); the viewer draws
@@ -366,7 +375,11 @@ example changed):
   [Center | Pivot] and "Handles" [Size | Scale] as tabs lists: Pivot and
   Size are the inset, raised pills with a visible gap around them; the
   other tab is unfilled with muted text. The transport bar has no toggles
-  and keeps its old layout. Clicking a tab moves the pill there. Select
+  and keeps its old layout. Clicking a tab moves the pill there; without
+  moving the pointer, the tab it left is muted at once (not bright until the
+  next move), and an unselected tab brightens only while it is hovered.
+  Narrow the window: the row clips instead of covering the dock, and the
+  tooltips over the canvas line up on the frame the row appears. Select
   layers one after another, including ones that fall back: the row's
   widths and labels never change, only a warning icon appears in the
   reserved slot after the tabs. Clearing the selection (click empty
