@@ -15,7 +15,8 @@ use crate::view::EditorView;
 use celesta_composition::Point;
 use celesta_gpu_renderer::LayerFrame;
 use celesta_react_bridge::{
-    LayerSourceReport, PrimitivePropertyField, PropOverride, ReceivedProps, SourcePos,
+    LayerSourceReport, PrimitivePropertyField, PropOverride, ReceivedProps, ReceivedValue,
+    SourcePos,
 };
 use celesta_source_edit::{EditTarget, EditValue};
 use gpui_kit::{Context, MouseMoveEvent};
@@ -88,6 +89,44 @@ impl TransformDrag {
     /// The drag with the Rect tool's `resize` (`None`: the Scale tool).
     pub(crate) fn with_resize(self, resize: Option<Resize>) -> Self {
         Self { resize, ..self }
+    }
+
+    /// The props the runtime sees with the drag's overrides: those it saw
+    /// at the start, with every prop the preview overrides at its value now
+    /// (a shape's box follows a running resize; see `with_anchor_box`).
+    pub(crate) fn received_now(&self) -> ReceivedProps {
+        let mut received = self.received.clone();
+        if self.values.is_empty() {
+            return received;
+        }
+        let values = preview_values(
+            &self.frame,
+            self.handle,
+            &self.editable,
+            &self.values,
+            &self.received,
+            self.pivot,
+            self.resize.as_ref(),
+        );
+        for (key, value) in values {
+            let PropKey::Prop(name) = key else {
+                continue;
+            };
+            let field = match name.as_str() {
+                "x" => &mut received.x,
+                "y" => &mut received.y,
+                "rotation" => &mut received.rotation,
+                "scale" => &mut received.scale,
+                "scaleX" => &mut received.scale_x,
+                "scaleY" => &mut received.scale_y,
+                _ => {
+                    received.others.insert(name, ReceivedValue::Number(value));
+                    continue;
+                }
+            };
+            *field = Some(value);
+        }
+        received
     }
 
     /// Takes the values the pointer made; true when they changed.
@@ -224,9 +263,8 @@ pub(crate) fn size_props(targets: &ElementTargets) -> Option<SizeProps> {
     let size = table.size.as_ref()?;
     let field = |name: &String| {
         let key = PropKey::Prop(name.clone());
-        if !targets.target(&key).is_some_and(editable) {
-            return None;
-        }
+        let target = targets.target(&key).filter(|target| editable(target))?;
+        let absent = matches!(inner_target(target), EditTarget::Missing { .. });
         let (min, max, integer) = match field_of(table, name) {
             Some(PrimitivePropertyField::Number {
                 min, max, integer, ..
@@ -238,6 +276,7 @@ pub(crate) fn size_props(targets: &ElementTargets) -> Option<SizeProps> {
             min,
             max,
             integer,
+            absent,
         })
     };
     match (&size.width, &size.height, &size.radius) {
@@ -258,6 +297,8 @@ pub(crate) enum ResizeFallback {
     NoSize,
     /// A size prop is locked: the row and its reason.
     Locked(String),
+    /// A size prop has no row the editor can write, without a lock to name.
+    Uneditable,
     /// The layer turns in its own perspective: no flat box to resize.
     NoBox,
 }
@@ -268,6 +309,7 @@ impl ResizeFallback {
         match self {
             Self::NoSize => "No size to resize".to_owned(),
             Self::Locked(reason) => reason.clone(),
+            Self::Uneditable => "Size can't be edited here".to_owned(),
             Self::NoBox => "No flat box to resize".to_owned(),
         }
     }
@@ -288,18 +330,22 @@ pub(crate) fn resize_fallback(
         return anchor_box(frame).is_none().then_some(ResizeFallback::NoBox);
     }
     let size = targets.table.as_ref().and_then(|table| table.size.as_ref());
-    let locked = size
+    let names: Vec<&String> = size
         .into_iter()
         .flat_map(|size| [&size.width, &size.height, &size.radius])
         .flatten()
-        .find_map(|name| {
-            let key = PropKey::Prop(name.clone());
-            let EditTarget::Locked(reason) = inner_target(targets.target(&key)?) else {
-                return None;
-            };
-            Some(format!("{}: {}", key.label(), reason_text(reason)))
-        });
-    Some(locked.map_or(ResizeFallback::NoSize, ResizeFallback::Locked))
+        .collect();
+    if names.is_empty() {
+        return Some(ResizeFallback::NoSize);
+    }
+    let locked = names.into_iter().find_map(|name| {
+        let key = PropKey::Prop(name.clone());
+        let EditTarget::Locked(reason) = inner_target(targets.target(&key)?) else {
+            return None;
+        };
+        Some(format!("{}: {}", key.label(), reason_text(reason)))
+    });
+    Some(locked.map_or(ResizeFallback::Uneditable, ResizeFallback::Locked))
 }
 
 /// The Rect tool a drag of the layer `frame` measures uses when `choice` is
@@ -450,9 +496,15 @@ impl EditorView {
         };
         let resolved = self.element_targets();
         // The box the source element's anchor refers to, which the drag
-        // keeps with it.
+        // keeps with it; while one runs, built from the props it draws.
         let frame = match resolved {
-            Some((_, report)) => with_anchor_box(frame, primitive_of(report), &report.props),
+            Some((_, report)) => {
+                let received = self
+                    .transform_drag
+                    .as_ref()
+                    .map_or_else(|| report.props.clone(), TransformDrag::received_now);
+                with_anchor_box(frame, primitive_of(report), &received)
+            }
             None => frame,
         };
         // While dragging, the props stay those the drag began with; the
@@ -783,7 +835,7 @@ mod tests {
     use celesta_composition::EvaluatedTransform;
     use celesta_react_bridge::{
         ElementKind, LayerSource, PrimitivePropertyField, PrimitivePropertyGroup,
-        PrimitivePropertyRow, PrimitivePropertyTable, PrimitiveSize,
+        PrimitivePropertyRow, PrimitivePropertyTable, PrimitiveSize, ReceivedValue,
     };
     use celesta_source_edit::{EditValue, ElementRef, LiteralForm, LockReason, Span};
     use std::fs;
@@ -970,6 +1022,7 @@ mod tests {
             min,
             max: None,
             integer: false,
+            absent: false,
         }
     }
 
@@ -988,7 +1041,11 @@ mod tests {
             size_props(&rect),
             Some(SizeProps::Box {
                 width: size_field("width", Some(1.0)),
-                height: size_field("height", None),
+                // Not written: an edge drag pins it.
+                height: SizeField {
+                    absent: true,
+                    ..size_field("height", None)
+                },
             })
         );
         let circle = sized(
@@ -1079,6 +1136,201 @@ mod tests {
             resize_fallback(ResizeTool::Rect, &rect, &tilted),
             Some(ResizeFallback::NoBox)
         );
+    }
+
+    #[test]
+    fn a_size_without_an_editable_row_says_so() {
+        // The table names a size, but the element has no row to write it.
+        let rect = sized(
+            vec![("x", literal(40.0))],
+            [Some("width"), Some("height"), None],
+            &[],
+        );
+        let fallback = resize_fallback(ResizeTool::Rect, &rect, &rect_frame());
+        assert_eq!(fallback, Some(ResizeFallback::Uneditable));
+        assert_eq!(fallback.unwrap().reason(), "Size can't be edited here");
+    }
+
+    fn number_props(props: &[(&str, f64)]) -> ReceivedProps {
+        ReceivedProps {
+            others: props
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), ReceivedValue::Number(*value)))
+                .collect(),
+            ..ReceivedProps::default()
+        }
+    }
+
+    #[test]
+    fn a_running_resize_rebuilds_the_box_from_its_values() {
+        let received = number_props(&[("width", 100.0), ("height", 50.0)]);
+        let frame = with_anchor_box(rect_frame(), "Rect", &received);
+        let resize = Resize {
+            props: SizeProps::Box {
+                width: size_field("width", None),
+                height: size_field("height", None),
+            },
+            compensable: true,
+        };
+        let mut editable = vec![TransformProp::X.key(), TransformProp::Y.key()];
+        editable.extend(resize.keys());
+        // The right edge, from (140, 45) to (190, 45): 150 wide.
+        let mut drag = TransformDrag::new(
+            frame.clone(),
+            Handle::Edge(1),
+            at(140.0, 45.0),
+            editable.clone(),
+            PivotMode::Pivot,
+            received.clone(),
+            Vec::new(),
+        )
+        .with_resize(Some(resize.clone()));
+        assert_eq!(drag.received_now(), received);
+        drag.follow(drag_values(
+            &frame,
+            Handle::Edge(1),
+            (at(140.0, 45.0), at(190.0, 45.0)),
+            false,
+            0.0,
+            &editable,
+            PivotMode::Pivot,
+            Some(&resize),
+        ));
+        // The frame drawn mid-drag, its box built from the dragged width.
+        let now = with_anchor_box(rect_frame(), "Rect", &drag.received_now());
+        let corner = shown_handles(&now, &editable, 20.0, PivotMode::Pivot, Some(&resize))
+            .into_iter()
+            .find(|(handle, _)| *handle == Handle::Corner(2))
+            .map(|(_, point)| point);
+        assert_eq!(corner, Some(at(190.0, 70.0)));
+    }
+
+    /// A table for a `<Rect>` (`x`, `y`, `width`, `height`) or a `<Text>`
+    /// (`x`, `y`, `maxWidth`).
+    fn table_of(size: [Option<&str>; 3]) -> PrimitivePropertyTable {
+        let [width, height, radius] = size.map(|name| name.map(str::to_owned));
+        let row = |name: &str| PrimitivePropertyRow {
+            key: name.to_owned(),
+            ..number(None)
+        };
+        let names = [Some("x"), Some("y"), size[0], size[1]];
+        PrimitivePropertyTable {
+            size: Some(PrimitiveSize {
+                width,
+                height,
+                radius,
+            }),
+            groups: vec![PrimitivePropertyGroup {
+                name: "Transform".to_owned(),
+                fields: names.into_iter().flatten().map(row).collect(),
+            }],
+        }
+    }
+
+    /// A one-element scene `source` written to a fresh directory, and the
+    /// report of its element `name` with the props the runtime saw.
+    fn one_file(source: &str, name: &str, props: ReceivedProps) -> (PathBuf, LayerSourceReport) {
+        let dir = std::env::temp_dir().join(format!(
+            "celesta-resize-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let scene = dir.join("scene.tsx");
+        fs::write(&scene, source).unwrap();
+        let report = LayerSourceReport {
+            chain: vec![entry(name, ElementKind::Primitive, &scene)],
+            local_frame: 0.0,
+            candidate_frames: vec![],
+            props,
+            render_count: 1,
+            windows: vec![],
+            span: None,
+        };
+        (scene, report)
+    }
+
+    /// Resizes the element `report` names by `handle` from `from` to `to`
+    /// (scene pixels) with the Rect tool, and writes the result as one
+    /// history entry.
+    fn resize_and_write(
+        report: &LayerSourceReport,
+        table: &PrimitivePropertyTable,
+        frame: LayerFrame,
+        handle: Handle,
+        (from, to): (Point, Point),
+    ) -> HistoryEntry {
+        let read = |path: &Path| fs::read_to_string(path).map_err(|error| error.to_string());
+        let targets = resolve_targets(read, report, Some(table)).expect("the element resolves");
+        let frame = with_anchor_box(frame, &report.chain[0].name, &report.props);
+        let resize = resize_used(ResizeTool::Rect, &targets, &frame).expect("the Rect tool");
+        let mut editable = drag_props(&targets, &frame);
+        editable.extend(resize.keys());
+        let pivot = pivot_used(PivotMode::Center, &targets, &frame);
+        let values = drag_values(&frame, handle, (from, to), false, 0.0, &editable, pivot, Some(&resize));
+        let values: Vec<_> = prop_values(&frame, &values, &report.props, Some(&resize))
+            .into_iter()
+            .map(|(key, value)| (key, Some(EditValue::Number(value))))
+            .collect();
+        let files = write_all_recorded(targets.files.clone(), |texts| {
+            commit_files(texts, &targets, report, &values).map_err(|error| error.to_string())
+        })
+        .expect("written");
+        HistoryEntry { files }
+    }
+
+    #[test]
+    fn a_left_edge_resize_is_one_undo() {
+        const SOURCE: &str =
+            "export const Scene = () => (\n  <Rect x={40} y={20} width={100} height={50} />\n);\n";
+        let props = ReceivedProps {
+            x: Some(40.0),
+            y: Some(20.0),
+            ..number_props(&[("width", 100.0), ("height", 50.0)])
+        };
+        let (scene, report) = one_file(SOURCE, "Rect", props);
+        // The left edge, 20 px out: the right edge stays at 140.
+        let entry = resize_and_write(
+            &report,
+            &table_of([Some("width"), Some("height"), None]),
+            rect_frame(),
+            Handle::Edge(3),
+            (at(40.0, 45.0), at(20.0, 45.0)),
+        );
+        assert_eq!(
+            fs::read_to_string(&scene).unwrap(),
+            SOURCE.replace("x={40} y={20} width={100}", "x={20} y={20} width={120}")
+        );
+        let mut history = EditHistory::default();
+        history.push(entry);
+        history.undo().unwrap();
+        assert_eq!(fs::read_to_string(&scene).unwrap(), SOURCE);
+        fs::remove_dir_all(scene.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn a_missing_max_width_is_inserted() {
+        const SOURCE: &str = "export const Scene = () => (\n  <Text x={40} y={20}>Hi</Text>\n);\n";
+        let props = ReceivedProps {
+            x: Some(40.0),
+            y: Some(20.0),
+            ..ReceivedProps::default()
+        };
+        let (scene, report) = one_file(SOURCE, "Text", props);
+        // Laid out 100 wide; the right edge 50 px out.
+        resize_and_write(
+            &report,
+            &table_of([Some("maxWidth"), None, None]),
+            rect_frame(),
+            Handle::Edge(1),
+            (at(140.0, 45.0), at(190.0, 45.0)),
+        );
+        let written = fs::read_to_string(&scene).unwrap();
+        assert!(written.contains("maxWidth={150}"), "{written}");
+        fs::remove_dir_all(scene.parent().unwrap()).ok();
     }
 
     fn anchors_with(x: EditTarget, anchor_y: EditTarget) -> ElementTargets {

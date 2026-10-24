@@ -1183,7 +1183,7 @@ fn place_handles(
     Some(PlacedHandles {
         squares,
         stem: rotates.then(|| {
-            let (from, to) = rotate_stem(frame, stem);
+            let (from, to) = rotate_stem(frame, stem, resize);
             (on_viewer(from), on_viewer(to))
         }),
     })
