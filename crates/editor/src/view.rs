@@ -22,7 +22,9 @@ use celesta_editor_core::{AssetSummary, EditorDocument, TimelineClock, TrackSumm
 use celesta_exporter::{ExportCancellation, ExportProgress};
 use celesta_gpu_renderer::{GpuDriver, GpuRenderOptions, GpuRenderer, HitRegion, LayerFrame};
 use celesta_media::FfmpegBackend;
-use celesta_react_bridge::{ComponentPropertyField, ComponentPropertySchema};
+use celesta_react_bridge::{
+    ComponentPropertyField, ComponentPropertySchema, PrimitivePropertyTable,
+};
 use chrono::{DateTime, Local};
 #[cfg(not(target_os = "macos"))]
 use gpui_kit::component::menu::AppMenuBar;
@@ -446,6 +448,14 @@ impl EditorView {
             editor.refresh_component_schemas();
         }
         Ok(editor)
+    }
+
+    /// The property table of the primitive `name` (`Rect`, `Star`, ...) as
+    /// the React preview last loaded it; `None` for a project, or a name the
+    /// runtime declares no table for.
+    #[expect(dead_code, reason = "the Properties tab's sections read it")]
+    pub(crate) fn primitive_table(&self, name: &str) -> Option<&PrimitivePropertyTable> {
+        self.react_preview.as_ref()?.primitive_table(name)
     }
 }
 

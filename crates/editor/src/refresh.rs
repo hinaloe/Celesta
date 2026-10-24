@@ -190,9 +190,10 @@ pub(crate) fn reload_sample_applies(sequence: u64, watched_since: u64) -> bool {
 /// Folds a reload into the entry's property state: the inputs read from disk
 /// are kept even when the spawn failed (`disk_properties`), but the inputs the
 /// preview renders with (`properties`) only change on success. A failed load
-/// keeps the last schema so the panel can still show (and fix) the wrong value.
-/// A reload that could not read the props file keeps its message for the
-/// section, since no property key owns it.
+/// keeps the last schema so the panel can still show (and fix) the wrong value,
+/// and the last primitive property tables so the Properties tab keeps its
+/// sections. A reload that could not read the props file keeps its message for
+/// the section, since no property key owns it.
 pub(crate) fn apply_property_outcome(preview: &mut ReactPreview, reload: &ReactReload) {
     preview.property_load_error = match (&reload.properties, &reload.result) {
         (None, Err(error)) => Some(error.message.clone()),
@@ -208,6 +209,7 @@ pub(crate) fn apply_property_outcome(preview: &mut ReactPreview, reload: &ReactR
                 preview.properties = properties.clone();
             }
             preview.property_schema = KeptSchema::from_metadata(metadata);
+            preview.primitive_properties = metadata.primitive_properties.clone();
             preview.property_issues.clear();
         }
         Err(error) => preview.property_issues = error.property_issues.clone(),
@@ -660,7 +662,10 @@ mod property_outcome {
     use super::*;
     use crate::source::PropertyArgs;
     use celesta_composition::Rational;
-    use celesta_react_bridge::ComponentPropertyField;
+    use celesta_react_bridge::{
+        ComponentPropertyField, PrimitivePropertyField, PrimitivePropertyGroup,
+        PrimitivePropertyRow, PrimitivePropertyTable,
+    };
     use std::collections::BTreeMap;
 
     fn field() -> ComponentPropertyField {
@@ -685,6 +690,7 @@ mod property_outcome {
             composition_id: "default".to_owned(),
             compositions: Vec::new(),
             chapters: Vec::new(),
+            primitive_properties: BTreeMap::new(),
             entry: PathBuf::from("film.tsx"),
             watched_mtime: None,
             dependencies: Vec::new(),
@@ -715,6 +721,7 @@ mod property_outcome {
             },
             duration_in_frames: 30,
             component_schemas: BTreeMap::new(),
+            primitive_properties: BTreeMap::new(),
             project_property_schema: (!keys.is_empty()).then_some(declared.fields),
             project_property_order: keys.iter().map(|key| (*key).to_owned()).collect(),
             prepare_dependencies: Vec::new(),
@@ -831,6 +838,50 @@ mod property_outcome {
         apply_property_outcome(&mut preview, &reload);
 
         assert_eq!(preview.property_schema, None);
+    }
+
+    fn rect_table() -> PrimitivePropertyTable {
+        PrimitivePropertyTable {
+            size: None,
+            groups: vec![PrimitivePropertyGroup {
+                name: "Transform".to_owned(),
+                fields: vec![PrimitivePropertyRow {
+                    key: "x".to_owned(),
+                    field: PrimitivePropertyField::Number {
+                        default_value: Some(0.0),
+                        min: None,
+                        max: None,
+                    },
+                }],
+            }],
+        }
+    }
+
+    #[test]
+    fn a_failed_load_keeps_the_primitive_tables() {
+        let mut preview = preview(None);
+        assert_eq!(preview.primitive_table("Rect"), None);
+        let mut loaded = metadata(&[]);
+        loaded
+            .primitive_properties
+            .insert("Rect".to_owned(), rect_table());
+        let reload = ReactReload {
+            watched: None,
+            dependencies: Vec::new(),
+            properties: None,
+            result: Ok((PathBuf::from("film.tsx"), loaded)),
+        };
+        apply_property_outcome(&mut preview, &reload);
+        assert_eq!(preview.primitive_table("Rect"), Some(&rect_table()));
+
+        let failed = ReactReload {
+            watched: None,
+            dependencies: Vec::new(),
+            properties: None,
+            result: Err(PreviewLoadError::from("node exited".to_owned())),
+        };
+        apply_property_outcome(&mut preview, &failed);
+        assert_eq!(preview.primitive_table("Rect"), Some(&rect_table()));
     }
 
     #[test]

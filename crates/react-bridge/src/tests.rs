@@ -10,9 +10,9 @@ use crate::protocol::{
     PropertyInputsMessage, ReadyMessage, Request, Response, ready_property_order,
 };
 use crate::types::{
-    ComponentPropertyField, ElementKind, FrameSpan, LayerSource, LayerSourceReport, PropOverride,
-    ReactAudioClipDescriptor, ReactChapter, ReceivedProps, ReceivedValue, SourcePos, TimingWindow,
-    chapter_at,
+    ComponentPropertyField, ElementKind, FrameSpan, LayerSource, LayerSourceReport,
+    PrimitivePropertyField, PrimitiveSize, PropOverride, ReactAudioClipDescriptor, ReactChapter,
+    ReceivedProps, ReceivedValue, SourcePos, TimingWindow, chapter_at,
 };
 use celesta_composition::{
     Animatable, AssetLocation, AudioDuck, LayerFilter, ShaderParam, ShaderParamType, ShaderSource,
@@ -123,6 +123,100 @@ fn ready_message_without_component_schemas_defaults_to_empty() {
         panic!("expected a Ready message");
     };
     assert!(component_schemas.is_empty());
+}
+
+#[test]
+fn ready_message_carries_primitive_tables_in_order() {
+    let json = serde_json::json!({
+        "config": {
+            "width": 640,
+            "height": 360,
+            "frameRate": {"numerator": 30, "denominator": 1},
+            "durationInFrames": 30
+        },
+        "primitiveProperties": {
+            "Rect": {
+                "size": {"width": "width", "height": "height"},
+                "groups": [
+                    {"name": "Transform", "fields": [
+                        {"key": "x", "field": {"type": "number", "defaultValue": 0}},
+                        {"key": "opacity", "field": {"type": "number", "defaultValue": 1, "min": 0, "max": 1}}
+                    ]},
+                    {"name": "Size", "fields": [
+                        {"key": "width", "field": {"type": "number"}}
+                    ]}
+                ]
+            }
+        }
+    })
+    .to_string();
+
+    let ReadyMessage::Ready {
+        primitive_properties,
+        ..
+    } = serde_json::from_str(&json).unwrap()
+    else {
+        panic!("expected a Ready message");
+    };
+    let rect = &primitive_properties["Rect"];
+    assert_eq!(
+        rect.size,
+        Some(PrimitiveSize {
+            width: Some("width".to_owned()),
+            height: Some("height".to_owned()),
+            radius: None,
+        })
+    );
+    let names: Vec<&str> = rect
+        .groups
+        .iter()
+        .map(|group| group.name.as_str())
+        .collect();
+    assert_eq!(names, ["Transform", "Size"]);
+    let keys: Vec<&str> = rect.groups[0]
+        .fields
+        .iter()
+        .map(|row| row.key.as_str())
+        .collect();
+    assert_eq!(keys, ["x", "opacity"]);
+    assert_eq!(
+        rect.groups[0].fields[1].field,
+        PrimitivePropertyField::Number {
+            default_value: Some(1.0),
+            min: Some(0.0),
+            max: Some(1.0),
+        }
+    );
+    assert_eq!(
+        rect.groups[1].fields[0].field,
+        PrimitivePropertyField::Number {
+            default_value: None,
+            min: None,
+            max: None,
+        }
+    );
+}
+
+#[test]
+fn ready_message_without_tables_has_none() {
+    let json = serde_json::json!({
+        "config": {
+            "width": 640,
+            "height": 360,
+            "frameRate": {"numerator": 30, "denominator": 1},
+            "durationInFrames": 30
+        }
+    })
+    .to_string();
+
+    let ReadyMessage::Ready {
+        primitive_properties,
+        ..
+    } = serde_json::from_str(&json).unwrap()
+    else {
+        panic!("expected a Ready message");
+    };
+    assert!(primitive_properties.is_empty());
 }
 
 #[test]
