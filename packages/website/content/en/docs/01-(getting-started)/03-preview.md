@@ -76,7 +76,7 @@ On the timeline, the **Composition** row marks where the element is drawn: a fil
 
 ## Move layers on the canvas
 
-In interactive mode, a selected layer can be moved, rotated, resized, and scaled, and the result is written into your source. Drag inside the outline to move it, drag a square handle at a corner or an edge to resize it (or scale it, with the **Scale** tool), and drag the handle above the top edge to rotate it (hold Shift to snap to 15°). Rotation and scale turn about the layer's pivot unless you choose **Center**, as described at the end of this section. You can also type a value into the **Transform** rows below the header of the **Properties** tab and press Enter or leave the field; the next section describes every row of the tab. One drag or one committed field is one change, even when it writes two files: Celesta replaces only the number it changes and leaves the rest of your formatting and comments as they are, and the preview keeps the selection when it reloads.
+In interactive mode, a selected layer can be moved, rotated, resized, and scaled, and the result is written into your source. Drag inside the outline to move it, drag a square handle at a corner or an edge to resize it (or scale it, with the **Scale** handles), and drag the handle above the top edge to rotate it (hold Shift to snap to 15°). Rotation and scale turn about the layer's pivot unless you choose **Center**, as described at the end of this section. You can also type a value into the **Transform** rows below the header of the **Properties** tab and press Enter or leave the field; the next section describes every row of the tab. One drag or one committed field is one change, even when it writes two files: Celesta replaces only the number it changes and leaves the rest of your formatting and comments as they are, and the preview keeps the selection when it reloads.
 
 Celesta writes a value only where your source states it plainly, on an element written directly in your file, or at the call of the component that element is written in:
 
@@ -116,12 +116,12 @@ A layer inside a `<Group>` or `<Stack>` moves with its parent. A child of a `<St
 
 ### Turn about the center or the pivot
 
-While **Select layers** is on, two toggles sit before its button, each with the choice you made selected. The first, **Center** | **Pivot**, sets what the rotation handle and the **Scale** tool turn about:
+While **Select layers** is on, a small tool strip sits at the top-left of the viewer with two labelled toggles, the choice you made filled with the accent color. The first, **Rotate about** [**Center** | **Pivot**], sets what the rotation handle and the **Scale** handles turn about; a cross on the selected layer marks that point:
 
-- **Pivot**, the default, turns the layer about its pivot, the point the renderer turns it about: its anchor (`anchorX` and `anchorY` of its box, the top-left corner unless you set them), moved by `originX` and `originY` when you set those. Only `rotation` or the scale is written.
-- **Center** keeps the middle of the layer's box where it is. To do that, Celesta also writes `x` and `y`: a rotation writes `rotation`, `x`, and `y` together, as one change, which writes two files when `x` and `y` are passed through from a component call.
+- **Pivot**, the default, turns the layer about its pivot, the point the renderer turns it about: its anchor (`anchorX` and `anchorY` of its box, the top-left corner unless you set them), moved by `originX` and `originY` when you set those. Only `rotation` or the scale is written. The cross sits on the pivot, and Alt-dragging it moves the anchor (see "Move the anchor" below).
+- **Center** keeps the middle of the layer's box where it is. To do that, Celesta also writes `x` and `y`: a rotation writes `rotation`, `x`, and `y` together, as one change, which writes two files when `x` and `y` are passed through from a component call. The cross sits on the middle of the box. It only marks that point: its tooltip says **Rotates about the center; switch to Pivot to move the anchor**.
 
-**Center** needs `x` and `y` that Celesta can write: each a number, a prop left out, or a value passed through from a component call, as described above. It also needs a `rotation`, scale, size, and anchor that are not animated with keyframes: `x` and `y` written on one keyframe would keep the middle still on that keyframe only, and the layer would drift on the others. A layer that doesn't meet these turns about its pivot even with **Center** chosen. The toggle then keeps **Center** selected, so the next layer you select uses it again, and shows a warning icon whose tooltip gives the reason:
+**Center** needs `x` and `y` that Celesta can write: each a number, a prop left out, or a value passed through from a component call, as described above. It also needs a `rotation`, scale, size, and anchor that are not animated with keyframes: `x` and `y` written on one keyframe would keep the middle still on that keyframe only, and the layer would drift on the others. A layer that doesn't meet these turns about its pivot even with **Center** chosen, and the cross sits on the pivot. The toggle then keeps **Center** filled, so the next layer you select uses it again, and shows a warning icon whose tooltip gives the reason:
 
 | Tooltip | Meaning |
 | --- | --- |
@@ -132,9 +132,9 @@ While **Select layers** is on, two toggles sit before its button, each with the 
 
 The same reason, after **Pivot —**, shows when you hover over the rotation handle or a **Scale** handle, and beside the layer while you drag one.
 
-### Resize with the Rect tool
+### Resize with the Size handles
 
-The second toggle, **Rect** | **Scale**, sets what the corner and edge handles do. With **Rect**, the default, they change the props that hold the layer's size, and the edge or corner opposite the one you drag stays where it is, whichever of **Center** and **Pivot** is chosen:
+The second toggle, **Handles** [**Size** | **Scale**], sets what the corner and edge handles do. With **Size**, the default, they change the props that hold the layer's size, and the edge or corner opposite the one you drag stays where it is, whichever of **Center** and **Pivot** is chosen:
 
 | Element | Handles | Writes |
 | --- | --- | --- |
@@ -146,7 +146,7 @@ The handles sit on the box those props describe, which is drawn as the selection
 
 When the edge that stays is not where the anchor is, such as the left and top edges of a layer anchored at its top-left corner, Celesta also writes `x` and `y` to keep it there. That needs `x` and `y` that Celesta can write, as for **Center**, and a `rotation`, scale, and anchor that are not animated with keyframes; otherwise those handles are hidden. A size stops at its prop's range, such as 1 for an image's **Width**, and never goes below 1 pixel, so dragging an edge past the opposite one does not flip the box. A size animated with keyframes can be resized on one of its keyframes, as in its row. The handles that would move the anchor along that size's direction are hidden, since the `x` and `y` they write would keep the edge still on that keyframe only. The handles that don't move the anchor along that axis still work: for a `width` animated on a layer anchored at its top-left corner, the left edge and the two left corners are hidden, and the right edge, the top and bottom edges, and the two right corners work.
 
-An element without size props, such as a `<Group>`, a `<Video>`, or a `<Path>`, or one whose size can't be written, gets the **Scale** handles instead. The toggle keeps **Rect** selected for the next layer and shows a warning icon whose tooltip gives the reason:
+An element without size props, such as a `<Group>`, a `<Video>`, or a `<Path>`, or one whose size can't be written, gets the **Scale** handles instead. The toggle keeps **Size** filled for the next layer and shows a warning icon whose tooltip gives the reason:
 
 | Tooltip | Meaning |
 | --- | --- |
@@ -163,7 +163,7 @@ With **Scale**, the corner and edge handles scale the layer, writing `scale`, or
 
 ### Move the anchor
 
-A small cross marks the pivot of the selected layer. Hold Alt (Option) and drag the cross to move the anchor: Celesta writes `anchorX` and `anchorY` as fractions of the layer's box (0 at its left or top edge, 1 at its right or bottom; a value outside the box is kept), and moves `x` and `y` with the cross, so the layer stays where it is on screen. The box is the one the anchor refers to: a `<Text>`'s layout box, a shape's `width` × `height` (twice its `radius` for a `<Circle>`), or an image's or video's picture. While Alt is held, the pointer over the cross is an open hand, and the cross takes the press even when it sits on a handle. Like **Center**, moving the anchor needs `x` and `y` that Celesta can write, and an anchor, `rotation`, scale, and size that are not animated with keyframes. With **Pivot** chosen, rotation turns about the new anchor.
+With **Pivot** in effect, the cross marks the pivot of the selected layer. Hold Alt (Option) and drag the cross to move the anchor: Celesta writes `anchorX` and `anchorY` as fractions of the layer's box (0 at its left or top edge, 1 at its right or bottom; a value outside the box is kept), and moves `x` and `y` with the cross, so the layer stays where it is on screen. The box is the one the anchor refers to: a `<Text>`'s layout box, a shape's `width` × `height` (twice its `radius` for a `<Circle>`), or an image's or video's picture. While Alt is held, the pointer over the cross is an open hand, and the cross takes the press even when it sits on a handle. Like **Center**, moving the anchor needs `x` and `y` that Celesta can write, and an anchor, `rotation`, scale, and size that are not animated with keyframes. Rotation then turns about the new anchor. With **Center** in effect, the cross marks the middle of the box instead and does not move the anchor; choose **Pivot** to move it.
 
 When the cross can't be dragged, the pointer over it shows a not-allowed sign while Alt is held, and hovering over it shows the reason:
 

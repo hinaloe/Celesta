@@ -1,11 +1,12 @@
 # Canvas tools (2026-10-24)
 
 On the canvas, rotation and scale turn about the layer's pivot by default,
-or about the middle of its box with Center chosen in a "Center" | "Pivot"
-toggle in the viewer's toolbar; the
-pivot (the anchor point plus `origin`) is drawn as a cross that Alt-drags
-the anchor without moving the layer; and a "Rect" | "Scale" toggle makes
-the corner and edge handles resize the layer through its `size` props
+or about the middle of its box with Center chosen in the "Rotate about"
+[Center | Pivot] toggle of a tool strip at the viewer's top-left; a cross
+marks the point they turn about, and in Pivot mode the pivot (the anchor
+point plus `origin`) cross Alt-drags the anchor without moving the layer;
+and the strip's "Handles" [Size | Scale] toggle makes the corner and edge
+handles resize the layer through its `size` props
 (`width`/`height`, `radius`, or a `Text`'s `maxWidth`), keeping the
 opposite edge where it is. Every drag that has to keep something still
 moves `x`/`y` by one rule, and is still one history entry, in one or two
@@ -18,7 +19,7 @@ editing on it.
 Plan: `docs/superpowers/plans/2026-10-24-editor-canvas-tools.md`.
 User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-preview.md`
 ("Move layers on the canvas": "Turn about the center or the pivot",
-"Resize with the Rect tool", "Move the anchor").
+"Resize with the Size handles", "Move the anchor").
 
 ## What changed
 
@@ -97,10 +98,11 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   hitbox that sets `OpenHand` while Alt is held when the drag is offered
   and `OperationNotAllowed` when a reason blocks it (`CrossDrag`), and
   redraws on `on_modifiers_changed`.
-- The Rect tool (`transform_handles.rs`, `transform_drag.rs`, `view.rs`,
-  `viewer.rs`): `ResizeTool { Rect (default), Scale }`; `SizeField { name,
+- The Size tool (`transform_handles.rs`, `transform_drag.rs`, `view.rs`,
+  `viewer.rs`): `ResizeTool { Size (default), Scale }` (the "Handles"
+  toggle; "Size" was "Rect" before the second hand check); `SizeField { name,
   min, max, integer, absent, keyframed }`; `SizeProps { Box, Radius, Width }`;
-  `Resize { props, compensable, animated }`, the Rect tool resolved for a
+  `Resize { props, compensable, animated }`, the Size tool resolved for a
   layer (`animated`: a keyframed `rotation`, scale, or anchor, which hides
   every handle that moves the anchor point).
   `size_props(targets)` reads `table.size` and the fields' bounds, and needs
@@ -110,11 +112,11 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   its size unreported; `Pinned`/`Animated` when no corner or edge passes
   `resizes`, see `resizes_any`: "x or y can't move", or `Animated` with the
   shared `TURN_ANIMATED` / `ANCHOR_ANIMATED` / `SIZE_ANIMATED`);
-  `EditorView::resize_note` is the reason a chosen Rect is not in effect,
+  `EditorView::resize_note` is the reason a chosen Size is not in effect,
   for the toggle's warning. `drag_values` gains
   `resize: Option<&Resize>` (`None` is the Scale tool) and sends corners
   and edges to `resize_values`; `shown_handles` and `handle_props` follow
-  `resizes` / `resize_moves`. `handle_quad` puts the Rect tool's handles and
+  `resizes` / `resize_moves`. `handle_quad` puts the Size tool's handles and
   stem on the anchor box, which the viewer then strokes as the selection
   outline; `TransformDrag::with_resize` attaches the tool and
   `with_primitive` the element's name, and `TransformDrag::anchored`
@@ -122,16 +124,29 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   from the values it draws (`received_now`), so the handles follow the box
   they resize and don't jump to the outline before the reload.
   `EditorView.resize_tool` is session state.
-- Toolbar (`viewer.rs`): `pivot_toggle` and `resize_toggle`, two
-  fixed-width segmented controls (`mode_toggle`: gpui-kit's
-  `TabBar::segmented()`, `PIVOT_TOGGLE_WIDTH` / `RESIZE_TOGGLE_WIDTH`)
-  before "Select layers", shown only in interactive mode of a React
-  preview. The chosen segment is selected; a reserved slot
-  (`NOTE_SLOT_WIDTH`) holds a `TriangleAlert` icon with the reason
-  (`pivot_note` / `resize_note`) as its tooltip when the choice is not in
-  effect, so the labels and the width never change. With Center chosen
-  but not in effect, the rotation handle and the Scale tool's handles get
-  hover areas with the tooltip "Pivot — reason".
+- Tool strip (`viewer.rs`): `tool_strip`, overlaid at the viewer's
+  top-left (above the canvas notice, in one column) while Select layers is
+  on in a React preview: an `occlude()`d panel in the theme's popover color
+  with a 1px border, two `strip_row`s with a muted fixed-width label
+  ("Rotate about", "Handles") and a `mode_toggle`. A toggle is two
+  fixed-width `Segment` buttons (`SEGMENT_WIDTH`) in a bordered row, the
+  chosen one `primary()` (the theme's primary fill and foreground; the
+  editor is dark-only), the other `ghost()`, and a reserved slot
+  (`NOTE_SLOT_WIDTH`) with a `TriangleAlert` icon carrying the reason
+  (`pivot_note` / `resize_note`) when the choice is not in effect, so the
+  labels and the width never change. With Center chosen but not in effect,
+  the rotation handle and the Scale tool's handles get hover areas with the
+  tooltip "Pivot — reason" (not while a drag runs; its label says it). The
+  transport bar no longer holds the toggles; its breakpoints are its own
+  again (`transport_layout`, 820 and 600 px).
+- The cross (`transform_handles.rs`, `transform_drag.rs`, `viewer.rs`):
+  `marker(frame, pivot)` gives `Marker::Center` (the box's middle) when the
+  drag uses Center, else `Marker::Pivot` (`pivot_cross`); the viewer draws
+  the same cross at either. `drag_props_in(targets, frame, pivot)` leaves
+  the anchors out in Center mode, so the center cross is a marker only
+  (tooltip `CENTER_MARKER`, "Rotates about the center; switch to Pivot to
+  move the anchor"); in Pivot mode the cross Alt-drags the anchor, with
+  its reasons.
 
 ## Decisions
 
@@ -161,8 +176,9 @@ These differ from, or settle what the spec left open:
   often constants or computed, so Center rarely applies, and a default that
   silently falls back reads as broken.
 - **Center needs compensable `x`/`y`, nothing animated it depends on, and a
-  flat box.** Otherwise the drag turns about the pivot, and the toggle keeps
-  Center selected with a warning whose tooltip is the reason:
+  flat box.** Otherwise the drag turns about the pivot (and the cross sits
+  on the pivot), and the toggle keeps Center filled with a warning whose
+  tooltip is the reason:
   `NotCompensable` "x or y can't be edited", `Animated` "Rotation or scale
   is animated" (an editable `rotation`, `scale`, `scaleX`, or `scaleY` is a
   `Keyframe`), `AnimatedBox` "Size or anchor is animated" (a size prop or an
@@ -173,7 +189,7 @@ These differ from, or settle what the spec left open:
   box's there; vertically it differs by the glyph overflow of multi-line
   text. A running drag keeps the mode it started with.
 - **The anchor box.** The anchor and the size props are fractions and
-  lengths of one box, and both the anchor drag and the Rect tool measure
+  lengths of one box, and both the anchor drag and the Size tool measure
   that box, not the outline: for `Text` the layout box the renderer
   records (the texture quad is padded for strokes, left and right only on a
   single line); for `Image` and `Video` their quad; for `Rect`, `Ellipse`,
@@ -188,10 +204,10 @@ These differ from, or settle what the spec left open:
   have no anchor drag.
 - **The anchor is not clamped**: an anchor outside the box is valid, and
   the cross follows the pointer by delta (it does not jump to it).
-- **The Rect tool keeps the opposite edge regardless of Center/Pivot.**
+- **The Size tool keeps the opposite edge regardless of Center/Pivot.**
   Resizing about the center (Unity's Alt) is not in 2c; the rotation stem
   and the Scale tool honor the toggle.
-- **Hidden-handle rule, generalized**: a Rect-tool handle needs
+- **Hidden-handle rule, generalized**: a Size-tool handle needs
   compensable `x`/`y` only when its kept edge is not at the anchor
   (`resize_moves`), not "left and top" by name: with `anchorX = 1` the left
   edge needs no compensation and stays, and with `anchorX = 0.5` both
@@ -216,7 +232,7 @@ These differ from, or settle what the spec left open:
   writes that side at its current box value, overridden from the first
   move, so the runtime's aspect rule does not change the axis not dragged.
   A drag that changes nothing writes nothing, pinned side included.
-- **Rect-tool handles sit on the anchor box** (`handle_quad`), and a running
+- **Size-tool handles sit on the anchor box** (`handle_quad`), and a running
   resize's box follows its current values: a group's outline is its
   children's scene-axis box and a text's is padded, so the outline's
   corners are not the box's. The Scale tool and the Move hit test keep the
@@ -226,8 +242,8 @@ These differ from, or settle what the spec left open:
   Written as an expression: h * 2"), a size row that is neither locked nor
   writable ("Size can't be edited here"), no handle left (`Pinned` "x or y
   can't move", or `Animated` with the animated value), or no flat box ("No
-  flat box to resize"). The toggle keeps Rect selected with a warning whose
-  tooltip is the reason; the stored choice stays Rect.
+  flat box to resize"). The toggle keeps Size filled with a warning whose
+  tooltip is the reason; the stored choice stays Size.
 - **No compensation beside an animated value.** Literal `x`/`y` written
   beside a value that changes between keyframes would hold at that keyframe
   only. Every compensating drag checks what it uses: Center (`x`/`y`,
@@ -240,7 +256,15 @@ These differ from, or settle what the spec left open:
   move** (2a's rule), now including `x`/`y` for a Center rotation or scale,
   a compensating resize, and the anchor drag, and the size keys (whose start
   value is the anchor box, so none is dropped).
-- **Toggles are session state**, default Pivot and Rect, not saved; no
+- **The tool strip sits over the viewer's top-left, labelled.** Decided
+  with the user after the second hand check: in the transport bar the
+  toggles were easy to miss and their selected state too faint. Labels
+  "Rotate about" and "Handles", the chosen segment filled with the primary
+  color, "Rect" renamed "Size".
+- **The cross marks what a drag turns about.** In Center mode it sits on the
+  box's middle as a marker only; the anchor moves only in Pivot mode, where
+  the cross is on the pivot it moves.
+- **Toggles are session state**, default Pivot and Size, not saved; no
   keyboard shortcuts.
 - **Snapping**: rotation keeps 2a's Shift 15°; resize has only Shift-aspect.
 
@@ -291,8 +315,10 @@ These differ from, or settle what the spec left open:
   (`primitive_of`), not by a registration.
 - `drag_values` takes eight parameters (`#[allow(clippy::too_many_arguments)]`);
   folding `pivot` and `resize` into one tool argument is a follow-up.
-- The toggles' fixed widths (176 and 168 px) are estimated from the
-  labels, not measured on screen; if a label clips, widen the constant.
+- The tool strip's fixed widths (`SEGMENT_WIDTH` 60 px, `STRIP_LABEL_WIDTH`
+  84 px) are estimated from the labels, not measured on screen; if a label
+  clips, widen the constant. The strip covers the canvas under it (it
+  occludes the pointer there): a handle under it can't be pressed.
 
 ## What 2d builds on
 
@@ -312,27 +338,35 @@ In the editor, with **Select layers** on, on a scene of your own (the
 feature tour has no editor-only content these tools supersede, so no
 example changed):
 
-- The toolbar shows "Center | Pivot" and "Rect | Scale" before **Select
-  layers** as segmented controls, with Pivot and Rect clearly selected;
-  clicking a segment selects it; turning the mode off hides them. Select
-  layers one after another, including ones that fall back: the toolbar's
+- Turn on **Select layers**: a tool strip appears at the viewer's top-left
+  with "Rotate about" [Center | Pivot] and "Handles" [Size | Scale], Pivot
+  and Size filled with the accent color, legible over a bright and a dark
+  scene; the transport bar has no toggles and keeps its old layout.
+  Clicking a segment fills it; clicking the strip never selects or
+  deselects a layer behind it, and clicking just outside it does. Select
+  layers one after another, including ones that fall back: the strip's
   width and labels never change, only a warning icon appears in the
-  reserved slot.
+  reserved slot. Turning the mode off hides the strip.
 - 04 TYPE in `examples/feature-tour/film.tsx`, the card `<Rect x={DX} y={top}
   … rotation={-9.5} anchorX={0.8} …>`: choose Center. The Center segment
-  stays selected and a warning icon appears beside it, tooltip "x or y can't
-  be edited". Hover the rotation handle: "Pivot — x or y can't be edited";
-  drag it: the label starts with the same note, and the card turns about
-  the cross. Hover the cross: "X: Comes from DX, which can't be traced"
-  (the `x` row's own reason); with Alt held the cursor is not-allowed.
-- Choose Center and rotate a plain `Rect` with literal `x`/`y`: it turns
-  about its middle, the label shows `rotation`, `x`, and `y`, and one undo
-  restores it. Switch to Pivot: it turns about its top-left corner (the
-  cross). Alt-drag the cross to the middle: nothing moves on screen, and
-  `anchorX`, `anchorY`, `x`, `y` are written in one undo step. Rotate again
-  in Pivot mode: it turns about the new anchor. With `originX={40}` set,
-  Pivot mode turns about the cross 40 px to the right of the anchor.
-- Hold Alt over the cross of that `Rect`: the cursor becomes an open hand.
+  stays filled and a warning icon appears beside it, tooltip "x or y can't
+  be edited"; the cross stays on the pivot. Hover the rotation handle:
+  "Pivot — x or y can't be edited"; drag it: the label starts with the same
+  note, and the card turns about the cross. Hover the cross: "X: Comes from
+  DX, which can't be traced" (the `x` row's own reason); with Alt held the
+  cursor is not-allowed.
+- Choose Center on a plain `Rect` with literal `x`/`y`: the cross moves to
+  the middle of the box, its tooltip reads "Rotates about the center; switch
+  to Pivot to move the anchor", and Alt-dragging it does nothing (not-allowed
+  cursor). Rotate it: it turns about its middle, the label shows
+  `rotation`, `x`, and `y`, and one undo restores it. Switch to Pivot: the
+  cross jumps to the top-left corner and the layer turns about it. Alt-drag
+  the cross to the middle: nothing moves on screen, and `anchorX`,
+  `anchorY`, `x`, `y` are written in one undo step. Rotate again: it turns
+  about the new anchor. With `originX={40}` set, Pivot mode turns about the
+  cross 40 px to the right of the anchor.
+- Hold Alt over the pivot cross of that `Rect` in Pivot mode: the cursor
+  becomes an open hand.
 - Resize a rotated `Rect` from its left edge: `width`, `x`, `y` change and
   the right edge stays on screen; from its right edge only `width` changes.
   Shift on a corner keeps the aspect. Drag an edge through the opposite
@@ -344,7 +378,7 @@ example changed):
   absent (then inserted), and the text wraps; the left
   edge keeps the right one. Its handles sit on the text, not on the padded
   outline of a stroked text.
-- Select a dashed `Rect` and rotate it 45°: the Rect-tool handles sit on its
+- Select a dashed `Rect` and rotate it 45°: the Size-tool handles sit on its
   own corners, not on the scene-axis box; drag a corner outward and both
   sides grow.
 - Select an `Image` with only `width` written: an edge drag writes `height`
@@ -361,10 +395,10 @@ example changed):
   y can't be edited"; the left and top edges (and the corners touching them)
   are hidden while the right and bottom ones resize; the cross's tooltip
   reads "X is animated". Select a plain layer: the warning goes away.
-- Select a stroked `Text` with the Rect tool: the selection outline is drawn
+- Select a stroked `Text` with the Size tool: the selection outline is drawn
   on its layout box, through the handles; with Scale it is the padded quad
-  again. A `Rect` anchored at its middle with keyframed `x`: Rect stays
-  selected with the warning "x or y can't move", and the scale handles show.
+  again. A `Rect` anchored at its middle with keyframed `x`: Size stays
+  filled with the warning "x or y can't move", and the scale handles show.
 - Select a layer with keyframed `rotation`, Center chosen: the warning reads
   "Rotation or scale is animated", and the rotation handle turns it about
   the pivot (the cross), writing `rotation` only; its left and top resize
@@ -375,7 +409,7 @@ example changed):
   the cross's tooltip reads
   "Size is animated". With keyframed `anchorX`: Center's warning reads
   "Size or anchor is animated" and the cross's "Anchor is animated".
-- Select a `Group`: Rect stays selected with the warning "No size to
+- Select a `Group`: Size stays filled with the warning "No size to
   resize", and the 2a scale handles show; hover over the cross: "A group's
   anchor has no effect", and Alt-drag does nothing. A `Rect` with
   `height={h * 2}` reads "Height: Written as an expression: h * 2".
@@ -389,7 +423,7 @@ example changed):
   the preview drew it.
 - On a layer turned in 3D in its own perspective (`rotationY={30}
   perspective={800}`), Center chosen: the warning reads "No flat box to
-  center on"; the Rect/Scale warning reads "No flat box to resize"; the
+  center on"; the Handles warning reads "No flat box to resize"; the
   cross's tooltip reads "No box to anchor in".
 - Undo each of the above: each is one step and restores the files it wrote
   byte for byte.

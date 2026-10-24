@@ -347,7 +347,7 @@ being stretched.
 Rotation and scale turn about the layer's pivot by default, and about the
 center of its box on request:
 
-- A viewer toolbar toggle, "Center" / "Pivot" (default), like Unity's. In
+- A toggle, "Rotate about" [Center | Pivot (default)], like Unity's. In
   Pivot mode they turn about the layer's pivot: the anchor point plus
   `origin` (`originX`/`originY`), where `EvaluatedTransform::translation`
   places the turning point. With a zero `origin` that is the anchor, as
@@ -357,14 +357,23 @@ center of its box on request:
   applies. (Decided with the user after trying the build.)
 - In Center mode a rotation or scale also moves `x`/`y` so the box's center
   stays put. Both writes are one edit.
-- The toggles ("Center" | "Pivot", "Rect" | "Scale") are fixed-width
-  segmented controls with the chosen segment selected; their labels never
-  change, so the toolbar never changes width. When the chosen mode or tool
-  can't apply to the selected layer, the chosen segment stays selected and
-  a warning icon in a reserved slot of the control gives the reason as its
-  tooltip. A Center that is not in effect also says why at the point of
-  action: hovering the rotation handle or a Scale-tool handle shows
-  "Pivot — reason", and so does the drag's label.
+- The toggles sit in a small tool strip overlaid at the viewer's top-left
+  while Select layers is on (not in the transport bar), two labelled rows
+  with muted, always-visible labels: "Rotate about" [Center | Pivot] and
+  "Handles" [Size | Scale]. The strip is an opaque panel in the theme's
+  popover color with a 1px border, radius 0, and takes the pointer over its
+  own bounds only. Segments have fixed widths; the chosen one is filled with
+  the theme's primary color and its contrasting foreground, the other is
+  plain; labels never change. When the chosen mode or tool can't apply to
+  the selected layer, the chosen segment stays filled and a warning icon in
+  a reserved slot of the control gives the reason as its tooltip. A Center
+  that is not in effect also says why at the point of action: hovering the
+  rotation handle or a Scale handle shows "Pivot — reason", and so does the
+  drag's label. (Decided with the user after two hand checks.)
+- The cross marks the point a rotation or scale turns about: with Center in
+  effect, the box's center, as a marker only (tooltip "Rotates about the
+  center; switch to Pivot to move the anchor"); with Pivot (or Center not
+  in effect), the pivot, which Alt-drags the anchor. Same style for both.
 - **One compensation rule.** Every drag that moves `x`/`y` to keep something
   still (Center-mode rotation and scale, a resize whose kept edge is not at
   the anchor, the anchor drag) names a fixed point in the layer's own pixels
@@ -398,8 +407,7 @@ center of its box on request:
   an anchor is a keyframe, and when the size along an axis it moves the
   anchor along is. The anchor drag needs anchors, `rotation`, scales, and
   sizes that are not keyframes. The reason strings are shared constants.
-- The pivot is always drawn as a small cross. Dragging the cross with Alt
-  moves the anchor: it writes `anchorX`/`anchorY` as fractions of the box the
+- In Pivot mode, dragging the pivot cross with Alt moves the anchor: it writes `anchorX`/`anchorY` as fractions of the box the
   anchor refers to (unclamped: an anchor outside the box is valid) and moves
   `x`/`y` so nothing moves on screen. That box (the "anchor box") is the
   renderer's layout box for `Text` (its texture quad is padded for strokes),
@@ -416,9 +424,10 @@ center of its box on request:
 
 ### Resize
 
-Handles depend on a viewer toolbar tool, "Rect" (default) or "Scale":
+Handles depend on the tool strip's "Handles" toggle, "Size" (default) or
+"Scale" ("Size" was called "Rect" before the second hand check):
 
-- **Rect**: corner and edge handles change the `size` props, measured on the
+- **Size**: corner and edge handles change the `size` props, measured on the
   anchor box and placed on it. The opposite edge stays, in both Center and
   Pivot mode: a drag whose kept edge is not at the anchor (a left or top edge
   with the default anchor) also moves `x`/`y` (through the anchor and
@@ -432,7 +441,7 @@ Handles depend on a viewer toolbar tool, "Rect" (default) or "Scale":
   absent (an `Image` sized from its source's aspect), an edge drag also
   writes that side at its current value. A primitive without `size` props,
   or whose `size` props are not all editable, or whose every handle is
-  hidden, falls back to Scale: the toggle keeps Rect selected and its
+  hidden, falls back to Scale: the toggle keeps Size filled and its
   warning gives the reason ("No size to resize", the locked row's reason,
   "Size can't be edited here", "x or y can't move", "Rotation or scale is
   animated", "Anchor is animated", "Size is animated", or "No flat box to
@@ -544,5 +553,6 @@ component's call site.
 ## Documentation
 
 - The React preview user docs: inline text editing, the Properties sections, pass-through rows,
-  inputs, the Center/Pivot toggle, the Rect/Scale tools.
+  inputs, the canvas tool strip ("Rotate about" Center/Pivot, "Handles"
+  Size/Scale).
 - A handoff note.
