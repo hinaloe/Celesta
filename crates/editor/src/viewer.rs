@@ -1,6 +1,7 @@
-//! The viewer: the rendered frame, its overlays, and the transport bar under
-//! it, plus the audio monitor (master meter and preview volume) that sits
-//! beside the timeline.
+//! The viewer: the canvas tools' row above it while a layer is selected in
+//! interactive mode, the rendered frame and its overlays, and the transport
+//! bar under it, plus the audio monitor (master meter and preview volume)
+//! that sits beside the timeline.
 
 use celesta_composition::Point;
 use celesta_editor_theme as theme;
@@ -262,6 +263,7 @@ impl EditorView {
             .or_else(|| resized_box.map(|quad| vec![quad]))
             .unwrap_or_default();
         let viewer_bounds = self.viewer_bounds.clone();
+        let view = cx.entity_id();
         let dashed = matches!(drag_state, DragState::Locked(..));
         let handle_fill = cx.theme().background;
         let editable_frame = match &drag_state {
@@ -377,8 +379,15 @@ impl EditorView {
             })
             .child(
                 canvas(
-                    move |bounds, window, _| {
-                        viewer_bounds.set(Some(bounds));
+                    move |bounds, window, cx| {
+                        // The overlays placed by these bounds (the cross's
+                        // and the locked box's tooltips, the drag label, the
+                        // "Pivot —" notes) were laid out with the previous
+                        // ones: when they change (the tool row appears or
+                        // goes), draw again so they never lag a frame.
+                        if viewer_bounds.replace(Some(bounds)) != Some(bounds) {
+                            cx.notify(view);
+                        }
                         // Each handle's square, with a hitbox for its cursor.
                         let handles =
                             editable_frame.and_then(|(frame, editable, pivot, resize)| {
@@ -965,6 +974,10 @@ impl EditorView {
             .gap_6()
             .h(px(TOOL_ROW_HEIGHT))
             .w_full()
+            // A narrow viewer clips the row rather than painting it over
+            // the dock beside it.
+            .min_w_0()
+            .overflow_hidden()
             .px_3()
             .bg(cx.theme().secondary)
             .border_b_1()
@@ -1522,8 +1535,8 @@ mod tests {
 
     #[test]
     fn the_transport_bar_collapses_at_its_own_widths() {
-        // The canvas tools sit over the viewer, not in the bar: its
-        // breakpoints are the bar's own.
+        // The canvas tools sit in a row above the viewer, not in the bar:
+        // its breakpoints are the bar's own.
         assert_eq!(transport_layout(820.0), (true, true));
         assert_eq!(transport_layout(819.0), (false, true));
         assert_eq!(transport_layout(600.0), (false, true));
