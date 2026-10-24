@@ -497,7 +497,7 @@ impl EditorView {
                     // whether the layer still exists. Until it answers, the
                     // old answer stays shown, read-only.
                     self.source_lookup_stale = true;
-                    self.transform.expire();
+                    self.element_edit.expire();
                     // A released drag's values are drawn by the reloaded
                     // code now; a pressed one goes on.
                     if !self.transform_drag_active() {

@@ -1,6 +1,7 @@
 use crate::audio::{AudioMixWorker, MasterVolumeDrag};
 use crate::component_schema::ComponentSchemaWorker;
 use crate::edit_history::EditHistory;
+use crate::element_edit::ElementEdit;
 use crate::export_worker::ExportWorker;
 use crate::helpers::ExportLoudness;
 use crate::layer_select::SourceLookup;
@@ -15,7 +16,6 @@ use crate::refresh::{ReloadOrder, SelectionKeep};
 use crate::source::{PropertyArgs, load_source};
 use crate::timeline::LaneGesture;
 use crate::transform_drag::TransformDrag;
-use crate::transform_edit::TransformEdit;
 use crate::transform_rows::TransformInputs;
 use celesta_composition::{AudioClip, Rational};
 use celesta_editor_core::{AssetSummary, EditorDocument, TimelineClock, TrackSummary};
@@ -271,8 +271,8 @@ pub(crate) struct EditorView {
     pub(crate) source_chain_open: bool,
     /// Which reloads keep `selected_layer` (those after the editor's own writes).
     pub(crate) selection_keep: SelectionKeep,
-    /// The selected layer's transform targets in its source.
-    pub(crate) transform: TransformEdit,
+    /// The selected layer's targets in its source.
+    pub(crate) element_edit: ElementEdit,
     /// The Layer section's Transform fields.
     pub(crate) transform_inputs: TransformInputs,
     /// The selected layer's frame as the shown frame measured it: the layer
@@ -435,7 +435,7 @@ impl EditorView {
             launch_error: None,
             source_chain_open: false,
             selection_keep: SelectionKeep::default(),
-            transform: TransformEdit::default(),
+            element_edit: ElementEdit::default(),
             transform_inputs: TransformInputs::default(),
             layer_frame: None,
             transform_drag: None,

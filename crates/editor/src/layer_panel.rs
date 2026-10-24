@@ -4,13 +4,13 @@
 //! user's editor.
 
 use crate::editor_launch::open_source;
+use crate::element_edit::{ElementTargets, TransformProp, inner_target, reason_text};
 use crate::icons::CelestaIcon;
 use crate::impact::{ImpactView, counted_scenes, impact_line, impact_view, other_scenes_label};
 use crate::layer_select::{
     SourceLookup, display_path, launch_outcome_applies, parent_layer_id, source_position,
 };
 use crate::timecode::format_timecode;
-use crate::transform_edit::{TransformTargets, inner_target, reason_text};
 use crate::view::EditorView;
 use crate::widgets::{inspector_row, inspector_section};
 use celesta_react_bridge::{ElementKind, LayerSource, LayerSourceReport, SourcePos};
@@ -51,11 +51,15 @@ pub(crate) fn owner_label(report: &LayerSourceReport) -> Option<String> {
         .map(|entry| format!("in <{}>", entry.name))
 }
 
-/// One line per lock reason: "X, Y — Written as an expression: W / 2", in
-/// target order; editable props omitted.
-pub(crate) fn locked_summary(targets: &TransformTargets) -> Vec<String> {
+/// One line per lock reason of the transform props: "X, Y — Written as an
+/// expression: W / 2", in target order; editable props and other rows
+/// omitted.
+pub(crate) fn locked_summary(targets: &ElementTargets) -> Vec<String> {
     let mut reasons: Vec<(String, Vec<&str>)> = Vec::new();
-    for (prop, target) in &targets.targets {
+    for (key, target) in &targets.targets {
+        let Some(prop) = TransformProp::from_key(key) else {
+            continue;
+        };
         let EditTarget::Locked(reason) = inner_target(&target.target) else {
             continue;
         };
@@ -114,10 +118,10 @@ impl EditorView {
     pub(crate) fn selection_impact(&self) -> Option<ImpactView> {
         let report = self.found_report()?;
         let written_at = self
-            .transform
+            .element_edit
             .resolved(self.selected_layer.as_deref())
             .and_then(|(resolved, _)| resolved.outcome.as_ref().ok())
-            .and_then(TransformTargets::written_at)
+            .and_then(ElementTargets::written_at)
             // Targets resolved for an older answer may name a call this
             // chain no longer has.
             .filter(|site| {
@@ -282,7 +286,7 @@ impl EditorView {
             _ => None,
         };
         let locked = self
-            .transform
+            .element_edit
             .resolved(self.selected_layer.as_deref())
             .and_then(|(resolved, _)| resolved.outcome.as_ref().ok())
             .map(locked_summary)
@@ -356,7 +360,7 @@ impl EditorView {
                 .flex_col()
                 .child(self.transform_group(cx))
                 .when_some(
-                    self.transform.error(Some(id)).map(str::to_owned),
+                    self.element_edit.error(Some(id)).map(str::to_owned),
                     |section, error| {
                         section.child(
                             div()
@@ -563,7 +567,7 @@ impl EditorView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transform_edit::{Target, TransformProp};
+    use crate::element_edit::Target;
     use celesta_react_bridge::{ElementKind, ReceivedProps, SourcePos};
     use celesta_source_edit::{EditTarget, EditValue, ElementRef, LiteralForm, LockReason, Span};
 
@@ -653,14 +657,16 @@ mod tests {
             end_of_attributes: 5,
             children: None,
         };
-        let local = |target| Target {
+        let local = |path: &str, target| Target {
             file: "/a/card.tsx".into(),
+            path: path.to_owned(),
             target,
             call_site: None,
         };
         // `y` comes from the call site, where it is written as an expression.
         let passed = Target {
             file: "/a/scene.tsx".into(),
+            path: "y".to_owned(),
             target: EditTarget::PassThrough {
                 call_site: element,
                 param: "y".to_owned(),
@@ -672,24 +678,27 @@ mod tests {
                 column: 1,
             }),
         };
-        let targets = TransformTargets {
+        let targets = ElementTargets {
             file: "/a/card.tsx".into(),
             files: vec!["/a/card.tsx".into(), "/a/scene.tsx".into()],
             element,
             targets: vec![
-                (TransformProp::X, local(expression())),
-                (TransformProp::Y, passed),
+                (TransformProp::X.key(), local("x", expression())),
+                (TransformProp::Y.key(), passed),
                 (
-                    TransformProp::Rotation,
-                    local(EditTarget::Literal {
-                        span: Span { start: 1, end: 2 },
-                        value: EditValue::Number(0.0),
-                        form: LiteralForm::Number,
-                    }),
+                    TransformProp::Rotation.key(),
+                    local(
+                        "rotation",
+                        EditTarget::Literal {
+                            span: Span { start: 1, end: 2 },
+                            value: EditValue::Number(0.0),
+                            form: LiteralForm::Number,
+                        },
+                    ),
                 ),
                 (
-                    TransformProp::Scale,
-                    local(EditTarget::Locked(LockReason::OutsideKeyframes)),
+                    TransformProp::Scale.key(),
+                    local("scale", EditTarget::Locked(LockReason::OutsideKeyframes)),
                 ),
             ],
         };

@@ -88,7 +88,7 @@ impl EditorView {
             _ => None,
         }
         .or_else(|| {
-            self.transform
+            self.element_edit
                 .error(self.selected_layer.as_deref())
                 .map(str::to_owned)
         });
@@ -792,7 +792,7 @@ impl EditorView {
         self.source_lookup = None;
         self.source_lookup_stale = false;
         self.launch_error = None;
-        self.transform.reset();
+        self.element_edit.reset();
         self.layer_frame = None;
         self.transform_drag = None;
     }
@@ -893,7 +893,7 @@ fn place_handles(
     bounds: Bounds<Pixels>,
     frame_size: (f32, f32),
     frame: &LayerFrame,
-    editable: &[crate::transform_edit::TransformProp],
+    editable: &[crate::element_edit::TransformProp],
     window: &mut Window,
 ) -> Option<PlacedHandles> {
     let (left, top, scale) = letterbox(bounds, frame_size)?;

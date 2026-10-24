@@ -2,8 +2,8 @@
 //! change, the prop overrides the preview evaluates the scene with while it
 //! runs, and the one write on release.
 
+use crate::element_edit::{ElementTargets, TransformProp, editable, inner_target, reason_text};
 use crate::layer_select::{letterbox, to_scene};
-use crate::transform_edit::{TransformProp, TransformTargets, editable, inner_target, reason_text};
 use crate::transform_handles::{
     Handle, drag_label, drag_values, handle_at, preview_values, prop_values, shown_handles, turn,
 };
@@ -11,7 +11,7 @@ use crate::view::EditorView;
 use celesta_composition::Point;
 use celesta_gpu_renderer::LayerFrame;
 use celesta_react_bridge::{LayerSourceReport, PropOverride, ReceivedProps, SourcePos};
-use celesta_source_edit::EditTarget;
+use celesta_source_edit::{EditTarget, EditValue};
 use gpui_kit::{Context, MouseMoveEvent};
 
 /// Side of a square handle, in viewer pixels.
@@ -116,7 +116,7 @@ pub(crate) struct OverrideSite {
 /// passed through, which also moves everything else computed from it. The
 /// same prop the write changes.
 pub(crate) fn override_sites(
-    targets: &TransformTargets,
+    targets: &ElementTargets,
     report: &LayerSourceReport,
 ) -> Vec<(TransformProp, OverrideSite)> {
     let Some(element) = report.chain.first() else {
@@ -126,7 +126,8 @@ pub(crate) fn override_sites(
         .targets
         .iter()
         .filter(|(_, target)| editable(&target.target))
-        .filter_map(|(prop, target)| {
+        .filter_map(|(key, target)| {
+            let prop = TransformProp::from_key(key)?;
             let site = match (&target.target, &target.call_site) {
                 (EditTarget::PassThrough { param, .. }, Some(call_site)) => OverrideSite {
                     position: call_site.clone(),
@@ -138,7 +139,7 @@ pub(crate) fn override_sites(
                     prop: prop.name().to_owned(),
                 },
             };
-            Some((*prop, site))
+            Some((prop, site))
         })
         .collect()
 }
@@ -200,20 +201,23 @@ impl EditorView {
         if let Some(drag) = &self.transform_drag {
             return DragState::Editable(frame, drag.editable.clone());
         }
-        let Some((targets, _)) = self.transform_targets() else {
+        let Some((targets, _)) = self.element_targets() else {
             return DragState::Unknown;
         };
-        let props: Vec<TransformProp> = targets
-            .targets
+        // The transform rows, in row order.
+        let transform: Vec<(TransformProp, &EditTarget)> = TransformProp::ALL
+            .into_iter()
+            .filter_map(|prop| Some((prop, targets.transform(prop)?)))
+            .collect();
+        let props: Vec<TransformProp> = transform
             .iter()
-            .filter(|(_, target)| editable(&target.target))
+            .filter(|(_, target)| editable(target))
             .map(|(prop, _)| *prop)
             .collect();
         if props.is_empty() {
-            let reason = targets
-                .targets
+            let reason = transform
                 .iter()
-                .find_map(|(_, target)| match inner_target(&target.target) {
+                .find_map(|(_, target)| match inner_target(target) {
                     EditTarget::Locked(reason) => Some(reason_text(reason)),
                     _ => None,
                 })
@@ -263,7 +267,7 @@ impl EditorView {
             return false;
         };
         let Some((received, sites)) = self
-            .transform_targets()
+            .element_targets()
             .map(|(targets, report)| (report.props.clone(), override_sites(targets, report)))
         else {
             return false;
@@ -353,10 +357,12 @@ impl EditorView {
             return true;
         }
         drag.released = true;
-        if self.transform_targets().is_none() {
+        if self.element_targets().is_none() {
             // The targets went stale mid-drag (a reload); nothing to write to.
-            let message = self.transform.unavailable(self.selected_layer.as_deref());
-            self.transform
+            let message = self
+                .element_edit
+                .unavailable(self.selected_layer.as_deref());
+            self.element_edit
                 .set_error(self.selected_layer.as_deref(), Some(message));
             self.cancel_transform_drag();
             return true;
@@ -366,13 +372,17 @@ impl EditorView {
         // shows the dragged position. A failure (the source changed while
         // dragging, the history is busy) puts the layer back where it was.
         // The error shows in the Layer section and over the canvas.
-        self.commit_transform(
+        let values = values
+            .into_iter()
+            .map(|(prop, value)| (prop.key(), EditValue::Number(value)))
+            .collect();
+        self.commit_element(
             values,
             |this, result, cx| {
                 // Targets still current after a success mean nothing was
                 // written (the text came out the same), so no reload comes
                 // to drop the drag.
-                if result.is_err() || this.transform_targets().is_some() {
+                if result.is_err() || this.element_targets().is_some() {
                     this.cancel_transform_drag();
                 }
                 cx.notify();

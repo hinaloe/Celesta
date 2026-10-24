@@ -2,11 +2,12 @@
 //! selected layer, a field that writes the prop into the JSX source on Enter
 //! or blur, and the target's state (keyframe, between keyframes, locked).
 
+use crate::element_edit::{
+    Resolved, Target, TransformProp, editable, inner_target, keyframe_jump_frames, reason_text,
+    received_number,
+};
 use crate::icons::CelestaIcon;
 use crate::layer_select::display_path;
-use crate::transform_edit::{
-    Resolved, Target, TransformProp, editable, inner_target, keyframe_jump_frames, reason_text,
-};
 use crate::view::EditorView;
 use crate::widgets::inspector_section;
 use celesta_react_bridge::{LayerSourceReport, SourcePos};
@@ -72,12 +73,12 @@ pub(crate) fn field_text(
         EditTarget::Missing { default: None, .. } => (
             String::new(),
             format_number(
-                prop.received(&report.props)
+                received_number(&report.props, prop.name())
                     .unwrap_or_else(|| prop_default(prop, report)),
             ),
         ),
         EditTarget::PassThrough { target, .. } => field_text(prop, target, report),
-        EditTarget::Locked(_) => match prop.received(&report.props) {
+        EditTarget::Locked(_) => match received_number(&report.props, prop.name()) {
             Some(value) => (format_number(value), String::new()),
             None => (String::new(), format_number(prop_default(prop, report))),
         },
@@ -132,19 +133,26 @@ impl EditorView {
                 self.transform_inputs.fields.insert(prop, field);
             }
         }
-        let Some((resolved, _)) = self.transform.resolved(self.selected_layer.as_deref()) else {
+        let Some((resolved, _)) = self.element_edit.resolved(self.selected_layer.as_deref()) else {
             return;
         };
         let Ok(targets) = &resolved.outcome else {
             return;
         };
-        for (prop, target) in &targets.targets {
-            let Some(field) = self.transform_inputs.fields.get_mut(prop) else {
+        for (key, target) in &targets.targets {
+            let Some(prop) = TransformProp::from_key(key) else {
                 continue;
             };
-            let shown = match self.transform.written_value(Some(&resolved.layer), *prop) {
+            let Some(field) = self.transform_inputs.fields.get_mut(&prop) else {
+                continue;
+            };
+            let written = self
+                .element_edit
+                .written_value(Some(&resolved.layer), key)
+                .and_then(EditValue::as_number);
+            let shown = match written {
                 Some(value) => (format_number(value), String::new()),
-                None => field_text(*prop, &target.target, &resolved.report),
+                None => field_text(prop, &target.target, &resolved.report),
             };
             // Typed text stays until committed, but never under another layer.
             let same_layer = field.layer.as_deref() == Some(resolved.layer.as_str());
@@ -218,14 +226,14 @@ impl EditorView {
                 self.restore_transform_field(prop, cx);
             }
             if !text.is_empty() {
-                self.transform
+                self.element_edit
                     .set_error(layer.as_deref(), Some("Enter a number".to_owned()));
             }
             return cx.notify();
         };
         field.edited = false;
-        self.commit_transform(
-            vec![(prop, value)],
+        self.commit_element(
+            vec![(prop.key(), EditValue::Number(value))],
             move |this, result, cx| {
                 // The field keeps the typed text until the reload shows the
                 // written value; on failure it shows the source's value.
@@ -247,14 +255,17 @@ impl EditorView {
             .flex()
             .flex_col()
             .child(inspector_section("Transform", cx));
-        let resolved = self.transform.resolved(self.selected_layer.as_deref());
+        let resolved = self.element_edit.resolved(self.selected_layer.as_deref());
         match resolved {
             Some((resolved, current)) => match &resolved.outcome {
                 Ok(targets) => {
                     let entry_dir = self.entry_dir();
                     group
-                        .children(targets.targets.iter().map(|(prop, target)| {
-                            self.transform_row(*prop, target, resolved, current, &entry_dir, cx)
+                        .children(targets.targets.iter().filter_map(|(key, target)| {
+                            let prop = TransformProp::from_key(key)?;
+                            Some(
+                                self.transform_row(prop, target, resolved, current, &entry_dir, cx),
+                            )
                         }))
                         .into_any_element()
                 }

@@ -24,6 +24,7 @@ mod cli;
 mod component_schema;
 mod edit_history;
 mod editor_launch;
+mod element_edit;
 mod export_control;
 mod export_worker;
 mod helpers;
@@ -48,7 +49,6 @@ mod source;
 #[cfg(test)]
 mod tests;
 mod transform_drag;
-mod transform_edit;
 mod transform_handles;
 mod transform_rows;
 mod view;

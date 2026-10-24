@@ -404,7 +404,7 @@ impl EditorView {
         // The reload that reads this write keeps the selected layer, whose
         // transform targets are resolved again from the reloaded code.
         self.selection_keep.own_write();
-        self.transform.invalidate();
+        self.element_edit.invalidate();
         if let Some(react) = self.react_preview.as_mut()
             && watched.is_some()
         {

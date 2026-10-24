@@ -1,6 +1,6 @@
-//! Editing the selected React layer's transform in its JSX source: which
-//! source spans hold `x`, `y`, `rotation` and the scale props, the state the
-//! Layer section and the canvas read, and the commit that writes new values.
+//! Editing the selected React layer's props in its JSX source: which source
+//! spans hold each prop the editor writes, the state the Layer section and
+//! the canvas read, and the commit that writes new values.
 
 use crate::edit_history::Texts;
 use crate::layer_select::{SourceLookup, owner_call_site};
@@ -18,6 +18,26 @@ use std::fmt;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+/// A row the editor writes: a table prop by its table key (`fontSize`, even
+/// when it writes `style.fontSize`).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) enum PropKey {
+    Prop(String),
+}
+
+impl PropKey {
+    /// The row's name in messages: a transform prop's label, the key
+    /// otherwise.
+    pub(crate) fn label(&self) -> String {
+        match TransformProp::from_key(self) {
+            Some(prop) => prop.label().to_owned(),
+            None => match self {
+                Self::Prop(name) => name.clone(),
+            },
+        }
+    }
+}
+
 /// A transform prop the editor writes back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum TransformProp {
@@ -30,6 +50,27 @@ pub(crate) enum TransformProp {
 }
 
 impl TransformProp {
+    /// Every transform prop, in row order.
+    pub(crate) const ALL: [Self; 6] = [
+        Self::X,
+        Self::Y,
+        Self::Rotation,
+        Self::Scale,
+        Self::ScaleX,
+        Self::ScaleY,
+    ];
+
+    /// The row key of this prop.
+    pub(crate) fn key(self) -> PropKey {
+        PropKey::Prop(self.name().to_owned())
+    }
+
+    /// The transform prop `key` names, if any.
+    pub(crate) fn from_key(key: &PropKey) -> Option<Self> {
+        let PropKey::Prop(name) = key;
+        Self::ALL.into_iter().find(|prop| prop.name() == name)
+    }
+
     /// The JSX attribute name.
     pub(crate) fn name(self) -> &'static str {
         match self {
@@ -53,35 +94,34 @@ impl TransformProp {
             Self::ScaleY => "Scale Y",
         }
     }
+}
 
-    /// The value the runtime passed for this prop.
-    pub(crate) fn received(self, props: &ReceivedProps) -> Option<f64> {
-        match self {
-            Self::X => props.x,
-            Self::Y => props.y,
-            Self::Rotation => props.rotation,
-            Self::Scale => props.scale,
-            Self::ScaleX => props.scale_x,
-            Self::ScaleY => props.scale_y,
-        }
+/// The number the runtime passed for `prop`, if it passed one.
+pub(crate) fn received_number(props: &ReceivedProps, prop: &str) -> Option<f64> {
+    match props.get(prop)? {
+        ReceivedValue::Number(value) => Some(value),
+        ReceivedValue::String(_) | ReceivedValue::Bool(_) => None,
     }
 }
 
-/// Where one transform prop's value lives.
+/// Where one row's value lives.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Target {
     /// The file `target` is in: the call site's for a `PassThrough`, the
     /// element's otherwise.
     pub(crate) file: PathBuf,
+    /// The prop path resolved on the element (`fontSize`, `style.fontSize`,
+    /// `children`).
+    pub(crate) path: String,
     pub(crate) target: EditTarget,
     /// Where the component enclosing the element is called, for a
     /// `PassThrough`.
     pub(crate) call_site: Option<SourcePos>,
 }
 
-/// Where each transform prop of one element lives.
+/// Where each row of one element lives.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct TransformTargets {
+pub(crate) struct ElementTargets {
     /// The element's file.
     pub(crate) file: PathBuf,
     /// The files resolving read: the element's, then the call site's when a
@@ -89,40 +129,49 @@ pub(crate) struct TransformTargets {
     /// all again.
     pub(crate) files: Vec<PathBuf>,
     pub(crate) element: ElementRef,
-    /// `X`, `Y`, `Rotation`, then `Scale` or `ScaleX`, `ScaleY`.
-    pub(crate) targets: Vec<(TransformProp, Target)>,
+    /// `x`, `y`, `rotation`, then `scale` or `scaleX`, `scaleY`.
+    pub(crate) targets: Vec<(PropKey, Target)>,
 }
 
-impl TransformTargets {
-    /// `prop`'s target: a `PassThrough` wraps the target at the call site.
-    pub(crate) fn target(&self, prop: TransformProp) -> Option<&EditTarget> {
-        self.entry(prop).map(|target| &target.target)
+impl ElementTargets {
+    /// `key`'s target: a `PassThrough` wraps the target at the call site.
+    pub(crate) fn target(&self, key: &PropKey) -> Option<&EditTarget> {
+        self.entry(key).map(|target| &target.target)
     }
 
-    /// The file `prop` is written in; the element's when `prop` is not a
+    /// The file `key` is written in; the element's when `key` is not a
     /// target.
-    pub(crate) fn file_of(&self, prop: TransformProp) -> &Path {
-        self.entry(prop).map_or(&self.file, |target| &target.file)
+    pub(crate) fn file_of(&self, key: &PropKey) -> &Path {
+        self.entry(key).map_or(&self.file, |target| &target.file)
     }
 
-    /// The call site an edit of this element writes, when every editable
-    /// target passes through to that one call site: the edit then changes
-    /// only the instances it makes. `None` when nothing is editable, or when
-    /// an editable target is written on the element (in every instance).
+    /// The target of the transform prop `prop`.
+    pub(crate) fn transform(&self, prop: TransformProp) -> Option<&EditTarget> {
+        self.target(&prop.key())
+    }
+
+    /// The call site an edit of this element's transform writes, when every
+    /// editable transform target passes through to that one call site: the
+    /// edit then changes only the instances it makes. `None` when nothing is
+    /// editable, or when an editable target is written on the element (in
+    /// every instance). Other rows do not count.
     pub(crate) fn written_at(&self) -> Option<&SourcePos> {
         let mut sites = self
             .targets
             .iter()
-            .filter(|(_, target)| editable(&target.target))
+            .filter(|(key, target)| {
+                TransformProp::from_key(key).is_some() && editable(&target.target)
+            })
             .map(|(_, target)| target.call_site.as_ref());
         let first = sites.next()??;
         sites.all(|site| site == Some(first)).then_some(first)
     }
 
-    fn entry(&self, prop: TransformProp) -> Option<&Target> {
+    /// The row `key`.
+    pub(crate) fn entry(&self, key: &PropKey) -> Option<&Target> {
         self.targets
             .iter()
-            .find(|(candidate, _)| *candidate == prop)
+            .find(|(candidate, _)| candidate == key)
             .map(|(_, target)| target)
     }
 }
@@ -153,7 +202,39 @@ pub(crate) fn editable(target: &EditTarget) -> bool {
 pub(crate) fn resolve_targets(
     read: impl Fn(&Path) -> Result<String, String>,
     report: &LayerSourceReport,
-) -> Result<TransformTargets, String> {
+) -> Result<ElementTargets, String> {
+    resolve_rows(read, report, |text, element| {
+        let per_axis = [TransformProp::ScaleX, TransformProp::ScaleY]
+            .iter()
+            .any(|prop| has_attribute(text, element, prop.name()));
+        let props: &[TransformProp] = if per_axis {
+            &[
+                TransformProp::X,
+                TransformProp::Y,
+                TransformProp::Rotation,
+                TransformProp::ScaleX,
+                TransformProp::ScaleY,
+            ]
+        } else {
+            &[
+                TransformProp::X,
+                TransformProp::Y,
+                TransformProp::Rotation,
+                TransformProp::Scale,
+            ]
+        };
+        props.iter().map(|prop| prop.key()).collect()
+    })
+}
+
+/// Resolves the rows `keys` picks from the text and element of `report`'s
+/// innermost element; see [`resolve_targets`]. A commit replays the rows it
+/// started from this way.
+fn resolve_rows(
+    read: impl Fn(&Path) -> Result<String, String>,
+    report: &LayerSourceReport,
+    keys: impl FnOnce(&str, &ElementRef) -> Vec<PropKey>,
+) -> Result<ElementTargets, String> {
     let source = report
         .chain
         .first()
@@ -161,29 +242,18 @@ pub(crate) fn resolve_targets(
     let text = read(&source.file)?;
     let element = element_at(&text, source.line, source.column)
         .ok_or_else(|| reason_text(&LockReason::ElementNotFound))?;
-    let per_axis = [TransformProp::ScaleX, TransformProp::ScaleY]
-        .iter()
-        .any(|prop| has_attribute(&text, &element, prop.name()));
-    let props: &[TransformProp] = if per_axis {
-        &[
-            TransformProp::X,
-            TransformProp::Y,
-            TransformProp::Rotation,
-            TransformProp::ScaleX,
-            TransformProp::ScaleY,
-        ]
-    } else {
-        &[
-            TransformProp::X,
-            TransformProp::Y,
-            TransformProp::Rotation,
-            TransformProp::Scale,
-        ]
-    };
+    let rows: Vec<(PropKey, String)> = keys(&text, &element)
+        .into_iter()
+        .map(|key| {
+            let PropKey::Prop(name) = &key;
+            let path = name.clone();
+            (key, path)
+        })
+        .collect();
     let mut files = vec![source.file.clone()];
-    let passes = props
+    let passes = rows
         .iter()
-        .any(|prop| parameter_of(&text, &element, prop.name()).is_some());
+        .any(|(_, path)| parameter_of(&text, &element, path).is_some());
     // A call site that can't be read or found locks only the props passed
     // through (`CallSiteNotFound`); the element's own stay editable.
     let call_site =
@@ -201,37 +271,39 @@ pub(crate) fn resolve_targets(
                 (entry.name == component || tag_name(&call_site_text, &call) == component)
                     .then_some((entry, call_site_text, call))
             });
-    let target = |prop: TransformProp| {
+    let target = |(key, path): (PropKey, String)| {
         let ctx = ResolveContext {
             primitive: source.kind == ElementKind::Primitive,
             component_props: false,
             candidate_frames: candidate_frames(report),
-            received: report.props.get(prop.name()).map(edit_value),
+            received: report.props.get(&path).map(edit_value),
             render_count: report.render_count,
         };
         let through = call_site
             .as_ref()
             .map(|(_, call_site_text, call)| (call_site_text.as_str(), call));
-        let target = resolve_through(&text, &element, prop.name(), &ctx, through);
+        let target = resolve_through(&text, &element, &path, &ctx, through);
         let target = match (&target, &call_site) {
             (EditTarget::PassThrough { .. }, Some((entry, ..))) => Target {
                 file: entry.file.clone(),
+                path,
                 target,
                 call_site: Some(SourcePos::from(*entry)),
             },
             _ => Target {
                 file: source.file.clone(),
+                path,
                 target,
                 call_site: None,
             },
         };
-        (prop, target)
+        (key, target)
     };
-    Ok(TransformTargets {
+    Ok(ElementTargets {
         file: source.file.clone(),
         files,
         element,
-        targets: props.iter().map(|prop| target(*prop)).collect(),
+        targets: rows.into_iter().map(target).collect(),
     })
 }
 
@@ -272,8 +344,8 @@ fn edit_value(value: ReceivedValue) -> EditValue {
 pub(crate) enum CommitError {
     /// The file no longer has the targets the edit started from.
     SourceChanged,
-    /// The prop is locked or not a target of this element.
-    NotEditable(TransformProp),
+    /// The row (by its label) is locked or not a target of this element.
+    NotEditable(String),
     /// The value is NaN or infinite.
     NotANumber,
     Apply(ApplyError),
@@ -283,7 +355,7 @@ impl fmt::Display for CommitError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::SourceChanged => f.write_str("The source changed while editing"),
-            Self::NotEditable(prop) => write!(f, "{} can't be edited here", prop.label()),
+            Self::NotEditable(label) => write!(f, "{label} can't be edited here"),
             Self::NotANumber => f.write_str("Enter a number"),
             Self::Apply(error) => write!(f, "Couldn't edit the source: {error}"),
         }
@@ -292,21 +364,21 @@ impl fmt::Display for CommitError {
 
 /// The new text of every file `values` touch, in path order, after checking
 /// `texts` (each of `expected.files`) still have the targets of `expected`:
-/// same kinds at the same spans, in the same files. Nothing is returned for
-/// a file no value is written to.
+/// its rows, resolved again, are the same kinds at the same spans, in the
+/// same files. Nothing is returned for a file no value is written to.
 pub(crate) fn commit_files(
     texts: &Texts,
-    expected: &TransformTargets,
+    expected: &ElementTargets,
     report: &LayerSourceReport,
-    values: &[(TransformProp, f64)],
+    values: &[(PropKey, EditValue)],
 ) -> Result<Vec<(PathBuf, String)>, CommitError> {
     // A prop locked when the edit started (outside the project, say) stays
     // locked whatever the file holds now.
-    if let Some(&(prop, _)) = values
+    if let Some((key, _)) = values
         .iter()
-        .find(|(prop, _)| !expected.target(*prop).is_some_and(editable))
+        .find(|(key, _)| !expected.target(key).is_some_and(editable))
     {
-        return Err(CommitError::NotEditable(prop));
+        return Err(CommitError::NotEditable(key.label()));
     }
     let read = |path: &Path| {
         texts
@@ -314,7 +386,14 @@ pub(crate) fn commit_files(
             .cloned()
             .ok_or_else(|| format!("{} was not read", path.display()))
     };
-    let mut fresh = resolve_targets(read, report).map_err(|_| CommitError::SourceChanged)?;
+    let rows = |_: &str, _: &ElementRef| {
+        expected
+            .targets
+            .iter()
+            .map(|(key, _)| key.clone())
+            .collect()
+    };
+    let mut fresh = resolve_rows(read, report, rows).map_err(|_| CommitError::SourceChanged)?;
     let outside: Vec<&Path> = expected
         .targets
         .iter()
@@ -328,22 +407,26 @@ pub(crate) fn commit_files(
             .targets
             .iter()
             .zip(&expected.targets)
-            .all(|((prop, now), (was_prop, was))| {
-                prop == was_prop && now.file == was.file && same_place(&now.target, &was.target)
+            .all(|((key, now), (was_key, was))| {
+                key == was_key
+                    && now.file == was.file
+                    && now.path == was.path
+                    && same_place(&now.target, &was.target)
             });
     if !unchanged {
         return Err(CommitError::SourceChanged);
     }
     let mut edits: BTreeMap<&Path, Vec<Edit>> = BTreeMap::new();
-    for &(prop, value) in values {
-        if !value.is_finite() {
+    for (key, value) in values {
+        if value.as_number().is_some_and(|value| !value.is_finite()) {
             return Err(CommitError::NotANumber);
         }
+        // `None` for a keyframe given anything but a number, too.
         let edit = fresh
-            .target(prop)
-            .and_then(|target| target.to_edit(prop.name(), &EditValue::Number(value)))
-            .ok_or(CommitError::NotEditable(prop))?;
-        edits.entry(fresh.file_of(prop)).or_default().push(edit);
+            .entry(key)
+            .and_then(|target| target.target.to_edit(&target.path, value))
+            .ok_or_else(|| CommitError::NotEditable(key.label()))?;
+        edits.entry(fresh.file_of(key)).or_default().push(edit);
     }
     edits
         .into_iter()
@@ -425,14 +508,14 @@ pub(crate) struct Resolved {
     pub(crate) report: LayerSourceReport,
     /// The timeline frame the report was looked up at.
     pub(crate) timeline_frame: i64,
-    pub(crate) outcome: Result<TransformTargets, String>,
+    pub(crate) outcome: Result<ElementTargets, String>,
 }
 
-/// The selected layer's transform targets as the view keeps them. Resolution
-/// runs off the UI thread; a result for an older request or another layer is
+/// The selected layer's targets as the view keeps them. Resolution runs off
+/// the UI thread; a result for an older request or another layer is
 /// dropped.
 #[derive(Debug, Default)]
-pub(crate) struct TransformEdit {
+pub(crate) struct ElementEdit {
     request: u64,
     /// The layer, report and lookup frame the newest resolution was started for.
     wanted: Option<(String, LayerSourceReport, i64)>,
@@ -450,12 +533,12 @@ pub(crate) struct TransformEdit {
     /// The values the editor's own writes put into the file, and the layer
     /// they belong to: shown in the rows while `resolved` is stale, so a
     /// field does not show the old value until the reload resolves.
-    written: Option<(String, Vec<(TransformProp, f64)>)>,
+    written: Option<(String, Vec<(PropKey, EditValue)>)>,
     /// The last commit's error and the layer it belongs to.
     error: Option<(String, String)>,
 }
 
-impl TransformEdit {
+impl ElementEdit {
     /// Starts resolving `report` for `layer`, returning the request number,
     /// unless that is already resolved (or resolving) and still current.
     pub(crate) fn begin(
@@ -488,7 +571,7 @@ impl TransformEdit {
         &mut self,
         request: u64,
         selected: Option<&str>,
-        outcome: Result<TransformTargets, String>,
+        outcome: Result<ElementTargets, String>,
     ) -> bool {
         let Some((layer, report, timeline_frame)) = self.wanted.as_ref() else {
             return false;
@@ -545,8 +628,8 @@ impl TransformEdit {
 
     /// An own write for `layer` put `values` into the file (after
     /// `invalidate`). Kept until the reloaded code resolves; values for a
-    /// prop written again replace the earlier ones.
-    pub(crate) fn record_written(&mut self, layer: Option<&str>, values: &[(TransformProp, f64)]) {
+    /// row written again replace the earlier ones.
+    pub(crate) fn record_written(&mut self, layer: Option<&str>, values: &[(PropKey, EditValue)]) {
         let Some(layer) = layer.filter(|_| self.stale) else {
             return;
         };
@@ -556,23 +639,27 @@ impl TransformEdit {
         let Some((_, written)) = &mut self.written else {
             return;
         };
-        for &(prop, value) in values {
-            written.retain(|(other, _)| *other != prop);
-            written.push((prop, value));
+        for (key, value) in values {
+            written.retain(|(other, _)| other != key);
+            written.push((key.clone(), value.clone()));
         }
     }
 
-    /// The value an own write put into `prop` of `selected`, while the rows
+    /// The value an own write put into `key` of `selected`, while the rows
     /// still show the targets resolved before that write.
-    pub(crate) fn written_value(&self, selected: Option<&str>, prop: TransformProp) -> Option<f64> {
+    pub(crate) fn written_value(
+        &self,
+        selected: Option<&str>,
+        key: &PropKey,
+    ) -> Option<&EditValue> {
         let (layer, written) = self.written.as_ref().filter(|_| self.stale)?;
         if Some(layer.as_str()) != selected {
             return None;
         }
         written
             .iter()
-            .find(|(other, _)| *other == prop)
-            .map(|(_, value)| *value)
+            .find(|(other, _)| other == key)
+            .map(|(_, value)| value)
     }
 
     /// Why a commit for `selected` has no targets to write to.
@@ -605,7 +692,7 @@ impl TransformEdit {
         &self,
         selected: Option<&str>,
         lookup: Option<(&LayerSourceReport, i64)>,
-    ) -> Option<(&TransformTargets, &LayerSourceReport)> {
+    ) -> Option<(&ElementTargets, &LayerSourceReport)> {
         let (resolved, current) = self.resolved(selected)?;
         let (report, frame) = lookup?;
         if !current || *report != resolved.report || frame != resolved.timeline_frame {
@@ -666,10 +753,10 @@ pub(crate) fn keyframe_jump_frames(target: &EditTarget, lookup_frame: i64) -> Op
 }
 
 impl EditorView {
-    /// Starts resolving the selected layer's transform targets when its
-    /// source lookup has an answer the targets were not resolved for. Reads
-    /// the files and parses them on the background executor.
-    pub(crate) fn sync_transform_targets(&mut self, cx: &mut Context<Self>) {
+    /// Starts resolving the selected layer's targets when its source lookup
+    /// has an answer the targets were not resolved for. Reads the files and
+    /// parses them on the background executor.
+    pub(crate) fn sync_element_targets(&mut self, cx: &mut Context<Self>) {
         // A stale answer describes the code before the reload; resolving it
         // against the written file would pair the wrong report with it.
         if !self.is_react_preview() || self.source_lookup_stale {
@@ -681,7 +768,7 @@ impl EditorView {
             return;
         };
         let frame = self.source_lookup_frame;
-        let Some(request) = self.transform.begin(layer, report, frame) else {
+        let Some(request) = self.element_edit.begin(layer, report, frame) else {
             return;
         };
         let report = report.clone();
@@ -710,7 +797,10 @@ impl EditorView {
                 .await;
             view.update(cx, |this, cx| {
                 let selected = this.selected_layer.clone();
-                if this.transform.finish(request, selected.as_deref(), outcome) {
+                if this
+                    .element_edit
+                    .finish(request, selected.as_deref(), outcome)
+                {
                     cx.notify();
                 }
             })
@@ -719,15 +809,15 @@ impl EditorView {
         .detach();
     }
 
-    /// The selected layer's transform targets and the report they were
-    /// resolved for, when they can be committed to.
+    /// The selected layer's targets and the report they were resolved for,
+    /// when they can be committed to.
     // The canvas drag reads these too.
-    pub(crate) fn transform_targets(&self) -> Option<(&TransformTargets, &LayerSourceReport)> {
+    pub(crate) fn element_targets(&self) -> Option<(&ElementTargets, &LayerSourceReport)> {
         let lookup = match &self.source_lookup {
             Some(SourceLookup::Found(report)) => Some((report, self.source_lookup_frame)),
             _ => None,
         };
-        self.transform
+        self.element_edit
             .targets(self.selected_layer.as_deref(), lookup)
     }
 
@@ -735,22 +825,22 @@ impl EditorView {
     /// entry, the call site's file too when a value passes through, then
     /// reloads keeping the selection. `done` gets the outcome (also shown in
     /// the Layer section when it failed).
-    pub(crate) fn commit_transform(
+    pub(crate) fn commit_element(
         &mut self,
-        values: Vec<(TransformProp, f64)>,
+        values: Vec<(PropKey, EditValue)>,
         done: impl FnOnce(&mut Self, Result<(), String>, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) {
         let layer = self.selected_layer.clone();
-        let Some((targets, report)) = self.transform_targets() else {
-            let message = self.transform.unavailable(layer.as_deref());
-            self.transform
+        let Some((targets, report)) = self.element_targets() else {
+            let message = self.element_edit.unavailable(layer.as_deref());
+            self.element_edit
                 .set_error(layer.as_deref(), Some(message.clone()));
             return done(self, Err(message), cx);
         };
         let (targets, report) = (targets.clone(), report.clone());
         let written = values.clone();
-        self.transform.set_error(layer.as_deref(), None);
+        self.element_edit.set_error(layer.as_deref(), None);
         self.record_own_writes(
             targets.files.clone(),
             move |texts| {
@@ -760,9 +850,9 @@ impl EditorView {
                 // A success invalidated the targets (`apply_own_write_sample`);
                 // the rows show the written values until the reload resolves.
                 match &result {
-                    Ok(()) => this.transform.record_written(layer.as_deref(), &written),
+                    Ok(()) => this.element_edit.record_written(layer.as_deref(), &written),
                     Err(message) => this
-                        .transform
+                        .element_edit
                         .set_error(layer.as_deref(), Some(message.clone())),
                 }
                 done(this, result, cx);
@@ -799,10 +889,7 @@ fn normalize(path: &Path) -> PathBuf {
 
 /// Locks every target in a file `outside` says is outside the project (the
 /// element's, or a call site's).
-pub(crate) fn lock_outside_project(
-    targets: &mut TransformTargets,
-    outside: impl Fn(&Path) -> bool,
-) {
+pub(crate) fn lock_outside_project(targets: &mut ElementTargets, outside: impl Fn(&Path) -> bool) {
     for (_, target) in &mut targets.targets {
         if outside(&target.file) {
             target.target = EditTarget::Locked(LockReason::OutsideProject);

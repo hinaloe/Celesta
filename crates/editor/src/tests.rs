@@ -6,6 +6,11 @@ use crate::editor_launch::{
     Invocation, LaunchError, default_opener, editor_invocation, editor_value,
     parse_login_shell_output, read_until_closing_marker, split_command,
 };
+use crate::element_edit::{
+    CommitError, ElementEdit, ElementTargets, PropKey, Target, TransformProp, commit_files,
+    inside_project, keyframe_jump_frames, keyframe_timeline_frame, lock_outside_project,
+    reason_text, resolve_targets,
+};
 use crate::export_worker::{
     ExportEvent, ExportRequest, ExportSource, ExportWorker, export_options,
 };
@@ -23,11 +28,6 @@ use crate::source::is_react_entry;
 use crate::transform_drag::{
     OverrideSite, TransformDrag, override_sites, presses_body, prop_overrides,
 };
-use crate::transform_edit::{
-    CommitError, Target, TransformEdit, TransformProp, TransformTargets, commit_files,
-    inside_project, keyframe_jump_frames, keyframe_timeline_frame, lock_outside_project,
-    reason_text, resolve_targets,
-};
 use crate::transform_handles::{
     Handle, drag_label, drag_values, handle_at, handles, preview_values, prop_values,
     shown_handles, turn,
@@ -39,7 +39,7 @@ use crate::waveform::{
 };
 use celesta_editor_core::ClipKind;
 use celesta_gpu_renderer::{GpuDriver, LayerFrame};
-use celesta_source_edit::{EditTarget, EditValue, LockReason};
+use celesta_source_edit::{EditTarget, EditValue, LiteralForm, LockReason, Span, element_at};
 
 use crate::preview::{
     ReactPreviewContext, ReactPreviewMode, collect_component_requests, records_hit_regions,
@@ -58,7 +58,7 @@ use celesta_media::{AudioBuffer, AudioDecoder};
 use celesta_project::{Project, TrackKind};
 use celesta_react_bridge::{
     ComponentResolutions, ElementKind, LayerSource, LayerSourceReport, PropOverride, ReceivedProps,
-    SourcePos,
+    ReceivedValue, SourcePos,
 };
 use std::collections::HashMap;
 use std::fs;
@@ -1193,16 +1193,26 @@ fn x_only() -> ReceivedProps {
 }
 
 /// Resolves `report` with `text` as the text of every file.
-fn resolve_in(text: &str, report: &LayerSourceReport) -> Result<TransformTargets, String> {
+fn resolve_in(text: &str, report: &LayerSourceReport) -> Result<ElementTargets, String> {
     resolve_targets(|_| Ok(text.to_owned()), report)
+}
+
+/// `prop` set to the number `value`, as a commit takes it.
+fn num(prop: TransformProp, value: f64) -> (PropKey, EditValue) {
+    (prop.key(), EditValue::Number(value))
+}
+
+/// The row keys of `targets`, in order.
+fn keys(targets: &ElementTargets) -> Vec<PropKey> {
+    targets.targets.iter().map(|(key, _)| key.clone()).collect()
 }
 
 /// Commits `values` with `text` as the element's file, returning its new text.
 fn commit_in(
     text: &str,
-    expected: &TransformTargets,
+    expected: &ElementTargets,
     report: &LayerSourceReport,
-    values: &[(TransformProp, f64)],
+    values: &[(PropKey, EditValue)],
 ) -> Result<String, CommitError> {
     let texts = Texts::from([(expected.file.clone(), text.to_owned())]);
     let files = commit_files(&texts, expected, report, values)?;
@@ -1227,15 +1237,14 @@ fn transform_resolve_targets_prefers_scale_xy() {
 
     let targets = resolve_in(text, &report).expect("the element resolves");
 
-    let props: Vec<_> = targets.targets.iter().map(|(prop, _)| *prop).collect();
     assert_eq!(
-        props,
+        keys(&targets),
         [
-            TransformProp::X,
-            TransformProp::Y,
-            TransformProp::Rotation,
-            TransformProp::ScaleX,
-            TransformProp::ScaleY
+            TransformProp::X.key(),
+            TransformProp::Y.key(),
+            TransformProp::Rotation.key(),
+            TransformProp::ScaleX.key(),
+            TransformProp::ScaleY.key()
         ]
     );
     assert!(matches!(
@@ -1254,14 +1263,13 @@ fn transform_resolve_targets_uniform_scale() {
     let targets = resolve_in(TRANSFORM_FIXTURE, &primitive_report(2, 3, x_only()))
         .expect("the element resolves");
 
-    let props: Vec<_> = targets.targets.iter().map(|(prop, _)| *prop).collect();
     assert_eq!(
-        props,
+        keys(&targets),
         [
-            TransformProp::X,
-            TransformProp::Y,
-            TransformProp::Rotation,
-            TransformProp::Scale
+            TransformProp::X.key(),
+            TransformProp::Y.key(),
+            TransformProp::Rotation.key(),
+            TransformProp::Scale.key()
         ]
     );
     assert_eq!(TransformProp::ScaleX.name(), "scaleX");
@@ -1286,7 +1294,10 @@ fn transform_commit_writes_literal_and_inserts() {
         TRANSFORM_FIXTURE,
         &expected,
         &report,
-        &[(TransformProp::X, 120.0), (TransformProp::Rotation, 45.5)],
+        &[
+            num(TransformProp::X, 120.0),
+            num(TransformProp::Rotation, 45.5),
+        ],
     )
     .expect("both targets are editable");
 
@@ -1306,7 +1317,7 @@ fn transform_commit_aborts_when_target_moved() {
     let widened = TRANSFORM_FIXTURE.replace("x={100}", "x={1000}");
 
     for text in [moved, widened] {
-        let error = commit_in(&text, &expected, &report, &[(TransformProp::X, 120.0)])
+        let error = commit_in(&text, &expected, &report, &[num(TransformProp::X, 120.0)])
             .expect_err("the source changed");
         assert_eq!(error, CommitError::SourceChanged);
         assert_eq!(error.to_string(), "The source changed while editing");
@@ -1323,20 +1334,130 @@ fn transform_commit_refuses_locked_and_non_finite_values() {
             TRANSFORM_FIXTURE,
             &expected,
             &report,
-            &[(TransformProp::X, f64::NAN)]
+            &[num(TransformProp::X, f64::NAN)]
         ),
         Err(CommitError::NotANumber)
     ));
     // `scaleX` is not a target of a uniformly scaled element.
-    assert!(matches!(
+    assert_eq!(
         commit_in(
             TRANSFORM_FIXTURE,
             &expected,
             &report,
-            &[(TransformProp::ScaleX, 2.0)]
+            &[num(TransformProp::ScaleX, 2.0)]
         ),
-        Err(CommitError::NotEditable(TransformProp::ScaleX))
-    ));
+        Err(CommitError::NotEditable("Scale X".to_owned()))
+    );
+    assert_eq!(
+        CommitError::NotEditable("Scale X".to_owned()).to_string(),
+        "Scale X can't be edited here"
+    );
+}
+
+/// `<Text>Sale</Text>` / `<Video loop />` at line 2, column 3 of
+/// `/project/scene.tsx`, received with `value` as `prop`.
+fn other_prop_report(name: &str, prop: &str, value: ReceivedValue) -> LayerSourceReport {
+    let mut report = primitive_report(2, 3, ReceivedProps::default());
+    report.chain[0].name = name.to_owned();
+    report.props.others.insert(prop.to_owned(), value);
+    report
+}
+
+/// A hand-built target set of `text`'s element at line 2, column 3 with the
+/// single row `prop` holding `target`.
+fn single_row(text: &str, prop: &str, target: EditTarget) -> ElementTargets {
+    let file = PathBuf::from("/project/scene.tsx");
+    ElementTargets {
+        file: file.clone(),
+        files: vec![file.clone()],
+        element: element_at(text, 2, 3).expect("the element is at 2:3"),
+        targets: vec![(
+            PropKey::Prop(prop.to_owned()),
+            Target {
+                file,
+                path: prop.to_owned(),
+                target,
+                call_site: None,
+            },
+        )],
+    }
+}
+
+#[test]
+fn commit_files_writes_a_string() {
+    let text = "export const Scene = () => (\n  <Text>Sale</Text>\n);\n";
+    let report = other_prop_report("Text", "children", ReceivedValue::String("Sale".to_owned()));
+    let start = text.find("Sale").unwrap() as u32;
+    let expected = single_row(
+        text,
+        "children",
+        EditTarget::Literal {
+            span: Span {
+                start,
+                end: start + 4,
+            },
+            value: EditValue::String("Sale".to_owned()),
+            form: LiteralForm::JsxText,
+        },
+    );
+
+    let written = commit_in(
+        text,
+        &expected,
+        &report,
+        &[(
+            PropKey::Prop("children".to_owned()),
+            EditValue::String("Sold out".to_owned()),
+        )],
+    );
+
+    assert_eq!(
+        written,
+        Ok("export const Scene = () => (\n  <Text>Sold out</Text>\n);\n".to_owned())
+    );
+}
+
+#[test]
+fn commit_files_writes_a_bool() {
+    let text = "export const Scene = () => (\n  <Video loop />\n);\n";
+    let report = other_prop_report("Video", "loop", ReceivedValue::Bool(true));
+    let at = (text.find("loop").unwrap() + "loop".len()) as u32;
+    let expected = single_row(
+        text,
+        "loop",
+        EditTarget::Literal {
+            span: Span { start: at, end: at },
+            value: EditValue::Bool(true),
+            form: LiteralForm::BareTrue,
+        },
+    );
+
+    let written = commit_in(
+        text,
+        &expected,
+        &report,
+        &[(PropKey::Prop("loop".to_owned()), EditValue::Bool(false))],
+    );
+
+    assert_eq!(
+        written,
+        Ok("export const Scene = () => (\n  <Video loop={false} />\n);\n".to_owned())
+    );
+}
+
+#[test]
+fn written_values_keep_their_type() {
+    let mut state = ElementEdit::default();
+    state.invalidate();
+    let children = PropKey::Prop("children".to_owned());
+    state.record_written(
+        Some("a"),
+        &[(children.clone(), EditValue::String("Sold out".to_owned()))],
+    );
+    assert_eq!(
+        state.written_value(Some("a"), &children),
+        Some(&EditValue::String("Sold out".to_owned()))
+    );
 }
 
 #[test]
@@ -1467,7 +1588,7 @@ fn transform_state_drops_stale_resolutions() {
     let report = primitive_report(2, 3, x_only());
     let moved = primitive_report(2, 3, ReceivedProps::default());
     let targets = || resolve_in(TRANSFORM_FIXTURE, &report);
-    let mut state = TransformEdit::default();
+    let mut state = ElementEdit::default();
 
     let first = state.begin("a", &report, 0).expect("nothing resolved yet");
     assert_eq!(state.begin("a", &report, 0), None, "already resolving it");
@@ -1512,14 +1633,13 @@ fn transform_resolve_targets_ignores_a_scale_axis_only_a_parent_sets() {
 
     let targets = resolve_in(TRANSFORM_FIXTURE, &report).expect("the element resolves");
 
-    let props: Vec<_> = targets.targets.iter().map(|(prop, _)| *prop).collect();
     assert_eq!(
-        props,
+        keys(&targets),
         [
-            TransformProp::X,
-            TransformProp::Y,
-            TransformProp::Rotation,
-            TransformProp::Scale
+            TransformProp::X.key(),
+            TransformProp::Y.key(),
+            TransformProp::Rotation.key(),
+            TransformProp::Scale.key()
         ]
     );
 }
@@ -1531,7 +1651,7 @@ fn transform_reset_resolves_an_identical_report_again() {
     let before = "export const Scene = () => (\n  <Rect width={10} x={100} />\n);\n";
     let after = before.replace("width={10}", "width={100}");
     let report = primitive_report(2, 3, x_only());
-    let mut state = TransformEdit::default();
+    let mut state = ElementEdit::default();
 
     let first = state.begin("a", &report, 0).unwrap();
     assert!(state.finish(first, Some("a"), resolve_in(before, &report)));
@@ -1547,14 +1667,14 @@ fn transform_reset_resolves_an_identical_report_again() {
     assert!(state.finish(second, Some("a"), resolve_in(&after, &report)));
 
     let (targets, report) = state.targets(Some("a"), Some((&report, 0))).unwrap();
-    let written = commit_in(&after, targets, report, &[(TransformProp::X, 120.0)]).unwrap();
+    let written = commit_in(&after, targets, report, &[num(TransformProp::X, 120.0)]).unwrap();
     assert_eq!(written, after.replace("x={100}", "x={120}"));
 }
 
 #[test]
 fn transform_explains_why_there_is_nothing_to_commit() {
     let report = primitive_report(2, 3, x_only());
-    let mut state = TransformEdit::default();
+    let mut state = ElementEdit::default();
     assert_eq!(
         state.unavailable(Some("a")),
         "The source is still being read"
@@ -1605,7 +1725,7 @@ fn transform_keyframe_jumps_use_the_candidate_frame() {
         )
     };
     let targets = resolve_in(text, &report).unwrap();
-    let target = targets.target(TransformProp::X).unwrap();
+    let target = targets.transform(TransformProp::X).unwrap();
     assert_eq!(
         target,
         &EditTarget::Locked(LockReason::BetweenKeyframes {
@@ -2080,10 +2200,10 @@ fn above_sequence_report(candidate_frames: Vec<f64>) -> LayerSourceReport {
 #[test]
 fn transform_keyframe_is_the_one_the_owner_frame_reads() {
     let targets = resolve_in(ABOVE_SEQUENCE, &above_sequence_report(vec![])).unwrap();
-    let Some(EditTarget::Keyframe { span, frame, .. }) = targets.target(TransformProp::X) else {
+    let Some(EditTarget::Keyframe { span, frame, .. }) = targets.transform(TransformProp::X) else {
         panic!(
             "expected a keyframe, got {:?}",
-            targets.target(TransformProp::X)
+            targets.transform(TransformProp::X)
         );
     };
     assert_eq!(span.start as usize, ABOVE_SEQUENCE.rfind("100").unwrap());
@@ -2093,12 +2213,12 @@ fn transform_keyframe_is_the_one_the_owner_frame_reads() {
     // whose value is also 100: no telling which.
     let targets = resolve_in(ABOVE_SEQUENCE, &above_sequence_report(vec![30.0, 60.0])).unwrap();
     assert_eq!(
-        targets.target(TransformProp::X),
+        targets.transform(TransformProp::X),
         Some(&EditTarget::Locked(LockReason::FrameUncertain))
     );
     // A literal elsewhere on the element stays editable.
     assert!(matches!(
-        targets.target(TransformProp::Y),
+        targets.transform(TransformProp::Y),
         Some(EditTarget::Missing { .. })
     ));
 }
@@ -2107,7 +2227,7 @@ fn transform_keyframe_is_the_one_the_owner_frame_reads() {
 fn transform_targets_need_the_current_lookup() {
     let report = primitive_report(2, 3, x_only());
     let other = primitive_report(2, 3, ReceivedProps::default());
-    let mut state = TransformEdit::default();
+    let mut state = ElementEdit::default();
     let request = state.begin("a", &report, 10).unwrap();
     assert!(state.finish(request, Some("a"), resolve_in(TRANSFORM_FIXTURE, &report)));
     assert!(state.targets(Some("a"), Some((&report, 10))).is_some());
@@ -2124,7 +2244,7 @@ fn transform_targets_need_the_current_lookup() {
 fn transform_only_a_reset_clears_an_own_write() {
     let report = primitive_report(2, 3, x_only());
     let newer = primitive_report(2, 3, ReceivedProps::default());
-    let mut state = TransformEdit::default();
+    let mut state = ElementEdit::default();
     let request = state.begin("a", &report, 0).unwrap();
     assert!(state.finish(request, Some("a"), resolve_in(TRANSFORM_FIXTURE, &report)));
 
@@ -2145,7 +2265,7 @@ fn transform_only_a_reset_clears_an_own_write() {
 #[test]
 fn expire_keeps_the_resolution_visible_but_not_current() {
     let report = primitive_report(2, 3, x_only());
-    let mut state = TransformEdit::default();
+    let mut state = ElementEdit::default();
     let request = state.begin("a", &report, 0).unwrap();
     assert!(state.finish(request, Some("a"), resolve_in(TRANSFORM_FIXTURE, &report)));
 
@@ -2162,7 +2282,7 @@ fn expire_keeps_the_resolution_visible_but_not_current() {
 #[test]
 fn finish_after_expire_is_current_again() {
     let report = primitive_report(2, 3, x_only());
-    let mut state = TransformEdit::default();
+    let mut state = ElementEdit::default();
     let request = state.begin("a", &report, 0).unwrap();
     assert!(state.finish(request, Some("a"), resolve_in(TRANSFORM_FIXTURE, &report)));
     state.invalidate();
@@ -2179,7 +2299,7 @@ fn expire_then_another_write_stays_stale() {
     let report = primitive_report(2, 3, x_only());
     let newer = primitive_report(2, 3, ReceivedProps::default());
     let targets = |report| resolve_in(TRANSFORM_FIXTURE, report);
-    let mut state = TransformEdit::default();
+    let mut state = ElementEdit::default();
     state.invalidate();
     state.expire();
     let request = state.begin("a", &report, 0).unwrap();
@@ -2197,51 +2317,61 @@ fn expire_then_another_write_stays_stale() {
 fn written_values_show_until_the_reloaded_code_resolves() {
     let report = primitive_report(2, 3, x_only());
     let targets = || resolve_in(TRANSFORM_FIXTURE, &report);
-    let mut state = TransformEdit::default();
+    let mut state = ElementEdit::default();
     let request = state.begin("a", &report, 0).unwrap();
     assert!(state.finish(request, Some("a"), targets()));
 
     state.invalidate();
-    state.record_written(Some("a"), &[(TransformProp::X, 184.0)]);
-    state.record_written(Some("a"), &[(TransformProp::Y, 40.0)]);
+    state.record_written(Some("a"), &[num(TransformProp::X, 184.0)]);
+    state.record_written(Some("a"), &[num(TransformProp::Y, 40.0)]);
+    let (x, y) = (TransformProp::X.key(), TransformProp::Y.key());
     assert_eq!(
-        state.written_value(Some("a"), TransformProp::X),
-        Some(184.0)
+        state.written_value(Some("a"), &x),
+        Some(&EditValue::Number(184.0))
     );
-    assert_eq!(state.written_value(Some("a"), TransformProp::Y), Some(40.0));
     assert_eq!(
-        state.written_value(Some("a"), TransformProp::Rotation),
+        state.written_value(Some("a"), &y),
+        Some(&EditValue::Number(40.0))
+    );
+    assert_eq!(
+        state.written_value(Some("a"), &TransformProp::Rotation.key()),
         None
     );
-    assert_eq!(state.written_value(Some("b"), TransformProp::X), None);
+    assert_eq!(state.written_value(Some("b"), &x), None);
 
     // Still shown while the reload runs.
     state.expire();
     assert_eq!(
-        state.written_value(Some("a"), TransformProp::X),
-        Some(184.0)
+        state.written_value(Some("a"), &x),
+        Some(&EditValue::Number(184.0))
     );
     // The reloaded code's resolution shows the file's values instead.
     let request = state.begin("a", &report, 0).unwrap();
     assert!(state.finish(request, Some("a"), targets()));
-    assert_eq!(state.written_value(Some("a"), TransformProp::X), None);
+    assert_eq!(state.written_value(Some("a"), &x), None);
 }
 
 #[test]
 fn written_values_are_dropped_with_the_selection() {
-    let mut state = TransformEdit::default();
+    let mut state = ElementEdit::default();
     state.invalidate();
-    state.record_written(Some("a"), &[(TransformProp::X, 184.0)]);
+    state.record_written(Some("a"), &[num(TransformProp::X, 184.0)]);
     state.reset();
-    assert_eq!(state.written_value(Some("a"), TransformProp::X), None);
+    assert_eq!(
+        state.written_value(Some("a"), &TransformProp::X.key()),
+        None
+    );
 }
 
 #[test]
 fn a_current_resolution_ignores_written_values() {
     // Nothing was written since the targets were read: nothing to show.
-    let mut state = TransformEdit::default();
-    state.record_written(Some("a"), &[(TransformProp::X, 184.0)]);
-    assert_eq!(state.written_value(Some("a"), TransformProp::X), None);
+    let mut state = ElementEdit::default();
+    state.record_written(Some("a"), &[num(TransformProp::X, 184.0)]);
+    assert_eq!(
+        state.written_value(Some("a"), &TransformProp::X.key()),
+        None
+    );
 }
 
 #[test]
@@ -2249,7 +2379,7 @@ fn an_own_write_reload_keeps_the_lookup() {
     let report = primitive_report(2, 3, x_only());
     let targets = || resolve_in(TRANSFORM_FIXTURE, &report);
     let mut keep = SelectionKeep::default();
-    let mut state = TransformEdit::default();
+    let mut state = ElementEdit::default();
     let request = state.begin("a", &report, 0).unwrap();
     assert!(state.finish(request, Some("a"), targets()));
 
@@ -2447,9 +2577,9 @@ fn transform_files_outside_the_project_are_locked() {
             TRANSFORM_FIXTURE,
             &targets,
             &report,
-            &[(TransformProp::X, 5.0)]
+            &[num(TransformProp::X, 5.0)]
         ),
-        Err(CommitError::NotEditable(TransformProp::X))
+        Err(CommitError::NotEditable("X".to_owned()))
     );
 }
 
@@ -2575,12 +2705,15 @@ fn x_passed_at_the_call_site_is_a_pass_through_target() {
 
     assert_eq!(targets.file, PathBuf::from("/project/component.tsx"));
     assert_eq!(
-        targets.file_of(TransformProp::X),
+        targets.file_of(&TransformProp::X.key()),
         Path::new("/project/scene.tsx")
     );
-    let Some(EditTarget::PassThrough { param, target, .. }) = targets.target(TransformProp::X)
+    let Some(EditTarget::PassThrough { param, target, .. }) = targets.transform(TransformProp::X)
     else {
-        panic!("x passes through: {:?}", targets.target(TransformProp::X));
+        panic!(
+            "x passes through: {:?}",
+            targets.transform(TransformProp::X)
+        );
     };
     assert_eq!(param, "x");
     assert!(matches!(
@@ -2598,11 +2731,11 @@ fn x_passed_at_the_call_site_is_a_pass_through_target() {
 
     // `rotation` is written on the element itself.
     assert_eq!(
-        targets.file_of(TransformProp::Rotation),
+        targets.file_of(&TransformProp::Rotation.key()),
         Path::new("/project/component.tsx")
     );
     assert!(matches!(
-        targets.target(TransformProp::Rotation),
+        targets.transform(TransformProp::Rotation),
         Some(EditTarget::Literal { value: EditValue::Number(value), .. }) if *value == 10.0
     ));
     assert_eq!(targets.targets[2].1.call_site, None);
@@ -2824,7 +2957,10 @@ fn a_drag_writes_two_files() {
         &texts,
         &targets,
         &report,
-        &[(TransformProp::X, 60.0), (TransformProp::Rotation, 45.0)],
+        &[
+            num(TransformProp::X, 60.0),
+            num(TransformProp::Rotation, 45.0),
+        ],
     )
     .expect("both targets are editable");
 
@@ -2860,12 +2996,15 @@ fn a_value_missing_at_the_call_site_is_inserted_there() {
         ..price_tag_report()
     };
     let targets = resolve_targets(read_from(&texts), &report).unwrap();
-    let Some(EditTarget::PassThrough { target, .. }) = targets.target(TransformProp::X) else {
-        panic!("x passes through: {:?}", targets.target(TransformProp::X));
+    let Some(EditTarget::PassThrough { target, .. }) = targets.transform(TransformProp::X) else {
+        panic!(
+            "x passes through: {:?}",
+            targets.transform(TransformProp::X)
+        );
     };
     assert!(matches!(**target, EditTarget::Missing { .. }));
 
-    let written = commit_files(&texts, &targets, &report, &[(TransformProp::X, 60.0)]).unwrap();
+    let written = commit_files(&texts, &targets, &report, &[num(TransformProp::X, 60.0)]).unwrap();
 
     assert_eq!(
         written,
@@ -2893,7 +3032,10 @@ fn a_component_called_in_its_own_file_is_written_once() {
         &texts,
         &targets,
         &report,
-        &[(TransformProp::X, 60.0), (TransformProp::Rotation, 45.0)],
+        &[
+            num(TransformProp::X, 60.0),
+            num(TransformProp::Rotation, 45.0),
+        ],
     )
     .unwrap();
 
@@ -2926,7 +3068,10 @@ fn a_changed_call_site_aborts() {
                 &texts,
                 &targets,
                 &report,
-                &[(TransformProp::X, 60.0), (TransformProp::Rotation, 45.0)],
+                &[
+                    num(TransformProp::X, 60.0),
+                    num(TransformProp::Rotation, 45.0)
+                ],
             ),
             Err(CommitError::SourceChanged)
         );
@@ -2942,12 +3087,12 @@ fn a_call_site_outside_the_project_locks_only_its_targets() {
     lock_outside_project(&mut targets, |file| file == Path::new("/project/scene.tsx"));
 
     assert_eq!(
-        targets.target(TransformProp::X),
+        targets.transform(TransformProp::X),
         Some(&EditTarget::Locked(LockReason::OutsideProject))
     );
     assert_eq!(
-        commit_files(&texts, &targets, &report, &[(TransformProp::X, 60.0)]),
-        Err(CommitError::NotEditable(TransformProp::X))
+        commit_files(&texts, &targets, &report, &[num(TransformProp::X, 60.0)]),
+        Err(CommitError::NotEditable("X".to_owned()))
     );
     // The element's own file is still written.
     assert_eq!(
@@ -2955,7 +3100,7 @@ fn a_call_site_outside_the_project_locks_only_its_targets() {
             &texts,
             &targets,
             &report,
-            &[(TransformProp::Rotation, 45.0)]
+            &[num(TransformProp::Rotation, 45.0)]
         ),
         Ok(vec![(
             PathBuf::from("/project/component.tsx"),
@@ -2976,7 +3121,7 @@ fn a_value_passed_on_again_still_commits_the_element_s_own_props() {
     let targets = resolve_targets(read_from(&texts), &report).unwrap();
 
     assert_eq!(
-        targets.target(TransformProp::X),
+        targets.transform(TransformProp::X),
         Some(&EditTarget::Locked(LockReason::ParameterOfCaller {
             component: "Card".to_owned()
         }))
@@ -2995,7 +3140,12 @@ fn a_value_passed_on_again_still_commits_the_element_s_own_props() {
         .map(|file| (file.clone(), texts[file].clone()))
         .collect();
     assert_eq!(
-        commit_files(&read, &targets, &report, &[(TransformProp::Rotation, 45.0)]),
+        commit_files(
+            &read,
+            &targets,
+            &report,
+            &[num(TransformProp::Rotation, 45.0)]
+        ),
         Ok(vec![(
             PathBuf::from("/project/component.tsx"),
             PRICE_TAG.replace("rotation={10}", "rotation={45}")
@@ -3048,25 +3198,25 @@ fn an_anonymous_call_site_must_call_the_enclosing_component() {
     ]);
     let targets = resolve_targets(read_from(&texts), &report).unwrap();
     assert_eq!(
-        targets.target(TransformProp::X),
+        targets.transform(TransformProp::X),
         Some(&EditTarget::Locked(LockReason::CallSiteNotFound {
             component: "PriceTag".to_owned()
         }))
     );
     assert_eq!(
-        commit_files(&texts, &targets, &report, &[(TransformProp::X, 60.0)]),
-        Err(CommitError::NotEditable(TransformProp::X))
+        commit_files(&texts, &targets, &report, &[num(TransformProp::X, 60.0)]),
+        Err(CommitError::NotEditable("X".to_owned()))
     );
 
     // An anonymous entry whose tag is `<PriceTag>` is its call.
     let report = memo_report(vec![rect, price_tag_call]);
     let targets = resolve_targets(read_from(&texts), &report).unwrap();
     assert_eq!(
-        targets.file_of(TransformProp::X),
+        targets.file_of(&TransformProp::X.key()),
         Path::new("/project/scene.tsx")
     );
     assert!(matches!(
-        targets.target(TransformProp::X),
+        targets.transform(TransformProp::X),
         Some(EditTarget::PassThrough { .. })
     ));
 }
@@ -3082,7 +3232,7 @@ fn an_unreadable_call_site_locks_only_the_props_passed_through() {
     let targets = resolve_targets(read_from(&texts), &report).expect("the element resolves");
 
     assert_eq!(
-        targets.target(TransformProp::X),
+        targets.transform(TransformProp::X),
         Some(&EditTarget::Locked(LockReason::CallSiteNotFound {
             component: "PriceTag".to_owned()
         }))
@@ -3093,7 +3243,7 @@ fn an_unreadable_call_site_locks_only_the_props_passed_through() {
             &texts,
             &targets,
             &report,
-            &[(TransformProp::Rotation, 45.0)]
+            &[num(TransformProp::Rotation, 45.0)]
         ),
         Ok(vec![(
             PathBuf::from("/project/component.tsx"),
@@ -3136,6 +3286,7 @@ fn an_edit_is_written_at_the_call_site_only_when_every_editable_prop_passes_thro
     // A locked prop on the element is not written, so it does not count.
     targets.targets[2].1 = Target {
         file: PathBuf::from("/project/component.tsx"),
+        path: "rotation".to_owned(),
         target: EditTarget::Locked(LockReason::Spread),
         call_site: None,
     };
