@@ -142,8 +142,7 @@ These differ from, or settle what the spec left open:
   Center for the next layer. Center uses the outline's box (`local_box`):
   a text's padding is symmetric horizontally, so its center is the layout
   box's there; vertically it differs by the glyph overflow of multi-line
-  text. A
-  running drag keeps the mode it started with.
+  text. A running drag keeps the mode it started with.
 - **The anchor box.** The anchor and the size props are fractions and
   lengths of one box, and both the anchor drag and the Rect tool measure
   that box, not the outline: for `Text` the layout box the renderer
@@ -296,8 +295,9 @@ example changed):
   too, at its current value, and the other side does not change.
 - Rotate a layer whose `x` is set at a component call, in Center mode: the
   rotation is written on the element and `x` at the call (two files; `y`
-  goes to the call only if it is set there too, else to the element), and
-  one undo restores both.
+  goes to the call too when the element reads it from a component parameter
+  (inserted there if the call leaves it out), else to the element), and one
+  undo restores both.
 - On a keyframe frame, drag the right edge of a `Rect` with
   `width={interpolate(frame, [0, 30], [100, 200])}`: only the matching
   output entry changes.
