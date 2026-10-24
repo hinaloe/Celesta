@@ -366,9 +366,10 @@ center of its box on request:
   own bounds only, except while a canvas drag or a row's scrub is pressed
   (so they pass over it). Segments have fixed widths and square corners;
   the chosen one is filled with the theme's primary color and its
-  contrasting foreground, the other is plain; labels never change. When the chosen mode or tool can't apply to
-  the selected layer, the chosen segment stays filled and a warning icon in
-  a reserved slot of the control gives the reason as its tooltip. A Center
+  contrasting foreground, the other has no fill and muted text; labels
+  never change. When the chosen mode or tool can't apply to the selected
+  layer, the chosen segment stays filled and a warning icon in a reserved
+  slot of the control gives the reason as its tooltip. A Center
   that is not in effect also says why at the point of action: hovering the
   rotation handle or a Scale handle shows "Pivot — reason", and so does the
   drag's label.
@@ -376,10 +377,13 @@ center of its box on request:
   effect, the box's center, as a marker only (tooltip "Rotates about the
   center; switch to Pivot to move the anchor", or, when the anchor couldn't
   move in Pivot mode either, "Rotates about the center; the anchor can't
-  move:" and the reason); with Pivot (or Center not in effect), the pivot,
+  move:" and the reason; only "Rotates about the center" for an element
+  without anchor rows); with Pivot (or Center not in effect), the pivot,
   which Alt-drags the anchor. Same style for both. An Alt press on a cross
-  that moves nothing is taken and starts nothing (it neither moves nor
-  selects the layer).
+  that moves nothing but shows why (the center marker, a pivot cross with a
+  reason) is taken and starts nothing (it neither moves nor selects the
+  layer); on a pivot cross that shows nothing (no anchor rows) it presses
+  the body as before.
 - While the anchor is Alt-dragged, the outline, handles, and stem stay on
   the drag's start frame and only the cross follows: the layer doesn't move,
   and preview frames, rounded as written, would make it seem to jitter.
@@ -417,8 +421,9 @@ center of its box on request:
   anchor along is. The anchor drag needs anchors, `rotation`, scales, and
   sizes that are not keyframes. The reason strings are shared constants.
 - In Pivot mode, dragging the pivot cross with Alt moves the anchor: it
-  writes `anchorX`/`anchorY` as fractions of the box the anchor refers to (unclamped: an anchor outside the box is valid) and moves
-  `x`/`y` so nothing moves on screen. That box (the "anchor box") is the
+  writes `anchorX`/`anchorY` as fractions of the box the anchor refers to
+  (unclamped: an anchor outside the box is valid) and moves `x`/`y` so
+  nothing moves on screen. That box (the "anchor box") is the
   renderer's layout box for `Text` (its texture quad is padded for strokes),
   the quad for `Image` and `Video`, and `width` × `height` (or `2 · radius`)
   from the props for `Rect` and the `@celesta/shapes` primitives, which can be

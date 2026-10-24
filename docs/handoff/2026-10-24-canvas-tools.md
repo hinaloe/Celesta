@@ -140,7 +140,8 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   fixed-width, square-cornered (`ButtonRounded::None`) `Segment` buttons
   (`SEGMENT_WIDTH`) in a bordered row, the chosen one `primary()` (the
   theme's primary fill and foreground, near-white, not Celesta's orange; the
-  editor is dark-only), the other `ghost()`, and a reserved slot
+  editor is dark-only), the other `ghost()` with muted text so the chosen
+  one stands out, and a reserved slot
   (`NOTE_SLOT_WIDTH`) with a `TriangleAlert` icon carrying the reason
   (`pivot_note` / `resize_note`) when the choice is not in effect, so the
   labels and the width never change. With Center chosen but not in effect,
@@ -156,12 +157,14 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   (tooltip `center_marker_text`: `CENTER_MARKER`, "Rotates about the
   center; switch to Pivot to move the anchor", or, when the anchor couldn't
   move in Pivot mode either, "Rotates about the center; the anchor can't
-  move:" and its reason); in Pivot mode the cross Alt-drags the anchor,
+  move:" and its reason; just "Rotates about the center" without anchor
+  rows, `has_anchor_rows`); in Pivot mode the cross Alt-drags the anchor,
   with its reasons. `swallows_alt_press`: an Alt press within reach of a
-  cross that moves nothing (the center marker, a blocked pivot cross) is
-  taken by `begin_transform_drag` and starts nothing, so it neither moves
-  the layer (the press would otherwise fall through to the body) nor
-  changes the selection.
+  cross that moves nothing but shows why (the center marker, a pivot cross
+  with a reason) is taken by `begin_transform_drag` and starts nothing, so
+  it neither moves the layer (the press would otherwise fall through to the
+  body) nor changes the selection; a pivot cross that shows nothing (no
+  anchor rows: `CrossDrag::NoAnchor`, no hitbox) lets the press through.
 
 ## Decisions
 
@@ -380,19 +383,23 @@ example changed):
   the middle of the box, its tooltip reads "Rotates about the center; switch
   to Pivot to move the anchor", and Alt-dragging it does nothing: the
   cursor is not-allowed, the layer doesn't move, and the selection stays.
-  On a layer whose anchor is keyframed, the center cross's tooltip reads
-  "Rotates about the center; the anchor can't move: Anchor is animated".
-  Rotate it: it turns about its middle, the label shows
-  `rotation`, `x`, and `y`, and one undo restores it. Switch to Pivot: the
-  cross jumps to the top-left corner and the layer turns about it. Alt-drag
-  the cross to the middle: nothing moves on screen (the outline, handles,
-  and stem hold perfectly still, during the drag and after the release
-  until the reload; only the cross follows the pointer), and `anchorX`,
-  `anchorY`, `x`, `y` are written in one undo step. Rotate again: it turns
-  about the new anchor. With `originX={40}` set, Pivot mode turns about the
-  cross 40 px to the right of the anchor.
+  Rotate it: it turns about its middle, the label shows `rotation`, `x`,
+  and `y`, and one undo restores it. Switch to Pivot: the cross jumps to
+  the top-left corner and the layer turns about it. Alt-drag the cross to
+  the middle: nothing moves on screen (the outline, handles, and stem hold
+  perfectly still, during the drag and after the release until the reload;
+  only the cross follows the pointer), and `anchorX`, `anchorY`, `x`, `y`
+  are written in one undo step. Rotate again: it turns about the new
+  anchor. With `originX={40}` set, Pivot mode turns about the cross 40 px
+  to the right of the anchor.
 - Hold Alt over the pivot cross of that `Rect` in Pivot mode: the cursor
   becomes an open hand.
+- Choose Center on a `Text` with literal `x`/`y` and `anchorY="baseline"`:
+  the cross sits on the middle of its layout box and its tooltip reads
+  "Rotates about the center; the anchor can't move: Anchor Y: Written as an
+  expression: "baseline"". On a `Path` (no anchor props) in Center mode it
+  reads only "Rotates about the center"; in Pivot mode a `Path`'s cross has
+  no tooltip, and Alt-pressing it presses the body as before.
 - Resize a rotated `Rect` from its left edge: `width`, `x`, `y` change and
   the right edge stays on screen; from its right edge only `width` changes.
   Shift on a corner keeps the aspect. Drag an edge through the opposite
