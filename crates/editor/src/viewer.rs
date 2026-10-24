@@ -1289,9 +1289,9 @@ impl EditorView {
             return;
         }
         // A text edited on the canvas is committed, not cancelled with the
-        // selection it belongs to; why an earlier one was cancelled goes.
+        // selection it belongs to. (The viewer's notice stays: one set while
+        // this change waited says why a held commit was dropped.)
         self.end_inline_text(EditEvent::SelectionChange, cx);
-        self.inline_notice = None;
         self.clear_layer_selection(false);
         self.selected_layer = layer;
         if self.selected_layer.is_some() {

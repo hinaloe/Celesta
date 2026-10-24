@@ -176,7 +176,9 @@ fn inline_entry_waits_for_a_pending_lookup() {
         inline_entry(None, true, still_reading, false, Some(flat_box()), None),
         InlineEntry::Wait
     );
-    // The text box isn't known to matter yet: the lookup decides first.
+    // Without a box, targets still coming wait too: a found `Text` whose
+    // source is still being read. (A layer whose lookup is pending is taken
+    // for a text only with a box, so the view never asks without one.)
     assert_eq!(
         inline_entry(None, true, still_reading, false, None, None),
         InlineEntry::Wait

@@ -2525,7 +2525,8 @@ fn a_released_scrub_lets_the_frame_look_its_source_up() {
 
 #[test]
 fn lookup_is_not_allowed_while_editing_text() {
-    // A keystroke asks the runtime nothing, and neither does the frame
-    // drawn with a committed text until its reload.
+    // A keystroke asks the runtime nothing. (A committed text's frames are
+    // drawn with no edit running, so they look the layer up, as a released
+    // scrub's do.)
     assert!(!lookup_allowed(false, false, true));
 }

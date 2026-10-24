@@ -655,6 +655,11 @@ impl EditorView {
             self.text_override = None;
             self.refresh_preview();
         }
+        // The text reverts: the viewer says why, also when the Properties
+        // tab, whose row carries the message, is not shown.
+        if let Err(message) = result {
+            self.inline_notice = Some(message.clone());
+        }
     }
 
     /// Drops the override of a committed text; the caller asks for the

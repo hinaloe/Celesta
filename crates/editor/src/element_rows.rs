@@ -1253,7 +1253,10 @@ impl EditorView {
     /// and a waiting selection change goes.
     pub(crate) fn drop_held_rows(&mut self, message: &str, cx: &mut Context<Self>) {
         let selected = self.selected_layer.clone();
+        // A text committed on the canvas reverts; the viewer says why (its
+        // `drop_row_commit` below no longer finds the override to drop).
         if self.drop_held_commit_override() {
+            self.inline_notice = Some(message.to_owned());
             self.refresh_preview();
         }
         for held in self.element_rows.held.take_all() {
@@ -1286,8 +1289,10 @@ impl EditorView {
         if layer.is_some() {
             self.element_rows.leaving_interactive = false;
         }
-        // A text edited on the canvas is committed first, like the rows.
+        // Why an earlier edit was cancelled, or a commit dropped, goes; a
+        // text edited on the canvas is committed first, like the rows.
         if layer != self.selected_layer {
+            self.inline_notice = None;
             self.end_inline_text(EditEvent::SelectionChange, cx);
         }
         self.submit_edited_rows(cx);
