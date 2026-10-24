@@ -41,6 +41,9 @@ pub(crate) struct SizeField {
     /// `<Image>`'s other side from the source's aspect), so a drag of the
     /// other side writes it as it is (see `Resize::pinned`).
     pub(crate) absent: bool,
+    /// A keyframe: written at that keyframe only, so no handle that moves
+    /// `x`/`y` along its axis is offered (see `resizes`).
+    pub(crate) keyframed: bool,
 }
 
 impl SizeField {
@@ -96,6 +99,14 @@ impl Resize {
         match &self.props {
             SizeProps::Box { width, height } => vec![width, height],
             SizeProps::Radius(field) | SizeProps::Width(field) => vec![field],
+        }
+    }
+
+    /// The fields that set the box's extent along x and along y.
+    fn axis_fields(&self) -> (&SizeField, &SizeField) {
+        match &self.props {
+            SizeProps::Box { width, height } => (width, height),
+            SizeProps::Radius(field) | SizeProps::Width(field) => (field, field),
         }
     }
 
@@ -597,21 +608,38 @@ fn kept_fractions(handle: Handle, resize: &Resize) -> (Option<f64>, Option<f64>)
 /// keeps is not where the anchor is, so `x`/`y` must move the layer for that
 /// edge to stay (left and top edges with the default top-left anchor).
 fn resize_moves(frame: &LayerFrame, handle: Handle, resize: &Resize) -> bool {
+    let (x, y) = moved_axes(frame, handle, resize);
+    x || y
+}
+
+/// The axes (x, y) along which a resize by `handle` moves the layer's
+/// anchor point (see `resize_moves`).
+fn moved_axes(frame: &LayerFrame, handle: Handle, resize: &Resize) -> (bool, bool) {
     let anchor = frame.transform.anchor;
     let (kx, ky) = kept_fractions(handle, resize);
-    kx.is_some_and(|k| (k - anchor.x).abs() > 1e-9) || ky.is_some_and(|k| (k - anchor.y).abs() > 1e-9)
+    (
+        kx.is_some_and(|k| (k - anchor.x).abs() > 1e-9),
+        ky.is_some_and(|k| (k - anchor.y).abs() > 1e-9),
+    )
 }
 
 /// Whether the Rect tool's `handle` can resize the layer: the box has it,
-/// the size props are `editable`, and `x`/`y` can compensate when it moves
-/// the anchor point (see `resize_moves`).
+/// the size props are `editable`, and when it moves the anchor point (see
+/// `resize_moves`), `x`/`y` can compensate and the size along each axis it
+/// moves along is not a keyframe (literal `x`/`y` would keep the edge at
+/// that keyframe only).
 fn resizes(frame: &LayerFrame, handle: Handle, editable: &[PropKey], resize: &Resize) -> bool {
     let position = [TransformProp::X.key(), TransformProp::Y.key()];
+    let (moves_x, moves_y) = moved_axes(frame, handle, resize);
+    let (along_x, along_y) = resize.axis_fields();
+    let animated = (moves_x && along_x.keyframed) || (moves_y && along_y.keyframed);
     resize.axes(handle).is_some()
         && anchor_box(frame).is_some()
         && resize.keys().iter().all(|key| editable.contains(key))
-        && (!resize_moves(frame, handle, resize)
-            || (resize.compensable && position.iter().all(|key| editable.contains(key))))
+        && (!(moves_x || moves_y)
+            || (resize.compensable
+                && !animated
+                && position.iter().all(|key| editable.contains(key))))
 }
 
 /// The values a Rect-tool drag of `handle` from `start` to `now` (parent
@@ -1090,6 +1118,7 @@ mod tests {
             max: None,
             integer: false,
             absent: false,
+            keyframed: false,
         }
     }
 

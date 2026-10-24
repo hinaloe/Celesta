@@ -378,6 +378,13 @@ layer's box by default, as the handles suggest:
   every compensation below: a resize that moves the anchor point and the
   anchor drag need `x`/`y` targets that are `Literal` or `Missing` (directly
   or through pass-through).
+- A compensation is also refused when what it compensates is a keyframe:
+  literal `x`/`y` written beside it would hold at that keyframe only. An
+  editable `rotation`, `scale`, `scaleX`, or `scaleY` that is a keyframe
+  makes Center fall back to the pivot (the toggle shows "Pivot", muted, with
+  the tooltip "Rotation or scale is animated") and disables the anchor drag;
+  a keyframed anchor disables it too; a resize handle that moves the anchor
+  point along an axis whose size is a keyframe is hidden.
 - The pivot is always drawn as a small cross. Dragging the cross with Alt
   moves the anchor: it writes `anchorX`/`anchorY` as fractions of the box the
   anchor refers to (unclamped: an anchor outside the box is valid) and moves

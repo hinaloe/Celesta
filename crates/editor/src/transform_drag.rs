@@ -265,6 +265,7 @@ pub(crate) fn size_props(targets: &ElementTargets) -> Option<SizeProps> {
         let key = PropKey::Prop(name.clone());
         let target = targets.target(&key).filter(|target| editable(target))?;
         let absent = matches!(inner_target(target), EditTarget::Missing { .. });
+        let keyframed = matches!(inner_target(target), EditTarget::Keyframe { .. });
         let (min, max, integer) = match field_of(table, name) {
             Some(PrimitivePropertyField::Number {
                 min, max, integer, ..
@@ -277,6 +278,7 @@ pub(crate) fn size_props(targets: &ElementTargets) -> Option<SizeProps> {
             max,
             integer,
             absent,
+            keyframed,
         })
     };
     match (&size.width, &size.height, &size.radius) {
@@ -370,10 +372,35 @@ pub(crate) fn resize_used(
 /// keyframe would move at that keyframe only, and the layer would orbit
 /// between them.
 pub(crate) fn compensable(targets: &ElementTargets) -> bool {
-    [TransformProp::X, TransformProp::Y].into_iter().all(|prop| {
+    [TransformProp::X, TransformProp::Y]
+        .into_iter()
+        .all(|prop| settable(targets.transform(prop)))
+}
+
+/// Whether `target` holds one value for every frame: `Literal` or
+/// `Missing` (directly or through a pass-through).
+fn settable(target: Option<&EditTarget>) -> bool {
+    matches!(
+        target.map(inner_target),
+        Some(EditTarget::Literal { .. } | EditTarget::Missing { .. })
+    )
+}
+
+/// Whether the layer's `rotation` or a scale is a keyframe: `x`/`y`
+/// compensating a change of it (or of anything it turns or scales) would
+/// hold at that keyframe only.
+fn turns_animated(targets: &ElementTargets) -> bool {
+    [
+        TransformProp::Rotation,
+        TransformProp::Scale,
+        TransformProp::ScaleX,
+        TransformProp::ScaleY,
+    ]
+    .into_iter()
+    .any(|prop| {
         matches!(
             targets.transform(prop).map(inner_target),
-            Some(EditTarget::Literal { .. } | EditTarget::Missing { .. })
+            Some(EditTarget::Keyframe { .. })
         )
     })
 }
@@ -383,6 +410,9 @@ pub(crate) fn compensable(targets: &ElementTargets) -> bool {
 pub(crate) enum PivotFallback {
     /// `x` or `y` is a keyframe or locked: nothing can keep the center.
     NotCompensable,
+    /// `rotation` or a scale is a keyframe: literal `x`/`y` written beside
+    /// it would keep the center at this keyframe only.
+    Animated,
     /// The layer turns in its own perspective: no flat box to center on.
     NoFlatBox,
 }
@@ -392,13 +422,15 @@ impl PivotFallback {
     pub(crate) fn reason(self) -> &'static str {
         match self {
             Self::NotCompensable => "x or y is animated or locked",
+            Self::Animated => "Rotation or scale is animated",
             Self::NoFlatBox => "No flat box to center on",
         }
     }
 }
 
 /// Why a drag of the layer `frame` measures can't use `choice`: Center needs
-/// `x`/`y` that can compensate and a known box. `None` when it can.
+/// `x`/`y` that can compensate, a rotation and scale that hold for every
+/// frame, and a known box. `None` when it can.
 pub(crate) fn pivot_fallback(
     choice: PivotMode,
     targets: &ElementTargets,
@@ -407,6 +439,7 @@ pub(crate) fn pivot_fallback(
     match choice {
         PivotMode::Pivot => None,
         PivotMode::Center if !compensable(targets) => Some(PivotFallback::NotCompensable),
+        PivotMode::Center if turns_animated(targets) => Some(PivotFallback::Animated),
         PivotMode::Center if local_box(frame).is_none() => Some(PivotFallback::NoFlatBox),
         PivotMode::Center => None,
     }
@@ -427,8 +460,10 @@ pub(crate) fn pivot_used(
 
 /// The props a canvas drag of the layer `frame` measures may change: its
 /// editable transform props, in row order, then `anchorX`/`anchorY` when
-/// both are editable, `x`/`y` can compensate, and the frame has a box the
-/// anchor refers to (`with_anchor_box`; none for a `<Group>`).
+/// both hold one value for every frame (not keyframes), `x`/`y` can
+/// compensate, no rotation or scale is a keyframe (the compensation turns
+/// and scales with them), and the frame has a box the anchor refers to
+/// (`with_anchor_box`; none for a `<Group>`).
 pub(crate) fn drag_props(targets: &ElementTargets, frame: &LayerFrame) -> Vec<PropKey> {
     let mut props: Vec<PropKey> = TransformProp::ALL
         .into_iter()
@@ -436,10 +471,9 @@ pub(crate) fn drag_props(targets: &ElementTargets, frame: &LayerFrame) -> Vec<Pr
         .map(TransformProp::key)
         .collect();
     let anchors = anchor_keys();
-    if anchors
-        .iter()
-        .all(|key| targets.target(key).is_some_and(editable))
+    if anchors.iter().all(|key| settable(targets.target(key)))
         && compensable(targets)
+        && !turns_animated(targets)
         && anchor_box(frame).is_some()
     {
         props.extend(anchors);
@@ -1023,6 +1057,7 @@ mod tests {
             max: None,
             integer: false,
             absent: false,
+            keyframed: false,
         }
     }
 
@@ -1072,7 +1107,10 @@ mod tests {
         );
         assert_eq!(
             size_props(&text),
-            Some(SizeProps::Width(size_field("maxWidth", Some(0.0))))
+            Some(SizeProps::Width(SizeField {
+                keyframed: true,
+                ..size_field("maxWidth", Some(0.0))
+            }))
         );
 
         // The Rect tool on a layer with a box: its sizes join the drag, and
@@ -1136,6 +1174,112 @@ mod tests {
             resize_fallback(ResizeTool::Rect, &rect, &tilted),
             Some(ResizeFallback::NoBox)
         );
+    }
+
+    fn keyframe(value: f64) -> EditTarget {
+        EditTarget::Keyframe {
+            span: Span { start: 0, end: 1 },
+            value,
+            frame: 0.0,
+        }
+    }
+
+    #[test]
+    fn a_keyframed_rotation_or_scale_falls_back_to_the_pivot() {
+        let frame = rect_frame();
+        let rows = |rotation, scale| {
+            targets(vec![
+                ("x", literal(40.0)),
+                ("y", literal(20.0)),
+                ("rotation", rotation),
+                ("scale", scale),
+            ])
+        };
+        // Literal x/y written beside a keyframed rotation would hold at
+        // this keyframe only, and the layer would orbit between them.
+        let animated = rows(keyframe(0.0), literal(1.0));
+        assert!(compensable(&animated));
+        assert_eq!(
+            pivot_fallback(PivotMode::Center, &animated, &frame),
+            Some(PivotFallback::Animated)
+        );
+        assert_eq!(PivotFallback::Animated.reason(), "Rotation or scale is animated");
+        let pivot = pivot_used(PivotMode::Center, &animated, &frame);
+        assert_eq!(pivot, PivotMode::Pivot);
+        let values = drag_values(
+            &frame,
+            Handle::Rotate,
+            (at(200.0, 20.0), at(40.0, 180.0)),
+            false,
+            0.0,
+            &drag_props(&animated, &frame),
+            pivot,
+            None,
+        );
+        assert_eq!(values.len(), 1, "{values:?}");
+        assert_eq!(values[0].0, TransformProp::Rotation.key());
+        // A keyframed scale too; a locked one is no drag at all.
+        assert_eq!(
+            pivot_fallback(PivotMode::Center, &rows(literal(0.0), keyframe(1.0)), &frame),
+            Some(PivotFallback::Animated)
+        );
+        let locked = EditTarget::Locked(LockReason::Spread);
+        assert_eq!(
+            pivot_fallback(PivotMode::Center, &rows(literal(0.0), locked), &frame),
+            None
+        );
+    }
+
+    #[test]
+    fn a_keyframed_size_hides_the_handles_that_move_x_y() {
+        let rect = sized(
+            vec![
+                ("x", literal(40.0)),
+                ("y", literal(20.0)),
+                ("width", keyframe(100.0)),
+                ("height", literal(50.0)),
+            ],
+            [Some("width"), Some("height"), None],
+            &[],
+        );
+        // Anchored at the top-left: only a width drag that moves the left
+        // edge needs x, which would then hold at this keyframe only.
+        let frame = rect_frame();
+        let resize = resize_used(ResizeTool::Rect, &rect, &frame).expect("the Rect tool");
+        let mut editable = drag_props(&rect, &frame);
+        editable.extend(resize.keys());
+        let shown: Vec<Handle> =
+            shown_handles(&frame, &editable, 20.0, PivotMode::Center, Some(&resize))
+                .into_iter()
+                .map(|(handle, _)| handle)
+                .collect();
+        assert_eq!(
+            shown,
+            [
+                Handle::Corner(1),
+                Handle::Corner(2),
+                Handle::Edge(0),
+                Handle::Edge(1),
+                Handle::Edge(2),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_keyframed_anchor_or_turn_has_no_anchor_handle() {
+        let frame = rect_frame();
+        let rows = |anchor_x, rotation| {
+            targets(vec![
+                ("x", literal(40.0)),
+                ("y", literal(20.0)),
+                ("rotation", rotation),
+                ("anchorX", anchor_x),
+                ("anchorY", literal(0.0)),
+            ])
+        };
+        assert!(has_anchor(&rows(literal(0.0), literal(0.0)), &frame));
+        assert!(!has_anchor(&rows(keyframe(0.0), literal(0.0)), &frame));
+        assert!(!has_anchor(&rows(literal(0.0), keyframe(0.0)), &frame));
     }
 
     #[test]

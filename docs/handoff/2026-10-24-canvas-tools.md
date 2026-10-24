@@ -65,7 +65,7 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   appends `x`/`y` from `keep_fixed`. `compensable(targets)`: both `x` and
   `y` resolve (through a pass-through too) to `Literal` or `Missing`.
   `pivot_fallback` / `pivot_used` / `PivotFallback { NotCompensable,
-  NoFlatBox }` give the mode a drag uses; `TransformDrag` keeps it from the
+  Animated, NoFlatBox }` give the mode a drag uses; `TransformDrag` keeps it from the
   start, and `EditorView::shown_pivot_mode` gives the toggle's state.
   `EditorView.pivot_mode` is session state.
 - The pivot cross and the anchor drag (`transform_handles.rs`,
@@ -76,14 +76,16 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   another handle, and is `handle_at` otherwise. `anchor_values` moves the
   anchor by the pointer's move in own pixels over the anchor box's size
   (unclamped) and keeps the box's top-left corner still. `drag_props` adds
-  the anchors when both rows are editable, `x`/`y` are compensable, and the
-  anchor box is known; `anchor_reason` / `GROUP_ANCHOR` give the cross's
+  the anchors when both rows are `Literal` or `Missing` (not keyframes),
+  `x`/`y` are compensable, no editable `rotation` or scale is a keyframe
+  (the compensation turns and scales with them), and the anchor box is
+  known; `anchor_reason` / `GROUP_ANCHOR` give the cross's
   tooltip. The viewer draws the cross at the pivot for every selected layer
   with a frame (one handle wide, accent color), with a hitbox that sets
   `OpenHand` while Alt is held, and redraws on `on_modifiers_changed`.
 - The Rect tool (`transform_handles.rs`, `transform_drag.rs`, `view.rs`,
   `viewer.rs`): `ResizeTool { Rect (default), Scale }`; `SizeField { name,
-  min, max, integer, absent }`; `SizeProps { Box, Radius, Width }`;
+  min, max, integer, absent, keyframed }`; `SizeProps { Box, Radius, Width }`;
   `Resize { props, compensable }`, the Rect tool resolved for a layer.
   `size_props(targets)` reads `table.size` and the fields' bounds, and needs
   every named prop `editable`; `resize_fallback` / `resize_used` /
@@ -125,8 +127,11 @@ These differ from, or settle what the spec left open:
 - **Center needs compensable `x`/`y` and a flat box.** Without either the
   drag turns about the pivot. The toggle shows the mode used: "Pivot (x, y
   not editable)" for `NotCompensable` (tooltip "x or y is animated or
-  locked"), plain "Pivot" with the tooltip "No flat box to center on" for
-  `NoFlatBox`; both muted and still clickable, and the stored choice stays
+  locked"), plain "Pivot" with the tooltip "Rotation or scale is animated"
+  for `Animated` (an editable `rotation`, `scale`, `scaleX`, or `scaleY` is
+  a `Keyframe`: literal `x`/`y` would keep the center at that keyframe
+  only), plain "Pivot" with the tooltip "No flat box to center on" for
+  `NoFlatBox`; all muted and still clickable, and the stored choice stays
   Center for the next layer. Center uses the outline's box (`local_box`):
   a text's padding is symmetric horizontally, so its center is the layout
   box's there; vertically it differs by the glyph overflow of multi-line
@@ -155,7 +160,9 @@ These differ from, or settle what the spec left open:
   compensable `x`/`y` only when its kept edge is not at the anchor
   (`resize_moves`), not "left and top" by name: with `anchorX = 1` the left
   edge needs no compensation and stays, and with `anchorX = 0.5` both
-  edges need it.
+  edges need it. A handle that moves the anchor point along an axis whose
+  size is a keyframe is hidden too (literal `x`/`y` would keep the edge on
+  that keyframe only); the handles that keep the anchor still resize it.
 - **Which handles**: `SizeProps::Box` gets four corners and four edges
   (edges one axis, Shift on a corner projects onto the box's diagonal);
   `Radius` corners only, uniform; `Width` (`Text`) the left and right edges,
@@ -210,9 +217,10 @@ These differ from, or settle what the spec left open:
   (the viewer has no window to read the modifiers from when it builds it).
 - The Alt cursor over the cross updates through `on_modifiers_changed`; when
   the window does not have the focus it may wait for the next mouse move.
-- Center compensation and a compensating resize check only `x`/`y`: a
-  keyframed `rotation`, scale, or size compensated by literal `x`/`y` shifts
-  the layer on its other keyframes.
+- A `rotation` or scale driven by an expression (`rotation={frame * 3}`) is
+  `Locked`, not a `Keyframe`, so it does not trigger the `Animated`
+  fallback: Center scaling on such a layer still writes literal `x`/`y`
+  that keep the center on the current frame only.
 - An absent side pinned by an edge drag is written at its current size
   without the field's clamp, and shows as unchanged in the drag's label
   (`height 75 → 75`): it is written, so the label is accurate, but it may
@@ -288,6 +296,11 @@ example changed):
   editable)", muted, with Pivot selected; the left and top edges (and the
   corners touching them) are hidden while the right and bottom ones resize;
   the cross is not Alt-draggable. Select a plain layer: Center shows again.
+- Select a layer with keyframed `rotation`, in Center mode: the toggle reads
+  "Pivot", muted, with the tooltip "Rotation or scale is animated", and the
+  rotation handle turns it about the pivot (the cross), writing `rotation`
+  only. On a `Rect` with keyframed `width` anchored at its top-left, the
+  left edge and the left corners are hidden; the right edge still resizes.
 - Select a `Group`: "Scale" is selected and muted, its tooltip reads "No
   size to resize", and the 2a scale handles show; hover over the cross:
   "A group's anchor has no effect", and Alt-drag does nothing. A `Rect` with
