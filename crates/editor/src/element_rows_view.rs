@@ -10,8 +10,7 @@ use crate::element_rows::{
 };
 use crate::icons::CelestaIcon;
 use crate::layer_panel::LABEL_WIDTH;
-use crate::property_controls::{ControlKind, render_control};
-use crate::property_panel::number_hint;
+use crate::property_controls::{ControlKind, number_hint, render_control};
 use crate::view::EditorView;
 use crate::widgets::inspector_section;
 use celesta_react_bridge::{PrimitivePropertyField, SourcePos};
@@ -269,8 +268,14 @@ impl EditorView {
                 keyframe_jump_frames(shown, resolved.timeline_frame)
                     .map(|frames| self.keyframe_jumps(key, reason, frames, cx))
             }
+            // One line: a long expression is cut by `reason_text`, and
+            // anything still wider than the panel ends in an ellipsis.
             EditTarget::Locked(reason) => Some(
                 div()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
                     .text_xs()
                     .text_color(muted)
                     .child(reason_text(reason))

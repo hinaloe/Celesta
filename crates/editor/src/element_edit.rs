@@ -122,18 +122,6 @@ impl TransformProp {
             Self::ScaleY => "scaleY",
         }
     }
-
-    /// The Layer section's row label.
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::X => "X",
-            Self::Y => "Y",
-            Self::Rotation => "Rotation",
-            Self::Scale => "Scale",
-            Self::ScaleX => "Scale X",
-            Self::ScaleY => "Scale Y",
-        }
-    }
 }
 
 /// The number the runtime passed for `prop`, if it passed one.
@@ -283,7 +271,7 @@ fn literal_kind(target: &EditTarget) -> ControlKind {
 
 /// A registered component field as a table field, so its row is typed,
 /// hinted, checked, and locked as a table row is.
-fn schema_field(field: &ComponentPropertyField) -> PrimitivePropertyField {
+pub(crate) fn schema_field(field: &ComponentPropertyField) -> PrimitivePropertyField {
     match field {
         ComponentPropertyField::String { default_value, .. } => PrimitivePropertyField::String {
             default_value: Some(default_value.clone()),
@@ -400,7 +388,8 @@ pub(crate) fn required_of(table: &PrimitivePropertyTable, row: &str) -> bool {
         .any(|field| field.key == key && field.required)
 }
 
-/// The table field of `key` as a placeholder-able default.
+/// The declared `defaultValue` of `field`, as the placeholder of an absent
+/// prop shows it.
 pub(crate) fn table_default(field: &PrimitivePropertyField) -> Option<EditValue> {
     match field {
         PrimitivePropertyField::Number { default_value, .. } => {
@@ -541,7 +530,7 @@ pub(crate) fn resolve_targets(
 
 /// The `style` key each `Text` shorthand row edits when the `style` object
 /// sets it (`themedTextStyle` fills `fill` from `color`).
-fn text_style_key(row: &str) -> Option<&'static str> {
+pub(crate) fn text_style_key(row: &str) -> Option<&'static str> {
     match row {
         "fontFamily" => Some("fontFamily"),
         "fontSize" => Some("fontSize"),
@@ -971,13 +960,30 @@ fn same_place(a: &EditTarget, b: &EditTarget) -> bool {
     }
 }
 
+/// How many characters of an expression a reason shows.
+const SOURCE_SHOWN: usize = 60;
+
+/// `source` on one line: whitespace runs (line breaks too) as one space,
+/// cut after [`SOURCE_SHOWN`] characters with "…" (an array or JSX
+/// written over many lines would fill the panel).
+fn one_line(source: &str) -> String {
+    let line = source.split_whitespace().collect::<Vec<_>>().join(" ");
+    if line.chars().count() <= SOURCE_SHOWN {
+        return line;
+    }
+    let cut: String = line.chars().take(SOURCE_SHOWN).collect();
+    format!("{}…", cut.trim_end())
+}
+
 /// The Layer section's line for a locked target.
 pub(crate) fn reason_text(reason: &LockReason) -> String {
     match reason {
         LockReason::SyntaxError => "The source has syntax errors".to_owned(),
         LockReason::ElementNotFound => "Couldn't find this element in the source".to_owned(),
         LockReason::NotPrimitive => "Set by a component, not written on this element".to_owned(),
-        LockReason::Expression { source } => format!("Written as an expression: {source}"),
+        LockReason::Expression { source } => {
+            format!("Written as an expression: {}", one_line(source))
+        }
         LockReason::UnresolvedIdentifier { name } => {
             format!("Comes from {name}, which can't be traced")
         }

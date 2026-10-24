@@ -3,6 +3,7 @@
 //! control's `ControlEvent`s to it.
 
 use crate::view::EditorView;
+use crate::widgets::format_component_number;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState};
 use gpui_kit::component::input::{Escape, Input, InputEvent, InputState, Textarea, TextareaState};
@@ -11,10 +12,83 @@ use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{ActiveTheme as _, Disableable as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, App, Context, ElementId, Entity, EventEmitter, Focusable as _, Hsla, SharedString,
-    Subscription, Window, div,
+    AnyElement, App, Context, ElementId, Entity, EventEmitter, Focusable as _, Hsla, Rgba,
+    SharedString, Subscription, Window, div,
 };
+use serde_json::Value;
 use std::sync::Arc;
+
+/// A typed number: surrounding spaces are ignored, and only finite values
+/// count (`1e3` is fine, `NaN`, `inf`, and `1,5` are not).
+pub(crate) fn parse_number_input(text: &str) -> Result<f64, String> {
+    text.trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite())
+        .ok_or_else(|| "Enter a number".to_owned())
+}
+
+/// A typed color: `#RRGGBB` or `#RRGGBBAA` in either case, returned as typed
+/// (without surrounding spaces).
+pub(crate) fn parse_color_input(text: &str) -> Result<String, String> {
+    let text = text.trim();
+    let valid = text.strip_prefix('#').is_some_and(|digits| {
+        matches!(digits.len(), 6 | 8) && digits.chars().all(|digit| digit.is_ascii_hexdigit())
+    });
+    if valid {
+        Ok(text.to_owned())
+    } else {
+        Err("Enter a color as #RRGGBB or #RRGGBBAA".to_owned())
+    }
+}
+
+/// `#RRGGBB`, or `#RRGGBBAA` when the color is not opaque.
+pub(crate) fn color_hex(color: Hsla) -> String {
+    let rgba = Rgba::from(color);
+    let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let rgb = format!(
+        "#{:02X}{:02X}{:02X}",
+        channel(rgba.r),
+        channel(rgba.g),
+        channel(rgba.b)
+    );
+    if channel(rgba.a) == u8::MAX {
+        rgb
+    } else {
+        format!("{rgb}{:02X}", channel(rgba.a))
+    }
+}
+
+/// A `#RRGGBB`/`#RRGGBBAA` string as a color, for the swatch.
+pub(crate) fn parse_color(value: &Value) -> Option<Hsla> {
+    let text = parse_color_input(value.as_str()?).ok()?;
+    Rgba::try_from(text.as_str()).ok().map(Hsla::from)
+}
+
+/// The range hint a number field shows: `0–1`, `≥ 0`, or `≤ 10`.
+pub(crate) fn number_hint(min: Option<f64>, max: Option<f64>) -> Option<String> {
+    let number = format_component_number;
+    match (min, max) {
+        (Some(min), Some(max)) => Some(format!("{}–{}", number(min), number(max))),
+        (Some(min), None) => Some(format!("≥ {}", number(min))),
+        (None, Some(max)) => Some(format!("≤ {}", number(max))),
+        (None, None) => None,
+    }
+}
+
+/// When a color control's picker closes: the color picked since it last
+/// closed, as [`color_hex`] writes it, and `picked` cleared; `None` when
+/// nothing was picked (or the control is not a color's).
+pub(crate) fn take_picked_color(control: &Control, picked: &mut bool, cx: &App) -> Option<String> {
+    let Control::Color { picker, .. } = control else {
+        return None;
+    };
+    let color = picker.read(cx).value();
+    if !std::mem::take(picked) {
+        return None;
+    }
+    color.map(color_hex)
+}
 
 /// What a control is for.
 #[derive(Clone, Debug, PartialEq)]
@@ -400,6 +474,51 @@ mod tests {
             enter_event(false, false),
             ControlEvent::Submit { blur: false }
         );
+    }
+
+    #[test]
+    fn number_input_accepts_finite_numbers_only() {
+        assert_eq!(parse_number_input("1.5"), Ok(1.5));
+        assert_eq!(parse_number_input(" 2 "), Ok(2.0));
+        assert_eq!(parse_number_input("1e3"), Ok(1000.0));
+        for text in ["1,5", "", "NaN", "inf"] {
+            assert!(parse_number_input(text).is_err(), "{text:?} was accepted");
+        }
+    }
+
+    #[test]
+    fn color_input_accepts_six_or_eight_hex_digits() {
+        assert_eq!(parse_color_input("#AABBCC"), Ok("#AABBCC".to_owned()));
+        assert_eq!(parse_color_input("#aabbccdd"), Ok("#aabbccdd".to_owned()));
+        for text in ["#fff", "red", "AABBCC"] {
+            assert!(parse_color_input(text).is_err(), "{text:?} was accepted");
+        }
+    }
+
+    #[test]
+    fn picked_colors_are_written_as_hex() {
+        let opaque = Hsla::from(Rgba {
+            r: 1.0,
+            g: 0.0,
+            b: 0x80 as f32 / 255.0,
+            a: 1.0,
+        });
+        assert_eq!(color_hex(opaque), "#FF0080");
+        let translucent = Hsla::from(Rgba {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0x40 as f32 / 255.0,
+        });
+        assert_eq!(color_hex(translucent), "#00000040");
+    }
+
+    #[test]
+    fn number_hints_show_the_declared_range() {
+        assert_eq!(number_hint(Some(0.0), Some(1.0)), Some("0–1".to_owned()));
+        assert_eq!(number_hint(Some(0.5), None), Some("≥ 0.5".to_owned()));
+        assert_eq!(number_hint(None, Some(10.0)), Some("≤ 10".to_owned()));
+        assert_eq!(number_hint(None, None), None);
     }
 
     #[test]

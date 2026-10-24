@@ -4,8 +4,13 @@
 //! `property_panel_view.rs` renders it.
 
 use crate::edit_history::{FileEdit, write_recorded};
+use crate::element_edit::schema_field;
+use crate::element_rows::control_kind;
 use crate::preview::{KeptSchema, ReactPreview};
-use crate::property_controls::{Control, ControlEvent, ControlKind, build_control};
+use crate::property_controls::{
+    Control, ControlEvent, ControlKind, build_control, parse_color, parse_color_input,
+    parse_number_input, take_picked_color,
+};
 use crate::source::{PropertyArgs, watched_mtime};
 use crate::view::EditorView;
 use crate::widgets::{format_component_number, json_display};
@@ -13,7 +18,7 @@ use celesta_react_bridge::{
     ComponentPropertyField, ENTRY_PROPS_FILE, PropertyInputs, PropertyIssue, effective_values,
     import_path, resolve_props_file, set_property_text,
 };
-use gpui_kit::{App, Context, Hsla, PathPromptOptions, Rgba, Subscription, Window};
+use gpui_kit::{App, Context, PathPromptOptions, Subscription, Window};
 use serde_json::Value;
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -44,30 +49,6 @@ impl CommitQueue {
 
     pub(crate) fn is_empty(&self) -> bool {
         self.commits.is_empty()
-    }
-}
-
-/// A typed number: surrounding spaces are ignored, and only finite values
-/// count (`1e3` is fine, `NaN`, `inf`, and `1,5` are not).
-pub(crate) fn parse_number_input(text: &str) -> Result<f64, String> {
-    text.trim()
-        .parse::<f64>()
-        .ok()
-        .filter(|value| value.is_finite())
-        .ok_or_else(|| "Enter a number".to_owned())
-}
-
-/// A typed color: `#RRGGBB` or `#RRGGBBAA` in either case, returned as typed
-/// (without surrounding spaces).
-pub(crate) fn parse_color_input(text: &str) -> Result<String, String> {
-    let text = text.trim();
-    let valid = text.strip_prefix('#').is_some_and(|digits| {
-        matches!(digits.len(), 6 | 8) && digits.chars().all(|digit| digit.is_ascii_hexdigit())
-    });
-    if valid {
-        Ok(text.to_owned())
-    } else {
-        Err("Enter a color as #RRGGBB or #RRGGBBAA".to_owned())
     }
 }
 
@@ -150,29 +131,6 @@ pub(crate) fn value_text(value: &Value) -> String {
     }
 }
 
-/// `#RRGGBB`, or `#RRGGBBAA` when the color is not opaque.
-pub(crate) fn color_hex(color: Hsla) -> String {
-    let rgba = Rgba::from(color);
-    let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
-    let rgb = format!(
-        "#{:02X}{:02X}{:02X}",
-        channel(rgba.r),
-        channel(rgba.g),
-        channel(rgba.b)
-    );
-    if channel(rgba.a) == u8::MAX {
-        rgb
-    } else {
-        format!("{rgb}{:02X}", channel(rgba.a))
-    }
-}
-
-/// A `#RRGGBB`/`#RRGGBBAA` string as a color, for the swatch.
-pub(crate) fn parse_color(value: &Value) -> Option<Hsla> {
-    let text = parse_color_input(value.as_str()?).ok()?;
-    Rgba::try_from(text.as_str()).ok().map(Hsla::from)
-}
-
 /// The schema's keys in declaration order, then any key the order missed.
 pub(crate) fn ordered_keys(schema: &KeptSchema) -> Vec<&str> {
     let mut keys: Vec<&str> = schema
@@ -200,17 +158,6 @@ pub(crate) fn field_label<'a>(key: &'a str, field: &'a ComponentPropertyField) -
         | ComponentPropertyField::Path { label, .. } => label,
     };
     label.as_deref().unwrap_or(key)
-}
-
-/// The range hint a number field shows: `0–1`, `≥ 0`, or `≤ 10`.
-pub(crate) fn number_hint(min: Option<f64>, max: Option<f64>) -> Option<String> {
-    let number = format_component_number;
-    match (min, max) {
-        (Some(min), Some(max)) => Some(format!("{}–{}", number(min), number(max))),
-        (Some(min), None) => Some(format!("≥ {}", number(min))),
-        (None, Some(max)) => Some(format!("≤ {}", number(max))),
-        (None, None) => None,
-    }
 }
 
 /// The value the preview uses for one key, from the inputs last read from disk.
@@ -393,18 +340,6 @@ pub(crate) enum TextUpdate {
     Always,
 }
 
-/// The control kind of a declared field.
-pub(crate) fn control_kind(field: &ComponentPropertyField) -> ControlKind {
-    match field {
-        ComponentPropertyField::String { .. } => ControlKind::String,
-        ComponentPropertyField::Number { .. } => ControlKind::Number,
-        ComponentPropertyField::Boolean { .. } => ControlKind::Boolean,
-        ComponentPropertyField::Color { .. } => ControlKind::Color,
-        ComponentPropertyField::Select { options, .. } => ControlKind::Select(options.clone()),
-        ComponentPropertyField::Path { .. } => ControlKind::Path,
-    }
-}
-
 /// Sends what the person does in a row's controls to the row for `key`.
 pub(crate) fn property_control_handler(
     key: &str,
@@ -480,10 +415,14 @@ fn update_controls(
                 None => select.set_selected_index(None, window, cx),
             });
         }
+        // A value that is not a color clears the swatch, which a locked row
+        // shows in place of the picker.
         Control::Color { picker, .. } => {
-            if let Some(color) = parse_color(&value) {
-                picker.update(cx, |picker, cx| picker.set_value(color, window, cx));
-            }
+            let color = parse_color(&value);
+            picker.update(cx, |picker, cx| match color {
+                Some(color) => picker.set_value(color, window, cx),
+                None => picker.clear_value(window, cx),
+            });
         }
         Control::Text(_) | Control::Textarea(_) | Control::Switch => {}
     }
@@ -561,7 +500,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> PropertyRow {
-        let kind = control_kind(field);
+        let kind = control_kind(&schema_field(field));
         let built = build_control(&kind, window, cx, property_control_handler(key));
         PropertyRow {
             field: field.clone(),
@@ -651,16 +590,8 @@ impl EditorView {
         let Some(row) = self.property_panel.rows.get_mut(key) else {
             return;
         };
-        let Control::Color { picker, .. } = &row.control else {
-            return;
-        };
-        let color = picker.read(cx).value();
-        if !std::mem::take(&mut row.picked) {
-            return;
-        }
-        if let Some(color) = color {
-            let value = Value::String(color_hex(color));
-            self.commit_property(key, Some(value), TextUpdate::Always, cx);
+        if let Some(color) = take_picked_color(&row.control, &mut row.picked, cx) {
+            self.commit_property(key, Some(Value::String(color)), TextUpdate::Always, cx);
         }
     }
 
@@ -851,6 +782,7 @@ impl EditorView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui_kit::{Hsla, Rgba};
     use serde_json::json;
 
     #[test]
@@ -863,25 +795,6 @@ mod tests {
         assert_eq!(queue.pop(), Some(("a".to_owned(), Some(json!(3)))));
         assert_eq!(queue.pop(), Some(("b".to_owned(), Some(json!(2)))));
         assert_eq!(queue.pop(), None);
-    }
-
-    #[test]
-    fn number_input_accepts_finite_numbers_only() {
-        assert_eq!(parse_number_input("1.5"), Ok(1.5));
-        assert_eq!(parse_number_input(" 2 "), Ok(2.0));
-        assert_eq!(parse_number_input("1e3"), Ok(1000.0));
-        for text in ["1,5", "", "NaN", "inf"] {
-            assert!(parse_number_input(text).is_err(), "{text:?} was accepted");
-        }
-    }
-
-    #[test]
-    fn color_input_accepts_six_or_eight_hex_digits() {
-        assert_eq!(parse_color_input("#AABBCC"), Ok("#AABBCC".to_owned()));
-        assert_eq!(parse_color_input("#aabbccdd"), Ok("#aabbccdd".to_owned()));
-        for text in ["#fff", "red", "AABBCC"] {
-            assert!(parse_color_input(text).is_err(), "{text:?} was accepted");
-        }
     }
 
     #[test]
@@ -979,24 +892,6 @@ mod tests {
     }
 
     #[test]
-    fn picked_colors_are_written_as_hex() {
-        let opaque = Hsla::from(gpui_kit::Rgba {
-            r: 1.0,
-            g: 0.0,
-            b: 0x80 as f32 / 255.0,
-            a: 1.0,
-        });
-        assert_eq!(color_hex(opaque), "#FF0080");
-        let translucent = Hsla::from(gpui_kit::Rgba {
-            r: 0.0,
-            g: 0.0,
-            b: 0.0,
-            a: 0x40 as f32 / 255.0,
-        });
-        assert_eq!(color_hex(translucent), "#00000040");
-    }
-
-    #[test]
     fn keys_follow_the_declaration_order() {
         let text = |default: &str| ComponentPropertyField::String {
             label: None,
@@ -1011,14 +906,6 @@ mod tests {
             order: vec!["c".to_owned(), "gone".to_owned(), "a".to_owned()],
         };
         assert_eq!(ordered_keys(&schema), vec!["c", "a", "b"]);
-    }
-
-    #[test]
-    fn number_hints_show_the_declared_range() {
-        assert_eq!(number_hint(Some(0.0), Some(1.0)), Some("0–1".to_owned()));
-        assert_eq!(number_hint(Some(0.5), None), Some("≥ 0.5".to_owned()));
-        assert_eq!(number_hint(None, Some(10.0)), Some("≤ 10".to_owned()));
-        assert_eq!(number_hint(None, None), None);
     }
 
     #[test]

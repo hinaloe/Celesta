@@ -13,8 +13,8 @@ use crate::element_edit::{
 };
 use crate::element_rows::{
     HeldCommits, Scrub, TypedText, cleared_path, control_kind, parse_row_value, removable,
-    row_field, row_label, row_text, scrub_takes_focus, scrub_value, set_at_text, typed_text,
-    written_text,
+    row_field, row_kind, row_label, row_text, scrub_takes_focus, scrub_value, set_at_text,
+    typed_text, written_text,
 };
 use crate::export_worker::{
     ExportEvent, ExportRequest, ExportSource, ExportWorker, export_options,
@@ -4969,6 +4969,102 @@ fn a_style_property_row_is_removed_from_the_object() {
     assert_eq!(
         commit_in(text, &targets, &report, &[(prop("fontSize"), None)]),
         Ok(text.replace("fontSize: 40, ", ""))
+    );
+}
+
+#[test]
+fn a_long_expression_shows_on_one_shortened_line() {
+    let source =
+        "[\n  { x: 10, label: 'Sale' },\n  { x: 20, label: 'New' },\n  { x: 30, label: 'Hot' },\n]";
+    let text = reason_text(&LockReason::Expression {
+        source: source.to_owned(),
+    });
+    assert_eq!(
+        text,
+        "Written as an expression: [ { x: 10, label: 'Sale' }, { x: 20, label: 'New' }, { x: 30…"
+    );
+    // A short one stays whole, its whitespace collapsed.
+    assert_eq!(
+        reason_text(&LockReason::Expression {
+            source: "W\n  / 2".to_owned()
+        }),
+        "Written as an expression: W / 2"
+    );
+}
+
+#[test]
+fn an_input_takes_its_kind_from_its_literal_or_default() {
+    let (_, targets, _) = removable_rect();
+    let input = PropKey::Input {
+        row: "width".to_owned(),
+        name: "w".to_owned(),
+    };
+    let kind = |target: EditTarget| row_kind(&targets, &input, &local_target("w", target));
+    let missing = |default: EditValue| EditTarget::Missing {
+        insert_at: 0,
+        default: Some(default),
+    };
+    assert_eq!(
+        kind(missing(EditValue::String("Sale".to_owned()))),
+        ControlKind::String
+    );
+    assert_eq!(kind(missing(EditValue::Bool(true))), ControlKind::Boolean);
+    assert_eq!(kind(missing(EditValue::Number(2.0))), ControlKind::Number);
+    assert_eq!(
+        kind(EditTarget::Literal {
+            span: Span { start: 0, end: 4 },
+            value: EditValue::Bool(true),
+            form: LiteralForm::Bool,
+        }),
+        ControlKind::Boolean
+    );
+    // Through a parameter, the call site's.
+    assert_eq!(
+        kind(EditTarget::PassThrough {
+            call_site: targets.element,
+            param: "w".to_owned(),
+            target: Box::new(missing(EditValue::String("a".to_owned()))),
+        }),
+        ControlKind::String
+    );
+    assert_eq!(
+        kind(EditTarget::Missing {
+            insert_at: 0,
+            default: None
+        }),
+        ControlKind::Number
+    );
+}
+
+#[test]
+fn a_font_row_style_may_set_shows_what_style_received() {
+    let text =
+        "export const Scene = () => (\n  <Text style={mono(20)} color=\"red\">A</Text>\n);\n";
+    let report = text_report(
+        Path::new("/project/scene.tsx"),
+        &[
+            ("color", ReceivedValue::String("red".to_owned())),
+            ("style.fill", ReceivedValue::String("#00f".to_owned())),
+            ("children", ReceivedValue::String("A".to_owned())),
+        ],
+    );
+    let targets = resolve_table(text, &report, &text_table());
+    let color = targets.entry(&prop("color")).unwrap();
+    assert_eq!(color.target, EditTarget::Locked(LockReason::StyleMaySet));
+    let field = PrimitivePropertyField::Color {
+        default_value: None,
+    };
+    // `style` decides what is drawn.
+    assert_eq!(
+        row_text("color", color, Some(&field), &report),
+        ("#00f".to_owned(), String::new())
+    );
+    // When `style` received none, the shorthand's value.
+    let mut without = report.clone();
+    without.props.others.remove("style.fill");
+    assert_eq!(
+        row_text("color", color, Some(&field), &without),
+        ("red".to_owned(), String::new())
     );
 }
 

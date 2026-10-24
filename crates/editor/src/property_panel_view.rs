@@ -1,10 +1,10 @@
 //! Renders the Properties section of the React Preview panel; the state and
 //! the commit flow live in `property_panel.rs`.
 
-use crate::property_controls::render_control;
+use crate::property_controls::{number_hint, render_control};
 use crate::property_panel::{
-    PropertyRow, TextUpdate, differs_from_default, field_label, issues_by_key, number_hint,
-    ordered_keys, property_control_handler, value_text,
+    PropertyRow, TextUpdate, differs_from_default, field_label, issues_by_key, ordered_keys,
+    property_control_handler, value_text,
 };
 use crate::view::EditorView;
 use celesta_react_bridge::{ComponentPropertyField, EffectiveValue, ValueSource, effective_values};

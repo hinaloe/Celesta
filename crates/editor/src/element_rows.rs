@@ -6,17 +6,19 @@
 
 use crate::element_edit::{
     ElementTargets, PropKey, Target, edit_value, editable, field_of, inner_target, required_of,
-    table_default,
+    table_default, text_style_key,
 };
 use crate::layer_select::display_path;
-use crate::property_controls::{Control, ControlEvent, ControlKind, build_control};
-use crate::property_panel::{color_hex, parse_color, parse_color_input, parse_number_input};
+use crate::property_controls::{
+    Control, ControlEvent, ControlKind, build_control, parse_color, parse_color_input,
+    parse_number_input, take_picked_color,
+};
 use crate::transform_drag::override_sites;
 use crate::view::EditorView;
 use celesta_react_bridge::{
     LayerSourceReport, PrimitivePropertyField, PropOverride, ReceivedProps, SourcePos, import_path,
 };
-use celesta_source_edit::{EditTarget, EditValue, default_for, format_number};
+use celesta_source_edit::{EditTarget, EditValue, LockReason, default_for, format_number};
 use gpui_kit::{Context, MouseMoveEvent, PathPromptOptions, Subscription, Window};
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
@@ -157,6 +159,15 @@ fn shown_value(
             } => placeholder(Some(default.clone())),
             inner => shown_value(key, path, inner, field, props),
         },
+        // A `Text` font or color row `style` may set shows what `style`
+        // gave it, which is what is drawn; the shorthand's when none.
+        EditTarget::Locked(LockReason::StyleMaySet) => {
+            let style = text_style_key(key).and_then(|style| received(&format!("style.{style}")));
+            match style.or_else(|| received(path)) {
+                Some(value) => (Some(value), false),
+                None => placeholder(absent()),
+            }
+        }
         EditTarget::Locked(_) => match received(path) {
             Some(value) => (Some(value), false),
             None => placeholder(absent()),
@@ -363,17 +374,22 @@ pub(crate) fn cleared_path(target: &EditTarget) -> Option<EditValue> {
 }
 
 /// The control a row edits its value with: its table field's, a number for
-/// a transform prop without a table, a number or (for a string literal) a
-/// string for an input, and the Component section's kind for a component
-/// prop.
+/// a transform prop without a table, the kind of an input's literal (or of
+/// the parameter default it takes; a number otherwise), and the Component
+/// section's kind for a component prop.
 pub(crate) fn row_kind(targets: &ElementTargets, key: &PropKey, target: &Target) -> ControlKind {
     match key {
         PropKey::Prop(_) => row_field(targets, key).map_or(ControlKind::Number, control_kind),
         PropKey::Input { .. } => match inner_target(&target.target) {
-            EditTarget::Literal {
-                value: EditValue::String(_),
+            EditTarget::Literal { value, .. }
+            | EditTarget::Missing {
+                default: Some(value),
                 ..
-            } => ControlKind::String,
+            } => match value {
+                EditValue::Number(_) => ControlKind::Number,
+                EditValue::String(_) => ControlKind::String,
+                EditValue::Bool(_) => ControlKind::Boolean,
+            },
             _ => ControlKind::Number,
         },
         PropKey::CallSite(name) => targets
@@ -825,14 +841,8 @@ impl EditorView {
                 let Some(row) = self.element_rows.rows.get_mut(key) else {
                     return;
                 };
-                let Control::Color { picker, .. } = &row.control else {
-                    return;
-                };
-                let color = picker.read(cx).value();
-                if std::mem::take(&mut row.picked)
-                    && let Some(color) = color
-                {
-                    self.commit_element_row(key, Some(EditValue::String(color_hex(color))), cx);
+                if let Some(color) = take_picked_color(&row.control, &mut row.picked, cx) {
+                    self.commit_element_row(key, Some(EditValue::String(color)), cx);
                 }
             }
             ControlEvent::ChoosePath => self.choose_element_path(key, cx),

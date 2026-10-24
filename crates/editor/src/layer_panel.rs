@@ -5,6 +5,7 @@
 
 use crate::editor_launch::open_source;
 use crate::element_edit::{ElementTargets, TransformProp, inner_target, reason_text};
+use crate::element_rows::row_label;
 use crate::icons::CelestaIcon;
 use crate::impact::{ImpactView, counted_scenes, impact_line, impact_view, other_scenes_label};
 use crate::layer_select::{
@@ -55,7 +56,7 @@ pub(crate) fn owner_label(report: &LayerSourceReport) -> Option<String> {
 /// expression: W / 2", in target order; editable props and other rows
 /// omitted.
 pub(crate) fn locked_summary(targets: &ElementTargets) -> Vec<String> {
-    let mut reasons: Vec<(String, Vec<&str>)> = Vec::new();
+    let mut reasons: Vec<(String, Vec<String>)> = Vec::new();
     for (key, target) in &targets.targets {
         let Some(prop) = TransformProp::from_key(key) else {
             continue;
@@ -64,9 +65,10 @@ pub(crate) fn locked_summary(targets: &ElementTargets) -> Vec<String> {
             continue;
         };
         let reason = reason_text(reason);
+        let label = row_label(prop.name());
         match reasons.iter_mut().find(|(text, _)| *text == reason) {
-            Some((_, props)) => props.push(prop.label()),
-            None => reasons.push((reason, vec![prop.label()])),
+            Some((_, props)) => props.push(label),
+            None => reasons.push((reason, vec![label])),
         }
     }
     reasons
