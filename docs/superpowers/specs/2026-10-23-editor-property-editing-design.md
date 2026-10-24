@@ -261,7 +261,7 @@ Locked with its reason) and a control by type:
 
 | Type | Control |
 | --- | --- |
-| number | numeric field; drag on the label scrubs it (1 per pixel; 0.01 when `max` ≤ 1 and for `scale`, `scaleX`, `scaleY`; Shift ×10; clamped to `min`/`max`), previewed through the runtime and written once on release |
+| number | numeric field; drag on the label scrubs it (the field's declared `step` per pixel, else 0.01 when `max` ≤ 1, else 1; Shift ×10; clamped to `min`/`max`), previewed through the runtime and written once on release |
 | string | single-line field |
 | text | multi-line field; Enter commits, Shift+Enter breaks the line, blur commits |
 | boolean | switch |
