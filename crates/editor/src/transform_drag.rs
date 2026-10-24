@@ -541,7 +541,9 @@ fn box_animated(targets: &ElementTargets) -> bool {
         .flatten()
         .any(|name| {
             matches!(
-                targets.target(&PropKey::Prop(name.clone())).map(inner_target),
+                targets
+                    .target(&PropKey::Prop(name.clone()))
+                    .map(inner_target),
                 Some(EditTarget::Keyframe { .. })
             )
         })
