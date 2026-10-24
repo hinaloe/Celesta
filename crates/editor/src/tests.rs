@@ -12,9 +12,9 @@ use crate::element_edit::{
     lock_outside_project, reason_text, resolve_targets, table_default, type_component_props,
 };
 use crate::element_rows::{
-    HeldCommits, Scrub, TypedText, cleared_path, control_kind, parse_row_value, removable,
-    row_field, row_kind, row_label, row_text, scrub_takes_focus, scrub_value, set_at_text,
-    typed_text, written_text,
+    HeldCommit, HeldCommits, Scrub, SelectionGate, TypedText, cleared_path, control_kind,
+    edited_rows, moved_off_keyframe, parse_row_value, removable, row_field, row_kind, row_label,
+    row_text, scrub_takes_focus, scrub_value, set_at_text, typed_text, written_text,
 };
 use crate::export_worker::{
     ExportEvent, ExportRequest, ExportSource, ExportWorker, export_options,
@@ -5095,24 +5095,118 @@ fn a_font_row_style_may_set_shows_what_style_received() {
 #[test]
 fn held_commits_keep_the_latest_value_per_row_in_order() {
     let number = |value: f64| Some(EditValue::Number(value));
+    let held_at = |layer: &str, key: PropKey, value, frame| HeldCommit {
+        layer: layer.to_owned(),
+        key,
+        value,
+        frame,
+    };
     let mut held = HeldCommits::default();
-    held.push("a", prop("x"), number(1.0));
-    held.push("a", prop("fill"), None);
-    held.push("a", prop("x"), number(3.0));
-    assert!(held.contains(&prop("x")));
-    assert_eq!(held.pop(Some("a")), Some((prop("x"), number(3.0))));
-    assert_eq!(held.pop(Some("a")), Some((prop("fill"), None)));
+    held.push(held_at("a", prop("x"), number(1.0), 0));
+    held.push(held_at("a", prop("fill"), None, 0));
+    held.push(held_at("a", prop("x"), number(3.0), 4));
+    assert!(held.contains("a", &prop("x")));
+    assert!(!held.contains("b", &prop("x")));
+    assert!(held.any(Some("a")));
+    assert!(!held.any(Some("b")));
+    assert!(!held.any(None));
+    // The newer value keeps the row's place, with the frame it was made at.
+    assert_eq!(
+        held.pop(Some("a")),
+        Some(held_at("a", prop("x"), number(3.0), 4))
+    );
+    assert_eq!(
+        held.pop(Some("a")),
+        Some(held_at("a", prop("fill"), None, 0))
+    );
     assert_eq!(held.pop(Some("a")), None);
 
-    // Commits made for a layer no longer selected are dropped.
-    held.push("a", prop("x"), number(1.0));
-    assert_eq!(held.pop(Some("b")), None);
-    assert_eq!(held.pop(Some("a")), None);
-    // A commit for another layer replaces them.
-    held.push("a", prop("x"), number(1.0));
-    held.push("b", prop("y"), number(2.0));
-    assert!(!held.contains(&prop("x")));
-    assert_eq!(held.pop(Some("b")), Some((prop("y"), number(2.0))));
+    // Each layer's commits are its own; another layer's stay held.
+    held.push(held_at("a", prop("x"), number(1.0), 0));
+    held.push(held_at("b", prop("x"), number(2.0), 0));
+    assert_eq!(
+        held.pop(Some("b")),
+        Some(held_at("b", prop("x"), number(2.0), 0))
+    );
+    assert!(held.contains("a", &prop("x")));
+    assert_eq!(
+        held.take_all(),
+        vec![held_at("a", prop("x"), number(1.0), 0)]
+    );
+    assert!(!held.any(Some("a")));
+}
+
+#[test]
+fn a_selection_waits_for_the_held_commits_of_the_selected_layer() {
+    let mut gate = SelectionGate::default();
+    // Nothing held: the selection changes at once.
+    assert_eq!(
+        gate.request(Some("b".to_owned()), Some("a"), false),
+        Some(Some("b".to_owned()))
+    );
+    // Held commits for "a": the click waits, and a second one replaces it.
+    assert_eq!(gate.request(Some("b".to_owned()), Some("a"), true), None);
+    assert_eq!(gate.request(None, Some("a"), true), None);
+    assert!(gate.waiting());
+    assert_eq!(gate.release(true), None);
+    // Once they are written (or dropped), the latest request goes through.
+    assert_eq!(gate.release(false), Some(None));
+    assert!(!gate.waiting());
+    assert_eq!(gate.release(false), None);
+    // Clicking the selected layer again cancels a waiting change.
+    gate.request(Some("b".to_owned()), Some("a"), true);
+    assert_eq!(gate.request(Some("a".to_owned()), Some("a"), true), None);
+    assert_eq!(gate.release(false), None);
+}
+
+#[test]
+fn edited_rows_of_the_selected_layer_are_submitted_before_it_changes() {
+    let (x, y, fill) = (prop("x"), prop("y"), prop("fill"));
+    let rows = [
+        (&x, true, Some("a")),
+        (&y, false, Some("a")),
+        (&fill, true, Some("b")),
+    ];
+    assert_eq!(edited_rows(rows, Some("a")), vec![x.clone()]);
+    assert_eq!(edited_rows(rows, None), Vec::<PropKey>::new());
+}
+
+#[test]
+fn a_held_keyframe_commit_does_not_follow_a_seek() {
+    let keyframe = EditTarget::Keyframe {
+        span: Span { start: 0, end: 1 },
+        value: 1.0,
+        frame: 10.0,
+    };
+    let literal = EditTarget::Literal {
+        span: Span { start: 0, end: 1 },
+        value: EditValue::Number(1.0),
+        form: LiteralForm::Number,
+    };
+    // Made at frame 10, the targets now read at frame 20.
+    assert!(moved_off_keyframe(10, 20, &keyframe));
+    assert!(!moved_off_keyframe(10, 10, &keyframe));
+    // A plain value is the same at every frame.
+    assert!(!moved_off_keyframe(10, 20, &literal));
+}
+
+#[test]
+fn a_failed_reload_fails_commits_instead_of_holding_them() {
+    let report = primitive_report(2, 3, x_only());
+    let mut state = ElementEdit::default();
+    let request = state.begin("a", &report, 0).unwrap();
+    assert!(state.finish(request, Some("a"), resolve_in(TRANSFORM_FIXTURE, &report)));
+    state.invalidate();
+    assert!(!state.failed(Some("a")));
+    state.reload_failed();
+    assert!(state.failed(Some("a")));
+    assert_eq!(
+        state.unavailable(Some("a")),
+        "Not saved: the code failed to reload"
+    );
+    // The next reload reads the code again.
+    state.expire();
+    assert!(!state.failed(Some("a")));
 }
 
 #[test]

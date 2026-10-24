@@ -1065,6 +1065,9 @@ pub(crate) struct ElementEdit {
     written: Option<(String, WrittenValues)>,
     /// The last commit's error and the layer it belongs to.
     error: Option<(String, String)>,
+    /// The code failed to reload since the last successful reload (or
+    /// `reset`).
+    reload_failed: bool,
 }
 
 impl ElementEdit {
@@ -1143,6 +1146,7 @@ impl ElementEdit {
         self.pending = false;
         self.request += 1;
         self.error = None;
+        self.reload_failed = false;
     }
 
     /// Forgets everything (selection cleared, or the code reloaded): the next
@@ -1199,15 +1203,25 @@ impl ElementEdit {
     /// The newest resolution for `selected` failed and no write changed the
     /// file since: a commit has nothing to wait for. Anything else (being
     /// read, or an own write reloading) becomes current again.
+    /// Also after the code failed to reload: nothing reads the file again
+    /// until the next reload.
     pub(crate) fn failed(&self, selected: Option<&str>) -> bool {
-        self.resolved(selected).is_some_and(|(resolved, current)| {
-            current && !self.pending && resolved.outcome.is_err()
-        })
+        self.reload_failed
+            || self.resolved(selected).is_some_and(|(resolved, current)| {
+                current && !self.pending && resolved.outcome.is_err()
+            })
+    }
+
+    /// The code failed to reload after an own write: the targets stay
+    /// stale until the next reload, and a commit fails instead of waiting.
+    pub(crate) fn reload_failed(&mut self) {
+        self.reload_failed = true;
     }
 
     /// Why a commit for `selected` has no targets to write to.
     pub(crate) fn unavailable(&self, selected: Option<&str>) -> String {
         match self.resolved(selected) {
+            _ if self.reload_failed => RELOAD_FAILED.to_owned(),
             _ if self.pending => STILL_READING.to_owned(),
             None => STILL_READING.to_owned(),
             Some((resolved, _)) if resolved.outcome.is_err() => {
@@ -1260,6 +1274,10 @@ impl ElementEdit {
 }
 
 const STILL_READING: &str = "The source is still being read";
+
+/// Why a commit made, or held, after the code failed to reload is not
+/// written.
+pub(crate) const RELOAD_FAILED: &str = "Not saved: the code failed to reload";
 
 /// The frames an `interpolate(frame, …)` written for `report`'s element could
 /// read; an older runtime that reports none reads its `local_frame`.

@@ -534,6 +534,10 @@ impl EditorView {
                 if !self.row_scrub_active() {
                     self.cancel_row_scrub();
                 }
+                // No reload will make the targets current: the commits
+                // waiting for one are not written, and new ones fail.
+                self.element_edit.reload_failed();
+                self.drop_held_rows(cx);
             }
         }
         cx.notify();

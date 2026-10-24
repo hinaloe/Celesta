@@ -5,8 +5,8 @@
 //! the row state, and the commit flow; `element_rows_view.rs` renders them.
 
 use crate::element_edit::{
-    ElementTargets, PropKey, Target, edit_value, editable, field_of, inner_target, required_of,
-    table_default, text_style_key,
+    ElementTargets, PropKey, RELOAD_FAILED, Target, edit_value, editable, field_of, inner_target,
+    required_of, table_default, text_style_key,
 };
 use crate::layer_select::display_path;
 use crate::property_controls::{
@@ -176,6 +176,9 @@ fn shown_value(
 }
 
 const COLOR_MESSAGE: &str = "Enter a color: #RRGGBB, #RRGGBBAA, or a theme color name";
+
+/// Why a held commit to a keyframe was not written after a seek.
+const FRAME_MOVED: &str = "Not saved: the playhead moved off this keyframe";
 
 /// A `<Theme>` color name: a letter, then letters, digits, `_` or `-`.
 fn theme_color_name(text: &str) -> bool {
@@ -623,38 +626,126 @@ impl ElementRow {
 /// newer value.
 #[derive(Debug, Default)]
 pub(crate) struct HeldCommits {
-    layer: Option<String>,
-    commits: VecDeque<(PropKey, Option<EditValue>)>,
+    commits: VecDeque<HeldCommit>,
+}
+
+/// One row commit waiting its turn.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct HeldCommit {
+    pub(crate) layer: String,
+    pub(crate) key: PropKey,
+    /// `None` removes the prop.
+    pub(crate) value: Option<EditValue>,
+    /// The timeline frame the row's targets were looked up at.
+    pub(crate) frame: i64,
 }
 
 impl HeldCommits {
-    /// Holds `value` for the row `key` of `layer`; commits held for another
-    /// layer are dropped.
-    pub(crate) fn push(&mut self, layer: &str, key: PropKey, value: Option<EditValue>) {
-        if self.layer.as_deref() != Some(layer) {
-            self.commits.clear();
-            self.layer = Some(layer.to_owned());
-        }
-        match self.commits.iter_mut().find(|(held, _)| *held == key) {
-            Some((_, held)) => *held = value,
-            None => self.commits.push_back((key, value)),
+    /// Holds `commit`; one for the same row of the same layer is replaced
+    /// in its place.
+    pub(crate) fn push(&mut self, commit: HeldCommit) {
+        match self
+            .commits
+            .iter_mut()
+            .find(|held| held.layer == commit.layer && held.key == commit.key)
+        {
+            Some(held) => *held = commit,
+            None => self.commits.push_back(commit),
         }
     }
 
-    /// The oldest commit held for `selected`; those held for another layer
-    /// are dropped.
-    pub(crate) fn pop(&mut self, selected: Option<&str>) -> Option<(PropKey, Option<EditValue>)> {
-        if self.layer.as_deref() != selected {
-            self.commits.clear();
-            self.layer = None;
+    /// The oldest commit held for `layer`.
+    pub(crate) fn pop(&mut self, layer: Option<&str>) -> Option<HeldCommit> {
+        let index = self
+            .commits
+            .iter()
+            .position(|held| Some(held.layer.as_str()) == layer)?;
+        self.commits.remove(index)
+    }
+
+    pub(crate) fn contains(&self, layer: &str, key: &PropKey) -> bool {
+        self.commits
+            .iter()
+            .any(|held| held.layer == layer && held.key == *key)
+    }
+
+    /// Whether any commit is held for `layer`.
+    pub(crate) fn any(&self, layer: Option<&str>) -> bool {
+        self.commits
+            .iter()
+            .any(|held| Some(held.layer.as_str()) == layer)
+    }
+
+    /// Every held commit, oldest first, none held after.
+    pub(crate) fn take_all(&mut self) -> Vec<HeldCommit> {
+        self.commits.drain(..).collect()
+    }
+}
+
+/// A selection change asked for while commits are held for the selected
+/// layer: it waits until they are written (or dropped), and a newer request
+/// replaces it.
+#[derive(Debug, Default)]
+pub(crate) struct SelectionGate {
+    /// The selection to make; `Some(None)` clears it.
+    waiting: Option<Option<String>>,
+}
+
+impl SelectionGate {
+    /// A request to select `layer` (`None` clears the selection) while
+    /// `current` is selected, `held` saying commits wait for it. The
+    /// selection to make now; `None` when the request waits, or is the
+    /// current selection (which cancels a waiting one).
+    pub(crate) fn request(
+        &mut self,
+        layer: Option<String>,
+        current: Option<&str>,
+        held: bool,
+    ) -> Option<Option<String>> {
+        if layer.as_deref() == current {
+            self.waiting = None;
             return None;
         }
-        self.commits.pop_front()
+        if held {
+            self.waiting = Some(layer);
+            return None;
+        }
+        self.waiting = None;
+        Some(layer)
     }
 
-    pub(crate) fn contains(&self, key: &PropKey) -> bool {
-        self.commits.iter().any(|(held, _)| held == key)
+    /// The waiting selection, once no commit is `held` for the current one.
+    pub(crate) fn release(&mut self, held: bool) -> Option<Option<String>> {
+        if held { None } else { self.waiting.take() }
     }
+
+    #[cfg(test)]
+    pub(crate) fn waiting(&self) -> bool {
+        self.waiting.is_some()
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.waiting = None;
+    }
+}
+
+/// The keys of the rows typed in for `selected` and not committed, from
+/// `(key, edited, layer)`: what leaving the layer submits.
+pub(crate) fn edited_rows<'k>(
+    rows: impl IntoIterator<Item = (&'k PropKey, bool, Option<&'k str>)>,
+    selected: Option<&str>,
+) -> Vec<PropKey> {
+    rows.into_iter()
+        .filter(|(_, edited, layer)| *edited && selected.is_some() && *layer == selected)
+        .map(|(key, ..)| key.clone())
+        .collect()
+}
+
+/// Whether a commit held at timeline frame `held` would now write another
+/// keyframe: the targets were read again at `now`, and the row's is a
+/// keyframe (a plain value is the same at every frame).
+pub(crate) fn moved_off_keyframe(held: i64, now: i64, target: &EditTarget) -> bool {
+    held != now && matches!(inner_target(target), EditTarget::Keyframe { .. })
 }
 
 /// The selected layer's row controls, built on first need (controls need a
@@ -667,6 +758,11 @@ pub(crate) struct ElementRows {
     pub(crate) scrub: Option<Scrub>,
     /// Commits waiting for the targets to be current.
     held: HeldCommits,
+    /// A selection change waiting for `held`.
+    selection: SelectionGate,
+    /// The playhead moved (or playback started) since the rows last
+    /// submitted their typed text.
+    pub(crate) submit_requested: bool,
 }
 
 impl ElementRows {
@@ -946,16 +1042,24 @@ impl EditorView {
         if let Some(layer) = self.selected_layer.clone()
             && self.row_commit_waits()
         {
-            self.element_rows.held.push(&layer, key.clone(), value);
+            self.element_rows.held.push(HeldCommit {
+                layer,
+                key: key.clone(),
+                value,
+                frame: self.source_lookup_frame,
+            });
             cx.notify();
             return;
         }
         let written = key.clone();
+        let layer = self.selected_layer.clone();
         self.commit_element(
             vec![(key.clone(), value)],
             move |this, result, cx| {
                 // A newer commit of the row waiting its turn keeps showing.
-                let held = this.element_rows.held.contains(&written);
+                let held = layer
+                    .as_deref()
+                    .is_some_and(|layer| this.element_rows.held.contains(layer, &written));
                 if let Some(row) = this.element_rows.rows.get_mut(&written)
                     && !held
                 {
@@ -997,15 +1101,123 @@ impl EditorView {
 
     /// Writes the held row commits in order once they need not wait: each
     /// write that starts makes the next wait again (one history entry per
-    /// commit), and one that fails at once lets the next go.
+    /// commit), and one that fails at once lets the next go. A commit to a
+    /// keyframe made before the playhead moved is not written to another
+    /// keyframe. A selection change waiting for them goes once none is left.
     pub(crate) fn drain_held_rows(&mut self, cx: &mut Context<Self>) {
         while !self.row_commit_waits() {
             let selected = self.selected_layer.clone();
-            let Some((key, value)) = self.element_rows.held.pop(selected.as_deref()) else {
+            let Some(held) = self.element_rows.held.pop(selected.as_deref()) else {
                 break;
             };
-            self.commit_element_row(&key, value, cx);
+            let moved = self
+                .element_targets()
+                .and_then(|(targets, _)| targets.target(&held.key))
+                .is_some_and(|target| {
+                    moved_off_keyframe(held.frame, self.source_lookup_frame, target)
+                });
+            if moved {
+                self.drop_row_commit(&held.key, FRAME_MOVED);
+                continue;
+            }
+            self.commit_element_row(&held.key, held.value, cx);
         }
+        self.release_selection(cx);
+    }
+
+    /// A held commit of the row `key` that will not be written: the row
+    /// shows the source's value again and `message`.
+    fn drop_row_commit(&mut self, key: &PropKey, message: &str) {
+        if let Some(row) = self.element_rows.rows.get_mut(key) {
+            row.pending = None;
+            row.edited = false;
+            row.shown = None;
+            row.invalid = Some(message.to_owned());
+        }
+    }
+
+    /// The code failed to reload after a write: the held commits can't be
+    /// written against it, so they are dropped, each row (or, for a layer
+    /// no longer shown, the Layer section) saying so, and a waiting
+    /// selection change goes.
+    pub(crate) fn drop_held_rows(&mut self, cx: &mut Context<Self>) {
+        let selected = self.selected_layer.clone();
+        for held in self.element_rows.held.take_all() {
+            let shown = selected.as_deref() == Some(held.layer.as_str())
+                && self.element_rows.rows.contains_key(&held.key);
+            if shown {
+                self.drop_row_commit(&held.key, RELOAD_FAILED);
+            } else {
+                self.element_edit
+                    .set_error(Some(&held.layer), Some(RELOAD_FAILED.to_owned()));
+            }
+        }
+        for row in self.element_rows.rows.values_mut() {
+            if row.pending.take().is_some() {
+                row.edited = false;
+                row.shown = None;
+            }
+        }
+        self.release_selection(cx);
+    }
+
+    /// Selects `layer` (`None` clears the selection) as a click, the layer
+    /// list, or leaving the interactive mode asks: the rows' typed text is
+    /// submitted first, as a blur would, and while commits are held for the
+    /// selected layer the change waits for them (a newer request replaces
+    /// it).
+    pub(crate) fn select_layer(&mut self, layer: Option<String>, cx: &mut Context<Self>) {
+        self.submit_edited_rows(cx);
+        let current = self.selected_layer.clone();
+        let held = self.element_rows.held.any(current.as_deref());
+        if let Some(layer) = self
+            .element_rows
+            .selection
+            .request(layer, current.as_deref(), held)
+        {
+            self.change_selection(layer, cx);
+        }
+        cx.notify();
+    }
+
+    /// Makes the waiting selection change once no commit is held for the
+    /// selected layer.
+    fn release_selection(&mut self, cx: &mut Context<Self>) {
+        let held = self.element_rows.held.any(self.selected_layer.as_deref());
+        if let Some(layer) = self.element_rows.selection.release(held) {
+            self.change_selection(layer, cx);
+            cx.notify();
+        }
+    }
+
+    /// Submits the text typed in the selected layer's rows, as a blur
+    /// would: a value that parses is committed (or held), anything else is
+    /// dropped with its message.
+    pub(crate) fn submit_edited_rows(&mut self, cx: &mut Context<Self>) {
+        let rows = self
+            .element_rows
+            .rows
+            .iter()
+            .map(|(key, row)| (key, row.edited, row.layer.as_deref()));
+        for key in edited_rows(rows, self.selected_layer.as_deref()) {
+            self.submit_element_row(&key, true, cx);
+        }
+    }
+
+    /// Submits the rows' typed text when the playhead moved or playback
+    /// started since the last render (see [`ElementRows::submit_requested`]).
+    pub(crate) fn submit_rows_if_requested(&mut self, cx: &mut Context<Self>) {
+        if std::mem::take(&mut self.element_rows.submit_requested) {
+            self.submit_edited_rows(cx);
+        }
+    }
+
+    /// Forgets the commits held for the old selection and a waiting
+    /// selection change: the selection changed without waiting (the code
+    /// reloaded without the layer, say).
+    pub(crate) fn forget_held_rows(&mut self) {
+        self.element_rows.held.take_all();
+        self.element_rows.selection.clear();
     }
 
     /// Whether a scrub is running with the button down (not one released
@@ -1069,10 +1281,13 @@ impl EditorView {
     /// (another write ran when it was released): its override stays through
     /// that write's reload.
     pub(crate) fn row_scrub_held(&self) -> bool {
-        self.element_rows
-            .scrub
-            .as_ref()
-            .is_some_and(|scrub| scrub.released && self.element_rows.held.contains(&scrub.key))
+        self.element_rows.scrub.as_ref().is_some_and(|scrub| {
+            scrub.released
+                && self
+                    .selected_layer
+                    .as_deref()
+                    .is_some_and(|layer| self.element_rows.held.contains(layer, &scrub.key))
+        })
     }
 
     /// Whether a released scrub is being written, or waits for the reload

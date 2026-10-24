@@ -27,6 +27,11 @@ impl EditorView {
     }
 
     pub(crate) fn seek_frame(&mut self, frame: i64) {
+        // A seek by hand (playback seeks every frame) leaves the rows: their
+        // typed text is submitted on the next render, as a blur would.
+        if !self.playing {
+            self.element_rows.submit_requested = true;
+        }
         self.clock.seek(frame);
         self.refresh_preview();
     }
@@ -56,6 +61,8 @@ impl EditorView {
     /// opening) — waits for it, so the soundtrack starts with the picture
     /// instead of joining part-way through.
     pub(crate) fn start_playback(&mut self) {
+        // Playing leaves the rows, as a seek does.
+        self.element_rows.submit_requested = true;
         if self.playing || self.clock.end_frame() <= 0 {
             return;
         }

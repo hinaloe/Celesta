@@ -742,7 +742,9 @@ impl EditorView {
         }
         self.interactive = !self.interactive;
         if !self.interactive {
-            self.clear_layer_selection();
+            // As a click on nothing: the rows' typed text is submitted, and
+            // the selection clears once their commits are written.
+            self.select_layer(None, cx);
             self.hit_regions.clear();
         }
         self.refresh_preview();
@@ -770,8 +772,9 @@ impl EditorView {
         self.select_layer(hit, cx);
     }
 
-    /// Makes `layer` the selection (or clears it), looking up its source.
-    pub(crate) fn select_layer(&mut self, layer: Option<String>, cx: &mut Context<Self>) {
+    /// Makes `layer` the selection (or clears it) at once, looking up its
+    /// source; `select_layer` is what a person's request goes through.
+    pub(crate) fn change_selection(&mut self, layer: Option<String>, cx: &mut Context<Self>) {
         if layer == self.selected_layer {
             return;
         }
@@ -786,8 +789,10 @@ impl EditorView {
         cx.notify();
     }
 
-    /// Forgets the selected layer and its source.
+    /// Forgets the selected layer and its source, the commits held for it,
+    /// and a selection change waiting for them.
     pub(crate) fn clear_layer_selection(&mut self) {
+        self.forget_held_rows();
         self.selected_layer = None;
         self.source_lookup = None;
         self.source_lookup_stale = false;
