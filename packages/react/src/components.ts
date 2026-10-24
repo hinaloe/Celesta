@@ -17,6 +17,7 @@ import type {
   LayerVignette, LayerWave, LayerZoomBlur, ShaderEffect,
 } from './shader';
 import { createdAtOverride } from './jsx-dev-runtime';
+import { bool, color, num, path, propertyTable, registerPrimitiveProperties, select, str, text } from './property-tables';
 import { markPrimitive, markTransparent, markWindow } from './source-chain';
 import { themeTextContent } from './rich-text';
 import { type TextShorthand, ThemeContext, themedShapePaint, themedTextStyle } from './theme';
@@ -1078,6 +1079,44 @@ export const Audio = React.forwardRef<AssetReference, AudioProps>(function Audio
 // Layer primitives, so a source chain can tell `<Rect>` from a component the
 // author named `Rect`.
 for (const primitive of [Group, Image, Text, Rect, Video, Mask]) markPrimitive(primitive);
+
+// What the editor's Properties tab edits on each, by section.
+registerPrimitiveProperties('Group', propertyTable<GroupProps>({
+  groups: {
+    Transform: { x: num(0), y: num(0), rotation: num(0), scale: num(1), anchorX: num(0), anchorY: num(0), opacity: num(1, 0, 1) },
+  },
+}));
+registerPrimitiveProperties('Image', propertyTable<ImageProps>({
+  size: { width: 'width', height: 'height' },
+  groups: {
+    Transform: { x: num(0), y: num(0), rotation: num(0), scale: num(1), anchorX: num(0), anchorY: num(0), opacity: num(1, 0, 1) },
+    Source: { src: path() },
+    Size: { width: num(), height: num(), fit: select(['contain', 'cover']) },
+  },
+}));
+registerPrimitiveProperties('Text', propertyTable<TextProps>({
+  size: { width: 'maxWidth' },
+  groups: {
+    Transform: { x: num(0), y: num(0), rotation: num(0), scale: num(1), anchorX: num(0), anchorY: num(0), opacity: num(1, 0, 1) },
+    Text: { children: text(), fontFamily: str(), fontSize: num(), fontWeight: num(), color: color() },
+    Layout: { maxWidth: num() },
+  },
+}));
+registerPrimitiveProperties('Rect', propertyTable<RectProps>({
+  size: { width: 'width', height: 'height' },
+  groups: {
+    Transform: { x: num(0), y: num(0), rotation: num(0), scale: num(1), anchorX: num(0), anchorY: num(0), opacity: num(1, 0, 1) },
+    Size: { width: num(), height: num(), cornerRadius: num(0) },
+    Appearance: { fill: color(), stroke: color(), strokeWidth: num(0) },
+  },
+}));
+registerPrimitiveProperties('Video', propertyTable<VideoProps>({
+  groups: {
+    Transform: { x: num(0), y: num(0), rotation: num(0), scale: num(1), anchorX: num(0), anchorY: num(0), opacity: num(1, 0, 1) },
+    Source: { src: path(), startFrom: num(0), playbackRate: num(1), loop: bool(false) },
+    Audio: { volume: num(1), muted: bool(false) },
+  },
+}));
 for (const wrapper of [Composition, Sequence, FreezeFrame, Loop]) markTransparent(wrapper);
 markWindow(Sequence, 'Sequence');
 markWindow(FreezeFrame, 'FreezeFrame');

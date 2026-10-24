@@ -60,6 +60,24 @@ export type {
 
 export { listComponentSchemas, resolveComponent } from './registry';
 export {
+  bool,
+  color,
+  listPrimitiveProperties,
+  num,
+  path,
+  propertyTable,
+  registerPrimitiveProperties,
+  select,
+  str,
+  text,
+} from './property-tables';
+export type {
+  PrimitivePropertyField,
+  PrimitivePropertyTable,
+  PrimitiveSize,
+  WirePropertyTable,
+} from './property-tables';
+export {
   declaredDefault,
   holdProjectPropertyValues,
   inputProjectProperty,
