@@ -6,8 +6,10 @@
 //! A layer's own pixels are relative to its anchor point, as
 //! `EvaluatedTransform::homography` lays the layer plane out.
 
+use crate::element_edit::received_number;
 use celesta_composition::{EvaluatedTransform, Point};
 use celesta_gpu_renderer::{LayerFrame, invert_affine};
+use celesta_react_bridge::ReceivedProps;
 
 /// The layer's box in its own pixels, relative to its anchor point.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -63,15 +65,89 @@ pub(crate) fn pivot(transform: &EvaluatedTransform) -> Point {
 /// homography (a perspective that tilts it), which `layer_map` does not
 /// describe.
 pub(crate) fn local_box(frame: &LayerFrame) -> Option<LocalBox> {
+    own_box(frame, frame.outline)
+}
+
+/// The box the layer's anchor is a fraction of, in its own pixels (see
+/// [`with_anchor_box`]); `None` when its anchor has no effect or the box is
+/// unknown, and as for [`local_box`].
+pub(crate) fn anchor_box(frame: &LayerFrame) -> Option<LocalBox> {
+    own_box(frame, frame.anchor_box?)
+}
+
+/// The anchor the anchor box puts the layer's anchor point at, in fractions
+/// of the box: own pixels are relative to that point, so it is where 0 is.
+pub(crate) fn anchor_in_box(frame: &LayerFrame) -> Option<Point> {
+    let local = anchor_box(frame)?;
+    let size = local.size();
+    (size.x.abs() > 1e-9 && size.y.abs() > 1e-9).then(|| Point {
+        x: -local.min.x / size.x,
+        y: -local.min.y / size.y,
+    })
+}
+
+/// `@celesta/shapes` primitives sized by `radius`: their box is `2 * radius`
+/// square.
+const RADIUS_SHAPES: [&str; 4] = ["Circle", "Polygon", "Star", "Pie"];
+/// Primitives that bake their anchor into what they draw against `width` x
+/// `height`: the shapes drawn as a path (whose own origin is the anchor
+/// point), and a dashed `<Rect>`, drawn as a group of a rect and a path.
+const SIZED_SHAPES: [&str; 4] = ["Rect", "Ellipse", "Triangle", "Heart"];
+
+/// `frame` with `anchor_box` set to the box the source element's anchor is a
+/// fraction of, for the element `primitive` names (`report.chain`'s first)
+/// with the props the runtime passed it (`received`):
+/// - a `<Group>`'s anchor has no effect, as the renderer places its children
+///   by its position alone: none;
+/// - a shape (and a `<Rect>`, which can be drawn as a group) puts its anchor
+///   at `anchorX`, `anchorY` (0 when not passed, as every one defaults) of its
+///   `width` x `height` (or `2 * radius`) box;
+/// - anything else keeps the renderer's: a text's layout box, a rect's,
+///   image's or video's quad, none for a path.
+pub(crate) fn with_anchor_box(
+    mut frame: LayerFrame,
+    primitive: &str,
+    received: &ReceivedProps,
+) -> LayerFrame {
+    if primitive == "Group" {
+        frame.anchor_box = None;
+        return frame;
+    }
+    let number = |name: &str| received_number(received, name);
+    let size = if RADIUS_SHAPES.contains(&primitive) {
+        number("radius").map(|radius| (2.0 * radius, 2.0 * radius))
+    } else if SIZED_SHAPES.contains(&primitive) {
+        number("width").zip(number("height"))
+    } else {
+        None
+    };
+    if let Some((width, height)) = size {
+        let (ax, ay) = (
+            number("anchorX").unwrap_or(0.0),
+            number("anchorY").unwrap_or(0.0),
+        );
+        let map = layer_map(&frame.transform);
+        frame.anchor_box = Some([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|(u, v)| {
+            let local = Point {
+                x: (u - ax) * width,
+                y: (v - ay) * height,
+            };
+            apply(&frame.parent, apply(&map, local))
+        }));
+    }
+    frame
+}
+
+/// The box `quad` (scene pixels, a parallelogram the layer's map makes of a
+/// box) encloses in the layer's own pixels; `None` as for [`local_box`].
+fn own_box(frame: &LayerFrame, quad: [Point; 4]) -> Option<LocalBox> {
     let transform = &frame.transform;
     if transform.perspective_distance().is_some() && transform.is_projective() {
         return None;
     }
     let parent = invert_affine(frame.parent)?;
     let layer = invert_affine(layer_map(&frame.transform))?;
-    let corners = frame
-        .outline
-        .map(|corner| apply(&layer, apply(&parent, corner)));
+    let corners = quad.map(|corner| apply(&layer, apply(&parent, corner)));
     let fold = |pick: fn(f64, f64) -> f64| Point {
         x: corners.iter().map(|p| p.x).reduce(pick).unwrap_or_default(),
         y: corners.iter().map(|p| p.y).reduce(pick).unwrap_or_default(),
@@ -139,6 +215,7 @@ pub(crate) fn box_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use celesta_react_bridge::ReceivedValue;
 
     fn at(x: f64, y: f64) -> Point {
         Point { x, y }
@@ -246,6 +323,66 @@ mod tests {
         let local = local_box(&box_frame(with_origin, parent, 200.0, 100.0)).expect("a box");
         assert_near(local.min, at(-100.0, -50.0));
         assert_near(local.max, at(100.0, 50.0));
+    }
+
+    fn received(props: &[(&str, f64)]) -> ReceivedProps {
+        ReceivedProps {
+            others: props
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), ReceivedValue::Number(*value)))
+                .collect(),
+            ..ReceivedProps::default()
+        }
+    }
+
+    #[test]
+    fn the_anchor_box_is_the_one_the_source_element_anchors_in() {
+        let parent = [2.0, 0.0, 0.0, 2.0, 7.0, -3.0];
+        let turned = EvaluatedTransform {
+            position: at(40.0, 30.0),
+            rotation: 30.0,
+            anchor: at(0.0, 0.0),
+            ..EvaluatedTransform::default()
+        };
+        // A path drawn by a shape: the renderer knows no anchor box, and its
+        // outline reaches past the shape's box by half the stroke.
+        let mut path = box_frame(turned, parent, 120.0, 70.0);
+        path.anchor_box = None;
+        let anchored = |primitive, props: &[(&str, f64)]| {
+            anchor_box(&with_anchor_box(path.clone(), primitive, &received(props)))
+        };
+        // `<Ellipse>` bakes its anchor into its path against `width` x `height`.
+        let ellipse = anchored(
+            "Ellipse",
+            &[("width", 100.0), ("height", 50.0), ("anchorX", 0.5)],
+        )
+        .expect("a box");
+        assert_near(ellipse.min, at(-50.0, 0.0));
+        assert_near(ellipse.max, at(50.0, 50.0));
+        // `<Circle>` and the radius shapes against `2 * radius`.
+        let circle = anchored("Circle", &[("radius", 30.0), ("anchorY", 1.0)]).expect("a box");
+        assert_near(circle.min, at(0.0, -60.0));
+        assert_near(circle.max, at(60.0, 0.0));
+        assert!(anchored("Star", &[("radius", 30.0)]).is_some());
+        // A dashed `<Rect>` is drawn as a group but anchors its box.
+        let rect = anchored("Rect", &[("width", 80.0), ("height", 20.0)]).expect("a box");
+        assert_near(rect.max, at(80.0, 20.0));
+        // A shape whose size the runtime did not report keeps what the
+        // renderer knows, here nothing.
+        assert_eq!(anchored("Ellipse", &[]), None);
+        // A plain path has no anchor.
+        assert_eq!(anchored("Path", &[]), None);
+
+        // A text's layout box comes from the renderer, smaller than its quad.
+        let mut text = box_frame(turned, parent, 120.0, 70.0);
+        let layout = box_frame(turned, parent, 100.0, 50.0).outline;
+        text.anchor_box = Some(layout);
+        let text = with_anchor_box(text, "Text", &received(&[]));
+        assert_near(anchor_box(&text).expect("a box").max, at(100.0, 50.0));
+        // A `<Group>` places its children by its position: its anchor has no
+        // effect, whatever box the renderer reports.
+        let group = with_anchor_box(box_frame(turned, parent, 120.0, 70.0), "Group", &received(&[]));
+        assert_eq!(anchor_box(&group), None);
     }
 
     #[test]

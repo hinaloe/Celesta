@@ -5,7 +5,7 @@
 use crate::element_edit::{
     ElementTargets, PropKey, TransformProp, editable, inner_target, reason_text,
 };
-use crate::canvas_geometry::local_box;
+use crate::canvas_geometry::{anchor_box, local_box, with_anchor_box};
 use crate::layer_select::{letterbox, to_scene};
 use crate::transform_handles::{
     Handle, PivotMode, anchor_keys, drag_label, drag_values, preview_values, pressed_handle,
@@ -216,25 +216,57 @@ pub(crate) fn compensable(targets: &ElementTargets) -> bool {
     })
 }
 
+/// Why a drag with Center chosen turns about the pivot instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PivotFallback {
+    /// `x` or `y` is a keyframe or locked: nothing can keep the center.
+    NotCompensable,
+    /// The layer turns in its own perspective: no flat box to center on.
+    NoFlatBox,
+}
+
+impl PivotFallback {
+    /// The toggle's tooltip for it.
+    pub(crate) fn reason(self) -> &'static str {
+        match self {
+            Self::NotCompensable => "x or y is animated or locked",
+            Self::NoFlatBox => "No flat box to center on",
+        }
+    }
+}
+
+/// Why a drag of the layer `frame` measures can't use `choice`: Center needs
+/// `x`/`y` that can compensate and a known box. `None` when it can.
+pub(crate) fn pivot_fallback(
+    choice: PivotMode,
+    targets: &ElementTargets,
+    frame: &LayerFrame,
+) -> Option<PivotFallback> {
+    match choice {
+        PivotMode::Pivot => None,
+        PivotMode::Center if !compensable(targets) => Some(PivotFallback::NotCompensable),
+        PivotMode::Center if local_box(frame).is_none() => Some(PivotFallback::NoFlatBox),
+        PivotMode::Center => None,
+    }
+}
+
 /// The mode a drag of the layer `frame` measures uses when `choice` is
-/// chosen: Center only when `x`/`y` can compensate and the layer's box is
-/// known; the pivot otherwise.
+/// chosen: the pivot when Center falls back (see `pivot_fallback`).
 pub(crate) fn pivot_used(
     choice: PivotMode,
     targets: &ElementTargets,
     frame: &LayerFrame,
 ) -> PivotMode {
-    match choice {
-        PivotMode::Center if compensable(targets) && local_box(frame).is_some() => {
-            PivotMode::Center
-        }
-        _ => PivotMode::Pivot,
+    match pivot_fallback(choice, targets, frame) {
+        Some(_) => PivotMode::Pivot,
+        None => choice,
     }
 }
 
 /// The props a canvas drag of the layer `frame` measures may change: its
 /// editable transform props, in row order, then `anchorX`/`anchorY` when
-/// both are editable, `x`/`y` can compensate, and the box is known.
+/// both are editable, `x`/`y` can compensate, and the frame has a box the
+/// anchor refers to (`with_anchor_box`; none for a `<Group>`).
 pub(crate) fn drag_props(targets: &ElementTargets, frame: &LayerFrame) -> Vec<PropKey> {
     let mut props: Vec<PropKey> = TransformProp::ALL
         .into_iter()
@@ -246,22 +278,38 @@ pub(crate) fn drag_props(targets: &ElementTargets, frame: &LayerFrame) -> Vec<Pr
         .iter()
         .all(|key| targets.target(key).is_some_and(editable))
         && compensable(targets)
-        && local_box(frame).is_some()
+        && anchor_box(frame).is_some()
     {
         props.extend(anchors);
     }
     props
 }
 
-/// Why the pivot cross can't move the anchor when an anchor row is locked
-/// (`anchorY="baseline"` on a `Text`): the row and its reason.
-pub(crate) fn anchor_lock(targets: &ElementTargets) -> Option<String> {
-    anchor_keys().into_iter().find_map(|key| {
-        let EditTarget::Locked(reason) = inner_target(targets.target(&key)?) else {
+pub(crate) const GROUP_ANCHOR: &str = "A group's anchor has no effect";
+
+/// Why the pivot cross of the element `primitive` names can't move its
+/// anchor: an anchor row is locked (`anchorY="baseline"` on a `Text`), with
+/// the row and its reason, or the element is a `<Group>`, whose anchor the
+/// renderer ignores.
+pub(crate) fn anchor_reason(targets: &ElementTargets, primitive: &str) -> Option<String> {
+    let anchors = anchor_keys();
+    let locked = anchors.iter().find_map(|key| {
+        let EditTarget::Locked(reason) = inner_target(targets.target(key)?) else {
             return None;
         };
         Some(format!("{}: {}", key.label(), reason_text(reason)))
-    })
+    });
+    let has_rows = anchors.iter().any(|key| targets.target(key).is_some());
+    locked.or_else(|| (primitive == "Group" && has_rows).then(|| GROUP_ANCHOR.to_owned()))
+}
+
+/// The name of the element `report` found (its innermost entry), which
+/// says how its anchor is laid out (see `with_anchor_box`).
+fn primitive_of(report: &LayerSourceReport) -> &str {
+    report
+        .chain
+        .first()
+        .map_or("", |element| element.name.as_str())
 }
 
 impl EditorView {
@@ -289,9 +337,12 @@ impl EditorView {
         if let Some(drag) = &self.transform_drag {
             return DragState::Editable(frame, drag.editable.clone(), drag.pivot);
         }
-        let Some((targets, _)) = self.element_targets() else {
+        let Some((targets, report)) = self.element_targets() else {
             return DragState::Unknown;
         };
+        // The box the source element's anchor refers to, which the drag
+        // keeps with it.
+        let frame = with_anchor_box(frame, primitive_of(report), &report.props);
         let props = drag_props(targets, &frame);
         if props.is_empty() {
             let reason = TransformProp::ALL
@@ -310,24 +361,26 @@ impl EditorView {
 
     /// The pivot mode the viewer's toggle shows: the one a drag of the
     /// selected layer uses (the chosen one without a draggable selection),
-    /// and whether Center is chosen but the layer's `x`/`y` can't
-    /// compensate.
-    pub(crate) fn shown_pivot_mode(&self) -> (PivotMode, bool) {
-        let DragState::Editable(_, _, used) = self.drag_state() else {
-            return (self.pivot_mode, false);
+    /// and why it is not the chosen Center.
+    pub(crate) fn shown_pivot_mode(&self) -> (PivotMode, Option<PivotFallback>) {
+        let DragState::Editable(frame, _, used) = self.drag_state() else {
+            return (self.pivot_mode, None);
         };
-        let fixed = self.pivot_mode == PivotMode::Center
-            && used == PivotMode::Pivot
-            && self
-                .element_targets()
-                .is_some_and(|(targets, _)| !compensable(targets));
-        (used, fixed)
+        // A running drag keeps the mode it started with.
+        let fallback = (used == PivotMode::Pivot)
+            .then(|| {
+                let (targets, _) = self.element_targets()?;
+                pivot_fallback(self.pivot_mode, targets, &frame)
+            })
+            .flatten();
+        (used, fallback)
     }
 
-    /// Why the selected layer's pivot cross can't move its anchor, when an
-    /// anchor row is locked (see `anchor_lock`).
+    /// Why the selected layer's pivot cross can't move its anchor (see
+    /// `anchor_reason`).
     pub(crate) fn anchor_lock_reason(&self) -> Option<String> {
-        anchor_lock(self.element_targets()?.0)
+        let (targets, report) = self.element_targets()?;
+        anchor_reason(targets, primitive_of(report))
     }
 
     /// The prop overrides the preview evaluates the scene with while a drag
@@ -556,7 +609,7 @@ pub(crate) fn presses_body(frame: &LayerFrame, topmost: Option<&str>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::canvas_geometry::box_frame;
+    use crate::canvas_geometry::{box_frame, with_anchor_box};
     use crate::edit_history::{EditHistory, HistoryEntry, write_all_recorded};
     use crate::element_edit::{Target, commit_files, resolve_targets};
     use crate::transform_handles::anchor_handle;
@@ -736,6 +789,49 @@ mod tests {
     }
 
     #[test]
+    fn the_toggle_says_why_center_falls_back() {
+        let frame = rect_frame();
+        let plain = with_x(literal(40.0));
+        assert_eq!(pivot_fallback(PivotMode::Center, &plain, &frame), None);
+        let keyframed = with_x(EditTarget::Keyframe {
+            span: Span { start: 0, end: 1 },
+            value: 40.0,
+            frame: 0.0,
+        });
+        assert_eq!(
+            pivot_fallback(PivotMode::Center, &keyframed, &frame),
+            Some(PivotFallback::NotCompensable)
+        );
+        let mut tilted = frame.clone();
+        tilted.transform.rotation_y = 30.0;
+        tilted.transform.perspective = Some(800.0);
+        assert_eq!(
+            pivot_fallback(PivotMode::Center, &plain, &tilted),
+            Some(PivotFallback::NoFlatBox)
+        );
+        // Pivot chosen falls back from nothing.
+        assert_eq!(pivot_fallback(PivotMode::Pivot, &keyframed, &tilted), None);
+    }
+
+    #[test]
+    fn a_group_s_anchor_is_inert() {
+        // A `<Group>`'s anchor rows are editable, but the renderer places its
+        // children by its position alone.
+        let anchors = anchors_with(literal(40.0), literal(0.0));
+        let received = ReceivedProps::default();
+        let group = with_anchor_box(rect_frame(), "Group", &received);
+        assert!(!has_anchor(&anchors, &group));
+        assert_eq!(
+            anchor_reason(&anchors, "Group").as_deref(),
+            Some(GROUP_ANCHOR)
+        );
+        // Any other element anchors in its box.
+        let rect = with_anchor_box(rect_frame(), "Rect", &received);
+        assert!(has_anchor(&anchors, &rect));
+        assert_eq!(anchor_reason(&anchors, "Rect"), None);
+    }
+
+    #[test]
     fn a_baseline_text_anchor_is_inert() {
         let frame = rect_frame();
         let baseline = anchors_with(
@@ -746,10 +842,13 @@ mod tests {
         );
         assert!(!has_anchor(&baseline, &frame));
         assert_eq!(
-            anchor_lock(&baseline).as_deref(),
+            anchor_reason(&baseline, "Text").as_deref(),
             Some("Anchor Y: Written as an expression: \"baseline\"")
         );
-        assert_eq!(anchor_lock(&anchors_with(literal(40.0), literal(0.0))), None);
+        assert_eq!(
+            anchor_reason(&anchors_with(literal(40.0), literal(0.0)), "Text"),
+            None
+        );
     }
 
     const COMPONENT: &str =

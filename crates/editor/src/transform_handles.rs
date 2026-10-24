@@ -11,7 +11,9 @@
 //! for the layers that deviate (an `<Instances>`, whose x, y and rotation are
 //! its particles').
 
-use crate::canvas_geometry::{apply, keep_fixed, layer_map, local_box, pivot};
+use crate::canvas_geometry::{
+    anchor_box, anchor_in_box, apply, keep_fixed, layer_map, local_box, pivot,
+};
 use crate::element_edit::{PropKey, TransformProp, received_number};
 use celesta_composition::{EvaluatedTransform, Point};
 use celesta_gpu_renderer::{LayerFrame, invert_affine};
@@ -78,11 +80,12 @@ pub(crate) fn pivot_cross(frame: &LayerFrame) -> Point {
 
 /// Where the cross an Alt-drag moves the anchor from sits (scene pixels),
 /// when `editable` lets it: both anchors, `x` and `y` (which the caller puts
-/// in only when they can compensate), and a known box.
+/// in only when they can compensate), and a box the anchor refers to (see
+/// `with_anchor_box`).
 pub(crate) fn anchor_handle(frame: &LayerFrame, editable: &[PropKey]) -> Option<Point> {
     let keys = [TransformProp::X.key(), TransformProp::Y.key()];
     let draggable = keys.iter().chain(&anchor_keys()).all(|key| editable.contains(key))
-        && local_box(frame).is_some();
+        && anchor_box(frame).is_some();
     draggable.then(|| pivot_cross(frame))
 }
 
@@ -329,10 +332,10 @@ pub(crate) fn drag_values(
 }
 
 /// The values an anchor drag from `start` to `now` (parent space) makes:
-/// the anchor moves by the pointer's move in fractions of the box (not
-/// clamped: an anchor outside the box is valid), so the cross follows the
-/// pointer, and `x`/`y` move so the box stays where it was. Empty unless
-/// [`anchor_handle`] allows the drag.
+/// the anchor moves by the pointer's move in fractions of the box it refers
+/// to (not clamped: an anchor outside the box is valid), so the cross
+/// follows the pointer, and `x`/`y` move so the box stays where it was.
+/// Empty unless [`anchor_handle`] allows the drag.
 fn anchor_values(
     frame: &LayerFrame,
     (start, now): (Point, Point),
@@ -340,9 +343,10 @@ fn anchor_values(
 ) -> Vec<(PropKey, f64)> {
     let transform = &frame.transform;
     let map = layer_map(transform);
-    let (Some(_), Some(local), Some(inverse)) = (
+    let (Some(_), Some(local), Some(anchor), Some(inverse)) = (
         anchor_handle(frame, editable),
-        local_box(frame),
+        anchor_box(frame),
+        anchor_in_box(frame),
         invert_affine(map),
     ) else {
         return Vec::new();
@@ -367,8 +371,8 @@ fn anchor_values(
     let position = keep_fixed(transform, corner_after, apply(&map, corner));
     let [anchor_x, anchor_y] = anchor_keys();
     vec![
-        (anchor_x, transform.anchor.x + moved.x),
-        (anchor_y, transform.anchor.y + moved.y),
+        (anchor_x, anchor.x + moved.x),
+        (anchor_y, anchor.y + moved.y),
         (TransformProp::X.key(), position.x),
         (TransformProp::Y.key(), position.y),
     ]
@@ -400,9 +404,10 @@ fn prop_name(key: &PropKey) -> Option<&str> {
 }
 
 /// The value the drag started from for `key`: the evaluated transform's
-/// field for a transform prop or an anchor. `None` for any other prop: a
-/// size's start is the layer's box, which the Rect tool reads; no drag
-/// changes a size yet.
+/// field for a transform prop; for an anchor, where the box it refers to
+/// puts it (a shape's path layer carries no anchor of its own), else the
+/// evaluated one. `None` for any other prop: a size's start is the layer's
+/// box, which the Rect tool reads; no drag changes a size yet.
 fn start_value(frame: &LayerFrame, key: &PropKey) -> Option<f64> {
     let transform = &frame.transform;
     if let Some(prop) = TransformProp::from_key(key) {
@@ -414,9 +419,10 @@ fn start_value(frame: &LayerFrame, key: &PropKey) -> Option<f64> {
             TransformProp::ScaleY => transform.scale.y,
         });
     }
+    let anchor = anchor_in_box(frame).unwrap_or(transform.anchor);
     match prop_name(key)? {
-        "anchorX" => Some(transform.anchor.x),
-        "anchorY" => Some(transform.anchor.y),
+        "anchorX" => Some(anchor.x),
+        "anchorY" => Some(anchor.y),
         _ => None,
     }
 }
@@ -501,31 +507,24 @@ pub(crate) fn preview_values(
 /// The props of `editable` a drag of `handle` may change (see `drag_values`):
 /// in Center mode a rotation or scale also moves `x`/`y`.
 fn handle_props(handle: Handle, editable: &[PropKey], pivot: PivotMode) -> Vec<PropKey> {
-    if handle == Handle::Anchor {
-        let mut props = anchor_keys().to_vec();
-        props.extend([TransformProp::X.key(), TransformProp::Y.key()]);
-        props.retain(|key| editable.contains(key));
-        return props;
-    }
     let uniform = editable.contains(&TransformProp::Scale.key());
-    let props: &[TransformProp] = match handle {
-        Handle::Move | Handle::Anchor => &[TransformProp::X, TransformProp::Y],
-        Handle::Rotate => &[TransformProp::Rotation],
-        _ if uniform => &[TransformProp::Scale],
-        Handle::Edge(i) if i % 2 == 1 => &[TransformProp::ScaleX],
-        Handle::Edge(_) => &[TransformProp::ScaleY],
-        Handle::Corner(_) => &[TransformProp::ScaleX, TransformProp::ScaleY],
+    let position = [TransformProp::X.key(), TransformProp::Y.key()];
+    let mut props: Vec<PropKey> = match handle {
+        Handle::Move => position.to_vec(),
+        // The anchor drag always keeps the box where it is.
+        Handle::Anchor => anchor_keys().into_iter().chain(position.clone()).collect(),
+        Handle::Rotate => vec![TransformProp::Rotation.key()],
+        _ if uniform => vec![TransformProp::Scale.key()],
+        Handle::Edge(i) if i % 2 == 1 => vec![TransformProp::ScaleX.key()],
+        Handle::Edge(_) => vec![TransformProp::ScaleY.key()],
+        Handle::Corner(_) => vec![TransformProp::ScaleX.key(), TransformProp::ScaleY.key()],
     };
-    let compensation: &[TransformProp] = match (handle, pivot) {
-        (Handle::Move | Handle::Anchor, _) | (_, PivotMode::Pivot) => &[],
-        (_, PivotMode::Center) => &[TransformProp::X, TransformProp::Y],
-    };
+    // In Center mode a rotation or scale moves the layer too.
+    if pivot == PivotMode::Center && matches!(handle, Handle::Rotate | Handle::Corner(_) | Handle::Edge(_)) {
+        props.extend(position);
+    }
+    props.retain(|key| editable.contains(key));
     props
-        .iter()
-        .chain(compensation)
-        .map(|prop| prop.key())
-        .filter(|key| editable.contains(key))
-        .collect()
 }
 
 /// `x 120 → 184` for each prop the drag writes, with the values as written
@@ -958,6 +957,84 @@ mod tests {
             assert_same_outline(&moved_frame, &frame);
             assert_close(apply(&parent, pivot(&after)), middle);
         }
+    }
+
+    #[test]
+    fn an_anchor_drag_measures_the_box_the_anchor_refers_to() {
+        // A text whose quad is padded 12 px past its 100 x 50 layout box on
+        // every side, turned and scaled under a scaled parent.
+        let parent = [2.0, 0.0, 0.0, 2.0, 5.0, -5.0];
+        let before = EvaluatedTransform {
+            position: at(30.0, 40.0),
+            rotation: 30.0,
+            scale: at(1.5, 1.5),
+            anchor: at(0.0, 0.0),
+            ..EvaluatedTransform::default()
+        };
+        let layout = box_frame(before, parent, 100.0, 50.0).outline;
+        let pad = 12.0;
+        let quad = [
+            at(-pad, -pad),
+            at(100.0 + pad, -pad),
+            at(100.0 + pad, 50.0 + pad),
+            at(-pad, 50.0 + pad),
+        ]
+        .map(|local| apply(&parent, apply(&layer_map(&before), local)));
+        let frame = LayerFrame {
+            outline: quad,
+            anchor_box: Some(layout),
+            ..box_frame(before, parent, 100.0, 50.0)
+        };
+        let cross = apply(&parent, pivot(&before));
+        let middle = scene(&frame, &before, at(50.0, 25.0));
+        let values = drag_values(
+            &frame,
+            Handle::Anchor,
+            (cross, middle),
+            false,
+            0.0,
+            &anchor_props(),
+            PivotMode::Center,
+        );
+        // Half of the layout box, not of the padded quad.
+        let after = moved(&before, &values);
+        assert!((after.anchor.x - 0.5).abs() < 1e-9, "{values:?}");
+        assert!((after.anchor.y - 0.5).abs() < 1e-9, "{values:?}");
+        // Every corner of the layout box stays where it was.
+        let moved_layout = box_frame(after, parent, 100.0, 50.0).outline;
+        for (now, was) in moved_layout.iter().zip(&layout) {
+            assert_close(*now, *was);
+        }
+    }
+
+    #[test]
+    fn an_unwritten_anchor_starts_from_the_box() {
+        // A shape's path: its layer has whatever anchor the runtime gives a
+        // path, while the box puts the shape's anchor at its top-left.
+        let layer = EvaluatedTransform {
+            anchor: at(0.5, 0.5),
+            ..top_left_rect()
+        };
+        let frame = LayerFrame {
+            anchor_box: Some(box_frame(top_left_rect(), IDENTITY, 100.0, 50.0).outline),
+            ..box_frame(layer, IDENTITY, 100.0, 50.0)
+        };
+        let values = drag_values(
+            &frame,
+            Handle::Anchor,
+            (at(10.0, 10.0), at(35.0, 10.0)),
+            false,
+            0.0,
+            &anchor_props(),
+            PivotMode::Pivot,
+        );
+        let written = prop_values(&frame, &values, &ReceivedProps::default());
+        assert_eq!(written[0].0, anchor_key("X"));
+        assert!((written[0].1 - 0.25).abs() < 1e-9, "{written:?}");
+        assert_eq!(
+            drag_label(&frame, &values, &ReceivedProps::default()),
+            "anchorX 0 → 0.25  x 10 → 35"
+        );
     }
 
     #[test]

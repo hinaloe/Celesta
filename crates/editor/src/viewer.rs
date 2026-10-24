@@ -29,7 +29,9 @@ use crate::preview::PreviewPresentation;
 use crate::problems::{ActiveProblem, Source, flow_line_breaks, summarize_warnings};
 use crate::problems_panel::{detail_block, show_in_problems_row};
 use crate::timecode::format_timecode;
-use crate::transform_drag::{DragState, HANDLE_SIZE, NO_AFFINE_FRAME, ROTATE_STEM};
+use crate::transform_drag::{
+    DragState, HANDLE_SIZE, NO_AFFINE_FRAME, PivotFallback, ROTATE_STEM,
+};
 use crate::transform_handles::{
     Handle, PivotMode, anchor_handle, pivot_cross, rotate_stem, shown_handles,
 };
@@ -658,11 +660,16 @@ impl EditorView {
     fn pivot_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let (used, fallback) = self.shown_pivot_mode();
         let muted = cx.theme().muted_foreground;
-        let pivot_label = if fallback {
+        let pivot_label = if fallback == Some(PivotFallback::NotCompensable) {
             "Pivot (x, y not editable)"
         } else {
             "Pivot"
         };
+        // Why Center is not used, where the label has no room for it.
+        let pivot_tooltip = fallback.map_or(
+            "Rotate and scale about the pivot (anchor + origin)",
+            PivotFallback::reason,
+        );
         ButtonGroup::new("pivot-mode")
             .small()
             .outline()
@@ -679,8 +686,8 @@ impl EditorView {
                 Button::new("pivot-pivot")
                     .label(pivot_label)
                     .selected(used == PivotMode::Pivot)
-                    .when(fallback, |button| button.text_color(muted))
-                    .tooltip("Rotate and scale about the anchor")
+                    .when(fallback.is_some(), |button| button.text_color(muted))
+                    .tooltip(pivot_tooltip)
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.set_pivot_mode(PivotMode::Pivot, cx);
                     })),
