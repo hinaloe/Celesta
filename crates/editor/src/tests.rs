@@ -13,7 +13,7 @@ use crate::element_edit::{
 };
 use crate::element_rows::{
     Scrub, cleared_path, control_kind, parse_row_value, row_field, row_label, row_text,
-    scrub_value, set_at_text,
+    scrub_takes_focus, scrub_value, set_at_text,
 };
 use crate::export_worker::{
     ExportEvent, ExportRequest, ExportSource, ExportWorker, export_options,
@@ -4578,6 +4578,18 @@ fn a_scrub_starts_from_the_value_the_row_shows() {
     };
     let targets = resolve_targets(read_from(&texts), &report, None).unwrap();
     assert_eq!(scrubbed_to(&(targets, report), &prop("x"), 104.0), 11.0);
+}
+
+#[test]
+fn a_scrub_takes_the_focus_unless_another_row_holds_typed_text() {
+    let (radius, opacity) = (prop("cornerRadius"), prop("opacity"));
+    // Nothing typed, or only in the scrubbed row (whose text gives way):
+    // the editor takes the focus, so Cmd+Z undoes the scrub's write.
+    assert!(scrub_takes_focus([], &radius));
+    assert!(scrub_takes_focus([&radius], &radius));
+    // Another row's typed text stays in its focused field, unsubmitted.
+    assert!(!scrub_takes_focus([&opacity], &radius));
+    assert!(!scrub_takes_focus([&radius, &opacity], &radius));
 }
 
 #[test]

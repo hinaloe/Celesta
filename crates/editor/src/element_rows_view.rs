@@ -298,11 +298,13 @@ impl EditorView {
                                 label.cursor(CursorStyle::ResizeLeftRight).on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                                        // The focus stays where it is: the
-                                        // root's `track_focus` would take it
-                                        // and blur (and submit) a row's field.
+                                        // The scrub decides where the focus
+                                        // goes: the root's `track_focus` would
+                                        // take it and blur (and submit) a
+                                        // row's field holding typed text.
                                         window.prevent_default();
-                                        this.begin_row_scrub(&key, f32::from(event.position.x), cx);
+                                        let x = f32::from(event.position.x);
+                                        this.begin_row_scrub(&key, x, window, cx);
                                     }),
                                 )
                             })

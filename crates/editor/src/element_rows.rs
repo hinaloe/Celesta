@@ -343,6 +343,18 @@ pub(crate) fn scrubs(targets: &ElementTargets, key: &PropKey, target: &Target) -
         && !matches!(inner_target(&target.target), EditTarget::Keyframe { .. })
 }
 
+/// Whether a scrub of the row `scrubbed` takes the focus to the editor, so
+/// its keys reach it again (Cmd+Z undoes the scrub's write; a row's text
+/// field takes Cmd+Z as its own undo). Not while another row holds typed
+/// text (`edited`): that text stays in its focused field, neither lost nor
+/// submitted. The scrubbed row's own typed text gives way to the scrub.
+pub(crate) fn scrub_takes_focus<'k>(
+    edited: impl IntoIterator<Item = &'k PropKey>,
+    scrubbed: &PropKey,
+) -> bool {
+    edited.into_iter().all(|key| key == scrubbed)
+}
+
 /// A scrub in progress on one number row.
 #[derive(Clone, Debug)]
 pub(crate) struct Scrub {
@@ -804,8 +816,15 @@ impl EditorView {
 
     /// Mouse down on the label of the row `key` at `x` (window pixels):
     /// starts a scrub of its value when the row scrubs, ending a canvas drag
-    /// without writing it. Nothing while playing.
-    pub(crate) fn begin_row_scrub(&mut self, key: &PropKey, x: f32, cx: &mut Context<Self>) {
+    /// without writing it, and takes the focus to the editor (see
+    /// [`scrub_takes_focus`]). Nothing while playing.
+    pub(crate) fn begin_row_scrub(
+        &mut self,
+        key: &PropKey,
+        x: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         // While a released scrub or drag is being written, none starts: its
         // override stays until the reload draws the written value.
         if self.playing || self.element_rows.scrub.is_some() || self.transform_drag_released() {
@@ -820,13 +839,24 @@ impl EditorView {
         if self.transform_drag_active() {
             self.cancel_transform_drag();
         }
-        // Text typed in this row gives way to the scrubbed value; text typed
-        // in another row stays in its field, which keeps the focus (the
-        // label's press does not take it).
+        let takes_focus = scrub_takes_focus(
+            self.element_rows
+                .rows
+                .iter()
+                .filter(|(_, row)| row.edited)
+                .map(|(edited, _)| edited),
+            key,
+        );
+        // Text typed in this row gives way to the scrubbed value.
         match self.element_rows.rows.get_mut(key) {
             Some(row) if row.edited => self.restore_element_row(key, true, cx),
             Some(row) => row.invalid = None,
             None => {}
+        }
+        // The blur of a field that had the focus then submits nothing: its
+        // text was written already, or just gave way.
+        if takes_focus && let Some(focus_handle) = &self.focus_handle {
+            focus_handle.focus(window, cx);
         }
         self.element_rows.scrub = Some(scrub);
         cx.notify();
