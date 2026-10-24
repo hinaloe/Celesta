@@ -103,12 +103,21 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   the write. In `lookup_allowed(transform_drag, scrub_pressed, text_edit)`,
   `text_edit` is now a running edit rather than any override, so frames
   drawing a kept override look the layer up. Quit goes through
-  `lifecycle::quit_after_inline_commits`; Close defers removing the window
-  until the commit is written (both poll every 20 ms).
+  `lifecycle::quit_after_inline_commits`; Close and Reload go through
+  `EditorView::after_inline_commit`, which runs the window removal or the
+  reload once the commit is written. All three poll every 20 ms and stop
+  waiting after 5 s (`commit_wait_continues`, `COMMIT_WAIT_LIMIT`).
+  A commit that is not written (its write failed, or it was dropped while
+  held) sets `inline_notice` to the reason: `inline_commit_written` on an
+  error, `drop_held_rows` when it drops the held commit's override. The
+  notice is cleared on a person's selection request (`select_layer`), no
+  longer in `change_selection`, so a waiting selection change released by
+  the drop keeps it.
 
 ## Decisions
 
-These differ from, or settle what the spec left open:
+These differ from, or settle what the spec left open. Where they differ
+from the plan's Rulings, these supersede them:
 
 - **The box comes from the renderer, not from `canvas_geometry`.** 2c's
   handoff expected 2d to map metrics with `layer_map` and `anchor_box`. A
@@ -173,10 +182,20 @@ These differ from, or settle what the spec left open:
   drop it only when its commit is still held; a user's selection change
   during the write keeps it, so the old text does not flash during the
   reload (the scrub, by contrast, is dropped with the selection).
-- **Close and Quit wait for the write**: Close commits, then removes the
-  window at once or after polling `inline_commit_writing`; Quit ends every
-  window's edit and quits once none is writing. The window keeps rendering
-  meanwhile, so a held commit can drain.
+- **Close, Quit, and Reload wait for the write**: Close commits, then
+  removes the window at once or after polling `inline_commit_writing`; Quit
+  ends every window's edit and quits once none is writing. Reload waits the
+  same way: reloading at once would clear the selection (the commit's own
+  write has not marked the reload as its own yet) and with it forget a
+  commit still held, unwritten. The window keeps rendering meanwhile, so a
+  held commit can drain. The wait stops after 5 s, so Quit always quits;
+  past it, the window closes, the app quits, or the reload runs without the
+  write, and a commit still held then is lost as it was before the wait.
+  A deferred Reload comes after the own write's reload, so it reloads again
+  and clears the selection, as an explicit Reload does.
+- **A commit that is not written says why on the canvas**, in the viewer's
+  notice, as well as in its `text` row: the text reverts, and the
+  Properties tab may not be shown.
 - **A failed refit keeps the previous map**: an emptied text without
   `maxWidth` is 0 wide and can't be fitted; the caret stays where the last
   character was. Only entry refuses a degenerate box.
@@ -203,20 +222,18 @@ These differ from, or settle what the spec left open:
   it until the commit's reload. If a component renders text that differs
   from the `children` it received, its runs index the drawn text, not
   `original`, and may land on the wrong characters (still valid, clamped).
-- A canvas commit dropped for a failed reload, a lost source, a stopped
-  preview, or a moved frame sets no viewer notice: the text silently reverts
-  when the Properties tab is not shown (the `text` row carries the message).
 - A double-click while another layer's committed text is kept waits with no
   note until the reload.
 - The window's own close button bypasses `CloseWindow`, so it does not
   commit (this predates 2d).
 - Export, Open, and New commit but do not wait for the write: an export
-  right after an edit may read the file before it. After Open or New the
-  write still completes, but its history entry and reload belong to the old
-  project and are dropped.
-- The Close/Quit poll has no timeout: a held commit that neither drains nor
-  is dropped would keep the window open. Every known path does one or the
-  other.
+  right after an edit may read the file before it. A write that had already
+  started when Open or New replaces the contents still completes, but its
+  history entry and reload belong to the old project and are dropped; a
+  commit still held then dies with the old view in `replace_contents`,
+  unwritten.
+- Close, Quit, and Reload stop waiting after 5 s: a commit still held then
+  (one that neither drains nor is dropped; no known path does that) is lost.
 - A click just past the last glyph of a single-line text without `maxWidth`
   is outside its layout box and ends the edit.
 - A pending `Text` with no `text_box` (edge-on) acts as a plain press, with
@@ -236,8 +253,7 @@ These differ from, or settle what the spec left open:
   windowed multi-line text. `index_at` is O(boundaries × glyphs).
 - Code nits: the `children` key is spelled three ways; the `text_box`
   lookup by layer is duplicated; `ime_bounds` folds what `points_box` does;
-  `ElementRows::held` became `pub(crate)`; a stale comment in
-  `inline_entry_waits_for_a_pending_lookup`.
+  `ElementRows::held` became `pub(crate)`.
 
 ## What design 3 builds on
 
@@ -249,9 +265,7 @@ These differ from, or settle what the spec left open:
 
 ## Verify by hand
 
-In the editor, with **Select layers** on, on a scene of your own (the
-feature tour has no editor-only content this supersedes, so no example
-changed):
+In the editor, with **Select layers** on, on a scene of your own:
 
 - Double-click a selected `<Text>Sale</Text>`: a steady 1px accent caret
   appears at the end; the handles and the cross go and the outline stays.
@@ -277,7 +291,8 @@ changed):
   sit on the line box (top to bottom of the line), not on the ink; clicks
   land on the glyph clicked.
 - A wrapped text with `maxWidth`: End on a wrapped line puts the caret at
-  that line's end, not at the next line's start; typing reflows live. A single line with anchor (0.5, 0.5): the caret spans the line box.
+  that line's end, not at the next line's start; typing reflows live.
+- A single line with anchor (0.5, 0.5): the caret spans the line box.
 - A text with color runs and `visibleCharacters`: typing inside and after a
   colored run keeps its color on its own characters, the whole text shows
   while editing, and the reveal comes back after the commit's reload.
@@ -315,6 +330,16 @@ changed):
   Edit, then Cmd+Shift+E right away: check whether the export has the new
   text (see Known gaps). Edit, then Cmd+W or Cmd+Q right away: the file has
   the new text after the window closes.
+- Commit held, then Cmd+R: change a Properties row and, while it is still
+  "Saving…", edit the canvas text and press Enter (the commit is held for
+  its turn); press Cmd+R at once. The reload runs only after the canvas
+  commit is written: the file has the new text, the canvas shows it after
+  the reload, and one Cmd+Z restores it.
+- A commit that is not written: hide the Properties tab, commit a canvas
+  edit while another value is being written, and make the code fail to
+  reload meanwhile (a syntax error saved elsewhere): the text reverts and the
+  viewer's notice says "Not saved: the code failed to reload" until the next
+  click.
 - Type in the Properties Text row, double-click the canvas text, type, and
   press Enter quickly: both writes land, the row's first. Then again, but
   wait while still editing until the row's reload finishes before typing

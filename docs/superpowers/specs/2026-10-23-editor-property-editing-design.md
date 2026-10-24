@@ -536,7 +536,8 @@ text in place, in its own font, size, wrapping, and transform:
   Cmd+Enter commit, Shift+Enter inserts `\n`, Tab does nothing, and Undo and
   Redo do nothing inside an edit. The bindings that replace or leave the
   project (New, Open, Reload, Close, Export, Quit) commit the edit first;
-  Close removes the window and Quit quits once the commit is written. Toggle
+  Reload reloads, Close removes the window, and Quit quits once the commit
+  is written, waiting at most 5 s (past it they go on without it). Toggle
   loop and Show problems leave the edit running.
 - **Pointer.** A press inside the layout box places the caret (Shift
   extends) and a drag selects, past the box's edges too. Before the first
@@ -571,7 +572,10 @@ text in place, in its own font, size, wrapping, and transform:
   written; once written, it is dropped on an error and when no reload comes
   (the targets are still current), and otherwise kept until the first reload
   numbered at or after the write that applies, whatever that reload does to
-  the selection. Dropping or forgetting the held commit drops it too.
+  the selection. Dropping or forgetting the held commit drops it too. A
+  commit that is not written (its write failed, or it was dropped while
+  held) puts its reason in the viewer's notice as well as in the row, so the
+  revert is not silent when the Properties tab is hidden.
 - **The Properties `Text` row stays enabled** while editing: pressing it
   moves the focus, so the canvas edit commits on the blur first, and the row
   then shows the written value as after any row commit.
