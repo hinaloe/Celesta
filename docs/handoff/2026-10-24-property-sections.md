@@ -221,7 +221,13 @@ These differ from, or settle what the spec left open:
   hidden when nothing is left. Its rows show no received value or table
   default as a placeholder. A row is labeled with the schema field's
   `label` (`component_row_label`), else the prop's name as written: an
-  author's identifier is not put into words as a table key is.
+  author's identifier is not put into words as a table key is. A React
+  composition's schemas come with its loads
+  (`ReactPreview.component_schemas`, kept across a failed reload, as the
+  tables are); a JSON project's from the entry query
+  (`EditorView.component_schemas`). Before, a composition opened directly
+  typed its Component rows from their literals only, so no label, range,
+  or `integer` applied.
 - **`integer` on component number fields.** `registerComponent()` and
   `defineProjectProperties()` number fields take `integer: true`
   (`ComponentPropertyField::Number.integer`), which `schema_field` passes

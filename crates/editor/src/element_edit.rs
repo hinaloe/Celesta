@@ -644,8 +644,12 @@ impl EditorView {
             .first()
             .and_then(|element| self.primitive_table(&element.name))
             .cloned();
-        // What `registerComponent()` declared types the Component section.
-        let schemas = self.component_schemas.clone();
+        // What `registerComponent()` declared types the Component section:
+        // the composition's own, else the JSON project's entry's.
+        let schemas = match &self.react_preview {
+            Some(react) => react.component_schemas.clone(),
+            None => self.component_schemas.clone(),
+        };
         let report = report.clone();
         let entry_dir = self
             .react_entry()
