@@ -133,7 +133,7 @@ The second toggle, **Rect** | **Scale**, sets what the corner and edge handles d
 | `<Circle>`, `<Polygon>`, `<Star>`, `<Pie>` | Four corners, which resize evenly | `radius` |
 | `<Text>` | The left and right edges | `maxWidth` |
 
-The handles sit on the box those props describe and follow the layer's rotation, scale, and skew; a drag is measured along the layer's own axes. Hold Shift while you drag a corner to keep the box's proportions. A `<Text>`'s box is its laid-out text: dragging an edge starts from the width you see, wraps the text to the new width, writes `maxWidth` in whole pixels, and adds it when it is left out. An `<Image>` that leaves out `width` or `height` sizes it from the picture's proportions; dragging the other side writes it at its current size, so only the side you drag changes.
+The handles sit on the box those props describe and follow the layer's rotation, scale, and skew; a drag is measured along the layer's own axes. Hold Shift while you drag a corner to keep the box's proportions. A `<Text>`'s box is its layout box: dragging an edge starts from its `maxWidth` when set, otherwise from the width of its longest line, wraps the text to the new width, writes `maxWidth` in whole pixels, and adds it when it is left out. An `<Image>` that leaves out `width` or `height` sizes it from the picture's proportions; dragging the other side writes it at its current size, so only the side you drag changes.
 
 When the edge that stays is not where the anchor is, such as the left and top edges of a layer anchored at its top-left corner, Celesta also writes `x` and `y` to keep it there. That needs `x` and `y` that Celesta can write, as for **Center**; without them, those handles are hidden. A size stops at its prop's range, such as 1 for an image's **Width**, and never goes below 1 pixel, so dragging an edge past the opposite one does not flip the box. A size animated with keyframes can be resized on one of its keyframes, as in its row.
 
@@ -142,7 +142,7 @@ An element without size props, such as a `<Group>`, a `<Video>`, or a `<Path>`, 
 | Tooltip | Meaning |
 | --- | --- |
 | No size to resize | The element has no size props |
-| `<Row>`: `<reason>` | A size row is locked, such as **Height: Written as an expression: h**; the reasons are listed above |
+| `<Row>`: `<reason>` | A size row is locked, such as **Height: Written as an expression: h * 2**; the reasons are listed above |
 | Size can't be edited here | A size prop has no row Celesta can write |
 | No flat box to resize | The layer is turned in its own perspective |
 
@@ -150,9 +150,9 @@ With **Scale**, the corner and edge handles scale the layer, writing `scale`, or
 
 ### Move the anchor
 
-A small cross marks the pivot of the selected layer. Hold Alt (Option) and drag the cross to move the anchor: Celesta writes `anchorX` and `anchorY` as fractions of the layer's box (0 at its left or top edge, 1 at its right or bottom; a value outside the box is kept), and moves `x` and `y` by the opposite amount, so the layer stays where it is on screen. The box is the one the anchor refers to: a `<Text>`'s laid-out text, a shape's `width` × `height` (twice its `radius` for a `<Circle>`), or an image's or video's picture. While Alt is held, the pointer over the cross is an open hand, and the cross takes the press even when it sits on a handle. Like **Center**, moving the anchor needs `x` and `y` that Celesta can write. Choose **Pivot** to rotate about the new anchor.
+A small cross marks the pivot of the selected layer. Hold Alt (Option) and drag the cross to move the anchor: Celesta writes `anchorX` and `anchorY` as fractions of the layer's box (0 at its left or top edge, 1 at its right or bottom; a value outside the box is kept), and moves `x` and `y` with the cross, so the layer stays where it is on screen. The box is the one the anchor refers to: a `<Text>`'s layout box, a shape's `width` × `height` (twice its `radius` for a `<Circle>`), or an image's or video's picture. While Alt is held, the pointer over the cross is an open hand, and the cross takes the press even when it sits on a handle. Like **Center**, moving the anchor needs `x` and `y` that Celesta can write. Choose **Pivot** to rotate about the new anchor.
 
-Some crosses can't be dragged. Hover over the cross to see why: **Anchor Y: Written as an expression: "baseline"** for a `<Text>` written with `anchorY="baseline"`, or **A group's anchor has no effect** for a `<Group>`, whose children are placed by its position alone. A `<Path>`, `<Line>`, `<Arrow>`, and other elements without anchor props have no anchor to move.
+Some crosses can't be dragged for a reason of their own; hover over the cross to see it: **Anchor Y: Written as an expression: "baseline"** for a `<Text>` written with `anchorY="baseline"`, or **A group's anchor has no effect** for a `<Group>`, whose children are placed by its position alone. A `<Path>`, `<Line>`, `<Arrow>`, and other elements without anchor props have no anchor to move.
 
 ## Edit properties
 

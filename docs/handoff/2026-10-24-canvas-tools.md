@@ -128,7 +128,9 @@ These differ from, or settle what the spec left open:
   locked"), plain "Pivot" with the tooltip "No flat box to center on" for
   `NoFlatBox`; both muted and still clickable, and the stored choice stays
   Center for the next layer. Center uses the outline's box (`local_box`):
-  a text's padding is symmetric, so its center is the layout box's. A
+  a text's padding is symmetric horizontally, so its center is the layout
+  box's there; vertically it differs by the glyph overflow of multi-line
+  text. A
   running drag keeps the mode it started with.
 - **The anchor box.** The anchor and the size props are fractions and
   lengths of one box, and both the anchor drag and the Rect tool measure
@@ -179,7 +181,7 @@ These differ from, or settle what the spec left open:
   outline.
 - **Fallback to Scale**: no `table.size` ("No size to resize": `Group`,
   `Video`, and primitives without a table), a locked size row ("Height:
-  Written as an expression: h"), a size row that is neither locked nor
+  Written as an expression: h * 2"), a size row that is neither locked nor
   writable ("Size can't be edited here"), or no flat box ("No flat box to
   resize"). The toggle shows "Scale", muted, with the reason as its
   tooltip; the stored choice stays Rect.
@@ -208,9 +210,20 @@ These differ from, or settle what the spec left open:
   (the viewer has no window to read the modifiers from when it builds it).
 - The Alt cursor over the cross updates through `on_modifiers_changed`; when
   the window does not have the focus it may wait for the next mouse move.
-- An absent side pinned by an edge drag shows as unchanged in the drag's
-  label (`height 75 → 75`): it is written, so the label is accurate, but it
-  may read oddly.
+- Center compensation and a compensating resize check only `x`/`y`: a
+  keyframed `rotation`, scale, or size compensated by literal `x`/`y` shifts
+  the layer on its other keyframes.
+- An absent side pinned by an edge drag is written at its current size
+  without the field's clamp, and shows as unchanged in the drag's label
+  (`height 75 → 75`): it is written, so the label is accurate, but it may
+  read oddly.
+- During a resize the drawn box (and its handles) is rebuilt from the
+  drag's values and can trail the rendered layer by one move.
+- Test coverage: the one-undo resize test runs at rotation 0, so it does
+  not cover a compensated `y`; the skew compensation test is formula-level.
+- Code nits: the box fold does not skip NaN; the test prop lists are
+  `LazyLock` statics; `"anchorX"`/`"anchorY"` are literals with no shared
+  constant.
 - `with_anchor_box` picks the layout by the innermost element's name
   (`primitive_of`), not by a registration.
 - `drag_values` takes eight parameters (`#[allow(clippy::too_many_arguments)]`);
@@ -254,8 +267,9 @@ example changed):
   one: the box stops at 1 px and does not flip.
 - Resize a `Circle` (or `Star`) from a corner: corner handles only,
   `radius` changes, the opposite corner stays.
-- Drag a `Text`'s right edge: `maxWidth` is written in whole pixels from
-  the visible width (inserted when absent) and the text wraps; the left
+- Drag a `Text`'s right edge: `maxWidth` is written in whole pixels,
+  starting from `maxWidth` when set and from the longest line's width when
+  absent (then inserted), and the text wraps; the left
   edge keeps the right one. Its handles sit on the text, not on the padded
   outline of a stroked text.
 - Select a dashed `Rect` and rotate it 45°: the Rect-tool handles sit on its
@@ -263,9 +277,13 @@ example changed):
   sides grow.
 - Select an `Image` with only `width` written: an edge drag writes `height`
   too, at its current value, and the other side does not change.
-- Drag a layer whose `x` is set at a component call, in Center mode: the
-  rotation is written on the element and `x`/`y` at the call (two files),
-  and one undo restores both.
+- Rotate a layer whose `x` is set at a component call, in Center mode: the
+  rotation is written on the element and `x` at the call (two files; `y`
+  goes to the call only if it is set there too, else to the element), and
+  one undo restores both.
+- On a keyframe frame, drag the right edge of a `Rect` with
+  `width={interpolate(frame, [0, 30], [100, 200])}`: only the matching
+  output entry changes.
 - Select a layer with keyframed `x`: the toggle reads "Pivot (x, y not
   editable)", muted, with Pivot selected; the left and top edges (and the
   corners touching them) are hidden while the right and bottom ones resize;
@@ -273,7 +291,7 @@ example changed):
 - Select a `Group`: "Scale" is selected and muted, its tooltip reads "No
   size to resize", and the 2a scale handles show; hover over the cross:
   "A group's anchor has no effect", and Alt-drag does nothing. A `Rect` with
-  `height={h}` reads "Height: Written as an expression: h".
+  `height={h * 2}` reads "Height: Written as an expression: h * 2".
 - Select a `Text` with `anchorY="baseline"`: the cross is drawn, Alt-drag
   does nothing, and its tooltip reads `Anchor Y: Written as an expression:
   "baseline"`.
