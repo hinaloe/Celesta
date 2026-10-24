@@ -162,7 +162,8 @@ fn run() -> Result<(), Box<dyn Error>> {
             KeyBinding::new("secondary-z", Undo, EDITOR_KEYS),
             KeyBinding::new("secondary-shift-z", Redo, EDITOR_KEYS),
         ]);
-        cx.on_action(|_: &Quit, cx| cx.quit());
+        // A text edited on the canvas is written first.
+        cx.on_action(|_: &Quit, cx| lifecycle::quit_after_inline_commits(cx));
         // macOS shows these in the system menu bar; elsewhere the title bar's
         // `AppMenuBar` renders the same list.
         cx.set_menus(app_menus());

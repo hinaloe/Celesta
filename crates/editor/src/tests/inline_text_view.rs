@@ -1,12 +1,14 @@
 //! Tests of editing a text on the canvas (`inline_text_view`): entering an
-//! edit, what ends it, and a press placing the caret.
+//! edit, what ends it, a press placing the caret, and what a commit writes
+//! and how long its text stays drawn.
 
 use super::*;
 use crate::element_edit::{editable, inner_target};
-use crate::inline_text::TextMap;
+use crate::inline_text::{TextEdit, TextMap};
 use crate::inline_text_view::{
-    EditEnd, EditEvent, InlineEntry, InlineTextSession, cancel_session, edit_end, inline_entry,
-    is_text_layer, live_override, pressed_index,
+    EditEnd, EditEvent, InlineEntry, InlineTextSession, KeptOverride, cancel_session, edit_end,
+    held_commit_override, inline_commit_value, inline_entry, is_text_layer,
+    kept_override_after_write, kept_override_on_reload, live_override, press_inside, pressed_index,
 };
 use crate::preview::TextOverride;
 use crate::transform_drag::{DragState, editing_drag_state};
@@ -494,4 +496,327 @@ fn escape_after_marking_drops_the_session_and_its_override() {
     let mut text_override = Some(other.clone());
     assert!(cancel_session(&mut session, &mut text_override));
     assert_eq!(text_override, Some(other));
+}
+
+#[test]
+fn a_press_before_the_first_edited_frame_on_the_layer_is_inside() {
+    // No map yet (the frame drawn with the edit has not arrived): a press
+    // that hits the edited layer, such as a triple-click's third, keeps the
+    // edit and leaves the caret.
+    assert!(press_inside(None, true));
+    assert!(!press_inside(None, false));
+    // Once mapped, the layout box decides, whatever the layer's hit area.
+    assert!(press_inside(Some(true), false));
+    assert!(!press_inside(Some(false), true));
+}
+
+#[test]
+fn inline_commit_value_skips_unchanged_and_empty() {
+    assert_eq!(inline_commit_value("Sale", "Sale"), None);
+    // The text row is required: an emptied text shows the source again.
+    assert_eq!(inline_commit_value("Sale", ""), None);
+    assert_eq!(
+        inline_commit_value("Sale", "Sold out"),
+        Some(EditValue::String("Sold out".to_owned()))
+    );
+    // A `<Text></Text>` written for the first time.
+    assert_eq!(
+        inline_commit_value("", "New"),
+        Some(EditValue::String("New".to_owned()))
+    );
+}
+
+/// The edit of `original` after `change`, committed as the edit writes it:
+/// a composition still marked is accepted.
+fn committed(original: &str, change: impl FnOnce(&mut TextEdit)) -> Option<EditValue> {
+    let mut session = InlineTextSession::new("title".to_owned(), original.to_owned());
+    change(&mut session.edit);
+    session.edit.unmark();
+    inline_commit_value(&session.original, session.edit.text())
+}
+
+/// The value the `text` row writes, as one commit.
+fn children(value: Option<EditValue>) -> [(PropKey, Option<EditValue>); 1] {
+    [(prop("children"), value)]
+}
+
+#[test]
+fn an_edit_writes_one_jsx_text_literal() {
+    let text = "export const Scene = () => (\n  <Text>Sale</Text>\n);\n";
+    let (targets, report) = text_targets(text, "Sale");
+    let texts = Texts::from([(targets.file.clone(), text.to_owned())]);
+    let write = |value| {
+        let files = commit_files(&texts, &targets, &report, &children(value)).unwrap();
+        assert_eq!(files.len(), 1, "one file, one entry");
+        files.into_iter().next().unwrap().1
+    };
+
+    // Typed over the selection, with a composition still marked.
+    let value = committed("Sale", |edit| {
+        edit.select_all();
+        edit.insert("Sold ");
+        edit.mark_utf16(None, "out", None);
+    });
+    assert_eq!(
+        write(value),
+        "export const Scene = () => (\n  <Text>Sold out</Text>\n);\n"
+    );
+
+    // A line break is written as a string, which JSX text can't hold.
+    let value = committed("Sale", |edit| {
+        edit.select_all();
+        edit.insert("a\nb");
+    });
+    assert_eq!(
+        write(value),
+        "export const Scene = () => (\n  <Text>{\"a\\nb\"}</Text>\n);\n"
+    );
+}
+
+#[test]
+fn a_const_edit_writes_the_const() {
+    let text = "export const Scene = () => {\n  const LABEL = \"Sale\";\n  return <Text>{LABEL}</Text>;\n};\n";
+    let (targets, report) = text_at(text, (3, 10), "Sale");
+    let texts = Texts::from([(targets.file.clone(), text.to_owned())]);
+    let value = committed("Sale", |edit| edit.insert("!"));
+    let files = commit_files(&texts, &targets, &report, &children(value)).unwrap();
+    assert_eq!(
+        files,
+        [(targets.file.clone(), text.replace("\"Sale\"", "\"Sale!\""))]
+    );
+}
+
+/// `<Label text="Sale" />` in `scene.tsx` passing `text` through to the
+/// `<Text>` in `component.tsx`, both written into `dir`.
+fn pass_through_files(dir: &Path) -> (PathBuf, PathBuf, LayerSourceReport) {
+    let component = dir.join("component.tsx");
+    let scene = dir.join("scene.tsx");
+    fs::write(
+        &component,
+        "export function Label({ text }) {\n  return <Text>{text}</Text>;\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        &scene,
+        "export const Scene = () => (\n  <Label text=\"Sale\" />\n);\n",
+    )
+    .unwrap();
+    let mut report = text_report(
+        &component,
+        &[("children", ReceivedValue::String("Sale".to_owned()))],
+    );
+    report.chain[0].column = 10;
+    report.chain.push(entry_at(
+        "Label",
+        ElementKind::Component,
+        scene.to_str().unwrap(),
+        2,
+    ));
+    (component, scene, report)
+}
+
+fn scratch_dir(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "celesta-{name}-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// Commits `value` as the `text` row's own write does: the files read and
+/// written together, as one history entry.
+fn write_children(
+    targets: &ElementTargets,
+    report: &LayerSourceReport,
+    value: Option<EditValue>,
+) -> HistoryEntry {
+    let files = write_all_recorded(targets.files.clone(), |texts| {
+        commit_files(texts, targets, report, &children(value)).map_err(|error| error.to_string())
+    })
+    .unwrap();
+    HistoryEntry { files }
+}
+
+#[test]
+fn a_pass_through_edit_writes_the_call_site() {
+    let dir = scratch_dir("inline-pass-through");
+    let (component, scene, report) = pass_through_files(&dir);
+    let read = |path: &Path| fs::read_to_string(path).map_err(|error| error.to_string());
+    let targets = resolve_targets(read, &report, Some(&text_table())).unwrap();
+    // Drawn live by the layer's id, whatever element wrote the text.
+    let mut session = InlineTextSession::new("label-text".to_owned(), "Sale".to_owned());
+    session.edit.insert("!");
+    assert_eq!(live_override(&session).layer, "label-text");
+
+    let component_before = fs::read_to_string(&component).unwrap();
+    write_children(&targets, &report, inline_commit_value("Sale", "Sale!"));
+    assert_eq!(
+        fs::read_to_string(&scene).unwrap(),
+        "export const Scene = () => (\n  <Label text=\"Sale!\" />\n);\n"
+    );
+    assert_eq!(fs::read_to_string(&component).unwrap(), component_before);
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_pass_through_edit_undoes_in_one_step() {
+    let dir = scratch_dir("inline-pass-through-undo");
+    let (component, scene, report) = pass_through_files(&dir);
+    let read = |path: &Path| fs::read_to_string(path).map_err(|error| error.to_string());
+    let targets = resolve_targets(read, &report, Some(&text_table())).unwrap();
+    let before = (
+        fs::read_to_string(&component).unwrap(),
+        fs::read_to_string(&scene).unwrap(),
+    );
+
+    let mut history = EditHistory::default();
+    history.push(write_children(
+        &targets,
+        &report,
+        inline_commit_value("Sale", "Sold"),
+    ));
+    assert!(
+        fs::read_to_string(&scene)
+            .unwrap()
+            .contains("text=\"Sold\"")
+    );
+    history.undo().unwrap();
+    assert_eq!(
+        (
+            fs::read_to_string(&component).unwrap(),
+            fs::read_to_string(&scene).unwrap(),
+        ),
+        before
+    );
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn the_override_is_dropped_on_an_error_or_without_a_reload() {
+    // The write failed: the file holds the old text, which the next frame
+    // draws.
+    assert_eq!(
+        kept_override_after_write(&Err("The source changed".to_owned()), false, 4),
+        KeptOverride::Dropped
+    );
+    // Written, but the targets are still current: the text came out as it
+    // was, so no reload comes.
+    assert_eq!(
+        kept_override_after_write(&Ok(()), true, 4),
+        KeptOverride::Dropped
+    );
+    // Written: kept for the reload that reads it, numbered 4 or later.
+    assert_eq!(
+        kept_override_after_write(&Ok(()), false, 4),
+        KeptOverride::UntilReload(4)
+    );
+}
+
+#[test]
+fn the_override_waits_for_the_first_kept_reload_at_or_after_its_sequence() {
+    let kept = KeptOverride::UntilReload(4);
+    // A reload requested before the write finished read the old file.
+    assert!(kept_override_on_reload(&kept, 3, true));
+    // One that clears the selection (the file changed elsewhere) does not
+    // draw this write as the editor's own.
+    assert!(kept_override_on_reload(&kept, 4, false));
+    // The own write's reload draws it.
+    assert!(!kept_override_on_reload(&kept, 4, true));
+    assert!(!kept_override_on_reload(&kept, 5, true));
+    // Still being written (or waiting its turn): no reload draws it yet.
+    assert!(kept_override_on_reload(&KeptOverride::Writing, 9, true));
+    assert!(!kept_override_on_reload(&KeptOverride::Dropped, 9, true));
+}
+
+#[test]
+fn dropping_a_held_commit_drops_its_override() {
+    let committed = TextOverride {
+        layer: "title".to_owned(),
+        original: "Sale".to_owned(),
+        text: "Sale!".to_owned(),
+    };
+    let held_commit = |layer: &str, key: &str| HeldCommit {
+        layer: layer.to_owned(),
+        key: prop(key),
+        value: Some(EditValue::String("Sale!".to_owned())),
+        frame: 0,
+    };
+    let mut held = HeldCommits::default();
+    held.push(held_commit("title", "children"));
+    // Its commit waits its turn: forgetting or dropping the held commits
+    // drops the override, which nothing will write.
+    assert!(held_commit_override(
+        &KeptOverride::Writing,
+        Some(&committed),
+        &held
+    ));
+    // Being written already (not held), or written: it stays.
+    let mut other = HeldCommits::default();
+    other.push(held_commit("title", "fontSize"));
+    other.push(held_commit("price", "children"));
+    assert!(!held_commit_override(
+        &KeptOverride::Writing,
+        Some(&committed),
+        &other
+    ));
+    assert!(!held_commit_override(
+        &KeptOverride::UntilReload(2),
+        Some(&committed),
+        &held
+    ));
+    assert!(!held_commit_override(&KeptOverride::Writing, None, &held));
+}
+
+#[test]
+fn seeking_or_playing_commits_first() {
+    for event in [EditEvent::Seek, EditEvent::Play] {
+        // Settled where the rows submit their typed text: as a commit.
+        assert_eq!(
+            edit_end(event),
+            EditEnd::Commit { refocus_root: true },
+            "{event:?}"
+        );
+        assert_eq!(
+            committed("Sale", |edit| edit.insert("!")),
+            Some(EditValue::String("Sale!".to_owned()))
+        );
+    }
+}
+
+#[test]
+fn selecting_another_layer_commits_before_the_gate() {
+    // The commit could not be written yet (another write runs): it is held
+    // for "title" before the selection is asked for.
+    assert_eq!(
+        edit_end(EditEvent::SelectionChange),
+        EditEnd::Commit { refocus_root: true }
+    );
+    let mut held = HeldCommits::default();
+    held.push(HeldCommit {
+        layer: "title".to_owned(),
+        key: prop("children"),
+        value: committed("Sale", |edit| edit.insert("!")),
+        frame: 0,
+    });
+    let mut gate = SelectionGate::default();
+    // The gate sees it: "price" waits for the commit to be written.
+    assert_eq!(
+        gate.request(
+            Some("price".to_owned()),
+            Some("title"),
+            held.any(Some("title"))
+        ),
+        None
+    );
+    assert!(gate.waiting());
+    assert!(held.pop(Some("title")).is_some());
+    assert_eq!(
+        gate.release(held.any(Some("title"))),
+        Some(Some("price".to_owned()))
+    );
 }

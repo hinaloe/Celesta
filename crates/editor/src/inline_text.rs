@@ -49,8 +49,6 @@ impl TextEdit {
     }
 
     /// The committed text, without the marked text.
-    // Until the canvas edit is written, only the tests read it.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn text(&self) -> &str {
         &self.text
     }

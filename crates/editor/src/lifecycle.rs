@@ -15,17 +15,58 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dialog::{DialogAction, DialogClose, DialogDescription, DialogFooter};
 use gpui_kit::component::radio::Radio;
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::{ActiveTheme as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Root, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::*;
-use gpui_kit::{ClickEvent, Context, PathPromptOptions, Pixels, ScrollHandle, Window, div, px};
+use gpui_kit::{
+    App, ClickEvent, Context, Entity, PathPromptOptions, Pixels, ScrollHandle, Window, div, px,
+};
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::Duration;
 
 /// Wide enough for a two-line Japanese description per template.
 const TEMPLATE_DIALOG_WIDTH: Pixels = px(520.);
 /// About four templates; more scroll inside the dialog.
 const TEMPLATE_LIST_MAX_HEIGHT: Pixels = px(360.);
+
+/// How often closing or quitting looks whether a committed text's write
+/// finished.
+const COMMIT_POLL: Duration = Duration::from_millis(20);
+
+/// Quit: a text edited on the canvas in any window is committed first, and
+/// the app quits once those commits are written.
+pub(crate) fn quit_after_inline_commits(cx: &mut App) {
+    let editors: Vec<Entity<EditorView>> = cx
+        .windows()
+        .into_iter()
+        .filter_map(|window| window.downcast::<Root>())
+        .filter_map(|root| {
+            root.read(cx)
+                .ok()?
+                .view()
+                .clone()
+                .downcast::<EditorView>()
+                .ok()
+        })
+        .collect();
+    for editor in &editors {
+        editor.update(cx, |this, cx| {
+            this.end_inline_text(EditEvent::ProjectCommand, cx);
+        });
+    }
+    cx.spawn(async move |cx| {
+        while cx.update(|cx| {
+            editors
+                .iter()
+                .any(|editor| editor.read(cx).inline_commit_writing())
+        }) {
+            cx.background_executor().timer(COMMIT_POLL).await;
+        }
+        cx.update(|cx| cx.quit());
+    })
+    .detach();
+}
 
 impl EditorView {
     pub(crate) fn create_new_project_action(
@@ -464,6 +505,9 @@ impl EditorView {
         .detach();
     }
 
+    /// Closes the window once a text edited on the canvas is committed and
+    /// its write finished (one held for its turn goes with the frames the
+    /// window still draws), so the edit is not lost with the view.
     pub(crate) fn close_window_action(
         &mut self,
         _: &CloseWindow,
@@ -471,7 +515,20 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         self.end_inline_text(EditEvent::ProjectCommand, cx);
-        window.remove_window();
+        if !self.inline_commit_writing() {
+            window.remove_window();
+            return;
+        }
+        cx.spawn_in(window, async move |view, cx| {
+            while view
+                .update(cx, |this, _| this.inline_commit_writing())
+                .unwrap_or(false)
+            {
+                cx.background_executor().timer(COMMIT_POLL).await;
+            }
+            cx.update(|window, _| window.remove_window()).ok();
+        })
+        .detach();
     }
 
     /// Replacing the contents drops the export worker, so a running export

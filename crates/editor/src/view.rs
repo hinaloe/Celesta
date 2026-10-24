@@ -5,7 +5,7 @@ use crate::element_edit::ElementEdit;
 use crate::element_rows::ElementRows;
 use crate::export_worker::ExportWorker;
 use crate::helpers::ExportLoudness;
-use crate::inline_text_view::{EditEvent, InlineTextSession};
+use crate::inline_text_view::{EditEvent, InlineTextSession, KeptOverride};
 use crate::layer_select::SourceLookup;
 use crate::media_probe::{MediaAssetInfo, MediaProbeWorker};
 use crate::meter::MasterLevels;
@@ -308,6 +308,9 @@ pub(crate) struct EditorView {
     /// The `text_override` layer's layout as the shown frame drew it; `None`
     /// when that frame had no override or did not draw the layer.
     pub(crate) text_layout: Option<TextLayout>,
+    /// Where `text_override` stands after its edit was committed; while it
+    /// is kept, no other edit begins.
+    pub(crate) kept_override: KeptOverride,
     /// The text being edited on the canvas.
     pub(crate) inline_text: Option<InlineTextSession>,
     /// What the canvas tracks while a text is edited there, so the keys and
@@ -490,6 +493,7 @@ impl EditorView {
             text_override: None,
             reuse_scene: false,
             text_layout: None,
+            kept_override: KeptOverride::Dropped,
             inline_text: None,
             inline_text_focus: None,
             inline_pending: None,

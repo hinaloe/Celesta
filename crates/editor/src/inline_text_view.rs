@@ -7,18 +7,18 @@
 use crate::element_edit::{
     ElementTargets, PropKey, edit_value, editable, inner_target, reason_text,
 };
-use crate::element_rows::value_text;
+use crate::element_rows::{HeldCommits, value_text};
 use crate::inline_text::{
     EDGE_ON, TextEdit, TextMap, caret, convex, from_utf16, index_at, selection_quads, to_utf16,
 };
-use crate::layer_select::{SourceLookup, letterbox, to_scene};
+use crate::layer_select::{SourceLookup, letterbox, scene_point, to_scene};
 use crate::preview::TextOverride;
 use crate::view::EditorView;
 use celesta_composition::Point;
 use celesta_editor_theme as theme;
-use celesta_gpu_renderer::TextLayout;
+use celesta_gpu_renderer::{TextLayout, hit_test};
 use celesta_react_bridge::LayerSourceReport;
-use celesta_source_edit::EditTarget;
+use celesta_source_edit::{EditTarget, EditValue};
 use gpui_kit::base::actions::{SelectDown, SelectLeft, SelectRight, SelectUp};
 use gpui_kit::component::input::{
     Backspace, Copy, Cut, Delete, Enter, Escape, IndentInline, MoveDown, MoveEnd, MoveHome,
@@ -234,6 +234,82 @@ pub(crate) fn edit_end(event: EditEvent) -> EditEnd {
     }
 }
 
+/// Whether a canvas press while editing is in the text: inside the layout
+/// box (`in_box`) once the frame drawn with the edit has fitted the map;
+/// before that, when it hits the edited layer, so a triple-click's third
+/// press neither commits nor moves the caret.
+pub(crate) fn press_inside(in_box: Option<bool>, hits_layer: bool) -> bool {
+    in_box.unwrap_or(hits_layer)
+}
+
+/// What a committed edit of `original` writes: `edited` as the `text`
+/// row's value; nothing when it is unchanged, or empty (the row is
+/// required, so an emptied text shows the source again).
+pub(crate) fn inline_commit_value(original: &str, edited: &str) -> Option<EditValue> {
+    (edited != original && !edited.is_empty()).then(|| EditValue::String(edited.to_owned()))
+}
+
+/// Where the override that draws a committed text stands, as a released
+/// scrub's does.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum KeptOverride {
+    /// The commit waits its turn or is being written.
+    Writing,
+    /// Written: kept until a reload numbered this or later draws it.
+    UntilReload(u64),
+    /// None is kept.
+    #[default]
+    Dropped,
+}
+
+/// Where the override stands once its commit's write finished: dropped on
+/// an error (the file holds the old text) and when the targets are still
+/// current (the text came out as it was, so no reload comes); otherwise
+/// kept for the reload that reads the write, which is numbered
+/// `next_reload` or later.
+pub(crate) fn kept_override_after_write(
+    result: &Result<(), String>,
+    targets_current: bool,
+    next_reload: u64,
+) -> KeptOverride {
+    match result {
+        Ok(()) if !targets_current => KeptOverride::UntilReload(next_reload),
+        Ok(()) | Err(_) => KeptOverride::Dropped,
+    }
+}
+
+/// Whether the override is still kept once reload `sequence` applies;
+/// `keeps_selection` when it is an own write's reload (one that keeps the
+/// selected layer), which draws the written text.
+pub(crate) fn kept_override_on_reload(
+    kept: &KeptOverride,
+    sequence: u64,
+    keeps_selection: bool,
+) -> bool {
+    match kept {
+        KeptOverride::Writing => true,
+        KeptOverride::UntilReload(from) => !(keeps_selection && sequence >= *from),
+        KeptOverride::Dropped => false,
+    }
+}
+
+/// Whether the override waits on a commit `held` (not yet being written):
+/// forgetting or dropping the held commits then drops it, as nothing will
+/// write its text.
+pub(crate) fn held_commit_override(
+    kept: &KeptOverride,
+    text_override: Option<&TextOverride>,
+    held: &HeldCommits,
+) -> bool {
+    *kept == KeptOverride::Writing
+        && text_override.is_some_and(|kept| held.contains(&kept.layer, &children_key()))
+}
+
+/// The `text` row's key.
+fn children_key() -> PropKey {
+    PropKey::Prop("children".to_owned())
+}
+
 /// The caret a press at `position` (window pixels) puts in the text, when
 /// it is inside the layout box `map` was fitted for: the viewer's frame
 /// fitted into `bounds`, the scene point mapped back into the layout.
@@ -396,9 +472,13 @@ impl EditorView {
         if !is_text_layer(lookup, text_box.is_some()) {
             return None;
         }
-        let targets = self.element_targets();
+        // A committed text still drawn by its override goes first: until its
+        // reload (or its end), the targets are those it is being written to.
+        let kept = self.kept_override != KeptOverride::Dropped;
+        let targets = self.element_targets().filter(|_| !kept);
         let (lookup_pending, unavailable) = match lookup {
             SourceLookup::Pending => (true, None),
+            SourceLookup::Found(_) if kept => (true, None),
             // Being read, or waiting for an own write's reload: the targets
             // are coming.
             SourceLookup::Found(_) => (
@@ -437,28 +517,27 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         match entry {
-            InlineEntry::Begin(_) => self.begin_inline_text(layer, window, cx),
+            InlineEntry::Begin(original) => self.begin_inline_text(layer, original, window, cx),
             InlineEntry::Wait => self.inline_pending = Some(layer),
             InlineEntry::Refuse(reason) => self.inline_note = Some((layer, reason)),
         }
         cx.notify();
     }
 
-    /// Starts editing `layer`'s text from the `children` the code passed,
-    /// after the Properties rows' typed text is submitted (so a value typed
-    /// there first goes first). The frame is redrawn from the held scene
-    /// with the layer's own text, which measures its layout.
+    /// Starts editing `layer`'s text from `original`, the `children` the
+    /// code passed, after the Properties rows' typed text is submitted (so a
+    /// value typed there first goes first). Playback pauses: its next frame
+    /// would end the edit. The frame is redrawn from the held scene with the
+    /// layer's own text, which measures its layout.
     pub(crate) fn begin_inline_text(
         &mut self,
         layer: String,
+        original: String,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.submit_edited_rows(cx);
-        let original = match &self.source_lookup {
-            Some(SourceLookup::Found(report)) => received_text(report),
-            _ => String::new(),
-        };
+        self.pause();
         let session = InlineTextSession::new(layer, original);
         self.text_override = Some(live_override(&session));
         self.inline_text = Some(session);
@@ -497,10 +576,115 @@ impl EditorView {
         cx.notify();
     }
 
-    /// Ends the edit as a commit. The text is not written yet: the edit
-    /// ends as a cancel without a reason does.
+    /// Ends the edit, writing its text through the `text` row (one history
+    /// entry, held while another write or a reload runs) unless it is
+    /// unchanged or empty. What the edit shows is written: a composition
+    /// still marked is accepted. The override keeps drawing the committed
+    /// text until the reload that reads the write (see [`KeptOverride`]).
     pub(crate) fn commit_inline_text(&mut self, cx: &mut Context<Self>) {
-        self.cancel_inline_text(None, cx);
+        let Some(mut session) = self.inline_text.take() else {
+            return;
+        };
+        session.edit.unmark();
+        self.text_layout = None;
+        self.inline_notice = None;
+        // The row writes for the selected layer, which every end keeps
+        // until the commit is made.
+        let value = inline_commit_value(&session.original, session.edit.text())
+            .filter(|_| self.selected_layer.as_deref() == Some(session.layer.as_str()));
+        let Some(value) = value else {
+            if self
+                .text_override
+                .as_ref()
+                .is_some_and(|live| live.layer == session.layer)
+            {
+                self.text_override = None;
+            }
+            self.reuse_scene = true;
+            self.refresh_preview();
+            cx.notify();
+            return;
+        };
+        let committed = TextOverride {
+            text: session.edit.text().to_owned(),
+            layer: session.layer,
+            original: session.original,
+        };
+        if self.text_override.as_ref() != Some(&committed) {
+            self.text_override = Some(committed);
+            self.reuse_scene = true;
+            self.refresh_preview();
+        }
+        // Before the commit, which may finish at once (a failure).
+        self.kept_override = KeptOverride::Writing;
+        self.commit_element_row(&children_key(), Some(value), cx);
+        cx.notify();
+    }
+
+    /// A commit of `layer`'s `text` row finished with `result`: the
+    /// override of a committed text is kept for the reload that reads it,
+    /// or dropped (see [`kept_override_after_write`]). Not while a newer
+    /// commit of the row waits its turn.
+    pub(crate) fn inline_commit_written(
+        &mut self,
+        layer: Option<&str>,
+        result: &Result<(), String>,
+    ) {
+        let ours = self.kept_override == KeptOverride::Writing
+            && self
+                .text_override
+                .as_ref()
+                .is_some_and(|kept| Some(kept.layer.as_str()) == layer);
+        if !ours
+            || held_commit_override(
+                &self.kept_override,
+                self.text_override.as_ref(),
+                &self.element_rows.held,
+            )
+        {
+            return;
+        }
+        // Another layer selected meanwhile says nothing about this write.
+        let targets_current =
+            self.selected_layer.as_deref() == layer && self.element_targets().is_some();
+        // The own write's reload, if one comes, was not requested yet: it
+        // gets this number.
+        let next_reload = self.react_reloads.next();
+        self.kept_override = kept_override_after_write(result, targets_current, next_reload);
+        if self.kept_override == KeptOverride::Dropped {
+            self.text_override = None;
+            self.refresh_preview();
+        }
+    }
+
+    /// Drops the override of a committed text; the caller asks for the
+    /// frame. True when one was kept.
+    pub(crate) fn drop_kept_override(&mut self) -> bool {
+        if std::mem::take(&mut self.kept_override) == KeptOverride::Dropped {
+            return false;
+        }
+        // A running edit's override is its own (none begins while one is
+        // kept).
+        if self.inline_text.is_none() {
+            self.text_override = None;
+        }
+        true
+    }
+
+    /// The held commits are about to be forgotten or dropped: the override
+    /// of a committed text among them goes too. True when it went.
+    pub(crate) fn drop_held_commit_override(&mut self) -> bool {
+        held_commit_override(
+            &self.kept_override,
+            self.text_override.as_ref(),
+            &self.element_rows.held,
+        ) && self.drop_kept_override()
+    }
+
+    /// Whether a committed text is waiting its turn or being written:
+    /// closing or quitting waits for it.
+    pub(crate) fn inline_commit_writing(&self) -> bool {
+        self.kept_override == KeptOverride::Writing
     }
 
     /// [`cancel_inline_text`](Self::cancel_inline_text) without asking for
@@ -556,14 +740,12 @@ impl EditorView {
         }
     }
 
-    /// What the edit waits for until a context is at hand: a seek or play
-    /// that ends it, a double-click waiting for its layer's source, the
-    /// focus to hand back to the editor, and the IME to be told that the
-    /// text moved.
+    /// What the edit waits for until a window is at hand: a double-click
+    /// waiting for its layer's source, the focus to hand back to the
+    /// editor, and the IME to be told that the text moved. (A seek or play
+    /// that ends it is settled with the rows' typed text, in
+    /// `settle_row_requests`.)
     pub(crate) fn settle_inline_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(event) = self.inline_end_due.take() {
-            self.end_inline_text(event, cx);
-        }
         if let Some(layer) = self.inline_pending.clone() {
             let entry = (self.selected_layer.as_ref() == Some(&layer)
                 && self.inline_text.is_none())
@@ -636,7 +818,9 @@ impl EditorView {
 
     /// A press on the canvas while editing: inside the text it places the
     /// caret (Shift extends the selection) and starts selecting; outside,
-    /// it ends the edit. True when the press is taken.
+    /// it ends the edit. Before the first frame drawn with the edit, a
+    /// press on the edited layer is inside and leaves the caret. True when
+    /// the press is taken.
     pub(crate) fn press_inline_text(
         &mut self,
         event: &MouseDownEvent,
@@ -645,17 +829,28 @@ impl EditorView {
     ) -> bool {
         let frame_size = self.frame_size();
         let bounds = self.viewer_bounds.get();
+        let hit = bounds
+            .and_then(|bounds| scene_point(bounds, frame_size, event.position))
+            .and_then(|point| hit_test(&self.hit_regions, point))
+            .map(str::to_owned);
         let Some(session) = &mut self.inline_text else {
             return false;
         };
-        let pressed = match (bounds, &session.layout, &session.map) {
-            (Some(bounds), Some(layout), Some(map)) => {
-                pressed_index(bounds, frame_size, event.position, layout, map)
-            }
+        let mapped = match (bounds, &session.layout, &session.map) {
+            (Some(bounds), Some(layout), Some(map)) => Some(pressed_index(
+                bounds,
+                frame_size,
+                event.position,
+                layout,
+                map,
+            )),
             _ => None,
         };
-        let inside = pressed.is_some();
-        if let Some((index, upstream)) = pressed {
+        let inside = press_inside(
+            mapped.as_ref().map(Option::is_some),
+            hit.as_deref() == Some(session.layer.as_str()),
+        );
+        if let Some(Some((index, upstream))) = mapped {
             session.edit.place(index, upstream, event.modifiers.shift);
             session.selecting = true;
             window.invalidate_character_coordinates();
@@ -666,10 +861,12 @@ impl EditorView {
     }
 
     /// Follows a press held in the text: the selection extends to the
-    /// pointer, past the text's edges too.
+    /// pointer, past the text's edges too, and the IME's candidate window
+    /// follows the caret.
     pub(crate) fn continue_inline_selection(
         &mut self,
         event: &MouseMoveEvent,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let frame_size = self.frame_size();
@@ -697,6 +894,7 @@ impl EditorView {
         let (index, upstream) = index_at(layout, local);
         if session.edit.head() != (index, upstream) {
             session.edit.place(index, upstream, true);
+            window.invalidate_character_coordinates();
             cx.notify();
         }
     }

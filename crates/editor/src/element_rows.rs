@@ -843,7 +843,7 @@ pub(crate) struct ElementRows {
     /// written. Never together with a canvas drag.
     pub(crate) scrub: Option<Scrub>,
     /// Commits waiting for the targets to be current.
-    held: HeldCommits,
+    pub(crate) held: HeldCommits,
     /// A selection change waiting for `held`.
     pub(crate) selection: SelectionGate,
     /// Leaving the interactive mode waits for `selection` (which clears the
@@ -1119,8 +1119,8 @@ impl EditorView {
     /// Writes `value` into the row `key` as one history entry (`None`
     /// removes the prop); the row shows it until the write finishes, and the
     /// written value until the reload resolves (the source's value again
-    /// when the write failed).
-    fn commit_element_row(
+    /// when the write failed). A text edited on the canvas commits here too.
+    pub(crate) fn commit_element_row(
         &mut self,
         key: &PropKey,
         value: Option<EditValue>,
@@ -1183,6 +1183,10 @@ impl EditorView {
                 if scrubbed && (result.is_err() || this.element_targets().is_some()) {
                     this.cancel_row_scrub();
                 }
+                // A text committed on the canvas: likewise.
+                if written == PropKey::Prop("children".to_owned()) {
+                    this.inline_commit_written(layer.as_deref(), &result);
+                }
                 cx.notify();
             },
             cx,
@@ -1228,13 +1232,18 @@ impl EditorView {
     }
 
     /// A held commit of the row `key` that will not be written: the row
-    /// shows the source's value again and `message`.
+    /// shows the source's value again and `message`; a text committed on
+    /// the canvas is no longer drawn, as after a failed write.
     fn drop_row_commit(&mut self, key: &PropKey, message: &str) {
         if let Some(row) = self.element_rows.rows.get_mut(key) {
             row.pending = None;
             row.edited = false;
             row.shown = None;
             row.invalid = Some(message.to_owned());
+        }
+        if *key == PropKey::Prop("children".to_owned()) {
+            let selected = self.selected_layer.clone();
+            self.inline_commit_written(selected.as_deref(), &Err(message.to_owned()));
         }
     }
 
@@ -1244,6 +1253,9 @@ impl EditorView {
     /// and a waiting selection change goes.
     pub(crate) fn drop_held_rows(&mut self, message: &str, cx: &mut Context<Self>) {
         let selected = self.selected_layer.clone();
+        if self.drop_held_commit_override() {
+            self.refresh_preview();
+        }
         for held in self.element_rows.held.take_all() {
             let shown = selected.as_deref() == Some(held.layer.as_str())
                 && self.element_rows.rows.contains_key(&held.key);
@@ -1316,11 +1328,15 @@ impl EditorView {
     }
 
     /// What happened to the rows since the last render, done now that a
-    /// context is at hand: the playhead moved or playback started (submit
-    /// the typed text, see [`ElementRows::submit_requested`]), or the held
-    /// commits can never be written: the preview worker stopped, or the
-    /// selected layer's source lookup answered without a source.
+    /// context is at hand: the playhead moved or playback started (a text
+    /// edited on the canvas commits first, then the rows submit their typed
+    /// text, see [`ElementRows::submit_requested`]), or the held commits can
+    /// never be written: the preview worker stopped, or the selected
+    /// layer's source lookup answered without a source.
     pub(crate) fn settle_row_requests(&mut self, cx: &mut Context<Self>) {
+        if let Some(event) = self.inline_end_due.take() {
+            self.end_inline_text(event, cx);
+        }
         if std::mem::take(&mut self.element_rows.submit_requested) {
             self.submit_edited_rows(cx);
         }
@@ -1340,8 +1356,11 @@ impl EditorView {
 
     /// Forgets the commits held for the old selection and a waiting
     /// selection change: the selection changed without waiting (the code
-    /// reloaded without the layer, say).
+    /// reloaded without the layer, say). A text committed on the canvas
+    /// whose commit is among them is no longer drawn; the caller asks for
+    /// the frame.
     pub(crate) fn forget_held_rows(&mut self) {
+        self.drop_held_commit_override();
         self.element_rows.held.take_all();
         self.element_rows.selection.clear();
     }

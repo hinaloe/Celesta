@@ -1,6 +1,7 @@
 use crate::component_schema::ComponentSchemaRequest;
 use crate::element_edit::RELOAD_FAILED;
 use crate::helpers::format_time;
+use crate::inline_text_view::{KeptOverride, kept_override_on_reload};
 use crate::layer_select::{lookup_allowed, source_lookup_target};
 use crate::media_probe::{MediaProbeRequest, ProbeAsset};
 use crate::preview::{
@@ -281,7 +282,8 @@ impl EditorView {
         // looks it up without the overrides, and remounts to drop them).
         // A released scrub asks (see `lookup_allowed`). Playback asks only
         // for an answer it does not have yet, or a stale one. A text edited
-        // on the canvas, or committed until its reload, asks nothing.
+        // on the canvas asks nothing; one committed asks, as a released
+        // scrub does.
         let source_of = source_lookup_target(
             self.selected_layer.as_deref(),
             self.picks_layers(),
@@ -292,7 +294,7 @@ impl EditorView {
             lookup_allowed(
                 self.transform_drag.is_some(),
                 self.row_scrub_active(),
-                self.text_override.is_some(),
+                self.inline_text.is_some(),
             )
         });
         // Only the request it was set for reuses the held scene; any other
@@ -509,7 +511,15 @@ impl EditorView {
                     .into();
                 }
                 self.react_reload_generation = self.react_reload_generation.wrapping_add(1);
-                let keep = self.selection_keep.applies(sequence) && self.selected_layer.is_some();
+                let own_write = self.selection_keep.applies(sequence);
+                let keep = own_write && self.selected_layer.is_some();
+                // A text committed on the canvas is drawn by the reloaded
+                // code once its own write's reload applies, whatever is
+                // selected now. Dropped before the frame below, so that
+                // frame looks the layer up and draws the code's own runs.
+                if !kept_override_on_reload(&self.kept_override, sequence, own_write) {
+                    self.drop_kept_override();
+                }
                 if keep {
                     // Looked up again in the reloaded code, which decides
                     // whether the layer still exists. Until it answers, the
@@ -550,6 +560,13 @@ impl EditorView {
                 }
                 if !self.row_scrub_active() {
                     self.cancel_row_scrub();
+                }
+                // Nor a committed text's, once written; one still held is
+                // dropped with the held commits below.
+                if matches!(self.kept_override, KeptOverride::UntilReload(_))
+                    && self.drop_kept_override()
+                {
+                    self.refresh_preview();
                 }
                 // No reload will make the targets current: the commits
                 // waiting for one are not written, and new ones fail.

@@ -347,7 +347,7 @@ impl EditorView {
         self.continue_master_volume_drag(event, window, cx);
         self.continue_transform_drag(event, cx);
         self.continue_row_scrub(event, cx);
-        self.continue_inline_selection(event, cx);
+        self.continue_inline_selection(event, window, cx);
     }
 
     pub(crate) fn drag_end(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
