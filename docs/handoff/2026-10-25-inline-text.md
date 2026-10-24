@@ -100,8 +100,9 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   `forget_held_rows`, and `drop_row_commit` drop it with the held commit.
   `record_own_writes` calls `done` before requesting the reload, so
   `react_reloads.next()` inside `done` is the number of the reload that reads
-  the write. `lookup_allowed(transform_drag, scrub_pressed, text_edit)` is
-  false only while an edit runs. Quit goes through
+  the write. In `lookup_allowed(transform_drag, scrub_pressed, text_edit)`,
+  `text_edit` is now a running edit rather than any override, so frames
+  drawing a kept override look the layer up. Quit goes through
   `lifecycle::quit_after_inline_commits`; Close defers removing the window
   until the commit is written (both poll every 20 ms).
 
