@@ -1201,6 +1201,14 @@ impl ElementEdit {
             .map(|(_, value)| value)
     }
 
+    /// The timeline frame of the targets the rows of `selected` show: the
+    /// newest resolution's, even while a newer lookup (after a seek, say)
+    /// is being resolved.
+    pub(crate) fn shown_frame(&self, selected: Option<&str>) -> Option<i64> {
+        self.resolved(selected)
+            .map(|(resolved, _)| resolved.timeline_frame)
+    }
+
     /// The newest resolution for `selected` failed and no write changed the
     /// file since: a commit has nothing to wait for. Anything else (being
     /// read, or an own write reloading) becomes current again.

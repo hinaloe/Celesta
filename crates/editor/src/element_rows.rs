@@ -763,9 +763,22 @@ pub(crate) fn edited_rows<'k>(
 
 /// Whether a commit held at timeline frame `held` would now write another
 /// keyframe: the targets were read again at `now`, and the row's is a
-/// keyframe (a plain value is the same at every frame).
+/// keyframe, or lies between keyframes (a plain value is the same at every
+/// frame).
 pub(crate) fn moved_off_keyframe(held: i64, now: i64, target: &EditTarget) -> bool {
-    held != now && matches!(inner_target(target), EditTarget::Keyframe { .. })
+    held != now
+        && matches!(
+            inner_target(target),
+            EditTarget::Keyframe { .. } | EditTarget::Locked(LockReason::BetweenKeyframes { .. })
+        )
+}
+
+/// Whether a finished commit for `commit_layer` may reset the row that now
+/// shows `row_layer`: rows are reused across layers by key, so a write of
+/// one layer's `x` must leave another layer's `x` row (and its typed text)
+/// alone.
+pub(crate) fn commit_owns_row(row_layer: Option<&str>, commit_layer: Option<&str>) -> bool {
+    row_layer.is_some() && row_layer == commit_layer
 }
 
 /// The selected layer's row controls, built on first need (controls need a
@@ -1062,11 +1075,17 @@ impl EditorView {
         if let Some(layer) = self.selected_layer.clone()
             && self.row_commit_waits()
         {
+            // The frame of the targets the row showed when it was
+            // committed: a seek's lookup may have answered since.
+            let frame = self
+                .element_edit
+                .shown_frame(Some(&layer))
+                .unwrap_or(self.source_lookup_frame);
             self.element_rows.held.push(HeldCommit {
                 layer,
                 key: key.clone(),
                 value,
-                frame: self.source_lookup_frame,
+                frame,
             });
             cx.notify();
             return;
@@ -1082,6 +1101,7 @@ impl EditorView {
                     .is_some_and(|layer| this.element_rows.held.contains(layer, &written));
                 if let Some(row) = this.element_rows.rows.get_mut(&written)
                     && !held
+                    && commit_owns_row(row.layer.as_deref(), layer.as_deref())
                 {
                     row.pending = None;
                     if result.is_err() {

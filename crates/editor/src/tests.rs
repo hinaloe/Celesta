@@ -12,9 +12,9 @@ use crate::element_edit::{
     lock_outside_project, reason_text, resolve_targets, table_default, type_component_props,
 };
 use crate::element_rows::{
-    HeldCommit, HeldCommits, Scrub, SelectionGate, TypedText, cleared_path, control_kind,
-    edited_rows, moved_off_keyframe, parse_row_value, removable, row_field, row_kind, row_label,
-    row_text, scrub_takes_focus, scrub_value, set_at_text, typed_text, written_text,
+    HeldCommit, HeldCommits, Scrub, SelectionGate, TypedText, cleared_path, commit_owns_row,
+    control_kind, edited_rows, moved_off_keyframe, parse_row_value, removable, row_field, row_kind,
+    row_label, row_text, scrub_takes_focus, scrub_value, set_at_text, typed_text, written_text,
 };
 use crate::export_worker::{
     ExportEvent, ExportRequest, ExportSource, ExportWorker, export_options,
@@ -5251,6 +5251,38 @@ fn a_held_keyframe_commit_does_not_follow_a_seek() {
     assert!(!moved_off_keyframe(10, 10, &keyframe));
     // A plain value is the same at every frame.
     assert!(!moved_off_keyframe(10, 20, &literal));
+    // Between keyframes at the new frame: moved off its keyframe too.
+    let between = EditTarget::Locked(LockReason::BetweenKeyframes {
+        previous: 0.0,
+        next: 30.0,
+        frame: 20.0,
+    });
+    assert!(moved_off_keyframe(10, 20, &between));
+    assert!(!moved_off_keyframe(20, 20, &between));
+}
+
+#[test]
+fn a_held_commit_is_stamped_with_the_frame_its_row_showed() {
+    let report = primitive_report(2, 3, x_only());
+    let mut state = ElementEdit::default();
+    assert_eq!(state.shown_frame(Some("a")), None);
+    let request = state.begin("a", &report, 10).unwrap();
+    assert!(state.finish(request, Some("a"), resolve_in(TRANSFORM_FIXTURE, &report)));
+    assert_eq!(state.shown_frame(Some("a")), Some(10));
+    // A seek's lookup answered (frame 20) but is not resolved yet: the rows
+    // still show frame 10's targets, so that is the commit's frame.
+    state.begin("a", &report, 20).unwrap();
+    assert_eq!(state.shown_frame(Some("a")), Some(10));
+    assert_eq!(state.shown_frame(Some("b")), None);
+}
+
+#[test]
+fn a_finished_commit_touches_only_its_own_layers_row() {
+    assert!(commit_owns_row(Some("a"), Some("a")));
+    // The row shows layer "b" now: a failure of "a"'s write leaves it be.
+    assert!(!commit_owns_row(Some("b"), Some("a")));
+    assert!(!commit_owns_row(None, Some("a")));
+    assert!(!commit_owns_row(Some("a"), None));
 }
 
 #[test]
