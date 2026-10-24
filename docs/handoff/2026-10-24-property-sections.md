@@ -277,8 +277,12 @@ These differ from, or settle what the spec left open:
   scrub) made while the targets are being read again, or while another write
   runs, waits in `HeldCommits` for that layer and is written once they are
   current: one at a time (each its own history entry), in the order made,
-  the latest value per row winning. It fails at once only when the source
-  can't be read, or the code failed to reload. A row's sync never sets text
+  the latest value per row winning. While it waits, its row says
+  "Saving…" (muted, in the message line under the row; a typed value's
+  error takes the line). A write that starts at once shows nothing: it
+  lasts milliseconds, and a line for it would make the rows jump. It
+  fails at once only when the source can't be read, or the code failed to
+  reload. A row's sync never sets text
   equal to what its field holds, so the caret stays.
 - **Leaving a field commits it** (as Unity's inspector does). Before the
   selection changes by a canvas click, the layer list, clearing it, or
@@ -334,9 +338,9 @@ scaleX={sx} />` shows 3); the duplicated readers (`TransformProp::received`,
   top-aligned.
 - 2a's `useMemo` limitation applies to scrubs as to drags: an element cached
   with `useMemo` at an override's position follows the first frame only.
-- A commit that waits shows its value in the row, and a selection change
-  that waits for it shows nothing either; both normally last only until the
-  editor's own write reloads.
+- A selection change that waits for a held commit shows nothing beyond
+  that row's "Saving…"; it normally lasts only until the editor's own
+  write reloads.
 - A seek or the start of playback submits typed text on the next render,
   after the playhead moved; a commit made then still writes against the
   targets read before the seek (the new frame's lookup has not answered).

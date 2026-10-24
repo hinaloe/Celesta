@@ -5242,11 +5242,13 @@ fn held_commits_keep_the_latest_value_per_row_in_order() {
         Some(held_at("b", prop("x"), number(2.0), 0))
     );
     assert!(held.contains("a", &prop("x")));
+    assert!(!held.is_empty());
     assert_eq!(
         held.take_all(),
         vec![held_at("a", prop("x"), number(1.0), 0)]
     );
     assert!(!held.any(Some("a")));
+    assert!(held.is_empty());
 }
 
 #[test]

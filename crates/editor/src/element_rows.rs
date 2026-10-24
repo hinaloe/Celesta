@@ -857,6 +857,12 @@ impl ElementRows {
     pub(crate) fn get(&self, key: &PropKey) -> Option<&ElementRow> {
         self.rows.get(key)
     }
+
+    /// Whether a commit of the row `key` of `layer` waits its turn to be
+    /// written (the row says "Saving…").
+    pub(crate) fn saving(&self, layer: Option<&str>, key: &PropKey) -> bool {
+        layer.is_some_and(|layer| self.held.contains(layer, key))
+    }
 }
 
 /// Sends what the person does in a row's control to the row for `key`.

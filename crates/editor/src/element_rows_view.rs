@@ -285,9 +285,16 @@ impl EditorView {
             _ => None,
         };
         let set_at = call_site.map(|call_site| set_at_line(call_site, entry_dir, cx));
-        let message = row
-            .and_then(|row| row.invalid.clone())
-            .map(|message| div().text_xs().text_color(cx.theme().danger).child(message));
+        // Why typed text was not written, else a commit waiting its turn
+        // (an own write's reload, say), so a value the source does not have
+        // yet does not pass for written.
+        let saving = self
+            .element_rows
+            .saving(self.selected_layer.as_deref(), key);
+        let message = match row.and_then(|row| row.invalid.clone()) {
+            Some(message) => Some(div().text_xs().text_color(cx.theme().danger).child(message)),
+            None => saving.then(|| div().text_xs().text_color(muted).child("Saving…")),
+        };
         let remove = can_remove.then(|| {
             let key = key.clone();
             div()
