@@ -523,6 +523,7 @@ pub(crate) fn drag_props(targets: &ElementTargets, frame: &LayerFrame) -> Vec<Pr
     if anchors.iter().all(|key| settable(targets.target(key)))
         && compensable(targets)
         && !turns_animated(targets)
+        && !box_animated(targets)
         && anchor_box(frame).is_some()
     {
         props.extend(anchors);
@@ -530,12 +531,32 @@ pub(crate) fn drag_props(targets: &ElementTargets, frame: &LayerFrame) -> Vec<Pr
     props
 }
 
+/// Whether a size prop of the element (its table's `size`) is a keyframe:
+/// the box the anchor is a fraction of is another on the other keyframes,
+/// so `x`/`y` compensating an anchor drag would hold at this one only.
+fn box_animated(targets: &ElementTargets) -> bool {
+    let size = targets.table.as_ref().and_then(|table| table.size.as_ref());
+    size.into_iter()
+        .flat_map(|size| [&size.width, &size.height, &size.radius])
+        .flatten()
+        .any(|name| {
+            matches!(
+                targets.target(&PropKey::Prop(name.clone())).map(inner_target),
+                Some(EditTarget::Keyframe { .. })
+            )
+        })
+}
+
 pub(crate) const GROUP_ANCHOR: &str = "A group's anchor has no effect";
+
+/// The cross's tooltip when the element's box is animated (see
+/// `box_animated`).
+pub(crate) const BOX_ANIMATED: &str = "Size is animated";
 
 /// Why the pivot cross of the element `primitive` names can't move its
 /// anchor: an anchor row is locked (`anchorY="baseline"` on a `Text`), with
-/// the row and its reason, or the element is a `<Group>`, whose anchor the
-/// renderer ignores.
+/// the row and its reason; the element is a `<Group>`, whose anchor the
+/// renderer ignores; or its size is a keyframe (see `box_animated`).
 pub(crate) fn anchor_reason(targets: &ElementTargets, primitive: &str) -> Option<String> {
     let anchors = anchor_keys();
     let locked = anchors.iter().find_map(|key| {
@@ -545,7 +566,9 @@ pub(crate) fn anchor_reason(targets: &ElementTargets, primitive: &str) -> Option
         Some(format!("{}: {}", key.label(), reason_text(reason)))
     });
     let has_rows = anchors.iter().any(|key| targets.target(key).is_some());
-    locked.or_else(|| (primitive == "Group" && has_rows).then(|| GROUP_ANCHOR.to_owned()))
+    locked
+        .or_else(|| (primitive == "Group" && has_rows).then(|| GROUP_ANCHOR.to_owned()))
+        .or_else(|| (has_rows && box_animated(targets)).then(|| BOX_ANIMATED.to_owned()))
 }
 
 /// The name of the element `report` found (its innermost entry), which
@@ -1338,6 +1361,35 @@ mod tests {
         assert!(has_anchor(&rows(literal(0.0), literal(0.0)), &frame));
         assert!(!has_anchor(&rows(keyframe(0.0), literal(0.0)), &frame));
         assert!(!has_anchor(&rows(literal(0.0), keyframe(0.0)), &frame));
+    }
+
+    #[test]
+    fn an_anchor_whose_box_is_animated_stays() {
+        // `x`/`y` would move by the anchor's change times the box's width,
+        // which is another on the other keyframes.
+        let rect = |width| {
+            sized(
+                vec![
+                    ("x", literal(40.0)),
+                    ("y", literal(20.0)),
+                    ("anchorX", literal(0.0)),
+                    ("anchorY", literal(0.0)),
+                    ("width", width),
+                    ("height", literal(50.0)),
+                ],
+                [Some("width"), Some("height"), None],
+                &[],
+            )
+        };
+        let frame = rect_frame();
+        assert!(has_anchor(&rect(literal(100.0)), &frame));
+        assert_eq!(anchor_reason(&rect(literal(100.0)), "Rect"), None);
+        let animated = rect(keyframe(100.0));
+        assert!(!has_anchor(&animated, &frame));
+        assert_eq!(
+            anchor_reason(&animated, "Rect").as_deref(),
+            Some("Size is animated")
+        );
     }
 
     #[test]

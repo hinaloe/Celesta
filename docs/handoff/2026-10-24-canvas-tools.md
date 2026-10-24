@@ -79,8 +79,11 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   (unclamped) and keeps the box's top-left corner still. `drag_props` adds
   the anchors when both rows are `Literal` or `Missing` (not keyframes),
   `x`/`y` are compensable, no editable `rotation` or scale is a keyframe
-  (the compensation turns and scales with them), and the anchor box is
-  known; `anchor_reason` / `GROUP_ANCHOR` give the cross's
+  (the compensation turns and scales with them), no size prop of the
+  table's `size` is a keyframe (`box_animated`: the compensation is the
+  anchor's change times the box, another on the other keyframes; the
+  cross's tooltip then reads "Size is animated"), and the anchor box is
+  known; `anchor_reason` / `GROUP_ANCHOR` / `BOX_ANIMATED` give the cross's
   tooltip. The viewer draws the cross at the pivot for every selected layer
   with a frame (one handle wide, accent color), with a hitbox that sets
   `OpenHand` while Alt is held, and redraws on `on_modifiers_changed`.
@@ -313,7 +316,8 @@ example changed):
   "Pivot", muted, with the tooltip "Rotation or scale is animated", and the
   rotation handle turns it about the pivot (the cross), writing `rotation`
   only. On a `Rect` with keyframed `width` anchored at its top-left, the
-  left edge and the left corners are hidden; the right edge still resizes.
+  left edge and the left corners are hidden; the right edge still resizes,
+  and the cross is not Alt-draggable (tooltip "Size is animated").
 - Select a `Group`: "Scale" is selected and muted, its tooltip reads "No
   size to resize", and the 2a scale handles show; hover over the cross:
   "A group's anchor has no effect", and Alt-drag does nothing. A `Rect` with

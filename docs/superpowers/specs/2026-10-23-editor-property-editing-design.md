@@ -383,7 +383,9 @@ layer's box by default, as the handles suggest:
   editable `rotation`, `scale`, `scaleX`, or `scaleY` that is a keyframe
   makes Center fall back to the pivot (the toggle shows "Pivot", muted, with
   the tooltip "Rotation or scale is animated") and disables the anchor drag;
-  a keyframed anchor disables it too; a resize handle that moves the anchor
+  a keyframed anchor disables it too, and so does a keyframed size prop
+  (the anchor box changes between keyframes; the cross's tooltip reads
+  "Size is animated"); a resize handle that moves the anchor
   point along an axis whose size is a keyframe is hidden.
 - The pivot is always drawn as a small cross. Dragging the cross with Alt
   moves the anchor: it writes `anchorX`/`anchorY` as fractions of the box the
