@@ -5,10 +5,10 @@
 //! the row state, and the commit flow; `element_rows_view.rs` renders them.
 
 use crate::element_edit::{
-    ElementTargets, PropKey, RELOAD_FAILED, Target, edit_value, editable, field_of, inner_target,
-    required_of, table_default, text_style_key,
+    ElementTargets, PropKey, Target, edit_value, editable, field_of, inner_target, required_of,
+    table_default, text_style_key,
 };
-use crate::layer_select::display_path;
+use crate::layer_select::{SourceLookup, display_path};
 use crate::property_controls::{
     Control, ControlEvent, ControlKind, build_control, parse_color, parse_color_input,
     parse_number_input, take_picked_color,
@@ -179,6 +179,10 @@ const COLOR_MESSAGE: &str = "Enter a color: #RRGGBB, #RRGGBBAA, or a theme color
 
 /// Why a held commit to a keyframe was not written after a seek.
 const FRAME_MOVED: &str = "Not saved: the playhead moved off this keyframe";
+
+/// Why held commits were not written when the layer's source was not
+/// found again (not in the frame, or no source position).
+const SOURCE_LOST: &str = "Not saved: the layer's source was not found again";
 
 /// A `<Theme>` color name: a letter, then letters, digits, `_` or `-`.
 fn theme_color_name(text: &str) -> bool {
@@ -1136,20 +1140,20 @@ impl EditorView {
         }
     }
 
-    /// The code failed to reload after a write: the held commits can't be
-    /// written against it, so they are dropped, each row (or, for a layer
-    /// no longer shown, the Layer section) saying so, and a waiting
-    /// selection change goes.
-    pub(crate) fn drop_held_rows(&mut self, cx: &mut Context<Self>) {
+    /// The held commits can't be written (the code failed to reload, or the
+    /// layer's source is no longer found): they are dropped, each row (or,
+    /// for a layer no longer shown, the Layer section) saying `message`,
+    /// and a waiting selection change goes.
+    pub(crate) fn drop_held_rows(&mut self, message: &str, cx: &mut Context<Self>) {
         let selected = self.selected_layer.clone();
         for held in self.element_rows.held.take_all() {
             let shown = selected.as_deref() == Some(held.layer.as_str())
                 && self.element_rows.rows.contains_key(&held.key);
             if shown {
-                self.drop_row_commit(&held.key, RELOAD_FAILED);
+                self.drop_row_commit(&held.key, message);
             } else {
                 self.element_edit
-                    .set_error(Some(&held.layer), Some(RELOAD_FAILED.to_owned()));
+                    .set_error(Some(&held.layer), Some(message.to_owned()));
             }
         }
         for row in self.element_rows.rows.values_mut() {
@@ -1204,11 +1208,21 @@ impl EditorView {
         }
     }
 
-    /// Submits the rows' typed text when the playhead moved or playback
-    /// started since the last render (see [`ElementRows::submit_requested`]).
-    pub(crate) fn submit_rows_if_requested(&mut self, cx: &mut Context<Self>) {
+    /// What happened to the rows since the last render, done now that a
+    /// context is at hand: the playhead moved or playback started (submit
+    /// the typed text, see [`ElementRows::submit_requested`]), or the
+    /// selected layer's source lookup answered without a source, so the
+    /// held commits can never be written.
+    pub(crate) fn settle_row_requests(&mut self, cx: &mut Context<Self>) {
         if std::mem::take(&mut self.element_rows.submit_requested) {
             self.submit_edited_rows(cx);
+        }
+        let lost = !matches!(
+            self.source_lookup,
+            None | Some(SourceLookup::Pending | SourceLookup::Found(_))
+        );
+        if lost && self.element_rows.held.any(self.selected_layer.as_deref()) {
+            self.drop_held_rows(SOURCE_LOST, cx);
         }
     }
 

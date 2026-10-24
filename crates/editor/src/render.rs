@@ -11,7 +11,7 @@ impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.poll_background_work();
         self.watch_occurrence_sweep(cx);
-        self.submit_rows_if_requested(cx);
+        self.settle_row_requests(cx);
         self.sync_element_targets(cx);
         self.sync_element_rows(window, cx);
         self.update_playback(window);

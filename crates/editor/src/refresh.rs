@@ -1,4 +1,5 @@
 use crate::component_schema::ComponentSchemaRequest;
+use crate::element_edit::RELOAD_FAILED;
 use crate::helpers::format_time;
 use crate::layer_select::source_lookup_target;
 use crate::media_probe::{MediaProbeRequest, ProbeAsset};
@@ -537,7 +538,7 @@ impl EditorView {
                 // No reload will make the targets current: the commits
                 // waiting for one are not written, and new ones fail.
                 self.element_edit.reload_failed();
-                self.drop_held_rows(cx);
+                self.drop_held_rows(RELOAD_FAILED, cx);
             }
         }
         cx.notify();
