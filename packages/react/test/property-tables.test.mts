@@ -52,8 +52,8 @@ test('ratios and fractions declare a fine scrub step', () => {
     assert.deepEqual(field(table, 'Transform', 'anchorX'), { type: 'number', defaultValue: 0, step: 0.01 }, table);
     assert.deepEqual(field(table, 'Transform', 'anchorY'), { type: 'number', defaultValue: 0, step: 0.01 }, table);
   }
-  assert.deepEqual(field('Video', 'Source', 'playbackRate'), { type: 'number', defaultValue: 1, step: 0.01 });
-  assert.deepEqual(field('Video', 'Audio', 'volume'), { type: 'number', defaultValue: 1, step: 0.01 });
+  assert.deepEqual(field('Video', 'Source', 'playbackRate'), { type: 'number', defaultValue: 1, min: 0, step: 0.01 });
+  assert.deepEqual(field('Video', 'Audio', 'volume'), { type: 'number', defaultValue: 1, min: 0, step: 0.01 });
   assert.deepEqual(num(0, { min: 0, max: 1, step: 0.05 }), { type: 'number', defaultValue: 0, min: 0, max: 1, step: 0.05 });
 });
 
@@ -61,15 +61,31 @@ test('props the props type requires are declared required', () => {
   const field = (table: string, group: string, key: string) =>
     listPrimitiveProperties()[table]?.groups.find((entry) => entry.name === group)?.fields
       .find((row) => row.key === key)?.field;
-  assert.deepEqual(field('Rect', 'Size', 'width'), { type: 'number', required: true });
-  assert.deepEqual(field('Rect', 'Size', 'height'), { type: 'number', required: true });
+  assert.deepEqual(field('Rect', 'Size', 'width'), { type: 'number', required: true, min: 0 });
+  assert.deepEqual(field('Rect', 'Size', 'height'), { type: 'number', required: true, min: 0 });
   assert.deepEqual(field('Image', 'Source', 'src'), { type: 'path', required: true });
   assert.deepEqual(field('Video', 'Source', 'src'), { type: 'path', required: true });
   assert.deepEqual(field('Text', 'Text', 'children'), { type: 'text', required: true });
   // An optional prop says nothing.
-  assert.deepEqual(field('Rect', 'Size', 'cornerRadius'), { type: 'number', defaultValue: 0 });
-  assert.deepEqual(field('Text', 'Layout', 'maxWidth'), { type: 'number' });
+  assert.deepEqual(field('Rect', 'Size', 'cornerRadius'), { type: 'number', defaultValue: 0, min: 0 });
+  assert.deepEqual(field('Text', 'Layout', 'maxWidth'), { type: 'number', min: 0 });
   assert.deepEqual(required(num()), { type: 'number', required: true });
+});
+
+test('numbers stop where the components stop drawing or accept them', () => {
+  const field = (table: string, group: string, key: string) =>
+    listPrimitiveProperties()[table]?.groups.find((entry) => entry.name === group)?.fields
+      .find((row) => row.key === key)?.field;
+  // Font weights select static faces by weight class, 100 apart.
+  assert.deepEqual(field('Text', 'Text', 'fontWeight'), { type: 'number', min: 1, max: 1000, step: 100 });
+  assert.deepEqual(field('Text', 'Text', 'fontSize'), { type: 'number', min: 0 });
+  assert.deepEqual(field('Rect', 'Appearance', 'strokeWidth'), { type: 'number', defaultValue: 0, min: 0 });
+  // An image's size must be positive.
+  assert.deepEqual(field('Image', 'Size', 'width'), { type: 'number', min: 1 });
+  assert.deepEqual(field('Image', 'Size', 'height'), { type: 'number', min: 1 });
+  assert.deepEqual(field('Video', 'Source', 'startFrom'), { type: 'number', defaultValue: 0, min: 0 });
+  // Positions, angles, and scales take any number.
+  assert.deepEqual(field('Rect', 'Transform', 'x'), { type: 'number', defaultValue: 0 });
 });
 
 // Type test: compiled by `tsc -b test`, never run. A key or size prop the

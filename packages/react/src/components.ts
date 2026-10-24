@@ -1108,7 +1108,8 @@ registerPrimitiveProperties('Image', propertyTable<ImageProps>({
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
     Source: { src: required(path()) },
-    Size: { width: num(), height: num(), fit: select(['contain', 'cover']) },
+    // A size must be positive (`Image width must be finite and positive`).
+    Size: { width: num(undefined, { min: 1 }), height: num(undefined, { min: 1 }), fit: select(['contain', 'cover']) },
   },
 }));
 registerPrimitiveProperties('Text', propertyTable<TextProps>({
@@ -1118,8 +1119,16 @@ registerPrimitiveProperties('Text', propertyTable<TextProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Text: { children: required(text()), fontFamily: str(), fontSize: num(), fontWeight: num(), color: color() },
-    Layout: { maxWidth: num() },
+    Text: {
+      children: required(text()),
+      fontFamily: str(),
+      // A size of 0 or less draws nothing.
+      fontSize: num(undefined, { min: 0 }),
+      // The nearest static face is picked by its weight class, 100 apart.
+      fontWeight: num(undefined, { min: 1, max: 1000, step: 100 }),
+      color: color(),
+    },
+    Layout: { maxWidth: num(undefined, { min: 0 }) },
   },
 }));
 registerPrimitiveProperties('Rect', propertyTable<RectProps>({
@@ -1129,8 +1138,13 @@ registerPrimitiveProperties('Rect', propertyTable<RectProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { width: required(num()), height: required(num()), cornerRadius: num(0) },
-    Appearance: { fill: color(), stroke: color(), strokeWidth: num(0) },
+    // A negative size, radius, or stroke draws nothing more than 0 does.
+    Size: {
+      width: required(num(undefined, { min: 0 })),
+      height: required(num(undefined, { min: 0 })),
+      cornerRadius: num(0, { min: 0 }),
+    },
+    Appearance: { fill: color(), stroke: color(), strokeWidth: num(0, { min: 0 }) },
   },
 }));
 registerPrimitiveProperties('Video', propertyTable<VideoProps>({
@@ -1139,8 +1153,14 @@ registerPrimitiveProperties('Video', propertyTable<VideoProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Source: { src: required(path()), startFrom: num(0), playbackRate: num(1, { step: 0.01 }), loop: bool(false) },
-    Audio: { volume: num(1, { step: 0.01 }), muted: bool(false) },
+    // No time before the file's start; no negative speed or volume.
+    Source: {
+      src: required(path()),
+      startFrom: num(0, { min: 0 }),
+      playbackRate: num(1, { min: 0, step: 0.01 }),
+      loop: bool(false),
+    },
+    Audio: { volume: num(1, { min: 0, step: 0.01 }), muted: bool(false) },
   },
 }));
 for (const wrapper of [Composition, Sequence, FreezeFrame, Loop]) markTransparent(wrapper);

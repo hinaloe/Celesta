@@ -36,6 +36,28 @@ test('props the shapes require are declared required', () => {
   }
 });
 
+test('shape numbers stop where the shapes reject them', () => {
+  const tables = listPrimitiveProperties();
+  const field = (name: string, key: string) =>
+    tables[name]?.groups.flatMap((group) => group.fields).find((row) => row.key === key)?.field;
+  for (const [name, key] of [
+    ['Ellipse', 'width'], ['Ellipse', 'height'], ['Circle', 'radius'], ['Triangle', 'width'],
+    ['Triangle', 'cornerRadius'], ['Polygon', 'radius'], ['Star', 'radius'], ['Pie', 'radius'],
+    ['Pie', 'cornerRadius'], ['Heart', 'width'],
+  ] as const) {
+    assert.equal((field(name, key) as { min?: number } | undefined)?.min, 0, `${name} ${key}`);
+  }
+  // At least three sides or points.
+  assert.deepEqual(field('Polygon', 'sides'), { type: 'number', required: true, min: 3 });
+  assert.deepEqual(field('Star', 'points'), { type: 'number', required: true, min: 3 });
+  // A stroke must be wider than nothing.
+  for (const name of ['Ellipse', 'Circle', 'Triangle', 'Polygon', 'Star', 'Pie', 'Heart']) {
+    assert.deepEqual(field(name, 'strokeWidth'), { type: 'number', defaultValue: 2, min: 0.1 }, name);
+  }
+  // Angles take any number.
+  assert.deepEqual(field('Pie', 'startAngle'), { type: 'number', defaultValue: 0 });
+});
+
 test('shape transforms scrub scale and anchors finely', () => {
   const tables = listPrimitiveProperties();
   for (const name of ['Ellipse', 'Circle', 'Triangle', 'Polygon', 'Star', 'Pie', 'Heart']) {

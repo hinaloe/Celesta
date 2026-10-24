@@ -1183,7 +1183,13 @@ for (const shape of [Path, Line, Polyline, Ellipse, Circle, Arrow, Triangle, Pol
   markPrimitive(shape);
 }
 
-// What the editor's Properties tab edits on each, by section.
+// What the editor's Properties tab edits on each, by section. The bounds are
+// the shapes' own: sizes and radii of at least 0 (`sizeOf`, `dimensionOf`),
+// at least 3 sides or points (`countOf`), and a stroke wider than nothing
+// (`strokeWidthOf`; the field's bounds are inclusive, so 0.1).
+const size = (defaultValue?: number) => num(defaultValue, { min: 0 });
+const count = () => num(undefined, { min: 3 });
+const strokeWidth = () => num(2, { min: 0.1 });
 registerPrimitiveProperties('Ellipse', propertyTable<EllipseProps>({
   size: { width: 'width', height: 'height' },
   groups: {
@@ -1191,8 +1197,8 @@ registerPrimitiveProperties('Ellipse', propertyTable<EllipseProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { width: required(num()), height: required(num()) },
-    Appearance: { fill: color(), stroke: color(), strokeWidth: num(2) },
+    Size: { width: required(size()), height: required(size()) },
+    Appearance: { fill: color(), stroke: color(), strokeWidth: strokeWidth() },
   },
 }));
 registerPrimitiveProperties('Circle', propertyTable<CircleProps>({
@@ -1202,8 +1208,8 @@ registerPrimitiveProperties('Circle', propertyTable<CircleProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { radius: required(num()) },
-    Appearance: { fill: color(), stroke: color(), strokeWidth: num(2) },
+    Size: { radius: required(size()) },
+    Appearance: { fill: color(), stroke: color(), strokeWidth: strokeWidth() },
   },
 }));
 registerPrimitiveProperties('Triangle', propertyTable<TriangleProps>({
@@ -1213,8 +1219,8 @@ registerPrimitiveProperties('Triangle', propertyTable<TriangleProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { width: required(num()), height: required(num()), apex: num(0.5, { min: 0, max: 1 }), cornerRadius: num(0) },
-    Appearance: { fill: color(), stroke: color(), strokeWidth: num(2) },
+    Size: { width: required(size()), height: required(size()), apex: num(0.5, { min: 0, max: 1 }), cornerRadius: size(0) },
+    Appearance: { fill: color(), stroke: color(), strokeWidth: strokeWidth() },
   },
 }));
 registerPrimitiveProperties('Polygon', propertyTable<PolygonProps>({
@@ -1224,8 +1230,8 @@ registerPrimitiveProperties('Polygon', propertyTable<PolygonProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { radius: required(num()), sides: required(num()), cornerRadius: num(0) },
-    Appearance: { fill: color(), stroke: color(), strokeWidth: num(2) },
+    Size: { radius: required(size()), sides: required(count()), cornerRadius: size(0) },
+    Appearance: { fill: color(), stroke: color(), strokeWidth: strokeWidth() },
   },
 }));
 registerPrimitiveProperties('Star', propertyTable<StarProps>({
@@ -1235,8 +1241,8 @@ registerPrimitiveProperties('Star', propertyTable<StarProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { radius: required(num()), points: required(num()), innerRatio: num(0.5, { min: 0, max: 1 }), cornerRadius: num(0) },
-    Appearance: { fill: color(), stroke: color(), strokeWidth: num(2) },
+    Size: { radius: required(size()), points: required(count()), innerRatio: num(0.5, { min: 0, max: 1 }), cornerRadius: size(0) },
+    Appearance: { fill: color(), stroke: color(), strokeWidth: strokeWidth() },
   },
 }));
 registerPrimitiveProperties('Pie', propertyTable<PieProps>({
@@ -1246,8 +1252,8 @@ registerPrimitiveProperties('Pie', propertyTable<PieProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { radius: required(num()), startAngle: num(0), endAngle: required(num()), cornerRadius: num(0) },
-    Appearance: { fill: color(), stroke: color(), strokeWidth: num(2) },
+    Size: { radius: required(size()), startAngle: num(0), endAngle: required(num()), cornerRadius: size(0) },
+    Appearance: { fill: color(), stroke: color(), strokeWidth: strokeWidth() },
   },
 }));
 registerPrimitiveProperties('Heart', propertyTable<HeartProps>({
@@ -1257,7 +1263,7 @@ registerPrimitiveProperties('Heart', propertyTable<HeartProps>({
       x: num(0), y: num(0), rotation: num(0), scale: num(1, { step: 0.01 }),
       anchorX: num(0, { step: 0.01 }), anchorY: num(0, { step: 0.01 }), opacity: num(1, { min: 0, max: 1 }),
     },
-    Size: { width: required(num()), height: required(num()) },
-    Appearance: { fill: color(), stroke: color(), strokeWidth: num(2) },
+    Size: { width: required(size()), height: required(size()) },
+    Appearance: { fill: color(), stroke: color(), strokeWidth: strokeWidth() },
   },
 }));
