@@ -239,7 +239,9 @@ export const primitiveProperties = {
   for children, with no `label` (the row label is the key in words) and an
   optional `defaultValue` (`Rect`'s `width` has none). `number` may carry
   `min`/`max` (`opacity` 0–1): a typed value outside is refused with "Enter a
-  number from {min} to {max}", and a scrub clamps.
+  number from {min} to {max}" ("Enter a number of at least {min}" or "Enter
+  a number of at most {max}" when only one bound is set), and a scrub
+  clamps.
 - `size` names the props that hold the box: `width`/`height`, `radius`
   (uniform), or `maxWidth` (width only, for `Text`). Primitives without one
   (`Group`) have no resize handles.
@@ -259,7 +261,7 @@ Locked with its reason) and a control by type:
 
 | Type | Control |
 | --- | --- |
-| number | numeric field; drag on the label scrubs it (1 per pixel, 0.01 when `max` ≤ 1, Shift ×10, clamped to `min`/`max`), previewed through the runtime and written once on release |
+| number | numeric field; drag on the label scrubs it (1 per pixel; 0.01 when `max` ≤ 1 and for `scale`, `scaleX`, `scaleY`; Shift ×10; clamped to `min`/`max`), previewed through the runtime and written once on release |
 | string | single-line field |
 | text | multi-line field; Enter commits, Shift+Enter breaks the line, blur commits |
 | boolean | switch |

@@ -122,7 +122,7 @@ Below the header, the **Properties** tab lists the selected element's props in s
 | `<Text>` | **Text** (Text, Font family, Font size, Font weight, Color), **Layout** (Max width) |
 | `<Image>` | **Source** (Source), **Size** (Width, Height, Fit) |
 | `<Video>` | **Source** (Source, Start from, Playback rate, Loop), **Audio** (Volume, Muted) |
-| `<Group>` | None |
+| `<Group>` | — (**Transform** only) |
 | `<Ellipse>`, `<Heart>` | **Size** (Width, Height), **Appearance** (Fill, Stroke, Stroke width) |
 | `<Circle>` | **Size** (Radius), **Appearance** as for `<Ellipse>` |
 | `<Triangle>` | **Size** (Width, Height, Apex, Corner radius), **Appearance** as for `<Ellipse>` |
@@ -130,7 +130,7 @@ Below the header, the **Properties** tab lists the selected element's props in s
 | `<Star>` | **Size** (Radius, Points, Inner ratio, Corner radius), **Appearance** as for `<Ellipse>` |
 | `<Pie>` | **Size** (Radius, Start angle, End angle, Corner radius), **Appearance** as for `<Ellipse>` |
 
-Other elements, such as `<Path>`, `<Line>`, `<Arrow>`, and `<Mask>`, show only X, Y, Rotation, and Scale under **Transform**.
+Other elements, such as `<Path>`, `<Line>`, `<Arrow>`, and `<Mask>`, show only X, Y, Rotation, and Scale (or Scale X and Scale Y) under **Transform**.
 
 Each row writes its prop where your source states it plainly, by the rules of the previous section: on the element, at the call of your component (the row then shows **Set at `<file>`:`<line>`**), or in a `const` used once. Strings, `true` and `false`, and the text of a `<Text>` are written like numbers, and a string keeps the quotes it was written with. Anything else is locked with its reason, as on the canvas. A prop your source leaves out shows, dimmed, the value it is drawn with: the default of your component's parameter when the prop is one, otherwise the value the layer received, or the element's own default. Entering a value adds the prop.
 
@@ -148,7 +148,7 @@ Each row has a control for its kind of value:
 
 Escape in a field puts the source's value back. A value the row can't take, such as a word in a number row or a number outside the prop's range (**Opacity** takes 0 to 1), shows a message under the row and is not written. A color is `#RRGGBB`, `#RRGGBBAA`, or the name of a color of your `<Theme>`, such as `accent`, written as you type it; a name shows no swatch. A menu whose source holds a value that is not one of its choices, such as `fit="fill"`, shows that value until you choose another. **Choose…** writes the file's path relative to the entry file's folder, copying a file from outside that folder into its `assets` folder first. **None** writes an empty path over a written one, and nothing when the prop is left out.
 
-To scrub a number, drag its label left or right: each pixel changes the value by 1, or by 0.01 for a prop from 0 to 1 such as **Opacity**, and holding Shift makes each step ten times larger. A value stops at the prop's range. The preview follows while you drag, including the other layers drawn from the same value, and the value is written once, when you release the mouse. Press Escape before releasing to put everything back without writing; releasing without moving writes nothing either. Rows that are locked or animated with keyframes don't scrub, and neither do input rows. Dragging a layer on the canvas and scrubbing a label never run together: starting one ends the other without writing.
+To scrub a number, drag its label left or right: each pixel changes the value by 1, or by 0.01 for **Scale**, **Scale X**, **Scale Y**, and a prop from 0 to 1 such as **Opacity**, and holding Shift makes each step ten times larger. A value stops at the prop's range. A prop your source leaves out starts from the dimmed value its row shows. The preview follows while you drag, including the other layers drawn from the same value, and the value is written once, when you release the mouse. Press Escape before releasing to put everything back without writing; releasing without moving, or with the value back where it started, writes nothing either. Pressing a label leaves the keyboard focus where it was; text you typed in that same row gives way to the scrubbed value. Rows that are locked or animated with keyframes don't scrub, neither do input rows, and labels don't scrub during playback. Dragging a layer on the canvas and scrubbing a label never run together: starting one ends the other without writing.
 
 A value computed from others, such as `width={textWidth + padding * 2}`, stays locked, and the names it reads are listed below its row as indented input rows, such as **textWidth** and **padding**. Each input is traced by the same rules, so a `const` used once, or a prop of your component set at the call (with its own **Set at** line), can be edited there; the others show their lock reason. Inputs are one level deep: an input that is itself an expression is not expanded. A value computed at your component's call, such as `<PriceTag x={left + 8} />`, lists no inputs.
 

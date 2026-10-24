@@ -101,10 +101,11 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   column (`LABEL_WIDTH`) is 84 px, shared with the header rows.
 - Label scrub (`element_rows.rs`, `element_rows_view.rs`,
   `transform_drag.rs`): dragging an editable number row's label changes it
-  by `scrub_value` (1 per pixel, 0.01 for a field with `max` ≤ 1, Shift ×10,
-  clamped to `min`/`max`), sends each frame with a prop override at the
-  row's write position, and writes once on release. `override_sites` takes
-  `PropKey`s and the row's resolved path, so drags and scrubs share it.
+  by `scrub_value` (1 per pixel; 0.01 for a field with `max` ≤ 1 and for
+  `scale`, `scaleX`, `scaleY`; Shift ×10; clamped to `min`/`max`), sends
+  each frame with a prop override at the row's write position, and writes
+  once on release. `override_sites` returns a site per editable `PropKey`,
+  at the row's resolved path, so drags and scrubs share it.
 - `style.<key>` overrides (`packages/react/src/jsx-dev-runtime.ts`): an
   override whose prop is `style.fontSize` sets that key in a copy of the
   element's `style` (a new object when none is written), at most one copy per
@@ -155,10 +156,15 @@ These differ from, or settle what the spec left open:
 - **Path rows** write `import_path(entry_dir, entry_dir, chosen)`; "None"
   writes `""` over a written path and nothing for a `Missing` one.
 - **Scrubs** preview like a drag, write once on release, and do nothing on
-  Escape or a release without movement. Input rows, locked rows, and
-  keyframe rows do not scrub; Component number rows do, overriding the
-  attribute at the call site. A scrub and a canvas drag end each other
-  without writing.
+  Escape or a release without movement, or with the value back where it
+  started. Input rows, locked rows, and keyframe rows do not scrub;
+  Component number rows do, overriding the attribute at the call site.
+  `scale`, `scaleX`, and `scaleY` step 0.01 per pixel like 0–1 fields: they
+  are unbounded ratios around 1, where 1 per pixel is unusable. A scrub on a
+  row with no value starts from the placeholder the row shows (the source's
+  default, else the received value, else the table's default), and from 0
+  only when there is none. A scrub and a canvas drag end each other without
+  writing, and neither starts while a released one is still being written.
 - **Component section:** the attributes at the owner call site in source
   order, without `key`, `ref`, spreads, `children`, and the props a row
   above shows with "Set at"; locked rows for anything but a literal. It is
@@ -201,6 +207,11 @@ scaleX={sx} />` shows 3); the duplicated readers (`TransformProp::received`,
   top-aligned.
 - 2a's `useMemo` limitation applies to scrubs as to drags: an element cached
   with `useMemo` at an override's position follows the first frame only.
+- The 0.01 scale step applies only to the element's own props, so a
+  Component-section prop named `scale` steps 1 per pixel.
+- Pressing Enter in another row's focused field during a scrub commits that
+  field, and the scrub's release then fails as unavailable ("Select the
+  layer again").
 
 ## What 2c–2d build on
 
@@ -224,8 +235,11 @@ content these rows supersede, so no example changed):
   Drag the Corner radius label: the preview follows before release, Shift
   moves faster, and one write happens on release. Escape mid-drag writes
   nothing.
-- Select a `Text`: type a second line into the Text row with Shift+Enter and
-  commit with Enter. With `style={{ fontSize: 40 }}` on it, change Font size:
+- Type into a field without pressing Enter, then drag another number row's
+  label: the field keeps the focus and its text, and the ↔ cursor stays for
+  the whole scrub, even when the pointer leaves the label.
+- Select a `Text`: in the Text row, Shift+Enter breaks the line without
+  committing; Enter commits. With `style={{ fontSize: 40 }}` on it, change Font size:
   the object's `fontSize` changes, not a new attribute.
 - Select an element whose `width` is computed
   (`width={textWidth + padding * 2}`): the row is locked and lists
