@@ -379,14 +379,18 @@ impl EditorView {
             })
             .child(
                 canvas(
-                    move |bounds, window, cx| {
+                    move |bounds, window, _| {
                         // The overlays placed by these bounds (the cross's
                         // and the locked box's tooltips, the drag label, the
                         // "Pivot —" notes) were laid out with the previous
-                        // ones: when they change (the tool row appears or
-                        // goes), draw again so they never lag a frame.
+                        // ones. When they change (the tool row appears or
+                        // goes), schedule one more frame that re-renders the
+                        // view with them: a notify made during the draw only
+                        // marks the view dirty and would wait for some other
+                        // redraw, while a next-frame callback wakes the
+                        // window.
                         if viewer_bounds.replace(Some(bounds)) != Some(bounds) {
-                            cx.notify(view);
+                            window.on_next_frame(move |_, cx| cx.notify(view));
                         }
                         // Each handle's square, with a hitbox for its cursor.
                         let handles =

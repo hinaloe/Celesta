@@ -8,9 +8,9 @@ Pivot mode the pivot (the anchor point plus `origin`) cross Alt-drags the
 anchor without moving the layer; and the row's "Handles" [Size | Scale]
 toggle makes the corner and edge handles resize the layer through its
 `size` props (`width`/`height`, `radius`, or a `Text`'s `maxWidth`),
-keeping the opposite edge where it is. Every drag that has to keep something still
-moves `x`/`y` by one rule, and is still one history entry, in one or two
-files.
+keeping the opposite edge where it is. Every drag that has to keep
+something still moves `x`/`y` by one rule, and is still one history entry,
+in one or two files.
 Design: `docs/superpowers/specs/2026-10-23-editor-property-editing-design.md`
 (section "Canvas": "Pivot" and "Resize"). This is part 2c; it builds on 2a
 (`docs/handoff/2026-10-23-property-editing-engine.md`) and 2b
@@ -155,8 +155,11 @@ User docs: `packages/website/content/{en,ja}/docs/01-(getting-started)/03-previe
   tool's handles get hover areas with the tooltip "Pivot — reason" (not
   while a drag runs; its label says it). Those areas, the cross's and the
   locked box's tooltips, and the drag label are placed by the canvas's last
-  painted bounds; the canvas notifies the view when its bounds change (the
-  row appears or goes), so they are redrawn at once. The transport bar no
+  painted bounds. When those bounds change (the row appears or goes), the
+  canvas's prepaint schedules one more frame (`window.on_next_frame` that
+  notifies the view; a notify during the draw only marks the view dirty
+  and waits for another redraw), so they are placed on the new bounds one
+  frame later instead of lagging until the next input. The transport bar no
   longer holds the toggles; its breakpoints are its own again
   (`transport_layout`, 820 and 600 px).
 - The cross (`transform_handles.rs`, `transform_drag.rs`, `viewer.rs`):
@@ -379,7 +382,8 @@ example changed):
   moving the pointer, the tab it left is muted at once (not bright until the
   next move), and an unselected tab brightens only while it is hovered.
   Narrow the window: the row clips instead of covering the dock, and the
-  tooltips over the canvas line up on the frame the row appears. Select
+  tooltips over the canvas line up with the cross as soon as the row
+  appears, without moving the pointer. Select
   layers one after another, including ones that fall back: the row's
   widths and labels never change, only a warning icon appears in the
   reserved slot after the tabs. Clearing the selection (click empty
