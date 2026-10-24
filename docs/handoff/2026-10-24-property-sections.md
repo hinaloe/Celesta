@@ -284,6 +284,14 @@ These differ from, or settle what the spec left open:
   fails at once only when the source can't be read, or the code failed to
   reload. A row's sync never sets text
   equal to what its field holds, so the caret stays.
+- **A field keeps plain `←` and `→`.** gpui-base's input passes on Left at
+  the start of its text and Right at the end; macOS then offers the
+  unhandled key to the menu, whose Previous Frame and Next Frame items
+  use those keys, so the playhead moved while typing (the keymap's
+  `!Input` did not help: the binding never fired, the menu did).
+  `escapable`, which wraps every text field and the multi-line text,
+  stops those keys in its key-down listener (`field_keeps_key`), so the
+  menu items still work when clicked.
 - **Leaving a field commits it** (as Unity's inspector does). Before the
   selection changes by a canvas click, the layer list, clearing it, or
   leaving the interactive mode (`select_layer`), and after a seek by hand
