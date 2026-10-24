@@ -293,11 +293,23 @@ These differ from, or settle what the spec left open:
   targets were looked up at. They are dropped when the code fails to reload
   ("Not saved: the code failed to reload" on each row, or the Layer section
   for a layer no longer shown; later commits fail with it until the next
-  reload), when the layer's lookup answers without a source ("Not saved:
-  the layer's source was not found again"), and when the selection clears
-  without waiting (the reloaded code lacks the layer). A held commit to a
-  keyframe made before a seek is not written to another keyframe ("Not
-  saved: the playhead moved off this keyframe"); a plain value is.
+  reload), when the preview worker stops ("Not saved: the preview stopped
+  unexpectedly"; no lookup answers again, so later commits fail with it
+  for the rest of the session, `ElementEdit::preview_stopped`), when the
+  layer's lookup answers without a source ("Not saved: the layer's source
+  was not found again"), and when the selection clears without waiting
+  (the reloaded code lacks the layer). A held commit to a keyframe made
+  before a seek is not written to another keyframe ("Not saved: the
+  playhead moved off this keyframe"); a plain value is.
+- **Leaving the interactive mode waits with the selection change**
+  (`InteractiveToggle::LeaveAfterCommits`): the mode, and its source
+  lookups, stay until the held commits are written or dropped, so they can
+  drain; meanwhile the toggle stays selected with a spinner for its icon
+  ("Turning off Select layers once saved…") and stays clickable. Toggling
+  again, or picking a layer, cancels the leave and keeps the selection.
+  The leave asks for the frame and the sweep without the mode once: a
+  reload handler that set it off asks for both itself, and
+  `settle_interactive_mode` (each render, once no reload runs) otherwise.
 
 2a carry-overs closed: inputs that are parameters resolve at the call site;
 the lambda, one-place, and callee gaps in `resolve_inputs`; the scale-axis

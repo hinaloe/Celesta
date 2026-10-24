@@ -557,14 +557,25 @@ impl EditorView {
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_safe_areas(cx))),
             )
             .when(self.is_react_preview(), |bar| {
-                bar.child(
-                    Button::new("toggle-interactive")
-                        .small()
-                        .ghost()
+                let button = Button::new("toggle-interactive")
+                    .small()
+                    .ghost()
+                    .selected(self.interactive);
+                // Leaving waits for held commits: still on, and clickable to
+                // stay.
+                let button = if self.element_rows.leaving_interactive {
+                    button.icon(Spinner::new()).tooltip_with_action(
+                        "Turning off Select layers once saved…",
+                        &ToggleInteractive,
+                        KEY_CONTEXT,
+                    )
+                } else {
+                    button
                         .icon(CelestaIcon::MousePointerClick)
-                        .selected(self.interactive)
                         .tooltip_with_action("Select layers", &ToggleInteractive, KEY_CONTEXT)
-                        .on_click(cx.listener(|this, _, _, cx| this.toggle_interactive(cx))),
+                };
+                bar.child(
+                    button.on_click(cx.listener(|this, _, _, cx| this.toggle_interactive(cx))),
                 )
             });
         div()
