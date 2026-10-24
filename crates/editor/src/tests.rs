@@ -73,7 +73,7 @@ use celesta_react_bridge::{
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::{LazyLock, mpsc};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod element_edit;
@@ -1323,28 +1323,51 @@ fn drag_frame(parent: [f64; 6], position: Point) -> LayerFrame {
 }
 
 const IDENTITY: [f64; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
-const UNIFORM: [TransformProp; 4] = [
-    TransformProp::X,
-    TransformProp::Y,
-    TransformProp::Rotation,
-    TransformProp::Scale,
-];
-const PER_AXIS: [TransformProp; 5] = [
-    TransformProp::X,
-    TransformProp::Y,
-    TransformProp::Rotation,
-    TransformProp::ScaleX,
-    TransformProp::ScaleY,
-];
+static UNIFORM: LazyLock<Vec<PropKey>> = LazyLock::new(|| {
+    drag_keys(&[
+        TransformProp::X,
+        TransformProp::Y,
+        TransformProp::Rotation,
+        TransformProp::Scale,
+    ])
+});
+static PER_AXIS: LazyLock<Vec<PropKey>> = LazyLock::new(|| {
+    drag_keys(&[
+        TransformProp::X,
+        TransformProp::Y,
+        TransformProp::Rotation,
+        TransformProp::ScaleX,
+        TransformProp::ScaleY,
+    ])
+});
 
 fn pt(x: f64, y: f64) -> Point {
     Point { x, y }
 }
 
-fn assert_values(actual: &[(TransformProp, f64)], expected: &[(TransformProp, f64)]) {
+/// The drag keys of `props`.
+fn drag_keys(props: &[TransformProp]) -> Vec<PropKey> {
+    props.iter().map(|prop| prop.key()).collect()
+}
+
+/// `values` keyed by prop name.
+fn keyed(values: &[(TransformProp, f64)]) -> Vec<(PropKey, f64)> {
+    values
+        .iter()
+        .map(|&(prop, value)| (prop.key(), value))
+        .collect()
+}
+
+fn assert_values(actual: &[(PropKey, f64)], expected: &[(TransformProp, f64)]) {
     assert_eq!(
-        actual.iter().map(|(prop, _)| *prop).collect::<Vec<_>>(),
-        expected.iter().map(|(prop, _)| *prop).collect::<Vec<_>>(),
+        actual
+            .iter()
+            .map(|(key, _)| key.clone())
+            .collect::<Vec<_>>(),
+        expected
+            .iter()
+            .map(|(prop, _)| prop.key())
+            .collect::<Vec<_>>(),
         "{actual:?}"
     );
     for ((_, a), (_, e)) in actual.iter().zip(expected) {
@@ -1372,11 +1395,11 @@ fn drag_values_move_inside_a_parent_scaled_by_two_halves_the_delta() {
 #[test]
 fn drag_values_move_with_y_locked_changes_only_x() {
     let frame = drag_frame(IDENTITY, pt(10.0, 20.0));
-    let editable = [
+    let editable = drag_keys(&[
         TransformProp::X,
         TransformProp::Rotation,
         TransformProp::Scale,
-    ];
+    ]);
     let values = drag_values(
         &frame,
         Handle::Move,
@@ -1554,11 +1577,11 @@ fn transform_handle_at_prefers_handles_then_the_body() {
 fn transform_drag_props() {
     let mut frame = drag_frame(IDENTITY, pt(10.0, 20.0));
     frame.transform.scale = pt(2.0, 2.0);
-    let values = [
+    let values = keyed(&[
         (TransformProp::X, 30.0),
         (TransformProp::Rotation, 15.0),
         (TransformProp::Scale, 3.0),
-    ];
+    ]);
 
     // A prop the runtime saw as another value than the transform's keeps its
     // offset; a scale its ratio.
@@ -1569,11 +1592,11 @@ fn transform_drag_props() {
     };
     assert_eq!(
         prop_values(&frame, &values, &props),
-        vec![
+        keyed(&[
             (TransformProp::X, 130.0),
             (TransformProp::Rotation, 15.0),
             (TransformProp::Scale, 6.0),
-        ]
+        ])
     );
     // The label shows what is written: the received values, not the
     // transform's.
@@ -1617,7 +1640,7 @@ fn transform_drag_back_at_the_start_writes_nothing() {
     );
     assert_eq!(
         prop_values(&frame, &values, &props),
-        vec![(TransformProp::X, 14.0)]
+        keyed(&[(TransformProp::X, 14.0)])
     );
 }
 
@@ -1656,7 +1679,7 @@ fn drag_values_rotation_keeps_counting_past_a_half_turn() {
     assert_values(&values, &[(TransformProp::Rotation, -170.0)]);
 }
 
-fn shown(frame: &LayerFrame, editable: &[TransformProp]) -> Vec<Handle> {
+fn shown(frame: &LayerFrame, editable: &[PropKey]) -> Vec<Handle> {
     shown_handles(frame, editable, 20.0)
         .into_iter()
         .map(|(handle, _)| handle)
@@ -1691,7 +1714,7 @@ fn transform_shown_handles_leave_out_handles_that_scale_nothing() {
         ]
     );
     // scaleY locked: its edge and the corner that only scales y go.
-    let x_only = [TransformProp::X, TransformProp::ScaleX];
+    let x_only = drag_keys(&[TransformProp::X, TransformProp::ScaleX]);
     assert_eq!(
         shown(&frame, &x_only),
         vec![Handle::Corner(1), Handle::Corner(2), Handle::Edge(1)]
@@ -1955,11 +1978,11 @@ fn a_drag_overrides_the_prop_its_write_changes() {
     assert_eq!(
         prop_overrides(
             &sites,
-            &[
+            &keyed(&[
                 (TransformProp::X, 64.0),
                 (TransformProp::Y, 8.0),
                 (TransformProp::Rotation, 25.0),
-            ]
+            ])
         ),
         vec![
             at("/project/scene.tsx", "left", 64.0),
@@ -1967,13 +1990,16 @@ fn a_drag_overrides_the_prop_its_write_changes() {
             at("/project/component.tsx", "rotation", 25.0),
         ]
     );
-    assert_eq!(prop_overrides(&sites, &[(TransformProp::Scale, 3.0)]), []);
+    assert_eq!(
+        prop_overrides(&sites, &keyed(&[(TransformProp::Scale, 3.0)])),
+        []
+    );
 }
 
 #[test]
 fn a_drag_overrides_nothing_before_the_pointer_moves_or_while_playing() {
     let frame = drag_frame(IDENTITY, pt(10.0, 20.0));
-    let editable = vec![TransformProp::X, TransformProp::Y, TransformProp::Rotation];
+    let editable = drag_keys(&[TransformProp::X, TransformProp::Y, TransformProp::Rotation]);
     let mut drag = TransformDrag::new(
         frame.clone(),
         Handle::Move,
@@ -2005,8 +2031,8 @@ fn each_handle_previews_every_prop_it_changes() {
         rotation: Some(5.0),
         ..ReceivedProps::default()
     };
-    let preview = |handle, editable: &[TransformProp], values: &[(TransformProp, f64)]| {
-        preview_values(&frame, handle, editable, values, &received)
+    let preview = |handle, editable: &[PropKey], values: &[(TransformProp, f64)]| {
+        preview_values(&frame, handle, editable, &keyed(values), &received)
     };
     // Unchanged props keep the value the runtime saw, or the frame's.
     assert_values(
@@ -2044,7 +2070,7 @@ fn each_handle_previews_every_prop_it_changes() {
     );
     // A locked prop is left out.
     assert_values(
-        &preview(Handle::Corner(0), &[TransformProp::ScaleX], &[]),
+        &preview(Handle::Corner(0), &drag_keys(&[TransformProp::ScaleX]), &[]),
         &[(TransformProp::ScaleX, 1.0)],
     );
 }
@@ -2056,7 +2082,7 @@ fn a_move_drag_overrides_both_axes_from_its_first_frame() {
     let sites = mixed_override_sites();
     let frame = drag_frame(IDENTITY, pt(10.0, 20.0));
     let received = price_tag_report().props;
-    let editable = [TransformProp::X, TransformProp::Y, TransformProp::Rotation];
+    let editable = drag_keys(&[TransformProp::X, TransformProp::Y, TransformProp::Rotation]);
     let overrides = |now: Point| {
         let values = drag_values(
             &frame,

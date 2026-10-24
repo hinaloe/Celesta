@@ -33,7 +33,7 @@ pub(crate) struct TransformDrag {
     frame: LayerFrame,
     handle: Handle,
     start: Point,
-    editable: Vec<TransformProp>,
+    editable: Vec<PropKey>,
     /// The props the runtime saw when the drag started.
     received: ReceivedProps,
     /// Where the runtime takes each editable prop's dragged value, kept from
@@ -41,8 +41,8 @@ pub(crate) struct TransformDrag {
     sites: Vec<(PropKey, OverrideSite)>,
     /// How far a rotation drag has turned so far, unsnapped, in degrees.
     turned: f64,
-    /// The transform values the pointer has made so far.
-    values: Vec<(TransformProp, f64)>,
+    /// The values the pointer has made so far, by prop.
+    values: Vec<(PropKey, f64)>,
     /// Released; the overrides stay while the write runs and, after a
     /// successful one, until its reload, so the old position does not flash
     /// before the reloaded code draws the new one.
@@ -56,7 +56,7 @@ impl TransformDrag {
         frame: LayerFrame,
         handle: Handle,
         start: Point,
-        editable: Vec<TransformProp>,
+        editable: Vec<PropKey>,
         received: ReceivedProps,
         sites: Vec<(PropKey, OverrideSite)>,
     ) -> Self {
@@ -73,8 +73,8 @@ impl TransformDrag {
         }
     }
 
-    /// Takes the transform values the pointer made; true when they changed.
-    pub(crate) fn follow(&mut self, values: Vec<(TransformProp, f64)>) -> bool {
+    /// Takes the values the pointer made; true when they changed.
+    pub(crate) fn follow(&mut self, values: Vec<(PropKey, f64)>) -> bool {
         let changed = values != self.values;
         self.values = values;
         changed
@@ -169,18 +169,16 @@ pub(crate) fn override_sites(
         .collect()
 }
 
-/// The overrides that draw the transform values `values` (see
-/// `prop_values`).
+/// The overrides that draw the drag values `values` (see `prop_values`).
 pub(crate) fn prop_overrides(
     sites: &[(PropKey, OverrideSite)],
-    values: &[(TransformProp, f64)],
+    values: &[(PropKey, f64)],
 ) -> Vec<PropOverride> {
     values
         .iter()
-        .filter_map(|&(prop, value)| {
-            let key = prop.key();
-            let (_, site) = sites.iter().find(|(candidate, _)| *candidate == key)?;
-            Some(site.with(value))
+        .filter_map(|(key, value)| {
+            let (_, site) = sites.iter().find(|(candidate, _)| candidate == key)?;
+            Some(site.with(*value))
         })
         .collect()
 }
@@ -194,7 +192,7 @@ pub(crate) enum DragState {
     /// Every prop is locked; the first reason.
     Locked(LayerFrame, String),
     /// Draggable with these props.
-    Editable(LayerFrame, Vec<TransformProp>),
+    Editable(LayerFrame, Vec<PropKey>),
 }
 
 impl EditorView {
@@ -230,10 +228,10 @@ impl EditorView {
             .into_iter()
             .filter_map(|prop| Some((prop, targets.transform(prop)?)))
             .collect();
-        let props: Vec<TransformProp> = transform
+        let props: Vec<PropKey> = transform
             .iter()
             .filter(|(_, target)| editable(target))
-            .map(|(prop, _)| *prop)
+            .map(|(prop, _)| prop.key())
             .collect();
         if props.is_empty() {
             let reason = transform
@@ -328,8 +326,8 @@ impl EditorView {
         let handle = match handle_at(&frame, &shown, start, f64::from(HANDLE_REACH) / scale) {
             Some(Handle::Move)
                 if presses_body(&frame, topmost)
-                    && (editable.contains(&TransformProp::X)
-                        || editable.contains(&TransformProp::Y)) =>
+                    && (editable.contains(&TransformProp::X.key())
+                        || editable.contains(&TransformProp::Y.key())) =>
             {
                 Handle::Move
             }
@@ -420,7 +418,7 @@ impl EditorView {
         // The error shows in the Layer section and over the canvas.
         let values = values
             .into_iter()
-            .map(|(prop, value)| (prop.key(), Some(EditValue::Number(value))))
+            .map(|(key, value)| (key, Some(EditValue::Number(value))))
             .collect();
         self.commit_element(
             values,

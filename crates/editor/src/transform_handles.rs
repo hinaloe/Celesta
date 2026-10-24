@@ -11,7 +11,7 @@
 //! for the layers that deviate (an `<Instances>`, whose x, y and rotation are
 //! its particles').
 
-use crate::element_edit::{TransformProp, received_number};
+use crate::element_edit::{PropKey, TransformProp, received_number};
 use celesta_composition::{EvaluatedTransform, Point};
 use celesta_gpu_renderer::{LayerFrame, invert_affine};
 use celesta_react_bridge::ReceivedProps;
@@ -153,8 +153,8 @@ pub(crate) fn drag_values(
     (start, now): (Point, Point),
     shift: bool,
     previous_turn: f64,
-    editable: &[TransformProp],
-) -> Vec<(TransformProp, f64)> {
+    editable: &[PropKey],
+) -> Vec<(PropKey, f64)> {
     let pointer = (start, now);
     let Some(inverse) = invert_affine(frame.parent) else {
         return Vec::new();
@@ -162,15 +162,16 @@ pub(crate) fn drag_values(
     let (start, now) = (apply(&inverse, start), apply(&inverse, now));
     let transform = &frame.transform;
     let anchor = transform.position;
-    let can = |prop| editable.contains(&prop);
+    let can = |prop: TransformProp| editable.contains(&prop.key());
     let mut values = Vec::new();
+    let mut push = |prop: TransformProp, value: f64| values.push((prop.key(), value));
     match handle {
         Handle::Move => {
             if can(TransformProp::X) {
-                values.push((TransformProp::X, anchor.x + now.x - start.x));
+                push(TransformProp::X, anchor.x + now.x - start.x);
             }
             if can(TransformProp::Y) {
-                values.push((TransformProp::Y, anchor.y + now.y - start.y));
+                push(TransformProp::Y, anchor.y + now.y - start.y);
             }
         }
         Handle::Rotate => {
@@ -181,7 +182,7 @@ pub(crate) fn drag_values(
                 if shift {
                     rotation = (rotation / SNAP_DEGREES).round() * SNAP_DEGREES;
                 }
-                values.push((TransformProp::Rotation, rotation));
+                push(TransformProp::Rotation, rotation);
             }
         }
         Handle::Corner(_) | Handle::Edge(_) => {
@@ -200,7 +201,7 @@ pub(crate) fn drag_values(
                 let length = from.x * from.x + from.y * from.y;
                 if length > 1e-9 {
                     let ratio = ((to.x * from.x + to.y * from.y) / length).max(MIN_SCALE_RATIO);
-                    values.push((TransformProp::Scale, transform.scale.x * ratio));
+                    push(TransformProp::Scale, transform.scale.x * ratio);
                 }
             } else {
                 let ratio = |from: f64, to: f64| {
@@ -214,13 +215,13 @@ pub(crate) fn drag_values(
                     && can(TransformProp::ScaleX)
                     && let Some(ratio) = ratio(from.x, to.x)
                 {
-                    values.push((TransformProp::ScaleX, transform.scale.x * ratio));
+                    push(TransformProp::ScaleX, transform.scale.x * ratio);
                 }
                 if y_axis
                     && can(TransformProp::ScaleY)
                     && let Some(ratio) = ratio(from.y, to.y)
                 {
-                    values.push((TransformProp::ScaleY, transform.scale.y * ratio));
+                    push(TransformProp::ScaleY, transform.scale.y * ratio);
                 }
             }
         }
@@ -244,39 +245,66 @@ fn ratio(was: f64, now: f64) -> f64 {
     if was.abs() > 1e-12 { now / was } else { 1.0 }
 }
 
-/// The value the drag started from for `prop`.
-fn start_value(frame: &LayerFrame, prop: TransformProp) -> f64 {
-    let transform = &frame.transform;
-    match prop {
-        TransformProp::X => transform.position.x,
-        TransformProp::Y => transform.position.y,
-        TransformProp::Rotation => transform.rotation,
-        TransformProp::Scale | TransformProp::ScaleX => transform.scale.x,
-        TransformProp::ScaleY => transform.scale.y,
+/// The prop name a drag key writes (`x`, `anchorX`); `None` for an input or
+/// a component prop, which no drag changes.
+fn prop_name(key: &PropKey) -> Option<&str> {
+    match key {
+        PropKey::Prop(name) => Some(name),
+        PropKey::Input { .. } | PropKey::CallSite(_) => None,
     }
+}
+
+/// The value the drag started from for `key`: the evaluated transform's
+/// field for a transform prop or an anchor. `None` for any other prop: a
+/// size's start is the layer's box, which the Rect tool reads; no drag
+/// changes a size yet.
+fn start_value(frame: &LayerFrame, key: &PropKey) -> Option<f64> {
+    let transform = &frame.transform;
+    if let Some(prop) = TransformProp::from_key(key) {
+        return Some(match prop {
+            TransformProp::X => transform.position.x,
+            TransformProp::Y => transform.position.y,
+            TransformProp::Rotation => transform.rotation,
+            TransformProp::Scale | TransformProp::ScaleX => transform.scale.x,
+            TransformProp::ScaleY => transform.scale.y,
+        });
+    }
+    match prop_name(key)? {
+        "anchorX" => Some(transform.anchor.x),
+        "anchorY" => Some(transform.anchor.y),
+        _ => None,
+    }
+}
+
+/// Whether `key` is a scale, which a drag changes by a ratio.
+fn is_scale(key: &PropKey) -> bool {
+    matches!(
+        TransformProp::from_key(key),
+        Some(TransformProp::Scale | TransformProp::ScaleX | TransformProp::ScaleY)
+    )
 }
 
 /// Each prop of the drag's `values` as the source has it (`was`) and as the
 /// drag writes it (`now`): the prop the runtime saw (`received`) moved by the
-/// same amount (position, rotation) or ratio (scale) as the transform; the
-/// transform's value when it saw none.
+/// same amount (position, anchors, rotation) or ratio (scales) as the
+/// evaluated value; the evaluated value when it saw none. A prop without a
+/// start value (see `start_value`) is left out.
 fn prop_changes(
     frame: &LayerFrame,
-    values: &[(TransformProp, f64)],
+    values: &[(PropKey, f64)],
     received: &ReceivedProps,
-) -> Vec<(TransformProp, f64, f64)> {
+) -> Vec<(PropKey, f64, f64)> {
     values
         .iter()
-        .map(|&(prop, value)| {
-            let start = start_value(frame, prop);
-            let was = received_number(received, prop.name()).unwrap_or(start);
-            let now = match prop {
-                TransformProp::Scale | TransformProp::ScaleX | TransformProp::ScaleY => {
-                    was * ratio(start, value)
-                }
-                _ => was + value - start,
+        .filter_map(|(key, value)| {
+            let start = start_value(frame, key)?;
+            let was = received_number(received, prop_name(key)?).unwrap_or(start);
+            let now = if is_scale(key) {
+                was * ratio(start, *value)
+            } else {
+                was + value - start
             };
-            (prop, was, now)
+            Some((key.clone(), was, now))
         })
         .collect()
 }
@@ -286,13 +314,13 @@ fn prop_changes(
 /// when the drag changed nothing.
 pub(crate) fn prop_values(
     frame: &LayerFrame,
-    values: &[(TransformProp, f64)],
+    values: &[(PropKey, f64)],
     received: &ReceivedProps,
-) -> Vec<(TransformProp, f64)> {
+) -> Vec<(PropKey, f64)> {
     prop_changes(frame, values, received)
         .into_iter()
         .filter(|&(_, was, now)| format_number(was) != format_number(now))
-        .map(|(prop, _, now)| (prop, now))
+        .map(|(key, _, now)| (key, now))
         .collect()
 }
 
@@ -305,32 +333,28 @@ pub(crate) fn prop_values(
 pub(crate) fn preview_values(
     frame: &LayerFrame,
     handle: Handle,
-    editable: &[TransformProp],
-    values: &[(TransformProp, f64)],
+    editable: &[PropKey],
+    values: &[(PropKey, f64)],
     received: &ReceivedProps,
-) -> Vec<(TransformProp, f64)> {
+) -> Vec<(PropKey, f64)> {
     let changed = prop_values(frame, values, received);
     handle_props(handle, editable)
         .into_iter()
-        .map(|prop| {
-            let value = changed
-                .iter()
-                .find(|(candidate, _)| *candidate == prop)
-                .map_or_else(
-                    || {
-                        received_number(received, prop.name())
-                            .unwrap_or_else(|| start_value(frame, prop))
-                    },
-                    |&(_, value)| value,
-                );
-            (prop, value)
+        .filter_map(|key| {
+            let value = match changed.iter().find(|(candidate, _)| *candidate == key) {
+                Some(&(_, value)) => value,
+                None => prop_name(&key)
+                    .and_then(|name| received_number(received, name))
+                    .or_else(|| start_value(frame, &key))?,
+            };
+            Some((key, value))
         })
         .collect()
 }
 
 /// The props of `editable` a drag of `handle` may change (see `drag_values`).
-fn handle_props(handle: Handle, editable: &[TransformProp]) -> Vec<TransformProp> {
-    let uniform = editable.contains(&TransformProp::Scale);
+fn handle_props(handle: Handle, editable: &[PropKey]) -> Vec<PropKey> {
+    let uniform = editable.contains(&TransformProp::Scale.key());
     let props: &[TransformProp] = match handle {
         Handle::Move => &[TransformProp::X, TransformProp::Y],
         Handle::Rotate => &[TransformProp::Rotation],
@@ -341,8 +365,8 @@ fn handle_props(handle: Handle, editable: &[TransformProp]) -> Vec<TransformProp
     };
     props
         .iter()
-        .copied()
-        .filter(|prop| editable.contains(prop))
+        .map(|prop| prop.key())
+        .filter(|key| editable.contains(key))
         .collect()
 }
 
@@ -350,16 +374,16 @@ fn handle_props(handle: Handle, editable: &[TransformProp]) -> Vec<TransformProp
 /// to the source.
 pub(crate) fn drag_label(
     frame: &LayerFrame,
-    values: &[(TransformProp, f64)],
+    values: &[(PropKey, f64)],
     received: &ReceivedProps,
 ) -> String {
     prop_changes(frame, values, received)
         .into_iter()
         .filter(|&(_, was, now)| format_number(was) != format_number(now))
-        .map(|(prop, was, now)| {
+        .map(|(key, was, now)| {
             format!(
                 "{} {} → {}",
-                prop.name(),
+                prop_name(&key).unwrap_or_default(),
                 format_number(was),
                 format_number(now)
             )
@@ -392,13 +416,14 @@ const ON_ANCHOR: f64 = 1e-6;
 /// `Rotation`.
 pub(crate) fn shown_handles(
     frame: &LayerFrame,
-    editable: &[TransformProp],
+    editable: &[PropKey],
     stem: f64,
 ) -> Vec<(Handle, Point)> {
-    let uniform = editable.contains(&TransformProp::Scale);
-    let scales_x = uniform || editable.contains(&TransformProp::ScaleX);
-    let scales_y = uniform || editable.contains(&TransformProp::ScaleY);
-    let rotates = editable.contains(&TransformProp::Rotation);
+    let can = |prop: TransformProp| editable.contains(&prop.key());
+    let uniform = can(TransformProp::Scale);
+    let scales_x = uniform || can(TransformProp::ScaleX);
+    let scales_y = uniform || can(TransformProp::ScaleY);
+    let rotates = can(TransformProp::Rotation);
     handles(frame, uniform, stem)
         .into_iter()
         .filter(|&(handle, at)| {
@@ -416,4 +441,49 @@ pub(crate) fn shown_handles(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use celesta_react_bridge::ReceivedValue;
+
+    fn anchor_key(axis: &str) -> PropKey {
+        PropKey::Prop(format!("anchor{axis}"))
+    }
+
+    #[test]
+    fn received_offset_applies_to_anchors_and_sizes() {
+        // Evaluated anchor (0.5, 0.5); the runtime saw `anchorX` 0.25 and no
+        // `anchorY`.
+        let frame = LayerFrame {
+            transform: EvaluatedTransform {
+                anchor: Point { x: 0.5, y: 0.5 },
+                ..EvaluatedTransform::default()
+            },
+            parent: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            outline: [Point { x: 0.0, y: 0.0 }; 4],
+            leaves: Vec::new(),
+        };
+        let received = ReceivedProps {
+            others: [("anchorX".to_owned(), ReceivedValue::Number(0.25))].into(),
+            ..ReceivedProps::default()
+        };
+        // The drag moves each anchor by +0.1.
+        let values = [(anchor_key("X"), 0.6), (anchor_key("Y"), 0.6)];
+        let written = prop_values(&frame, &values, &received);
+        assert_eq!(
+            written
+                .iter()
+                .map(|(key, _)| key.clone())
+                .collect::<Vec<_>>(),
+            vec![anchor_key("X"), anchor_key("Y")]
+        );
+        assert!((written[0].1 - 0.35).abs() < 1e-9, "{written:?}");
+        assert!((written[1].1 - 0.6).abs() < 1e-9, "{written:?}");
+        assert_eq!(
+            drag_label(&frame, &values, &received),
+            "anchorX 0.25 → 0.35  anchorY 0.5 → 0.6"
+        );
+    }
 }

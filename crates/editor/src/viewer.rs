@@ -952,7 +952,7 @@ fn place_handles(
     bounds: Bounds<Pixels>,
     frame_size: (f32, f32),
     frame: &LayerFrame,
-    editable: &[crate::element_edit::TransformProp],
+    editable: &[crate::element_edit::PropKey],
     window: &mut Window,
 ) -> Option<PlacedHandles> {
     let (left, top, scale) = letterbox(bounds, frame_size)?;
