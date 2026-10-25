@@ -41,8 +41,9 @@ pub struct LayerSource {
     pub line: u32,
     /// 1-based column of the element's opening `<`.
     pub column: u32,
-    /// Whether the element is a built-in primitive (`<Rect>`) or a
-    /// user-written component. Older runtimes do not say; they read as
+    /// Whether the element is a built-in primitive (`<Rect>`), a timing
+    /// wrapper (`<Sequence>`), or a user-written component. Older runtimes do
+    /// not say; they read as
     /// [`ElementKind::Component`].
     #[serde(default)]
     pub kind: ElementKind,
@@ -58,14 +59,31 @@ pub struct LayerSource {
 pub enum ElementKind {
     /// A built-in element such as `<Rect>` that emits a layer itself.
     Primitive,
+    /// A Celesta component that draws its caller's JSX, such as
+    /// `<Sequence>` or `<Scenes>`.
+    Wrapper,
     /// A user-written component that renders other elements.
     #[default]
     Component,
 }
 
-/// The transform props an element received, as written in the source; each
-/// is `None` when the element was not given it (or it was not a plain number).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize)]
+/// One scalar prop value an element received.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum ReceivedValue {
+    /// A finite number.
+    Number(f64),
+    /// A string.
+    String(String),
+    /// A boolean.
+    Bool(bool),
+}
+
+/// The scalar props an element received, as written in the source. Each
+/// transform prop is `None` when the element was not given it (or it was not
+/// a plain number); every other number, string, or boolean prop is in
+/// `others`.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReceivedProps {
     /// The `x` prop.
@@ -80,6 +98,27 @@ pub struct ReceivedProps {
     pub scale_x: Option<f64>,
     /// The `scaleY` prop.
     pub scale_y: Option<f64>,
+    /// Every other scalar prop, keyed as written (`fontSize`, `children`);
+    /// a scalar in the `style` object is keyed `style.<key>`.
+    #[serde(flatten)]
+    pub others: BTreeMap<String, ReceivedValue>,
+}
+
+impl ReceivedProps {
+    /// The value of `prop` (`x`, `fontSize`, `style.fontSize`, ...), from the
+    /// named fields for the transform props and `others` for the rest.
+    pub fn get(&self, prop: &str) -> Option<ReceivedValue> {
+        let transform = match prop {
+            "x" => self.x,
+            "y" => self.y,
+            "rotation" => self.rotation,
+            "scale" => self.scale,
+            "scaleX" => self.scale_x,
+            "scaleY" => self.scale_y,
+            _ => return self.others.get(prop).cloned(),
+        };
+        transform.map(ReceivedValue::Number)
+    }
 }
 
 /// Everything the runtime knows about where a layer came from (see
@@ -99,11 +138,82 @@ pub struct LayerSourceReport {
     /// uses sits above it, so that frame is one of these. Empty from runtimes
     /// that do not report them; read those as `[local_frame]`.
     pub candidate_frames: Vec<f64>,
-    /// The transform props the innermost element received.
+    /// The scalar props the innermost element received.
     pub props: ReceivedProps,
     /// How many layers of the frame the innermost element rendered; 1 from
     /// runtimes that do not count.
     pub render_count: u32,
+    /// The timing wrappers around the innermost element, nearest first.
+    /// Empty from runtimes that do not report them.
+    pub windows: Vec<TimingWindow>,
+    /// The composition frames the innermost element can show in: where all
+    /// of `windows` overlap, cut to the composition. Empty when `to` is not
+    /// past `from`. `None` from runtimes that do not report it.
+    pub span: Option<FrameSpan>,
+}
+
+/// Where a JSX element was written.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize)]
+pub struct SourcePos {
+    /// The module holding the element, as an absolute path.
+    pub file: PathBuf,
+    /// 1-based line of the element's opening `<`.
+    pub line: u32,
+    /// 1-based column of the element's opening `<`.
+    pub column: u32,
+}
+
+/// A value the elements written at one position take for one frame, in
+/// place of the written one: the editor's preview of a drag (see
+/// [`ReactBridge::scene_at_with_overrides`](crate::ReactBridge::scene_at_with_overrides)).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PropOverride {
+    /// The module holding the element, as an absolute path.
+    pub file: PathBuf,
+    /// 1-based line of the element's opening `<`, as in [`SourcePos`].
+    pub line: u32,
+    /// 1-based column of the element's opening `<`.
+    pub column: u32,
+    pub prop: String,
+    pub value: f64,
+}
+
+impl From<&LayerSource> for SourcePos {
+    fn from(source: &LayerSource) -> Self {
+        Self {
+            file: source.file.clone(),
+            line: source.line,
+            column: source.column,
+        }
+    }
+}
+
+/// The frames a timing wrapper around an element shows its children in (see
+/// [`LayerSourceReport::windows`]).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct TimingWindow {
+    /// The wrapper: `Sequence`, `FreezeFrame` or `Loop`.
+    pub kind: String,
+    /// First frame, in composition frames; may be fractional.
+    pub from: f64,
+    /// The frame after the last, in composition frames; may be fractional.
+    pub to: f64,
+    /// Where the wrapper was written; `None` for one the runtime made, such
+    /// as a `<Scenes>` scene.
+    #[serde(default)]
+    pub source: Option<SourcePos>,
+    /// Inside a `<Loop>` or `<FreezeFrame>` (or that wrapper itself), whose
+    /// children see other frames than the composition's: `from` and `to` are
+    /// then the window around the remapping, not one of the wrapper's own.
+    #[serde(default)]
+    pub remapped: bool,
+}
+
+/// A span of composition frames, `to` exclusive; may be fractional.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+pub struct FrameSpan {
+    pub from: f64,
+    pub to: f64,
 }
 
 /// A file or directory the entry's `prepare()` read (for instance a voice
@@ -158,6 +268,11 @@ pub struct ReactCompositionMetadata {
     /// a `ReactBridge`. A registered component with no `schema` argument has
     /// no entry here.
     pub component_schemas: BTreeMap<String, ComponentPropertySchema>,
+    /// Every primitive's property table, keyed by the primitive's name as a
+    /// source chain reports it: Celesta's own, and those of the packages the
+    /// entry imports (`@celesta/shapes`). The order inside a table is its
+    /// `Vec`s'. Empty from a runtime that sends none.
+    pub primitive_properties: BTreeMap<String, PrimitivePropertyTable>,
     /// The project property schema declared via `defineProjectProperties()`,
     /// or `None` when the entry declared none (distinct from an empty
     /// schema). Fields share `ComponentPropertyField`'s shape with component
@@ -293,6 +408,9 @@ pub enum ComponentPropertyField {
         max: Option<f64>,
         #[serde(default)]
         step: Option<f64>,
+        /// Only whole numbers (a count of items).
+        #[serde(default)]
+        integer: Option<bool>,
     },
     Boolean {
         #[serde(default)]
@@ -339,6 +457,124 @@ impl ComponentPropertyField {
 /// Rust-side counterpart of `ComponentPropertySchema<Props>` in
 /// `packages/react/src/registry.ts`.
 pub type ComponentPropertySchema = BTreeMap<String, ComponentPropertyField>;
+
+/// How the editor edits one prop of a primitive, and the value it has when
+/// the element does not write it (`PrimitivePropertyField` in
+/// `packages/react/src/property-tables.ts`).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum PrimitivePropertyField {
+    Number {
+        #[serde(default)]
+        default_value: Option<f64>,
+        #[serde(default)]
+        min: Option<f64>,
+        #[serde(default)]
+        max: Option<f64>,
+        /// How much one pixel of a scrub changes the value.
+        #[serde(default)]
+        step: Option<f64>,
+        /// Only whole numbers (a polygon's `sides`).
+        #[serde(default)]
+        integer: Option<bool>,
+    },
+    String {
+        #[serde(default)]
+        default_value: Option<String>,
+    },
+    /// A `<Text>`'s children.
+    Text {
+        #[serde(default)]
+        default_value: Option<String>,
+    },
+    Boolean {
+        #[serde(default)]
+        default_value: Option<bool>,
+    },
+    Color {
+        #[serde(default)]
+        default_value: Option<String>,
+    },
+    Select {
+        options: Vec<String>,
+        #[serde(default)]
+        default_value: Option<String>,
+    },
+    /// A file path, as an `<Image>`'s `src`.
+    Path,
+}
+
+/// The props that hold a primitive's box: `width`/`height`, `radius`, or
+/// only a width (`<Text>`'s `maxWidth`).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrimitiveSize {
+    #[serde(default)]
+    pub width: Option<String>,
+    #[serde(default)]
+    pub height: Option<String>,
+    #[serde(default)]
+    pub radius: Option<String>,
+}
+
+/// One prop of a [`PrimitivePropertyGroup`].
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(from = "WirePropertyRow")]
+pub struct PrimitivePropertyRow {
+    pub key: String,
+    pub field: PrimitivePropertyField,
+    /// The props type requires the prop, so the editor never removes it.
+    /// Sent inside `field` (`{ "type": "number", "required": true }`), as the
+    /// table declares it.
+    pub required: bool,
+}
+
+/// [`PrimitivePropertyRow`] as the runtime sends it.
+#[derive(Deserialize)]
+struct WirePropertyRow {
+    key: String,
+    field: WirePropertyField,
+}
+
+#[derive(Deserialize)]
+struct WirePropertyField {
+    #[serde(flatten)]
+    field: PrimitivePropertyField,
+    #[serde(default)]
+    required: bool,
+}
+
+impl From<WirePropertyRow> for PrimitivePropertyRow {
+    fn from(row: WirePropertyRow) -> Self {
+        Self {
+            key: row.key,
+            field: row.field.field,
+            required: row.field.required,
+        }
+    }
+}
+
+/// One section of a primitive's properties, its props in declaration order.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrimitivePropertyGroup {
+    pub name: String,
+    pub fields: Vec<PrimitivePropertyRow>,
+}
+
+/// What the editor edits on one primitive (`<Rect>`, `<Star>`, ...): its
+/// sections in declaration order.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrimitivePropertyTable {
+    #[serde(default)]
+    pub size: Option<PrimitiveSize>,
+    pub groups: Vec<PrimitivePropertyGroup>,
+}
 
 /// One component-resolution request: a `registerComponent()` name plus the
 /// timeline item's configured props (see [`ReactBridge::resolve_components`]).

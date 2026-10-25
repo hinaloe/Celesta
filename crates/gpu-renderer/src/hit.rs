@@ -18,6 +18,18 @@ pub struct HitRegion {
     /// every other layer and for a stroke that covers the whole rect. The
     /// inner corners' rounding is left out, so a click there misses.
     pub hole: Option<[Point; 4]>,
+    /// The box the layer's anchor is a fraction of, in the same order as
+    /// `corners`, when it is not the quad: a text's layout box (`maxWidth`
+    /// or its measured width), which its texture pads for strokes and
+    /// glyphs that reach past it. `None` for every other layer.
+    pub anchor_box: Option<[Point; 4]>,
+    /// For a drawn text, its layout box — the layout width (`maxWidth` or
+    /// its measured width) by `lines · line_height`, from the first line's
+    /// top — in scene pixels, in the order of `corners`, projected like
+    /// them. Unlike `anchor_box`, a single line's is its line box, not the
+    /// rows of its ink. `None` for every other layer, and when a corner is
+    /// behind the viewer.
+    pub text_box: Option<[Point; 4]>,
     /// Every clip the layer is drawn through, innermost first.
     pub clips: Vec<HitClip>,
 }
@@ -144,6 +156,8 @@ mod tests {
             layer_id: id.to_owned(),
             corners: corners.map(|(x, y)| Point { x, y }),
             hole: None,
+            anchor_box: None,
+            text_box: None,
             clips: Vec::new(),
         }
     }

@@ -1,6 +1,8 @@
 use crate::component_schema::ComponentSchemaRequest;
+use crate::element_edit::RELOAD_FAILED;
 use crate::helpers::format_time;
-use crate::layer_select::{SourceLookup, source_lookup_target};
+use crate::inline_text_view::{KeptOverride, kept_override_on_reload};
+use crate::layer_select::{lookup_allowed, source_lookup_target};
 use crate::media_probe::{MediaProbeRequest, ProbeAsset};
 use crate::preview::{
     KeptSchema, PreviewRequest, ReactPreview, ReactPreviewContext, ReactPreviewMode,
@@ -190,9 +192,10 @@ pub(crate) fn reload_sample_applies(sequence: u64, watched_since: u64) -> bool {
 /// Folds a reload into the entry's property state: the inputs read from disk
 /// are kept even when the spawn failed (`disk_properties`), but the inputs the
 /// preview renders with (`properties`) only change on success. A failed load
-/// keeps the last schema so the panel can still show (and fix) the wrong value.
-/// A reload that could not read the props file keeps its message for the
-/// section, since no property key owns it.
+/// keeps the last schema so the panel can still show (and fix) the wrong value,
+/// and the last primitive property tables so the Properties tab keeps its
+/// sections. A reload that could not read the props file keeps its message for
+/// the section, since no property key owns it.
 pub(crate) fn apply_property_outcome(preview: &mut ReactPreview, reload: &ReactReload) {
     preview.property_load_error = match (&reload.properties, &reload.result) {
         (None, Err(error)) => Some(error.message.clone()),
@@ -208,6 +211,8 @@ pub(crate) fn apply_property_outcome(preview: &mut ReactPreview, reload: &ReactR
                 preview.properties = properties.clone();
             }
             preview.property_schema = KeptSchema::from_metadata(metadata);
+            preview.primitive_properties = metadata.primitive_properties.clone();
+            preview.component_schemas = metadata.component_schemas.clone();
             preview.property_issues.clear();
         }
         Err(error) => preview.property_issues = error.property_issues.clone(),
@@ -271,15 +276,30 @@ impl EditorView {
         } else {
             ReactPreviewMode::ResolveComponents
         };
-        // A drag redraws the frame on every move; the runtime's answer does
-        // not change with the override, so it is not asked again.
+        // A drag or a pressed scrub redraws the frame on every move; the
+        // runtime's answer is about the written source, which neither
+        // changes until it writes, so it is not asked again (the runtime
+        // looks it up without the overrides, and remounts to drop them).
+        // A released scrub asks (see `lookup_allowed`). Playback asks only
+        // for an answer it does not have yet, or a stale one. A text edited
+        // on the canvas asks nothing; one committed asks, as a released
+        // scrub does.
         let source_of = source_lookup_target(
             self.selected_layer.as_deref(),
             self.picks_layers(),
-            self.playing,
+            self.playing && !self.source_lookup_stale,
             self.source_lookup.as_ref(),
         )
-        .filter(|_| self.transform_drag.is_none());
+        .filter(|_| {
+            lookup_allowed(
+                self.transform_drag.is_some(),
+                self.row_scrub_active(),
+                self.inline_text.is_some(),
+            )
+        });
+        // Only the request it was set for reuses the held scene; any other
+        // frame is evaluated again.
+        let reuse_scene = std::mem::take(&mut self.reuse_scene);
         match self.document.scene_at(self.current_time()) {
             // The warnings stay until the result replaces them, so their
             // counts don't flicker while frames are in flight.
@@ -298,12 +318,15 @@ impl EditorView {
                         RenderQuality::Final
                     },
                     source_of,
-                    transform_override: self.transform_override(),
+                    prop_overrides: self.prop_overrides(),
                     frame_of: self
                         .selected_layer
                         .clone()
                         .filter(|_| self.picks_layers() && !self.playing),
                     timeline_frame: self.clock.frame(),
+                    // On every request, so coalescing never drops it.
+                    text_override: self.text_override.clone(),
+                    reuse_scene,
                 }) {
                     self.preview_pending = false;
                     self.problems.set_preview_warnings(Vec::new());
@@ -363,9 +386,11 @@ impl EditorView {
         let session = self.session;
         let sequence = self.react_reloads.request();
         // The reloaded code may not produce the same layers, unless only the
-        // editor's own write changed it.
+        // editor's own write changed it. Reloading the same composition
+        // otherwise means the file changed outside the editor (File > Reload
+        // commits a text edit before it reloads).
         if !self.selection_keep.requested(sequence, same_composition) {
-            self.clear_layer_selection();
+            self.clear_layer_selection(same_composition);
         }
         cx.spawn(async move |view, cx| {
             let reload = cx
@@ -487,14 +512,32 @@ impl EditorView {
                 }
                 self.react_reload_generation = self.react_reload_generation.wrapping_add(1);
                 let keep = self.selection_keep.applies(sequence) && self.selected_layer.is_some();
+                // A text committed on the canvas is drawn by the reloaded
+                // code once a reload requested after its write applies,
+                // whatever it does to the selection. Dropped before the
+                // frame below, so that frame looks the layer up and draws
+                // the code's own runs.
+                if !kept_override_on_reload(&self.kept_override, sequence) {
+                    self.drop_kept_override();
+                }
                 if keep {
                     // Looked up again in the reloaded code, which decides
-                    // whether the layer still exists.
-                    self.source_lookup = Some(SourceLookup::Pending);
-                    self.transform.reset();
+                    // whether the layer still exists. Until it answers, the
+                    // old answer stays shown, read-only.
+                    self.source_lookup_stale = true;
+                    self.element_edit.expire();
+                    // A released drag's or scrub's values are drawn by the
+                    // reloaded code now; a pressed one goes on, and so does
+                    // a released scrub whose write waits for this reload.
+                    if !self.transform_drag_active() {
+                        self.transform_drag = None;
+                    }
+                    if !self.row_scrub_active() && !self.row_scrub_held() {
+                        self.element_rows.scrub = None;
+                    }
                 } else {
                     // A layer picked while the reload ran belongs to the old code.
-                    self.clear_layer_selection();
+                    self.clear_layer_selection(false);
                 }
                 self.problems.clear(Source::Preview);
                 self.refresh_preview();
@@ -502,6 +545,7 @@ impl EditorView {
                     self.selection_keep.confirm_from(self.preview_generation);
                 }
                 self.refresh_audio_preview();
+                self.refresh_occurrences(keep);
             }
             Err(error) => {
                 self.problems.report(
@@ -509,6 +553,25 @@ impl EditorView {
                     "React reload failed",
                     error.message.clone(),
                 );
+                // No reloaded frame will replace a released drag's or
+                // scrub's override; the old code's frame is drawn without it.
+                if !self.transform_drag_active() {
+                    self.cancel_transform_drag();
+                }
+                if !self.row_scrub_active() {
+                    self.cancel_row_scrub();
+                }
+                // Nor a committed text's, once written; one still held is
+                // dropped with the held commits below.
+                if matches!(self.kept_override, KeptOverride::UntilReload(_))
+                    && self.drop_kept_override()
+                {
+                    self.refresh_preview();
+                }
+                // No reload will make the targets current: the commits
+                // waiting for one are not written, and new ones fail.
+                self.element_edit.reload_failed();
+                self.drop_held_rows(RELOAD_FAILED, cx);
             }
         }
         cx.notify();
@@ -645,7 +708,10 @@ mod property_outcome {
     use super::*;
     use crate::source::PropertyArgs;
     use celesta_composition::Rational;
-    use celesta_react_bridge::ComponentPropertyField;
+    use celesta_react_bridge::{
+        ComponentPropertyField, PrimitivePropertyField, PrimitivePropertyGroup,
+        PrimitivePropertyRow, PrimitivePropertyTable,
+    };
     use std::collections::BTreeMap;
 
     fn field() -> ComponentPropertyField {
@@ -670,6 +736,8 @@ mod property_outcome {
             composition_id: "default".to_owned(),
             compositions: Vec::new(),
             chapters: Vec::new(),
+            primitive_properties: BTreeMap::new(),
+            component_schemas: BTreeMap::new(),
             entry: PathBuf::from("film.tsx"),
             watched_mtime: None,
             dependencies: Vec::new(),
@@ -700,6 +768,7 @@ mod property_outcome {
             },
             duration_in_frames: 30,
             component_schemas: BTreeMap::new(),
+            primitive_properties: BTreeMap::new(),
             project_property_schema: (!keys.is_empty()).then_some(declared.fields),
             project_property_order: keys.iter().map(|key| (*key).to_owned()).collect(),
             prepare_dependencies: Vec::new(),
@@ -816,6 +885,87 @@ mod property_outcome {
         apply_property_outcome(&mut preview, &reload);
 
         assert_eq!(preview.property_schema, None);
+    }
+
+    fn rect_table() -> PrimitivePropertyTable {
+        PrimitivePropertyTable {
+            size: None,
+            groups: vec![PrimitivePropertyGroup {
+                name: "Transform".to_owned(),
+                fields: vec![PrimitivePropertyRow {
+                    key: "x".to_owned(),
+                    field: PrimitivePropertyField::Number {
+                        default_value: Some(0.0),
+                        min: None,
+                        max: None,
+                        step: None,
+                        integer: None,
+                    },
+                    required: false,
+                }],
+            }],
+        }
+    }
+
+    #[test]
+    fn a_failed_load_keeps_the_primitive_tables() {
+        let mut preview = preview(None);
+        assert_eq!(preview.primitive_table("Rect"), None);
+        let mut loaded = metadata(&[]);
+        loaded
+            .primitive_properties
+            .insert("Rect".to_owned(), rect_table());
+        let reload = ReactReload {
+            watched: None,
+            dependencies: Vec::new(),
+            properties: None,
+            result: Ok((PathBuf::from("film.tsx"), loaded)),
+        };
+        apply_property_outcome(&mut preview, &reload);
+        assert_eq!(preview.primitive_table("Rect"), Some(&rect_table()));
+
+        let failed = ReactReload {
+            watched: None,
+            dependencies: Vec::new(),
+            properties: None,
+            result: Err(PreviewLoadError::from("node exited".to_owned())),
+        };
+        apply_property_outcome(&mut preview, &failed);
+        assert_eq!(preview.primitive_table("Rect"), Some(&rect_table()));
+    }
+
+    #[test]
+    fn a_load_brings_the_registered_component_schemas() {
+        let mut preview = preview(None);
+        let schema = BTreeMap::from([(
+            "caption".to_owned(),
+            ComponentPropertyField::String {
+                label: Some("Caption".to_owned()),
+                default_value: String::new(),
+            },
+        )]);
+        let mut loaded = metadata(&[]);
+        loaded
+            .component_schemas
+            .insert("Badge".to_owned(), schema.clone());
+        let reload = ReactReload {
+            watched: None,
+            dependencies: Vec::new(),
+            properties: None,
+            result: Ok((PathBuf::from("film.tsx"), loaded)),
+        };
+        apply_property_outcome(&mut preview, &reload);
+        assert_eq!(preview.component_schemas.get("Badge"), Some(&schema));
+
+        // A failed load keeps them, as it keeps the tables.
+        let failed = ReactReload {
+            watched: None,
+            dependencies: Vec::new(),
+            properties: None,
+            result: Err(PreviewLoadError::from("node exited".to_owned())),
+        };
+        apply_property_outcome(&mut preview, &failed);
+        assert_eq!(preview.component_schemas.get("Badge"), Some(&schema));
     }
 
     #[test]

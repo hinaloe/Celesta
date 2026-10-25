@@ -19,6 +19,7 @@ import {
   createResolver,
   holdProjectPropertyValues,
   listComponentSchemas,
+  listPrimitiveProperties,
   mount,
   prepareDependencies,
   setAudioDecoder,
@@ -35,12 +36,15 @@ import type {
   LayerSourceReport,
   MeasureTextRequest,
   MountedComposition,
+  OccurrenceIndex,
   PrepareDependency,
   ProbedMediaInfo,
   ProjectFrame,
+  PropOverride,
   ResolutionRuntime,
   Resolver,
   SubtitleDescriptor,
+  WirePropertyTable,
 } from '@celesta/react/internal';
 
 import { resolvePropertyInputs } from './property-inputs';
@@ -88,6 +92,12 @@ export interface FrameRequest {
    * exports, inspection and older bridges.
    */
   preview?: boolean;
+  /**
+   * Sent only by the editor's preview while a layer is dragged: values the
+   * elements written at these positions take for this frame (see
+   * `PropOverride`). Needs `--source-locations`; absent or empty means none.
+   */
+  propOverrides?: PropOverride[];
 }
 
 export interface ResolveRequest {
@@ -108,11 +118,17 @@ export interface CollectSubtitlesRequest {
   collectSubtitles: { from: number; frames: number };
 }
 
+/** Asks where each element renders in `frames` frames from `from`; see `MountedComposition.collectOccurrences`. */
+export interface CollectOccurrencesRequest {
+  collectOccurrences: { from: number; frames: number; preview?: boolean };
+}
+
 export type Request =
   | FrameRequest
   | ResolveRequest
   | LayerSourceRequest
   | CollectSubtitlesRequest
+  | CollectOccurrencesRequest
   | { collectAudio: true };
 
 /** The first message: what the entry declares. */
@@ -121,6 +137,8 @@ export interface ReadyMessage {
   compositionId: string;
   compositions: readonly CompositionInfo[];
   componentSchemas: Record<string, ComponentPropertySchema>;
+  /** Every primitive's property table, keyed by the primitive's name. */
+  primitiveProperties: Record<string, WirePropertyTable>;
   propertySchema: Record<string, ProjectPropertyField> | null;
   dependencies: PrepareDependency[];
 }
@@ -143,6 +161,7 @@ export type Message =
   | FrameMessage
   | { collectedAudio: AudioClipDescriptor[] }
   | { collectedSubtitles: SubtitleDescriptor[] }
+  | { collectedOccurrences: OccurrenceIndex }
   | { layerSource: LayerSourceReport | { chain: null } }
   | ComponentResolutions
   | { probeMedia: { path: string } }
@@ -296,12 +315,17 @@ async function main(): Promise<void> {
     compositionId: mounted.compositionId,
     compositions: mounted.compositions,
     componentSchemas: listComponentSchemas(),
+    // Listed after the entry ran, so the tables of the packages it imports
+    // (`@celesta/shapes`) are in.
+    primitiveProperties: listPrimitiveProperties(),
     propertySchema: listProjectProperties() ?? null,
     // Files `prepare()` read outside the sources the editor already watches.
     dependencies: prepareDependencies(),
   });
 
   let resolver: Resolver | null = null;
+  // A JSX position's file name, relative to the entry, as the path to report.
+  const resolveSourceFile = (fileName: string) => path.resolve(path.dirname(entryPath), fileName);
 
   while (true) {
     const next = await lines.next();
@@ -330,11 +354,19 @@ async function main(): Promise<void> {
           throw new Error('collectSubtitles requires integer `from` and `frames`');
         }
         writeLine({ collectedSubtitles: mounted.collectSubtitles(from, frames) });
+      } else if ('collectOccurrences' in request) {
+        const { from, frames, preview } = request.collectOccurrences;
+        if (!Number.isInteger(from) || !Number.isInteger(frames)) {
+          throw new Error('collectOccurrences requires integer `from` and `frames`');
+        }
+        writeLine({
+          collectedOccurrences: mounted.collectOccurrences(from, frames, resolveSourceFile, { preview: preview === true }),
+        });
       } else if (isLayerSourceRequest(request)) {
         const report = mounted.layerSource(
           request.time,
           request.layerSource,
-          (fileName) => path.resolve(path.dirname(entryPath), fileName),
+          resolveSourceFile,
           { preview: request.preview === true },
         );
         writeLine({ layerSource: report ?? { chain: null } });
@@ -351,6 +383,9 @@ async function main(): Promise<void> {
           statics: request.statics,
           debugGuides: request.debugGuides === true,
           preview: request.preview === true,
+          ...(request.propOverrides
+            ? { propOverrides: { overrides: request.propOverrides, resolveFile: resolveSourceFile } }
+            : {}),
         });
         writeLine({
           scene,

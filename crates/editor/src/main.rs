@@ -20,22 +20,31 @@ mod actions;
 mod audio;
 mod audio_control;
 mod background;
+mod canvas_geometry;
 mod cli;
 mod component_schema;
 mod edit_history;
 mod editor_launch;
+mod element_edit;
+mod element_rows;
+mod element_rows_view;
 mod export_control;
 mod export_worker;
 mod helpers;
+mod impact;
+mod inline_text;
+mod inline_text_view;
 mod layer_panel;
 mod layer_select;
 mod lifecycle;
 mod media_probe;
+mod occurrences;
 mod panels;
 mod playback;
 mod preview;
 mod problems;
 mod problems_panel;
+mod property_controls;
 mod property_panel;
 mod property_panel_view;
 mod react_audio;
@@ -45,9 +54,7 @@ mod source;
 #[cfg(test)]
 mod tests;
 mod transform_drag;
-mod transform_edit;
 mod transform_handles;
-mod transform_rows;
 mod view;
 mod waveform;
 mod widgets;
@@ -60,6 +67,7 @@ use actions::{
     ToggleLoop, TogglePlayback, ToggleSafeAreas, Undo, ZoomTimelineIn, ZoomTimelineOut,
     ZoomTimelineToFit,
 };
+use inline_text_view::EditEvent;
 use source::PropertyArgs;
 use view::EditorView;
 
@@ -154,7 +162,8 @@ fn run() -> Result<(), Box<dyn Error>> {
             KeyBinding::new("secondary-z", Undo, EDITOR_KEYS),
             KeyBinding::new("secondary-shift-z", Redo, EDITOR_KEYS),
         ]);
-        cx.on_action(|_: &Quit, cx| cx.quit());
+        // A text edited on the canvas is written first.
+        cx.on_action(|_: &Quit, cx| lifecycle::quit_after_inline_commits(cx));
         // macOS shows these in the system menu bar; elsewhere the title bar's
         // `AppMenuBar` renders the same list.
         cx.set_menus(app_menus());
@@ -178,9 +187,22 @@ fn run() -> Result<(), Box<dyn Error>> {
                 let view = cx.new(|cx| {
                     let focus_handle = cx.focus_handle();
                     let master_volume_focus = cx.focus_handle().tab_stop(true).tab_index(0);
+                    let inline_text_focus = cx.focus_handle();
+                    // A click elsewhere (the Properties tab, the layer list)
+                    // commits a text edited on the canvas. Kept for the
+                    // window's life: another file opened keeps the handle.
+                    cx.on_blur(
+                        &inline_text_focus,
+                        window,
+                        |this: &mut EditorView, _, cx| {
+                            this.end_inline_text(EditEvent::Blur, cx);
+                        },
+                    )
+                    .detach();
                     focus_handle.focus(window, cx);
                     editor.focus_handle = Some(focus_handle);
                     editor.master_volume_focus = Some(master_volume_focus);
+                    editor.inline_text_focus = Some(inline_text_focus);
                     editor.dock_split = Some(cx.new(|_| ResizableState::default()));
                     editor.body_split = Some(cx.new(|_| ResizableState::default()));
                     #[cfg(not(target_os = "macos"))]

@@ -5,13 +5,17 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::status_bar::StatusBar;
 use gpui_kit::component::{ActiveTheme as _, Root, Sizable as _};
 use gpui_kit::prelude::*;
-use gpui_kit::{Context, KeyDownEvent, MouseButton, Window, div, px};
+use gpui_kit::{Context, CursorStyle, KeyDownEvent, MouseButton, Window, canvas, div, px};
 
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.poll_background_work();
-        self.sync_transform_targets(cx);
-        self.sync_transform_inputs(window, cx);
+        self.watch_occurrence_sweep(cx);
+        self.settle_row_requests(cx);
+        self.settle_interactive_mode();
+        self.sync_element_targets(cx);
+        self.settle_inline_text(window, cx);
+        self.sync_element_rows(window, cx);
         self.update_playback(window);
         self.sync_property_panel(window, cx);
         self.announce_problems(window, cx);
@@ -20,6 +24,9 @@ impl Render for EditorView {
             || self.media_pending
             || self.audio_pending
             || self.component_schema_pending
+            // A sweep held back for the reloaded frame starts from the poll
+            // that takes that frame in; a running one is watched instead.
+            || self.occurrence_sweep_after.is_some()
             || self.export_cancellation.is_some()
         {
             window.request_animation_frame();
@@ -81,10 +88,24 @@ impl EditorView {
             .when_some(self.focus_handle.as_ref(), |view, focus_handle| {
                 view.track_focus(focus_handle)
             })
-            // Escape cancels a canvas drag before any other key handling.
+            // Escape cancels a canvas drag or a row's scrub before any other
+            // key handling.
             .capture_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
-                if event.keystroke.key == "escape" && this.escape_transform_drag() {
+                if event.keystroke.key == "escape"
+                    && (this.escape_transform_drag() || this.escape_row_scrub())
+                {
                     cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
+            // Any press ends a note on why a double-click did not edit a
+            // text or why an edit was cancelled, and drops a double-click
+            // waiting for its layer's source (the canvas sets them again).
+            .capture_any_mouse_down(cx.listener(|this, _, _, cx| {
+                let note = this.inline_note.take().is_some();
+                let notice = this.inline_notice.take().is_some();
+                this.inline_pending = None;
+                if note || notice {
                     cx.notify();
                 }
             }))
@@ -100,6 +121,19 @@ impl EditorView {
             .child(self.title_bar(cx))
             .child(self.workspace(cx))
             .child(self.status_bar(cx))
+            // A scrub keeps its cursor wherever the pointer goes.
+            .when(self.row_scrub_active(), |root| {
+                root.child(
+                    canvas(
+                        |_, _, _| {},
+                        |_, _, window, _| {
+                            window.set_window_cursor_style(CursorStyle::ResizeLeftRight);
+                        },
+                    )
+                    .absolute()
+                    .size_0(),
+                )
+            })
     }
 
     /// The resizable shell: the asset list, the viewer, and the inspector,

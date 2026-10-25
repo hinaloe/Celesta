@@ -16,10 +16,11 @@ import { flattenTextContent, withTextRuns } from './rich-text';
 import { ProjectLayersContext, ProjectTrackLayersContext } from './hooks';
 import { type HostWalk, hasHostElementPreparation, hostElement } from './host-elements';
 import { instancesContent } from './instances';
+import { type PropOverride, PropOverridesContext, clearPropOverrides, setPropOverrides } from './jsx-dev-runtime';
 import { type StaticsFrame, StaticSubtrees } from './static';
 import { resolveComponent } from './registry';
 import { type HostNode, type RootContainer, createRoot } from './reconciler';
-import { type LayerSourceReport, layerSourceReport } from './source-chain';
+import { type LayerSourceReport, type SourcePos, layerSourceReport, occurrenceKeys } from './source-chain';
 import { checkCue } from './subtitles';
 import { type ChapterSource, compositionChapters } from './chapters';
 import type {
@@ -259,6 +260,13 @@ export interface MountedComposition {
       debugGuides?: boolean;
       /** Evaluate as the editor preview, where `useIsPreview()` is true. Exports never set it. */
       preview?: boolean;
+      /**
+       * Sent by the editor while a layer is dragged: elements written at an
+       * override's position are created with its value for this frame only
+       * (see `PropOverride`). Elements created outside any render (at module
+       * scope) keep their written values.
+       */
+      propOverrides?: FramePropOverrides;
     },
   ): { scene: Scene; audio: AudioClipDescriptor[]; subtitles: SubtitleDescriptor[]; statics?: StaticsFrame };
   /** Sweeps every frame without constructing visual layers; hooks and font measurements still run. */
@@ -282,6 +290,44 @@ export interface MountedComposition {
     resolveFile: (fileName: string) => string,
     options?: { preview?: boolean },
   ): LayerSourceReport | null;
+  /**
+   * Where each element renders in the `frames` frames from frame `from`,
+   * clipped to the composition: per element, each instance's frame ranges
+   * (see `occurrenceKeys`). The frames are walked as `layerSource` walks
+   * them, so every scene is discarded and the `<Static>` cache is left as
+   * it was.
+   */
+  collectOccurrences(
+    from: number,
+    frames: number,
+    resolveFile: (fileName: string) => string,
+    options?: { preview?: boolean },
+  ): OccurrenceIndex;
+}
+
+/** The prop overrides a frame is evaluated with; see `MountedComposition.renderAt`. */
+export interface FramePropOverrides {
+  overrides: readonly PropOverride[];
+  /** Turns a recorded file name into the absolute path overrides name. */
+  resolveFile: (fileName: string) => string;
+}
+
+/** The frames each element renders in, by instance; the answer to `collectOccurrences`. */
+export interface OccurrenceIndex {
+  elements: Array<{
+    element: SourcePos;
+    instances: Array<{
+      /** The positions of the source chain other than `'wrapper'` entries, innermost first. */
+      chain: SourcePos[];
+      /** `[from, to)` composition frames, joined where adjacent. */
+      ranges: Array<[number, number]>;
+      /**
+       * Most copies of this instance in any one frame (`.map()`); the moments
+       * a `<MotionBlur>` or `<Trail>` draws of one copy count once.
+       */
+      maxPerFrame: number;
+    }>;
+  }>;
 }
 
 function findCompositionInstance(container: RootContainer): HostNode {
@@ -1531,6 +1577,14 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
   const requestRerender = () => {
     rerenderRequested = true;
   };
+  // The prop overrides the committed tree was rendered with, as JSON ('' for
+  // none), and their positions; `PropOverridesContext`'s value, new whenever
+  // they change; and the entry's key, bumped to remount it when the
+  // positions change (see `updateOverrides`).
+  let committedOverrides = '';
+  let committedPositions = '';
+  let overridesValue: object | null = null;
+  let entryKey = 0;
 
   const renderTree = (
     time: Time,
@@ -1570,7 +1624,8 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
                 RerenderRequestContext.Provider,
                 { value: requestRerender },
                 React.createElement(CompositionSelectionContext.Provider, { value: selection },
-                  React.createElement(defaultExport, {})),
+                  React.createElement(PropOverridesContext.Provider, { value: overridesValue },
+                    React.createElement(defaultExport, { key: entryKey }))),
               ),
             ),
           ),
@@ -1610,6 +1665,37 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
   fonts = initialFonts;
   const staticSubtrees = new StaticSubtrees();
 
+  /**
+   * Makes the next render create elements with `propOverrides`. A component
+   * renders only when something it reads changed, so `jsxDEV` subscribes the
+   * components that create an element at an override's position to
+   * `PropOverridesContext`, which changes with the values; the rest keep
+   * their bailouts on drag frames. A component that rendered before an
+   * override's position was set never subscribed (a `memo` one may not
+   * render again), and an element cached with `useMemo` while overrides
+   * were set would keep its value after they stop: the entry remounts
+   * whenever the positions change, never for new values alone. The editor
+   * overrides every prop a drag can change from its first frame on, so for
+   * a drag that is once when it starts and once when it is cancelled (a
+   * written drag ends with the reload). An element cached with `useMemo` at
+   * an override's position follows only the first drag frame: later frames
+   * reuse the element created then, and `jsxDEV` never sees their values.
+   */
+  const updateOverrides = (propOverrides: FramePropOverrides | undefined) => {
+    const overrides = propOverrides && propOverrides.overrides.length > 0 ? propOverrides : undefined;
+    const next = overrides ? JSON.stringify(overrides.overrides) : '';
+    if (next !== committedOverrides) {
+      const positions = overrides
+        ? [...new Set(overrides.overrides.map(({ file, line, column }) => `${file}:${line}:${column}`))].sort().join('\n')
+        : '';
+      if (positions !== committedPositions) entryKey += 1;
+      overridesValue = next === '' ? null : {};
+      committedOverrides = next;
+      committedPositions = positions;
+    }
+    if (overrides) setPropOverrides(overrides.overrides, overrides.resolveFile);
+  };
+
   /** Renders the tree for `time`, again if fonts or refs changed, and returns the `<Composition>`. */
   const settleTree = (
     time: Time,
@@ -1617,24 +1703,30 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
     openEnd: boolean,
     debugGuides: boolean,
     preview: boolean,
+    propOverrides?: FramePropOverrides,
   ) => {
-    rerenderRequested = false;
-    renderTree(time, project, config, openEnd, debugGuides, preview);
-    let instance = findCompositionInstance(container);
-    const nextFonts: ResolvedAsset[] = [];
-    collectFonts(instance, nextFonts);
-    const fontsChanged = JSON.stringify(nextFonts) !== JSON.stringify(fonts);
-    if (fontsChanged || rerenderRequested) {
-      fonts = nextFonts;
-      // A declaration can appear after its consumer, or change this frame,
-      // and a ref read during render is attached only by the commit.
-      // Reconcile again with the complete font list and refs before
-      // emitting layers.
+    updateOverrides(propOverrides);
+    try {
       rerenderRequested = false;
       renderTree(time, project, config, openEnd, debugGuides, preview);
-      instance = findCompositionInstance(container);
+      let instance = findCompositionInstance(container);
+      const nextFonts: ResolvedAsset[] = [];
+      collectFonts(instance, nextFonts);
+      const fontsChanged = JSON.stringify(nextFonts) !== JSON.stringify(fonts);
+      if (fontsChanged || rerenderRequested) {
+        fonts = nextFonts;
+        // A declaration can appear after its consumer, or change this frame,
+        // and a ref read during render is attached only by the commit.
+        // Reconcile again with the complete font list and refs before
+        // emitting layers.
+        rerenderRequested = false;
+        renderTree(time, project, config, openEnd, debugGuides, preview);
+        instance = findCompositionInstance(container);
+      }
+      return instance;
+    } finally {
+      clearPropOverrides();
     }
-    return instance;
   };
 
   const renderFrame = (
@@ -1646,8 +1738,9 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
     statics?: { decoded: number },
     debugGuides = false,
     preview = false,
+    propOverrides?: FramePropOverrides,
   ) => {
-    const instance = settleTree(time, project, openEnd, debugGuides, preview);
+    const instance = settleTree(time, project, openEnd, debugGuides, preview, propOverrides);
     const audio: AudioClipDescriptor[] = [];
     const subtitles: SubtitleDescriptor[] = [];
     const context = rootWalkContext(
@@ -1694,6 +1787,32 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
     };
   };
 
+  /** Settles the frame at `time` and maps each of its layer ids to the host node behind it. */
+  const walkLayerNodes = (time: Time, preview: boolean) => {
+    const instance = settleTree(time, null, false, false, preview);
+    const layerNodes = new Map<string, HostNode>();
+    // No statics: a <Static> is walked, not referenced, so its layers are
+    // reachable, and its cached layers and sequence numbers stay as they
+    // were (no sweep either). The scene itself is thrown away.
+    const context = rootWalkContext(
+      config.frameRate.numerator,
+      config.durationInFrames,
+      time,
+      compositionText(instance),
+      false,
+      false,
+      null,
+      layerNodes,
+    );
+    if (hasHostElementPreparation()) {
+      for (const child of instance.children) {
+        prepareHostElements(child, context);
+      }
+    }
+    walkChildren(instance, 'root', context, []);
+    return { instance, layerNodes };
+  };
+
   return {
     dispose() { root.render(null); },
     config,
@@ -1710,6 +1829,7 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
         options?.statics,
         options?.debugGuides === true,
         options?.preview === true,
+        options?.propOverrides,
       ),
     collectAudio() {
       const audio: AudioClipDescriptor[] = [];
@@ -1737,29 +1857,49 @@ export function mount(defaultExport: EntryComponent, compositionId?: string): Mo
       return subtitles;
     },
     layerSource(time, id, resolveFile, options) {
-      const instance = settleTree(time, null, false, false, options?.preview === true);
-      const layerNodes = new Map<string, HostNode>();
-      // No statics: a <Static> is walked, not referenced, so its layers are
-      // reachable, and its cached layers and sequence numbers stay as they
-      // were (no sweep either). The scene itself is thrown away.
-      const context = rootWalkContext(
-        config.frameRate.numerator,
-        config.durationInFrames,
-        time,
-        compositionText(instance),
-        false,
-        false,
-        null,
-        layerNodes,
-      );
-      if (hasHostElementPreparation()) {
-        for (const child of instance.children) {
-          prepareHostElements(child, context);
-        }
-      }
-      walkChildren(instance, 'root', context, []);
+      const { layerNodes } = walkLayerNodes(time, options?.preview === true);
       const node = layerNodes.get(id);
       return node ? layerSourceReport(node, layerNodes, resolveFile) : null;
+    },
+    collectOccurrences(from, frames, resolveFile, options) {
+      type Instance = OccurrenceIndex['elements'][number]['instances'][number];
+      const elements = new Map<string, { element: SourcePos; instances: Map<string, Instance> }>();
+      const keyOf = ({ file, line, column }: SourcePos) => `${file}:${line}:${column}`;
+      const end = Math.min(from + frames, config.durationInFrames);
+      for (let frame = Math.max(0, from); frame < end; frame++) {
+        const time = { value: frame * config.frameRate.denominator, timescale: config.frameRate.numerator };
+        const { layerNodes } = walkLayerNodes(time, options?.preview === true);
+        const places = new Map<Instance, Set<string>>();
+        for (const { element, chain, place } of occurrenceKeys(layerNodes, resolveFile)) {
+          const elementKey = keyOf(element);
+          let entry = elements.get(elementKey);
+          if (!entry) {
+            entry = { element, instances: new Map() };
+            elements.set(elementKey, entry);
+          }
+          const instanceKey = chain.map(keyOf).join('\n');
+          let instance = entry.instances.get(instanceKey);
+          if (!instance) {
+            instance = { chain, ranges: [], maxPerFrame: 0 };
+            entry.instances.set(instanceKey, instance);
+          }
+          let seen = places.get(instance);
+          if (!seen) {
+            seen = new Set();
+            places.set(instance, seen);
+          }
+          seen.add(place);
+        }
+        for (const [instance, seen] of places) {
+          instance.maxPerFrame = Math.max(instance.maxPerFrame, seen.size);
+          const last = instance.ranges[instance.ranges.length - 1];
+          if (last && last[1] === frame) last[1] = frame + 1;
+          else instance.ranges.push([frame, frame + 1]);
+        }
+      }
+      return {
+        elements: [...elements.values()].map(({ element, instances }) => ({ element, instances: [...instances.values()] })),
+      };
     },
   };
 }

@@ -3,18 +3,23 @@ use crate::helpers::prepare_preview_frame;
 use crate::layer_select::LookupResult;
 use crate::problems::error_chain;
 use crate::source::PropertyArgs;
-use celesta_composition::{EvaluatedTransform, Layer, LayerContent, Scene, ShaderSource, Time};
-use celesta_gpu_renderer::{GpuRenderer, HitRegion, LayerFrame, RenderQuality, layer_frame};
+use celesta_composition::{
+    Layer, LayerContent, Scene, ShaderSource, TextColorRun, TextFontRun, Time,
+};
+use celesta_gpu_renderer::{
+    GpuRenderer, HitRegion, LayerFrame, RenderQuality, TextLayout, layer_frame,
+};
 use celesta_react_bridge::{
-    ComponentPropertyField, ComponentResolutionRequest, ComponentResolutions, PrepareDependency,
-    PropertyInputs, PropertyIssue, ReactBridge, ReactChapter, ReactCompositionMetadata,
-    SpawnOptions,
+    ComponentPropertyField, ComponentPropertySchema, ComponentResolutionRequest,
+    ComponentResolutions, PrepareDependency, PrimitivePropertyTable, PropOverride, PropertyInputs,
+    PropertyIssue, ReactBridge, ReactChapter, ReactCompositionMetadata, SpawnOptions,
 };
 use gpui_kit::RenderImage;
 use rodio::Player;
 use rodio::buffer::SamplesBuffer;
 use std::collections::BTreeMap;
 use std::error::Error;
+use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -52,14 +57,187 @@ pub(crate) struct PreviewRequest {
     /// The selected layer whose JSX source to look up in this frame
     /// (`WholeScene` only); `None` sends no lookup, as during playback.
     pub(crate) source_of: Option<String>,
-    /// A layer's transform to draw in place of the one the React entry
-    /// evaluated, while it is dragged (`WholeScene` only).
-    pub(crate) transform_override: Option<(String, EvaluatedTransform)>,
+    /// Values the React entry evaluates the props written at their positions
+    /// with in this frame, while a layer is dragged (`WholeScene` only).
+    pub(crate) prop_overrides: Vec<PropOverride>,
     /// The layer whose frame to measure from this frame's draw
     /// (`WholeScene` only); `None` measures nothing, as during playback.
     pub(crate) frame_of: Option<String>,
     /// The timeline frame `scene` is for, echoed in the result.
     pub(crate) timeline_frame: i64,
+    /// The text edited on the canvas, drawn in place of its layer's text;
+    /// `None` draws the scene as evaluated.
+    pub(crate) text_override: Option<TextOverride>,
+    /// Render the scene the runtime last evaluated instead of evaluating again.
+    pub(crate) reuse_scene: bool,
+}
+
+/// A text layer's text as edited on the canvas, drawn without asking the
+/// runtime: `layer`'s text becomes `text`, and its runs, which index
+/// `original` (the text the edit started from), move with the edit.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TextOverride {
+    pub(crate) layer: String,
+    pub(crate) original: String,
+    pub(crate) text: String,
+}
+
+/// What the held scene was evaluated for: the request's time, its
+/// `react_reload`, and its React preview.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct HeldKey {
+    time: Time,
+    react_reload: u64,
+    react: Option<ReactPreviewContext>,
+}
+
+impl HeldKey {
+    pub(crate) fn of(request: &PreviewRequest) -> Self {
+        Self {
+            time: request.scene.time,
+            react_reload: request.react_reload,
+            react: request.react.clone(),
+        }
+    }
+}
+
+/// Where a frame's scene comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SceneSource {
+    /// The scene the runtime last evaluated, held by the worker.
+    Held,
+    /// A new evaluation, which the worker then holds.
+    Evaluate,
+}
+
+/// Held only when asked to reuse and the held scene's key matches the
+/// request's: a keystroke right after a seek or a reload draws the new
+/// time's and the new code's scene.
+pub(crate) fn scene_source(request: &PreviewRequest, held: Option<&HeldKey>) -> SceneSource {
+    if request.reuse_scene && held == Some(&HeldKey::of(request)) {
+        SceneSource::Held
+    } else {
+        SceneSource::Evaluate
+    }
+}
+
+/// Replaces layer `layer`'s text (through groups and masks): its runs carried
+/// through the edit (`shift_runs`), `visible_characters` cleared, so all of
+/// the text shows. False when there is no such text layer.
+pub(crate) fn replace_text(scene: &mut Scene, edit: &TextOverride) -> bool {
+    let Some(layer) = find_layer_mut(&mut scene.layers, &edit.layer) else {
+        return false;
+    };
+    let LayerContent::Text { text, style, .. } = &mut layer.content else {
+        return false;
+    };
+    style.color_runs = shift_runs(
+        &style.color_runs,
+        |run| run.start..run.end,
+        |run, span| TextColorRun {
+            start: span.start,
+            end: span.end,
+            ..run.clone()
+        },
+        &edit.original,
+        &edit.text,
+    );
+    style.font_runs = shift_runs(
+        &style.font_runs,
+        |run| run.start..run.end,
+        |run, span| TextFontRun {
+            start: span.start,
+            end: span.end,
+            ..run.clone()
+        },
+        &edit.original,
+        &edit.text,
+    );
+    style.visible_characters = None;
+    text.clone_from(&edit.text);
+    true
+}
+
+/// Layer `id` among `layers`, their groups' children and their masks'
+/// layers, in the order the renderer finds it.
+fn find_layer_mut<'a>(layers: &'a mut [Layer], id: &str) -> Option<&'a mut Layer> {
+    for layer in layers {
+        if layer.id == id {
+            return Some(layer);
+        }
+        if let LayerContent::Group { layers, mask, .. } = &mut layer.content {
+            if let Some(found) = find_layer_mut(layers, id) {
+                return Some(found);
+            }
+            if let Some(found) = mask
+                .as_mut()
+                .and_then(|mask| find_layer_mut(&mut mask.layers, id))
+            {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+/// Runs over `original` moved onto `edited` by their common prefix and
+/// suffix, in code points: an index in the prefix stays, one in the suffix
+/// moves by the length change, and a run's end inside the changed span is
+/// cut to the span's start and its start to the span's end. So a run keeps
+/// its own characters, stretches over text typed inside it, and is dropped
+/// when the edit empties it; the runs stay ordered and apart, within
+/// `edited`.
+pub(crate) fn shift_runs<R: Clone>(
+    runs: &[R],
+    span: impl Fn(&R) -> Range<usize>,
+    with: impl Fn(&R, Range<usize>) -> R,
+    original: &str,
+    edited: &str,
+) -> Vec<R> {
+    let original_len = original.chars().count();
+    let edited_len = edited.chars().count();
+    let prefix = original
+        .chars()
+        .zip(edited.chars())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let suffix = original
+        .chars()
+        .rev()
+        .zip(edited.chars().rev())
+        .take_while(|(a, b)| a == b)
+        .count()
+        .min(original_len.min(edited_len) - prefix);
+    // The changed span: `prefix..original_len - suffix` of `original`,
+    // `prefix..edited_len - suffix` of `edited`.
+    let old_end = original_len - suffix;
+    let new_end = edited_len - suffix;
+    let shift = |index: usize| index - old_end + new_end;
+    let start_of = |index: usize| {
+        if index >= old_end {
+            shift(index)
+        } else if index <= prefix {
+            index
+        } else {
+            new_end
+        }
+    };
+    let end_of = |index: usize| {
+        if index <= prefix {
+            index
+        } else if index >= old_end {
+            shift(index)
+        } else {
+            prefix
+        }
+    };
+    runs.iter()
+        .filter_map(|run| {
+            let Range { start, end } = span(run);
+            let moved = start_of(start).min(edited_len)..end_of(end).min(edited_len);
+            (moved.start < moved.end).then(|| with(run, moved))
+        })
+        .collect()
 }
 
 pub(crate) struct PreviewResult {
@@ -80,6 +258,10 @@ pub(crate) struct PreviewResult {
     /// when the layer is absent or has no affine frame (see `layer_frame`).
     /// `None` when nothing was measured.
     pub(crate) layer_frame: Option<(String, Option<LayerFrame>)>,
+    /// The layout of the request's `text_override` layer as drawn in this
+    /// frame; `None` without an override, or when the frame failed or has
+    /// no such text layer.
+    pub(crate) text_layout: Option<TextLayout>,
     /// The request's `timeline_frame`.
     pub(crate) timeline_frame: i64,
 }
@@ -131,6 +313,12 @@ pub(crate) struct ReactPreview {
     /// The selected composition's `<Composition chapters>` as last loaded;
     /// kept across failed reloads.
     pub(crate) chapters: Vec<ReactChapter>,
+    /// The primitives' property tables as last loaded, keyed by primitive
+    /// name; kept across failed reloads.
+    pub(crate) primitive_properties: BTreeMap<String, PrimitivePropertyTable>,
+    /// What `registerComponent()` declared, keyed by component name, as last
+    /// loaded; kept across failed reloads. It types the Component section.
+    pub(crate) component_schemas: BTreeMap<String, ComponentPropertySchema>,
     pub(crate) entry: PathBuf,
     /// Newest source-file modification time seen under the entry's directory
     /// (or of the `--props-file`). The reload watcher compares against this
@@ -159,6 +347,14 @@ pub(crate) struct ReactPreview {
     pub(crate) property_load_error: Option<String>,
     /// The number of the newest applied reload that read the props file.
     pub(crate) properties_read_reload: u64,
+}
+
+impl ReactPreview {
+    /// The property table of the primitive `name` (`Rect`, `Star`, ...), as
+    /// a source chain names it.
+    pub(crate) fn primitive_table(&self, name: &str) -> Option<&PrimitivePropertyTable> {
+        self.primitive_properties.get(name)
+    }
 }
 
 /// The entry's project property schema with the order it declared its keys in
@@ -216,6 +412,10 @@ impl PreviewWorker {
             .spawn(move || {
                 let mut react_bridge: Option<ReactPreviewBridge> = None;
                 let mut react_reload = 0u64;
+                // The scene the runtime last evaluated, and what for: a
+                // keystroke's request draws it again with its text
+                // replaced, without evaluating.
+                let mut held: Option<(HeldKey, Scene)> = None;
                 while let Ok(first) = request_rx.recv() {
                     let request = take_latest(first, &request_rx);
                     renderer.set_asset_root(&request.asset_root);
@@ -229,50 +429,80 @@ impl PreviewWorker {
                         request.react_mode,
                         request.react.as_ref(),
                     ));
-                    let mut scene = request.scene;
+                    let time = request.scene.time;
+                    let source = scene_source(&request, held.as_ref().map(|(key, _)| key));
+                    let key = HeldKey::of(&request);
                     let mut warnings = Vec::new();
-                    // In `.tsx` preview mode the React entry is the whole
-                    // frame, so its failure is the frame's error; the last
-                    // good frame stays on screen.
-                    let evaluated = match request.react_mode {
-                        ReactPreviewMode::WholeScene => render_whole_react_scene(
-                            &mut scene,
-                            &mut react_bridge,
-                            request.react.as_ref(),
-                        ),
-                        ReactPreviewMode::ResolveComponents => {
-                            warnings = resolve_preview_components(
-                                &mut scene,
-                                &mut react_bridge,
-                                request.react.as_ref(),
-                            );
-                            Ok(())
+                    let evaluated = match source {
+                        SceneSource::Held => {
+                            Ok(&held.as_ref().expect("scene_source found it held").1)
+                        }
+                        SceneSource::Evaluate => {
+                            // A failed evaluation is not held, so no
+                            // keystroke draws a scene the runtime refused.
+                            held = None;
+                            let mut scene = request.scene;
+                            // In `.tsx` preview mode the React entry is the
+                            // whole frame, so its failure is the frame's
+                            // error; the last good frame stays on screen.
+                            let evaluated = match request.react_mode {
+                                ReactPreviewMode::WholeScene => render_whole_react_scene(
+                                    &mut scene,
+                                    &mut react_bridge,
+                                    request.react.as_ref(),
+                                    &request.prop_overrides,
+                                ),
+                                ReactPreviewMode::ResolveComponents => {
+                                    warnings = resolve_preview_components(
+                                        &mut scene,
+                                        &mut react_bridge,
+                                        request.react.as_ref(),
+                                    );
+                                    Ok(())
+                                }
+                            };
+                            match evaluated {
+                                Ok(()) => Ok(&held.insert((key, scene)).1),
+                                Err(error) => Err(error),
+                            }
                         }
                     };
-                    let frame = evaluated.and_then(|()| {
-                        // Inside a motion-blur group the samples may share the
-                        // layer's id; the override reaches the first only, and
-                        // the other samples stay where the drag began.
-                        if let Some((id, transform)) =
-                            request.transform_override.as_ref().filter(|_| whole_scene)
-                        {
-                            apply_override(&mut scene, id, transform);
+                    // The edited text is drawn on a copy: the held scene
+                    // stays as the runtime evaluated it.
+                    let edited = match (&evaluated, &request.text_override) {
+                        (Ok(scene), Some(edit)) => {
+                            let mut scene = (*scene).clone();
+                            replace_text(&mut scene, edit).then_some(scene)
                         }
+                        _ => None,
+                    };
+                    let drawn = evaluated.map(|scene| edited.as_ref().unwrap_or(scene));
+                    let frame = drawn.clone().and_then(|scene| {
                         let frame = renderer
-                            .render_preview(&scene)
+                            .render_preview(scene)
                             .map_err(|error| error_chain(&error))
                             .map(prepare_preview_frame);
                         warnings.extend(renderer.font_fallbacks().iter().map(ToString::to_string));
                         warnings.extend(renderer.missing_glyphs().iter().map(ToString::to_string));
                         frame
                     });
+                    // Measured after the render, which loaded its fonts.
+                    let text_layout = request
+                        .text_override
+                        .as_ref()
+                        .zip(drawn.as_ref().ok().filter(|_| frame.is_ok()))
+                        .and_then(|(edit, scene)| renderer.text_layout(scene, &edit.layer));
                     let layer_source = request.source_of.filter(|_| whole_scene).map(|id| {
-                        let source = look_up_layer_source(&mut react_bridge, scene.time, &id);
+                        let time = drawn.as_ref().map_or(time, |scene| scene.time);
+                        let source = look_up_layer_source(&mut react_bridge, time, &id);
                         (id, source)
                     });
                     let hit_regions = renderer.take_hit_regions();
                     let layer_frame = request.frame_of.filter(|_| whole_scene).map(|id| {
-                        let measured = layer_frame(&scene, &hit_regions, &id);
+                        let measured = drawn
+                            .as_ref()
+                            .ok()
+                            .and_then(|scene| layer_frame(scene, &hit_regions, &id));
                         (id, measured)
                     });
                     if result_tx
@@ -283,6 +513,7 @@ impl PreviewWorker {
                             hit_regions,
                             layer_source,
                             layer_frame,
+                            text_layout,
                             timeline_frame: request.timeline_frame,
                         })
                         .is_err()
@@ -302,24 +533,6 @@ impl PreviewWorker {
             .send(request)
             .map_err(|_| "preview worker stopped unexpectedly".to_owned())
     }
-}
-
-/// Sets the transform of the layer `id` (searched through groups) to
-/// `transform`, whether the scene has one.
-pub(crate) fn apply_override(scene: &mut Scene, id: &str, transform: &EvaluatedTransform) -> bool {
-    fn apply(layers: &mut [Layer], id: &str, transform: &EvaluatedTransform) -> bool {
-        layers.iter_mut().any(|layer| {
-            if layer.id == id {
-                layer.transform = *transform;
-                return true;
-            }
-            match &mut layer.content {
-                LayerContent::Group { layers, .. } => apply(layers, id, transform),
-                _ => false,
-            }
-        })
-    }
-    apply(&mut scene.layers, id, transform)
 }
 
 /// The JSX chain that produced layer `id` at `time`, from the bridge the
@@ -396,18 +609,20 @@ pub(crate) fn ensure_react_bridge<'a>(
 /// evaluation at `scene.time` — the editor's synthetic project has no tracks,
 /// so this is the only source of layers in `.tsx` preview mode. A bridge
 /// failure is remembered, so later frames report the same error without
-/// restarting Node, and returned as the frame's error.
+/// restarting Node, and returned as the frame's error. `prop_overrides` are
+/// a drag's values, evaluated with in this frame only.
 pub(crate) fn render_whole_react_scene(
     scene: &mut Scene,
     react_bridge: &mut Option<ReactPreviewBridge>,
     react: Option<&ReactPreviewContext>,
+    prop_overrides: &[PropOverride],
 ) -> Result<(), String> {
     let Some(react) = react else {
         return Err("React runtime is unavailable for this preview".to_owned());
     };
     let state = ensure_react_bridge(react_bridge, react);
     match &mut state.bridge {
-        Some(bridge) => match bridge.scene_at_with_project(scene.time, None) {
+        Some(bridge) => match bridge.scene_at_with_overrides(scene.time, prop_overrides) {
             Ok(evaluated) => {
                 *scene = evaluated;
                 Ok(())

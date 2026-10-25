@@ -1,12 +1,18 @@
 use crate::audio::{AudioMixWorker, MasterVolumeDrag};
 use crate::component_schema::ComponentSchemaWorker;
 use crate::edit_history::EditHistory;
+use crate::element_edit::ElementEdit;
+use crate::element_rows::ElementRows;
 use crate::export_worker::ExportWorker;
 use crate::helpers::ExportLoudness;
+use crate::inline_text_view::{EditEvent, InlineTextSession, KeptOverride};
 use crate::layer_select::SourceLookup;
 use crate::media_probe::{MediaAssetInfo, MediaProbeWorker};
 use crate::meter::MasterLevels;
-use crate::preview::{AudioPreview, PreviewPresentation, PreviewWorker, ReactPreview};
+use crate::occurrences::{OccurrenceState, OccurrenceWorker};
+use crate::preview::{
+    AudioPreview, PreviewPresentation, PreviewWorker, ReactPreview, TextOverride,
+};
 use crate::problems::{Problems, Source};
 use crate::property_panel::PropertyPanelState;
 use crate::react_audio::ReactAudioWorker;
@@ -14,14 +20,17 @@ use crate::refresh::{ReloadOrder, SelectionKeep};
 use crate::source::{PropertyArgs, load_source};
 use crate::timeline::LaneGesture;
 use crate::transform_drag::TransformDrag;
-use crate::transform_edit::TransformEdit;
-use crate::transform_rows::TransformInputs;
+use crate::transform_handles::{PivotMode, ResizeTool};
 use celesta_composition::{AudioClip, Rational};
 use celesta_editor_core::{AssetSummary, EditorDocument, TimelineClock, TrackSummary};
 use celesta_exporter::{ExportCancellation, ExportProgress};
-use celesta_gpu_renderer::{GpuDriver, GpuRenderOptions, GpuRenderer, HitRegion, LayerFrame};
+use celesta_gpu_renderer::{
+    GpuDriver, GpuRenderOptions, GpuRenderer, HitRegion, LayerFrame, TextLayout,
+};
 use celesta_media::FfmpegBackend;
-use celesta_react_bridge::{ComponentPropertyField, ComponentPropertySchema};
+use celesta_react_bridge::{
+    ComponentPropertyField, ComponentPropertySchema, PrimitivePropertyTable,
+};
 use chrono::{DateTime, Local};
 #[cfg(not(target_os = "macos"))]
 use gpui_kit::component::menu::AppMenuBar;
@@ -111,6 +120,17 @@ pub(crate) struct EditorView {
     /// threaded into `PreviewRequest::react_reload` so the preview worker
     /// respawns Node against the freshly re-bundled code.
     pub(crate) react_reload_generation: u64,
+    pub(crate) occurrence_worker: OccurrenceWorker,
+    /// Where each element of the React entry renders, tagged with the
+    /// `react_reload_generation` it was swept for. `None` outside React
+    /// preview and while Select layers is off.
+    pub(crate) occurrences: Option<(u64, OccurrenceState)>,
+    /// The preview frame a sweep held back after the editor's own write
+    /// waits for before it starts.
+    pub(crate) occurrence_sweep_after: Option<u64>,
+    /// Whether a task looks for the running sweep's result (see
+    /// `watch_occurrence_sweep`).
+    pub(crate) occurrence_watch: bool,
     /// Numbers the React entry's reloads so a slow older one is not applied
     /// over a newer one.
     pub(crate) react_reloads: ReloadOrder,
@@ -161,6 +181,9 @@ pub(crate) struct EditorView {
     /// layer and shows its JSX source. Off, the preview skips recording
     /// source positions and hit regions, which large scenes pay for.
     pub(crate) interactive: bool,
+    /// The interactive mode was left and the frame and sweep without it are
+    /// still to be asked for (see `settle_interactive_mode`).
+    pub(crate) interactive_refresh_due: bool,
     pub(crate) scrubbing: bool,
     /// Playback gain for the preview only (0..=2). It scales the mixed
     /// buffer at the output device and never touches the project, so it has
@@ -245,17 +268,22 @@ pub(crate) struct EditorView {
     pub(crate) source_lookup: Option<SourceLookup>,
     /// The timeline frame `source_lookup`'s answer was looked up at.
     pub(crate) source_lookup_frame: i64,
+    /// `source_lookup` was answered by the code before an own write's reload;
+    /// it stays shown until the reloaded code answers.
+    pub(crate) source_lookup_stale: bool,
     /// Window bounds of the viewer's frame area as last painted, for mapping
     /// clicks onto the scene.
     pub(crate) viewer_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// Why the last attempt to open a source position failed.
     pub(crate) launch_error: Option<String>,
+    /// The Properties tab's "Source chain" disclosure is expanded.
+    pub(crate) source_chain_open: bool,
     /// Which reloads keep `selected_layer` (those after the editor's own writes).
     pub(crate) selection_keep: SelectionKeep,
-    /// The selected layer's transform targets in its source.
-    pub(crate) transform: TransformEdit,
-    /// The Layer section's Transform fields.
-    pub(crate) transform_inputs: TransformInputs,
+    /// The selected layer's targets in its source.
+    pub(crate) element_edit: ElementEdit,
+    /// The controls of the selected layer's property rows.
+    pub(crate) element_rows: ElementRows,
     /// The selected layer's frame as the shown frame measured it: the layer
     /// id, and `None` inside when it has no affine frame. `None` when the
     /// frame measured nothing (during playback, or with no selection).
@@ -263,6 +291,45 @@ pub(crate) struct EditorView {
     /// The canvas drag of the selected layer's transform, if one is running
     /// or being written.
     pub(crate) transform_drag: Option<TransformDrag>,
+    /// What canvas rotation and scale turn about, as the viewer's toggle
+    /// chose it for the session (the pivot unless Center is chosen); a layer
+    /// that can't keep its center uses its pivot whatever this says.
+    pub(crate) pivot_mode: PivotMode,
+    /// What the canvas's corner and edge handles do, as the viewer's toggle
+    /// chose it for the session; a layer without editable size props scales
+    /// whatever this says.
+    pub(crate) resize_tool: ResizeTool,
+    /// The text edited on the canvas, or committed and waiting for its
+    /// reload: every requested frame draws it in place of its layer's text.
+    pub(crate) text_override: Option<TextOverride>,
+    /// The next requested frame redraws the scene the runtime last evaluated
+    /// (a keystroke's); `refresh_preview` clears it.
+    pub(crate) reuse_scene: bool,
+    /// The `text_override` layer's layout as the shown frame drew it; `None`
+    /// when that frame had no override or did not draw the layer.
+    pub(crate) text_layout: Option<TextLayout>,
+    /// Where `text_override` stands after its edit was committed; while it
+    /// is kept, no other edit begins.
+    pub(crate) kept_override: KeptOverride,
+    /// The text being edited on the canvas.
+    pub(crate) inline_text: Option<InlineTextSession>,
+    /// What the canvas tracks while a text is edited there, so the keys and
+    /// the IME reach the edit.
+    pub(crate) inline_text_focus: Option<FocusHandle>,
+    /// A double-click waiting for its layer's source: the layer.
+    pub(crate) inline_pending: Option<String>,
+    /// Why a double-click did not edit: the layer, beside which it shows,
+    /// and the reason. Until the next press or selection change.
+    pub(crate) inline_note: Option<(String, String)>,
+    /// Why an edit was cancelled, for the viewer's notice. Until the next
+    /// press or selection change.
+    pub(crate) inline_notice: Option<String>,
+    /// A seek or play that ends the edit on the next render, which has a
+    /// context for it.
+    pub(crate) inline_end_due: Option<EditEvent>,
+    /// An edit ended with the focus on it: the root takes it back on the
+    /// next render.
+    pub(crate) inline_refocus: bool,
 }
 
 impl EditorView {
@@ -314,6 +381,7 @@ impl EditorView {
         let export_worker = ExportWorker::spawn()?;
         let component_schema_worker = ComponentSchemaWorker::spawn()?;
         let react_audio_worker = ReactAudioWorker::spawn()?;
+        let occurrence_worker = OccurrenceWorker::spawn()?;
         let mut editor = Self {
             source_path,
             session: 0,
@@ -330,6 +398,10 @@ impl EditorView {
             react_audio_clips: Vec::new(),
             react_tracks: Vec::new(),
             react_reload_generation: 0,
+            occurrence_worker,
+            occurrences: None,
+            occurrence_sweep_after: None,
+            occurrence_watch: false,
             react_reloads: ReloadOrder::default(),
             watched_since: 0,
             property_panel: PropertyPanelState::default(),
@@ -358,6 +430,7 @@ impl EditorView {
             play_when_audio_ready: false,
             show_safe_areas: false,
             interactive: false,
+            interactive_refresh_due: false,
             scrubbing: false,
             monitor_volume: 1.0,
             master_volume_drag: None,
@@ -406,21 +479,44 @@ impl EditorView {
             hit_regions: Vec::new(),
             source_lookup: None,
             source_lookup_frame: 0,
+            source_lookup_stale: false,
             viewer_bounds: Rc::default(),
             launch_error: None,
+            source_chain_open: false,
             selection_keep: SelectionKeep::default(),
-            transform: TransformEdit::default(),
-            transform_inputs: TransformInputs::default(),
+            element_edit: ElementEdit::default(),
+            element_rows: ElementRows::default(),
             layer_frame: None,
             transform_drag: None,
+            pivot_mode: PivotMode::default(),
+            resize_tool: ResizeTool::default(),
+            text_override: None,
+            reuse_scene: false,
+            text_layout: None,
+            kept_override: KeptOverride::Dropped,
+            inline_text: None,
+            inline_text_focus: None,
+            inline_pending: None,
+            inline_note: None,
+            inline_notice: None,
+            inline_end_due: None,
+            inline_refocus: false,
         };
         editor.refresh_preview();
         editor.refresh_audio_preview();
+        editor.refresh_occurrences(false);
         if editor.react_preview.is_none() {
             editor.refresh_media_cache();
             editor.refresh_component_schemas();
         }
         Ok(editor)
+    }
+
+    /// The property table of the primitive `name` (`Rect`, `Star`, ...) as
+    /// the React preview last loaded it; `None` for a project, or a name the
+    /// runtime declares no table for.
+    pub(crate) fn primitive_table(&self, name: &str) -> Option<&PrimitivePropertyTable> {
+        self.react_preview.as_ref()?.primitive_table(name)
     }
 }
 

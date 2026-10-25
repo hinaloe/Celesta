@@ -39,6 +39,8 @@ impl EditorView {
                     self.problems.set_preview_warnings(result.warnings);
                     self.hit_regions = result.hit_regions;
                     self.layer_frame = result.layer_frame;
+                    self.text_layout = result.text_layout;
+                    self.refit_inline_text();
                     // An answer for a layer that is no longer selected is stale.
                     if let Some((id, source)) = result.layer_source
                         && self.selected_layer.as_ref() == Some(&id)
@@ -49,10 +51,11 @@ impl EditorView {
                             .lookup_arrived(result.generation, absent)
                         {
                             LookupFate::Stale => {}
-                            LookupFate::Gone => self.clear_layer_selection(),
+                            LookupFate::Gone => self.clear_layer_selection(false),
                             LookupFate::Show => {
                                 self.source_lookup = Some(source_lookup(source));
                                 self.source_lookup_frame = result.timeline_frame;
+                                self.source_lookup_stale = false;
                             }
                         }
                     }
@@ -64,10 +67,15 @@ impl EditorView {
                         self.problems
                             .fail(Source::Preview, "preview worker stopped unexpectedly");
                     }
+                    // No lookup answers again: the held row commits are
+                    // dropped on the next render (`settle_row_requests`).
+                    self.element_edit.preview_stopped();
                     break;
                 }
             }
         }
+        // The reloaded code is on screen: a sweep held back for it starts.
+        self.start_due_occurrence_sweep();
 
         loop {
             match self.media_probe_worker.results.try_recv() {
@@ -172,6 +180,8 @@ impl EditorView {
                 }
             }
         }
+
+        self.poll_occurrence_results();
 
         loop {
             match self.audio_mix_worker.results.try_recv() {

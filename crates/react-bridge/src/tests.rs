@@ -1,6 +1,7 @@
 use crate::audio::{merge_react_audio_clips, react_audio_clips, react_video_clip_ids};
 use crate::bridge::ReactBridge;
 use crate::error::ReactBridgeError;
+use crate::occurrences::{ElementOccurrences, InstanceOccurrences, OccurrenceIndex};
 use crate::properties::{
     ENTRY_PROPS_FILE, EffectiveValue, PropertyInputError, PropertyInputs, PropertySource,
     ValueSource, effective_values, resolve_props_file,
@@ -9,13 +10,15 @@ use crate::protocol::{
     PropertyInputsMessage, ReadyMessage, Request, Response, ready_property_order,
 };
 use crate::types::{
-    ComponentPropertyField, ElementKind, LayerSource, LayerSourceReport, ReactAudioClipDescriptor,
-    ReactChapter, ReceivedProps, chapter_at,
+    ComponentPropertyField, ElementKind, FrameSpan, LayerSource, LayerSourceReport,
+    PrimitivePropertyField, PrimitiveSize, PropOverride, ReactAudioClipDescriptor, ReactChapter,
+    ReceivedProps, ReceivedValue, SourcePos, TimingWindow, chapter_at,
 };
 use celesta_composition::{
     Animatable, AssetLocation, AudioDuck, LayerFilter, ShaderParam, ShaderParamType, ShaderSource,
     Time,
 };
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use celesta_composition::{Keyframe, KeyframeAnimation, KeyframeAnimationType};
@@ -65,7 +68,8 @@ fn deserializes_component_schemas_from_the_ready_message() {
                     "type": "number",
                     "defaultValue": 1,
                     "min": 1,
-                    "max": 999
+                    "max": 999,
+                    "integer": true
                 }
             }
         }
@@ -97,6 +101,7 @@ fn deserializes_component_schemas_from_the_ready_message() {
             min: Some(1.0),
             max: Some(999.0),
             step: None,
+            integer: Some(true),
         })
     );
 }
@@ -120,6 +125,148 @@ fn ready_message_without_component_schemas_defaults_to_empty() {
         panic!("expected a Ready message");
     };
     assert!(component_schemas.is_empty());
+}
+
+#[test]
+fn ready_message_carries_primitive_tables_in_order() {
+    let json = serde_json::json!({
+        "config": {
+            "width": 640,
+            "height": 360,
+            "frameRate": {"numerator": 30, "denominator": 1},
+            "durationInFrames": 30
+        },
+        "primitiveProperties": {
+            "Rect": {
+                "size": {"width": "width", "height": "height"},
+                "groups": [
+                    {"name": "Transform", "fields": [
+                        {"key": "x", "field": {"type": "number", "defaultValue": 0}},
+                        {"key": "opacity", "field": {"type": "number", "defaultValue": 1, "min": 0, "max": 1}},
+                        {"key": "anchorX", "field": {"type": "number", "defaultValue": 0, "step": 0.01}}
+                    ]},
+                    {"name": "Size", "fields": [
+                        {"key": "width", "field": {"type": "number", "required": true}},
+                        {"key": "cornerRadius", "field": {"type": "number", "defaultValue": 0}},
+                        {"key": "sides", "field": {"type": "number", "min": 3, "integer": true}}
+                    ]},
+                    {"name": "Source", "fields": [
+                        {"key": "src", "field": {"type": "path", "required": true}}
+                    ]}
+                ]
+            }
+        }
+    })
+    .to_string();
+
+    let ReadyMessage::Ready {
+        primitive_properties,
+        ..
+    } = serde_json::from_str(&json).unwrap()
+    else {
+        panic!("expected a Ready message");
+    };
+    let rect = &primitive_properties["Rect"];
+    assert_eq!(
+        rect.size,
+        Some(PrimitiveSize {
+            width: Some("width".to_owned()),
+            height: Some("height".to_owned()),
+            radius: None,
+        })
+    );
+    let names: Vec<&str> = rect
+        .groups
+        .iter()
+        .map(|group| group.name.as_str())
+        .collect();
+    assert_eq!(names, ["Transform", "Size", "Source"]);
+    let keys: Vec<&str> = rect.groups[0]
+        .fields
+        .iter()
+        .map(|row| row.key.as_str())
+        .collect();
+    assert_eq!(keys, ["x", "opacity", "anchorX"]);
+    assert_eq!(
+        rect.groups[0].fields[1].field,
+        PrimitivePropertyField::Number {
+            default_value: Some(1.0),
+            min: Some(0.0),
+            max: Some(1.0),
+            step: None,
+            integer: None,
+        }
+    );
+    assert_eq!(
+        rect.groups[0].fields[2].field,
+        PrimitivePropertyField::Number {
+            default_value: Some(0.0),
+            min: None,
+            max: None,
+            step: Some(0.01),
+            integer: None,
+        }
+    );
+    assert_eq!(
+        rect.groups[1].fields[0].field,
+        PrimitivePropertyField::Number {
+            default_value: None,
+            min: None,
+            max: None,
+            step: None,
+            integer: None,
+        }
+    );
+    // `required` rides in the field and is lifted onto the row; a field
+    // that says nothing is optional.
+    let required: Vec<(&str, bool)> = rect.groups[1..]
+        .iter()
+        .flat_map(|group| &group.fields)
+        .map(|row| (row.key.as_str(), row.required))
+        .collect();
+    assert_eq!(
+        required,
+        [
+            ("width", true),
+            ("cornerRadius", false),
+            ("sides", false),
+            ("src", true)
+        ]
+    );
+    // A whole-number field says so; the others leave it out.
+    assert_eq!(
+        rect.groups[1].fields[2].field,
+        PrimitivePropertyField::Number {
+            default_value: None,
+            min: Some(3.0),
+            max: None,
+            step: None,
+            integer: Some(true),
+        }
+    );
+    assert_eq!(rect.groups[2].fields[0].field, PrimitivePropertyField::Path);
+}
+
+#[test]
+fn ready_message_without_tables_has_none() {
+    let json = serde_json::json!({
+        "config": {
+            "width": 640,
+            "height": 360,
+            "frameRate": {"numerator": 30, "denominator": 1},
+            "durationInFrames": 30
+        }
+    })
+    .to_string();
+
+    let ReadyMessage::Ready {
+        primitive_properties,
+        ..
+    } = serde_json::from_str(&json).unwrap()
+    else {
+        panic!("expected a Ready message");
+    };
+    assert!(primitive_properties.is_empty());
 }
 
 #[test]
@@ -235,6 +382,7 @@ fn deserializes_the_project_property_schema_from_the_ready_message() {
             min: Some(0.0),
             max: Some(1.0),
             step: None,
+            integer: None,
         })
     );
     assert_eq!(
@@ -515,6 +663,8 @@ fn deserializes_layer_source_replies() {
             candidate_frames: vec![],
             props: ReceivedProps::default(),
             render_count: 1,
+            windows: vec![],
+            span: None,
         })
     );
 
@@ -539,6 +689,8 @@ fn deserializes_layer_source_replies() {
             candidate_frames: vec![],
             props: ReceivedProps::default(),
             render_count: 1,
+            windows: vec![],
+            span: None,
         })
     );
 
@@ -569,9 +721,151 @@ fn deserializes_layer_source_replies() {
             scale: Some(2.0),
             scale_x: Some(1.5),
             scale_y: Some(0.5),
+            others: BTreeMap::new(),
         }
     );
     assert_eq!(report.render_count, 3);
+}
+
+#[test]
+fn received_props_read_scalars() {
+    let props: ReceivedProps = serde_json::from_str(
+        r##"{"x":1,"color":"#fff","wrap":true,"children":"Sale","style.fontSize":48}"##,
+    )
+    .unwrap();
+    assert_eq!(props.x, Some(1.0));
+    assert_eq!(props.get("x"), Some(ReceivedValue::Number(1.0)));
+    assert_eq!(
+        props.get("color"),
+        Some(ReceivedValue::String("#fff".to_owned()))
+    );
+    assert_eq!(props.get("wrap"), Some(ReceivedValue::Bool(true)));
+    assert_eq!(
+        props.get("children"),
+        Some(ReceivedValue::String("Sale".to_owned()))
+    );
+    assert_eq!(
+        props.get("style.fontSize"),
+        Some(ReceivedValue::Number(48.0))
+    );
+    assert_eq!(props.get("y"), None);
+    assert_eq!(props.get("fontSize"), None);
+}
+
+#[test]
+fn layer_source_reads_wrapper_entries() {
+    let json = r#"{"layerSource":{"chain":[
+        {"name":"Rect","file":"/a/title.tsx","line":3,"column":10,"kind":"primitive","layerId":"root.2"},
+        {"name":"Sequence","file":"/a/title.tsx","line":2,"column":8,"kind":"wrapper"},
+        {"name":"Title","file":"/a/main.tsx","line":8,"column":4,"kind":"component"}]}}"#;
+    let Response::LayerSource { report } = serde_json::from_str(json).unwrap() else {
+        panic!("expected a LayerSource response");
+    };
+    let report = report.expect("found");
+    let kinds: Vec<_> = report.chain.iter().map(|entry| entry.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            ElementKind::Primitive,
+            ElementKind::Wrapper,
+            ElementKind::Component
+        ]
+    );
+    assert_eq!(report.chain[1].layer_id, None);
+}
+
+#[test]
+fn layer_source_reply_reads_windows_span_and_wrapper_kind() {
+    let json = r#"{"layerSource":{"chain":[
+        {"name":"Rect","file":"/a/title.tsx","line":3,"column":10,"kind":"primitive","layerId":"root.2"},
+        {"name":"Sequence","file":"/a/title.tsx","line":2,"column":8,"kind":"wrapper"}],
+        "windows":[
+            {"kind":"Sequence","from":30.5,"to":90,"source":{"file":"/a/title.tsx","line":2,"column":8}},
+            {"kind":"Loop","from":0,"to":120,"remapped":true}],
+        "span":{"from":30.5,"to":90}}}"#;
+    let Response::LayerSource { report } = serde_json::from_str(json).unwrap() else {
+        panic!("expected a LayerSource response");
+    };
+    let report = report.expect("found");
+    assert_eq!(report.chain[1].kind, ElementKind::Wrapper);
+    assert_eq!(
+        report.windows,
+        vec![
+            TimingWindow {
+                kind: "Sequence".to_owned(),
+                from: 30.5,
+                to: 90.0,
+                source: Some(SourcePos {
+                    file: "/a/title.tsx".into(),
+                    line: 2,
+                    column: 8,
+                }),
+                remapped: false,
+            },
+            TimingWindow {
+                kind: "Loop".to_owned(),
+                from: 0.0,
+                to: 120.0,
+                source: None,
+                remapped: true,
+            },
+        ]
+    );
+    assert_eq!(
+        report.span,
+        Some(FrameSpan {
+            from: 30.5,
+            to: 90.0
+        })
+    );
+}
+
+#[test]
+fn layer_source_reply_from_an_older_runtime_has_no_windows() {
+    let json =
+        r#"{"layerSource":{"chain":[{"name":"Rect","file":"/a/title.tsx","line":3,"column":10}]}}"#;
+    let Response::LayerSource { report } = serde_json::from_str(json).unwrap() else {
+        panic!("expected a LayerSource response");
+    };
+    let report = report.expect("found");
+    assert!(report.windows.is_empty());
+    assert_eq!(report.span, None);
+}
+
+#[test]
+fn collected_occurrences_response_parses() {
+    let json = r#"{"collectedOccurrences":{"elements":[{
+        "element":{"file":"/a/title.tsx","line":3,"column":10},
+        "instances":[{
+            "chain":[
+                {"file":"/a/title.tsx","line":3,"column":10},
+                {"file":"/a/main.tsx","line":8,"column":4}],
+            "ranges":[[0,30],[60,90]],
+            "maxPerFrame":2}]}]}}"#;
+    let Response::CollectedOccurrences {
+        collected_occurrences,
+    } = serde_json::from_str(json).unwrap()
+    else {
+        panic!("expected a CollectedOccurrences response");
+    };
+    let pos = |file: &str, line, column| SourcePos {
+        file: file.into(),
+        line,
+        column,
+    };
+    assert_eq!(
+        collected_occurrences,
+        OccurrenceIndex {
+            elements: vec![ElementOccurrences {
+                element: pos("/a/title.tsx", 3, 10),
+                instances: vec![InstanceOccurrences {
+                    chain: vec![pos("/a/title.tsx", 3, 10), pos("/a/main.tsx", 8, 4)],
+                    ranges: vec![(0, 30), (60, 90)],
+                    max_per_frame: 2,
+                }],
+            }],
+        }
+    );
 }
 
 fn audio_descriptor(src: &str, start: f64) -> ReactAudioClipDescriptor {
@@ -1136,6 +1430,7 @@ fn open_end_frame_requests_ask_for_and_read_back_the_echo() {
         debug_guides: false,
         preview: false,
         statics: None,
+        prop_overrides: &[],
     };
     let past = serde_json::to_value(request(true)).unwrap();
     assert_eq!(past["openEnd"], true);
@@ -1174,6 +1469,7 @@ fn frame_requests_ask_for_debug_guides_only_when_set() {
         debug_guides,
         preview: false,
         statics: None,
+        prop_overrides: &[],
     };
     let guides = serde_json::to_value(request(true)).unwrap();
     assert_eq!(guides["debugGuides"], true);
@@ -1193,12 +1489,49 @@ fn frame_requests_ask_for_the_preview_only_when_set() {
         debug_guides: false,
         preview,
         statics: None,
+        prop_overrides: &[],
     };
     let preview = serde_json::to_value(request(true)).unwrap();
     assert_eq!(preview["preview"], true);
     // Exports and inspection leave it out, so older runtimes see the same request.
     let plain = serde_json::to_value(request(false)).unwrap();
     assert!(plain.get("preview").is_none(), "{plain}");
+}
+
+#[test]
+fn frame_requests_carry_prop_overrides_only_when_there_are_some() {
+    let request = |prop_overrides| Request {
+        time: Some(Time::ZERO),
+        project: None,
+        runtime: None,
+        components: None,
+        compact_transforms: true,
+        open_end: false,
+        debug_guides: false,
+        preview: true,
+        statics: None,
+        prop_overrides,
+    };
+    let overrides = [PropOverride {
+        file: "/project/label.tsx".into(),
+        line: 3,
+        column: 9,
+        prop: "x".to_owned(),
+        value: 184.5,
+    }];
+    let dragged = serde_json::to_value(request(&overrides)).unwrap();
+    assert_eq!(
+        dragged["propOverrides"],
+        serde_json::json!([{
+            "file": "/project/label.tsx",
+            "line": 3,
+            "column": 9,
+            "prop": "x",
+            "value": 184.5,
+        }])
+    );
+    let plain = serde_json::to_value(request(&[])).unwrap();
+    assert!(plain.get("propOverrides").is_none(), "{plain}");
 }
 
 mod statics {
@@ -1388,6 +1721,7 @@ mod statics {
             debug_guides: false,
             preview: false,
             statics,
+            prop_overrides: &[],
         };
         let json = serde_json::to_string(&request(Some(StaticsRequest { decoded: 3 }))).unwrap();
         assert!(json.contains(r#""statics":{"decoded":3}"#), "{json}");

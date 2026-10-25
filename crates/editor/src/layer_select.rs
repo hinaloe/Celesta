@@ -90,6 +90,19 @@ pub(crate) fn source_lookup_target(
         .map(str::to_owned)
 }
 
+/// Whether a frame may ask for the selected layer's source while a value is
+/// being changed: not during a canvas drag (a released one until its
+/// reload), nor while a row's scrub is pressed. A released scrub's frame
+/// asks, so the targets its held write waits for get resolved. The runtime
+/// looks the source up without the overrides after drawing the frame with
+/// them, so the drawn frame keeps the scrubbed value. Nor while a text is
+/// edited on the canvas (`text_edit`): a keystroke asks the runtime
+/// nothing. A committed text, drawn until its reload, asks as a released
+/// scrub does.
+pub(crate) fn lookup_allowed(transform_drag: bool, scrub_pressed: bool, text_edit: bool) -> bool {
+    !transform_drag && !scrub_pressed && !text_edit
+}
+
 /// Whether the outcome of opening a source belongs in the panel: `started`
 /// is the session and selected layer when the open began, `now` the ones the
 /// panel shows. A late error must not appear under another layer.
@@ -124,8 +137,30 @@ pub(crate) fn source_position(source: &LayerSource, entry_dir: &Path) -> String 
 pub(crate) fn parent_layer_id(entry: &LayerSource) -> Option<&str> {
     match entry.kind {
         ElementKind::Primitive => entry.layer_id.as_deref(),
+        ElementKind::Wrapper => None,
         ElementKind::Component => None,
     }
+}
+
+/// The chain entry that calls the component enclosing the selected element:
+/// the nearest `Component` entry above it whose `name` equals `component`.
+/// Wrappers, and components the element is only passed to as children, are
+/// skipped. When none matches, the nearest component the runtime calls
+/// "Anonymous" (`memo` or `forwardRef` of an arrow function has no name).
+pub(crate) fn owner_call_site<'a>(
+    report: &'a LayerSourceReport,
+    component: &str,
+) -> Option<&'a LayerSource> {
+    let components = || {
+        report
+            .chain
+            .iter()
+            .skip(1)
+            .filter(|entry| entry.kind == ElementKind::Component)
+    };
+    components()
+        .find(|entry| entry.name == component)
+        .or_else(|| components().find(|entry| entry.name == "Anonymous"))
 }
 
 /// The quads to outline for the selection: its own hit regions, or, for a

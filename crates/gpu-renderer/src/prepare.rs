@@ -889,10 +889,11 @@ impl GpuRenderer {
                 let in_band = self.walk.plane.is_some() && !self.measuring_plane;
                 // A text whose whole raster is cached fits a texture; any
                 // other is measured (once) to see whether it does.
-                if in_band || !self.textures.contains_key(&key) {
-                    let size = self.text_size(layout, text, style, *max_width);
+                let measured = (in_band || !self.textures.contains_key(&key))
+                    .then(|| self.text_size(layout, text, style, *max_width));
+                if let Some(size) = &measured {
                     let placement = TextPlacement::new(
-                        &size,
+                        size,
                         style,
                         *max_width,
                         layer.transform.anchor,
@@ -911,7 +912,7 @@ impl GpuRenderer {
                     }
                     if !self.measuring_plane {
                         match placement.windowed(
-                            size.multiline,
+                            size.lines > 1,
                             state.transform,
                             raster_scale,
                             self.scene_size,
@@ -942,6 +943,7 @@ impl GpuRenderer {
                 } else {
                     // Rasterized with the frame's other new text once every
                     // layer is prepared; see `rasterize_texts`.
+                    let size = measured.expect("a text whose raster is not cached is measured");
                     self.pending_texts.push(PendingText {
                         item: output.len(),
                         key,
@@ -955,6 +957,7 @@ impl GpuRenderer {
                         blend_mode,
                         window,
                         shape,
+                        size,
                     });
                     output.push(PreparedItem::PendingText);
                 }
@@ -1322,20 +1325,34 @@ impl GpuRenderer {
             .hit_leaves
             .drain(..)
             .filter_map(|leaf| {
-                let (corners, hole) = match &items[leaf.item] {
-                    PreparedItem::Layer(layer) => (layer.corners(), layer.hole_corners()),
-                    PreparedItem::Instances(particles) => (particles.shape().corners(), None),
+                let (corners, hole, anchor_box, text_box) = match &items[leaf.item] {
+                    PreparedItem::Layer(layer) => (
+                        layer.corners(),
+                        layer.hole_corners(),
+                        layer.anchor_box_corners(),
+                        layer.text_box_corners(),
+                    ),
+                    PreparedItem::Instances(particles) => {
+                        (particles.shape().corners(), None, None, None)
+                    }
                     _ => return None,
                 };
                 // A leaf in a plane is in the plane's canvas pixels.
                 let corners = corners_to_scene(planes, leaf.plane, corners)?;
-                let hole = hole.map_or(Some(None), |hole| {
-                    corners_to_scene(planes, leaf.plane, hole).map(Some)
-                })?;
+                let to_scene = |quad: Option<[Point; 4]>| {
+                    quad.map_or(Some(None), |quad| {
+                        corners_to_scene(planes, leaf.plane, quad).map(Some)
+                    })
+                };
                 let region = HitRegion {
                     layer_id: leaf.layer_id,
                     corners,
-                    hole,
+                    hole: to_scene(hole)?,
+                    // A box that doesn't map leaves the layer hittable,
+                    // without an anchor box (or a text box).
+                    anchor_box: anchor_box
+                        .and_then(|quad| corners_to_scene(planes, leaf.plane, quad)),
+                    text_box: text_box.and_then(|quad| corners_to_scene(planes, leaf.plane, quad)),
                     clips: hit_clips(clips, planes, leaf.plane, leaf.clip)?,
                 };
                 (region.area() > 0.0).then_some(region)

@@ -1,9 +1,21 @@
 use crate::EDITOR_DEMO_PROJECT;
 use crate::audio::{AudioCacheKey, CachedAudioDecoder, take_latest};
 use crate::audio_cache::DiskAudioCache;
+use crate::edit_history::{EditHistory, HistoryEntry, Texts, write_all_recorded};
 use crate::editor_launch::{
     Invocation, LaunchError, default_opener, editor_invocation, editor_value,
     parse_login_shell_output, read_until_closing_marker, split_command,
+};
+use crate::element_edit::{
+    CommitError, ElementEdit, ElementTargets, PropKey, Target, TransformProp, apply_checked,
+    commit_files, inside_project, keyframe_jump_frames, keyframe_timeline_frame,
+    lock_outside_project, reason_text, resolve_targets, table_default, type_component_props,
+};
+use crate::element_rows::{
+    HeldCommit, HeldCommits, InteractiveToggle, Scrub, SelectionGate, TypedText, cleared_path,
+    commit_owns_row, component_row_label, control_kind, edited_rows, interactive_toggle,
+    moved_off_keyframe, parse_row_value, removable, row_field, row_kind, row_label, row_text,
+    scrub_takes_focus, scrub_value, set_at_text, typed_text, written_text,
 };
 use crate::export_worker::{
     ExportEvent, ExportRequest, ExportSource, ExportWorker, export_options,
@@ -12,34 +24,35 @@ use crate::helpers::{
     ExportLoudness, export_loudness_label, export_output, export_progress_label, export_range_for,
     export_suggested_name, loop_range_for,
 };
+use crate::layer_panel::locked_summary;
 use crate::layer_select::{
-    SourceLookup, display_path, launch_outcome_applies, letterbox, outline_quads, parent_layer_id,
-    scene_point, source_lookup, source_lookup_target, source_position,
+    SourceLookup, display_path, launch_outcome_applies, letterbox, lookup_allowed, outline_quads,
+    owner_call_site, parent_layer_id, scene_point, source_lookup, source_lookup_target,
+    source_position,
 };
+use crate::playback::in_text_field;
+use crate::property_controls::ControlKind;
 use crate::react_audio::{react_audio_clip_id, react_tracks};
 use crate::refresh::{LookupFate, SelectionKeep};
 use crate::source::is_react_entry;
-use crate::transform_drag::presses_body;
-use crate::transform_edit::{
-    CommitError, TransformEdit, TransformProp, commit_text, inside_project, keyframe_jump_frames,
-    keyframe_timeline_frame, lock_outside_project, reason_text, resolve_targets,
+use crate::transform_drag::{
+    OverrideSite, TransformDrag, override_sites, presses_body, prop_overrides,
 };
 use crate::transform_handles::{
-    Handle, drag_label, drag_values, handle_at, handles, override_transform, prop_values,
+    Handle, PivotMode, drag_label, drag_values, handle_at, handles, preview_values, prop_values,
     shown_handles, turn,
 };
-use crate::transform_rows::field_text;
 use crate::waveform::{
     clip_level_envelope, level_at_time, map_clip_waveform, master_volume_from_drag, waveform_peaks,
     waveform_segment,
 };
 use celesta_editor_core::ClipKind;
 use celesta_gpu_renderer::{GpuDriver, LayerFrame};
-use celesta_source_edit::{EditTarget, LockReason};
+use celesta_source_edit::{Edit, EditTarget, EditValue, LiteralForm, LockReason, Span, element_at};
 
 use crate::preview::{
-    ReactPreviewContext, ReactPreviewMode, apply_override, collect_component_requests,
-    records_hit_regions, splice_component_resolutions, strip_missing_components,
+    ReactPreviewContext, ReactPreviewMode, collect_component_requests, records_hit_regions,
+    splice_component_resolutions, strip_missing_components,
 };
 use celesta_composition::{
     Animatable, AssetLocation, AudioClip, EvaluatedTransform, GroupMask, Keyframe,
@@ -53,13 +66,20 @@ use celesta_exporter::{
 use celesta_media::{AudioBuffer, AudioDecoder};
 use celesta_project::{Project, TrackKind};
 use celesta_react_bridge::{
-    ComponentResolutions, ElementKind, LayerSource, LayerSourceReport, ReceivedProps,
+    ComponentResolutions, ElementKind, LayerSource, LayerSourceReport, PrimitivePropertyField,
+    PrimitivePropertyGroup, PrimitivePropertyRow, PrimitivePropertyTable, PropOverride,
+    ReceivedProps, ReceivedValue, SourcePos,
 };
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::{LazyLock, mpsc};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+mod element_edit;
+mod element_rows;
+mod held_scene;
+mod inline_text_view;
 
 #[test]
 fn background_workers_coalesce_queued_requests() {
@@ -168,6 +188,20 @@ fn export_range_needs_both_markers_ordered() {
     let range = export_range_for(Some(30), Some(90), rate).unwrap();
     assert_eq!(range.start, Time::frames(30, rate).unwrap());
     assert_eq!(range.end, Some(Time::frames(90, rate).unwrap()));
+}
+
+#[test]
+fn the_playhead_keys_rest_while_a_text_field_has_the_focus() {
+    let stack = |contexts: &[&str]| {
+        contexts
+            .iter()
+            .map(|context| gpui_kit::KeyContext::parse(context).unwrap())
+            .collect::<Vec<_>>()
+    };
+    assert!(!in_text_field(&stack(&["CelestaEditor"])));
+    assert!(in_text_field(&stack(&["CelestaEditor", "Input"])));
+    // A menu control is not a text field.
+    assert!(!in_text_field(&stack(&["CelestaEditor", "Select"])));
 }
 
 #[test]
@@ -612,57 +646,6 @@ fn masked_group(children: Vec<Layer>, mask: Vec<Layer>) -> Layer {
     }
 }
 
-fn scene_of(layers: Vec<Layer>) -> Scene {
-    Scene {
-        width: 64,
-        height: 64,
-        frame_rate: Rational::new(30, 1),
-        time: Time::default(),
-        fonts: Vec::new(),
-        shaders: Vec::new(),
-        layers,
-    }
-}
-
-#[test]
-fn an_override_replaces_the_transform_of_a_nested_layer() {
-    let inner = Layer {
-        content: LayerContent::Group {
-            layers: vec![missing("target"), missing("other")],
-            clip: None,
-            mask: None,
-            motion_blur: false,
-        },
-        ..missing("group")
-    };
-    let mut scene = scene_of(vec![missing("first"), inner]);
-    let moved = EvaluatedTransform {
-        rotation: 30.0,
-        ..EvaluatedTransform::default()
-    };
-
-    assert!(apply_override(&mut scene, "target", &moved));
-
-    let LayerContent::Group { layers, .. } = &scene.layers[1].content else {
-        unreachable!()
-    };
-    assert_eq!(layers[0].transform, moved);
-    assert_eq!(layers[1].transform, EvaluatedTransform::default());
-    assert_eq!(scene.layers[0].transform, EvaluatedTransform::default());
-}
-
-#[test]
-fn an_override_of_an_absent_layer_changes_nothing() {
-    let mut scene = scene_of(vec![missing("a")]);
-    let moved = EvaluatedTransform {
-        rotation: 30.0,
-        ..EvaluatedTransform::default()
-    };
-
-    assert!(!apply_override(&mut scene, "b", &moved));
-    assert_eq!(scene, scene_of(vec![missing("a")]));
-}
-
 #[test]
 fn component_requests_reach_into_masks_after_the_children() {
     let layers = vec![masked_group(vec![missing("Child")], vec![missing("Matte")])];
@@ -786,6 +769,8 @@ fn report_of(chain: Vec<LayerSource>) -> LayerSourceReport {
         candidate_frames: vec![],
         props: ReceivedProps::default(),
         render_count: 1,
+        windows: vec![],
+        span: None,
     }
 }
 
@@ -1224,6 +1209,8 @@ fn primitive_report(line: u32, column: u32, props: ReceivedProps) -> LayerSource
         candidate_frames: vec![],
         props,
         render_count: 1,
+        windows: vec![],
+        span: None,
     }
 }
 
@@ -1234,199 +1221,45 @@ fn x_only() -> ReceivedProps {
     }
 }
 
-#[test]
-fn transform_resolve_targets_prefers_scale_xy() {
-    let text = "export const Scene = () => (\n  <Rect x={1} scaleX={2} />\n);\n";
-    let report = primitive_report(
-        2,
-        3,
-        ReceivedProps {
-            x: Some(1.0),
-            scale_x: Some(2.0),
-            ..ReceivedProps::default()
-        },
-    );
-
-    let targets = resolve_targets(text, &report).expect("the element resolves");
-
-    let props: Vec<_> = targets.targets.iter().map(|(prop, _)| *prop).collect();
-    assert_eq!(
-        props,
-        [
-            TransformProp::X,
-            TransformProp::Y,
-            TransformProp::Rotation,
-            TransformProp::ScaleX,
-            TransformProp::ScaleY
-        ]
-    );
-    assert!(matches!(
-        targets.targets[3].1,
-        EditTarget::Literal { value, .. } if value == 2.0
-    ));
-    assert!(matches!(
-        targets.targets[4].1,
-        EditTarget::Missing { default, .. } if default == 1.0
-    ));
-    assert_eq!(targets.file, PathBuf::from("/project/scene.tsx"));
+/// Resolves `report` with `text` as the text of every file.
+fn resolve_in(text: &str, report: &LayerSourceReport) -> Result<ElementTargets, String> {
+    resolve_targets(|_| Ok(text.to_owned()), report, None)
 }
 
-#[test]
-fn transform_resolve_targets_uniform_scale() {
-    let targets = resolve_targets(TRANSFORM_FIXTURE, &primitive_report(2, 3, x_only()))
-        .expect("the element resolves");
-
-    let props: Vec<_> = targets.targets.iter().map(|(prop, _)| *prop).collect();
-    assert_eq!(
-        props,
-        [
-            TransformProp::X,
-            TransformProp::Y,
-            TransformProp::Rotation,
-            TransformProp::Scale
-        ]
-    );
-    assert_eq!(TransformProp::ScaleX.name(), "scaleX");
-    assert!(matches!(
-        targets.targets[0].1,
-        EditTarget::Literal { value, .. } if value == 100.0
-    ));
+/// The row keys of `targets`, in order.
+fn keys(targets: &ElementTargets) -> Vec<PropKey> {
+    targets.targets.iter().map(|(key, _)| key.clone()).collect()
 }
 
-#[test]
-fn transform_resolve_targets_fails_without_the_element() {
-    assert!(resolve_targets(TRANSFORM_FIXTURE, &primitive_report(1, 1, x_only())).is_err());
-    assert!(resolve_targets(TRANSFORM_FIXTURE, &report_of(Vec::new())).is_err());
+/// `<Text>Sale</Text>` / `<Video loop />` at line 2, column 3 of
+/// `/project/scene.tsx`, received with `value` as `prop`.
+fn other_prop_report(name: &str, prop: &str, value: ReceivedValue) -> LayerSourceReport {
+    let mut report = primitive_report(2, 3, ReceivedProps::default());
+    report.chain[0].name = name.to_owned();
+    report.props.others.insert(prop.to_owned(), value);
+    report
 }
 
-#[test]
-fn transform_commit_writes_literal_and_inserts() {
-    let report = primitive_report(2, 3, x_only());
-    let expected = resolve_targets(TRANSFORM_FIXTURE, &report).unwrap();
-
-    let written = commit_text(
-        TRANSFORM_FIXTURE,
-        &expected,
-        &report,
-        &[(TransformProp::X, 120.0), (TransformProp::Rotation, 45.5)],
-    )
-    .expect("both targets are editable");
-
-    assert_eq!(
-        written,
-        "export const Scene = () => (\n  <Rect x={120} width={10} rotation={45.5} />\n);\n"
-    );
-}
-
-#[test]
-fn transform_commit_aborts_when_target_moved() {
-    let report = primitive_report(2, 3, x_only());
-    let expected = resolve_targets(TRANSFORM_FIXTURE, &report).unwrap();
-    // The element moved within its line, so the report's position misses it.
-    let moved = TRANSFORM_FIXTURE.replace("  <Rect", "    <Rect");
-    // The element stayed but its `x` became longer, so the span moved.
-    let widened = TRANSFORM_FIXTURE.replace("x={100}", "x={1000}");
-
-    for text in [moved, widened] {
-        let error = commit_text(&text, &expected, &report, &[(TransformProp::X, 120.0)])
-            .expect_err("the source changed");
-        assert_eq!(error, CommitError::SourceChanged);
-        assert_eq!(error.to_string(), "The source changed during the edit");
-    }
-}
-
-#[test]
-fn transform_commit_refuses_locked_and_non_finite_values() {
-    let report = primitive_report(2, 3, x_only());
-    let expected = resolve_targets(TRANSFORM_FIXTURE, &report).unwrap();
-
-    assert!(matches!(
-        commit_text(
-            TRANSFORM_FIXTURE,
-            &expected,
-            &report,
-            &[(TransformProp::X, f64::NAN)]
-        ),
-        Err(CommitError::NotANumber)
-    ));
-    // `scaleX` is not a target of a uniformly scaled element.
-    assert!(matches!(
-        commit_text(
-            TRANSFORM_FIXTURE,
-            &expected,
-            &report,
-            &[(TransformProp::ScaleX, 2.0)]
-        ),
-        Err(CommitError::NotEditable(TransformProp::ScaleX))
-    ));
-}
-
-#[test]
-fn transform_reason_texts_match_spec() {
-    let cases = [
-        (LockReason::SyntaxError, "The source has syntax errors"),
-        (
-            LockReason::ElementNotFound,
-            "Couldn't find this element in the source",
-        ),
-        (
-            LockReason::NotPrimitive,
-            "Set by a component, not written on this element",
-        ),
-        (
-            LockReason::Expression {
-                source: "W / 2".to_string(),
+/// A hand-built target set of `text`'s element at line 2, column 3 with the
+/// single row `prop` holding `target`.
+fn single_row(text: &str, prop: &str, target: EditTarget) -> ElementTargets {
+    let file = PathBuf::from("/project/scene.tsx");
+    ElementTargets {
+        file: file.clone(),
+        files: vec![file.clone()],
+        element: element_at(text, 2, 3).expect("the element is at 2:3"),
+        targets: vec![(
+            PropKey::Prop(prop.to_owned()),
+            Target {
+                file,
+                path: prop.to_owned(),
+                target,
+                call_site: None,
+                inputs: Vec::new(),
             },
-            "Written as an expression: W / 2",
-        ),
-        (
-            LockReason::UnresolvedIdentifier {
-                name: "name".to_string(),
-            },
-            "Comes from name, which can't be traced",
-        ),
-        (
-            LockReason::SharedBinding {
-                name: "enter".to_string(),
-                uses: 3,
-            },
-            "enter is used in 3 places",
-        ),
-        (
-            LockReason::BetweenKeyframes {
-                previous: 0.0,
-                next: 30.0,
-                frame: 15.0,
-            },
-            "Between keyframes at 0 and 30",
-        ),
-        (LockReason::OutsideKeyframes, "Outside the keyframes"),
-        (
-            LockReason::UnsupportedCall {
-                callee: "spring".to_string(),
-            },
-            "Computed by spring()",
-        ),
-        (
-            LockReason::OverriddenByParent,
-            "A layout component sets this value",
-        ),
-        (LockReason::Spread, "May be set by a spread ({...props})"),
-        (
-            LockReason::Repeated { count: 12 },
-            "Rendered 12 times from this element",
-        ),
-        (
-            LockReason::FrameUncertain,
-            "Can't tell which frame this animation reads",
-        ),
-        (
-            LockReason::OutsideProject,
-            "This file is outside the project",
-        ),
-    ];
-    for (reason, text) in cases {
-        assert_eq!(reason_text(&reason), text);
+        )],
+        table: None,
+        component: None,
     }
 }
 
@@ -1467,171 +1300,6 @@ fn transform_kept_selection_waits_for_the_reloaded_frame() {
     assert_eq!(keep.lookup_arrived(10, true), LookupFate::Show);
 }
 
-#[test]
-fn transform_state_drops_stale_resolutions() {
-    let report = primitive_report(2, 3, x_only());
-    let moved = primitive_report(2, 3, ReceivedProps::default());
-    let targets = || resolve_targets(TRANSFORM_FIXTURE, &report);
-    let mut state = TransformEdit::default();
-
-    let first = state.begin("a", &report, 0).expect("nothing resolved yet");
-    assert_eq!(state.begin("a", &report, 0), None, "already resolving it");
-    assert!(state.finish(first, Some("a"), targets()));
-    let lookup = Some((&report, 0));
-    assert!(state.targets(Some("a"), lookup).is_some());
-    assert!(
-        state.targets(Some("b"), lookup).is_none(),
-        "belongs to layer a"
-    );
-
-    // After a write the targets are unknown until resolved again.
-    state.invalidate();
-    assert!(state.targets(Some("a"), lookup).is_none());
-    // The old report describes the old code; wait for the reload's lookup.
-    assert_eq!(state.begin("a", &report, 0), None);
-    state.reset();
-    let second = state
-        .begin("a", &report, 0)
-        .expect("the reload's lookup resolves again");
-
-    // A newer report supersedes the one in flight.
-    let third = state.begin("a", &moved, 0).expect("another report");
-    assert!(!state.finish(second, Some("a"), targets()));
-    // The selection changed while it resolved.
-    assert!(!state.finish(third, Some("b"), targets()));
-    assert!(state.targets(Some("a"), Some((&moved, 0))).is_none());
-}
-
-#[test]
-fn transform_resolve_targets_ignores_a_scale_axis_only_a_parent_sets() {
-    // A parent passes `scaleX`, but the element writes neither axis.
-    let report = primitive_report(
-        2,
-        3,
-        ReceivedProps {
-            x: Some(100.0),
-            scale_x: Some(2.0),
-            ..ReceivedProps::default()
-        },
-    );
-
-    let targets = resolve_targets(TRANSFORM_FIXTURE, &report).expect("the element resolves");
-
-    let props: Vec<_> = targets.targets.iter().map(|(prop, _)| *prop).collect();
-    assert_eq!(
-        props,
-        [
-            TransformProp::X,
-            TransformProp::Y,
-            TransformProp::Rotation,
-            TransformProp::Scale
-        ]
-    );
-}
-
-#[test]
-fn transform_reset_resolves_an_identical_report_again() {
-    // `<Rect width={10} x={100} />` became `width={100}` elsewhere: the report
-    // is the same, but `x` moved.
-    let before = "export const Scene = () => (\n  <Rect width={10} x={100} />\n);\n";
-    let after = before.replace("width={10}", "width={100}");
-    let report = primitive_report(2, 3, x_only());
-    let mut state = TransformEdit::default();
-
-    let first = state.begin("a", &report, 0).unwrap();
-    assert!(state.finish(first, Some("a"), resolve_targets(before, &report)));
-    state.set_error(
-        Some("a"),
-        Some("The source changed during the edit".to_owned()),
-    );
-
-    // The reload cleared the selection; selecting the layer again.
-    state.reset();
-    assert_eq!(state.error(Some("a")), None, "the old error is gone");
-    let second = state.begin("a", &report, 0).expect("resolved again");
-    assert!(state.finish(second, Some("a"), resolve_targets(&after, &report)));
-
-    let (targets, report) = state.targets(Some("a"), Some((&report, 0))).unwrap();
-    let written = commit_text(&after, targets, report, &[(TransformProp::X, 120.0)]).unwrap();
-    assert_eq!(written, after.replace("x={100}", "x={120}"));
-}
-
-#[test]
-fn transform_explains_why_there_is_nothing_to_commit() {
-    let report = primitive_report(2, 3, x_only());
-    let mut state = TransformEdit::default();
-    assert_eq!(
-        state.unavailable(Some("a")),
-        "The source is still being read"
-    );
-
-    let request = state.begin("a", &report, 0).unwrap();
-    assert_eq!(
-        state.unavailable(Some("a")),
-        "The source is still being read"
-    );
-    assert!(state.finish(
-        request,
-        Some("a"),
-        Err("Couldn't read scene.tsx".to_owned())
-    ));
-    assert_eq!(state.unavailable(Some("a")), "Couldn't read scene.tsx");
-
-    let request = state.begin("a", &report, 1).unwrap();
-    assert!(state.finish(
-        request,
-        Some("a"),
-        resolve_targets(TRANSFORM_FIXTURE, &report)
-    ));
-    state.invalidate();
-    assert_eq!(state.unavailable(Some("a")), "Select the layer again");
-}
-
-#[test]
-fn transform_keyframe_jumps_use_the_lookup_frame() {
-    // Looked up at timeline frame 100 inside a sequence starting at 40.
-    assert_eq!(keyframe_timeline_frame(0.0, 100, 60.0), 40);
-    assert_eq!(keyframe_timeline_frame(90.0, 100, 60.0), 130);
-    // Not shifted by a sequence.
-    assert_eq!(keyframe_timeline_frame(30.0, 12, 12.0), 30);
-}
-
-#[test]
-fn transform_keyframe_jumps_use_the_candidate_frame() {
-    // The report's owner guess is 60, but `frame` reads the Sequence's 30
-    // (frame 15 of [0, 30] gives the received 250, frame 60 would be outside).
-    let text = "export const Scene = () => {\n  const frame = useCurrentFrame();\n  return <Sequence from={30}><Rect x={interpolate(frame - 15, [0, 30], [100, 400])} /></Sequence>;\n};\n";
-    let report = LayerSourceReport {
-        local_frame: 60.0,
-        candidate_frames: vec![60.0, 30.0],
-        ..primitive_report(
-            3,
-            30,
-            ReceivedProps {
-                x: Some(250.0),
-                ..ReceivedProps::default()
-            },
-        )
-    };
-    let targets = resolve_targets(text, &report).unwrap();
-    let target = targets.target(TransformProp::X).unwrap();
-    assert_eq!(
-        target,
-        &EditTarget::Locked(LockReason::BetweenKeyframes {
-            previous: 15.0,
-            next: 45.0,
-            frame: 30.0,
-        })
-    );
-    // Looked up at timeline frame 60: keyframes 15 and 45 of the Sequence's
-    // frames are timeline frames 45 and 75.
-    assert_eq!(keyframe_jump_frames(target, 60), Some((45, 75)));
-    assert_eq!(
-        keyframe_jump_frames(&EditTarget::Locked(LockReason::OutsideKeyframes), 60),
-        None
-    );
-}
-
 /// A 100x50 layer at `position` with its anchor at the top left (React's
 /// default), under `parent`, unrotated and unscaled.
 fn drag_frame(parent: [f64; 6], position: Point) -> LayerFrame {
@@ -1652,33 +1320,57 @@ fn drag_frame(parent: [f64; 6], position: Point) -> LayerFrame {
             corner(100.0, 50.0),
             corner(0.0, 50.0),
         ],
+        anchor_box: None,
         leaves: vec!["a".to_owned()],
     }
 }
 
 const IDENTITY: [f64; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
-const UNIFORM: [TransformProp; 4] = [
-    TransformProp::X,
-    TransformProp::Y,
-    TransformProp::Rotation,
-    TransformProp::Scale,
-];
-const PER_AXIS: [TransformProp; 5] = [
-    TransformProp::X,
-    TransformProp::Y,
-    TransformProp::Rotation,
-    TransformProp::ScaleX,
-    TransformProp::ScaleY,
-];
+static UNIFORM: LazyLock<Vec<PropKey>> = LazyLock::new(|| {
+    drag_keys(&[
+        TransformProp::X,
+        TransformProp::Y,
+        TransformProp::Rotation,
+        TransformProp::Scale,
+    ])
+});
+static PER_AXIS: LazyLock<Vec<PropKey>> = LazyLock::new(|| {
+    drag_keys(&[
+        TransformProp::X,
+        TransformProp::Y,
+        TransformProp::Rotation,
+        TransformProp::ScaleX,
+        TransformProp::ScaleY,
+    ])
+});
 
 fn pt(x: f64, y: f64) -> Point {
     Point { x, y }
 }
 
-fn assert_values(actual: &[(TransformProp, f64)], expected: &[(TransformProp, f64)]) {
+/// The drag keys of `props`.
+fn drag_keys(props: &[TransformProp]) -> Vec<PropKey> {
+    props.iter().map(|prop| prop.key()).collect()
+}
+
+/// `values` keyed by prop name.
+fn keyed(values: &[(TransformProp, f64)]) -> Vec<(PropKey, f64)> {
+    values
+        .iter()
+        .map(|&(prop, value)| (prop.key(), value))
+        .collect()
+}
+
+fn assert_values(actual: &[(PropKey, f64)], expected: &[(TransformProp, f64)]) {
     assert_eq!(
-        actual.iter().map(|(prop, _)| *prop).collect::<Vec<_>>(),
-        expected.iter().map(|(prop, _)| *prop).collect::<Vec<_>>(),
+        actual
+            .iter()
+            .map(|(key, _)| key.clone())
+            .collect::<Vec<_>>(),
+        expected
+            .iter()
+            .map(|(prop, _)| prop.key())
+            .collect::<Vec<_>>(),
         "{actual:?}"
     );
     for ((_, a), (_, e)) in actual.iter().zip(expected) {
@@ -1696,6 +1388,8 @@ fn drag_values_move_inside_a_parent_scaled_by_two_halves_the_delta() {
         false,
         0.0,
         &UNIFORM,
+        PivotMode::Pivot,
+        None,
     );
     assert_values(
         &values,
@@ -1706,11 +1400,11 @@ fn drag_values_move_inside_a_parent_scaled_by_two_halves_the_delta() {
 #[test]
 fn drag_values_move_with_y_locked_changes_only_x() {
     let frame = drag_frame(IDENTITY, pt(10.0, 20.0));
-    let editable = [
+    let editable = drag_keys(&[
         TransformProp::X,
         TransformProp::Rotation,
         TransformProp::Scale,
-    ];
+    ]);
     let values = drag_values(
         &frame,
         Handle::Move,
@@ -1718,6 +1412,8 @@ fn drag_values_move_with_y_locked_changes_only_x() {
         false,
         0.0,
         &editable,
+        PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[(TransformProp::X, 15.0)]);
 }
@@ -1734,6 +1430,8 @@ fn drag_values_rotate_turns_about_the_anchor_and_snaps_with_shift() {
         false,
         0.0,
         &UNIFORM,
+        PivotMode::Pivot,
+        None,
     );
     assert_values(&free, &[(TransformProp::Rotation, 37.0)]);
     let snapped = drag_values(
@@ -1743,6 +1441,8 @@ fn drag_values_rotate_turns_about_the_anchor_and_snaps_with_shift() {
         true,
         0.0,
         &UNIFORM,
+        PivotMode::Pivot,
+        None,
     );
     assert_values(&snapped, &[(TransformProp::Rotation, 30.0)]);
 }
@@ -1761,6 +1461,8 @@ fn drag_values_rotate_snaps_the_resulting_angle() {
         true,
         0.0,
         &UNIFORM,
+        PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[(TransformProp::Rotation, 30.0)]);
 }
@@ -1777,6 +1479,8 @@ fn drag_values_corner_with_uniform_scale_keeps_the_aspect() {
         false,
         0.0,
         &UNIFORM,
+        PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[(TransformProp::Scale, 4.0)]);
     // Off the diagonal: one ratio, the projection on it.
@@ -1787,6 +1491,8 @@ fn drag_values_corner_with_uniform_scale_keeps_the_aspect() {
         false,
         0.0,
         &UNIFORM,
+        PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[(TransformProp::Scale, 2.0 * 24000.0 / 12500.0)]);
 }
@@ -1801,6 +1507,8 @@ fn drag_values_corner_with_per_axis_scale_scales_each_axis() {
         false,
         0.0,
         &PER_AXIS,
+        PivotMode::Pivot,
+        None,
     );
     assert_values(
         &values,
@@ -1818,6 +1526,8 @@ fn drag_values_edge_changes_only_scale_x() {
         false,
         0.0,
         &PER_AXIS,
+        PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[(TransformProp::ScaleX, 1.5)]);
 }
@@ -1834,6 +1544,8 @@ fn drag_values_scale_in_the_layers_rotated_axes() {
         false,
         0.0,
         &PER_AXIS,
+        PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[(TransformProp::ScaleX, 3.0)]);
 }
@@ -1848,6 +1560,8 @@ fn drag_values_corner_on_the_anchor_leaves_the_scale() {
         false,
         0.0,
         &UNIFORM,
+        PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[]);
 }
@@ -1885,18 +1599,14 @@ fn transform_handle_at_prefers_handles_then_the_body() {
 }
 
 #[test]
-fn transform_drag_override_and_props() {
+fn transform_drag_props() {
     let mut frame = drag_frame(IDENTITY, pt(10.0, 20.0));
     frame.transform.scale = pt(2.0, 2.0);
-    let values = [
+    let values = keyed(&[
         (TransformProp::X, 30.0),
         (TransformProp::Rotation, 15.0),
         (TransformProp::Scale, 3.0),
-    ];
-    let transform = override_transform(&frame, &values);
-    assert_eq!(transform.position, pt(30.0, 20.0));
-    assert_eq!(transform.rotation, 15.0);
-    assert_eq!(transform.scale, pt(3.0, 3.0));
+    ]);
 
     // A prop the runtime saw as another value than the transform's keeps its
     // offset; a scale its ratio.
@@ -1906,21 +1616,21 @@ fn transform_drag_override_and_props() {
         ..ReceivedProps::default()
     };
     assert_eq!(
-        prop_values(&frame, &values, &props),
-        vec![
+        prop_values(&frame, &values, &props, None),
+        keyed(&[
             (TransformProp::X, 130.0),
             (TransformProp::Rotation, 15.0),
             (TransformProp::Scale, 6.0),
-        ]
+        ])
     );
     // The label shows what is written: the received values, not the
     // transform's.
     assert_eq!(
-        drag_label(&frame, &values, &props),
+        drag_label(&frame, &values, &props, None),
         "x 110 → 130  rotation 0 → 15  scale 4 → 6"
     );
     assert_eq!(
-        drag_label(&frame, &values, &ReceivedProps::default()),
+        drag_label(&frame, &values, &ReceivedProps::default(), None),
         "x 10 → 30  rotation 0 → 15  scale 2 → 3"
     );
 }
@@ -1940,10 +1650,12 @@ fn transform_drag_back_at_the_start_writes_nothing() {
         false,
         0.0,
         &UNIFORM,
+        PivotMode::Pivot,
+        None,
     );
     assert_eq!(values.len(), 2);
-    assert!(prop_values(&frame, &values, &props).is_empty());
-    assert_eq!(drag_label(&frame, &values, &props), "");
+    assert!(prop_values(&frame, &values, &props, None).is_empty());
+    assert_eq!(drag_label(&frame, &values, &props, None), "");
     // Only the changed axis is written.
     let values = drag_values(
         &frame,
@@ -1952,10 +1664,12 @@ fn transform_drag_back_at_the_start_writes_nothing() {
         false,
         0.0,
         &UNIFORM,
+        PivotMode::Pivot,
+        None,
     );
     assert_eq!(
-        prop_values(&frame, &values, &props),
-        vec![(TransformProp::X, 14.0)]
+        prop_values(&frame, &values, &props, None),
+        keyed(&[(TransformProp::X, 14.0)])
     );
 }
 
@@ -1970,7 +1684,7 @@ fn drag_values_rotation_keeps_counting_past_a_half_turn() {
     // Turning clockwise in steps, each move unwrapped against the last.
     let mut turned = 0.0;
     for degrees in [60.0, 120.0, 170.0, 190.0] {
-        turned = turn(&frame, start, at(degrees), turned).unwrap();
+        turned = turn(&frame, PivotMode::Pivot, start, at(degrees), turned).unwrap();
     }
     assert!((turned - 190.0).abs() < 1e-9, "{turned}");
     let values = drag_values(
@@ -1980,6 +1694,8 @@ fn drag_values_rotation_keeps_counting_past_a_half_turn() {
         false,
         170.0,
         &UNIFORM,
+        PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[(TransformProp::Rotation, 190.0)]);
     // From a fresh start the same pointer is the short way round.
@@ -1990,12 +1706,14 @@ fn drag_values_rotation_keeps_counting_past_a_half_turn() {
         false,
         0.0,
         &UNIFORM,
+        PivotMode::Pivot,
+        None,
     );
     assert_values(&values, &[(TransformProp::Rotation, -170.0)]);
 }
 
-fn shown(frame: &LayerFrame, editable: &[TransformProp]) -> Vec<Handle> {
-    shown_handles(frame, editable, 20.0)
+fn shown(frame: &LayerFrame, editable: &[PropKey]) -> Vec<Handle> {
+    shown_handles(frame, editable, 20.0, PivotMode::Pivot, None)
         .into_iter()
         .map(|(handle, _)| handle)
         .collect()
@@ -2029,7 +1747,7 @@ fn transform_shown_handles_leave_out_handles_that_scale_nothing() {
         ]
     );
     // scaleY locked: its edge and the corner that only scales y go.
-    let x_only = [TransformProp::X, TransformProp::ScaleX];
+    let x_only = drag_keys(&[TransformProp::X, TransformProp::ScaleX]);
     assert_eq!(
         shown(&frame, &x_only),
         vec![Handle::Corner(1), Handle::Corner(2), Handle::Edge(1)]
@@ -2091,85 +1809,50 @@ fn above_sequence_report(candidate_frames: Vec<f64>) -> LayerSourceReport {
 }
 
 #[test]
-fn transform_keyframe_is_the_one_the_owner_frame_reads() {
-    let targets = resolve_targets(ABOVE_SEQUENCE, &above_sequence_report(vec![])).unwrap();
-    let Some(EditTarget::Keyframe { span, frame, .. }) = targets.target(TransformProp::X) else {
-        panic!(
-            "expected a keyframe, got {:?}",
-            targets.target(TransformProp::X)
-        );
-    };
-    assert_eq!(span.start as usize, ABOVE_SEQUENCE.rfind("100").unwrap());
-    assert_eq!(*frame, 60.0);
-
-    // The frame could be the Sequence's 30 as well, which is the keyframe
-    // whose value is also 100: no telling which.
-    let targets =
-        resolve_targets(ABOVE_SEQUENCE, &above_sequence_report(vec![30.0, 60.0])).unwrap();
-    assert_eq!(
-        targets.target(TransformProp::X),
-        Some(&EditTarget::Locked(LockReason::FrameUncertain))
-    );
-    // A literal elsewhere on the element stays editable.
-    assert!(matches!(
-        targets.target(TransformProp::Y),
-        Some(EditTarget::Missing { .. })
-    ));
-}
-
-#[test]
-fn transform_targets_need_the_current_lookup() {
+fn an_own_write_reload_keeps_the_lookup() {
     let report = primitive_report(2, 3, x_only());
-    let other = primitive_report(2, 3, ReceivedProps::default());
-    let mut state = TransformEdit::default();
-    let request = state.begin("a", &report, 10).unwrap();
-    assert!(state.finish(
-        request,
-        Some("a"),
-        resolve_targets(TRANSFORM_FIXTURE, &report)
-    ));
-    assert!(state.targets(Some("a"), Some((&report, 10))).is_some());
-
-    // Seeked: the lookup at the new frame has not been resolved yet.
-    assert!(state.targets(Some("a"), Some((&report, 11))).is_none());
-    // A newer report for the same frame.
-    assert!(state.targets(Some("a"), Some((&other, 10))).is_none());
-    // Still looking up.
-    assert!(state.targets(Some("a"), None).is_none());
-}
-
-#[test]
-fn transform_only_a_reset_clears_an_own_write() {
-    let report = primitive_report(2, 3, x_only());
-    let newer = primitive_report(2, 3, ReceivedProps::default());
-    let mut state = TransformEdit::default();
+    let targets = || resolve_in(TRANSFORM_FIXTURE, &report);
+    let mut keep = SelectionKeep::default();
+    let mut state = ElementEdit::default();
     let request = state.begin("a", &report, 0).unwrap();
-    assert!(state.finish(
-        request,
-        Some("a"),
-        resolve_targets(TRANSFORM_FIXTURE, &report)
-    ));
+    assert!(state.finish(request, Some("a"), targets()));
 
-    // A lookup answered by the old runtime after the write resolves, but the
-    // file it was read from is about to be reloaded.
+    // A transform commit wrote the file and asked for a reload.
+    keep.own_write();
     state.invalidate();
-    let request = state.begin("a", &newer, 0).unwrap();
-    assert!(state.finish(
-        request,
-        Some("a"),
-        resolve_targets(TRANSFORM_FIXTURE, &newer)
-    ));
-    assert!(state.targets(Some("a"), Some((&newer, 0))).is_none());
+    assert!(keep.requested(1, true));
 
-    // The kept reload resets the state.
-    state.reset();
-    let request = state.begin("a", &newer, 0).unwrap();
-    assert!(state.finish(
-        request,
-        Some("a"),
-        resolve_targets(TRANSFORM_FIXTURE, &newer)
-    ));
-    assert!(state.targets(Some("a"), Some((&newer, 0))).is_some());
+    // The reload is applied: the view keeps the lookup answer, marks it
+    // stale, and expires the targets.
+    assert!(keep.applies(1));
+    state.expire();
+    keep.confirm_from(5);
+    let (_, current) = state.resolved(Some("a")).expect("still shown");
+    assert!(!current);
+
+    // A frame of the old code keeps the stale answer up.
+    assert_eq!(keep.lookup_arrived(4, false), LookupFate::Stale);
+    // The reloaded code still draws the layer: the answer shows and the
+    // same report resolves again, current.
+    assert_eq!(keep.lookup_arrived(5, false), LookupFate::Show);
+    let request = state.begin("a", &report, 0).expect("resolved again");
+    assert!(state.finish(request, Some("a"), targets()));
+    assert!(state.targets(Some("a"), Some((&report, 0))).is_some());
+}
+
+#[test]
+fn an_outside_reload_clears_the_selection() {
+    let mut keep = SelectionKeep::default();
+    // An edit in another editor reloads without an own write.
+    assert!(!keep.requested(1, true));
+    assert!(!keep.applies(1));
+    // An own write whose reload loads another composition.
+    keep.own_write();
+    assert!(!keep.requested(2, false));
+    assert!(!keep.applies(2));
+    // The own write was used up; the next outside reload clears too.
+    assert!(!keep.requested(3, true));
+    assert!(!keep.applies(3));
 }
 
 #[test]
@@ -2186,98 +1869,664 @@ fn transform_body_press_on_a_group_child_moves_the_group() {
     assert!(!presses_body(&leaf, Some("b")));
 }
 
-#[test]
-fn transform_missing_scale_axis_shows_the_written_scale() {
-    // `<Rect scale={2} scaleX={3} />`: scaleY is absent but drawn at 2.
-    let report = primitive_report(
-        2,
-        3,
-        ReceivedProps {
-            scale: Some(2.0),
-            scale_x: Some(3.0),
+const PRICE_TAG: &str =
+    "export const PriceTag = ({ x }) => (\n  <Rect x={x} rotation={10} />\n);\n";
+const PRICE_TAG_SCENE: &str = "export const Scene = () => (\n  <PriceTag x={40} />\n);\n";
+
+fn entry_at(name: &str, kind: ElementKind, file: &str, line: u32) -> LayerSource {
+    LayerSource {
+        name: name.to_owned(),
+        file: PathBuf::from(file),
+        line,
+        column: 3,
+        kind,
+        layer_id: None,
+    }
+}
+
+/// `<Rect x={x}>` in `PriceTag`, called from the scene as `<PriceTag x={40} />`.
+fn price_tag_report() -> LayerSourceReport {
+    LayerSourceReport {
+        props: ReceivedProps {
+            x: Some(40.0),
+            rotation: Some(10.0),
             ..ReceivedProps::default()
         },
-    );
-    let missing = EditTarget::Missing {
-        insert_at: 0,
-        default: 1.0,
-    };
-    assert_eq!(
-        field_text(TransformProp::ScaleY, &missing, &report),
-        (String::new(), "2".to_owned())
-    );
-    assert_eq!(
-        field_text(
-            TransformProp::ScaleY,
-            &EditTarget::Locked(LockReason::Spread),
-            &report
+        ..report_of(vec![
+            entry_at("Rect", ElementKind::Primitive, "/project/component.tsx", 2),
+            entry_at("PriceTag", ElementKind::Component, "/project/scene.tsx", 2),
+        ])
+    }
+}
+
+/// Reads `texts`; any other file fails.
+fn read_from(texts: &Texts) -> impl Fn(&Path) -> Result<String, String> + '_ {
+    |path| {
+        texts
+            .get(path)
+            .cloned()
+            .ok_or_else(|| format!("Couldn't read {}", path.display()))
+    }
+}
+
+#[test]
+fn owner_call_site_skips_wrappers_and_children_hosts() {
+    // `PriceTag` passes the `<Rect>` it wrote to `<Later>` as children.
+    let report = report_of(vec![
+        entry_at("Rect", ElementKind::Primitive, "/project/component.tsx", 2),
+        entry_at(
+            "Sequence",
+            ElementKind::Wrapper,
+            "/project/component.tsx",
+            3,
         ),
-        (String::new(), "2".to_owned())
-    );
-    // Without a scale, the default.
-    let plain = primitive_report(2, 3, ReceivedProps::default());
-    assert_eq!(
-        field_text(TransformProp::ScaleY, &missing, &plain),
-        (String::new(), "1".to_owned())
-    );
-    assert_eq!(
-        field_text(
-            TransformProp::X,
-            &EditTarget::Missing {
-                insert_at: 0,
-                default: 0.0
-            },
-            &report
+        entry_at("Later", ElementKind::Component, "/project/component.tsx", 4),
+        entry_at("PriceTag", ElementKind::Component, "/project/scene.tsx", 2),
+    ]);
+
+    assert_eq!(owner_call_site(&report, "PriceTag"), Some(&report.chain[3]));
+    assert_eq!(owner_call_site(&report, "Card"), None);
+}
+
+#[test]
+fn owner_call_site_falls_back_to_an_anonymous_component() {
+    // `memo(({ x }) => …)` reports no name at runtime.
+    let anonymous = report_of(vec![
+        entry_at("Rect", ElementKind::Primitive, "/project/component.tsx", 2),
+        entry_at(
+            "Sequence",
+            ElementKind::Wrapper,
+            "/project/component.tsx",
+            3,
         ),
-        (String::new(), "0".to_owned())
+        entry_at("Anonymous", ElementKind::Component, "/project/scene.tsx", 2),
+        entry_at("Anonymous", ElementKind::Component, "/project/index.tsx", 2),
+    ]);
+    assert_eq!(
+        owner_call_site(&anonymous, "PriceTag"),
+        Some(&anonymous.chain[2])
+    );
+
+    // A component with the name wins over a nearer anonymous one.
+    let named = report_of(vec![
+        entry_at("Rect", ElementKind::Primitive, "/project/component.tsx", 2),
+        entry_at(
+            "Anonymous",
+            ElementKind::Component,
+            "/project/component.tsx",
+            4,
+        ),
+        entry_at("PriceTag", ElementKind::Component, "/project/scene.tsx", 2),
+    ]);
+    assert_eq!(owner_call_site(&named, "PriceTag"), Some(&named.chain[2]));
+
+    // The element itself is never its own call site.
+    let alone = report_of(vec![entry_at(
+        "Anonymous",
+        ElementKind::Component,
+        "/project/component.tsx",
+        2,
+    )]);
+    assert_eq!(owner_call_site(&alone, "PriceTag"), None);
+}
+
+/// `<Rect x={left} rotation={10} scale={size * 2} />` in `PriceTag`, called
+/// as `<PriceTag left={40} size={1} />`: `left` is set at the call site,
+/// `rotation` on the element, `y` nowhere, and `scale` is computed.
+fn mixed_targets() -> ElementTargets {
+    let files = Texts::from([
+        (
+            PathBuf::from("/project/component.tsx"),
+            "export const PriceTag = ({ left, size }) => (\n  <Rect x={left} rotation={10} scale={size * 2} />\n);\n"
+                .to_owned(),
+        ),
+        (
+            PathBuf::from("/project/scene.tsx"),
+            "export const Scene = () => (\n  <PriceTag left={40} size={1} />\n);\n".to_owned(),
+        ),
+    ]);
+    resolve_targets(read_from(&files), &price_tag_report(), None).expect("the element resolves")
+}
+
+/// The override sites of [`mixed_targets`].
+fn mixed_override_sites() -> Vec<(PropKey, OverrideSite)> {
+    override_sites(&mixed_targets(), &price_tag_report())
+}
+
+/// An override of the element or call site at line 2, column 3 of `file`.
+fn override_at(file: &str, prop: &str, value: f64) -> PropOverride {
+    PropOverride {
+        file: PathBuf::from(file),
+        line: 2,
+        column: 3,
+        prop: prop.to_owned(),
+        value,
+    }
+}
+
+#[test]
+fn a_drag_overrides_the_prop_its_write_changes() {
+    let sites = mixed_override_sites();
+    let at = override_at;
+    assert_eq!(
+        prop_overrides(
+            &sites,
+            &keyed(&[
+                (TransformProp::X, 64.0),
+                (TransformProp::Y, 8.0),
+                (TransformProp::Rotation, 25.0),
+            ])
+        ),
+        vec![
+            at("/project/scene.tsx", "left", 64.0),
+            at("/project/component.tsx", "y", 8.0),
+            at("/project/component.tsx", "rotation", 25.0),
+        ]
+    );
+    assert_eq!(
+        prop_overrides(&sites, &keyed(&[(TransformProp::Scale, 3.0)])),
+        []
     );
 }
 
 #[test]
-fn transform_files_outside_the_project_are_locked() {
-    let entry_dir = Path::new("/project/src");
-    assert!(inside_project(
-        Path::new("/project/src/scene.tsx"),
-        entry_dir
-    ));
-    assert!(inside_project(
-        Path::new("/project/src/parts/title.tsx"),
-        entry_dir
-    ));
-    assert!(!inside_project(
-        Path::new("/project/lib/shared.tsx"),
-        entry_dir
-    ));
-    assert!(!inside_project(
-        Path::new("/project/src-old/scene.tsx"),
-        entry_dir
-    ));
-    assert!(!inside_project(
-        Path::new("/project/src/node_modules/kit/rect.tsx"),
-        entry_dir
-    ));
-    assert!(!inside_project(
-        Path::new("/project/src/../lib/shared.tsx"),
-        entry_dir
-    ));
+fn a_drag_overrides_nothing_before_the_pointer_moves_or_while_playing() {
+    let frame = drag_frame(IDENTITY, pt(10.0, 20.0));
+    let editable = drag_keys(&[TransformProp::X, TransformProp::Y, TransformProp::Rotation]);
+    let mut drag = TransformDrag::new(
+        frame.clone(),
+        Handle::Move,
+        pt(0.0, 0.0),
+        editable.clone(),
+        PivotMode::Pivot,
+        price_tag_report().props,
+        mixed_override_sites(),
+    );
+    assert_eq!(drag.overrides(false), []);
 
-    let report = primitive_report(2, 3, x_only());
-    let mut targets = resolve_targets(TRANSFORM_FIXTURE, &report).unwrap();
-    lock_outside_project(&mut targets);
-    assert!(
-        targets
-            .targets
-            .iter()
-            .all(|(_, target)| *target == EditTarget::Locked(LockReason::OutsideProject))
+    let values = drag_values(
+        &frame,
+        Handle::Move,
+        (pt(0.0, 0.0), pt(4.0, 0.0)),
+        false,
+        0.0,
+        &editable,
+        PivotMode::Pivot,
+        None,
     );
-    // A commit refuses a locked target before reading the file's targets.
-    assert_eq!(
-        commit_text(
-            TRANSFORM_FIXTURE,
-            &targets,
-            &report,
-            &[(TransformProp::X, 5.0)]
+    assert!(drag.follow(values.clone()));
+    assert!(!drag.follow(values));
+    assert_eq!(drag.overrides(false).len(), 2);
+    assert_eq!(drag.overrides(true), []);
+}
+
+#[test]
+fn each_handle_previews_every_prop_it_changes() {
+    let frame = drag_frame(IDENTITY, pt(10.0, 20.0));
+    let received = ReceivedProps {
+        rotation: Some(5.0),
+        ..ReceivedProps::default()
+    };
+    let preview = |handle, editable: &[PropKey], values: &[(TransformProp, f64)]| {
+        preview_values(
+            &frame,
+            handle,
+            editable,
+            &keyed(values),
+            &received,
+            PivotMode::Pivot,
+            None,
+        )
+    };
+    // Unchanged props keep the value the runtime saw, or the frame's.
+    assert_values(
+        &preview(Handle::Rotate, &UNIFORM, &[]),
+        &[(TransformProp::Rotation, 5.0)],
+    );
+    assert_values(
+        &preview(Handle::Rotate, &UNIFORM, &[(TransformProp::Rotation, 30.0)]),
+        &[(TransformProp::Rotation, 35.0)],
+    );
+    assert_values(
+        &preview(Handle::Corner(0), &UNIFORM, &[]),
+        &[(TransformProp::Scale, 1.0)],
+    );
+    assert_values(
+        &preview(
+            Handle::Corner(2),
+            &PER_AXIS,
+            &[(TransformProp::ScaleX, 2.0)],
         ),
-        Err(CommitError::NotEditable(TransformProp::X))
+        &[(TransformProp::ScaleX, 2.0), (TransformProp::ScaleY, 1.0)],
     );
+    // Edges 1 and 3 scale x, edges 0 and 2 y; a uniform scale either way.
+    assert_values(
+        &preview(Handle::Edge(1), &PER_AXIS, &[]),
+        &[(TransformProp::ScaleX, 1.0)],
+    );
+    assert_values(
+        &preview(Handle::Edge(0), &PER_AXIS, &[]),
+        &[(TransformProp::ScaleY, 1.0)],
+    );
+    assert_values(
+        &preview(Handle::Edge(0), &UNIFORM, &[]),
+        &[(TransformProp::Scale, 1.0)],
+    );
+    // A locked prop is left out.
+    assert_values(
+        &preview(Handle::Corner(0), &drag_keys(&[TransformProp::ScaleX]), &[]),
+        &[(TransformProp::ScaleX, 1.0)],
+    );
+}
+
+#[test]
+fn a_move_drag_overrides_both_axes_from_its_first_frame() {
+    // The runtime saw `x` 40 (`left`) and no `y`; the layer is drawn at
+    // (10, 20).
+    let sites = mixed_override_sites();
+    let frame = drag_frame(IDENTITY, pt(10.0, 20.0));
+    let received = price_tag_report().props;
+    let editable = drag_keys(&[TransformProp::X, TransformProp::Y, TransformProp::Rotation]);
+    let overrides = |now: Point| {
+        let values = drag_values(
+            &frame,
+            Handle::Move,
+            (pt(0.0, 0.0), now),
+            false,
+            0.0,
+            &editable,
+            PivotMode::Pivot,
+            None,
+        );
+        prop_overrides(
+            &sites,
+            &preview_values(
+                &frame,
+                Handle::Move,
+                &editable,
+                &values,
+                &received,
+                PivotMode::Pivot,
+                None,
+            ),
+        )
+    };
+    // Only `x` moved; `y` keeps its start value, at the element.
+    assert_eq!(
+        overrides(pt(4.0, 0.0)),
+        vec![
+            override_at("/project/scene.tsx", "left", 44.0),
+            override_at("/project/component.tsx", "y", 20.0),
+        ]
+    );
+    // The positions stay the same for the whole drag, so the runtime does
+    // not remount: only the values change.
+    assert_eq!(
+        overrides(pt(4.0, 6.0)),
+        vec![
+            override_at("/project/scene.tsx", "left", 44.0),
+            override_at("/project/component.tsx", "y", 26.0),
+        ]
+    );
+    assert_eq!(
+        overrides(pt(0.0, 0.0)),
+        vec![
+            override_at("/project/scene.tsx", "left", 40.0),
+            override_at("/project/component.tsx", "y", 20.0),
+        ]
+    );
+}
+
+fn prop(name: &str) -> PropKey {
+    PropKey::Prop(name.to_owned())
+}
+
+fn number_field(default_value: Option<f64>) -> PrimitivePropertyField {
+    PrimitivePropertyField::Number {
+        default_value,
+        min: None,
+        max: None,
+        step: None,
+        integer: None,
+    }
+}
+
+/// A number field scrubbed `step` per pixel, as the tables declare `scale`
+/// and the anchors.
+fn stepped_field(default_value: f64, step: f64) -> PrimitivePropertyField {
+    PrimitivePropertyField::Number {
+        default_value: Some(default_value),
+        min: None,
+        max: None,
+        step: Some(step),
+        integer: None,
+    }
+}
+
+fn property_table(
+    groups: Vec<(&str, Vec<(&str, PrimitivePropertyField)>)>,
+) -> PrimitivePropertyTable {
+    PrimitivePropertyTable {
+        size: None,
+        groups: groups
+            .into_iter()
+            .map(|(name, fields)| PrimitivePropertyGroup {
+                name: name.to_owned(),
+                fields: fields
+                    .into_iter()
+                    .map(|(key, field)| PrimitivePropertyRow {
+                        key: key.to_owned(),
+                        field,
+                        required: false,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+fn rect_table() -> PrimitivePropertyTable {
+    property_table(vec![
+        (
+            "Transform",
+            vec![
+                ("x", number_field(Some(0.0))),
+                ("y", number_field(Some(0.0))),
+                ("rotation", number_field(Some(0.0))),
+                ("scale", stepped_field(1.0, 0.01)),
+                (
+                    "opacity",
+                    PrimitivePropertyField::Number {
+                        default_value: Some(1.0),
+                        min: Some(0.0),
+                        max: Some(1.0),
+                        step: None,
+                        integer: None,
+                    },
+                ),
+            ],
+        ),
+        (
+            "Appearance",
+            vec![
+                (
+                    "fill",
+                    PrimitivePropertyField::Color {
+                        default_value: None,
+                    },
+                ),
+                ("cornerRadius", number_field(Some(0.0))),
+            ],
+        ),
+    ])
+}
+
+fn text_table() -> PrimitivePropertyTable {
+    property_table(vec![
+        (
+            "Transform",
+            vec![
+                ("x", number_field(Some(0.0))),
+                ("anchorY", number_field(Some(0.0))),
+            ],
+        ),
+        (
+            "Text",
+            vec![
+                (
+                    "children",
+                    PrimitivePropertyField::Text {
+                        default_value: None,
+                    },
+                ),
+                (
+                    "fontFamily",
+                    PrimitivePropertyField::String {
+                        default_value: None,
+                    },
+                ),
+                ("fontSize", number_field(None)),
+                ("fontWeight", number_field(None)),
+                (
+                    "color",
+                    PrimitivePropertyField::Color {
+                        default_value: None,
+                    },
+                ),
+            ],
+        ),
+    ])
+}
+
+/// The `<Text>` at line 2, column 3 of `file`, which received `props`.
+fn text_report(file: &Path, props: &[(&str, ReceivedValue)]) -> LayerSourceReport {
+    let mut report = primitive_report(2, 3, ReceivedProps::default());
+    report.chain[0].name = "Text".to_owned();
+    report.chain[0].file = file.to_path_buf();
+    for (name, value) in props {
+        report
+            .props
+            .others
+            .insert((*name).to_owned(), value.clone());
+    }
+    report
+}
+
+/// Resolves `report` with `table`, `text` being the text of every file.
+fn resolve_table(
+    text: &str,
+    report: &LayerSourceReport,
+    table: &PrimitivePropertyTable,
+) -> ElementTargets {
+    resolve_targets(|_| Ok(text.to_owned()), report, Some(table)).expect("the element resolves")
+}
+
+#[test]
+fn impact_and_the_locked_summary_stay_transform_only() {
+    let scene = SourcePos {
+        file: PathBuf::from("/project/scene.tsx"),
+        line: 2,
+        column: 3,
+    };
+    let other = SourcePos {
+        file: PathBuf::from("/project/other.tsx"),
+        line: 7,
+        column: 3,
+    };
+    let call = celesta_source_edit::ElementRef {
+        start: 0,
+        end_of_attributes: 0,
+        children: None,
+    };
+    let passed = |path: &str, site: &SourcePos| Target {
+        file: site.file.clone(),
+        path: path.to_owned(),
+        target: EditTarget::PassThrough {
+            call_site: call,
+            param: path.to_owned(),
+            target: Box::new(EditTarget::Literal {
+                span: Span { start: 1, end: 2 },
+                value: EditValue::Number(1.0),
+                form: LiteralForm::Number,
+            }),
+        },
+        call_site: Some(site.clone()),
+        inputs: Vec::new(),
+    };
+    let targets = ElementTargets {
+        file: PathBuf::from("/project/component.tsx"),
+        files: vec![PathBuf::from("/project/component.tsx")],
+        element: call,
+        targets: vec![
+            (prop("x"), passed("x", &scene)),
+            (
+                prop("fontSize"),
+                Target {
+                    file: PathBuf::from("/project/component.tsx"),
+                    path: "fontSize".to_owned(),
+                    target: EditTarget::Locked(LockReason::StyleMaySet),
+                    call_site: None,
+                    inputs: Vec::new(),
+                },
+            ),
+            (prop("color"), passed("color", &other)),
+        ],
+        table: Some(text_table()),
+        component: None,
+    };
+
+    assert_eq!(targets.written_at(), Some(&scene));
+    assert!(locked_summary(&targets).is_empty());
+}
+
+const PROPS_TAG: &str = "export function PriceTag({ x = 0, label }) {\n  return <Rect x={x} width={10} height={10} />;\n}\n";
+const PROPS_TAG_SCENE: &str =
+    "export const Scene = () => (\n  <PriceTag x={40} label=\"Sale\" tone={2} on />\n);\n";
+
+fn props_tag_files() -> Texts {
+    Texts::from([
+        (
+            PathBuf::from("/project/component.tsx"),
+            PROPS_TAG.to_owned(),
+        ),
+        (
+            PathBuf::from("/project/scene.tsx"),
+            PROPS_TAG_SCENE.to_owned(),
+        ),
+    ])
+}
+
+/// The `<Rect>` in `PriceTag`, called with props of every literal kind.
+fn props_tag_report() -> LayerSourceReport {
+    let rect = LayerSource {
+        column: 10,
+        ..entry_at("Rect", ElementKind::Primitive, "/project/component.tsx", 2)
+    };
+    LayerSourceReport {
+        props: ReceivedProps {
+            x: Some(40.0),
+            ..ReceivedProps::default()
+        },
+        ..report_of(vec![
+            rect,
+            entry_at("PriceTag", ElementKind::Component, "/project/scene.tsx", 2),
+        ])
+    }
+}
+
+fn schema_number(
+    min: Option<f64>,
+    max: Option<f64>,
+) -> celesta_react_bridge::ComponentPropertyField {
+    celesta_react_bridge::ComponentPropertyField::Number {
+        label: None,
+        default_value: 0.0,
+        min,
+        max,
+        step: None,
+        integer: None,
+    }
+}
+
+/// `PriceTag` registered with `label: number`, `tone: number` from 0 to 10,
+/// and `on: boolean`.
+fn price_tag_schemas()
+-> std::collections::BTreeMap<String, celesta_react_bridge::ComponentPropertySchema> {
+    std::collections::BTreeMap::from([(
+        "PriceTag".to_owned(),
+        std::collections::BTreeMap::from([
+            ("label".to_owned(), schema_number(None, None)),
+            ("tone".to_owned(), schema_number(Some(0.0), Some(10.0))),
+            (
+                "on".to_owned(),
+                celesta_react_bridge::ComponentPropertyField::Boolean {
+                    label: None,
+                    default_value: false,
+                },
+            ),
+        ]),
+    )])
+}
+
+/// `PriceTag`'s files with `on={1}` at the call.
+fn typed_props_tag_files() -> Texts {
+    let mut texts = props_tag_files();
+    let scene = PROPS_TAG_SCENE.replace(" on />", " on={1} />");
+    texts.insert(PathBuf::from("/project/scene.tsx"), scene);
+    texts
+}
+
+/// `PriceTag`'s targets typed by [`price_tag_schemas`].
+fn typed_props_tag_targets(texts: &Texts) -> ElementTargets {
+    let mut targets = resolve_targets(read_from(texts), &props_tag_report(), None).unwrap();
+    type_component_props(&mut targets, &price_tag_schemas(), read_from(texts));
+    targets
+}
+
+/// `table` with the rows `keys` declared required, as `required(…)` does.
+fn with_required(mut table: PrimitivePropertyTable, keys: &[&str]) -> PrimitivePropertyTable {
+    for row in table.groups.iter_mut().flat_map(|group| &mut group.fields) {
+        row.required = keys.contains(&row.key.as_str());
+    }
+    table
+}
+
+/// A `<Rect>` with a required `width`, written optional props, an absent
+/// `x`, and a `strokeWidth` read from what can't be traced.
+fn removable_rect() -> (String, ElementTargets, LayerSourceReport) {
+    let text = "export const Scene = () => (\n  <Rect width={10} cornerRadius={8} fill=\"#fff\" strokeWidth={w} />\n);\n";
+    let mut report = primitive_report(2, 3, ReceivedProps::default());
+    for (name, value) in [
+        ("width", ReceivedValue::Number(10.0)),
+        ("cornerRadius", ReceivedValue::Number(8.0)),
+        ("fill", ReceivedValue::String("#fff".to_owned())),
+        ("strokeWidth", ReceivedValue::Number(2.0)),
+    ] {
+        report.props.others.insert(name.to_owned(), value);
+    }
+    let table = with_required(
+        property_table(vec![
+            ("Transform", vec![("x", number_field(Some(0.0)))]),
+            (
+                "Size",
+                vec![
+                    ("width", number_field(None)),
+                    ("cornerRadius", number_field(Some(0.0))),
+                ],
+            ),
+            (
+                "Appearance",
+                vec![
+                    (
+                        "fill",
+                        PrimitivePropertyField::Color {
+                            default_value: None,
+                        },
+                    ),
+                    ("strokeWidth", number_field(Some(0.0))),
+                ],
+            ),
+        ]),
+        &["width"],
+    );
+    let targets = resolve_table(text, &report, &table);
+    (text.to_owned(), targets, report)
+}
+
+#[test]
+fn a_released_scrub_lets_the_frame_look_its_source_up() {
+    // A pressed scrub and any drag redraw on every move: no lookup.
+    assert!(!lookup_allowed(false, true, false));
+    assert!(!lookup_allowed(true, false, false));
+    // Released (its write held for a reload): the lookup goes, or the write
+    // would wait for targets that are never resolved.
+    assert!(lookup_allowed(false, false, false));
+}
+
+#[test]
+fn lookup_is_not_allowed_while_editing_text() {
+    // A keystroke asks the runtime nothing. (A committed text's frames are
+    // drawn with no edit running, so they look the layer up, as a released
+    // scrub's do.)
+    assert!(!lookup_allowed(false, false, true));
 }

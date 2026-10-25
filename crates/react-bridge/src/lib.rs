@@ -12,6 +12,7 @@ mod bridge;
 mod decode;
 mod error;
 mod measure;
+mod occurrences;
 mod probe;
 mod properties;
 mod protocol;
@@ -24,6 +25,9 @@ mod types;
 pub use audio::{merge_react_audio_clips, react_audio_clips, react_ducking, react_video_clip_ids};
 pub use bridge::{PendingFrame, ReactBridge, ReactMedia};
 pub use error::ReactBridgeError;
+pub use occurrences::{
+    ElementOccurrences, InstanceOccurrences, OccurrenceIndex, outermost_chapter_at, scenes_of,
+};
 pub use properties::{
     ENTRY_PROPS_FILE, EffectiveValue, PropertyInputError, PropertyInputs, PropertyIssue,
     PropertyLayer, PropertySource, PropsFileChoice, ValueSource, effective_values,
@@ -31,9 +35,11 @@ pub use properties::{
 };
 pub use types::{
     ComponentPropertyField, ComponentPropertySchema, ComponentResolutionRequest,
-    ComponentResolutions, ElementKind, FrameEvaluation, LayerSource, LayerSourceReport,
-    PrepareDependency, ProjectFrame, ReactAudioClipDescriptor, ReactChapter, ReactCompositionInfo,
-    ReactCompositionMetadata, ReactDuck, ReactSubtitleDescriptor, ReceivedProps, SpawnOptions,
+    ComponentResolutions, ElementKind, FrameEvaluation, FrameSpan, LayerSource, LayerSourceReport,
+    PrepareDependency, PrimitivePropertyField, PrimitivePropertyGroup, PrimitivePropertyRow,
+    PrimitivePropertyTable, PrimitiveSize, ProjectFrame, PropOverride, ReactAudioClipDescriptor,
+    ReactChapter, ReactCompositionInfo, ReactCompositionMetadata, ReactDuck,
+    ReactSubtitleDescriptor, ReceivedProps, ReceivedValue, SourcePos, SpawnOptions, TimingWindow,
     chapter_at,
 };
 
@@ -51,5 +57,6 @@ pub use project_types::{
 };
 pub use props_edit::{
     OrderedObject, PropsEditError, import_path, replace_file, set_property, set_property_text,
+    write_temp,
 };
 pub use runtime::runtime_paths;

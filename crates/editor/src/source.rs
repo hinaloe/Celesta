@@ -109,6 +109,8 @@ pub(crate) fn load_source(
                     composition_id: metadata.composition_id,
                     compositions: metadata.compositions,
                     chapters: metadata.chapters,
+                    primitive_properties: metadata.primitive_properties,
+                    component_schemas: metadata.component_schemas,
                     entry,
                     watched_mtime,
                     dependencies: metadata.prepare_dependencies,

@@ -8,7 +8,9 @@ export type {
   ComponentResolutionRequest,
   ComponentResolutions,
   EntryComponent,
+  FramePropOverrides,
   MountedComposition,
+  OccurrenceIndex,
   ProjectFrame,
   ResolutionRuntime,
   Resolver,
@@ -16,7 +18,7 @@ export type {
 } from './render';
 export type { HostNode } from './reconciler';
 export { markPrimitive, sourceChain } from './source-chain';
-export type { LayerSourceEntry, LayerSourceReport, ReceivedProps } from './source-chain';
+export type { LayerSourceEntry, LayerSourceReport, ReceivedProps, SourcePos, TimingWindow } from './source-chain';
 export { registerHostElement } from './host-elements';
 export type { HostElement, HostVisit, HostWalk } from './host-elements';
 
@@ -58,6 +60,26 @@ export type {
 
 export { listComponentSchemas, resolveComponent } from './registry';
 export {
+  bool,
+  color,
+  listPrimitiveProperties,
+  num,
+  path,
+  propertyTable,
+  registerPrimitiveProperties,
+  required,
+  select,
+  str,
+  text,
+} from './property-tables';
+export type {
+  PrimitiveFieldType,
+  PrimitivePropertyField,
+  PrimitivePropertyTable,
+  PrimitiveSize,
+  WirePropertyTable,
+} from './property-tables';
+export {
   declaredDefault,
   holdProjectPropertyValues,
   inputProjectProperty,
@@ -70,7 +92,7 @@ export type { ShaderSourceHandle } from './shader';
 export { entryRelativePath, isRemoteUrl, prepareDependencies, trackPrepareDependency } from './entry-dir';
 export type { PrepareDependency } from './entry-dir';
 export { sourceOfProps } from './jsx-dev-runtime';
-export type { SourcePosition } from './jsx-dev-runtime';
+export type { PropOverride, SourcePosition } from './jsx-dev-runtime';
 
 // Rust types of the project document (`celesta-project`), which
 // `@celesta/project` and `@celesta/character` re-export; ts-rs generates them

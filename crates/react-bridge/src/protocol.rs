@@ -1,13 +1,15 @@
 use crate::decode::DecodeAudioRequest;
 use crate::measure::MeasureTextRequest;
+use crate::occurrences::OccurrenceIndex;
 use crate::probe::MediaProbeRequest;
 use crate::properties::{PropertyIssue, PropertyLayer};
 use crate::props_edit::OrderedObject;
 use crate::statics::StaticDefinition;
 use crate::types::{
-    ComponentPropertyField, ComponentPropertySchema, LayerSource, LayerSourceReport,
-    PrepareDependency, ReactAudioClipDescriptor, ReactCompositionConfig, ReactCompositionInfo,
-    ReactSubtitleDescriptor, ReceivedProps,
+    ComponentPropertyField, ComponentPropertySchema, FrameSpan, LayerSource, LayerSourceReport,
+    PrepareDependency, PrimitivePropertyTable, PropOverride, ReactAudioClipDescriptor,
+    ReactCompositionConfig, ReactCompositionInfo, ReactSubtitleDescriptor, ReceivedProps,
+    TimingWindow,
 };
 use celesta_composition::{Layer, Scene, ShaderSource, Time};
 use serde::{Deserialize, Serialize};
@@ -56,6 +58,10 @@ pub(crate) struct Request<'a> {
     /// subtrees by key (see [`crate::statics`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) statics: Option<StaticsRequest>,
+    /// Values elements take in this frame only (see
+    /// [`crate::ReactBridge::scene_at_with_overrides`]); left out when empty.
+    #[serde(rename = "propOverrides", skip_serializing_if = "<[_]>::is_empty")]
+    pub(crate) prop_overrides: &'a [PropOverride],
 }
 
 /// Which frames' `<Static>` definitions this side has taken in.
@@ -101,6 +107,10 @@ pub(crate) enum Response {
     CollectedSubtitles {
         #[serde(rename = "collectedSubtitles")]
         collected_subtitles: Vec<ReactSubtitleDescriptor>,
+    },
+    CollectedOccurrences {
+        #[serde(rename = "collectedOccurrences")]
+        collected_occurrences: OccurrenceIndex,
     },
     MeasureText {
         #[serde(rename = "measureText")]
@@ -155,6 +165,12 @@ pub(crate) struct LayerSourceReply {
     /// for a repeated element by accident.
     #[serde(default = "one")]
     pub(crate) render_count: u32,
+    /// Absent from older runtimes.
+    #[serde(default)]
+    pub(crate) windows: Vec<TimingWindow>,
+    /// Absent from older runtimes.
+    #[serde(default)]
+    pub(crate) span: Option<FrameSpan>,
 }
 
 fn one() -> u32 {
@@ -169,6 +185,8 @@ impl From<LayerSourceReply> for Option<LayerSourceReport> {
             candidate_frames: reply.candidate_frames,
             props: reply.props,
             render_count: reply.render_count,
+            windows: reply.windows,
+            span: reply.span,
         })
     }
 }
@@ -181,6 +199,7 @@ impl From<LayerSourceReply> for Option<LayerSourceReport> {
 pub(crate) struct RawResponse {
     pub(crate) collected_audio: Option<Vec<ReactAudioClipDescriptor>>,
     pub(crate) collected_subtitles: Option<Vec<ReactSubtitleDescriptor>>,
+    pub(crate) collected_occurrences: Option<OccurrenceIndex>,
     pub(crate) measure_text: Option<Box<MeasureTextRequest>>,
     pub(crate) scene: Option<Scene>,
     #[serde(default)]
@@ -212,6 +231,10 @@ impl TryFrom<RawResponse> for Response {
             Ok(Self::CollectedSubtitles {
                 collected_subtitles,
             })
+        } else if let Some(collected_occurrences) = raw.collected_occurrences {
+            Ok(Self::CollectedOccurrences {
+                collected_occurrences,
+            })
         } else if let Some(measure_text) = raw.measure_text {
             Ok(Self::MeasureText { measure_text })
         } else if let Some(scene) = raw.scene {
@@ -237,7 +260,7 @@ impl TryFrom<RawResponse> for Response {
             Ok(Self::Err { error })
         } else {
             Err(
-                "response has none of collectedAudio, collectedSubtitles, measureText, scene, components, layerSource or error",
+                "response has none of collectedAudio, collectedSubtitles, collectedOccurrences, measureText, scene, components, layerSource or error",
             )
         }
     }
@@ -273,6 +296,8 @@ pub(crate) enum ReadyMessage {
         compositions: Vec<ReactCompositionInfo>,
         #[serde(default, rename = "componentSchemas")]
         component_schemas: BTreeMap<String, ComponentPropertySchema>,
+        #[serde(default, rename = "primitiveProperties")]
+        primitive_properties: BTreeMap<String, PrimitivePropertyTable>,
         /// `null` (or absent) when the entry never called
         /// `defineProjectProperties()`; an empty object means it declared an
         /// intentionally empty schema.
