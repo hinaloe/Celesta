@@ -89,7 +89,7 @@ jobs:
       # changes the lockfile would save its own store on every OS.
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
-          version: 2026.10.17
+          version: 2026.10.19
           cache_save: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install JS packages
