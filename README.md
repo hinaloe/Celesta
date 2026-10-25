@@ -32,6 +32,9 @@ contains the projects and their setup instructions.
   and visual effects with local or remote media.
 - **Preview as you edit:** play with synchronized audio, scrub or step through
   frames, and inspect layers and tracks. The app reloads when you save your source.
+- **Adjust on the canvas:** move, rotate, resize, or retype a layer, or edit its
+  props in the Properties tab. Celesta writes the change back into your source,
+  with undo.
 - **Build character dialogue:** combine image or PSD portraits, expressions,
   subtitles, voice recordings, lip sync, and blinking.
 - **Export and automate:** render videos, PNG, JPEG, or WebP frames, and contact sheets from
@@ -85,8 +88,9 @@ build it with `cargo build -p celesta-mcp --release`. See the
 
 ## Develop Celesta
 
-To run from source, use Rust 1.89 or later, Node.js 24, the pnpm version in
+To run from source, use Rust 1.89 or later, Node.js 26, the pnpm version in
 [`package.json`](package.json), and your platform's native build tools.
+[`mise.toml`](mise.toml) pins the Node.js and pnpm versions CI uses.
 Prepare the **FFmpeg 8.1.x development libraries** using the
 [source-build guide](https://celesta.natsuneko.cat/en/docs/build-from-source/)
 before running Cargo. The FFmpeg executable alone is insufficient; FFmpeg 9
@@ -136,6 +140,9 @@ after the change.
 | [`examples/`](examples) | Complete video projects; [`packages/cli/examples/`](packages/cli/examples) has smaller API examples |
 | [`templates/`](templates) | Starter projects bundled with Celesta |
 | [`skills/celesta/`](skills/celesta) | Agent instructions, API guides, and inspection scripts |
+| [`HANDOFF.md`](HANDOFF.md) | Architecture, runtime constraints, and validation for contributors |
+| [`docs/handoff/`](docs/handoff) | Dated implementation notes for each feature |
+| [`docs/superpowers/`](docs/superpowers) | Design specs and implementation plans |
 | [`docs/performance/`](docs/performance) | Benchmarks and renderer performance notes |
 
 To build release packages, use the [macOS](packaging/macos/README.md),
