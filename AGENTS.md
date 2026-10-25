@@ -1,8 +1,10 @@
 When updating a pull request branch with changes from its base branch, rebase the pull request branch onto the base branch.
 
+* Read [`HANDOFF.md`](HANDOFF.md) for the architecture, runtime constraints, and validation commands. Record a task's specification, implementation details, and checks in a new `docs/handoff/<date>-<task>.md` note rather than in `HANDOFF.md`.
 * For rendering-related changes, attach screenshots of the same scene taken before and after the rendering change.
 * When a new feature supersedes the content of an existing example, update the corresponding example scene in the same pull request.
-* Use Vitest for tests and write test code in TypeScript.
+* When user-facing behavior or a composition API changes, update the user guide in both `packages/website/content/en/` and `packages/website/content/ja/`, and the Celesta Agent Skill in `skills/celesta/` where it covers that API.
+* Use Vitest for JavaScript and TypeScript tests and write test code in TypeScript. Rust code keeps its tests in Rust (`cargo test`).
 
 <!-- BEGIN:turborepo-agent-rules -->
 

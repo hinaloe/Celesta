@@ -4,7 +4,9 @@
 
 Celesta is a code-first video editor. React compositions and loaded projects
 are evaluated into the same Rust composition model; preview and export consume
-the same renderer inputs. The GPUI application is currently preview-only.
+the same renderer inputs. The GPUI application previews and exports; for React
+compositions it also edits layer props on the canvas and in the Properties tab
+by writing them back into the source (`celesta-source-edit`).
 
 This handoff covers the architecture, development setup, and shared constraints.
 Per-task specifications, implementation details, and validation results live in
@@ -29,7 +31,9 @@ Per-task specifications, implementation details, and validation results live in
   `libxkbcommon-x11-dev`, and `libfontconfig-dev`.
 - Linux CI uses lavapipe (`mesa-vulkan-drivers`) to run GPU tests.
   `packaging/linux/Dockerfile` builds a headless exporter image.
-- Node.js >= 18 and pnpm are required for React compositions.
+- Node.js and pnpm are required for React compositions. The runtime packages
+  declare Node.js >= 18; development and CI use the versions pinned in
+  `mise.toml` (Node.js 26, pnpm 12).
 
 Build the React runtime before using `celesta-exporter --react` or the live
 bridge tests:
@@ -92,7 +96,8 @@ compositions: no package a composition imports depends on them, though
 | `celesta-mcp` | `Celesta-mcp`, the MCP server agents use to inspect, render, and export. |
 | `celesta-editor-core` | Read-only document, summaries, scene/audio evaluation, and timeline clock. |
 | `celesta-editor-theme` | Shared desktop theme. |
-| `celesta-editor` | GPUI preview app, playback, read-only panels, and export controls. |
+| `celesta-editor` | GPUI app: preview, playback, panels, canvas and Properties editing, and export controls. |
+| `celesta-source-edit` | Locates JSX elements in user TSX source and applies byte-span edits for the editor's write-back. |
 | `celesta-remote` | Asset path resolution, remote download cache, and stylesheet font discovery. |
 | `celesta-react-bridge` | Long-lived Node process and frame/component requests over stdin/stdout. |
 | `packages/math` (`@celesta/math`) | Pure, React-free math utilities for compositions. |
@@ -113,6 +118,8 @@ compositions: no package a composition imports depends on them, though
 | `packages/aivis-speech` (`@celesta/aivis-speech`) | AivisSpeech AudioQuery and WAV lip sync. |
 | `packages/cli` (`@celesta/cli`) | Entry CLI the bridge spawns; depends on every package it serves. |
 | `packages/exporter` (`@celesta/exporter`) | Node.js API that runs `celesta-exporter --json` for scripts; not part of the runtime. |
+| `packages/web` (`@celesta/web`) | Browser evaluator, Canvas preview, and WebCodecs MP4 export; see [`packages/web/README.md`](packages/web/README.md). |
+| `packages/website` (`@celesta/website`) | Official website, English and Japanese user guide, and playground. |
 
 Useful entry points:
 
@@ -200,7 +207,9 @@ companion project's `properties`: the bridge sends them on the first stdin
 line (`--properties-stdin`), and the CLI checks them after the entry's module
 scope runs and before `prepare()`. See
 [`docs/handoff/2026-10-08-project-property-inputs.md`](docs/handoff/2026-10-08-project-property-inputs.md).
-The current Inspector is read-only.
+The editor's Properties tab and canvas tools edit props by rewriting the
+source; see [`docs/handoff/2026-10-23-property-editing-engine.md`](docs/handoff/2026-10-23-property-editing-engine.md)
+and the notes it links.
 
 Sequence timing, per-frame audio, standalone preview, coordinate conventions,
 fonts, text helpers, shapes, subtitles, and other feature specifications are

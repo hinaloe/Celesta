@@ -1,4 +1,4 @@
-To build Celesta, install **Rust 1.89 or later**, your platform’s native build tools, and **FFmpeg 8.1.x development libraries**. Use Node.js 24 and the pnpm version declared in the root package.json to build the React runtime, matching CI.
+To build Celesta, install **Rust 1.89 or later**, your platform’s native build tools, and **FFmpeg 8.1.x development libraries**. Use Node.js 26 and the pnpm version declared in the root package.json to build the React runtime, matching CI.
 
 > [!NOTE]
 > **The libraries matter**
