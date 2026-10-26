@@ -2,7 +2,8 @@
 // 方眼紙の上に、ずんだ餅とえだまめが一筆書きで描かれていく。線を引き終えた
 // 部分から色が塗られ、ペン先の丸が線の先端を追いかける。
 
-import { Easings, Group, Line, Path, Polyline, Rect, pointOnPolyline, progress, spring } from '@celesta/react';
+import { Easings, Group, Rect, progress, spring } from '@celesta/react';
+import { Line, Path, Polyline, pointOnPolyline } from '@celesta/shapes';
 
 import { ellipse, blob, pod } from '../lib/shapes.ts';
 import type { Point } from '../lib/shapes.ts';
@@ -14,9 +15,9 @@ import type { SceneDefinition } from './types.ts';
 const { width: W, height: H } = CANVAS;
 
 /** 「ずんだ餅を描いてほしいのだ」の少しあとから描き始める */
-const DRAW_AT = line('p1').at + 26;
+const drawAt = () => line('p1').from + 26;
 
-/** 1 本の線。`at` と `duration` は DRAW_AT からのフレーム。`fill` があれば、引き終えたあと塗る。 */
+/** 1 本の線。`at` と `duration` は描き始め（drawAt）からのフレーム。`fill` があれば、引き終えたあと塗る。 */
 type Stroke = { points: Point[]; at: number; duration: number; color: string; width: number; fill?: string };
 
 const MOCHI = [
@@ -54,9 +55,9 @@ const strokeProgress = (t: number, stroke: Stroke) =>
 
 function Stage() {
   const frame = useFilmFrame('path');
-  const t = frame - DRAW_AT;
+  const t = frame - drawAt();
   const drawing = DRAWING.find((s) => t >= s.at && t < s.at + s.duration);
-  const yum = progress(frame, line('p3').at, 16, Easings.easeOutCubic);
+  const yum = progress(frame, line('p3').from, 16, Easings.easeOutCubic);
   return (
     <>
       <Rect width={W} height={H} fill={COLOR.paper} />
@@ -105,7 +106,7 @@ function Pen({ at: [x, y] }: { at: [number, number] }) {
 function Overlay() {
   const frame = useFilmFrame('path');
   return (
-    <CodePanel frame={frame} steps={[{ at: line('p2').at - 4, lines: [
+    <CodePanel frame={frame} steps={[{ at: line('p2').from - 4, lines: [
       '<Path commands={[',
       "  { type: 'moveTo', x: 570, y: 612 },",
       "  { type: 'cubicTo', x1: 570, y1: 540,",

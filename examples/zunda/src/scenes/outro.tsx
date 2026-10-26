@@ -2,9 +2,11 @@
 // ロゴ、キャッチコピー、クレジット。クレジットは素材の利用条件で必要なので、
 // 画面のどこかに必ず出す。
 
-import { Group, Line, Rect, Text, TextReveal, progress, spring } from '@celesta/react';
+import { Group, Rect, Text, progress, spring } from '@celesta/react';
+import { Line } from '@celesta/shapes';
+import { TextReveal } from '@celesta/text';
 
-import { SCENE_AT, line, useFilmFrame } from '../timing.ts';
+import { line, sceneStart, useFilmFrame } from '../timing.ts';
 import { CANVAS, COLOR, FONT, FPS, solid } from '../theme.ts';
 import type { SceneDefinition } from './types.ts';
 
@@ -20,8 +22,8 @@ const CREDITS = [
 
 function Stage() {
   const frame = useFilmFrame('outro');
-  const logo = spring({ frame: frame - SCENE_AT.outro - 4, fps: FPS, config: { damping: 10 } });
-  const credits = progress(frame, line('o2').at + 10, 20);
+  const logo = spring({ frame: frame - sceneStart('outro') - 4, fps: FPS, config: { damping: 10 } });
+  const credits = progress(frame, line('o2').from + 10, 20);
   return (
     <>
       <Rect width={W} height={H} fill={{
@@ -44,7 +46,7 @@ function Stage() {
         </Text>
       </Group>
       {/* TextReveal の from はシーンの先頭からのフレーム */}
-      <TextReveal x={960} y={440} align={0.5} from={line('o1').at - SCENE_AT.outro} stagger={4} durationInFrames={22}
+      <TextReveal x={960} y={440} align={0.5} from={line('o1').from - sceneStart('outro')} stagger={4} durationInFrames={22}
         style={{ fontFamily: FONT.ja, fontSize: 64, fontWeight: 800, lineHeight: 84, fill: solid(COLOR.zundaDeep) }}>
         {TAGLINE}
       </TextReveal>

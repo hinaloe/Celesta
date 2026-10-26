@@ -6,7 +6,7 @@
 import { Easings, Group, Rect, Sequence, Text, Video, interpolate, progress, spring, useCurrentFrame } from '@celesta/react';
 import type { ReactNode } from 'react';
 
-import { SCENE_AT, line, partway, useFilmFrame } from '../timing.ts';
+import { line, partway, sceneStart, useFilmFrame } from '../timing.ts';
 import { ASSET, CANVAS, CLAMP, COLOR, FONT, FPS, alpha, solid } from '../theme.ts';
 import { CodePanel } from '../ui/CodePanel.tsx';
 import type { SceneDefinition } from './types.ts';
@@ -14,13 +14,13 @@ import type { SceneDefinition } from './types.ts';
 const { width: W, height: H } = CANVAS;
 
 /** 「JSON のタイムラインも使えるわ」の途中で、クリップがトラックに落ちる */
-const DROP_AT = partway('t1', 0.55);
+const dropAt = () => partway('t1', 0.55);
 /** 落ちて少し跳ねてから再生が始まる（トラックの 0 秒） */
-const PLAY_AT = DROP_AT + 8;
+const playAt = () => dropAt() + 8;
 /** トラックの目盛りの長さ（秒） */
 const TRACK_SECONDS = 8;
 /** トラック上の秒が、動画全体の何フレーム目か */
-const frameAtSecond = (seconds: number) => PLAY_AT + Math.round(seconds * FPS);
+const frameAtSecond = (seconds: number) => playAt() + Math.round(seconds * FPS);
 
 const MONITOR = { x: 700, y: 64, width: 800, height: 450 } as const;
 const TRACKS = { x: 700, y: 548, width: 800, labelWidth: 60 } as const;
@@ -77,18 +77,18 @@ function Monitor({ playing }: { playing: boolean }) {
 function ClipSequence({ row, children }: { row: { from: number; to: number }; children: ReactNode }) {
   const from = frameAtSecond(row.from);
   return (
-    <Sequence from={from - SCENE_AT.timeline} durationInFrames={frameAtSecond(row.to) - from}>
+    <Sequence from={from - sceneStart('timeline')} durationInFrames={frameAtSecond(row.to) - from}>
       {children}
     </Sequence>
   );
 }
 
 function Tracks({ frame }: { frame: number }) {
-  const drop = spring({ frame: frame - DROP_AT, fps: FPS, config: { damping: 13 } });
+  const drop = spring({ frame: frame - dropAt(), fps: FPS, config: { damping: 13 } });
   const laneWidth = TRACKS.width - TRACKS.labelWidth - 10;
   /** トラック上の秒の x 座標（レーンの左端から） */
   const xAt = (seconds: number) => laneWidth * (seconds / TRACK_SECONDS);
-  const head = interpolate(frame, [PLAY_AT, frameAtSecond(TRACK_SECONDS)], [0, TRACK_SECONDS], CLAMP);
+  const head = interpolate(frame, [playAt(), frameAtSecond(TRACK_SECONDS)], [0, TRACK_SECONDS], CLAMP);
   return (
     <Group x={TRACKS.x} y={TRACKS.y}>
       <Rect x={-10} y={-10} width={TRACKS.width + 20} height={290} cornerRadius={16}
@@ -111,7 +111,7 @@ function Tracks({ frame }: { frame: number }) {
               {row.name}
             </Text>
             <Rect x={TRACKS.labelWidth} width={laneWidth} height={50} cornerRadius={8} fill="#FFFFFF08" />
-            {(!dropping || frame >= DROP_AT) && (
+            {(!dropping || frame >= dropAt()) && (
               <Group x={TRACKS.labelWidth + xAt(row.from)} y={dropping ? (1 - drop) * -260 : 0}>
                 <Rect width={xAt(row.to) - xAt(row.from)} height={50} cornerRadius={8}
                   fill={alpha(row.color, 0.85)} stroke="#FFFFFF55" strokeWidth={2} />
@@ -124,7 +124,7 @@ function Tracks({ frame }: { frame: number }) {
           </Group>
         );
       })}
-      {frame >= PLAY_AT && <Rect x={TRACKS.labelWidth + xAt(head)} y={14} width={3} height={262} fill="#FF5A5A" />}
+      {frame >= playAt() && <Rect x={TRACKS.labelWidth + xAt(head)} y={14} width={3} height={262} fill="#FF5A5A" />}
     </Group>
   );
 }
@@ -152,7 +152,7 @@ function LowerThird() {
 function Overlay() {
   const frame = useFilmFrame('timeline');
   return (
-    <CodePanel frame={frame} title="project.celesta.json" width={620} maxRows={10} steps={[{ at: line('t1').at + 6, lines: [
+    <CodePanel frame={frame} language="json" title="project.celesta.json" width={620} maxRows={10} steps={[{ at: line('t1').from + 6, lines: [
       '{ "id": "broll",',
       '  "range": {',
       '    "start": { "value": 2, "timescale": 1 },',

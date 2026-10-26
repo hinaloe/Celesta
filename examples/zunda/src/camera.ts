@@ -3,12 +3,12 @@
 //
 // ショットを時刻順に並べ、ショットの間を easeInOutCubic でなめらかにつなぐ。
 
-import { Easings } from '@celesta/react';
+import { Easings, cueAt, interpolate } from '@celesta/react';
 
 import { PLACEMENT } from './cast/Cast.tsx';
-import { VOICE_CUE } from './scenes/voice.tsx';
+import { voiceCues } from './scenes/voice.tsx';
 import { line } from './timing.ts';
-import { CANVAS } from './theme.ts';
+import { CANVAS, CLAMP } from './theme.ts';
 
 /** `at` フレームで、画面の中心に (x, y) を `zoom` 倍で映す。 */
 type Shot = { at: number; x: number; y: number; zoom: number };
@@ -19,35 +19,38 @@ const MOUTH_CLOSE_UP = { x: PLACEMENT.zunda.face.x - 200, y: PLACEMENT.zunda.fac
 const FACE_MEDIUM = { x: PLACEMENT.zunda.face.x - 270, y: PLACEMENT.zunda.face.y + 130, zoom: 1.5 };
 const ANGRY_CLOSE_UP = { x: PLACEMENT.zunda.face.x - 180, y: PLACEMENT.zunda.face.y + 40, zoom: 2.15 };
 
-const SHOTS: Shot[] = [
-  { at: 0, ...WIDE },
-  { at: VOICE_CUE.zoomIn, ...WIDE },
-  { at: VOICE_CUE.zoomIn + 22, ...MOUTH_CLOSE_UP },
-  // メタンが表情の話を始めたら、表情が見える程度まで引く
-  { at: line('s3').at + 6, ...MOUTH_CLOSE_UP },
-  { at: line('s3').at + 30, ...FACE_MEDIUM },
-  // 「ボクの顔で遊ばないでほしいのだ！」で詰め寄る
-  { at: line('s4').at, ...FACE_MEDIUM },
-  { at: line('s4').at + 10, ...ANGRY_CLOSE_UP },
-  { at: VOICE_CUE.zoomOut, ...ANGRY_CLOSE_UP },
-  { at: VOICE_CUE.zoomOut + 20, ...WIDE },
-];
+function shots(): Shot[] {
+  const { zoomIn, zoomOut } = voiceCues();
+  return [
+    { at: 0, ...WIDE },
+    { at: zoomIn, ...WIDE },
+    { at: zoomIn + 22, ...MOUTH_CLOSE_UP },
+    // メタンが表情の話を始めたら、表情が見える程度まで引く
+    { at: line('s3').from + 6, ...MOUTH_CLOSE_UP },
+    { at: line('s3').from + 30, ...FACE_MEDIUM },
+    // 「ボクの顔で遊ばないでほしいのだ！」で詰め寄る
+    { at: line('s4').from, ...FACE_MEDIUM },
+    { at: line('s4').from + 10, ...ANGRY_CLOSE_UP },
+    { at: zoomOut, ...ANGRY_CLOSE_UP },
+    { at: zoomOut + 20, ...WIDE },
+  ];
+}
 
 /** 画面の揺れ（px）。怒っている台詞と、判子が押された瞬間に揺らす。 */
 function shakeAt(frame: number): number {
   const angry = line('s4');
   const stamped = line('a5');
-  return (frame >= angry.at && frame < angry.at + angry.duration ? 7 : 0)
-    + (frame >= stamped.at && frame < stamped.at + 24 ? 12 : 0);
+  return (frame >= angry.from && frame < angry.from + angry.durationInFrames ? 7 : 0)
+    + (frame >= stamped.from && frame < stamped.from + 24 ? 12 : 0);
 }
 
-/** `<Camera>` に渡す値。 */
+/** `<Camera>` に渡す値。いまのショットから次のショットへ寄っていく。 */
 export function cameraAt(frame: number): { x: number; y: number; zoom: number; shake: number } {
-  let i = 0;
-  while (i < SHOTS.length - 1 && SHOTS[i + 1].at <= frame) i++;
-  const from = SHOTS[i];
-  const to = SHOTS[i + 1] ?? from;
-  const t = to === from ? 0 : Easings.easeInOutCubic(Math.min(1, (frame - from.at) / (to.at - from.at)));
+  const active = cueAt(shots(), frame);
+  if (!active) return { ...WIDE, shake: 0 };
+  const { cue: from, next: to } = active;
+  const t = to ? interpolate(frame, [from.at, to.at], [0, 1], { ...CLAMP, easing: Easings.easeInOutCubic }) : 0;
   const mix = (a: number, b: number) => a + (b - a) * t;
-  return { x: mix(from.x, to.x), y: mix(from.y, to.y), zoom: mix(from.zoom, to.zoom), shake: shakeAt(frame) };
+  const target = to ?? from;
+  return { x: mix(from.x, target.x), y: mix(from.y, target.y), zoom: mix(from.zoom, target.zoom), shake: shakeAt(frame) };
 }

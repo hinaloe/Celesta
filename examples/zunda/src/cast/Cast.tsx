@@ -10,14 +10,15 @@
 
 import { createRef } from 'react';
 import type { RefObject } from 'react';
-import { Character, CharacterView, Dialogue, Easings, Sequence, progress, useCurrentFrame } from '@celesta/react';
-import type { AssetReference, CharacterViewReference } from '@celesta/react';
+import { Easings, progress, useCurrentFrame } from '@celesta/react';
+import { Character, CharacterView, DialogueSeries } from '@celesta/character';
+import type { AssetReference } from '@celesta/react';
+import type { CharacterViewReference } from '@celesta/character';
 
 import type { MetanFace, Speaker, ZundaFace } from '../../script.ts';
-import { TIMED_LINES, line } from '../timing.ts';
-import { subtitleFor, wrapSubtitle } from '../ui/Subtitle.tsx';
+import { dialoguePlan, line } from '../timing.ts';
+import { subtitleFor } from '../ui/Subtitle.tsx';
 import { faceAt, hopAt, swayAt } from './acting.ts';
-import { lipSyncOf } from './lipsync.ts';
 import { METAN_PORTRAITS, ZUNDA_PORTRAIT } from './portraits.ts';
 import { SPEAKERS } from './speakers.ts';
 
@@ -31,7 +32,7 @@ export const PLACEMENT = {
 } as const;
 
 /** 台詞が「どの立ち絵の口を動かすか」を指すためのビュー。 */
-export const VIEW: Record<Speaker, RefObject<CharacterViewReference>> = {
+export const VIEW: Record<Speaker, RefObject<CharacterViewReference | null>> = {
   zunda: createRef<CharacterViewReference>(),
   metan: createRef<CharacterViewReference>(),
 };
@@ -39,7 +40,7 @@ export const VIEW: Record<Speaker, RefObject<CharacterViewReference>> = {
 const zunda = createRef<AssetReference>();
 const metanPoses = Object.fromEntries(
   (Object.keys(METAN_PORTRAITS) as MetanFace[]).map((pose) => [pose, createRef<AssetReference>()]),
-) as Record<MetanFace, RefObject<AssetReference>>;
+) as Record<MetanFace, RefObject<AssetReference | null>>;
 
 /** キャラクターの宣言。`<Assets>` の中に置く。 */
 export function CastAssets() {
@@ -62,7 +63,7 @@ export function Cast() {
   const metanPose = faceAt<MetanFace>('metan', frame, 'talk');
   // 自分の最初の台詞の `lead` フレーム前から、`offscreen` px 外から滑り込む。
   const entrance = (lineId: string, lead: number, offscreen: number) => {
-    const start = line(lineId).at - lead;
+    const start = line(lineId).from - lead;
     return {
       shown: frame >= start,
       dx: offscreen * (1 - progress(frame, start, 20, Easings.easeOutBack)),
@@ -85,19 +86,11 @@ export function Cast() {
 }
 
 /**
- * 台詞ごとの字幕・音声・口パク。字幕は次の台詞まで（間を含めて）出しておく。
- * 立ち絵が登場する前の台詞（冒頭の暗闇）も、ビューが透明なまま口だけ動く。
+ * 台詞ごとの字幕・音声・口パク。<DialogueSeries> が計画どおりに並べる。
+ * 字幕の文字は次の台詞まで（間を含めて）出し（holdThroughGap）、帯はシーンの
+ * 前置きまで出し続ける（holdSubtitle）。立ち絵が登場する前の台詞（冒頭の暗闇）も、
+ * ビューが透明なまま口だけ動く。
  */
 export function DialogueLines() {
-  return (
-    <>
-      {TIMED_LINES.map((t) => (
-        <Sequence key={t.id} from={t.at} durationInFrames={t.hold}>
-          <Dialogue character={VIEW[t.speaker]} audio={t.voice} lipSync={lipSyncOf(t.id)}>
-            {wrapSubtitle(t.text)}
-          </Dialogue>
-        </Sequence>
-      ))}
-    </>
-  );
+  return <DialogueSeries plan={dialoguePlan()} views={VIEW} holdThroughGap holdSubtitle />;
 }

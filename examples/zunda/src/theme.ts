@@ -36,9 +36,6 @@ export const FONT = {
   mono: 'JetBrains Mono',
 } as const;
 
-/** JetBrains Mono はどの文字も 0.6 em 進むので、桁から x 座標を計算できる。 */
-export const MONO_ADVANCE = 0.6;
-
 /** 第三者の素材。prepare-assets.ts が assets/ に置く（リポジトリには含めない）。 */
 export const ASSET = {
   zunda: './assets/zundamon.psd',

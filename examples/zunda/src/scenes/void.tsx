@@ -4,16 +4,15 @@
 
 import { Easings, Group, Rect, Text, interpolate, progress } from '@celesta/react';
 
-import { DURATION, sceneEnd, useFilmFrame } from '../timing.ts';
+import { filmDuration, sceneEnd, useFilmFrame } from '../timing.ts';
 import { COLOR, FONT, FPS, alpha, solid } from '../theme.ts';
 import { CodePanel } from '../ui/CodePanel.tsx';
 import type { SceneDefinition } from './types.ts';
 
 /** 「この動画」のコンポジション。以降のシーンのコードパネルも、この行から始まる。 */
-export const COMPOSITION_CODE = [
-  '<Composition width={1920} height={1080}',
-  `  fps={${FPS}} durationInFrames={${DURATION}}>`,
-];
+export function compositionCode(): string[] {
+  return ['<Composition width={1920} height={1080}', `  fps={${FPS}} durationInFrames={${filmDuration()}}>`];
+}
 
 function Stage() {
   const frame = useFilmFrame('void');
@@ -35,7 +34,7 @@ function Overlay() {
   const frame = useFilmFrame('void');
   const move = progress(frame, sceneEnd('void') - 22, 22, Easings.easeInOutCubic);
   return (
-    <CodePanel frame={frame} steps={[{ at: 10, lines: [...COMPOSITION_CODE, '</Composition>'] }]}
+    <CodePanel frame={frame} steps={[{ at: 10, lines: [...compositionCode(), '</Composition>'] }]}
       x={interpolate(move, [0, 1], [630, 40])} y={interpolate(move, [0, 1], [430, 36])} />
   );
 }

@@ -5,14 +5,14 @@
 // カメラの動きは camera.ts、表情の順番は cast/acting.ts。
 
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 
-import { Easings, Group, Rect, Text, buildEnvelope, decodeWav, progress } from '@celesta/react';
-import type { MouthShape } from '@celesta/react';
+import { Easings, Group, Rect, Text, progress } from '@celesta/react';
+import { buildEnvelope, decodeWav } from '@celesta/character';
+import type { MouthShape } from '@celesta/character';
+import { timingFromVoicevox } from '@celesta/voicevox';
 
 import type { ZundaFace } from '../../script.ts';
 import { FACE_PARADE, faceAt } from '../cast/acting.ts';
-import { lipSyncOf } from '../cast/lipsync.ts';
 import { ZUNDA_FACES } from '../cast/portraits.ts';
 import { line, useFilmFrame } from '../timing.ts';
 import type { TimedLine } from '../timing.ts';
@@ -22,27 +22,32 @@ import type { SceneDefinition } from './types.ts';
 const { width: W, height: H } = CANVAS;
 
 /** カメラが寄る・引くフレーム（camera.ts と、パネルの出入りで使う）。 */
-export const VOICE_CUE = {
-  /** 「口、ちゃんと動いてるの気づいてた？」の言い終わりで寄る */
-  zoomIn: line('s1').at + line('s1').duration - 26,
-  /** 「ボクの顔で遊ばないでほしいのだ！」のあとで引く */
-  zoomOut: line('s4').at + line('s4').hold - 8,
-} as const;
+export function voiceCues() {
+  const asked = line('s1');
+  const angry = line('s4');
+  return {
+    /** 「口、ちゃんと動いてるの気づいてた？」の言い終わりで寄る */
+    zoomIn: asked.from + asked.durationInFrames - 26,
+    /** 「ボクの顔で遊ばないでほしいのだ！」のあとで引く */
+    zoomOut: angry.from + angry.spanInFrames - 8,
+  };
+}
 
 /** 口の形を表す仮名 */
 const SHAPE_KANA: Record<MouthShape, string> = { a: 'あ', i: 'い', u: 'う', e: 'え', o: 'お', closed: 'ん' };
 const SHAPES: readonly MouthShape[] = ['a', 'i', 'u', 'e', 'o', 'closed'];
 
-/** 波形を出す台詞（ずんだもんの台詞）と、その音量の包絡線。prepare() で読む。 */
+/** 波形を出す台詞（ずんだもんの台詞）と、その音量の包絡線・読み。prepare() で読む。 */
 const WAVEFORM_LINES = ['s2', 's4'];
-const envelopes = new Map<string, Float32Array>();
+const voices = new Map<string, { envelope: Float32Array; moras: string }>();
 
 async function prepare() {
   for (const id of WAVEFORM_LINES) {
-    // Celesta はバンドル時に import.meta.dirname をエントリ（film.tsx）のフォルダに
-    // 置き換えるので、どのモジュールからでもエントリ基準のパスで読める。
-    const bytes = new Uint8Array(await readFile(join(import.meta.dirname, line(id).voice)));
-    envelopes.set(id, buildEnvelope(decodeWav(bytes), FPS));
+    const { audio, narration } = line(id).line;
+    const bytes = new Uint8Array(await readFile(audio));
+    // 読みは、口パクを作ったのと同じ AudioQuery のモーラ（「ボ」「ク」…）をつなげたもの。
+    const moras = narration ? timingFromVoicevox(narration.query).moras.map((mora) => mora.text).join('') : '';
+    voices.set(id, { envelope: buildEnvelope(decodeWav(bytes), FPS), moras });
   }
 }
 
@@ -69,10 +74,11 @@ function Stage() {
 
 function Overlay() {
   const frame = useFilmFrame('voice');
-  const shown = progress(frame, VOICE_CUE.zoomIn + 10, 16, Easings.easeOutCubic)
-    * (1 - progress(frame, VOICE_CUE.zoomOut - 4, 14));
+  const cue = voiceCues();
+  const shown = progress(frame, cue.zoomIn + 10, 16, Easings.easeOutCubic)
+    * (1 - progress(frame, cue.zoomOut - 4, 14));
   if (shown <= 0) return null;
-  const current = ['s2', 's3', 's4'].map(line).reduce((latest, t) => (t.at <= frame ? t : latest));
+  const current = ['s2', 's3', 's4'].map(line).reduce((latest, t) => (t.from <= frame ? t : latest));
   return (
     <Group x={80 - 40 * (1 - shown)} y={110} opacity={shown}>
       <Rect width={660} height={700} cornerRadius={26} fill="#10241AEE" stroke="#FFFFFF22" strokeWidth={2}
@@ -91,18 +97,18 @@ const panelTitle = (text: string) => (
 
 /** いまの口の形・読みがな・波形・PSD のレイヤー名。 */
 function MouthMeter({ frame, line: spoken }: { frame: number; line: TimedLine }) {
-  const local = Math.max(0, frame - spoken.at);
-  const speaking = local < spoken.duration;
-  const shape: MouthShape = speaking ? lipSyncOf(spoken.id)?.mouthAtFrame(local, FPS) ?? 'closed' : 'closed';
-  const face = ZUNDA_FACES[spoken.face as ZundaFace];
-  const envelope = envelopes.get(spoken.id);
+  const local = Math.max(0, frame - spoken.from);
+  const speaking = local < spoken.durationInFrames;
+  const shape: MouthShape = speaking ? spoken.line.lipSync?.mouthAtFrame(local, FPS) ?? 'closed' : 'closed';
+  const face = ZUNDA_FACES[spoken.line.face as ZundaFace];
+  const voice = voices.get(spoken.id);
   const BARS = 72;
   return (
     <>
-      {panelTitle('loadLipSync({ src, text })')}
+      {panelTitle('lipSyncFromVoicevox(query)')}
       <Text x={36} y={102} anchorY="baseline"
         style={{ fontFamily: FONT.ja, fontSize: 22, fontWeight: 500, fill: solid('#FFFFFFAA') }}>
-        {`text: ${spoken.kana.replace(/['/_]/g, '')}`}
+        {`moras: ${voice?.moras ?? ''}`}
       </Text>
       {/* いまの口の形 */}
       <Group x={330} y={290}>
@@ -126,9 +132,9 @@ function MouthMeter({ frame, line: spoken }: { frame: number; line: TimedLine })
       </Group>
       {/* WAV から読んだ実際の波形。再生した部分を緑にする */}
       <Group x={40} y={560}>
-        {envelope && Array.from({ length: BARS }, (_, i) => {
-          const level = Math.min(1, envelope[Math.floor((i / BARS) * envelope.length)] * 1.6);
-          const played = (i / BARS) * spoken.duration <= local;
+        {voice && Array.from({ length: BARS }, (_, i) => {
+          const level = Math.min(1, voice.envelope[Math.floor((i / BARS) * voice.envelope.length)] * 1.6);
+          const played = (i / BARS) * spoken.durationInFrames <= local;
           return <Rect key={i} x={i * 8} y={40 - 36 * level} width={5} height={Math.max(2, 72 * level)} cornerRadius={2}
             fill={played ? COLOR.zunda : '#FFFFFF33'} />;
         })}
@@ -175,9 +181,9 @@ export const voiceScene: SceneDefinition = {
   Stage,
   Overlay,
   prepare,
-  // パネルに出す仮名とレイヤー名
+  // パネルに出す仮名とレイヤー名（読みのカタカナは fonts.ts がまとめて読み込む）
   strings: [
-    'text: PSD レイヤー: ', ...Object.values(SHAPE_KANA), ...WAVEFORM_LINES.map((id) => line(id).kana),
+    'PSD レイヤー: ', ...Object.values(SHAPE_KANA),
     ...Object.values(ZUNDA_FACES).flatMap((face) => [face.label, ...face.eyes.open, ...Object.values(face.mouth)]),
   ],
 };

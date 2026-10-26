@@ -1,28 +1,20 @@
 // このサンプルが使う第三者の素材を assets/ に取得する。素材はリポジトリに
 // 含めないので、最初に一度実行する（ffmpeg コマンドが必要）。
 //
+//   pnpm install                              # 一度だけ（ag-psd のため）
 //   node examples/zunda/prepare-assets.ts
 //
-// 公式 PSD はとても大きい（ずんだもんは 4832 × 9488）。原寸のままだと、立ち絵
-// 1 枚が GPU のテクスチャの上限（環境によって 8192 px）を超えるうえ、読み込みと
-// 合成にも時間がかかる。そこで、ここで一度だけレイヤーごとに縮小して PSD に書き戻す。
+// 公式 PSD はとても大きい（ずんだもんは 4832 × 9488）。原寸のままでも描けるが、
+// 読み込みと合成に時間がかかり、メモリも食う。この動画では立ち絵を縮めて映すので、
+// ここで一度だけレイヤーごとに縮小して PSD に書き戻しておく。
 // 置き場所のファイル名は、映像側と同じ src/theme.ts の ASSET から取る。
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { basename, dirname, join } from 'node:path';
+import { initializeCanvas, readPsd, writePsd } from 'ag-psd';
 
 import { ASSET } from './src/theme.ts';
-
-// PSD の読み書きには、packages/react が依存している ag-psd を借りる。
-type AgPsd = {
-  initializeCanvas(createCanvas: () => never, createImageData: (width: number, height: number) => unknown): void;
-  readPsd(buffer: Uint8Array, options: object): unknown;
-  writePsd(psd: unknown, options: object): ArrayBuffer;
-};
-const require = createRequire(join(import.meta.dirname, '../../packages/react/package.json'));
-const { initializeCanvas, readPsd, writePsd } = require('ag-psd') as AgPsd;
 
 // 画素はバイト列のまま扱う（useImageData）ので、本物の canvas は要らない。
 initializeCanvas(

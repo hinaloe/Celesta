@@ -1,30 +1,33 @@
-// 右上の「01 レイヤーを重ねる」のようなチャプター表示。
+// 右上の「01 レイヤーを重ねる」のようなチャプター表示。シーンの <Sequence> の
+// 中に置くと、シーンが始まって少ししてから右から滑り込み、シーンの終わりで消える。
 
-import { Easings, Group, Rect, Text, progress, useCurrentFrame } from '@celesta/react';
+import { Rect, Text } from '@celesta/react';
+import { Badge, Motion } from '@celesta/components';
 
 import { COLOR, FONT, solid } from '../theme.ts';
 
-/** `from` から `to` の手前までが 1 つのチャプター。 */
-export type Chapter = { number: number; title: string; from: number; to: number };
-
-/** いまのチャプターを出す。チャプターが変わるたびに右から滑り込み、チャプターの外では出さない。 */
-export function ChapterTag({ chapters }: { chapters: readonly Chapter[] }) {
-  const frame = useCurrentFrame();
-  const current = chapters.find((chapter) => frame >= chapter.from && frame < chapter.to);
-  if (!current) return null;
-  const enter = progress(frame, current.from + 6, 16, Easings.easeOutExpo);
+/** チャプターの番号札（緑の丸い札に 2 桁の番号）。 */
+function ChapterNumber({ number }: { number: number }) {
   return (
-    <Group x={1880 + 40 * (1 - enter)} y={40} opacity={enter}>
-      <Rect x={-430} width={430} height={56} cornerRadius={28} fill="#0B0F0CCC" />
-      <Rect x={-420} y={8} width={64} height={40} cornerRadius={20} fill={COLOR.zunda} />
-      <Text x={-388} y={28} anchorX={0.5} anchorY={0.5}
+    <>
+      <Rect y={-4} width={64} height={40} cornerRadius={20} fill={COLOR.zunda} />
+      <Text x={32} y={16} anchorX={0.5} anchorY={0.5}
         style={{ fontFamily: FONT.mono, fontSize: 22, fontWeight: 700, fill: solid('#0B2A06') }}>
-        {String(current.number).padStart(2, '0')}
+        {String(number).padStart(2, '0')}
       </Text>
-      <Text x={-338} y={38} anchorY="baseline"
-        style={{ fontFamily: FONT.ja, fontSize: 26, fontWeight: 800, fill: solid(COLOR.white) }}>
-        {current.title}
-      </Text>
-    </Group>
+    </>
+  );
+}
+
+export function ChapterTag({ number, title }: { number: number; title: string }) {
+  return (
+    <Motion from={6} enter="fade-left">
+      <Badge x={1880} y={40} anchorX={1} fill="#0B0F0CCC" cornerRadius="pill"
+        padding={{ top: 12, right: 28, bottom: 12, left: 10 }} gap={14}
+        leading={<ChapterNumber number={number} />} leadingWidth={64}
+        fontFamily={FONT.ja} fontSize={26} fontWeight={800} color={COLOR.white}>
+        {title}
+      </Badge>
+    </Motion>
   );
 }
