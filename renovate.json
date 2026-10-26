@@ -3,6 +3,13 @@
   "extends": [
     "config:recommended"
   ],
+  "vulnerabilityAlerts": {
+    "labels": [
+      "security"
+    ]
+  },
+  "osvVulnerabilityAlerts": true,
+  "dependencyDashboardOSVVulnerabilitySummary": "unresolved",
   "customManagers": [
     {
       "description": "Node.js bundled into the Windows and macOS packages, and the Windows download cache keyed on it",
